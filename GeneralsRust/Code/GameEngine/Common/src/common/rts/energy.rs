@@ -7,6 +7,7 @@
 //! Based on `/GeneralsMD/Code/GameEngine/Source/Common/RTS/Energy.cpp`
 //! and `/GeneralsMD/Code/GameEngine/Include/Common/Energy.h`
 
+use crate::common::system::{Xfer, XferMode};
 use crate::common::time;
 
 use super::handles::{FrameNumber, ObjectHandle, PlayerHandle};
@@ -345,7 +346,7 @@ impl Energy {
     /// Note: The C++ implementation has an empty CRC method, which suggests
     /// that energy state is reconstructed from buildings during load rather
     /// than being directly serialized.
-    pub fn crc(&self, _xfer: &mut dyn std::any::Any) {
+    pub fn crc(&self, _xfer: &mut dyn Xfer) {
         // C++ Energy.cpp line 224: Empty implementation
         // Energy values are reconstructed when buildings are loaded
     }
@@ -360,7 +361,7 @@ impl Energy {
     /// - Version 2: Removed direct serialization of production/consumption (line 244-249)
     ///              These are now reconstructed from buildings
     /// - Version 3: Added power sabotage frame (line 259-262)
-    pub fn xfer(&mut self, _xfer: &mut dyn std::any::Any, mode: XferMode) {
+    pub fn xfer(&mut self, xfer: &mut dyn Xfer) {
         // C++ Energy.cpp lines 236-238: Version management
         const CURRENT_VERSION: u8 = 3;
         let version = CURRENT_VERSION;
@@ -381,7 +382,7 @@ impl Energy {
         // C++ Energy.cpp lines 252-256: Owning player index
         // Note: In Rust, we store PlayerHandle directly, but for serialization
         // we would need to convert to/from player index
-        match mode {
+        match xfer.get_xfer_mode() {
             XferMode::Save => {
                 let _owning_player_index = self.owner.value() as i32;
                 // xfer.xfer_int(&owning_player_index);
@@ -391,9 +392,7 @@ impl Energy {
                 // xfer.xfer_int(&mut owning_player_index);
                 // self.owner = PlayerHandle::new(owning_player_index.max(0) as u32);
             }
-            XferMode::Crc => {
-                // CRC mode doesn't transfer data
-            }
+            XferMode::Crc | XferMode::Invalid => {}
         }
 
         // C++ Energy.cpp lines 259-262: Power sabotage (version 3+)
@@ -503,24 +502,6 @@ fn notify_player_brownout_change(_player: PlayerHandle, _brown_out: bool) {
     if let Some(callbacks) = ENERGY_OWNER_CALLBACKS.get() {
         callbacks.on_power_brown_out_change(_player, _brown_out);
     }
-}
-
-// ================================================================================================
-// Serialization Mode Enum
-// ================================================================================================
-
-/// Transfer mode for serialization
-///
-/// # C++ Reference
-/// Xfer.h lines 33-42: XferMode enum
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum XferMode {
-    /// Saving data to file
-    Save,
-    /// Loading data from file
-    Load,
-    /// Computing CRC checksum
-    Crc,
 }
 
 // ================================================================================================
