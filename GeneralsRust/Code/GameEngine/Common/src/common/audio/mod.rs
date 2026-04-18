@@ -35,6 +35,7 @@ pub mod audio_event_rts;
 pub mod audio_request;
 pub mod dynamic_audio_event_info;
 pub mod game_audio;
+pub mod gameplay_audio_dispatch;
 pub mod game_music;
 pub mod game_sounds;
 pub mod game_speech;
@@ -65,6 +66,11 @@ pub use game_audio::{
     register_animation_sound_library, register_audio_locality_resolver,
     register_sound_playback_hook, AudioAffect, AudioLocalityRelationship, AudioLocalityResolver,
     AudioManager, AudioSettings, MiscAudio, MusicManager, SoundManager, SoundPlaybackHook,
+};
+
+pub use gameplay_audio_dispatch::{
+    dispatch_eva_announcement, dispatch_ui_sound, dispatch_unit_death, dispatch_weapon_fire,
+    register_gameplay_audio_dispatch, GameplayAudioDispatch,
 };
 pub use game_music::{create_music_manager, MusicManagerImpl, MusicTrack};
 

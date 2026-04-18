@@ -2001,7 +2001,12 @@ impl WeaponTemplate {
         // 1. Play fire sound
         if !self.fire_sound.is_empty() {
             log::debug!("Playing fire sound for weapon '{}'", self.name);
-            // Sound system integration would go here
+            game_engine::common::audio::dispatch_weapon_fire(
+                self.fire_sound.name(),
+                source_pos.x,
+                source_pos.y,
+                source_pos.z,
+            );
         }
 
         // 2. Apply weapon recoil to source object
