@@ -1190,6 +1190,11 @@ impl TheGameLogic {
         let id = { object.read().map_err(|_| GameError::LockError)?.get_id() };
         OBJECT_REGISTRY.register_object(id, &object);
         register_legacy_object(&object);
+
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            let _ = logic.track_object_in_update_list(object);
+        }
+
         Ok(())
     }
 

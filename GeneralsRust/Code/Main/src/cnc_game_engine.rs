@@ -2419,6 +2419,34 @@ impl CnCGameEngine {
                         warn!("Thing system init failed during startup bootstrap: {err}. Continuing without thing system.");
                     }
 
+                    {
+                        let object_ini_paths: Vec<String> = match crate::assets::manager::get_asset_manager() {
+                            Some(manager_arc) => {
+                                match manager_arc.lock() {
+                                    Ok(mgr) => mgr.list_all_files().into_iter().filter(|p| {
+                                        let lower = p.to_ascii_lowercase().replace('\\', "/");
+                                        (lower.starts_with("data/ini/object/") && lower.ends_with(".ini"))
+                                            || lower == "data/ini/crate.ini"
+                                    }).collect(),
+                                    Err(_) => Vec::new(),
+                                }
+                            }
+                            None => Vec::new(),
+                        };
+                        let mut total_loaded = 0usize;
+                        for ini_path in &object_ini_paths {
+                            if let Some(content) = extract_ini_text_from_archives(ini_path) {
+                                total_loaded += game_engine::common::thing::load_templates_from_ini_text(
+                                    &content,
+                                    ini_path,
+                                );
+                            }
+                        }
+                        if total_loaded > 0 {
+                            info!("Bootstrapped {} object templates from BIG archives", total_loaded);
+                        }
+                    }
+
                     Self::emit_startup_load_progress(&sender, 0.18, "Creating game session");
                     let mut game_logic = GameLogic::initialize();
                     Self::emit_startup_load_progress(&sender, 0.22, "Priming object templates");
