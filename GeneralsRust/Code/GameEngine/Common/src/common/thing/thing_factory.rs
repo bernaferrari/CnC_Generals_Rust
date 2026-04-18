@@ -659,6 +659,148 @@ pub fn shutdown_thing_factory() {
     }
 }
 
+/// Load object templates from raw INI text content (e.g. extracted from BIG archives).
+///
+/// This parses `Object <Name> ... End` and `ObjectReskin <Name> <Source> ... End` blocks
+/// from the provided text, creates ThingTemplates, and populates them with property data
+/// (KindOf, BuildCost, VisionRange, geometry, etc.) by calling
+/// `parse_object_fields_from_ini` on each block's key=value pairs.
+///
+/// Returns the number of new templates loaded.  Templates whose names already exist in
+/// the factory are skipped, so this is safe to call multiple times.
+pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize {
+    let mut factory_guard = match get_thing_factory() {
+        Ok(g) => g,
+        Err(_) => return 0,
+    };
+    let factory = match factory_guard.as_mut() {
+        Some(f) => f,
+        None => return 0,
+    };
+
+    let mut loaded = 0usize;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut index = 0usize;
+
+    while index < lines.len() {
+        let line = strip_ini_comment(lines[index]).trim();
+        if line.is_empty() {
+            index += 1;
+            continue;
+        }
+
+        let tokens: Vec<&str> = line.split_whitespace().filter(|t| *t != "=").collect();
+        let Some(keyword) = tokens.first().copied() else {
+            index += 1;
+            continue;
+        };
+
+        if keyword.eq_ignore_ascii_case("Object") {
+            if let Some(name) = tokens.get(1) {
+                let (properties, end_idx) = parse_object_block_properties(&lines, index + 1);
+                if factory.find_template(name, false).is_none() {
+                    let mut tmpl = factory.new_template(name);
+                    {
+                        let tmpl_ref = Arc::make_mut(&mut tmpl);
+                        tmpl_ref.parse_object_fields_from_ini(&properties);
+                    }
+                    factory
+                        .template_hash_map
+                        .insert(AsciiString::from(*name), tmpl);
+                    loaded += 1;
+                }
+                index = end_idx;
+                continue;
+            }
+            index = skip_ini_block(&lines, index + 1);
+            continue;
+        }
+
+        if keyword.eq_ignore_ascii_case("ObjectReskin") {
+            if let Some(name) = tokens.get(1) {
+                let (properties, end_idx) = parse_object_block_properties(&lines, index + 1);
+                if factory.find_template(name, false).is_none() {
+                    let mut tmpl = factory.new_template(name);
+                    if let Some(source) = tokens.get(2) {
+                        if let Some(parent) = factory.find_template(source, false) {
+                            let tmpl_ref = Arc::make_mut(&mut tmpl);
+                            tmpl_ref.copy_from(&parent);
+                            tmpl_ref.set_copied_from_default();
+                        }
+                    }
+                    {
+                        let tmpl_ref = Arc::make_mut(&mut tmpl);
+                        tmpl_ref.parse_object_fields_from_ini(&properties);
+                    }
+                    factory
+                        .template_hash_map
+                        .insert(AsciiString::from(*name), tmpl);
+                    loaded += 1;
+                }
+                index = end_idx;
+                continue;
+            }
+            index = skip_ini_block(&lines, index + 1);
+            continue;
+        }
+
+        index += 1;
+    }
+
+    if loaded > 0 {
+        info!(
+            "ThingFactory loaded {} object templates from INI text",
+            loaded
+        );
+    }
+    loaded
+}
+
+/// Parse properties from an Object/ObjectReskin block into a HashMap.
+///
+/// Returns `(properties, end_line_index)` where `end_line_index` is the line
+/// *after* the closing `End`.
+fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<String, String>, usize) {
+    let mut properties = HashMap::new();
+    let mut depth: u32 = 0;
+    let mut index = start;
+
+    while index < lines.len() {
+        let line = strip_ini_comment(lines[index]).trim();
+        if line.is_empty() {
+            index += 1;
+            continue;
+        }
+
+        let first_token = line.split_whitespace().next().unwrap_or("");
+        if first_token.eq_ignore_ascii_case("End") {
+            if depth > 0 {
+                depth -= 1;
+                index += 1;
+                continue;
+            }
+            return (properties, index + 1);
+        }
+
+        if !line.contains('=') {
+            depth += 1;
+            index += 1;
+            continue;
+        }
+
+        if depth == 0 {
+            if let Some(eq_pos) = line.find('=') {
+                let key = line[..eq_pos].trim().to_string();
+                let value = line[eq_pos + 1..].trim().to_string();
+                properties.insert(key, value);
+            }
+        }
+        index += 1;
+    }
+
+    (properties, index)
+}
+
 fn load_runtime_object_templates(factory: &mut ThingFactory) -> Result<usize, String> {
     let sources = discover_object_ini_sources();
     if sources.is_empty() {

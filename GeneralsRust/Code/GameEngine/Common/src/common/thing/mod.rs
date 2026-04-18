@@ -97,8 +97,8 @@ pub use thing::{
 };
 
 pub use thing_factory::{
-    get_thing_factory, init_thing_factory, shutdown_thing_factory, DrawableStatus,
-    ObjectStatusMaskType, Team, ThingCreationError, ThingFactory, ThingLoadType,
+    get_thing_factory, init_thing_factory, load_templates_from_ini_text, shutdown_thing_factory,
+    DrawableStatus, ObjectStatusMaskType, Team, ThingCreationError, ThingFactory, ThingLoadType,
     DRAWABLE_STATUS_NONE, OBJECT_STATUS_MASK_NONE,
 };
 
