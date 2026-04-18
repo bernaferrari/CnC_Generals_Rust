@@ -4739,18 +4739,12 @@ impl Weapon {
     ) -> Result<(), WeaponError> {
         if !self.template.fire_sound.is_empty() {
             log::debug!("Playing fire sound for weapon '{}'", self.template.name);
-            // Interface with audio system to play fire sound
-            // C++ equivalent: TheAudio->playSoundAt(fireSound, sourcePos)
-            //
-            // Audio system features:
-            // - 3D positional audio (sound location matches weapon)
-            // - Volume falloff with distance
-            // - Doppler effect for moving sources
-            // - Sound prioritization (limit concurrent sounds)
-            //
-            // NOTE: Requires GameAudio singleton integration
-            // When available:
-            // TheAudio::play_sound_at(&self.template.fire_sound, source_pos);
+            game_engine::common::audio::dispatch_weapon_fire(
+                self.template.fire_sound.name(),
+                source_pos.x,
+                source_pos.y,
+                source_pos.z,
+            );
         }
 
         // Interface with VFX system to play firing effects

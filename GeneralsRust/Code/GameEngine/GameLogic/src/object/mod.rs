@@ -8514,6 +8514,20 @@ impl Object {
         log::debug!("Object {} calling die modules", self.id);
         self.call_on_die_hooks(Some(damage_info));
 
+        // Play death sound at the object's position.
+        // C++ parity: Object::onDie plays SoundDie from the ThingTemplate.
+        // If SoundDie is not yet ported, fall back to SoundOnDamaged.
+        let pos = *self.get_position();
+        let death_sound = self.thing_template.get_sound_on_damaged();
+        if !death_sound.get_event_name().is_empty() {
+            game_engine::common::audio::dispatch_unit_death(
+                death_sound.get_event_name(),
+                pos.x,
+                pos.y,
+                pos.z,
+            );
+        }
+
         if let Some(contain) = &self.contain {
             if let Ok(mut contain_guard) = contain.lock() {
                 if let Err(err) = contain_guard.on_die(Some(damage_info)) {

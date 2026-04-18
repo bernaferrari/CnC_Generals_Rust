@@ -375,10 +375,12 @@ pub struct AudioManagerSubsystem {
     _speech_on: bool,
     queued_events: Vec<crate::game_logic::AudioEventRequest>,
     sound_effects_table: Option<crate::assets::SoundEffectsTable>,
+    gameplay_dispatch: Arc<crate::game_logic::audio_dispatch_impl::MainAudioDispatch>,
 }
 
 impl AudioManagerSubsystem {
     pub fn new() -> Self {
+        let dispatch = Arc::new(crate::game_logic::audio_dispatch_impl::MainAudioDispatch::new());
         Self {
             audio_manager: None,
             _music_on: true,
@@ -386,6 +388,7 @@ impl AudioManagerSubsystem {
             _speech_on: true,
             queued_events: Vec::new(),
             sound_effects_table: None,
+            gameplay_dispatch: dispatch,
         }
     }
 
@@ -449,6 +452,12 @@ impl SubsystemInterface for AudioManagerSubsystem {
             }
         }
 
+        // Register the gameplay audio dispatch so weapon fire, unit death,
+        // and EVA events from the engine crate reach the audio subsystem.
+        game_engine::common::audio::register_gameplay_audio_dispatch(
+            self.gameplay_dispatch.clone(),
+        );
+
         match crate::assets::audio::AudioManager::new() {
             Ok(audio_manager) => {
                 self.audio_manager = Some(audio_manager);
@@ -476,8 +485,16 @@ impl SubsystemInterface for AudioManagerSubsystem {
     }
 
     fn update(&mut self, _dt: f32) -> Result<()> {
+        // Drain gameplay audio events (weapon fire, unit death) from the dispatch.
+        for event in self.gameplay_dispatch.drain_events() {
+            let mut req = crate::game_logic::AudioEventRequest::new(&event.event_name);
+            if let Some((x, y, z)) = event.position {
+                req = req.with_position(glam::Vec3::new(x, y, z));
+            }
+            self.queue_event(req);
+        }
+
         // Apply high-level toggles/events that don't require archive lookups yet.
-        // Detailed EVA/SFX playback will be handled once the sound event tables are wired.
         for event in self.drain_events() {
             match event.event_type.as_str() {
                 "MusicDisable" => {
