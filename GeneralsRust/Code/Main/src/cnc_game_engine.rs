@@ -3256,13 +3256,33 @@ impl CnCGameEngine {
 
         Self::initialize_cpp_startup_masks();
 
+        // C++ parity: GameClient::init() creates WindowManager, Shell, FontLibrary, etc.
+        // BUT it also tries to create a PlatformContext (new window + OpenGL context)
+        // which deadlocks on macOS when called inside the winit event loop.
+        // Only init the non-display subsystems that don't conflict with our wgpu pipeline.
         #[cfg(feature = "game_client")]
-        if let Err(e) = engine.game_client.init() {
-            warn!("GameClient init failed (menus will be unavailable): {}", e);
+        {
+            if let Err(e) = engine.game_client.init_core_subsystems() {
+                warn!("GameClient core subsystems init failed: {}", e);
+            }
+            if let Err(e) = engine.game_client.init_asset_systems() {
+                warn!("GameClient asset systems init failed: {}", e);
+            }
+            if let Err(e) = engine.game_client.init_input_subsystems() {
+                warn!("GameClient input subsystems init failed: {}", e);
+            }
+            // Skip init_display_subsystems() — creates a second window/context which deadlocks
+            // Skip init_audio_subsystems() — audio handled by Main's AudioManagerSubsystem
+            if let Err(e) = engine.game_client.init_game_subsystems() {
+                warn!("GameClient game subsystems init failed: {}", e);
+            }
+            if let Err(e) = engine.game_client.init_message_translators() {
+                warn!("GameClient message translators init failed: {}", e);
+            }
+            engine.game_client.mark_initialized();
         }
 
-        if let Some(subsystem_manager) = get_subsystem_manager() {
-            let mut manager = subsystem_manager.lock();
+        if let Some(subsystem_manager) = get_subsystem_manager() {            let mut manager = subsystem_manager.lock();
             if let Err(err) = manager.reset_all() {
                 warn!("Subsystem reset after startup init failed: {}", err);
             }
