@@ -1324,6 +1324,10 @@ impl GameClient {
         Ok(())
     }
 
+    pub fn mark_initialized(&mut self) {
+        self.initialized = true;
+    }
+
     /// Updates the game client - main game loop entry point.
     ///
     /// C++ parity: frame sequence matches `GameClient::update()` (GameClient.cpp:489-752).
@@ -2532,7 +2536,7 @@ impl GameClient {
 
     // Subsystem initialization methods
 
-    fn init_core_subsystems(&mut self) -> GameClientResult<()> {
+    pub fn init_core_subsystems(&mut self) -> GameClientResult<()> {
         log::debug!("Initializing core subsystems");
         self.init_draw_group_info()?;
 
@@ -2567,7 +2571,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn init_asset_systems(&mut self) -> GameClientResult<()> {
+    pub fn init_asset_systems(&mut self) -> GameClientResult<()> {
         log::debug!("Initializing asset management systems");
         let mut asset_config = AssetConfig::default();
 
@@ -2607,7 +2611,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn init_input_subsystems(&mut self) -> GameClientResult<()> {
+    pub fn init_input_subsystems(&mut self) -> GameClientResult<()> {
         log::debug!("Initializing input subsystems");
 
         // Create keyboard
@@ -2765,7 +2769,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn init_game_subsystems(&mut self) -> GameClientResult<()> {
+    pub fn init_game_subsystems(&mut self) -> GameClientResult<()> {
         log::debug!("Initializing game subsystems");
         register_campaign_snapshot_block();
         register_game_client_snapshot_block();
@@ -2901,7 +2905,7 @@ impl GameClient {
         }
     }
 
-    fn init_message_translators(&mut self) -> GameClientResult<()> {
+    pub fn init_message_translators(&mut self) -> GameClientResult<()> {
         log::debug!("Initializing message translators");
         let mut stream = THE_MESSAGE_STREAM
             .write()
