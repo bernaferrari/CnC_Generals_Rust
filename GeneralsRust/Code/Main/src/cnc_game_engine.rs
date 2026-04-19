@@ -3271,11 +3271,9 @@ impl CnCGameEngine {
             if let Err(e) = engine.game_client.init_input_subsystems() {
                 warn!("GameClient input subsystems init failed: {}", e);
             }
-            // Skip init_display_subsystems() — creates a second window/context which deadlocks
+            // Skip init_display_subsystems() — creates PlatformContext (second window/GL context) → deadlock
             // Skip init_audio_subsystems() — audio handled by Main's AudioManagerSubsystem
-            if let Err(e) = engine.game_client.init_game_subsystems() {
-                warn!("GameClient game subsystems init failed: {}", e);
-            }
+            // Skip init_game_subsystems() — blocks on particle/weather subsystem locks
             if let Err(e) = engine.game_client.init_message_translators() {
                 warn!("GameClient message translators init failed: {}", e);
             }
