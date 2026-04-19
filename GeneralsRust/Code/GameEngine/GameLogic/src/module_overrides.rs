@@ -4381,17 +4381,17 @@ impl<T: crate::modules::BehaviorModuleInterface + 'static> Module for GenericBeh
     }
 }
 
-impl<T: crate::modules::BehaviorModuleInterface + 'static> Snapshotable
+impl<T: crate::modules::BehaviorModuleInterface + Snapshotable + 'static> Snapshotable
     for GenericBehaviorModule<T>
 {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.crc(xfer)
     }
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.xfer(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.behavior.load_post_process()
     }
 }
 

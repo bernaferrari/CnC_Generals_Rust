@@ -450,7 +450,46 @@ impl Snapshotable for PrisonBehaviorModule {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        let mut guard = self
+            .behavior
+            .lock()
+            .map_err(|_| "PrisonBehaviorModule: behavior lock poisoned".to_string())?;
+
+        let mut visual_count = guard.visuals.len() as u16;
+        xfer.xfer_unsigned_short(&mut visual_count)
+            .map_err(|e| e.to_string())?;
+
+        if xfer.is_reading() {
+            guard.visuals.clear();
+            for _ in 0..visual_count {
+                let mut object_id: ObjectID = 0;
+                xfer.xfer_object_id(&mut object_id)
+                    .map_err(|e| e.to_string())?;
+                let mut drawable_id: crate::common::DrawableID = 0;
+                xfer.xfer_unsigned_int(&mut drawable_id)
+                    .map_err(|e| e.to_string())?;
+                guard.visuals.push(PrisonVisual {
+                    object_id,
+                    drawable_id,
+                });
+            }
+        } else {
+            for visual in &guard.visuals {
+                let mut object_id = visual.object_id;
+                xfer.xfer_object_id(&mut object_id)
+                    .map_err(|e| e.to_string())?;
+                let mut drawable_id = visual.drawable_id;
+                xfer.xfer_unsigned_int(&mut drawable_id)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
         Ok(())
     }
 
@@ -461,7 +500,6 @@ impl Snapshotable for PrisonBehaviorModule {
 
 #[cfg(feature = "allow_surrender")]
 impl Module for PrisonBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

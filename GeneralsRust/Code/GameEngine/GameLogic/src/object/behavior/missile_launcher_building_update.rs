@@ -90,7 +90,7 @@ impl MissileLauncherBuildingUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<MissileLauncherBuildingUpdateModuleData>()
+            .downcast_ref::<MissileLauncherBuildingUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let mut audio = AudioEventRts::default();
@@ -459,7 +459,45 @@ impl Snapshotable for MissileLauncherBuildingUpdateModule {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        let b = &mut self.behavior;
+
+        let mut door_state = b.door_state as u32;
+        xfer.xfer_unsigned_int(&mut door_state)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.door_state = match door_state {
+                0 => DoorStateType::Closed,
+                1 => DoorStateType::Opening,
+                2 => DoorStateType::Open,
+                3 => DoorStateType::WaitingToClose,
+                4 => DoorStateType::Closing,
+                _ => DoorStateType::Closed,
+            };
+        }
+
+        let mut timeout_state = b.timeout_state as u32;
+        xfer.xfer_unsigned_int(&mut timeout_state)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.timeout_state = match timeout_state {
+                0 => DoorStateType::Closed,
+                1 => DoorStateType::Opening,
+                2 => DoorStateType::Open,
+                3 => DoorStateType::WaitingToClose,
+                4 => DoorStateType::Closing,
+                _ => DoorStateType::Closed,
+            };
+        }
+
+        xfer.xfer_unsigned_int(&mut b.timeout_frame)
+            .map_err(|e| e.to_string())?;
+
         Ok(())
     }
 

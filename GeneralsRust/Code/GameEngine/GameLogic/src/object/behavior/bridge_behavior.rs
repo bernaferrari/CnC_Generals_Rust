@@ -389,7 +389,11 @@ impl Snapshotable for BridgeBehaviorModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -2050,7 +2054,6 @@ impl Snapshotable for BridgeBehaviorModule {
 }
 
 impl EngineModule for BridgeBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

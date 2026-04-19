@@ -340,7 +340,39 @@ impl Snapshotable for StealthDetectorUpdate {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        xfer.xfer_object_id(&mut self.object_id)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.current_frame)
+            .map_err(|e| e.to_string())?;
+
+        let mut controller = self
+            .controller
+            .lock()
+            .map_err(|_| "StealthDetectorUpdate: controller lock poisoned".to_string())?;
+
+        xfer.xfer_unsigned_int(&mut controller.scan_cooldown_frames)
+            .map_err(|e| e.to_string())?;
+
+        let mut detected = if xfer.is_reading() {
+            Vec::new()
+        } else {
+            controller.detected_objects.clone()
+        };
+        xfer.xfer_stl_object_id_list(&mut detected)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            controller.detected_objects = detected;
+        }
+
+        xfer.xfer_bool(&mut controller.is_active)
+            .map_err(|e| e.to_string())?;
+
         Ok(())
     }
 

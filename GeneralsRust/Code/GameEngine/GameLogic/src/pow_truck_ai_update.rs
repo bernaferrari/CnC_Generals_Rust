@@ -151,7 +151,6 @@ impl POWTruckAIUpdateModule {
 
 #[cfg(feature = "allow_surrender")]
 impl Module for POWTruckAIUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -171,7 +170,11 @@ impl Snapshotable for POWTruckAIUpdateModule {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

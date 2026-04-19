@@ -498,7 +498,11 @@ impl Snapshotable for BattleBusSlowDeathBehaviorModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1080,7 +1084,6 @@ impl Snapshotable for BattleBusSlowDeathBehaviorModule {
 }
 
 impl EngineModule for BattleBusSlowDeathBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1176,7 +1179,7 @@ mod tests {
         let data = battle_bus_slow_death_data_factory(None);
         let typed = data
             .as_ref()
-        .downcast_ref::<BattleBusSlowDeathBehaviorModuleData>()
+            .downcast_ref::<BattleBusSlowDeathBehaviorModuleData>()
             .expect("battle bus slow death data");
         assert_eq!(typed.throw_force, 1.0);
         assert!(typed.fx_start_undeath.is_none());
