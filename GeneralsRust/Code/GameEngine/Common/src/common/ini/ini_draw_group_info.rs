@@ -356,25 +356,48 @@ pub fn parse_use_player_color(
 }
 
 /// Parse color field for ColorForText
+/// C++ parity: uses INI::parseColorInt which reads R:val G:val B:val [A:val] format
 pub fn parse_color_for_text(
     _ini: &mut INI,
     draw_group_info: &mut DrawGroupInfo,
     args: &[&str],
 ) -> INIResult<()> {
-    let value = args.first().ok_or(INIError::InvalidData)?;
-    draw_group_info.color_for_text = Color::from_u32(INI::parse_unsigned_int(value)?);
+    draw_group_info.color_for_text = parse_color_int_from_args(args)?;
     Ok(())
 }
 
 /// Parse color field for ColorForTextDropShadow
+/// C++ parity: uses INI::parseColorInt which reads R:val G:val B:val [A:val] format
 pub fn parse_color_for_text_drop_shadow(
     _ini: &mut INI,
     draw_group_info: &mut DrawGroupInfo,
     args: &[&str],
 ) -> INIResult<()> {
-    let value = args.first().ok_or(INIError::InvalidData)?;
-    draw_group_info.color_for_text_drop_shadow = Color::from_u32(INI::parse_unsigned_int(value)?);
+    draw_group_info.color_for_text_drop_shadow = parse_color_int_from_args(args)?;
     Ok(())
+}
+
+/// Parse R:val G:val B:val [A:val] color format from whitespace-split args.
+/// Matches C++ INI::parseColorInt (INI.cpp:1032-1073).
+fn parse_color_int_from_args(args: &[&str]) -> INIResult<Color> {
+    let mut r: u8 = 0;
+    let mut g: u8 = 0;
+    let mut b: u8 = 0;
+    let mut a: u8 = 255;
+    for token in args {
+        let Some((label, val_str)) = token.split_once(':') else {
+            continue;
+        };
+        let val: u8 = val_str.parse().map_err(|_| INIError::InvalidData)?;
+        match label {
+            "R" | "r" => r = val,
+            "G" | "g" => g = val,
+            "B" | "b" => b = val,
+            "A" | "a" => a = val,
+            _ => {}
+        }
+    }
+    Ok(Color::new(r, g, b, a))
 }
 
 /// Parse string field for FontName
