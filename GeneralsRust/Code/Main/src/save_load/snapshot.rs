@@ -1,5 +1,5 @@
 use crate::game_logic::*;
-use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData};
+use crate::save_load::{SaveLoadError, SaveLoadResult, Xfer, XferData, XferMode};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -542,25 +542,99 @@ impl Snapshot for WorldSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("WorldSnapshot")?;
 
+        xfer.xfer_marker_label("Version")?;
         self.version.xfer(xfer)?;
-        xfer.xfer_marker_label("Timestamp")?;
-        // Note: SystemTime serialization would need custom implementation
 
+        xfer.xfer_marker_label("Timestamp")?;
+        let duration = self
+            .timestamp
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .unwrap_or_default();
+        let mut secs = duration.as_secs();
+        let mut nanos = duration.subsec_nanos();
+        xfer.xfer_u64(&mut secs)?;
+        xfer.xfer_u32(&mut nanos)?;
+        self.timestamp = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::new(secs, nanos);
+
+        xfer.xfer_marker_label("FrameNumber")?;
         self.frame_number.xfer(xfer)?;
+
+        xfer.xfer_marker_label("RandomSeed")?;
         self.random_seed.xfer(xfer)?;
 
         xfer.xfer_marker_label("Objects")?;
-        // HashMap serialization needs special handling
-
-        xfer.xfer_marker_label("Players")?;
-        // Manual Vec serialization since generic Vec<T> can't be used with trait objects
-        let mut len = self.players.len() as u32;
+        let mut len = self.objects.len() as u32;
         xfer.xfer_u32(&mut len)?;
-        for player in &mut self.players {
-            player.xfer(xfer)?;
+        if xfer.get_mode() == XferMode::Load {
+            self.objects.clear();
+            for _ in 0..len {
+                let mut id = ObjectId(0);
+                id.xfer(xfer)?;
+                let mut obj = default_object_snapshot();
+                obj.xfer(xfer)?;
+                self.objects.insert(id, obj);
+            }
+        } else {
+            for (id, obj) in &mut self.objects {
+                let mut id_copy = *id;
+                id_copy.xfer(xfer)?;
+                obj.xfer(xfer)?;
+            }
         }
 
-        // Continue for all fields...
+        xfer.xfer_marker_label("Players")?;
+        xfer_vec_default(xfer, &mut self.players, default_player_snapshot())?;
+
+        xfer.xfer_marker_label("Teams")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.teams,
+            TeamSnapshot {
+                team: Team::Neutral,
+                players: Vec::new(),
+                allied_teams: Vec::new(),
+                is_defeated: false,
+                shared_vision: false,
+                shared_control: false,
+            },
+        )?;
+
+        xfer.xfer_marker_label("Terrain")?;
+        self.terrain.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Weather")?;
+        self.weather.xfer(xfer)?;
+
+        xfer.xfer_marker_label("ResourceManager")?;
+        self.resource_manager.xfer(xfer)?;
+
+        xfer.xfer_marker_label("CombatTracker")?;
+        self.combat_tracker.xfer(xfer)?;
+
+        xfer.xfer_marker_label("ExperienceTracker")?;
+        self.experience_tracker.xfer(xfer)?;
+
+        xfer.xfer_marker_label("PathfindingCache")?;
+        self.pathfinding_cache.xfer(xfer)?;
+
+        xfer.xfer_marker_label("AIPlayers")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.ai_players,
+            AIPlayerSnapshot {
+                player_id: 0,
+                difficulty: String::new(),
+                personality: String::new(),
+                current_strategy: String::new(),
+                strategic_state: default_ai_strategic_state(),
+                tactical_state: default_ai_tactical_state(),
+                economic_state: default_ai_economic_state(),
+            },
+        )?;
+
+        xfer.xfer_marker_label("GlobalAIState")?;
+        self.global_ai_state.xfer(xfer)?;
+
         Ok(())
     }
 
@@ -575,10 +649,60 @@ impl Snapshot for WorldSnapshot {
 impl XferData for ObjectSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ObjectSnapshot")?;
+
+        xfer.xfer_marker_label("Id")?;
         self.id.xfer(xfer)?;
+
+        xfer.xfer_marker_label("TemplateName")?;
         self.template_name.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Team")?;
         self.team.xfer(xfer)?;
-        // Continue for all fields...
+
+        xfer.xfer_marker_label("PlayerId")?;
+        xfer.xfer_u32(&mut self.player_id)?;
+
+        xfer.xfer_marker_label("Geometry")?;
+        self.geometry.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Status")?;
+        self.status.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Health")?;
+        self.health.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Movement")?;
+        self.movement.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Experience")?;
+        self.experience.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Weapons")?;
+        xfer_vec_default(xfer, &mut self.weapons, Weapon::default())?;
+
+        xfer.xfer_marker_label("ContainedObjects")?;
+        xfer_vec_default(xfer, &mut self.contained_objects, ObjectId(0))?;
+
+        xfer.xfer_marker_label("ContainerObject")?;
+        xfer_option(xfer, &mut self.container_object, ObjectId(0))?;
+
+        xfer.xfer_marker_label("Modules")?;
+        xfer_hashmap_default(
+            xfer,
+            &mut self.modules,
+            String::new(),
+            ModuleSnapshot::AIUpdate(AIUpdateModuleSnapshot {
+                current_state: String::new(),
+                state_machine_data: HashMap::new(),
+                target_object: None,
+                current_task: None,
+                task_queue: Vec::new(),
+            }),
+        )?;
+
+        xfer.xfer_marker_label("ObjectType")?;
+        self.object_type.xfer(xfer)?;
+
         Ok(())
     }
 }
@@ -586,12 +710,1556 @@ impl XferData for ObjectSnapshot {
 impl XferData for PlayerSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("PlayerSnapshot")?;
-        self.id.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Id")?;
+        xfer.xfer_u32(&mut self.id)?;
+
+        xfer.xfer_marker_label("Name")?;
         self.name.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Team")?;
         self.team.xfer(xfer)?;
-        self.is_human.xfer(xfer)?;
-        self.is_active.xfer(xfer)?;
-        // Continue for all fields...
+
+        xfer.xfer_marker_label("IsHuman")?;
+        xfer.xfer_bool(&mut self.is_human)?;
+
+        xfer.xfer_marker_label("IsActive")?;
+        xfer.xfer_bool(&mut self.is_active)?;
+
+        xfer.xfer_marker_label("Resources")?;
+        self.resources.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Population")?;
+        self.population.xfer(xfer)?;
+
+        xfer.xfer_marker_label("TechTree")?;
+        self.tech_tree.xfer(xfer)?;
+
+        xfer.xfer_marker_label("Upgrades")?;
+        xfer.xfer_vec_string(&mut self.upgrades)?;
+
+        xfer.xfer_marker_label("BuildQueue")?;
+        xfer.xfer_vec_string(&mut self.build_queue)?;
+
+        xfer.xfer_marker_label("ResearchQueue")?;
+        xfer.xfer_vec_string(&mut self.research_queue)?;
+
+        xfer.xfer_marker_label("Statistics")?;
+        self.statistics.xfer(xfer)?;
+
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Helper functions for Vec/HashMap/Option xfer (dyn Xfer safe)
+// ---------------------------------------------------------------------------
+
+fn xfer_vec_default<T: Clone + XferData>(
+    xfer: &mut dyn Xfer,
+    data: &mut Vec<T>,
+    default: T,
+) -> SaveLoadResult<()> {
+    let mut len = data.len() as u32;
+    xfer.xfer_u32(&mut len)?;
+    if xfer.get_mode() == XferMode::Load {
+        data.clear();
+        for _ in 0..len {
+            let mut item = default.clone();
+            item.xfer(xfer)?;
+            data.push(item);
+        }
+    } else {
+        for item in data.iter_mut() {
+            item.xfer(xfer)?;
+        }
+    }
+    Ok(())
+}
+
+fn xfer_option<T: XferData>(
+    xfer: &mut dyn Xfer,
+    data: &mut Option<T>,
+    default: T,
+) -> SaveLoadResult<()> {
+    let mut is_some = data.is_some();
+    xfer.xfer_bool(&mut is_some)?;
+    if is_some {
+        if data.is_none() {
+            *data = Some(default);
+        }
+        if let Some(ref mut val) = data {
+            val.xfer(xfer)?;
+        }
+    } else {
+        *data = None;
+    }
+    Ok(())
+}
+
+fn xfer_hashmap_default<K, V>(
+    xfer: &mut dyn Xfer,
+    data: &mut HashMap<K, V>,
+    key_default: K,
+    val_default: V,
+) -> SaveLoadResult<()>
+where
+    K: Clone + std::hash::Hash + Eq + XferData,
+    V: Clone + XferData,
+{
+    let mut len = data.len() as u32;
+    xfer.xfer_u32(&mut len)?;
+    if xfer.get_mode() == XferMode::Load {
+        data.clear();
+        for _ in 0..len {
+            let mut k = key_default.clone();
+            let mut v = val_default.clone();
+            k.xfer(xfer)?;
+            v.xfer(xfer)?;
+            data.insert(k, v);
+        }
+    } else {
+        for (k, v) in data.iter_mut() {
+            let mut kc = k.clone();
+            kc.xfer(xfer)?;
+            v.xfer(xfer)?;
+        }
+    }
+    Ok(())
+}
+
+fn xfer_vec_f32(xfer: &mut dyn Xfer, data: &mut Vec<f32>) -> SaveLoadResult<()> {
+    let mut len = data.len() as u32;
+    xfer.xfer_u32(&mut len)?;
+    if xfer.get_mode() == XferMode::Load {
+        data.clear();
+        for _ in 0..len {
+            let mut val = 0.0f32;
+            val.xfer(xfer)?;
+            data.push(val);
+        }
+    } else {
+        for item in data.iter_mut() {
+            item.xfer(xfer)?;
+        }
+    }
+    Ok(())
+}
+
+fn xfer_vec_bool(xfer: &mut dyn Xfer, data: &mut Vec<bool>) -> SaveLoadResult<()> {
+    let mut len = data.len() as u32;
+    xfer.xfer_u32(&mut len)?;
+    if xfer.get_mode() == XferMode::Load {
+        data.clear();
+        for _ in 0..len {
+            let mut val = false;
+            val.xfer(xfer)?;
+            data.push(val);
+        }
+    } else {
+        for item in data.iter_mut() {
+            item.xfer(xfer)?;
+        }
+    }
+    Ok(())
+}
+
+fn xfer_vec_u8(xfer: &mut dyn Xfer, data: &mut Vec<u8>) -> SaveLoadResult<()> {
+    let mut len = data.len() as u32;
+    xfer.xfer_u32(&mut len)?;
+    if xfer.get_mode() == XferMode::Load {
+        data.clear();
+        data.reserve(len as usize);
+        for _ in 0..len {
+            let mut val = 0u8;
+            val.xfer(xfer)?;
+            data.push(val);
+        }
+    } else {
+        for item in data.iter_mut() {
+            item.xfer(xfer)?;
+        }
+    }
+    Ok(())
+}
+
+fn xfer_vec_vec3(xfer: &mut dyn Xfer, data: &mut Vec<glam::Vec3>) -> SaveLoadResult<()> {
+    let mut len = data.len() as u32;
+    xfer.xfer_u32(&mut len)?;
+    if xfer.get_mode() == XferMode::Load {
+        data.clear();
+        for _ in 0..len {
+            let mut val = glam::Vec3::ZERO;
+            val.xfer(xfer)?;
+            data.push(val);
+        }
+    } else {
+        for item in data.iter_mut() {
+            item.xfer(xfer)?;
+        }
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Default constructors for complex snapshot types (used during load)
+// ---------------------------------------------------------------------------
+
+fn default_object_snapshot() -> ObjectSnapshot {
+    ObjectSnapshot {
+        id: ObjectId(0),
+        template_name: String::new(),
+        team: Team::Neutral,
+        player_id: 0,
+        geometry: GeometryInfo::default(),
+        status: ObjectStatusSnapshot::default(),
+        health: Health {
+            current: 0.0,
+            maximum: 0.0,
+        },
+        movement: Movement::default(),
+        experience: Experience::default(),
+        weapons: Vec::new(),
+        contained_objects: Vec::new(),
+        container_object: None,
+        modules: HashMap::new(),
+        object_type: ObjectTypeSnapshot::Unit(UnitSnapshot {
+            unit_type: String::new(),
+            formation_position: None,
+            formation_id: None,
+            group_id: None,
+            waypoints: Vec::new(),
+        }),
+    }
+}
+
+fn default_player_snapshot() -> PlayerSnapshot {
+    PlayerSnapshot {
+        id: 0,
+        name: String::new(),
+        team: Team::Neutral,
+        is_human: false,
+        is_active: false,
+        resources: Resources::default(),
+        population: PopulationInfo {
+            current: 0,
+            maximum: 0,
+        },
+        tech_tree: TechTreeSnapshot {
+            unlocked_units: Vec::new(),
+            unlocked_buildings: Vec::new(),
+            unlocked_upgrades: Vec::new(),
+            research_progress: HashMap::new(),
+        },
+        upgrades: Vec::new(),
+        build_queue: Vec::new(),
+        research_queue: Vec::new(),
+        statistics: PlayerStatisticsSnapshot {
+            units_built: 0,
+            units_lost: 0,
+            buildings_built: 0,
+            buildings_lost: 0,
+            damage_dealt: 0.0,
+            damage_received: 0.0,
+            resources_gathered: 0,
+            experience_gained: 0.0,
+        },
+    }
+}
+
+fn default_ai_strategic_state() -> AIStrategicStateSnapshot {
+    AIStrategicStateSnapshot {
+        current_phase: String::new(),
+        objectives: Vec::new(),
+        threat_assessment: ThreatAssessmentSnapshot {
+            enemy_strengths: HashMap::new(),
+            vulnerable_areas: Vec::new(),
+            threat_level: 0.0,
+        },
+    }
+}
+
+fn default_ai_tactical_state() -> AITacticalStateSnapshot {
+    AITacticalStateSnapshot {
+        unit_groups: Vec::new(),
+        active_attacks: Vec::new(),
+        defensive_positions: Vec::new(),
+    }
+}
+
+fn default_ai_economic_state() -> AIEconomicStateSnapshot {
+    AIEconomicStateSnapshot {
+        build_priorities: Vec::new(),
+        economic_focus: String::new(),
+        resource_allocation: ResourceAllocation {
+            military_percentage: 0.0,
+            economic_percentage: 0.0,
+            defensive_percentage: 0.0,
+        },
+    }
+}
+
+// ---------------------------------------------------------------------------
+// XferData implementations for game_logic types
+// ---------------------------------------------------------------------------
+
+impl XferData for GeometryInfo {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("GeometryInfo")?;
+        xfer.xfer_marker_label("Position")?;
+        self.position.xfer(xfer)?;
+        xfer.xfer_marker_label("Rotation")?;
+        xfer.xfer_f32(&mut self.rotation)?;
+        xfer.xfer_marker_label("BoundsMin")?;
+        self.bounds_min.xfer(xfer)?;
+        xfer.xfer_marker_label("BoundsMax")?;
+        self.bounds_max.xfer(xfer)?;
+        xfer.xfer_marker_label("Radius")?;
+        xfer.xfer_f32(&mut self.radius)?;
+        Ok(())
+    }
+}
+
+impl XferData for Health {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("Health")?;
+        xfer.xfer_marker_label("Current")?;
+        xfer.xfer_f32(&mut self.current)?;
+        xfer.xfer_marker_label("Maximum")?;
+        xfer.xfer_f32(&mut self.maximum)?;
+        Ok(())
+    }
+}
+
+impl XferData for Resources {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("Resources")?;
+        xfer.xfer_marker_label("Supplies")?;
+        xfer.xfer_u32(&mut self.supplies)?;
+        xfer.xfer_marker_label("Power")?;
+        xfer.xfer_i32(&mut self.power)?;
+        Ok(())
+    }
+}
+
+impl XferData for Movement {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("Movement")?;
+        xfer.xfer_marker_label("TargetPosition")?;
+        xfer_option(xfer, &mut self.target_position, glam::Vec3::ZERO)?;
+        xfer.xfer_marker_label("Velocity")?;
+        self.velocity.xfer(xfer)?;
+        xfer.xfer_marker_label("MaxSpeed")?;
+        xfer.xfer_f32(&mut self.max_speed)?;
+        xfer.xfer_marker_label("Acceleration")?;
+        xfer.xfer_f32(&mut self.acceleration)?;
+        xfer.xfer_marker_label("TurnRate")?;
+        xfer.xfer_f32(&mut self.turn_rate)?;
+        xfer.xfer_marker_label("Path")?;
+        xfer_vec_vec3(xfer, &mut self.path)?;
+        xfer.xfer_marker_label("CurrentPathIndex")?;
+        let mut idx = self.current_path_index as u32;
+        xfer.xfer_u32(&mut idx)?;
+        self.current_path_index = idx as usize;
+        Ok(())
+    }
+}
+
+impl XferData for VeterancyLevel {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut disc: u32 = match self {
+            VeterancyLevel::Rookie => 0,
+            VeterancyLevel::Veteran => 1,
+            VeterancyLevel::Elite => 2,
+            VeterancyLevel::Heroic => 3,
+        };
+        xfer.xfer_u32(&mut disc)?;
+        *self = match disc {
+            0 => VeterancyLevel::Rookie,
+            1 => VeterancyLevel::Veteran,
+            2 => VeterancyLevel::Elite,
+            3 => VeterancyLevel::Heroic,
+            _ => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid VeterancyLevel: {disc}"
+                )))
+            }
+        };
+        Ok(())
+    }
+}
+
+impl XferData for Experience {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("Experience")?;
+        xfer.xfer_marker_label("Current")?;
+        xfer.xfer_f32(&mut self.current)?;
+        xfer.xfer_marker_label("Level")?;
+        self.level.xfer(xfer)?;
+        Ok(())
+    }
+}
+
+impl XferData for Weapon {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("Weapon")?;
+        xfer.xfer_marker_label("Damage")?;
+        xfer.xfer_f32(&mut self.damage)?;
+        xfer.xfer_marker_label("Range")?;
+        xfer.xfer_f32(&mut self.range)?;
+        xfer.xfer_marker_label("MinRange")?;
+        xfer.xfer_f32(&mut self.min_range)?;
+        xfer.xfer_marker_label("ReloadTime")?;
+        xfer.xfer_f32(&mut self.reload_time)?;
+        xfer.xfer_marker_label("LastFireTime")?;
+        xfer.xfer_f32(&mut self.last_fire_time)?;
+        xfer.xfer_marker_label("Ammo")?;
+        xfer_option(xfer, &mut self.ammo, 0u32)?;
+        xfer.xfer_marker_label("CanTargetAir")?;
+        xfer.xfer_bool(&mut self.can_target_air)?;
+        xfer.xfer_marker_label("CanTargetGround")?;
+        xfer.xfer_bool(&mut self.can_target_ground)?;
+        xfer.xfer_marker_label("ProjectileSpeed")?;
+        xfer.xfer_f32(&mut self.projectile_speed)?;
+        xfer.xfer_marker_label("PreAttackDelay")?;
+        xfer.xfer_f32(&mut self.pre_attack_delay)?;
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// XferData implementations for snapshot types
+// ---------------------------------------------------------------------------
+
+impl XferData for ObjectStatusSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectStatusSnapshot")?;
+        xfer.xfer_marker_label("Destroyed")?;
+        xfer.xfer_bool(&mut self.destroyed)?;
+        xfer.xfer_marker_label("UnderConstruction")?;
+        xfer.xfer_bool(&mut self.under_construction)?;
+        xfer.xfer_marker_label("Selected")?;
+        xfer.xfer_bool(&mut self.selected)?;
+        xfer.xfer_marker_label("Moving")?;
+        xfer.xfer_bool(&mut self.moving)?;
+        xfer.xfer_marker_label("Attacking")?;
+        xfer.xfer_bool(&mut self.attacking)?;
+        xfer.xfer_marker_label("AirborneTarget")?;
+        xfer.xfer_bool(&mut self.airborne_target)?;
+        xfer.xfer_marker_label("Stealthed")?;
+        xfer.xfer_bool(&mut self.stealthed)?;
+        xfer.xfer_marker_label("Garrisoned")?;
+        xfer.xfer_bool(&mut self.garrisoned)?;
+        xfer.xfer_marker_label("BeingRepaired")?;
+        xfer.xfer_bool(&mut self.being_repaired)?;
+        xfer.xfer_marker_label("OnFire")?;
+        xfer.xfer_bool(&mut self.on_fire)?;
+        xfer.xfer_marker_label("Poisoned")?;
+        xfer.xfer_bool(&mut self.poisoned)?;
+        xfer.xfer_marker_label("RadarJammed")?;
+        xfer.xfer_bool(&mut self.radar_jammed)?;
+        xfer.xfer_marker_label("DisabledUnderpowered")?;
+        xfer.xfer_bool(&mut self.disabled_underpowered)?;
+        Ok(())
+    }
+}
+
+impl XferData for AIUpdateModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("AIUpdateModuleSnapshot")?;
+        xfer.xfer_marker_label("CurrentState")?;
+        self.current_state.xfer(xfer)?;
+        xfer.xfer_marker_label("StateMachineData")?;
+        xfer_hashmap_default(
+            xfer,
+            &mut self.state_machine_data,
+            String::new(),
+            String::new(),
+        )?;
+        xfer.xfer_marker_label("TargetObject")?;
+        xfer_option(xfer, &mut self.target_object, ObjectId(0))?;
+        xfer.xfer_marker_label("CurrentTask")?;
+        xfer_option(xfer, &mut self.current_task, String::new())?;
+        xfer.xfer_marker_label("TaskQueue")?;
+        xfer.xfer_vec_string(&mut self.task_queue)?;
+        Ok(())
+    }
+}
+
+impl XferData for ProductionQueueEntry {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ProductionQueueEntry")?;
+        xfer.xfer_marker_label("TemplateName")?;
+        self.template_name.xfer(xfer)?;
+        xfer.xfer_marker_label("Progress")?;
+        xfer.xfer_f32(&mut self.progress)?;
+        xfer.xfer_marker_label("Cost")?;
+        xfer.xfer_u32(&mut self.cost)?;
+        Ok(())
+    }
+}
+
+impl XferData for ProductionModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ProductionModuleSnapshot")?;
+        xfer.xfer_marker_label("ProductionQueue")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.production_queue,
+            ProductionQueueEntry {
+                template_name: String::new(),
+                progress: 0.0,
+                cost: 0,
+            },
+        )?;
+        xfer.xfer_marker_label("IsProducing")?;
+        xfer.xfer_bool(&mut self.is_producing)?;
+        xfer.xfer_marker_label("ProductionProgress")?;
+        xfer.xfer_f32(&mut self.production_progress)?;
+        xfer.xfer_marker_label("RallyPoint")?;
+        xfer_option(xfer, &mut self.rally_point, glam::Vec3::ZERO)?;
+        Ok(())
+    }
+}
+
+impl XferData for FiringState {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut disc: u32 = match self {
+            FiringState::Idle => 0,
+            FiringState::Acquiring => 1,
+            FiringState::Firing => 2,
+            FiringState::Reloading => 3,
+        };
+        xfer.xfer_u32(&mut disc)?;
+        *self = match disc {
+            0 => FiringState::Idle,
+            1 => FiringState::Acquiring,
+            2 => FiringState::Firing,
+            3 => FiringState::Reloading,
+            _ => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid FiringState: {disc}"
+                )))
+            }
+        };
+        Ok(())
+    }
+}
+
+impl XferData for WeaponModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("WeaponModuleSnapshot")?;
+        xfer.xfer_marker_label("Weapons")?;
+        xfer_vec_default(xfer, &mut self.weapons, Weapon::default())?;
+        xfer.xfer_marker_label("CurrentTarget")?;
+        xfer_option(xfer, &mut self.current_target, ObjectId(0))?;
+        xfer.xfer_marker_label("FiringState")?;
+        self.firing_state.xfer(xfer)?;
+        Ok(())
+    }
+}
+
+impl XferData for DamageState {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("DamageState")?;
+        xfer.xfer_marker_label("Threshold")?;
+        xfer.xfer_f32(&mut self.threshold)?;
+        xfer.xfer_marker_label("EffectsActive")?;
+        xfer.xfer_vec_string(&mut self.effects_active)?;
+        Ok(())
+    }
+}
+
+impl XferData for BodyModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("BodyModuleSnapshot")?;
+        xfer.xfer_marker_label("BodyType")?;
+        self.body_type.xfer(xfer)?;
+        xfer.xfer_marker_label("MaxHealth")?;
+        xfer.xfer_f32(&mut self.max_health)?;
+        xfer.xfer_marker_label("ArmorType")?;
+        self.armor_type.xfer(xfer)?;
+        xfer.xfer_marker_label("DamageStates")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.damage_states,
+            DamageState {
+                threshold: 0.0,
+                effects_active: Vec::new(),
+            },
+        )?;
+        Ok(())
+    }
+}
+
+impl XferData for MovementState {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut disc: u32 = match self {
+            MovementState::Idle => 0,
+            MovementState::Moving => 1,
+            MovementState::Turning => 2,
+            MovementState::Blocked => 3,
+        };
+        xfer.xfer_u32(&mut disc)?;
+        *self = match disc {
+            0 => MovementState::Idle,
+            1 => MovementState::Moving,
+            2 => MovementState::Turning,
+            3 => MovementState::Blocked,
+            _ => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid MovementState: {disc}"
+                )))
+            }
+        };
+        Ok(())
+    }
+}
+
+impl XferData for LocomotorModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("LocomotorModuleSnapshot")?;
+        xfer.xfer_marker_label("LocomotorType")?;
+        self.locomotor_type.xfer(xfer)?;
+        xfer.xfer_marker_label("MovementState")?;
+        self.movement_state.xfer(xfer)?;
+        xfer.xfer_marker_label("Path")?;
+        xfer_vec_vec3(xfer, &mut self.path)?;
+        xfer.xfer_marker_label("PathIndex")?;
+        let mut idx = self.path_index as u32;
+        xfer.xfer_u32(&mut idx)?;
+        self.path_index = idx as usize;
+        Ok(())
+    }
+}
+
+impl XferData for Force {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("Force")?;
+        xfer.xfer_marker_label("Direction")?;
+        self.direction.xfer(xfer)?;
+        xfer.xfer_marker_label("Magnitude")?;
+        xfer.xfer_f32(&mut self.magnitude)?;
+        xfer.xfer_marker_label("Duration")?;
+        xfer.xfer_f32(&mut self.duration)?;
+        Ok(())
+    }
+}
+
+impl XferData for PhysicsModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("PhysicsModuleSnapshot")?;
+        xfer.xfer_marker_label("Velocity")?;
+        self.velocity.xfer(xfer)?;
+        xfer.xfer_marker_label("AngularVelocity")?;
+        xfer.xfer_f32(&mut self.angular_velocity)?;
+        xfer.xfer_marker_label("Forces")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.forces,
+            Force {
+                direction: glam::Vec3::ZERO,
+                magnitude: 0.0,
+                duration: 0.0,
+            },
+        )?;
+        Ok(())
+    }
+}
+
+impl XferData for ContainModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ContainModuleSnapshot")?;
+        xfer.xfer_marker_label("ContainedObjects")?;
+        xfer_vec_default(xfer, &mut self.contained_objects, ObjectId(0))?;
+        xfer.xfer_marker_label("MaxCapacity")?;
+        let mut cap = self.max_capacity as u32;
+        xfer.xfer_u32(&mut cap)?;
+        self.max_capacity = cap as usize;
+        xfer.xfer_marker_label("ContainType")?;
+        self.contain_type.xfer(xfer)?;
+        xfer.xfer_marker_label("ExitPositions")?;
+        xfer_vec_vec3(xfer, &mut self.exit_positions)?;
+        Ok(())
+    }
+}
+
+impl XferData for UpgradeModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("UpgradeModuleSnapshot")?;
+        xfer.xfer_marker_label("ActiveUpgrades")?;
+        xfer.xfer_vec_string(&mut self.active_upgrades)?;
+        xfer.xfer_marker_label("UpgradeProgress")?;
+        xfer_hashmap_default(xfer, &mut self.upgrade_progress, String::new(), 0.0f32)?;
+        Ok(())
+    }
+}
+
+impl XferData for ModuleSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ModuleSnapshot")?;
+        let mut disc: u32 = match self {
+            ModuleSnapshot::AIUpdate(_) => 0,
+            ModuleSnapshot::Production(_) => 1,
+            ModuleSnapshot::Weapon(_) => 2,
+            ModuleSnapshot::Body(_) => 3,
+            ModuleSnapshot::Locomotor(_) => 4,
+            ModuleSnapshot::Physics(_) => 5,
+            ModuleSnapshot::Contain(_) => 6,
+            ModuleSnapshot::Upgrade(_) => 7,
+        };
+        xfer.xfer_u32(&mut disc)?;
+        if xfer.get_mode() == XferMode::Save {
+            match self {
+                ModuleSnapshot::AIUpdate(d) => d.xfer(xfer)?,
+                ModuleSnapshot::Production(d) => d.xfer(xfer)?,
+                ModuleSnapshot::Weapon(d) => d.xfer(xfer)?,
+                ModuleSnapshot::Body(d) => d.xfer(xfer)?,
+                ModuleSnapshot::Locomotor(d) => d.xfer(xfer)?,
+                ModuleSnapshot::Physics(d) => d.xfer(xfer)?,
+                ModuleSnapshot::Contain(d) => d.xfer(xfer)?,
+                ModuleSnapshot::Upgrade(d) => d.xfer(xfer)?,
+            }
+        } else {
+            *self = match disc {
+                0 => {
+                    let mut d = AIUpdateModuleSnapshot {
+                        current_state: String::new(),
+                        state_machine_data: HashMap::new(),
+                        target_object: None,
+                        current_task: None,
+                        task_queue: Vec::new(),
+                    };
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::AIUpdate(d)
+                }
+                1 => {
+                    let mut d = ProductionModuleSnapshot {
+                        production_queue: Vec::new(),
+                        is_producing: false,
+                        production_progress: 0.0,
+                        rally_point: None,
+                    };
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::Production(d)
+                }
+                2 => {
+                    let mut d = WeaponModuleSnapshot {
+                        weapons: Vec::new(),
+                        current_target: None,
+                        firing_state: FiringState::Idle,
+                    };
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::Weapon(d)
+                }
+                3 => {
+                    let mut d = BodyModuleSnapshot {
+                        body_type: String::new(),
+                        max_health: 0.0,
+                        armor_type: String::new(),
+                        damage_states: Vec::new(),
+                    };
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::Body(d)
+                }
+                4 => {
+                    let mut d = LocomotorModuleSnapshot {
+                        locomotor_type: String::new(),
+                        movement_state: MovementState::Idle,
+                        path: Vec::new(),
+                        path_index: 0,
+                    };
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::Locomotor(d)
+                }
+                5 => {
+                    let mut d = PhysicsModuleSnapshot {
+                        velocity: glam::Vec3::ZERO,
+                        angular_velocity: 0.0,
+                        forces: Vec::new(),
+                    };
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::Physics(d)
+                }
+                6 => {
+                    let mut d = ContainModuleSnapshot {
+                        contained_objects: Vec::new(),
+                        max_capacity: 0,
+                        contain_type: String::new(),
+                        exit_positions: Vec::new(),
+                    };
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::Contain(d)
+                }
+                7 => {
+                    let mut d = UpgradeModuleSnapshot {
+                        active_upgrades: Vec::new(),
+                        upgrade_progress: HashMap::new(),
+                    };
+                    d.xfer(xfer)?;
+                    ModuleSnapshot::Upgrade(d)
+                }
+                _ => {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Invalid ModuleSnapshot: {disc}"
+                    )))
+                }
+            };
+        }
+        Ok(())
+    }
+}
+
+impl XferData for UnitSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("UnitSnapshot")?;
+        xfer.xfer_marker_label("UnitType")?;
+        self.unit_type.xfer(xfer)?;
+        xfer.xfer_marker_label("FormationPosition")?;
+        xfer_option(xfer, &mut self.formation_position, glam::Vec3::ZERO)?;
+        xfer.xfer_marker_label("FormationId")?;
+        xfer_option(xfer, &mut self.formation_id, 0u32)?;
+        xfer.xfer_marker_label("GroupId")?;
+        xfer_option(xfer, &mut self.group_id, 0u32)?;
+        xfer.xfer_marker_label("Waypoints")?;
+        xfer_vec_vec3(xfer, &mut self.waypoints)?;
+        Ok(())
+    }
+}
+
+impl XferData for BuildingSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("BuildingSnapshot")?;
+        xfer.xfer_marker_label("BuildingType")?;
+        self.building_type.xfer(xfer)?;
+        xfer.xfer_marker_label("ConstructionProgress")?;
+        xfer.xfer_f32(&mut self.construction_progress)?;
+        xfer.xfer_marker_label("PowerProvided")?;
+        xfer.xfer_i32(&mut self.power_provided)?;
+        xfer.xfer_marker_label("PowerRequired")?;
+        xfer.xfer_i32(&mut self.power_required)?;
+        xfer.xfer_marker_label("IsPowered")?;
+        xfer.xfer_bool(&mut self.is_powered)?;
+        xfer.xfer_marker_label("ConnectedBuildings")?;
+        xfer_vec_default(xfer, &mut self.connected_buildings, ObjectId(0))?;
+        Ok(())
+    }
+}
+
+impl XferData for ProjectileSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ProjectileSnapshot")?;
+        xfer.xfer_marker_label("ProjectileType")?;
+        self.projectile_type.xfer(xfer)?;
+        xfer.xfer_marker_label("SourceObject")?;
+        self.source_object.xfer(xfer)?;
+        xfer.xfer_marker_label("TargetObject")?;
+        xfer_option(xfer, &mut self.target_object, ObjectId(0))?;
+        xfer.xfer_marker_label("TargetPosition")?;
+        self.target_position.xfer(xfer)?;
+        xfer.xfer_marker_label("FlightTime")?;
+        xfer.xfer_f32(&mut self.flight_time)?;
+        xfer.xfer_marker_label("MaxFlightTime")?;
+        xfer.xfer_f32(&mut self.max_flight_time)?;
+        Ok(())
+    }
+}
+
+impl XferData for ResourceSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ResourceSnapshot")?;
+        xfer.xfer_marker_label("ResourceType")?;
+        self.resource_type.xfer(xfer)?;
+        xfer.xfer_marker_label("Amount")?;
+        xfer.xfer_u32(&mut self.amount)?;
+        xfer.xfer_marker_label("DepletionRate")?;
+        xfer.xfer_f32(&mut self.depletion_rate)?;
+        xfer.xfer_marker_label("IsInfinite")?;
+        xfer.xfer_bool(&mut self.is_infinite)?;
+        Ok(())
+    }
+}
+
+impl XferData for ObjectTypeSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ObjectTypeSnapshot")?;
+        let mut disc: u32 = match self {
+            ObjectTypeSnapshot::Unit(_) => 0,
+            ObjectTypeSnapshot::Building(_) => 1,
+            ObjectTypeSnapshot::Projectile(_) => 2,
+            ObjectTypeSnapshot::Resource(_) => 3,
+        };
+        xfer.xfer_u32(&mut disc)?;
+        if xfer.get_mode() == XferMode::Save {
+            match self {
+                ObjectTypeSnapshot::Unit(d) => d.xfer(xfer)?,
+                ObjectTypeSnapshot::Building(d) => d.xfer(xfer)?,
+                ObjectTypeSnapshot::Projectile(d) => d.xfer(xfer)?,
+                ObjectTypeSnapshot::Resource(d) => d.xfer(xfer)?,
+            }
+        } else {
+            *self = match disc {
+                0 => {
+                    let mut d = UnitSnapshot {
+                        unit_type: String::new(),
+                        formation_position: None,
+                        formation_id: None,
+                        group_id: None,
+                        waypoints: Vec::new(),
+                    };
+                    d.xfer(xfer)?;
+                    ObjectTypeSnapshot::Unit(d)
+                }
+                1 => {
+                    let mut d = BuildingSnapshot {
+                        building_type: String::new(),
+                        construction_progress: 0.0,
+                        power_provided: 0,
+                        power_required: 0,
+                        is_powered: false,
+                        connected_buildings: Vec::new(),
+                    };
+                    d.xfer(xfer)?;
+                    ObjectTypeSnapshot::Building(d)
+                }
+                2 => {
+                    let mut d = ProjectileSnapshot {
+                        projectile_type: String::new(),
+                        source_object: ObjectId(0),
+                        target_object: None,
+                        target_position: glam::Vec3::ZERO,
+                        flight_time: 0.0,
+                        max_flight_time: 0.0,
+                    };
+                    d.xfer(xfer)?;
+                    ObjectTypeSnapshot::Projectile(d)
+                }
+                3 => {
+                    let mut d = ResourceSnapshot {
+                        resource_type: String::new(),
+                        amount: 0,
+                        depletion_rate: 0.0,
+                        is_infinite: false,
+                    };
+                    d.xfer(xfer)?;
+                    ObjectTypeSnapshot::Resource(d)
+                }
+                _ => {
+                    return Err(SaveLoadError::Corrupted(format!(
+                        "Invalid ObjectTypeSnapshot: {disc}"
+                    )))
+                }
+            };
+        }
+        Ok(())
+    }
+}
+
+impl XferData for PopulationInfo {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("PopulationInfo")?;
+        xfer.xfer_marker_label("Current")?;
+        xfer.xfer_u32(&mut self.current)?;
+        xfer.xfer_marker_label("Maximum")?;
+        xfer.xfer_u32(&mut self.maximum)?;
+        Ok(())
+    }
+}
+
+impl XferData for TechTreeSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("TechTreeSnapshot")?;
+        xfer.xfer_marker_label("UnlockedUnits")?;
+        xfer.xfer_vec_string(&mut self.unlocked_units)?;
+        xfer.xfer_marker_label("UnlockedBuildings")?;
+        xfer.xfer_vec_string(&mut self.unlocked_buildings)?;
+        xfer.xfer_marker_label("UnlockedUpgrades")?;
+        xfer.xfer_vec_string(&mut self.unlocked_upgrades)?;
+        xfer.xfer_marker_label("ResearchProgress")?;
+        xfer_hashmap_default(xfer, &mut self.research_progress, String::new(), 0.0f32)?;
+        Ok(())
+    }
+}
+
+impl XferData for PlayerStatisticsSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("PlayerStatisticsSnapshot")?;
+        xfer.xfer_marker_label("UnitsBuilt")?;
+        xfer.xfer_u32(&mut self.units_built)?;
+        xfer.xfer_marker_label("UnitsLost")?;
+        xfer.xfer_u32(&mut self.units_lost)?;
+        xfer.xfer_marker_label("BuildingsBuilt")?;
+        xfer.xfer_u32(&mut self.buildings_built)?;
+        xfer.xfer_marker_label("BuildingsLost")?;
+        xfer.xfer_u32(&mut self.buildings_lost)?;
+        xfer.xfer_marker_label("DamageDealt")?;
+        xfer.xfer_f32(&mut self.damage_dealt)?;
+        xfer.xfer_marker_label("DamageReceived")?;
+        xfer.xfer_f32(&mut self.damage_received)?;
+        xfer.xfer_marker_label("ResourcesGathered")?;
+        xfer.xfer_u32(&mut self.resources_gathered)?;
+        xfer.xfer_marker_label("ExperienceGained")?;
+        xfer.xfer_f32(&mut self.experience_gained)?;
+        Ok(())
+    }
+}
+
+impl XferData for TeamSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("TeamSnapshot")?;
+        xfer.xfer_marker_label("Team")?;
+        self.team.xfer(xfer)?;
+        xfer.xfer_marker_label("Players")?;
+        xfer.xfer_vec_u32(&mut self.players)?;
+        xfer.xfer_marker_label("AlliedTeams")?;
+        xfer_vec_default(xfer, &mut self.allied_teams, Team::Neutral)?;
+        xfer.xfer_marker_label("IsDefeated")?;
+        xfer.xfer_bool(&mut self.is_defeated)?;
+        xfer.xfer_marker_label("SharedVision")?;
+        xfer.xfer_bool(&mut self.shared_vision)?;
+        xfer.xfer_marker_label("SharedControl")?;
+        xfer.xfer_bool(&mut self.shared_control)?;
+        Ok(())
+    }
+}
+
+impl XferData for TerrainModification {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("TerrainModification")?;
+        xfer.xfer_marker_label("Position")?;
+        self.position.xfer(xfer)?;
+        xfer.xfer_marker_label("Radius")?;
+        xfer.xfer_f32(&mut self.radius)?;
+        xfer.xfer_marker_label("HeightDelta")?;
+        xfer.xfer_f32(&mut self.height_delta)?;
+        xfer.xfer_marker_label("ModificationType")?;
+        self.modification_type.xfer(xfer)?;
+        Ok(())
+    }
+}
+
+impl XferData for TerrainSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("TerrainSnapshot")?;
+        xfer.xfer_marker_label("Width")?;
+        xfer.xfer_u32(&mut self.width)?;
+        xfer.xfer_marker_label("Height")?;
+        xfer.xfer_u32(&mut self.height)?;
+        xfer.xfer_marker_label("HeightMap")?;
+        xfer_vec_f32(xfer, &mut self.height_map)?;
+        xfer.xfer_marker_label("TextureMap")?;
+        xfer_vec_u8(xfer, &mut self.texture_map)?;
+        xfer.xfer_marker_label("PassabilityMap")?;
+        xfer_vec_bool(xfer, &mut self.passability_map)?;
+        xfer.xfer_marker_label("Modifications")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.modifications,
+            TerrainModification {
+                position: glam::Vec3::ZERO,
+                radius: 0.0,
+                height_delta: 0.0,
+                modification_type: String::new(),
+            },
+        )?;
+        Ok(())
+    }
+}
+
+impl XferData for WeatherSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("WeatherSnapshot")?;
+        xfer.xfer_marker_label("CurrentWeather")?;
+        self.current_weather.xfer(xfer)?;
+        xfer.xfer_marker_label("WeatherIntensity")?;
+        xfer.xfer_f32(&mut self.weather_intensity)?;
+        xfer.xfer_marker_label("WeatherDuration")?;
+        xfer.xfer_f32(&mut self.weather_duration)?;
+        xfer.xfer_marker_label("NextWeatherChange")?;
+        xfer.xfer_f32(&mut self.next_weather_change)?;
+        xfer.xfer_marker_label("Visible")?;
+        xfer.xfer_bool(&mut self.visible)?;
+        Ok(())
+    }
+}
+
+impl XferData for SupplyDepositSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("SupplyDepositSnapshot")?;
+        xfer.xfer_marker_label("Position")?;
+        self.position.xfer(xfer)?;
+        xfer.xfer_marker_label("Amount")?;
+        xfer.xfer_u32(&mut self.amount)?;
+        xfer.xfer_marker_label("DepletionRate")?;
+        xfer.xfer_f32(&mut self.depletion_rate)?;
+        xfer.xfer_marker_label("Harvesters")?;
+        xfer_vec_default(xfer, &mut self.harvesters, ObjectId(0))?;
+        Ok(())
+    }
+}
+
+impl XferData for ResourceZoneSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ResourceZoneSnapshot")?;
+        xfer.xfer_marker_label("Bounds")?;
+        self.bounds.xfer(xfer)?;
+        xfer.xfer_marker_label("ResourceType")?;
+        self.resource_type.xfer(xfer)?;
+        xfer.xfer_marker_label("TotalAmount")?;
+        xfer.xfer_u32(&mut self.total_amount)?;
+        xfer.xfer_marker_label("RemainingAmount")?;
+        xfer.xfer_u32(&mut self.remaining_amount)?;
+        Ok(())
+    }
+}
+
+impl XferData for ResourceManagerSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ResourceManagerSnapshot")?;
+        xfer.xfer_marker_label("SupplyDeposits")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.supply_deposits,
+            SupplyDepositSnapshot {
+                position: glam::Vec3::ZERO,
+                amount: 0,
+                depletion_rate: 0.0,
+                harvesters: Vec::new(),
+            },
+        )?;
+        xfer.xfer_marker_label("ResourceZones")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.resource_zones,
+            ResourceZoneSnapshot {
+                bounds: GeometryInfo::default(),
+                resource_type: String::new(),
+                total_amount: 0,
+                remaining_amount: 0,
+            },
+        )?;
+        Ok(())
+    }
+}
+
+impl XferData for ActiveCombatSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ActiveCombatSnapshot")?;
+        xfer.xfer_marker_label("Attacker")?;
+        self.attacker.xfer(xfer)?;
+        xfer.xfer_marker_label("Target")?;
+        self.target.xfer(xfer)?;
+        xfer.xfer_marker_label("StartTime")?;
+        xfer.xfer_f32(&mut self.start_time)?;
+        xfer.xfer_marker_label("DamageDealt")?;
+        xfer.xfer_f32(&mut self.damage_dealt)?;
+        Ok(())
+    }
+}
+
+impl XferData for DeathEventSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("DeathEventSnapshot")?;
+        xfer.xfer_marker_label("ObjectId")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_marker_label("KillerId")?;
+        xfer_option(xfer, &mut self.killer_id, ObjectId(0))?;
+        xfer.xfer_marker_label("DeathTime")?;
+        xfer.xfer_f32(&mut self.death_time)?;
+        xfer.xfer_marker_label("DeathPosition")?;
+        self.death_position.xfer(xfer)?;
+        Ok(())
+    }
+}
+
+impl XferData for CombatTrackerSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("CombatTrackerSnapshot")?;
+        xfer.xfer_marker_label("ActiveCombats")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.active_combats,
+            ActiveCombatSnapshot {
+                attacker: ObjectId(0),
+                target: ObjectId(0),
+                start_time: 0.0,
+                damage_dealt: 0.0,
+            },
+        )?;
+        xfer.xfer_marker_label("RecentDeaths")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.recent_deaths,
+            DeathEventSnapshot {
+                object_id: ObjectId(0),
+                killer_id: None,
+                death_time: 0.0,
+                death_position: glam::Vec3::ZERO,
+            },
+        )?;
+        Ok(())
+    }
+}
+
+impl XferData for ExperienceEventSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ExperienceEventSnapshot")?;
+        xfer.xfer_marker_label("ObjectId")?;
+        self.object_id.xfer(xfer)?;
+        xfer.xfer_marker_label("ExperienceGained")?;
+        xfer.xfer_f32(&mut self.experience_gained)?;
+        xfer.xfer_marker_label("Source")?;
+        self.source.xfer(xfer)?;
+        xfer.xfer_marker_label("Timestamp")?;
+        xfer.xfer_f32(&mut self.timestamp)?;
+        Ok(())
+    }
+}
+
+impl XferData for VeterancyBonuses {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("VeterancyBonuses")?;
+        xfer.xfer_marker_label("HealthBonus")?;
+        xfer.xfer_f32(&mut self.health_bonus)?;
+        xfer.xfer_marker_label("DamageBonus")?;
+        xfer.xfer_f32(&mut self.damage_bonus)?;
+        xfer.xfer_marker_label("AccuracyBonus")?;
+        xfer.xfer_f32(&mut self.accuracy_bonus)?;
+        xfer.xfer_marker_label("RangeBonus")?;
+        xfer.xfer_f32(&mut self.range_bonus)?;
+        Ok(())
+    }
+}
+
+impl XferData for ExperienceTrackerSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ExperienceTrackerSnapshot")?;
+        xfer.xfer_marker_label("ExperienceEvents")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.experience_events,
+            ExperienceEventSnapshot {
+                object_id: ObjectId(0),
+                experience_gained: 0.0,
+                source: String::new(),
+                timestamp: 0.0,
+            },
+        )?;
+        xfer.xfer_marker_label("VeterancyBonuses")?;
+        xfer_hashmap_default(
+            xfer,
+            &mut self.veterancy_bonuses,
+            ObjectId(0),
+            VeterancyBonuses {
+                health_bonus: 0.0,
+                damage_bonus: 0.0,
+                accuracy_bonus: 0.0,
+                range_bonus: 0.0,
+            },
+        )?;
+        Ok(())
+    }
+}
+
+impl XferData for SerializableVec3 {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("SerializableVec3")?;
+        xfer.xfer_i32(&mut self.x)?;
+        xfer.xfer_i32(&mut self.y)?;
+        xfer.xfer_i32(&mut self.z)?;
+        Ok(())
+    }
+}
+
+impl XferData for PathfindingCacheSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("PathfindingCacheSnapshot")?;
+        xfer.xfer_marker_label("CachedPaths")?;
+        {
+            let mut len = self.cached_paths.len() as u32;
+            xfer.xfer_u32(&mut len)?;
+            if xfer.get_mode() == XferMode::Load {
+                self.cached_paths.clear();
+                for _ in 0..len {
+                    let mut k = (
+                        SerializableVec3 { x: 0, y: 0, z: 0 },
+                        SerializableVec3 { x: 0, y: 0, z: 0 },
+                    );
+                    let mut v = Vec::new();
+                    k.0.xfer(xfer)?;
+                    k.1.xfer(xfer)?;
+                    let mut path_len = 0u32;
+                    xfer.xfer_u32(&mut path_len)?;
+                    for _ in 0..path_len {
+                        let mut sv = SerializableVec3 { x: 0, y: 0, z: 0 };
+                        sv.xfer(xfer)?;
+                        v.push(sv);
+                    }
+                    self.cached_paths.insert(k, v);
+                }
+            } else {
+                for (k, v) in &mut self.cached_paths {
+                    let mut k0 = k.0;
+                    let mut k1 = k.1;
+                    k0.xfer(xfer)?;
+                    k1.xfer(xfer)?;
+                    let mut path_len = v.len() as u32;
+                    xfer.xfer_u32(&mut path_len)?;
+                    for sv in v.iter_mut() {
+                        sv.xfer(xfer)?;
+                    }
+                }
+            }
+        }
+        xfer.xfer_marker_label("CacheTimestamps")?;
+        {
+            let mut len = self.cache_timestamps.len() as u32;
+            xfer.xfer_u32(&mut len)?;
+            if xfer.get_mode() == XferMode::Load {
+                self.cache_timestamps.clear();
+                for _ in 0..len {
+                    let mut k = (
+                        SerializableVec3 { x: 0, y: 0, z: 0 },
+                        SerializableVec3 { x: 0, y: 0, z: 0 },
+                    );
+                    let mut ts = 0.0f32;
+                    k.0.xfer(xfer)?;
+                    k.1.xfer(xfer)?;
+                    ts.xfer(xfer)?;
+                    self.cache_timestamps.insert(k, ts);
+                }
+            } else {
+                for (k, ts) in &mut self.cache_timestamps {
+                    let mut k0 = k.0;
+                    let mut k1 = k.1;
+                    k0.xfer(xfer)?;
+                    k1.xfer(xfer)?;
+                    ts.xfer(xfer)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl XferData for AIObjective {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("AIObjective")?;
+        xfer.xfer_marker_label("ObjectiveType")?;
+        self.objective_type.xfer(xfer)?;
+        xfer.xfer_marker_label("Priority")?;
+        xfer.xfer_f32(&mut self.priority)?;
+        xfer.xfer_marker_label("TargetPosition")?;
+        xfer_option(xfer, &mut self.target_position, glam::Vec3::ZERO)?;
+        xfer.xfer_marker_label("AssignedUnits")?;
+        xfer_vec_default(xfer, &mut self.assigned_units, ObjectId(0))?;
+        xfer.xfer_marker_label("CompletionPercentage")?;
+        xfer.xfer_f32(&mut self.completion_percentage)?;
+        Ok(())
+    }
+}
+
+impl XferData for ThreatAssessmentSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ThreatAssessmentSnapshot")?;
+        xfer.xfer_marker_label("EnemyStrengths")?;
+        xfer_hashmap_default(xfer, &mut self.enemy_strengths, Team::Neutral, 0.0f32)?;
+        xfer.xfer_marker_label("VulnerableAreas")?;
+        xfer_vec_vec3(xfer, &mut self.vulnerable_areas)?;
+        xfer.xfer_marker_label("ThreatLevel")?;
+        xfer.xfer_f32(&mut self.threat_level)?;
+        Ok(())
+    }
+}
+
+impl XferData for AIStrategicStateSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("AIStrategicStateSnapshot")?;
+        xfer.xfer_marker_label("CurrentPhase")?;
+        self.current_phase.xfer(xfer)?;
+        xfer.xfer_marker_label("Objectives")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.objectives,
+            AIObjective {
+                objective_type: String::new(),
+                priority: 0.0,
+                target_position: None,
+                assigned_units: Vec::new(),
+                completion_percentage: 0.0,
+            },
+        )?;
+        xfer.xfer_marker_label("ThreatAssessment")?;
+        self.threat_assessment.xfer(xfer)?;
+        Ok(())
+    }
+}
+
+impl XferData for AIUnitGroupSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("AIUnitGroupSnapshot")?;
+        xfer.xfer_marker_label("GroupId")?;
+        xfer.xfer_u32(&mut self.group_id)?;
+        xfer.xfer_marker_label("Units")?;
+        xfer_vec_default(xfer, &mut self.units, ObjectId(0))?;
+        xfer.xfer_marker_label("Role")?;
+        self.role.xfer(xfer)?;
+        xfer.xfer_marker_label("CurrentTask")?;
+        self.current_task.xfer(xfer)?;
+        xfer.xfer_marker_label("Formation")?;
+        self.formation.xfer(xfer)?;
+        xfer.xfer_marker_label("TargetPosition")?;
+        xfer_option(xfer, &mut self.target_position, glam::Vec3::ZERO)?;
+        Ok(())
+    }
+}
+
+impl XferData for AIAttackSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("AIAttackSnapshot")?;
+        xfer.xfer_marker_label("AttackId")?;
+        xfer.xfer_u32(&mut self.attack_id)?;
+        xfer.xfer_marker_label("TargetPosition")?;
+        self.target_position.xfer(xfer)?;
+        xfer.xfer_marker_label("AssignedGroups")?;
+        xfer.xfer_vec_u32(&mut self.assigned_groups)?;
+        xfer.xfer_marker_label("AttackPhase")?;
+        self.attack_phase.xfer(xfer)?;
+        xfer.xfer_marker_label("StartTime")?;
+        xfer.xfer_f32(&mut self.start_time)?;
+        Ok(())
+    }
+}
+
+impl XferData for AITacticalStateSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("AITacticalStateSnapshot")?;
+        xfer.xfer_marker_label("UnitGroups")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.unit_groups,
+            AIUnitGroupSnapshot {
+                group_id: 0,
+                units: Vec::new(),
+                role: String::new(),
+                current_task: String::new(),
+                formation: String::new(),
+                target_position: None,
+            },
+        )?;
+        xfer.xfer_marker_label("ActiveAttacks")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.active_attacks,
+            AIAttackSnapshot {
+                attack_id: 0,
+                target_position: glam::Vec3::ZERO,
+                assigned_groups: Vec::new(),
+                attack_phase: String::new(),
+                start_time: 0.0,
+            },
+        )?;
+        xfer.xfer_marker_label("DefensivePositions")?;
+        xfer_vec_vec3(xfer, &mut self.defensive_positions)?;
+        Ok(())
+    }
+}
+
+impl XferData for BuildPriority {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("BuildPriority")?;
+        xfer.xfer_marker_label("TemplateName")?;
+        self.template_name.xfer(xfer)?;
+        xfer.xfer_marker_label("Priority")?;
+        xfer.xfer_f32(&mut self.priority)?;
+        xfer.xfer_marker_label("DesiredCount")?;
+        xfer.xfer_u32(&mut self.desired_count)?;
+        xfer.xfer_marker_label("CurrentCount")?;
+        xfer.xfer_u32(&mut self.current_count)?;
+        Ok(())
+    }
+}
+
+impl XferData for ResourceAllocation {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("ResourceAllocation")?;
+        xfer.xfer_marker_label("MilitaryPercentage")?;
+        xfer.xfer_f32(&mut self.military_percentage)?;
+        xfer.xfer_marker_label("EconomicPercentage")?;
+        xfer.xfer_f32(&mut self.economic_percentage)?;
+        xfer.xfer_marker_label("DefensivePercentage")?;
+        xfer.xfer_f32(&mut self.defensive_percentage)?;
+        Ok(())
+    }
+}
+
+impl XferData for AIEconomicStateSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("AIEconomicStateSnapshot")?;
+        xfer.xfer_marker_label("BuildPriorities")?;
+        xfer_vec_default(
+            xfer,
+            &mut self.build_priorities,
+            BuildPriority {
+                template_name: String::new(),
+                priority: 0.0,
+                desired_count: 0,
+                current_count: 0,
+            },
+        )?;
+        xfer.xfer_marker_label("EconomicFocus")?;
+        self.economic_focus.xfer(xfer)?;
+        xfer.xfer_marker_label("ResourceAllocation")?;
+        self.resource_allocation.xfer(xfer)?;
+        Ok(())
+    }
+}
+
+impl XferData for AIPlayerSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("AIPlayerSnapshot")?;
+        xfer.xfer_marker_label("PlayerId")?;
+        xfer.xfer_u32(&mut self.player_id)?;
+        xfer.xfer_marker_label("Difficulty")?;
+        self.difficulty.xfer(xfer)?;
+        xfer.xfer_marker_label("Personality")?;
+        self.personality.xfer(xfer)?;
+        xfer.xfer_marker_label("CurrentStrategy")?;
+        self.current_strategy.xfer(xfer)?;
+        xfer.xfer_marker_label("StrategicState")?;
+        self.strategic_state.xfer(xfer)?;
+        xfer.xfer_marker_label("TacticalState")?;
+        self.tactical_state.xfer(xfer)?;
+        xfer.xfer_marker_label("EconomicState")?;
+        self.economic_state.xfer(xfer)?;
+        Ok(())
+    }
+}
+
+impl XferData for DifficultyModifiers {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("DifficultyModifiers")?;
+        xfer.xfer_marker_label("AIResourceBonus")?;
+        xfer.xfer_f32(&mut self.ai_resource_bonus)?;
+        xfer.xfer_marker_label("AIDamageBonus")?;
+        xfer.xfer_f32(&mut self.ai_damage_bonus)?;
+        xfer.xfer_marker_label("AIHealthBonus")?;
+        xfer.xfer_f32(&mut self.ai_health_bonus)?;
+        xfer.xfer_marker_label("AIBuildSpeedBonus")?;
+        xfer.xfer_f32(&mut self.ai_build_speed_bonus)?;
+        Ok(())
+    }
+}
+
+impl XferData for GlobalAIStateSnapshot {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        xfer.xfer_marker_label("GlobalAIStateSnapshot")?;
+        xfer.xfer_marker_label("GlobalTimers")?;
+        xfer_hashmap_default(xfer, &mut self.global_timers, String::new(), 0.0f32)?;
+        xfer.xfer_marker_label("GlobalFlags")?;
+        xfer_hashmap_default(xfer, &mut self.global_flags, String::new(), false)?;
+        xfer.xfer_marker_label("DifficultyModifiers")?;
+        self.difficulty_modifiers.xfer(xfer)?;
         Ok(())
     }
 }
