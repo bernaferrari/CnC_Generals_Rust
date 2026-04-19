@@ -4796,6 +4796,13 @@ impl CnCGameEngine {
                 if let Err(err) = self.ui_manager.update(dt) {
                     warn!("UI manager update failed in menu state: {}", err);
                 }
+
+                #[cfg(feature = "game_client")]
+                {
+                    self.game_client.ensure_shell_visible().ok();
+                    self.game_client.update_pre_draw_ui().ok();
+                    self.game_client.update_post_draw_ui().ok();
+                }
                 return;
             }
             GameState::Loading => {
