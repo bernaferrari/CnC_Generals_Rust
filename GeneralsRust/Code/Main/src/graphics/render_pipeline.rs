@@ -2771,7 +2771,14 @@ impl ForwardPass {
             queue_error_total = error_count;
         } // Mutex lock released here
 
-        // End frame - submit queued work to GPU
+        // C++ parity: after 3D scene, flush the 2D UI overlay (Shell menus,
+        // WindowManager windows) on top of the rendered scene. This is the
+        // post-scene 2D pass where gadget draw callbacks render.
+        self.renderer.enqueue_post_frame_callback(|frame| {
+            crate::graphics::ui_render_pass::flush_ui_to_frame(frame)
+        });
+
+        // End frame - submit queued work to GPU (runs post-frame callbacks first)
         self.renderer
             .end_frame()
             .map_err(|e| anyhow::anyhow!("WW3D renderer end_frame failed: {e:?}"))?;
