@@ -3432,7 +3432,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn ensure_shell_visible(&self) -> GameClientResult<()> {
+    pub fn ensure_shell_visible(&self) -> GameClientResult<()> {
         if !self.should_activate_shell_after_startup() {
             return Ok(());
         }
@@ -3455,7 +3455,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn update_pre_draw_ui(&mut self) -> GameClientResult<()> {
+    pub fn update_pre_draw_ui(&mut self) -> GameClientResult<()> {
         if let Some(ref window_manager) = self.subsystem_manager.window_manager {
             window_manager.lock().unwrap().update()?;
         }
@@ -3467,7 +3467,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn update_post_draw_ui(&mut self) -> GameClientResult<()> {
+    pub fn update_post_draw_ui(&mut self) -> GameClientResult<()> {
         {
             let mut shell = get_shell();
             shell.update().map_err(|err| {

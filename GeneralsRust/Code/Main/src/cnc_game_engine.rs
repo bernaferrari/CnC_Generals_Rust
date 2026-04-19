@@ -3161,8 +3161,16 @@ impl CnCGameEngine {
             last_caustic_warmup_attempt: None,
 
             #[cfg(feature = "game_client")]
-            game_client: game_client::core::game_client::GameClient::new()
-                .expect("Failed to create GameClient"),
+            game_client: {
+                let mut gc = game_client::core::game_client::GameClient::new()
+                    .expect("Failed to create GameClient");
+                // C++ parity: GameEngine::init() calls createGameClient() which invokes
+                // GameClient::init(), creating WindowManager, Shell, FontLibrary, Display,
+                // Mouse, InGameUI, and all GUI subsystems. Without this the shell/menu
+                // system is completely dormant.
+                gc.init().expect("Failed to initialize GameClient subsystems");
+                gc
+            },
 
             game_logic,
             combat_system,
@@ -4865,6 +4873,12 @@ impl CnCGameEngine {
                 if let Err(e) = self.game_client.update_drawables(visual_delta) {
                     log::trace!("GameClient update_drawables failed (non-fatal): {}", e);
                 }
+                // C++ parity: GameClient::update() also runs shell activation
+                // (ensure_shell_visible → show_shell_map + show_shell), input processing,
+                // and post-draw UI updates. These are needed for the menu to appear.
+                self.game_client.ensure_shell_visible().ok();
+                self.game_client.update_pre_draw_ui().ok();
+                self.game_client.update_post_draw_ui().ok();
             }
 
             // C++ parity: when script time-freeze is active, gameplay simulation should not
