@@ -177,7 +177,11 @@ impl Snapshotable for StealthUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -224,7 +228,7 @@ impl StealthUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<StealthUpdateModuleData>()
+            .downcast_ref::<StealthUpdateModuleData>()
             .ok_or("Invalid module data type for StealthUpdate")?;
 
         let reveal_distance_config =

@@ -241,7 +241,7 @@ impl ParticleUplinkCannonUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<ParticleUplinkCannonUpdateModuleData>()
+            .downcast_ref::<ParticleUplinkCannonUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let obj_guard = object.read().unwrap();
@@ -1325,7 +1325,121 @@ impl Snapshotable for ParticleUplinkCannonUpdateModule {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        let b = &mut self.behavior;
+
+        // Enum: PUCStatus as u32
+        let mut status = b.status as u32;
+        xfer.xfer_unsigned_int(&mut status)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.status = match status {
+                0 => PUCStatus::Idle,
+                1 => PUCStatus::Charging,
+                2 => PUCStatus::Preparing,
+                3 => PUCStatus::AlmostReady,
+                4 => PUCStatus::ReadyToFire,
+                5 => PUCStatus::PreFire,
+                6 => PUCStatus::Firing,
+                7 => PUCStatus::PostFire,
+                8 => PUCStatus::Packing,
+                _ => PUCStatus::Idle,
+            };
+        }
+
+        // Enum: LaserStatus as u32
+        let mut laser_status = b.laser_status as u32;
+        xfer.xfer_unsigned_int(&mut laser_status)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.laser_status = match laser_status {
+                0 => LaserStatus::None,
+                1 => LaserStatus::Born,
+                2 => LaserStatus::Decaying,
+                3 => LaserStatus::Dead,
+                _ => LaserStatus::None,
+            };
+        }
+
+        // Positions
+        xfer.xfer_real(&mut b.connector_node_position.x)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.connector_node_position.y)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.connector_node_position.z)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.laser_origin_position.x)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.laser_origin_position.y)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.laser_origin_position.z)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.initial_target_position.x)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.initial_target_position.y)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.initial_target_position.z)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.current_target_position.x)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.current_target_position.y)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.current_target_position.z)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.override_target_destination.x)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.override_target_destination.y)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b.override_target_destination.z)
+            .map_err(|e| e.to_string())?;
+
+        // Frame counters
+        xfer.xfer_unsigned_int(&mut b.start_attack_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut b.start_decay_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut b.next_scorch_mark_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut b.scorch_marks_made)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut b.next_damage_pulse_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut b.damage_pulses_made)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut b.next_launch_fx_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut b.ground_to_orbit_decay_end_frame)
+            .map_err(|e| e.to_string())?;
+
+        // Bool flags
+        xfer.xfer_bool(&mut b.manual_target_mode)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut b.scripted_waypoint_mode)
+            .map_err(|e| e.to_string())?;
+
+        // Waypoint / driving frames
+        xfer.xfer_unsigned_int(&mut b.next_dest_waypoint_id)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut b.last_driving_click_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut b.second_last_driving_click_frame)
+            .map_err(|e| e.to_string())?;
+
+        // Cached state booleans
+        xfer.xfer_bool(&mut b.default_info_cached)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut b.up_bones_cached)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut b.client_shrouded_last_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut b.invalid_settings)
+            .map_err(|e| e.to_string())?;
+
         Ok(())
     }
 
