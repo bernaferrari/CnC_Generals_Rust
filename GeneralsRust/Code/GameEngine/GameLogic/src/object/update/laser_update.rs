@@ -161,7 +161,6 @@ impl LaserUpdateModule {
 }
 
 impl Module for LaserUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -180,7 +179,80 @@ impl Snapshotable for LaserUpdateModule {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        let u = &mut self.update;
+
+        xfer.xfer_real(&mut u.start_pos.x)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut u.start_pos.y)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut u.start_pos.z)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut u.end_pos.x)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut u.end_pos.y)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut u.end_pos.z)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut u.dirty).map_err(|e| e.to_string())?;
+
+        let mut ps_id = u.particle_system_id.unwrap_or(0);
+        xfer.xfer_unsigned_int(&mut ps_id)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            u.particle_system_id = if ps_id == 0 { None } else { Some(ps_id) };
+        }
+
+        let mut tps_id = u.target_particle_system_id.unwrap_or(0);
+        xfer.xfer_unsigned_int(&mut tps_id)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            u.target_particle_system_id = if tps_id == 0 { None } else { Some(tps_id) };
+        }
+
+        xfer.xfer_bool(&mut u.widening).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut u.decaying).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut u.widen_start_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut u.widen_finish_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut u.current_width_scalar)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut u.decay_start_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut u.decay_finish_frame)
+            .map_err(|e| e.to_string())?;
+
+        let mut parent_id = u.parent_id.unwrap_or(0);
+        xfer.xfer_drawable_id(&mut parent_id)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            u.parent_id = if parent_id == 0 {
+                None
+            } else {
+                Some(parent_id)
+            };
+        }
+
+        let mut target_id = u.target_id.unwrap_or(0);
+        xfer.xfer_drawable_id(&mut target_id)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            u.target_id = if target_id == 0 {
+                None
+            } else {
+                Some(target_id)
+            };
+        }
+
+        xfer.xfer_ascii_string(&mut u.parent_bone_name)
+            .map_err(|e| e.to_string())?;
+
         Ok(())
     }
 

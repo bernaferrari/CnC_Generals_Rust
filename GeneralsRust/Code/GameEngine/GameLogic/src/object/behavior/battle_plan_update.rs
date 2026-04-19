@@ -143,7 +143,7 @@ impl BattlePlanUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<BattlePlanUpdateModuleData>()
+            .downcast_ref::<BattlePlanUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let bonuses = BattlePlanBonuses {
@@ -761,7 +761,91 @@ impl Snapshotable for BattlePlanUpdateModule {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        let b = &mut self.behavior;
+
+        let mut status = b.status as u32;
+        xfer.xfer_unsigned_int(&mut status)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.status = match status {
+                0 => TransitionStatus::Idle,
+                1 => TransitionStatus::Unpacking,
+                2 => TransitionStatus::Active,
+                3 => TransitionStatus::Packing,
+                _ => TransitionStatus::Idle,
+            };
+        }
+
+        let mut current_plan = b.current_plan as u32;
+        xfer.xfer_unsigned_int(&mut current_plan)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.current_plan = match current_plan {
+                0 => BattlePlanStatus::None,
+                1 => BattlePlanStatus::Bombardment,
+                2 => BattlePlanStatus::HoldTheLine,
+                3 => BattlePlanStatus::SearchAndDestroy,
+                _ => BattlePlanStatus::None,
+            };
+        }
+
+        let mut desired_plan = b.desired_plan as u32;
+        xfer.xfer_unsigned_int(&mut desired_plan)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.desired_plan = match desired_plan {
+                0 => BattlePlanStatus::None,
+                1 => BattlePlanStatus::Bombardment,
+                2 => BattlePlanStatus::HoldTheLine,
+                3 => BattlePlanStatus::SearchAndDestroy,
+                _ => BattlePlanStatus::None,
+            };
+        }
+
+        let mut plan_affecting_army = b.plan_affecting_army as u32;
+        xfer.xfer_unsigned_int(&mut plan_affecting_army)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.plan_affecting_army = match plan_affecting_army {
+                0 => BattlePlanStatus::None,
+                1 => BattlePlanStatus::Bombardment,
+                2 => BattlePlanStatus::HoldTheLine,
+                3 => BattlePlanStatus::SearchAndDestroy,
+                _ => BattlePlanStatus::None,
+            };
+        }
+
+        xfer.xfer_unsigned_int(&mut b.next_ready_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut b.invalid_settings)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut b.centering_turret)
+            .map_err(|e| e.to_string())?;
+
+        let mut vision_id = b.vision_object_id.unwrap_or(0u32);
+        xfer.xfer_object_id(&mut vision_id)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.vision_object_id = if vision_id == 0 {
+                None
+            } else {
+                Some(vision_id)
+            };
+        }
+
+        let mut sp_id = b.special_power_module.unwrap_or(0u32);
+        xfer.xfer_unsigned_int(&mut sp_id)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            b.special_power_module = if sp_id == 0 { None } else { Some(sp_id) };
+        }
+
         Ok(())
     }
 

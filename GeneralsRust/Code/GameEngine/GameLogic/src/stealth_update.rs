@@ -711,7 +711,6 @@ impl StealthUpdateModule {
 }
 
 impl Module for StealthUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -739,7 +738,33 @@ impl Snapshotable for StealthUpdateModule {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        xfer.xfer_object_id(&mut self.object_id)
+            .map_err(|e| e.to_string())?;
+
+        let mut controller = self
+            .controller
+            .lock()
+            .map_err(|_| "StealthUpdateModule: controller lock poisoned".to_string())?;
+
+        xfer.xfer_bool(&mut controller.is_stealthed)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut controller.stealth_allowed_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut controller.detection_expires_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut controller.next_black_market_check_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut controller.frames_granted)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut controller.enabled)
+            .map_err(|e| e.to_string())?;
+
         Ok(())
     }
 

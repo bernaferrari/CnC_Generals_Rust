@@ -371,12 +371,36 @@ impl Snapshotable for MaxHealthUpgrade {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        let _ = _xfer.xfer_version(&mut version, 1);
-        let mut applied = self.applied;
-        let _ = _xfer.xfer_bool(&mut applied);
-        self.applied = applied;
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 2;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.applied)
+            .map_err(|e| e.to_string())?;
+        if version >= 2 {
+            let mut has_original: bool = false;
+            let mut original_val: f32 = 0.0;
+            if let Ok(guard) = self.inner.lock() {
+                if let Some(val) = guard.original_max_health {
+                    has_original = true;
+                    original_val = val;
+                }
+            }
+            xfer.xfer_bool(&mut has_original)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_real(&mut original_val)
+                .map_err(|e| e.to_string())?;
+            if xfer.is_reading() {
+                if let Ok(mut guard) = self.inner.lock() {
+                    guard.original_max_health = if has_original {
+                        Some(original_val)
+                    } else {
+                        None
+                    };
+                }
+            }
+        }
         Ok(())
     }
 
