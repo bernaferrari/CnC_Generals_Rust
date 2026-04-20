@@ -4121,7 +4121,7 @@ lazy_static::lazy_static! {
 
 /// Initialize the global terrain visual instance
 pub fn init_terrain_visual() -> TerrainResult<()> {
-    let mut global_instance = THE_TERRAIN_VISUAL.lock().unwrap();
+    let mut global_instance = THE_TERRAIN_VISUAL.lock().unwrap_or_else(|e| e.into_inner());
     *global_instance = Some(TerrainVisualImpl::new());
     Ok(())
 }

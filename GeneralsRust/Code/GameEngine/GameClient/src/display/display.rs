@@ -718,7 +718,7 @@ impl DisplayInterface for Display {
 
         // UI rendering pass
         let ui_result = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().unwrap();
+            let mut renderer = renderer.write().unwrap_or_else(|e| e.into_inner());
             renderer.begin_frame();
             renderer.set_time(self.start_time.elapsed().as_secs_f32());
             renderer.set_screen_size(self.width.max(1), self.height.max(1));

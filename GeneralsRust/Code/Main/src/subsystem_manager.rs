@@ -1669,7 +1669,7 @@ impl SubsystemManagerHandle {
     }
 
     pub fn lock(&self) -> std::sync::MutexGuard<'_, SubsystemManager> {
-        self.inner.lock().expect("SubsystemManager mutex poisoned")
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -1962,7 +1962,7 @@ mod tests {
         let queue = get_game_results_queue().unwrap();
 
         {
-            let mut guard = queue.lock().unwrap();
+            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             let mut victory = crate::game_logic::victory::VictorySummary::new();
             victory.mission_name = Some("Lifecycle".to_string());
             guard.enqueue(victory.clone()).unwrap();
@@ -1971,13 +1971,13 @@ mod tests {
 
         assert!(subsystem.reset().is_ok());
         {
-            let guard = queue.lock().unwrap();
+            let guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             assert_eq!(guard.len(), 1);
             assert!(!guard.is_empty());
         }
 
         {
-            let mut guard = queue.lock().unwrap();
+            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             let mut victory = crate::game_logic::victory::VictorySummary::new();
             victory.mission_name = Some("Shutdown".to_string());
             guard.enqueue(victory).unwrap();
@@ -1988,7 +1988,7 @@ mod tests {
 
         assert!(subsystem.init().is_ok());
         {
-            let mut guard = queue.lock().unwrap();
+            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             let mut victory = crate::game_logic::victory::VictorySummary::new();
             victory.mission_name = Some("Reinit".to_string());
             guard.enqueue(victory).unwrap();
@@ -2015,7 +2015,10 @@ mod tests {
             }
 
             fn reset(&mut self) -> Result<()> {
-                self.log.lock().unwrap().push(self.name);
+                self.log
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(self.name);
                 Ok(())
             }
 
@@ -2045,7 +2048,10 @@ mod tests {
 
         manager.reset_all().unwrap();
 
-        assert_eq!(&*log.lock().unwrap(), &["Third", "Second", "First"]);
+        assert_eq!(
+            &*log.lock().unwrap_or_else(|e| e.into_inner()),
+            &["Third", "Second", "First"]
+        );
     }
 
     #[test]
@@ -2075,7 +2081,10 @@ mod tests {
             }
 
             fn shutdown(&mut self) -> Result<()> {
-                self.log.lock().unwrap().push(self.name);
+                self.log
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push(self.name);
                 Ok(())
             }
         }
@@ -2097,7 +2106,10 @@ mod tests {
 
         manager.shutdown_all().unwrap();
 
-        assert_eq!(&*log.lock().unwrap(), &["Third", "Second", "First"]);
+        assert_eq!(
+            &*log.lock().unwrap_or_else(|e| e.into_inner()),
+            &["Third", "Second", "First"]
+        );
     }
 
     #[test]

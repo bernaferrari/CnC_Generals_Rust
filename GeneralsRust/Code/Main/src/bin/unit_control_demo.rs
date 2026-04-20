@@ -89,7 +89,7 @@ impl UnitControlDemo {
 
         // Set up the game world
         {
-            let mut logic = game_logic.lock().unwrap();
+            let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
             logic.start_new_game(GameMode::Skirmish);
             logic.load_map("demo_map");
 
@@ -152,7 +152,7 @@ impl UnitControlDemo {
 
         // Update game logic
         {
-            let mut logic = self.game_logic.lock().unwrap();
+            let mut logic = self.game_logic.lock().unwrap_or_else(|e| e.into_inner());
             logic.update_with_timing(timing);
         }
 

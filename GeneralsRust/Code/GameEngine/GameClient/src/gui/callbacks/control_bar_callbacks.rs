@@ -242,7 +242,7 @@ impl ControlBarCallbacks {
         if control_id == beacon_delete_id {
             if TheGameLogic::is_in_multiplayer_game() {
                 let message_stream = get_message_stream();
-                let mut stream = message_stream.write().unwrap();
+                let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
                 stream.append_message(GameMessageType::RemoveBeacon(
                     crate::message_stream::game_message::Coord3D::default(),
                 ));
@@ -281,7 +281,7 @@ impl ControlBarCallbacks {
         if control_id == button_idle_worker_id {
             hide_quit_menu();
             let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap();
+            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
             stream.append_message(GameMessageType::MetaSelectNextWorker);
             return;
         }
@@ -311,7 +311,7 @@ impl ControlBarCallbacks {
             })
             .unwrap_or_default();
             let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap();
+            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
             stream.append_message(GameMessageType::SetBeaconText(
                 crate::message_stream::game_message::Coord3D::default(),
                 text,
@@ -492,7 +492,7 @@ impl LeftHUDCallbacks {
             });
         } else {
             let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap();
+            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
             let world_pos =
                 crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z);
 
@@ -619,19 +619,19 @@ impl ControlBarSystem {
 
     /// Toggle control bar visibility through the system
     pub fn toggle_control_bar(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap();
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.toggle_control_bar(immediate)
     }
 
     /// Hide control bar through the system
     pub fn hide_control_bar(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap();
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.hide_control_bar(immediate)
     }
 
     /// Show control bar through the system  
     pub fn show_control_bar(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap();
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.show_control_bar(immediate)
     }
 }
@@ -655,19 +655,19 @@ pub fn get_control_bar_system() -> Arc<RwLock<ControlBarSystem>> {
 /// Convenience functions for global control bar operations
 pub fn toggle_control_bar(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_control_bar_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.toggle_control_bar(immediate)
 }
 
 pub fn hide_control_bar(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_control_bar_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.hide_control_bar(immediate)
 }
 
 pub fn show_control_bar(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_control_bar_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.show_control_bar(immediate)
 }
 

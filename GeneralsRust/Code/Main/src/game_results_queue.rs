@@ -176,7 +176,7 @@ mod tests {
         let queue = init_game_results_queue().unwrap();
 
         {
-            let mut guard = queue.lock().unwrap();
+            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             guard.enqueue(sample_summary("First")).unwrap();
             guard.enqueue(sample_summary("Second")).unwrap();
         }
@@ -194,7 +194,7 @@ mod tests {
         let queue = init_game_results_queue().unwrap();
 
         {
-            let mut guard = queue.lock().unwrap();
+            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             guard.enqueue(sample_summary("Reset Me")).unwrap();
             assert_eq!(guard.len(), 1);
         }
@@ -202,7 +202,7 @@ mod tests {
         reset_game_results_queue().unwrap();
 
         {
-            let guard = queue.lock().unwrap();
+            let guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             assert_eq!(guard.len(), 1);
             assert!(!guard.is_empty());
             assert_eq!(
@@ -218,14 +218,14 @@ mod tests {
         let queue = init_game_results_queue().unwrap();
 
         {
-            let mut guard = queue.lock().unwrap();
+            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             guard.enqueue(sample_summary("Before Shutdown")).unwrap();
         }
 
         shutdown_game_results_queue().unwrap();
 
         {
-            let mut guard = queue.lock().unwrap();
+            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             assert!(!guard.is_initialized());
             assert!(guard.enqueue(sample_summary("After Shutdown")).is_err());
         }
@@ -233,7 +233,7 @@ mod tests {
         init_game_results_queue().unwrap();
 
         {
-            let mut guard = queue.lock().unwrap();
+            let mut guard = queue.lock().unwrap_or_else(|e| e.into_inner());
             guard.enqueue(sample_summary("After Reinit")).unwrap();
             assert_eq!(
                 guard.dequeue().unwrap().unwrap().mission_name.as_deref(),

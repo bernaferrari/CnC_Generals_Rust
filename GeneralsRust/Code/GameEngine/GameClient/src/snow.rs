@@ -183,7 +183,7 @@ impl SnowManager {
         let Some(settings) = get_weather_setting() else {
             return;
         };
-        let guard = settings.read().unwrap();
+        let guard = settings.read().unwrap_or_else(|e| e.into_inner());
 
         let mut rng = rand::thread_rng();
         let box_dimensions = guard.snow_box_dimensions.max(0.0);

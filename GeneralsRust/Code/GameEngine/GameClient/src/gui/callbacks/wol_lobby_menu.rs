@@ -322,8 +322,7 @@ fn insert_player_in_listbox(
 pub fn populate_lobby_player_listbox() {
     let (listbox_id, listbox_window) = {
         let state = wol_state()
-            .lock()
-            .expect("WOLLobbyMenu state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         (
             state.listbox_lobby_players_id,
             state.listbox_lobby_players.clone(),
@@ -467,8 +466,7 @@ fn populate_group_room_listbox(combo_window: &Rc<RefCell<GameWindow>>) {
 
 fn refresh_game_list(force_refresh: bool) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLLobbyMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     let now = now_ms();
     if force_refresh
         || state.game_list_refresh_time == 0
@@ -485,8 +483,7 @@ fn refresh_game_list(force_refresh: bool) {
             drop(state);
             refresh_game_list_boxes();
             let mut state = wol_state()
-                .lock()
-                .expect("WOLLobbyMenu state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             state.game_list_refresh_time = now;
         }
     }
@@ -494,8 +491,7 @@ fn refresh_game_list(force_refresh: bool) {
 
 fn refresh_player_list(force_refresh: bool) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLLobbyMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     let now = now_ms();
     if force_refresh
         || state.player_list_refresh_time == 0
@@ -504,8 +500,7 @@ fn refresh_player_list(force_refresh: bool) {
         drop(state);
         populate_lobby_player_listbox();
         let mut state = wol_state()
-            .lock()
-            .expect("WOLLobbyMenu state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         state.player_list_refresh_time = now;
     }
 }
@@ -899,8 +894,7 @@ fn close_right_click_menu(window: &GameWindow) {
 
 pub fn wol_lobby_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLLobbyMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.next_screen = None;
     state.button_pushed = false;
     state.is_shutting_down = false;
@@ -1035,8 +1029,7 @@ pub fn wol_lobby_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn st
 
 fn shutdown_complete(layout: &WindowLayout) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLLobbyMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = false;
     layout.hide(true);
     let next = state.next_screen.take();
@@ -1074,8 +1067,7 @@ pub fn wol_lobby_menu_shutdown(layout: &WindowLayout, user_data: Option<&mut dyn
     }
 
     let mut state = wol_state()
-        .lock()
-        .expect("WOLLobbyMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.listbox_lobby_chat = None;
     state.listbox_lobby_players = None;
     state.is_shutting_down = true;
@@ -1150,8 +1142,7 @@ fn handle_persistent_storage_responses() {
 
 pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLLobbyMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     if state.just_entered {
         if state.initial_gadget_delay == 1 {
@@ -1309,8 +1300,7 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&mut dyn 
                         PeerResponseType::CreateStagingRoom => {
                             saw_important = true;
                             let mut state = wol_state()
-                                .lock()
-                                .expect("WOLLobbyMenu state lock poisoned");
+                                .lock().unwrap_or_else(|e| e.into_inner());
                             state.trying_to_host_or_join = false;
                             if resp.create_staging_result == 0 {
                                 state.button_pushed = true;
@@ -1327,8 +1317,7 @@ pub fn wol_lobby_menu_update(layout: &WindowLayout, _user_data: Option<&mut dyn 
                         PeerResponseType::JoinStagingRoom => {
                             saw_important = true;
                             let mut state = wol_state()
-                                .lock()
-                                .expect("WOLLobbyMenu state lock poisoned");
+                                .lock().unwrap_or_else(|e| e.into_inner());
                             state.trying_to_host_or_join = false;
                             if resp.join_staging_ok {
                                 state.button_pushed = true;
@@ -1685,8 +1674,7 @@ pub fn wol_lobby_menu_input(
         let state = data2 as u32;
         if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
             let state = wol_state()
-                .lock()
-                .expect("WOLLobbyMenu state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if let Some(button_back) = state.button_back.as_ref() {
                 let _ = button_back.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,
@@ -1714,8 +1702,7 @@ pub fn wol_lobby_menu_system(
             let control_id = data1 as i32;
             if control_id == get_game_list_box_id() {
                 let mut state = wol_state()
-                    .lock()
-                    .expect("WOLLobbyMenu state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 let selected = get_game_list_box().and_then(|win| {
                     win.borrow().widget().and_then(|widget| match widget {
                         WindowWidget::ListBox(lb) => lb.selected_indices().first().copied(),
@@ -1784,8 +1771,7 @@ pub fn wol_lobby_menu_system(
                 .unwrap_or((0, 0, 0));
             if control_id == name_to_id("WOLCustomLobby.wnd:ButtonBack") {
                 let mut state = wol_state()
-                    .lock()
-                    .expect("WOLLobbyMenu state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 if state.trying_to_host_or_join {
                     return WindowMsgHandled::Handled;
                 }
@@ -1801,8 +1787,7 @@ pub fn wol_lobby_menu_system(
                 refresh_player_list(true);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonHost") {
                 let mut state = wol_state()
-                    .lock()
-                    .expect("WOLLobbyMenu state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 if state.trying_to_host_or_join {
                     return WindowMsgHandled::Handled;
                 }
@@ -1814,8 +1799,7 @@ pub fn wol_lobby_menu_system(
                 open_overlay(GameSpyOverlayType::GameOptions);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonJoin") {
                 let mut state = wol_state()
-                    .lock()
-                    .expect("WOLLobbyMenu state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 if state.trying_to_host_or_join {
                     return WindowMsgHandled::Handled;
                 }
@@ -1908,13 +1892,11 @@ pub fn wol_lobby_menu_system(
                 toggle_overlay(GameSpyOverlayType::Buddy);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonGameListToggle") {
                 let mut state = wol_state()
-                    .lock()
-                    .expect("WOLLobbyMenu state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 toggle_game_list_type(&mut state);
             } else if control_id == sort_alpha_id {
                 let mut state = wol_state()
-                    .lock()
-                    .expect("WOLLobbyMenu state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 if state.sort_type == GameSortType::AlphaAscending {
                     set_sort_mode(&mut state, GameSortType::AlphaDescending);
                 } else {
@@ -1922,8 +1904,7 @@ pub fn wol_lobby_menu_system(
                 }
             } else if control_id == sort_ping_id {
                 let mut state = wol_state()
-                    .lock()
-                    .expect("WOLLobbyMenu state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 if state.sort_type == GameSortType::PingAscending {
                     set_sort_mode(&mut state, GameSortType::PingDescending);
                 } else {
@@ -1931,8 +1912,7 @@ pub fn wol_lobby_menu_system(
                 }
             } else if control_id == sort_buddies_id {
                 let mut state = wol_state()
-                    .lock()
-                    .expect("WOLLobbyMenu state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 toggle_sort_buddies(&mut state);
             } else if control_id == name_to_id("WOLCustomLobby.wnd:ButtonEmote") {
                 if let Some(entry) = wol_state()
@@ -1962,8 +1942,7 @@ pub fn wol_lobby_menu_system(
         WindowMessage::GadgetEditDone => {
             let control_id = data1 as i32;
             let state = wol_state()
-                .lock()
-                .expect("WOLLobbyMenu state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if control_id == state.text_entry_chat_id {
                 if let Some(entry) = state.text_entry_chat.as_ref() {
                     if let Some(widget) = entry.borrow_mut().text_entry_mut() {
@@ -1986,8 +1965,7 @@ pub fn wol_lobby_menu_system(
         WindowMessage::GadgetRightClick => {
             let control_id = data1 as i32;
             let state = wol_state()
-                .lock()
-                .expect("WOLLobbyMenu state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if control_id == state.listbox_lobby_players_id {
                 let Some(listbox_window) = state.listbox_lobby_players.as_ref() else {
                     return WindowMsgHandled::Handled;

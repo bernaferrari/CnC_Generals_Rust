@@ -4465,8 +4465,7 @@ mod tests {
         static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         TEST_STATE_LOCK
             .get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("translator test state lock poisoned")
+            .lock().unwrap_or_else(|e| e.into_inner())
     }
 
     #[test]

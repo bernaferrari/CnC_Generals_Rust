@@ -17,15 +17,13 @@ fn gamespy_game_info() -> &'static Mutex<GameInfo> {
 
 pub fn with_gamespy_game_info<R>(f: impl FnOnce(&GameInfo) -> R) -> R {
     let guard = gamespy_game_info()
-        .lock()
-        .expect("GameSpy GameInfo lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     f(&guard)
 }
 
 pub fn with_gamespy_game_info_mut<R>(f: impl FnOnce(&mut GameInfo) -> R) -> R {
     let mut guard = gamespy_game_info()
-        .lock()
-        .expect("GameSpy GameInfo lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     f(&mut guard)
 }
 

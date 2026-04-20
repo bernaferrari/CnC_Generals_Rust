@@ -685,7 +685,7 @@ impl CopyProtectionHandle {
     }
 
     pub fn lock(&self) -> std::sync::MutexGuard<'_, CopyProtection> {
-        self.inner.lock().expect("CopyProtection mutex poisoned")
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 

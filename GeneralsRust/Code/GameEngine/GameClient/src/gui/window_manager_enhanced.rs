@@ -4,19 +4,22 @@
 //! event routing, focus management, and rendering coordination.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock, Mutex, atomic::AtomicI32};
+use std::sync::{atomic::AtomicI32, Arc, Mutex, RwLock};
 use std::time::Instant;
 use thiserror::Error;
-use winit::event::{WindowEvent, ElementState, MouseButton, MouseScrollDelta};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::keyboard::{KeyCode as WinitKeyCode, PhysicalKey};
 
 use super::game_window::{
-    color_to_rgba, WindowDrawData as LegacyDrawData, WindowStatus as LegacyWindowStatus, WindowWidget,
-    GWS_ALL_SLIDER, GWS_CHECK_BOX, GWS_COMBO_BOX, GWS_ENTRY_FIELD, GWS_HORZ_SLIDER, GWS_MOUSE_TRACK,
-    GWS_PROGRESS_BAR, GWS_PUSH_BUTTON, GWS_RADIO_BUTTON, GWS_SCROLL_LISTBOX, GWS_STATIC_TEXT,
-    GWS_TAB_CONTROL, GWS_TAB_PANE, GWS_TAB_STOP, GWS_USER_WINDOW, GWS_VERT_SLIDER,
+    color_to_rgba, WindowDrawData as LegacyDrawData, WindowStatus as LegacyWindowStatus,
+    WindowWidget, GWS_ALL_SLIDER, GWS_CHECK_BOX, GWS_COMBO_BOX, GWS_ENTRY_FIELD, GWS_HORZ_SLIDER,
+    GWS_MOUSE_TRACK, GWS_PROGRESS_BAR, GWS_PUSH_BUTTON, GWS_RADIO_BUTTON, GWS_SCROLL_LISTBOX,
+    GWS_STATIC_TEXT, GWS_TAB_CONTROL, GWS_TAB_PANE, GWS_TAB_STOP, GWS_USER_WINDOW, GWS_VERT_SLIDER,
 };
-use super::game_window_enhanced::{ComboBoxLinks, EnhancedGameWindow, ListBoxLinks, WindowId, WindowMessage, WindowMsgHandled, WindowStatus, WINDOW_ID_INVALID};
+use super::game_window_enhanced::{
+    ComboBoxLinks, EnhancedGameWindow, ListBoxLinks, WindowId, WindowMessage, WindowMsgHandled,
+    WindowStatus, WINDOW_ID_INVALID,
+};
 use super::ui_renderer::UIRenderer;
 use super::window_script::{parse_window_script, WindowDefinition, WindowLayoutDefinition};
 use crate::core::subsystems::RadarPingKind;
@@ -118,7 +121,7 @@ pub struct EnhancedWindowManager {
     windows: RwLock<HashMap<WindowId, Arc<EnhancedGameWindow>>>,
     next_window_id: AtomicI32,
     root_windows: RwLock<Vec<Arc<EnhancedGameWindow>>>,
-    
+
     // Focus and input management
     focused_window: RwLock<Option<WindowId>>,
     mouse_capture_window: RwLock<Option<WindowId>>,
@@ -126,26 +129,26 @@ pub struct EnhancedWindowManager {
     mouse_position: RwLock<(f32, f32)>,
     tab_list: RwLock<Vec<WindowId>>,
     radio_groups: RwLock<HashMap<u32, RadioButtonGroup>>,
-    
+
     // Modal window support
     modal_stack: RwLock<Vec<ModalWindow>>,
-    
+
     // Event handling
     event_queue: Mutex<VecDeque<QueuedEvent>>,
     focus_history: RwLock<Vec<FocusChange>>,
-    
+
     // Layout management
     loaded_layouts: RwLock<HashMap<String, WindowLayoutInfo>>,
-    
+
     // Rendering
     renderer: RwLock<Option<Arc<RwLock<UIRenderer>>>>,
     radar_overlay: RwLock<Vec<(f32, f32, f32, RadarPingKind)>>, // normalized x,z, age, kind
-    
+
     // Configuration
     max_windows: usize,
     enable_tooltips: bool,
     tooltip_delay: u32,
-    
+
     // Performance tracking
     frame_count: AtomicI32,
     last_update_time: RwLock<Instant>,
@@ -177,48 +180,69 @@ impl EnhancedWindowManager {
             last_update_time: RwLock::new(Instant::now()),
         }
     }
-    
+
     /// Initialize the window manager with a UI renderer
     pub fn initialize(&self, renderer: Arc<RwLock<UIRenderer>>) -> Result<()> {
-        *self.renderer.write().unwrap() = Some(renderer);
+        *self.renderer.write().unwrap_or_else(|e| e.into_inner()) = Some(renderer);
         Ok(())
     }
 
     /// Update the overlay radar pings (normalized coordinates).
     pub fn set_radar_overlay(&self, dots: Vec<(f32, f32, f32, RadarPingKind)>) {
-        *self.radar_overlay.write().unwrap() = dots;
+        *self
+            .radar_overlay
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = dots;
     }
-    
+
     /// Create a new window
-    pub fn create_window(&self, parent: Option<&Arc<EnhancedGameWindow>>, name: &str, x: i32, y: i32, width: i32, height: i32) -> Result<Arc<EnhancedGameWindow>> {
-        let windows = self.windows.read().unwrap();
+    pub fn create_window(
+        &self,
+        parent: Option<&Arc<EnhancedGameWindow>>,
+        name: &str,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    ) -> Result<Arc<EnhancedGameWindow>> {
+        let windows = self.windows.read().unwrap_or_else(|e| e.into_inner());
         if windows.len() >= self.max_windows {
-            return Err(WindowManagerError::TooManyWindows { max: self.max_windows });
+            return Err(WindowManagerError::TooManyWindows {
+                max: self.max_windows,
+            });
         }
         drop(windows);
-        
+
         // Generate unique window ID
-        let window_id = self.next_window_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        
+        let window_id = self
+            .next_window_id
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
         // Create the window
         let window = EnhancedGameWindow::new(window_id, name);
         window.set_bounds(x, y, width, height);
         window.set_status(WindowStatus::ENABLED);
-        
+
         // Add to parent if specified
         if let Some(parent_window) = parent {
             parent_window.add_child(window.clone())?;
         } else {
             // Add to root windows list
-            self.root_windows.write().unwrap().push(window.clone());
+            self.root_windows
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(window.clone());
         }
-        
+
         // Store in windows map
-        self.windows.write().unwrap().insert(window_id, window.clone());
-        
+        self.windows
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(window_id, window.clone());
+
         // Send create message
         window.send_message(WindowMessage::Create, 0, 0);
-        
+
         Ok(window)
     }
 
@@ -232,9 +256,11 @@ impl EnhancedWindowManager {
         height: i32,
         window_id: WindowId,
     ) -> Result<Arc<EnhancedGameWindow>> {
-        let windows = self.windows.read().unwrap();
+        let windows = self.windows.read().unwrap_or_else(|e| e.into_inner());
         if windows.len() >= self.max_windows {
-            return Err(WindowManagerError::TooManyWindows { max: self.max_windows });
+            return Err(WindowManagerError::TooManyWindows {
+                max: self.max_windows,
+            });
         }
         if windows.contains_key(&window_id) {
             return Err(WindowManagerError::CreationFailed(format!(
@@ -251,15 +277,25 @@ impl EnhancedWindowManager {
         if let Some(parent_window) = parent {
             parent_window.add_child(window.clone())?;
         } else {
-            self.root_windows.write().unwrap().push(window.clone());
+            self.root_windows
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(window.clone());
         }
 
-        self.windows.write().unwrap().insert(window_id, window.clone());
+        self.windows
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(window_id, window.clone());
 
-        let current_next = self.next_window_id.load(std::sync::atomic::Ordering::SeqCst);
+        let current_next = self
+            .next_window_id
+            .load(std::sync::atomic::Ordering::SeqCst);
         if window_id >= current_next {
-            self.next_window_id
-                .store(window_id.saturating_add(1), std::sync::atomic::Ordering::SeqCst);
+            self.next_window_id.store(
+                window_id.saturating_add(1),
+                std::sync::atomic::Ordering::SeqCst,
+            );
         }
 
         window.send_message(WindowMessage::Create, 0, 0);
@@ -272,81 +308,104 @@ impl EnhancedWindowManager {
         &self,
         filename: &str,
     ) -> Result<Vec<Arc<EnhancedGameWindow>>> {
-        let path = resolve_window_script_path(filename)
-            .map_err(|_| WindowManagerError::InvalidOperation(format!("Layout not found: {}", filename)))?;
+        let path = resolve_window_script_path(filename).map_err(|_| {
+            WindowManagerError::InvalidOperation(format!("Layout not found: {}", filename))
+        })?;
         let layout_def = parse_window_script(&path)
             .map_err(|err| WindowManagerError::InvalidOperation(err.to_string()))?;
 
         let screen_size = self.get_screen_size();
         let mut roots = Vec::new();
         for window_def in &layout_def.windows {
-            let window = self.create_window_from_definition(window_def, None, &layout_def, screen_size)?;
+            let window =
+                self.create_window_from_definition(window_def, None, &layout_def, screen_size)?;
             roots.push(window);
         }
         Ok(roots)
     }
-    
+
     /// Destroy a window and all its children
     pub fn destroy_window(&self, window_id: WindowId) -> Result<()> {
         let window = {
-            let windows = self.windows.read().unwrap();
-            windows.get(&window_id).cloned()
+            let windows = self.windows.read().unwrap_or_else(|e| e.into_inner());
+            windows
+                .get(&window_id)
+                .cloned()
                 .ok_or(WindowManagerError::WindowNotFound(window_id))?
         };
-        
+
         // Send destroy message
         window.send_message(WindowMessage::Destroy, 0, 0);
-        
+
         // Recursively destroy children
         let children = window.get_children();
         for child in children {
             self.destroy_window(child.get_id())?;
         }
-        
+
         // Remove from parent
         if let Some(parent) = window.get_parent() {
             parent.remove_child(&window)?;
         } else {
             // Remove from root windows
-            let mut root_windows = self.root_windows.write().unwrap();
+            let mut root_windows = self.root_windows.write().unwrap_or_else(|e| e.into_inner());
             root_windows.retain(|w| w.get_id() != window_id);
         }
-        
+
         // Clear focus if this window was focused
-        let mut focused = self.focused_window.write().unwrap();
+        let mut focused = self
+            .focused_window
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         if *focused == Some(window_id) {
             *focused = None;
         }
-        
+
         // Clear captures
-        let mut mouse_capture = self.mouse_capture_window.write().unwrap();
+        let mut mouse_capture = self
+            .mouse_capture_window
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         if *mouse_capture == Some(window_id) {
             *mouse_capture = None;
         }
-        
-        let mut keyboard_capture = self.keyboard_capture_window.write().unwrap();
+
+        let mut keyboard_capture = self
+            .keyboard_capture_window
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         if *keyboard_capture == Some(window_id) {
             *keyboard_capture = None;
         }
-        
+
         // Mark as destroyed
         window.set_status(window.get_status() | WindowStatus::DESTROYED);
-        
+
         // Remove from windows map
-        self.windows.write().unwrap().remove(&window_id);
-        self.tab_list.write().unwrap().retain(|id| *id != window_id);
-        
+        self.windows
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&window_id);
+        self.tab_list
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|id| *id != window_id);
+
         Ok(())
     }
-    
+
     /// Find a window by ID
     pub fn find_window(&self, window_id: WindowId) -> Option<Arc<EnhancedGameWindow>> {
-        self.windows.read().unwrap().get(&window_id).cloned()
+        self.windows
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&window_id)
+            .cloned()
     }
-    
+
     /// Find a window by name (searches recursively)
     pub fn find_window_by_name(&self, name: &str) -> Option<Arc<EnhancedGameWindow>> {
-        let root_windows = self.root_windows.read().unwrap();
+        let root_windows = self.root_windows.read().unwrap_or_else(|e| e.into_inner());
         for root_window in root_windows.iter() {
             if root_window.get_name() == name {
                 return Some(root_window.clone());
@@ -357,17 +416,23 @@ impl EnhancedWindowManager {
         }
         None
     }
-    
+
     /// Get the currently focused window
     pub fn get_focused_window(&self) -> Option<Arc<EnhancedGameWindow>> {
-        let focused_id = *self.focused_window.read().unwrap();
+        let focused_id = *self
+            .focused_window
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         focused_id.and_then(|id| self.find_window(id))
     }
-    
+
     /// Set window focus
     pub fn set_focus(&self, window_id: Option<WindowId>) -> Result<()> {
-        let old_focus = *self.focused_window.read().unwrap();
-        
+        let old_focus = *self
+            .focused_window
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+
         // Validate new focus window exists
         if let Some(new_id) = window_id {
             if let Some(window) = self.find_window(new_id) {
@@ -382,71 +447,86 @@ impl EnhancedWindowManager {
                 return Err(WindowManagerError::WindowNotFound(new_id));
             }
         }
-        
+
         // Update focus
-        *self.focused_window.write().unwrap() = window_id;
-        
+        *self
+            .focused_window
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = window_id;
+
         // Record focus change
         let focus_change = FocusChange {
             old_focus,
             new_focus: window_id,
             timestamp: Instant::now(),
         };
-        self.focus_history.write().unwrap().push(focus_change);
-        
+        self.focus_history
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(focus_change);
+
         // Send focus messages
         if let Some(old_id) = old_focus {
             if let Some(old_window) = self.find_window(old_id) {
                 old_window.send_message(WindowMessage::InputFocus, 0, 0);
             }
         }
-        
+
         if let Some(new_id) = window_id {
             if let Some(new_window) = self.find_window(new_id) {
                 new_window.send_message(WindowMessage::InputFocus, 1, 0);
             }
         }
-        
+
         Ok(())
     }
-    
+
     /// Navigate focus using tab key
     pub fn tab_to_next_window(&self, direction: TabDirection) -> Result<()> {
-        let current_focus = *self.focused_window.read().unwrap();
-        
+        let current_focus = *self
+            .focused_window
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+
         // Get all focusable windows in tab order
         let focusable_windows = self.get_focusable_windows();
         if focusable_windows.is_empty() {
             return Ok(());
         }
-        
+
         let current_index = if let Some(current_id) = current_focus {
-            focusable_windows.iter().position(|w| w.get_id() == current_id)
+            focusable_windows
+                .iter()
+                .position(|w| w.get_id() == current_id)
         } else {
             None
         };
-        
+
         let next_index = match (current_index, direction) {
             (Some(idx), TabDirection::Forward) => (idx + 1) % focusable_windows.len(),
             (Some(idx), TabDirection::Backward) => {
-                if idx == 0 { focusable_windows.len() - 1 } else { idx - 1 }
+                if idx == 0 {
+                    focusable_windows.len() - 1
+                } else {
+                    idx - 1
+                }
             }
             (None, TabDirection::Forward) => 0,
             (None, TabDirection::Backward) => focusable_windows.len() - 1,
         };
-        
+
         if let Some(next_window) = focusable_windows.get(next_index) {
             self.set_focus(Some(next_window.get_id()))?;
         }
-        
+
         Ok(())
     }
-    
+
     fn get_focusable_windows(&self) -> Vec<Arc<EnhancedGameWindow>> {
         let mut focusable = Vec::new();
-        let tab_list = self.tab_list.read().unwrap();
+        let tab_list = self.tab_list.read().unwrap_or_else(|e| e.into_inner());
         if !tab_list.is_empty() {
-            let windows = self.windows.read().unwrap();
+            let windows = self.windows.read().unwrap_or_else(|e| e.into_inner());
             for id in tab_list.iter() {
                 if let Some(window) = windows.get(id) {
                     let status = window.get_status();
@@ -462,55 +542,74 @@ impl EnhancedWindowManager {
             return focusable;
         }
 
-        let root_windows = self.root_windows.read().unwrap();
+        let root_windows = self.root_windows.read().unwrap_or_else(|e| e.into_inner());
         for root_window in root_windows.iter() {
             self.collect_focusable_recursive(root_window, &mut focusable);
         }
         focusable
     }
-    
-    fn collect_focusable_recursive(&self, window: &Arc<EnhancedGameWindow>, focusable: &mut Vec<Arc<EnhancedGameWindow>>) {
+
+    fn collect_focusable_recursive(
+        &self,
+        window: &Arc<EnhancedGameWindow>,
+        focusable: &mut Vec<Arc<EnhancedGameWindow>>,
+    ) {
         let status = window.get_status();
-        if status.contains(WindowStatus::ENABLED) && !status.contains(WindowStatus::HIDDEN) 
-           && status.contains(WindowStatus::TAB_STOP) && !status.contains(WindowStatus::NO_FOCUS) {
+        if status.contains(WindowStatus::ENABLED)
+            && !status.contains(WindowStatus::HIDDEN)
+            && status.contains(WindowStatus::TAB_STOP)
+            && !status.contains(WindowStatus::NO_FOCUS)
+        {
             focusable.push(window.clone());
         }
-        
+
         for child in window.get_children() {
             self.collect_focusable_recursive(&child, focusable);
         }
     }
-    
+
     /// Capture mouse input to a specific window
     pub fn capture_mouse(&self, window_id: WindowId) -> Result<()> {
         if self.find_window(window_id).is_none() {
             return Err(WindowManagerError::WindowNotFound(window_id));
         }
-        
-        *self.mouse_capture_window.write().unwrap() = Some(window_id);
+
+        *self
+            .mouse_capture_window
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(window_id);
         Ok(())
     }
-    
+
     /// Release mouse capture
     pub fn release_mouse_capture(&self) {
-        *self.mouse_capture_window.write().unwrap() = None;
+        *self
+            .mouse_capture_window
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = None;
     }
-    
+
     /// Capture keyboard input to a specific window
     pub fn capture_keyboard(&self, window_id: WindowId) -> Result<()> {
         if self.find_window(window_id).is_none() {
             return Err(WindowManagerError::WindowNotFound(window_id));
         }
-        
-        *self.keyboard_capture_window.write().unwrap() = Some(window_id);
+
+        *self
+            .keyboard_capture_window
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(window_id);
         Ok(())
     }
-    
+
     /// Release keyboard capture
     pub fn release_keyboard_capture(&self) {
-        *self.keyboard_capture_window.write().unwrap() = None;
+        *self
+            .keyboard_capture_window
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = None;
     }
-    
+
     /// Handle winit window events
     pub fn handle_window_event(&self, event: &WindowEvent) -> Result<bool> {
         match event {
@@ -520,9 +619,7 @@ impl EnhancedWindowManager {
             WindowEvent::CursorMoved { position, .. } => {
                 self.handle_mouse_move(position.x as f32, position.y as f32)
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                self.handle_mouse_wheel(*delta)
-            }
+            WindowEvent::MouseWheel { delta, .. } => self.handle_mouse_wheel(*delta),
             WindowEvent::KeyboardInput { event, .. } => {
                 // For winit 0.29 compatibility, we need to extract key code and state
                 if let Some(gui_key) = map_winit_keycode(&event.physical_key) {
@@ -539,13 +636,16 @@ impl EnhancedWindowManager {
                     self.handle_character(*ch)
                 }
             }
-            _ => Ok(false)
+            _ => Ok(false),
         }
     }
-    
+
     fn handle_mouse_button(&self, state: ElementState, button: MouseButton) -> Result<bool> {
-        let (mouse_x, mouse_y) = *self.mouse_position.read().unwrap();
-        
+        let (mouse_x, mouse_y) = *self
+            .mouse_position
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+
         let window_message = match (button, state) {
             (MouseButton::Left, ElementState::Pressed) => WindowMessage::LeftDown,
             (MouseButton::Left, ElementState::Released) => WindowMessage::LeftUp,
@@ -558,11 +658,16 @@ impl EnhancedWindowManager {
 
         let is_press = window_message == WindowMessage::LeftDown;
         let is_release = window_message == WindowMessage::LeftUp;
-        
+
         // Check if mouse is captured
-        if let Some(capture_id) = *self.mouse_capture_window.read().unwrap() {
+        if let Some(capture_id) = *self
+            .mouse_capture_window
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+        {
             if let Some(capture_window) = self.find_window(capture_id) {
-                let (rel_x, rel_y) = Self::coords_relative_to_parent(&capture_window, mouse_x, mouse_y);
+                let (rel_x, rel_y) =
+                    Self::coords_relative_to_parent(&capture_window, mouse_x, mouse_y);
                 let handled = capture_window.handle_mouse_event(window_message, rel_x, rel_y);
                 if is_release {
                     self.release_mouse_capture();
@@ -570,11 +675,17 @@ impl EnhancedWindowManager {
                 return Ok(handled == WindowMsgHandled::Handled);
             }
         }
-        
+
         // Check modal windows first
-        if let Some(modal) = self.modal_stack.read().unwrap().last() {
+        if let Some(modal) = self
+            .modal_stack
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .last()
+        {
             if let Some(modal_window) = self.find_window(modal.window_id) {
-                let (rel_x, rel_y) = Self::coords_relative_to_parent(&modal_window, mouse_x, mouse_y);
+                let (rel_x, rel_y) =
+                    Self::coords_relative_to_parent(&modal_window, mouse_x, mouse_y);
                 let handled = modal_window.handle_mouse_event(window_message, rel_x, rel_y);
                 if is_press {
                     let _ = self.capture_mouse(modal.window_id);
@@ -587,16 +698,20 @@ impl EnhancedWindowManager {
                 }
             }
         }
-        
+
         // Hit test for normal windows
-        let root_windows = self.root_windows.read().unwrap();
-        for window in root_windows.iter().rev() { // Reverse for proper z-order
+        let root_windows = self.root_windows.read().unwrap_or_else(|e| e.into_inner());
+        for window in root_windows.iter().rev() {
+            // Reverse for proper z-order
             if let Some(hit_window) = window.hit_test(mouse_x, mouse_y) {
                 let (rel_x, rel_y) = Self::coords_relative_to_parent(&hit_window, mouse_x, mouse_y);
                 let handled = hit_window.handle_mouse_event(window_message, rel_x, rel_y);
                 if handled == WindowMsgHandled::Handled {
                     // Set focus on click if appropriate
-                    if matches!(window_message, WindowMessage::LeftDown | WindowMessage::RightDown) {
+                    if matches!(
+                        window_message,
+                        WindowMessage::LeftDown | WindowMessage::RightDown
+                    ) {
                         if !hit_window.get_status().contains(WindowStatus::NO_FOCUS) {
                             let _ = self.set_focus(Some(hit_window.get_id()));
                         }
@@ -611,15 +726,22 @@ impl EnhancedWindowManager {
                 }
             }
         }
-        
+
         Ok(false)
     }
-    
+
     fn handle_mouse_move(&self, x: f32, y: f32) -> Result<bool> {
         // Update mouse position
-        *self.mouse_position.write().unwrap() = (x, y);
+        *self
+            .mouse_position
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = (x, y);
 
-        if let Some(capture_id) = *self.mouse_capture_window.read().unwrap() {
+        if let Some(capture_id) = *self
+            .mouse_capture_window
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+        {
             if let Some(capture_window) = self.find_window(capture_id) {
                 let (rel_x, rel_y) = Self::coords_relative_to_parent(&capture_window, x, y);
                 capture_window.handle_mouse_event(WindowMessage::MousePos, rel_x, rel_y);
@@ -629,7 +751,7 @@ impl EnhancedWindowManager {
         }
 
         // Handle mouse enter/leave events
-        let root_windows = self.root_windows.read().unwrap();
+        let root_windows = self.root_windows.read().unwrap_or_else(|e| e.into_inner());
         for window in root_windows.iter() {
             self.update_mouse_hover_recursive(window, x, y);
         }
@@ -642,7 +764,7 @@ impl EnhancedWindowManager {
                 break;
             }
         }
-        
+
         Ok(true)
     }
 
@@ -662,17 +784,25 @@ impl EnhancedWindowManager {
             WindowMessage::WheelDown
         };
 
-        let (mouse_x, mouse_y) = *self.mouse_position.read().unwrap();
+        let (mouse_x, mouse_y) = *self
+            .mouse_position
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
 
-        if let Some(capture_id) = *self.mouse_capture_window.read().unwrap() {
+        if let Some(capture_id) = *self
+            .mouse_capture_window
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+        {
             if let Some(capture_window) = self.find_window(capture_id) {
-                let (rel_x, rel_y) = Self::coords_relative_to_parent(&capture_window, mouse_x, mouse_y);
+                let (rel_x, rel_y) =
+                    Self::coords_relative_to_parent(&capture_window, mouse_x, mouse_y);
                 let handled = capture_window.handle_mouse_event(message, rel_x, rel_y);
                 return Ok(handled == WindowMsgHandled::Handled);
             }
         }
 
-        let root_windows = self.root_windows.read().unwrap();
+        let root_windows = self.root_windows.read().unwrap_or_else(|e| e.into_inner());
         for window in root_windows.iter().rev() {
             if let Some(hit_window) = window.hit_test(mouse_x, mouse_y) {
                 let (rel_x, rel_y) = Self::coords_relative_to_parent(&hit_window, mouse_x, mouse_y);
@@ -696,12 +826,17 @@ impl EnhancedWindowManager {
             (screen_x as i32, screen_y as i32)
         }
     }
-    
-    fn update_mouse_hover_recursive(&self, window: &Arc<EnhancedGameWindow>, mouse_x: f32, mouse_y: f32) {
+
+    fn update_mouse_hover_recursive(
+        &self,
+        window: &Arc<EnhancedGameWindow>,
+        mouse_x: f32,
+        mouse_y: f32,
+    ) {
         if window.is_hidden() {
             return;
         }
-        
+
         let bounds = window.get_bounds();
         let is_over = bounds.contains(mouse_x, mouse_y);
         if (window.get_style() & GWS_MOUSE_TRACK) != 0 {
@@ -714,13 +849,13 @@ impl EnhancedWindowManager {
                 window.handle_mouse_event(WindowMessage::MouseLeaving, rel_x, rel_y);
             }
         }
-        
+
         // Check children
         for child in window.get_children() {
             self.update_mouse_hover_recursive(&child, mouse_x - bounds.x, mouse_y - bounds.y);
         }
     }
-    
+
     fn handle_keyboard_input(&self, key_code: &GuiKeyCode, state: ElementState) -> Result<bool> {
         // Handle tab navigation
         if let KeyCode::Tab = key_code {
@@ -730,84 +865,111 @@ impl EnhancedWindowManager {
                 return Ok(true);
             }
         }
-        
+
         // Send to focused or captured window
-        let target_window = if let Some(capture_id) = *self.keyboard_capture_window.read().unwrap() {
+        let target_window = if let Some(capture_id) = *self
+            .keyboard_capture_window
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+        {
             self.find_window(capture_id)
         } else {
             self.get_focused_window()
         };
-        
+
         if let Some(window) = target_window {
             let encoded = encode_keycode(key_code);
             let handled = window.send_message(WindowMessage::Char, encoded, 0);
             return Ok(handled == WindowMsgHandled::Handled);
         }
-        
+
         Ok(false)
     }
-    
+
     fn handle_character(&self, ch: char) -> Result<bool> {
-        let target_window = if let Some(capture_id) = *self.keyboard_capture_window.read().unwrap() {
+        let target_window = if let Some(capture_id) = *self
+            .keyboard_capture_window
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+        {
             self.find_window(capture_id)
         } else {
             self.get_focused_window()
         };
-        
+
         if let Some(window) = target_window {
             let handled = window.send_message(WindowMessage::Char, ch as u32, 0);
             return Ok(handled == WindowMsgHandled::Handled);
         }
-        
+
         Ok(false)
     }
-    
+
     /// Show a modal window
-    pub fn show_modal(&self, window_id: WindowId, background_color: [f32; 4], close_on_click_outside: bool) -> Result<()> {
+    pub fn show_modal(
+        &self,
+        window_id: WindowId,
+        background_color: [f32; 4],
+        close_on_click_outside: bool,
+    ) -> Result<()> {
         if self.find_window(window_id).is_none() {
             return Err(WindowManagerError::WindowNotFound(window_id));
         }
-        
+
         let modal = ModalWindow {
             window_id,
             background_color,
             close_on_click_outside,
         };
-        
-        self.modal_stack.write().unwrap().push(modal);
+
+        self.modal_stack
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(modal);
         Ok(())
     }
-    
+
     /// Close the current modal window
     pub fn close_modal(&self) -> Option<WindowId> {
-        self.modal_stack.write().unwrap().pop().map(|modal| modal.window_id)
+        self.modal_stack
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .pop()
+            .map(|modal| modal.window_id)
     }
-    
+
     /// Update all windows (call once per frame)
     pub fn update(&self) -> Result<()> {
         let now = Instant::now();
-        let last = *self.last_update_time.read().unwrap();
+        let last = *self
+            .last_update_time
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         let delta_time = now.duration_since(last).as_secs_f32();
-        *self.last_update_time.write().unwrap() = now;
-        self.frame_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        
+        *self
+            .last_update_time
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = now;
+        self.frame_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
         // Process event queue
         self.process_event_queue()?;
 
         // Update press animations for elastic feel
         self.update_press_animations(delta_time);
-        
+
         // Update all windows
-        let root_windows = self.root_windows.read().unwrap();
+        let root_windows = self.root_windows.read().unwrap_or_else(|e| e.into_inner());
         for window in root_windows.iter() {
             // Windows would have their own update logic here
         }
-        
+
         Ok(())
     }
 
     fn update_press_animations(&self, delta_time: f32) {
-        let root_windows = self.root_windows.read().unwrap();
+        let root_windows = self.root_windows.read().unwrap_or_else(|e| e.into_inner());
         for window in root_windows.iter() {
             Self::update_press_animation_recursive(window, delta_time);
         }
@@ -819,9 +981,9 @@ impl EnhancedWindowManager {
             Self::update_press_animation_recursive(&child, delta_time);
         }
     }
-    
+
     fn process_event_queue(&self) -> Result<()> {
-        let mut queue = self.event_queue.lock().unwrap();
+        let mut queue = self.event_queue.lock().unwrap_or_else(|e| e.into_inner());
         while let Some(event) = queue.pop_front() {
             if let Some(window) = self.find_window(event.window_id) {
                 window.send_message(event.message, event.wparam, event.lparam);
@@ -829,44 +991,60 @@ impl EnhancedWindowManager {
         }
         Ok(())
     }
-    
+
     /// Render all windows
     pub fn render(&self) -> Result<()> {
-        let renderer_opt = self.renderer.read().unwrap();
-        let renderer = renderer_opt.as_ref()
-            .ok_or(WindowManagerError::InvalidOperation("Renderer not initialized".to_string()))?;
-        
-        let mut renderer = renderer.write().unwrap();
+        let renderer_opt = self.renderer.read().unwrap_or_else(|e| e.into_inner());
+        let renderer = renderer_opt
+            .as_ref()
+            .ok_or(WindowManagerError::InvalidOperation(
+                "Renderer not initialized".to_string(),
+            ))?;
+
+        let mut renderer = renderer.write().unwrap_or_else(|e| e.into_inner());
         renderer.begin_frame();
-        
+
         // Render modal background if needed
-        if let Some(modal) = self.modal_stack.read().unwrap().last() {
+        if let Some(modal) = self
+            .modal_stack
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .last()
+        {
             // Render semi-transparent background
             let screen_size = (800.0, 600.0); // Would get from renderer
-            let full_screen = super::ui_renderer::UIRect::new(0.0, 0.0, screen_size.0, screen_size.1);
+            let full_screen =
+                super::ui_renderer::UIRect::new(0.0, 0.0, screen_size.0, screen_size.1);
             renderer.draw_rect(full_screen, modal.background_color, 0.5);
         }
 
         // Render all root windows
-        let root_windows = self.root_windows.read().unwrap();
+        let root_windows = self.root_windows.read().unwrap_or_else(|e| e.into_inner());
         for window in root_windows.iter() {
             window.render(&mut *renderer, (0.0, 0.0))?;
         }
 
         // Render simple radar overlay in the bottom-right corner using normalized pings.
-        let dots = self.radar_overlay.read().unwrap().clone();
+        let dots = self
+            .radar_overlay
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         if !dots.is_empty() {
             let (w, h) = renderer.screen_size();
             let overlay_size = 180.0;
             let padding = 12.0;
             let origin_x = w as f32 - overlay_size - padding;
             let origin_y = h as f32 - overlay_size - padding;
-            let frame_rect = super::ui_renderer::UIRect::new(origin_x, origin_y, overlay_size, overlay_size);
+            let frame_rect =
+                super::ui_renderer::UIRect::new(origin_x, origin_y, overlay_size, overlay_size);
             renderer.draw_rect(frame_rect, [0.05, 0.08, 0.10, 0.6], 0.8);
 
             for (nx, nz, age, kind) in dots {
-                let px = (origin_x + nx.clamp(0.0, 1.0) * overlay_size).clamp(origin_x, origin_x + overlay_size);
-                let py = (origin_y + nz.clamp(0.0, 1.0) * overlay_size).clamp(origin_y, origin_y + overlay_size);
+                let px = (origin_x + nx.clamp(0.0, 1.0) * overlay_size)
+                    .clamp(origin_x, origin_x + overlay_size);
+                let py = (origin_y + nz.clamp(0.0, 1.0) * overlay_size)
+                    .clamp(origin_y, origin_y + overlay_size);
                 let fade = (1.0 - (age / 6.0)).clamp(0.0, 1.0);
                 let color = match kind {
                     RadarPingKind::Attack => [1.0, 0.3, 0.3, fade],
@@ -881,19 +1059,28 @@ impl EnhancedWindowManager {
         renderer.end_frame();
         Ok(())
     }
-    
+
     /// Get window count
     pub fn get_window_count(&self) -> usize {
-        self.windows.read().unwrap().len()
+        self.windows.read().unwrap_or_else(|e| e.into_inner()).len()
     }
-    
+
     /// Get root window count
     pub fn get_root_window_count(&self) -> usize {
-        self.root_windows.read().unwrap().len()
+        self.root_windows
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
     }
-    
+
     /// Queue an event for processing
-    pub fn queue_event(&self, window_id: WindowId, message: WindowMessage, wparam: u32, lparam: u32) {
+    pub fn queue_event(
+        &self,
+        window_id: WindowId,
+        message: WindowMessage,
+        wparam: u32,
+        lparam: u32,
+    ) {
         let event = QueuedEvent {
             window_id,
             message,
@@ -901,13 +1088,24 @@ impl EnhancedWindowManager {
             lparam,
             timestamp: Instant::now(),
         };
-        
-        self.event_queue.lock().unwrap().push_back(event);
+
+        self.event_queue
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push_back(event);
     }
 
     fn get_screen_size(&self) -> (i32, i32) {
-        if let Some(renderer) = self.renderer.read().unwrap().as_ref() {
-            let (w, h) = renderer.read().unwrap().screen_size();
+        if let Some(renderer) = self
+            .renderer
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            let (w, h) = renderer
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .screen_size();
             (w as i32, h as i32)
         } else {
             (800, 600)
@@ -966,7 +1164,7 @@ impl EnhancedWindowManager {
         }
         window.set_status(status);
         if status.contains(WindowStatus::TAB_STOP) {
-            let mut tab_list = self.tab_list.write().unwrap();
+            let mut tab_list = self.tab_list.write().unwrap_or_else(|e| e.into_inner());
             if !tab_list.contains(&window.get_id()) {
                 tab_list.push(window.get_id());
             }
@@ -998,7 +1196,9 @@ impl EnhancedWindowManager {
         }
 
         if !window_def.header_template.is_empty() {
-            if let Some(font) = get_header_template_manager().get_font_from_template(&window_def.header_template) {
+            if let Some(font) =
+                get_header_template_manager().get_font_from_template(&window_def.header_template)
+            {
                 window.set_font(&font.name, font.size);
             }
         }
@@ -1010,7 +1210,7 @@ impl EnhancedWindowManager {
         }
 
         if let Some(widget) = create_widget_for_style(
-            &mut self.radio_groups.write().unwrap(),
+            &mut self.radio_groups.write().unwrap_or_else(|e| e.into_inner()),
             window_def,
             window.get_id(),
             x,
@@ -1027,8 +1227,10 @@ impl EnhancedWindowManager {
         let pushed = hilited.clone().or(enabled.clone());
 
         let (enabled_color, enabled_border) = pick_first_colors(&window_def.enabled_draw_data);
-        let (mut disabled_color, mut disabled_border) = pick_first_colors(&window_def.disabled_draw_data);
-        let (mut hilited_color, mut hilited_border) = pick_first_colors(&window_def.hilite_draw_data);
+        let (mut disabled_color, mut disabled_border) =
+            pick_first_colors(&window_def.disabled_draw_data);
+        let (mut hilited_color, mut hilited_border) =
+            pick_first_colors(&window_def.hilite_draw_data);
 
         if disabled_color[3] == 0.0 && disabled_border[3] == 0.0 {
             disabled_color = enabled_color;
@@ -1101,13 +1303,13 @@ impl EnhancedWindowManager {
 
         window.send_message(WindowMessage::ScriptCreate, 0, 0);
 
-        let has_tab_pane_child = window_def
-            .children
-            .iter()
-            .any(|child| (child.style | style_for_window_type(&child.window_type)) & GWS_TAB_PANE != 0);
+        let has_tab_pane_child = window_def.children.iter().any(|child| {
+            (child.style | style_for_window_type(&child.window_type)) & GWS_TAB_PANE != 0
+        });
 
         for child in &window_def.children {
-            let _ = self.create_window_from_definition(child, Some(&window), layout, screen_size)?;
+            let _ =
+                self.create_window_from_definition(child, Some(&window), layout, screen_size)?;
         }
 
         if (window.get_style() & GWS_TAB_CONTROL) != 0 {
@@ -1151,14 +1353,8 @@ impl EnhancedWindowManager {
         let (pane_x, pane_y, pane_width, pane_height) = self.compute_tab_pane_rect(window);
 
         for pane_index in 0..crate::gui::gadgets::tabcontrol::NUM_TAB_PANES {
-            let pane = self.create_window(
-                Some(window),
-                "",
-                pane_x,
-                pane_y,
-                pane_width,
-                pane_height,
-            )?;
+            let pane =
+                self.create_window(Some(window), "", pane_x, pane_y, pane_width, pane_height)?;
             let mut status = pane.get_status();
             status.insert(WindowStatus::ENABLED);
             pane.set_status(status);

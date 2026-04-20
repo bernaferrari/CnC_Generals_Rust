@@ -38,7 +38,7 @@ thread_local! {
 
 fn with_popup_state<R>(f: impl FnOnce(&mut TooltipState) -> R) -> R {
     let state = POPUP_STATE.with(|state| state.clone());
-    let mut guard = state.lock().expect("popup state lock poisoned");
+    let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
     f(&mut guard)
 }
 

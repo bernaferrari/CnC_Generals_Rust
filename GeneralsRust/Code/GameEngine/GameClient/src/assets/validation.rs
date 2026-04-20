@@ -428,7 +428,7 @@ impl AssetValidator {
 
         // Update statistics
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.total_validations += 1;
             if is_valid {
                 stats.passed_validations += 1;
@@ -719,7 +719,7 @@ impl AssetValidator {
     ) -> Result<Vec<u8>, ValidationError> {
         // Check cache first
         {
-            let cache = self.fallback_cache.read().unwrap();
+            let cache = self.fallback_cache.read().unwrap_or_else(|e| e.into_inner());
             if let Some(cached_data) = cache.get(&asset_type) {
                 return Ok(cached_data.clone());
             }
@@ -761,7 +761,7 @@ impl AssetValidator {
 
         // Update statistics
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.fallbacks_used += 1;
         }
 
@@ -860,7 +860,7 @@ impl AssetValidator {
 
     /// Get last known good version of asset
     async fn get_last_known_good(&self, asset_type: AssetType) -> Result<Vec<u8>, ValidationError> {
-        if let Some(data) = self.last_known_good.read().unwrap().get(&asset_type) {
+        if let Some(data) = self.last_known_good.read().unwrap_or_else(|e| e.into_inner()).get(&asset_type) {
             return Ok(data.clone());
         }
 
@@ -933,7 +933,7 @@ impl AssetValidator {
 
     /// Get known checksum for asset
     fn get_known_checksum(&self, path: &Path) -> Option<String> {
-        self.known_checksums.read().unwrap().get(path).cloned()
+        self.known_checksums.read().unwrap_or_else(|e| e.into_inner()).get(path).cloned()
     }
 
     /// Update integrity database record
@@ -943,7 +943,7 @@ impl AssetValidator {
         result: &ValidationResult,
         asset_type: AssetType,
     ) {
-        let mut db = self.integrity_db.write().unwrap();
+        let mut db = self.integrity_db.write().unwrap_or_else(|e| e.into_inner());
 
         let record = db
             .entry(path.to_path_buf())
@@ -974,17 +974,17 @@ impl AssetValidator {
 
     /// Get validation statistics
     pub fn get_stats(&self) -> ValidationStats {
-        self.stats.read().unwrap().clone()
+        self.stats.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Get integrity record for asset
     pub fn get_integrity_record(&self, path: &Path) -> Option<IntegrityRecord> {
-        self.integrity_db.read().unwrap().get(path).cloned()
+        self.integrity_db.read().unwrap_or_else(|e| e.into_inner()).get(path).cloned()
     }
 
     /// Add known good checksum
     pub fn add_known_checksum(&self, path: PathBuf, checksum: String) {
-        self.known_checksums.write().unwrap().insert(path, checksum);
+        self.known_checksums.write().unwrap_or_else(|e| e.into_inner()).insert(path, checksum);
     }
 
     fn store_last_known_good(&self, asset_type: AssetType, data: &[u8]) {

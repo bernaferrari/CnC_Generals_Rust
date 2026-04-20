@@ -379,8 +379,7 @@ pub fn get_video_player() -> Option<Arc<Mutex<Option<VideoPlayer>>>> {
 
 pub fn register_video_stream_provider(provider: Arc<dyn VideoStreamProvider>) {
     let mut slot = video_stream_provider_slot()
-        .lock()
-        .expect("video stream provider lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     *slot = Some(provider);
     drop(slot);
     notify_video_player_provider_state(true);
@@ -389,14 +388,13 @@ pub fn register_video_stream_provider(provider: Arc<dyn VideoStreamProvider>) {
 pub fn clear_video_stream_provider() {
     notify_video_player_provider_state(false);
     let mut slot = video_stream_provider_slot()
-        .lock()
-        .expect("video stream provider lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     *slot = None;
 }
 
 pub fn shutdown_video_player() {
     if let Some(player) = THE_VIDEO_PLAYER.get() {
-        let mut guard = player.lock().unwrap();
+        let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(player) = guard.as_mut() {
             player.deinit();
         }
@@ -410,8 +408,7 @@ fn video_stream_provider_slot() -> &'static Mutex<Option<Arc<dyn VideoStreamProv
 
 fn get_video_stream_provider() -> Option<Arc<dyn VideoStreamProvider>> {
     video_stream_provider_slot()
-        .lock()
-        .expect("video stream provider lock poisoned")
+        .lock().unwrap_or_else(|e| e.into_inner())
         .clone()
 }
 
@@ -890,7 +887,7 @@ mod tests {
         init_video_player();
 
         let player = get_video_player().expect("video player singleton should exist");
-        let guard = player.lock().expect("video player lock should succeed");
+        let guard = player.lock().unwrap_or_else(|e| e.into_inner());
         assert!(guard.is_some());
     }
 
@@ -1039,7 +1036,7 @@ mod tests {
 
         let player = get_video_player().expect("video player singleton should exist");
         {
-            let mut guard = player.lock().expect("video player lock should succeed");
+            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
             let player = guard.as_mut().expect("video player should be initialized");
             assert!(!player.provider_is_valid());
         }
@@ -1050,7 +1047,7 @@ mod tests {
         }));
 
         {
-            let mut guard = player.lock().expect("video player lock should succeed");
+            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
             let player = guard.as_mut().expect("video player should be initialized");
             assert!(player.provider_is_valid());
         }
@@ -1069,7 +1066,7 @@ mod tests {
 
         let player = get_video_player().expect("video player singleton should exist");
         {
-            let mut guard = player.lock().expect("video player lock should succeed");
+            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
             let player = guard.as_mut().expect("video player should be initialized");
             assert!(player.provider_is_valid());
         }
@@ -1077,7 +1074,7 @@ mod tests {
         clear_video_stream_provider();
 
         {
-            let mut guard = player.lock().expect("video player lock should succeed");
+            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
             let player = guard.as_mut().expect("video player should be initialized");
             assert!(!player.provider_is_valid());
         }
@@ -1096,7 +1093,7 @@ mod tests {
         init_video_player();
 
         let player = get_video_player().expect("video player singleton should exist");
-        let mut guard = player.lock().expect("video player lock should succeed");
+        let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
         let player = guard.as_mut().expect("video player should be initialized");
         assert!(player.provider_is_valid());
 
@@ -1115,7 +1112,7 @@ mod tests {
         init_video_player();
         let player = get_video_player().expect("video player singleton should exist");
         {
-            let mut guard = player.lock().expect("video player lock should succeed");
+            let mut guard = player.lock().unwrap_or_else(|e| e.into_inner());
             let player = guard.as_mut().expect("video player should be initialized");
             player.init();
             let _stream = player

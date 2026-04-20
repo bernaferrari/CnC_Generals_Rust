@@ -134,8 +134,7 @@ fn now_ms() -> u128 {
 
 fn clear_buddy_controls() {
     let mut controls = buddy_controls()
-        .lock()
-        .expect("BuddyControls lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     controls.listbox_chat_id = 0;
     controls.listbox_buddies_id = 0;
     controls.text_entry_edit_id = 0;
@@ -157,8 +156,7 @@ fn init_buddy_controls(kind: BuddyWindowType) {
         }
         BuddyWindowType::Buddies => {
             let mut controls = buddy_controls()
-                .lock()
-                .expect("BuddyControls lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             controls.text_entry_edit_id = name_to_id("WOLBuddyOverlay.wnd:TextEntryChat");
             controls.listbox_buddies_id = name_to_id("WOLBuddyOverlay.wnd:ListboxBuddies");
             controls.listbox_chat_id = name_to_id("WOLBuddyOverlay.wnd:ListboxBuddyChat");
@@ -176,8 +174,7 @@ fn init_buddy_controls(kind: BuddyWindowType) {
         }
         BuddyWindowType::Diplomacy => {
             let mut controls = buddy_controls()
-                .lock()
-                .expect("BuddyControls lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             controls.text_entry_edit_id = name_to_id("Diplomacy.wnd:TextEntryChat");
             controls.listbox_buddies_id = name_to_id("Diplomacy.wnd:ListboxBuddies");
             controls.listbox_chat_id = name_to_id("Diplomacy.wnd:ListboxBuddyChat");
@@ -239,8 +236,7 @@ fn insert_chat_with_local(
     local_name: AsciiString,
 ) {
     let controls = buddy_controls()
-        .lock()
-        .expect("BuddyControls lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     let Some(listbox_window) = controls.listbox_chat.as_ref() else {
         return;
     };
@@ -286,8 +282,7 @@ fn insert_chat(message: BuddyMessage) {
 
 fn update_buddy_info() {
     let mut controls = buddy_controls()
-        .lock()
-        .expect("BuddyControls lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     let Some(listbox_window) = controls.listbox_buddies.as_ref() else {
         return;
     };
@@ -429,8 +424,7 @@ pub fn handle_buddy_responses() {
                 }
                 BuddyResponseType::Disconnect => {
                     let mut state = wol_buddy_state()
-                        .lock()
-                        .expect("WOLBuddyOverlay state lock poisoned");
+                        .lock().unwrap_or_else(|e| e.into_inner());
                     state.last_notification_was_status = false;
                     state.num_online_in_notification = 0;
                     drop(state);
@@ -481,8 +475,7 @@ pub fn handle_buddy_responses() {
                         .replace("%s", sender_nick.as_str())
                         .replace("%2", &snippet);
                     let mut state = wol_buddy_state()
-                        .lock()
-                        .expect("WOLBuddyOverlay state lock poisoned");
+                        .lock().unwrap_or_else(|e| e.into_inner());
                     state.last_notification_was_status = false;
                     state.num_online_in_notification = 0;
                     drop(state);
@@ -498,8 +491,7 @@ pub fn handle_buddy_responses() {
                     update_buddy_info();
 
                     let mut state = wol_buddy_state()
-                        .lock()
-                        .expect("WOLBuddyOverlay state lock poisoned");
+                        .lock().unwrap_or_else(|e| e.into_inner());
                     state.last_notification_was_status = false;
                     state.num_online_in_notification = 0;
                     drop(state);
@@ -541,8 +533,7 @@ pub fn handle_buddy_responses() {
                     {
                         let marker = format!("Buddy:{}Notification", resp.status_string);
                         let mut state = wol_buddy_state()
-                            .lock()
-                            .expect("WOLBuddyOverlay state lock poisoned");
+                            .lock().unwrap_or_else(|e| e.into_inner());
                         state.last_notification_was_status = true;
                         if new_status != GameSpyBuddyStatus::Offline {
                             state.num_online_in_notification += 1;
@@ -554,8 +545,7 @@ pub fn handle_buddy_responses() {
                         );
                     } else if new_status == GameSpyBuddyStatus::Lobby && !seen_previously {
                         let mut state = wol_buddy_state()
-                            .lock()
-                            .expect("WOLBuddyOverlay state lock poisoned");
+                            .lock().unwrap_or_else(|e| e.into_inner());
                         state.last_notification_was_status = true;
                         if new_status != GameSpyBuddyStatus::Offline {
                             state.num_online_in_notification += 1;
@@ -581,8 +571,7 @@ pub fn handle_buddy_responses() {
 
 fn show_notification_box(nick: AsciiString, message: &str) {
     let mut state = wol_buddy_state()
-        .lock()
-        .expect("WOLBuddyOverlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     if state.notice_layout.is_none() {
         let layout = with_window_manager(|manager| {
@@ -637,8 +626,7 @@ fn show_notification_box(nick: AsciiString, message: &str) {
 
 fn delete_notification_box() {
     let mut state = wol_buddy_state()
-        .lock()
-        .expect("WOLBuddyOverlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.last_notification_was_status = false;
     state.num_online_in_notification = 0;
     if let Some(layout) = state.notice_layout.take() {
@@ -662,8 +650,7 @@ fn populate_old_buddy_messages() {
 
 pub fn wol_buddy_overlay_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = wol_buddy_state()
-        .lock()
-        .expect("WOLBuddyOverlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("WOLBuddyOverlay.wnd:BuddyMenuParent");
     state.button_hide_id = name_to_id("WOLBuddyOverlay.wnd:ButtonHide");
@@ -726,8 +713,7 @@ pub fn wol_buddy_overlay_shutdown(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     let mut state = wol_buddy_state()
-        .lock()
-        .expect("WOLBuddyOverlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.listbox_ignore = None;
     layout.hide(true);
     state.is_overlay_active = false;
@@ -757,8 +743,7 @@ pub fn wol_buddy_overlay_input(
         let state = data2 as u32;
         if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
             let state = wol_buddy_state()
-                .lock()
-                .expect("WOLBuddyOverlay state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if let Some(button_hide) = state.button_hide.as_ref() {
                 let _ = button_hide.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,
@@ -774,8 +759,7 @@ pub fn wol_buddy_overlay_input(
 
 fn refresh_ignore_list() {
     let mut state = wol_buddy_state()
-        .lock()
-        .expect("WOLBuddyOverlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     let Some(listbox_window) = state.listbox_ignore.as_ref() else {
         return;
     };
@@ -874,8 +858,7 @@ fn request_buddy_add(profile_id: GPProfile, nick: &AsciiString) {
     }
 
     let mut state = wol_buddy_state()
-        .lock()
-        .expect("WOLBuddyOverlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.last_notification_was_status = false;
     state.num_online_in_notification = 0;
     drop(state);
@@ -899,8 +882,7 @@ pub fn wol_buddy_overlay_system(
         WindowMessage::GadgetRightClick => {
             let (listbox_ignore_id, listbox_ignore) = {
                 let state = wol_buddy_state()
-                    .lock()
-                    .expect("WOLBuddyOverlay state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 (state.listbox_ignore_id, state.listbox_ignore.clone())
             };
             let control_id = data1 as i32;
@@ -992,8 +974,7 @@ pub fn wol_buddy_overlay_system(
                     rc_menu.borrow_mut().set_user_data(rc_data);
                     with_window_manager(|manager| manager.set_lone_window(Some(&rc_menu)));
                     let mut state = wol_buddy_state()
-                        .lock()
-                        .expect("WOLBuddyOverlay state lock poisoned");
+                        .lock().unwrap_or_else(|e| e.into_inner());
                     state.rc_menu = Some(rc_menu);
                     state.rc_layout = Some(layout);
                 }
@@ -1002,8 +983,7 @@ pub fn wol_buddy_overlay_system(
         WindowMessage::GadgetSelected => {
             let (button_hide_id, radio_buddies_id, radio_ignore_id, parent_buddies, parent_ignore) = {
                 let state = wol_buddy_state()
-                    .lock()
-                    .expect("WOLBuddyOverlay state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 (
                     state.button_hide_id,
                     state.radio_button_buddies_id,
@@ -1050,8 +1030,7 @@ pub fn popup_buddy_notification_system(
     }
     let control_id = data1 as i32;
     let state = wol_buddy_state()
-        .lock()
-        .expect("WOLBuddyOverlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if control_id == state.button_notification_id {
         open_overlay(GameSpyOverlayType::Buddy);
         return WindowMsgHandled::Handled;
@@ -1071,8 +1050,7 @@ pub fn wol_buddy_overlay_rc_menu_init(
     let stats_name = format!("{base}:ButtonStats");
 
     let mut state = wol_buddy_state()
-        .lock()
-        .expect("WOLBuddyOverlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.rc_button_add_id = name_to_id(&add_name);
     state.rc_button_delete_id = name_to_id(&delete_name);
     state.rc_button_play_id = name_to_id(&play_name);
@@ -1106,8 +1084,7 @@ pub fn wol_buddy_overlay_rc_menu_system(
 
             let (rc_add, rc_delete, rc_ignore, rc_stats) = {
                 let state = wol_buddy_state()
-                    .lock()
-                    .expect("WOLBuddyOverlay state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 (
                     state.rc_button_add_id,
                     state.rc_button_delete_id,
@@ -1217,8 +1194,7 @@ pub fn wol_buddy_overlay_rc_menu_system(
         }
         WindowMessage::Destroy => {
             let mut state = wol_buddy_state()
-                .lock()
-                .expect("WOLBuddyOverlay state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             state.rc_menu = None;
             state.rc_layout = None;
         }
@@ -1242,8 +1218,7 @@ fn buddy_control_system(
         is_init,
     ) = {
         let controls = buddy_controls()
-            .lock()
-            .expect("BuddyControls lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         (
             controls.listbox_buddies_id,
             controls.text_entry_edit_id,
@@ -1349,8 +1324,7 @@ fn buddy_control_system(
                     rc_menu.borrow_mut().set_user_data(rc_data);
                     with_window_manager(|manager| manager.set_lone_window(Some(&rc_menu)));
                     let mut state = wol_buddy_state()
-                        .lock()
-                        .expect("WOLBuddyOverlay state lock poisoned");
+                        .lock().unwrap_or_else(|e| e.into_inner());
                     state.rc_menu = Some(rc_menu);
                     state.rc_layout = Some(layout);
                 }

@@ -46,8 +46,7 @@ pub fn popup_communicator_init(_layout: &WindowLayout, _user_data: Option<&dyn s
 
     let state_handle = popup_communicator_state();
     let mut state = state_handle
-        .lock()
-        .expect("popup communicator state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.parent_id = Some(parent_id);
     state.button_ok_id = Some(button_ok_id);
     state.parent = parent;
@@ -81,8 +80,7 @@ pub fn popup_communicator_input(
 
     let state_handle = popup_communicator_state();
     let guard = state_handle
-        .lock()
-        .expect("popup communicator state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     let button_ok_id = guard.button_ok_id.unwrap_or(0) as u32;
 
     with_window_manager(|manager| {
@@ -111,8 +109,7 @@ pub fn popup_communicator_system(
             let control_id = data1 as u32;
             let state_handle = popup_communicator_state();
             let guard = state_handle
-                .lock()
-                .expect("popup communicator state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             let button_ok_id = guard.button_ok_id.unwrap_or(0);
 
             if control_id == button_ok_id {

@@ -618,7 +618,7 @@ static THE_CHALLENGE_GENERALS: OnceLock<Mutex<ChallengeGenerals>> = OnceLock::ne
 /// Matches C++ TheChallengeGenerals initialization
 pub fn init_challenge_generals() {
     let generals = THE_CHALLENGE_GENERALS.get_or_init(|| Mutex::new(ChallengeGenerals::new()));
-    generals.lock().unwrap().init();
+    generals.lock().unwrap_or_else(|e| e.into_inner()).init();
 }
 
 /// Get immutable reference to global challenge generals

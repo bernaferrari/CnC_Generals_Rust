@@ -59,7 +59,7 @@ fn map_display_name(map_name: &str) -> String {
         return String::new();
     }
     let cache = get_map_cache_manager();
-    let mut cache_guard = cache.lock().unwrap();
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     cache_guard.update_cache();
 
     let lookup = map_name.to_lowercase();
@@ -78,8 +78,7 @@ pub fn create_lan_game_info_window(size_and_pos_window: &GameWindow) {
     let needs_layout = {
         let state_handle = game_info_state();
         let state = state_handle
-            .lock()
-            .expect("GameInfoWindow state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         state.layout.is_none()
     };
 
@@ -95,8 +94,7 @@ pub fn create_lan_game_info_window(size_and_pos_window: &GameWindow) {
             layout.borrow_mut().hide(true);
             let state_handle = game_info_state();
             let mut state = state_handle
-                .lock()
-                .expect("GameInfoWindow state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             state.layout = Some(layout);
         }
     }
@@ -104,8 +102,7 @@ pub fn create_lan_game_info_window(size_and_pos_window: &GameWindow) {
     let parent = {
         let state_handle = game_info_state();
         let mut state = state_handle
-            .lock()
-            .expect("GameInfoWindow state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         if state.parent.is_none() {
             with_window_manager(|manager| {
                 state.parent = manager.get_window_by_id(state.parent_id);
@@ -127,8 +124,7 @@ pub fn create_lan_game_info_window(size_and_pos_window: &GameWindow) {
 pub fn destroy_game_info_window() {
     let state_handle = game_info_state();
     let mut state = state_handle
-        .lock()
-        .expect("GameInfoWindow state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if let Some(layout) = state.layout.take() {
         with_window_manager(|manager| manager.destroy_layout(&layout));
     }
@@ -141,8 +137,7 @@ pub fn destroy_game_info_window() {
 pub fn refresh_game_info_window(game_info: &GameInfo) {
     let state_handle = game_info_state();
     let mut state = state_handle
-        .lock()
-        .expect("GameInfoWindow state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if state.layout.is_none() || state.parent.is_none() {
         return;
     }
@@ -253,8 +248,7 @@ pub fn refresh_game_info_window(game_info: &GameInfo) {
 pub fn hide_game_info_window(hide: bool) {
     let state_handle = game_info_state();
     let state = state_handle
-        .lock()
-        .expect("GameInfoWindow state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().hide(hide);
     }
@@ -263,8 +257,7 @@ pub fn hide_game_info_window(hide: bool) {
 pub fn game_info_window_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let state_handle = game_info_state();
     let mut state = state_handle
-        .lock()
-        .expect("GameInfoWindow state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("GameInfoWindow.wnd:ParentGameInfo");
     state.static_text_game_name_id = name_to_id("GameInfoWindow.wnd:StaticTextGameName");

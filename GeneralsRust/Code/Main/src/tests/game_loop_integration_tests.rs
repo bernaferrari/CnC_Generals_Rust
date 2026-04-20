@@ -90,7 +90,7 @@ impl GameLoopTestFixture {
         self.frame_counter.fetch_add(1, Ordering::SeqCst);
         self.frame_clock
             .lock()
-            .expect("frame clock lock")
+            .unwrap_or_else(|e| e.into_inner())
             .advance_fixed(frame_budget)
             .delta_time
     }
@@ -107,7 +107,7 @@ fn phases_execute_in_expected_order() {
     let phases: Vec<GamePhase> = fixture
         .phase_tracker
         .lock()
-        .expect("phase tracker lock")
+        .unwrap_or_else(|e| e.into_inner())
         .iter()
         .copied()
         .collect();

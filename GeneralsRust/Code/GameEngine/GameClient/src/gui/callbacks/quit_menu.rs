@@ -127,7 +127,7 @@ fn session_is_sandbox() -> bool {
 
 pub fn destroy_quit_menu() {
     let state_handle = quit_menu_state();
-    let mut state = state_handle.lock().expect("quit menu state lock poisoned");
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.quit_confirmation_window = None;
     if let Some(layout) = state.full_quit_menu_layout.take() {
         with_window_manager(|manager| manager.destroy_layout(&layout));
@@ -148,12 +148,12 @@ fn exit_quit_menu() {
     {
         let local_player = crate::message_stream::player_state::get_local_player_id() as u32;
         let message_stream = get_message_stream();
-        let mut stream = message_stream.write().unwrap();
+        let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
         stream.append_message(GameMessageType::SelfDestruct(local_player));
     }
 
     let message_stream = get_message_stream();
-    let mut stream = message_stream.write().unwrap();
+    let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
     stream.append_message(GameMessageType::ClearGameData);
 
     if !TheGameLogic::is_in_multiplayer_game() {
@@ -164,7 +164,7 @@ fn exit_quit_menu() {
 
 fn no_exit_quit_menu() {
     let state_handle = quit_menu_state();
-    let mut state = state_handle.lock().expect("quit menu state lock poisoned");
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.quit_confirmation_window = None;
 }
 
@@ -197,7 +197,7 @@ fn surrender_quit_menu() {
 
     let local_player = crate::message_stream::player_state::get_local_player_id() as u32;
     let message_stream = get_message_stream();
-    let mut stream = message_stream.write().unwrap();
+    let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
     stream.append_message(GameMessageType::SelfDestruct(local_player));
 
     TheInGameUI::set_client_quiet(true);
@@ -246,7 +246,7 @@ fn restart_mission_menu() {
             data.pending_file = map_name.clone();
         }
         let message_stream = get_message_stream();
-        let mut stream = message_stream.write().unwrap();
+        let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
         let msg = stream.append_message(GameMessageType::NewGame);
         msg.append_integer_argument(game_mode);
         msg.append_integer_argument(diff);
@@ -260,7 +260,7 @@ fn restart_mission_menu() {
 
 pub fn hide_quit_menu() {
     let state_handle = quit_menu_state();
-    let mut state = state_handle.lock().expect("quit menu state lock poisoned");
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     if !state.is_visible {
         return;
     }
@@ -321,7 +321,7 @@ pub fn toggle_quit_menu() {
 
     {
         let state_handle = quit_menu_state();
-        let mut state = state_handle.lock().expect("quit menu state lock poisoned");
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(layout) = state.save_load_layout.as_ref() {
             if !layout.borrow().is_hidden() {
                 if send_back_button_selection("PopupSaveLoad.wnd:ButtonBack") {
@@ -336,7 +336,7 @@ pub fn toggle_quit_menu() {
     }
 
     let state_handle = quit_menu_state();
-    let mut state = state_handle.lock().expect("quit menu state lock poisoned");
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     if state.is_visible && state.quit_menu_layout.is_some() {
         state.is_visible = false;
@@ -504,7 +504,7 @@ pub fn quit_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let state_handle = quit_menu_state();
-            let mut state = state_handle.lock().expect("quit menu state lock poisoned");
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
             if control_id == state.button_save_load {
                 if state.save_load_layout.is_none() {

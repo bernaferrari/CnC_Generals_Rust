@@ -286,7 +286,7 @@ fn update_ladder_details(
     }
 
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     for map_name in &info.valid_maps {
         if let Some(meta) = cache_guard.find_map(map_name.as_str()) {
             let display_name = meta.display_name.to_string();
@@ -809,8 +809,7 @@ pub fn popup_ladder_select_init(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     let mut state = popup_state()
-        .lock()
-        .expect("PopupLadderSelect state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("PopupLadderSelect.wnd:Parent");
     state.listbox_ladder_select_id = name_to_id("PopupLadderSelect.wnd:ListBoxLadderSelect");
@@ -862,8 +861,7 @@ pub fn popup_ladder_select_shutdown(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     let mut state = popup_state()
-        .lock()
-        .expect("PopupLadderSelect state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.listbox_ladder_select = None;
     state.listbox_ladder_details = None;
@@ -889,8 +887,7 @@ pub fn popup_ladder_select_input(
     }
 
     let mut state = popup_state()
-        .lock()
-        .expect("PopupLadderSelect state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     match state.password_mode {
         PasswordMode::None => {
             populate_ladder_combo_box();
@@ -916,8 +913,7 @@ pub fn popup_ladder_select_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let mut state = popup_state()
-        .lock()
-        .expect("PopupLadderSelect state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,

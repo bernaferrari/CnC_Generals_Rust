@@ -258,7 +258,7 @@ fn update_map_preview(state: &mut SkirmishGameOptionsState) {
     let preview_name = get_map_preview_image(&map_name).unwrap_or_default();
     set_window_image(&state.map_window, &preview_name);
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     position_start_buttons(state, meta.as_ref());
     update_map_start_spots(state, meta.as_ref());
@@ -532,7 +532,7 @@ fn populate_global_controls() {
 
 fn sync_map_metadata(map_name: &str) {
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let mut setup = get_skirmish_setup();
     let info = setup.game_info_mut().game_info_mut();
     if let Some(meta) = cache_guard.find_map(map_name) {
@@ -681,7 +681,7 @@ fn update_skirmish_game_options(state: &SkirmishGameOptionsState) {
         setup.game_info().game_info().get_map().to_string()
     });
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let is_skirmish = cache_guard
         .find_map(&map_name)
         .map(|meta| meta.is_multiplayer)
@@ -740,7 +740,7 @@ fn skirmish_update_slot_list(state: &mut SkirmishGameOptionsState) {
     let info = setup.game_info().game_info();
     let map_name = info.get_map().to_string();
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     if let Some(text_entry) = state.text_entry_map_display.as_ref() {
         if let Some(widget) = text_entry.borrow_mut().static_text_mut() {
@@ -1035,7 +1035,7 @@ fn choose_default_map(state: &mut SkirmishGameOptionsState) {
         return;
     }
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let mut candidates: Vec<_> = cache_guard
         .iter_maps()
         .into_iter()
@@ -1156,7 +1156,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     }
 
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let Some(meta) = cache_guard.find_map(&map_name) else {
         state.button_pushed = false;
         set_skirmish_button_pushed(false);
@@ -1227,7 +1227,7 @@ fn start_skirmish_game(state: &mut SkirmishGameOptionsState) {
     }
 
     let message_stream = get_message_stream();
-    let mut stream = message_stream.write().unwrap();
+    let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
     let msg = stream.append_message(GameMessageType::NewGame);
     msg.append_integer_argument(if is_skirmish {
         GAME_SKIRMISH

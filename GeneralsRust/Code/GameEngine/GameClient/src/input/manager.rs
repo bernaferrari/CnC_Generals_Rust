@@ -599,13 +599,13 @@ mod tests {
         let action_triggered_clone = action_triggered.clone();
 
         manager.register_action_callback("test_action", move || {
-            *action_triggered_clone.lock().unwrap() = true;
+            *action_triggered_clone.lock().unwrap_or_else(|e| e.into_inner()) = true;
         });
 
         // Trigger action manually
         manager.trigger_action("test_action");
 
-        assert!(*action_triggered.lock().unwrap());
+        assert!(*action_triggered.lock().unwrap_or_else(|e| e.into_inner()));
     }
 
     #[test]

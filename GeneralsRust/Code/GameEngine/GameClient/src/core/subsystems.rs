@@ -1723,11 +1723,11 @@ impl AudioSubsystem {
     pub fn manager(
         &self,
     ) -> std::sync::MutexGuard<'_, AudioManager<kira::manager::backend::DefaultBackend>> {
-        self.manager.lock().unwrap()
+        self.manager.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn debug_snapshot(&self) -> AudioDebugSnapshot {
-        let state = self.debug_state.lock().unwrap();
+        let state = self.debug_state.lock().unwrap_or_else(|e| e.into_inner());
         AudioDebugSnapshot {
             total_events: state.total_events,
             recent_events: state.recent_events.iter().cloned().collect(),
@@ -1735,7 +1735,7 @@ impl AudioSubsystem {
     }
 
     fn record_event(&self, event: &str, position: Option<Coord3D>) {
-        let mut state = self.debug_state.lock().unwrap();
+        let mut state = self.debug_state.lock().unwrap_or_else(|e| e.into_inner());
         state.total_events = state.total_events.saturating_add(1);
         let timestamp_ms = state.start_time.elapsed().as_millis() as u64;
         state.recent_events.push_back(AudioDebugRecord {

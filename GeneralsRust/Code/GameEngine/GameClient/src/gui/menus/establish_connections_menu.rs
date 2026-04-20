@@ -626,14 +626,14 @@ mod tests {
 
         // Test that we can lock and use the menu
         {
-            let mut menu = menu1.write().unwrap();
+            let mut menu = menu1.write().unwrap_or_else(|e| e.into_inner());
             menu.init_menu().unwrap();
             assert!(menu.is_active());
         }
 
         // Check state through the second reference
         {
-            let menu = menu2.read().unwrap();
+            let menu = menu2.read().unwrap_or_else(|e| e.into_inner());
             assert!(menu.is_active());
         }
     }

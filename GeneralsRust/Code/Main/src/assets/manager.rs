@@ -1404,7 +1404,7 @@ fn begin_background_music_startup() {
 
     tokio::task::spawn_blocking(move || {
         let handle = tokio::runtime::Handle::current();
-        let mut manager = manager_arc.lock().expect("asset manager mutex poisoned");
+        let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
         if let Err(err) = handle.block_on(async { manager.start_background_music().await }) {
             warn!("Failed to start background music: {}", err);
         }
@@ -1485,7 +1485,7 @@ pub async fn load_cnc_unit_model(unit_name: &str) -> Result<()> {
     let unit_name_for_task = unit_name.clone();
 
     tokio::task::spawn_blocking(move || -> Result<()> {
-        let mut manager = manager_arc.lock().expect("asset manager mutex poisoned");
+        let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
         handle.block_on(async { manager.load_cnc_model(&unit_name_for_task).await })?;
         Ok(())
     })
@@ -1503,7 +1503,7 @@ pub async fn play_cnc_sound_effect(sound_name: &str) -> Result<()> {
     let sound_name = sound_name.to_string();
 
     tokio::task::spawn_blocking(move || -> Result<()> {
-        let mut manager = manager_arc.lock().expect("asset manager mutex poisoned");
+        let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
         handle.block_on(async { manager.play_sound_effect(&sound_name).await })?;
         Ok(())
     })

@@ -22,8 +22,7 @@ fn display_string_slot() -> Arc<Mutex<Option<DisplayStringHandle>>> {
 fn ensure_display_string() -> Option<DisplayStringHandle> {
     let slot_handle = display_string_slot();
     let mut slot = slot_handle
-        .lock()
-        .expect("IME display string lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if slot.is_none() {
         let mut manager = get_display_string_manager();
         *slot = Some(manager.new_display_string());
@@ -34,8 +33,7 @@ fn ensure_display_string() -> Option<DisplayStringHandle> {
 fn free_display_string() {
     let slot_handle = display_string_slot();
     let mut slot = slot_handle
-        .lock()
-        .expect("IME display string lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if let Some(handle) = slot.take() {
         let mut manager = get_display_string_manager();
         manager.free_display_string(handle);

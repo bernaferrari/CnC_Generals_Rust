@@ -131,7 +131,7 @@ fn draw_window_image(window: &GameWindow, rect: UIRect, alpha: u8) -> bool {
     };
     let mut drawn = false;
     let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().unwrap();
+        let mut renderer = renderer.write().unwrap_or_else(|e| e.into_inner());
         let collection = get_mapped_image_collection();
         let mut collection = collection.write();
         if let Some(mapped) = collection.find_image_by_name_mut(&image.name) {

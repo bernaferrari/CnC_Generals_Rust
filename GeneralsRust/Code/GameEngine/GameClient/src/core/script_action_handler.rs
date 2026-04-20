@@ -1509,17 +1509,15 @@ mod tests {
     use gamelogic::helpers::TheGameLogic;
 
     fn clear_movie_wait_slots() {
-        fullscreen_movie_wait_slot().lock().unwrap().clear();
-        radar_movie_wait_slot().lock().unwrap().clear();
+        fullscreen_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner()).clear();
+        radar_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     #[test]
     fn fullscreen_movie_wait_completion_clears_intro_state_when_not_playing() {
         clear_movie_wait_slots();
         TheGameLogic::set_intro_movie_playing(true);
-        fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap()
+        fullscreen_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner())
             .insert("intro".to_string());
 
         let handler = GameClientScriptActionHandler::new();
@@ -1535,46 +1533,36 @@ mod tests {
     fn radar_movie_wait_completion_does_not_clear_intro_state() {
         clear_movie_wait_slots();
         TheGameLogic::set_intro_movie_playing(true);
-        radar_movie_wait_slot()
-            .lock()
-            .unwrap()
+        radar_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner())
             .insert("radar".to_string());
 
         let handler = GameClientScriptActionHandler::new();
         assert!(handler.is_video_complete("radar", true));
         assert!(TheGameLogic::is_intro_movie_playing());
-        assert!(!radar_movie_wait_slot().lock().unwrap().contains("radar"));
+        assert!(!radar_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner()).contains("radar"));
     }
 
     #[test]
     fn reset_script_action_runtime_state_clears_movie_waits_and_intro_state() {
-        fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap()
+        fullscreen_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner())
             .insert("intro".to_string());
-        radar_movie_wait_slot()
-            .lock()
-            .unwrap()
+        radar_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner())
             .insert("radar".to_string());
         TheGameLogic::set_intro_movie_playing(true);
 
         reset_script_action_runtime_state();
 
-        assert!(fullscreen_movie_wait_slot().lock().unwrap().is_empty());
-        assert!(radar_movie_wait_slot().lock().unwrap().is_empty());
+        assert!(fullscreen_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner()).is_empty());
+        assert!(radar_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner()).is_empty());
         assert!(!TheGameLogic::is_intro_movie_playing());
     }
 
     #[test]
     fn clear_pending_fullscreen_movie_key_preserves_radar_wait_lane() {
         clear_movie_wait_slots();
-        fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap()
+        fullscreen_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner())
             .insert("shared".to_string());
-        radar_movie_wait_slot()
-            .lock()
-            .unwrap()
+        radar_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner())
             .insert("shared".to_string());
 
         clear_pending_fullscreen_movie_key("shared");
@@ -1583,19 +1571,15 @@ mod tests {
             .lock()
             .unwrap()
             .contains("shared"));
-        assert!(radar_movie_wait_slot().lock().unwrap().contains("shared"));
+        assert!(radar_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner()).contains("shared"));
     }
 
     #[test]
     fn clear_pending_radar_movie_key_preserves_fullscreen_wait_lane() {
         clear_movie_wait_slots();
-        fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap()
+        fullscreen_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner())
             .insert("shared".to_string());
-        radar_movie_wait_slot()
-            .lock()
-            .unwrap()
+        radar_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner())
             .insert("shared".to_string());
 
         clear_pending_radar_movie_key("shared");
@@ -1604,6 +1588,6 @@ mod tests {
             .lock()
             .unwrap()
             .contains("shared"));
-        assert!(!radar_movie_wait_slot().lock().unwrap().contains("shared"));
+        assert!(!radar_movie_wait_slot().lock().unwrap_or_else(|e| e.into_inner()).contains("shared"));
     }
 }
