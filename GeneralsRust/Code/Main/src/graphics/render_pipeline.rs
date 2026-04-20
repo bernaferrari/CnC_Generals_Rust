@@ -610,6 +610,12 @@ impl RenderPipeline {
         }
 
         self.frame_number += 1;
+        if self.frame_number <= 5 {
+            info!(
+                "RenderPipeline::execute frame {} start (skip_world_scene={})",
+                self.frame_number, skip_world_scene
+            );
+        }
         graphics_system.begin_frame();
 
         let delta_time = time - self.last_frame_time;
@@ -635,7 +641,19 @@ impl RenderPipeline {
         if render_world_scene {
             self.sync_lighting_from_map_metadata(game_logic);
             if allow_sync_model_loads {
+                if self.frame_number <= 5 {
+                    info!(
+                        "RenderPipeline::execute frame {} prewarm_start",
+                        self.frame_number
+                    );
+                }
                 self.prewarm_startup_models(graphics_system, game_logic, allow_sync_model_loads);
+                if self.frame_number <= 5 {
+                    info!(
+                        "RenderPipeline::execute frame {} prewarm_done",
+                        self.frame_number
+                    );
+                }
             }
 
             // Shell/menu startup needs to make visible progress without stalling first paint.
@@ -656,6 +674,13 @@ impl RenderPipeline {
 
             // Collect render items from game objects - equivalent to C++ RenderPipeline::CollectRenderItems()
             let collect_started = std::time::Instant::now();
+            if self.frame_number <= 5 {
+                info!(
+                    "RenderPipeline::execute frame {} collect_start (items={})",
+                    self.frame_number,
+                    self.render_items.len()
+                );
+            }
             self.collect_render_items(
                 graphics_system,
                 game_logic,
@@ -667,6 +692,14 @@ impl RenderPipeline {
                 delta_time,
             )?;
             collect_elapsed = collect_started.elapsed();
+            if self.frame_number <= 5 {
+                info!(
+                    "RenderPipeline::execute frame {} collect_done ({} items, {:?})",
+                    self.frame_number,
+                    self.render_items.len(),
+                    collect_elapsed
+                );
+            }
             self.debug_last_deferred_model_load_budget = initial_deferred_model_load_budget;
             self.debug_last_deferred_model_loads = if allow_sync_model_loads {
                 0
@@ -736,6 +769,13 @@ impl RenderPipeline {
         }
 
         let forward_started = std::time::Instant::now();
+        if self.frame_number <= 5 {
+            info!(
+                "RenderPipeline::execute frame {} forward_pass_start (items={})",
+                self.frame_number,
+                self.render_items.len()
+            );
+        }
         self.forward_pass.render(
             graphics_system,
             &self.render_items,
@@ -745,6 +785,12 @@ impl RenderPipeline {
             self.cached_lighting.as_ref(),
         )?;
         let forward_elapsed = forward_started.elapsed();
+        if self.frame_number <= 5 {
+            info!(
+                "RenderPipeline::execute frame {} forward_pass_done ({:?})",
+                self.frame_number, forward_elapsed
+            );
+        }
 
         graphics_system.end_frame();
         if render_world_scene && !game_logic.isInShellGame() {
@@ -2672,10 +2718,20 @@ impl ForwardPass {
         // C++ parity: first-use textures should resolve quickly; avoid one-texture-per-frame trickle.
         self.stream_pending_textures(self.texture_stream_budget());
 
+        static FP_FRAME: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let fp_frame = FP_FRAME.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if fp_frame < 5 {
+            info!("ForwardPass::render #{} begin_frame_start", fp_frame);
+        }
+
         // Begin frame - initialize render state
         self.renderer
             .begin_frame()
             .map_err(|e| anyhow::anyhow!("WW3D renderer begin_frame failed: {e:?}"))?;
+
+        if fp_frame < 5 {
+            info!("ForwardPass::render #{} begin_frame_done", fp_frame);
+        }
 
         let mut queued_count_total = 0usize;
         let mut queue_error_total = 0usize;

@@ -7,7 +7,7 @@ use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collect
 use super::display_string::DisplayStringHandle;
 use super::font::{get_font_library, FontDesc};
 use super::game_window::{Color, GameFont, Image, WIN_COLOR_UNDEFINED};
-use super::ui_globals::with_ui_renderer;
+use super::ui_globals::with_ui_renderer_mut;
 use super::ui_renderer::UIRect;
 use super::window_manager::WindowManager;
 use super::DisplayStringManager;
@@ -29,8 +29,7 @@ impl WindowManager {
             (end_x - start_x) as f32,
             (end_y - start_y) as f32,
         );
-        let _ = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().ok()?;
+        let _ = with_ui_renderer_mut(|renderer| {
             let texture = {
                 let _ = ensure_client_mapped_image(&image.name);
                 let collection = get_mapped_image_collection();
@@ -58,7 +57,6 @@ impl WindowManager {
                 };
                 renderer.draw_textured_rect(rect, texture, color, Some(tex_rect), 0.0);
             }
-            Some(())
         });
     }
 
@@ -79,10 +77,8 @@ impl WindowManager {
             (end_y - start_y) as f32,
         );
         let color = color_to_rgba(color);
-        let _ = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().ok()?;
+        let _ = with_ui_renderer_mut(|renderer| {
             renderer.draw_rect(rect, color, 0.0);
-            Some(())
         });
     }
 
@@ -103,10 +99,8 @@ impl WindowManager {
             (end_y - start_y) as f32,
         );
         let color = color_to_rgba(color);
-        let _ = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().ok()?;
+        let _ = with_ui_renderer_mut(|renderer| {
             renderer.draw_rect_outline(rect, width, color, 0.0);
-            Some(())
         });
     }
 
@@ -120,8 +114,7 @@ impl WindowManager {
         end_x: i32,
         end_y: i32,
     ) {
-        let _ = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().ok()?;
+        let _ = with_ui_renderer_mut(|renderer| {
             renderer.draw_line(
                 Vec2::new(start_x as f32, start_y as f32),
                 Vec2::new(end_x as f32, end_y as f32),
@@ -129,7 +122,6 @@ impl WindowManager {
                 color_to_rgba(color),
                 0.0,
             );
-            Some(())
         });
     }
 
@@ -156,8 +148,7 @@ impl WindowManager {
         let end_x = start_xf + width_f;
         let end_y = start_yf + height_f;
 
-        let _ = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().ok()?;
+        let _ = with_ui_renderer_mut(|renderer| {
             let add_rect = |renderer: &mut super::ui_renderer::UIRenderer,
                             x0: f32,
                             y0: f32,
@@ -171,24 +162,24 @@ impl WindowManager {
                 };
 
             if percent == 100 {
-                add_rect(&mut renderer, start_xf, start_yf, end_x, end_y);
-                return Some(());
+                add_rect(renderer, start_xf, start_yf, end_x, end_y);
+                return;
             }
 
             if percent > 75 {
-                add_rect(&mut renderer, mid_x, start_yf, end_x, end_y);
-                add_rect(&mut renderer, start_xf, mid_y, mid_x, end_y);
+                add_rect(renderer, mid_x, start_yf, end_x, end_y);
+                add_rect(renderer, start_xf, mid_y, mid_x, end_y);
                 let remain = (percent - 75) as f32;
                 if remain > 12.0 {
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(start_xf, start_yf),
                         Vec2::new(start_xf, mid_y),
                         Vec2::new(mid_x, mid_y),
                     );
                     let percent_draw = (remain - 12.0) / 13.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(start_xf, start_yf),
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(start_xf + width_f * 0.5 * percent_draw, start_yf),
@@ -196,25 +187,25 @@ impl WindowManager {
                 } else {
                     let percent_draw = remain / 12.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(start_xf, mid_y - (height_f * 0.5 * percent_draw)),
                         Vec2::new(start_xf, mid_y),
                         Vec2::new(mid_x, mid_y),
                     );
                 }
             } else if percent > 50 {
-                add_rect(&mut renderer, mid_x, start_yf, end_x, end_y);
+                add_rect(renderer, mid_x, start_yf, end_x, end_y);
                 let remain = (percent - 50) as f32;
                 if remain > 12.0 {
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(start_xf, end_y),
                         Vec2::new(mid_x, end_y),
                     );
                     let percent_draw = (remain - 12.0) / 13.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(start_xf, end_y - (height_f * 0.5 * percent_draw)),
                         Vec2::new(start_xf, end_y),
                         Vec2::new(mid_x, mid_y),
@@ -222,25 +213,25 @@ impl WindowManager {
                 } else {
                     let percent_draw = remain / 12.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, end_y),
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(mid_x - (width_f * 0.5 * percent_draw), end_y),
                     );
                 }
             } else if percent > 25 {
-                add_rect(&mut renderer, mid_x, start_yf, end_x, mid_y);
+                add_rect(renderer, mid_x, start_yf, end_x, mid_y);
                 let remain = (percent - 25) as f32;
                 if remain > 12.0 {
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(end_x, end_y),
                         Vec2::new(end_x, mid_y),
                     );
                     let percent_draw = (remain - 12.0) / 13.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(end_x - (width_f * 0.5 * percent_draw), end_y),
                         Vec2::new(end_x, end_y),
@@ -248,7 +239,7 @@ impl WindowManager {
                 } else {
                     let percent_draw = remain / 12.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(end_x, mid_y),
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(end_x, mid_y + (height_f * 0.5 * percent_draw)),
@@ -258,14 +249,14 @@ impl WindowManager {
                 let remain = percent as f32;
                 if remain > 12.0 {
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, start_yf),
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(end_x, start_yf),
                     );
                     let percent_draw = (remain - 12.0) / 13.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(end_x, start_yf),
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(end_x, start_yf + (height_f * 0.5 * percent_draw)),
@@ -273,15 +264,13 @@ impl WindowManager {
                 } else {
                     let percent_draw = remain / 12.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, start_yf),
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(mid_x + (width_f * 0.5 * percent_draw), start_yf),
                     );
                 }
             }
-
-            Some(())
         });
     }
 
@@ -310,8 +299,7 @@ impl WindowManager {
         let half_w = width_f * 0.5;
         let half_h = height_f * 0.5;
 
-        let _ = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().ok()?;
+        let _ = with_ui_renderer_mut(|renderer| {
             let add_rect = |renderer: &mut super::ui_renderer::UIRenderer,
                             x0: f32,
                             y0: f32,
@@ -325,23 +313,23 @@ impl WindowManager {
                 };
 
             if percent == 0 {
-                add_rect(&mut renderer, start_xf, start_yf, end_x, end_y);
-                return Some(());
+                add_rect(renderer, start_xf, start_yf, end_x, end_y);
+                return;
             }
 
             if percent < 25 {
-                add_rect(&mut renderer, start_xf, start_yf, mid_x, end_y);
-                add_rect(&mut renderer, mid_x, mid_y, end_x, end_y);
+                add_rect(renderer, start_xf, start_yf, mid_x, end_y);
+                add_rect(renderer, mid_x, mid_y, end_x, end_y);
                 if percent < 13 {
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(end_x, mid_y),
                         Vec2::new(end_x, start_yf),
                     );
                     let percent_draw = (13 - percent) as f32 / 13.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(end_x, start_yf),
                         Vec2::new(end_x - half_w * percent_draw, start_yf),
@@ -349,24 +337,24 @@ impl WindowManager {
                 } else {
                     let percent_draw = (percent - 13) as f32 / 12.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(end_x, mid_y),
                         Vec2::new(end_x, start_yf + half_h * percent_draw),
                     );
                 }
             } else if percent < 50 {
-                add_rect(&mut renderer, start_xf, start_yf, mid_x, end_y);
+                add_rect(renderer, start_xf, start_yf, mid_x, end_y);
                 if percent < 38 {
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(mid_x, end_y),
                         Vec2::new(end_x, end_y),
                     );
                     let percent_draw = (percent - 25) as f32 / 13.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(end_x, end_y),
                         Vec2::new(end_x, mid_y + half_h * percent_draw),
@@ -374,24 +362,24 @@ impl WindowManager {
                 } else {
                     let percent_draw = (percent - 38) as f32 / 12.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(mid_x, end_y),
                         Vec2::new(end_x - half_w * percent_draw, end_y),
                     );
                 }
             } else if percent < 75 {
-                add_rect(&mut renderer, start_xf, start_yf, mid_x, mid_y);
+                add_rect(renderer, start_xf, start_yf, mid_x, mid_y);
                 if percent < 63 {
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(start_xf, mid_y),
                         Vec2::new(start_xf, end_y),
                     );
                     let percent_draw = (percent - 50) as f32 / 13.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(start_xf, end_y),
                         Vec2::new(mid_x - half_w * percent_draw, end_y),
@@ -399,7 +387,7 @@ impl WindowManager {
                 } else {
                     let percent_draw = (percent - 62) as f32 / 12.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(start_xf, mid_y),
                         Vec2::new(start_xf, end_y - half_h * percent_draw),
@@ -408,14 +396,14 @@ impl WindowManager {
             } else {
                 if percent < 87 {
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(mid_x, start_yf),
                         Vec2::new(start_xf, start_yf),
                     );
                     let percent_draw = (percent - 75) as f32 / 13.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(start_xf, start_yf),
                         Vec2::new(start_xf, mid_y - half_h * percent_draw),
@@ -423,15 +411,13 @@ impl WindowManager {
                 } else {
                     let percent_draw = (percent - 88) as f32 / 12.0;
                     add_tri(
-                        &mut renderer,
+                        renderer,
                         Vec2::new(mid_x, mid_y),
                         Vec2::new(mid_x, start_yf),
                         Vec2::new(start_xf + half_w * percent_draw, start_yf),
                     );
                 }
             }
-
-            Some(())
         });
     }
 

@@ -26,8 +26,8 @@ use super::gadgets::{
 use super::{
     display_string::DisplayStringHandle,
     font::{get_font_library, FontDesc},
-    get_display_string_manager, with_ui_renderer, with_window_manager_ref, UIRect, MAX_DRAW_DATA,
-    TOOLTIP_MAX_LEN,
+    get_display_string_manager, with_ui_renderer_mut, with_window_manager_ref, UIRect,
+    MAX_DRAW_DATA, TOOLTIP_MAX_LEN,
 };
 use crate::gui::window_manager::{with_window_manager, TabDirection};
 
@@ -2171,8 +2171,7 @@ pub fn legacy_default_draw_callback(_window: &GameWindow, _inst_data: &WindowIns
 
 pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceData) {
     let video_frame = _inst_data.video_buffer.as_ref().and_then(read_video_frame);
-    let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().unwrap_or_else(|e| e.into_inner());
+    let _ = with_ui_renderer_mut(|renderer| {
         let (x, y) = _window.get_screen_position();
         let (width, height) = _window.get_size();
         let offset = _inst_data.image_offset;

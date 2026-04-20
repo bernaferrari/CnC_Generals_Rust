@@ -8,8 +8,8 @@ use std::sync::Arc;
 use glam::Vec2;
 
 use super::game_window::{resolve_window_text, Color, GameWindow, WindowDrawData, WindowStatus};
-use super::ui_globals::with_ui_renderer;
-use super::ui_renderer::{UIRect, UIRenderer};
+use super::ui_globals::with_ui_renderer_mut;
+use super::ui_renderer::UIRect;
 use crate::display::image::get_mapped_image_collection;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use gamelogic::common::audio::AudioEventRts;
@@ -89,39 +89,6 @@ fn rgba_from_components(r: u8, g: u8, b: u8, a: u8) -> [f32; 4] {
     ]
 }
 
-trait UIRendererHandleExt {
-    fn draw_rect(&self, rect: UIRect, color: [f32; 4], z_order: f32);
-    fn draw_rect_outline(&self, rect: UIRect, thickness: f32, color: [f32; 4], z_order: f32);
-    fn draw_text_simple(&self, text: &str, position: Vec2, font_size: f32, color: [f32; 4]);
-    fn screen_size(&self) -> (u32, u32);
-}
-
-impl UIRendererHandleExt for Arc<std::sync::RwLock<UIRenderer>> {
-    fn draw_rect(&self, rect: UIRect, color: [f32; 4], z_order: f32) {
-        if let Ok(mut renderer) = self.write() {
-            renderer.draw_rect(rect, color, z_order);
-        }
-    }
-
-    fn draw_rect_outline(&self, rect: UIRect, thickness: f32, color: [f32; 4], z_order: f32) {
-        if let Ok(mut renderer) = self.write() {
-            renderer.draw_rect_outline(rect, thickness, color, z_order);
-        }
-    }
-
-    fn draw_text_simple(&self, text: &str, position: Vec2, font_size: f32, color: [f32; 4]) {
-        if let Ok(mut renderer) = self.write() {
-            let _ = renderer.draw_text_simple(text, position, font_size, color);
-        }
-    }
-
-    fn screen_size(&self) -> (u32, u32) {
-        self.read()
-            .map(|renderer| renderer.screen_size())
-            .unwrap_or((0, 0))
-    }
-}
-
 fn draw_window_image(window: &GameWindow, rect: UIRect, alpha: u8) -> bool {
     let Some(draw_data) = window.get_enabled_draw_data(0) else {
         return false;
@@ -130,8 +97,7 @@ fn draw_window_image(window: &GameWindow, rect: UIRect, alpha: u8) -> bool {
         return false;
     };
     let mut drawn = false;
-    let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().unwrap_or_else(|e| e.into_inner());
+    let _ = with_ui_renderer_mut(|renderer| {
         let collection = get_mapped_image_collection();
         let mut collection = collection.write();
         if let Some(mapped) = collection.find_image_by_name_mut(&image.name) {
@@ -327,7 +293,7 @@ impl Transition for FlashTransition {
             6 => (250, 25),
             _ => return,
         };
-        with_ui_renderer(|renderer| {
+        with_ui_renderer_mut(|renderer| {
             renderer.draw_rect_outline(
                 rect,
                 1.0,
@@ -394,7 +360,7 @@ impl ButtonFlashTransition {
             self.size.y as f32,
         );
         let color = rgba_from_color(draw.color, Some(alpha));
-        with_ui_renderer(|renderer| {
+        with_ui_renderer_mut(|renderer| {
             renderer.draw_rect(rect, color, 0.0);
         });
     }
@@ -553,7 +519,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -570,7 +536,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -587,7 +553,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -605,7 +571,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -623,7 +589,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -641,7 +607,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -659,7 +625,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect_outline(
                         rect,
                         1.0,
@@ -679,7 +645,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 100), 0.0);
                 });
             }
@@ -690,7 +656,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 200), 0.0);
                 });
             }
@@ -704,7 +670,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 150), 0.0);
                 });
             }
@@ -718,7 +684,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 100), 0.0);
                 });
             }
@@ -732,7 +698,7 @@ impl Transition for ButtonFlashTransition {
                     self.size.x as f32,
                     self.size.y as f32,
                 );
-                with_ui_renderer(|renderer| {
+                with_ui_renderer_mut(|renderer| {
                     renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 17), 0.0);
                 });
             }
@@ -865,7 +831,7 @@ impl Transition for FadeTransition {
                 return;
             }
         }
-        with_ui_renderer(|renderer| {
+        with_ui_renderer_mut(|renderer| {
             renderer.draw_rect(rect, rgba_from_components(255, 255, 255, alpha), 0.0);
         });
     }
@@ -1716,7 +1682,7 @@ impl Transition for TextTypeTransition {
                 self.pos.y as f32 + (self.size.y as f32 / 2.0) - (font_size / 2.0),
             )
         };
-        with_ui_renderer(|renderer| {
+        with_ui_renderer_mut(|renderer| {
             let _ = renderer.draw_text_simple(&text, Vec2::new(x, y), font_size, color);
         });
     }
@@ -1930,7 +1896,7 @@ impl Transition for ScreenFadeTransition {
 
         self.percent = 1.0 / (self.frame_length as f32 - 1.0);
         self.pos = ICoord2D { x: 0, y: 0 };
-        with_ui_renderer(|renderer| {
+        with_ui_renderer_mut(|renderer| {
             let (w, h) = renderer.screen_size();
             self.size = ICoord2D {
                 x: w as i32,
@@ -1963,7 +1929,7 @@ impl Transition for ScreenFadeTransition {
             self.size.x as f32,
             self.size.y as f32,
         );
-        with_ui_renderer(|renderer| {
+        with_ui_renderer_mut(|renderer| {
             renderer.draw_rect(rect, rgba_from_components(0, 0, 0, alpha as u8), 0.0);
         });
     }
@@ -2062,7 +2028,7 @@ impl Transition for ControlBarArrowTransition {
                 self.size.x as f32,
                 self.size.y as f32,
             );
-            with_ui_renderer(|renderer| {
+            with_ui_renderer_mut(|renderer| {
                 renderer.draw_rect(rect, rgba_from_components(255, 255, 255, 255), 0.0);
             });
         } else {
@@ -2077,7 +2043,7 @@ impl Transition for ControlBarArrowTransition {
                 self.size.x as f32,
                 self.size.y as f32,
             );
-            with_ui_renderer(|renderer| {
+            with_ui_renderer_mut(|renderer| {
                 renderer.draw_rect(rect, rgba_from_components(255, 255, 255, alpha as u8), 0.0);
             });
         }
@@ -2204,7 +2170,7 @@ impl Transition for FullFadeTransition {
             self.size.x as f32,
             self.size.y as f32,
         );
-        with_ui_renderer(|renderer| {
+        with_ui_renderer_mut(|renderer| {
             renderer.draw_rect(rect, rgba_from_components(0, 0, 0, alpha as u8), 0.0);
             renderer.draw_rect_outline(
                 rect,
