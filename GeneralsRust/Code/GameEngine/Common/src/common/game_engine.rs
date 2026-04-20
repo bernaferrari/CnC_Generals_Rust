@@ -46,8 +46,6 @@ use crate::common::{
     recorder::{with_recorder, with_recorder_mut},
     rts::science::ScienceSubsystem,
 };
-use crate::game_network as modern_net;
-use tokio::runtime::Handle;
 use ww3d_animation::{initialize_animated_sound_mgr, initialize_animated_sound_mgr_from_bytes};
 
 // Forward declarations - these will be implemented as we convert more systems
@@ -127,55 +125,8 @@ pub trait NetworkInterface: Send + Sync {
 }
 
 /// Adapter that wraps the async `game_network` crate behind the legacy synchronous interface.
-struct RustGameNetwork {
-    inner: modern_net::NetworkInterface,
-    handle: Handle,
-    multiplayer_session_active: bool,
-}
 
-impl RustGameNetwork {
-    fn new(config: modern_net::NetworkConfig, handle: Handle) -> SubsystemResult<Self> {
-        let inner = handle
-            .block_on(modern_net::NetworkInterface::new(config))
-            .map_err(|e| SubsystemError::InitializationFailed(e.to_string()))?;
-        Ok(Self {
-            inner,
-            handle,
-            multiplayer_session_active: false,
-        })
-    }
-}
 
-impl NetworkInterface for RustGameNetwork {
-    fn init(&mut self) -> SubsystemResult<()> {
-        // Already initialised in constructor.
-        self.multiplayer_session_active =
-            with_recorder(|recorder| recorder.is_multiplayer()).unwrap_or(false);
-        Ok(())
-    }
-
-    fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
-        self.multiplayer_session_active =
-            with_recorder(|recorder| recorder.is_multiplayer()).unwrap_or(false);
-        self.handle
-            .block_on(self.inner.update_concurrent())
-            .map_err(|e| SubsystemError::UpdateFailed(e.to_string()))
-    }
-
-    fn shutdown(&mut self) -> SubsystemResult<()> {
-        self.handle
-            .block_on(self.inner.shutdown())
-            .map_err(|e| SubsystemError::ShutdownFailed(e.to_string()))
-    }
-
-    fn is_multiplayer_session(&self) -> bool {
-        self.multiplayer_session_active
-    }
-
-    fn is_frame_data_ready(&self) -> bool {
-        self.handle.block_on(self.inner.is_frame_data_ready())
-    }
-}
 
 /// Graphics mode detection for fallback systems
 #[derive(Debug, Clone, PartialEq)]
@@ -1425,13 +1376,6 @@ impl GameEngine {
         Ok(())
     }
 
-    fn get_target_frame_time(&self) -> Option<Duration> {
-        if self.config.max_fps > 0 {
-            Some(Duration::from_millis(1000 / self.config.max_fps as u64))
-        } else {
-            None
-        }
-    }
 
     fn service_os(&mut self) {
         // Platform-specific OS message handling would go here

@@ -156,7 +156,7 @@ pub struct BuildListInfo {
     /// Whether currently under construction
     under_construction: bool,
     /// Timestamp when object was created
-    object_timestamp: u32,
+    _object_timestamp: u32,
     /// Next entry in the linked list
     next: Option<Box<BuildListInfo>>,
 }
@@ -175,7 +175,7 @@ impl BuildListInfo {
             num_rebuilds: 0,
             priority_build: false,
             under_construction: false,
-            object_timestamp: 0,
+            _object_timestamp: 0,
             next: None,
         }
     }

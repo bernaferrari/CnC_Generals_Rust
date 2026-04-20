@@ -327,9 +327,6 @@ impl GridCell {
         }
     }
 
-    fn contains(&self, object_id: ObjectID) -> bool {
-        self.objects.contains(&object_id)
-    }
 
     fn is_empty(&self) -> bool {
         self.objects.is_empty()

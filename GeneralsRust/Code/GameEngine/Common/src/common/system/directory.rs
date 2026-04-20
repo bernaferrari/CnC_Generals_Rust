@@ -72,7 +72,7 @@ impl FileInfo {
 pub struct DirectoryIterator {
     entries: Vec<FileInfo>,
     current_index: usize,
-    recursive: bool,
+    _recursive: bool,
 }
 
 impl DirectoryIterator {
@@ -84,7 +84,7 @@ impl DirectoryIterator {
         Ok(Self {
             entries,
             current_index: 0,
-            recursive,
+            _recursive: recursive,
         })
     }
 
@@ -96,7 +96,7 @@ impl DirectoryIterator {
         Ok(Self {
             entries,
             current_index: 0,
-            recursive,
+            _recursive: recursive,
         })
     }
 

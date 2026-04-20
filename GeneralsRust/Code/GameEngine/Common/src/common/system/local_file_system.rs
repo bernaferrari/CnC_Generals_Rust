@@ -23,7 +23,7 @@ use regex::Regex;
 /// standard filesystem operations.
 pub struct LocalFileSystem {
     /// Subsystem name
-    name: String,
+    _name: String,
     /// Subsystem state
     state: SubsystemState,
     /// Base paths to search for files
@@ -83,7 +83,7 @@ impl LocalFileSystem {
     /// Create a new local file system backend
     pub fn new() -> Self {
         Self {
-            name: "LocalFileSystem".to_string(),
+            _name: "LocalFileSystem".to_string(),
             state: SubsystemState::Uninitialized,
             search_paths: Vec::new(),
             initialized: false,

@@ -6,7 +6,7 @@ use super::xfer::*;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 
-const MAX_XFER_LOAD_STRING_BUFFER: usize = 1024;
+const _MAX_XFER_LOAD_STRING_BUFFER: usize = 1024;
 
 // ------------------------------------------------------------------------------------------------
 // XferLoad - File reading implementation

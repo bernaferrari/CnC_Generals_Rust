@@ -640,10 +640,10 @@ pub struct SpecialPowerModule {
     paused_percent: f32,
 
     /// Update module starts attack flag
-    update_module_starts_attack: bool,
+    _update_module_starts_attack: bool,
 
     /// Starts paused flag
-    starts_paused: bool,
+    _starts_paused: bool,
 
     /// Script only flag
     scripted_special_power_only: bool,
@@ -659,8 +659,8 @@ impl SpecialPowerModule {
             paused_count: 0,
             paused_on_frame: 0,
             paused_percent: 0.0,
-            update_module_starts_attack: false,
-            starts_paused: false,
+            _update_module_starts_attack: false,
+            _starts_paused: false,
             scripted_special_power_only: false,
         }
     }

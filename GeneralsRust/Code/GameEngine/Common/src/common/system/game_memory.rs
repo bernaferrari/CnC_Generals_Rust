@@ -20,7 +20,7 @@
 //! - Magic cookie validation (12345)
 //! - Tag string tracking per allocation
 
-use std::alloc::{alloc, alloc_zeroed, dealloc, Layout};
+use std::alloc::{alloc, dealloc, Layout};
 use std::collections::HashMap;
 use std::ptr;
 use std::sync::Mutex;
@@ -132,21 +132,6 @@ fn sys_allocate(num_bytes: usize) -> *mut u8 {
     ptr
 }
 
-fn sys_allocate_zeroed(num_bytes: usize) -> *mut u8 {
-    if num_bytes == 0 {
-        return std::ptr::null_mut();
-    }
-    let layout =
-        Layout::from_size_align(num_bytes, MEM_BOUND_ALIGNMENT).expect("invalid sys layout");
-    let ptr = unsafe { alloc_zeroed(layout) };
-    if ptr.is_null() {
-        panic!(
-            "Out of memory: sys_allocate_zeroed failed for {} bytes",
-            num_bytes
-        );
-    }
-    ptr
-}
 
 unsafe fn sys_free(ptr: *mut u8, num_bytes: usize) {
     if ptr.is_null() {
@@ -264,44 +249,10 @@ impl BlockHeader {
     }
 
     #[cfg(debug_assertions)]
-    fn check_underrun(&self) -> bool {
-        let base = self as *const BlockHeader as *const u8;
-        let front_start = unsafe { base.add(std::mem::size_of::<BlockHeader>()) };
-        let p = front_start as *const u32;
-        for i in 0..debug_consts::WALLCOUNT {
-            let expected = self.wall_pattern.wrapping_add(i as u32);
-            let actual = unsafe { ptr::read(p.add(i)) };
-            if actual != expected {
-                return false;
-            }
-        }
-        true
-    }
 
     #[cfg(debug_assertions)]
-    fn check_overrun(&self) -> bool {
-        let back_start = unsafe {
-            self.user_data_ptr()
-                .add(round_up_mem_bound(self.logical_size))
-        };
-        let p = back_start as *const u32;
-        for i in 0..debug_consts::WALLCOUNT {
-            let expected = self.wall_pattern.wrapping_sub(i as u32);
-            let actual = unsafe { ptr::read(p.add(i)) };
-            if actual != expected {
-                return false;
-            }
-        }
-        true
-    }
 
     #[cfg(debug_assertions)]
-    fn verify(&self) -> bool {
-        if self.magic_cookie != debug_consts::SINGLEBLOCK_MAGIC_COOKIE {
-            return false;
-        }
-        self.check_underrun() && self.check_overrun()
-    }
 
     #[cfg(debug_assertions)]
     fn mark_as_freed(&mut self) {
@@ -471,6 +422,7 @@ pub struct MemoryPool {
 }
 
 impl MemoryPool {
+    #[allow(dead_code)]
     fn new() -> Self {
         Self {
             pool_name: String::new(),
@@ -730,6 +682,7 @@ pub struct DynamicMemoryAllocator {
 }
 
 impl DynamicMemoryAllocator {
+    #[allow(dead_code)]
     fn new() -> Self {
         Self {
             factory: ptr::null_mut(),
