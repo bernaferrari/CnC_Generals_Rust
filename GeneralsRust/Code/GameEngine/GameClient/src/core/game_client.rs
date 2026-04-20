@@ -2501,7 +2501,7 @@ impl GameClient {
         GLOBAL_NEXT_DRAWABLE_ID.store(next_drawable_id.max(1), Ordering::Relaxed);
     }
 
-    fn init_savegame_counter_bridge(&self) {
+    pub fn init_savegame_counter_bridge(&self) {
         register_drawable_id_counter_hooks(
             Some(Arc::new(Self::global_drawable_id_counter)),
             Some(Arc::new(Self::set_global_drawable_id_counter)),
@@ -2629,37 +2629,36 @@ impl GameClient {
     }
 
     fn init_localized_ui_resources(&mut self) -> GameClientResult<()> {
+        log::info!("init_localized_ui_resources: loading GameText strings");
         let loaded_strings = GameText::init_runtime_strings().map_err(|err| {
             GameClientError::SubsystemError(format!("GameText init failed: {err}"))
         })?;
-        log::debug!("Loaded {loaded_strings} localized GameText strings");
+        log::info!("Loaded {loaded_strings} localized GameText strings");
 
-        // C++ parity: mapped images are available before shell/window creation.
+        log::info!("init_localized_ui_resources: loading mapped images");
         game_engine::common::ini::ini_mapped_image::ImageCollection::load_global(512);
+        log::info!("init_localized_ui_resources: load_global done, syncing");
         let imported = sync_mapped_images_from_common();
-        log::debug!("Imported {imported} mapped images into client image collection");
+        log::info!("Imported {imported} mapped images into client image collection");
         log_startup_shell_mapped_images();
 
         Ok(())
     }
 
-    fn init_display_subsystems(&mut self) -> GameClientResult<()> {
-        log::debug!("Initializing display subsystems");
+    pub fn init_display_subsystems(&mut self) -> GameClientResult<()> {
+        log::info!("init_display_subsystems: starting");
 
         self.init_localized_ui_resources()?;
 
-        if self.subsystem_manager.display.is_none() {
-            if self.subsystem_manager.platform_context.is_none() {
-                let context =
-                    PlatformContext::new("Command & Conquer Generals Zero Hour", 1280, 720)
-                        .map_err(|e| {
-                            GameClientError::SubsystemError(format!(
-                                "Platform context initialisation failed: {e}"
-                            ))
-                        })?;
-                self.subsystem_manager.platform_context = Some(context);
-            }
-
+        // C++ parity: TheDisplay is created here, but we only need PlatformContext
+        // if we're NOT already running inside a winit event loop.  When the engine
+        // is created inside the Main event loop (the normal path on macOS), creating
+        // a second EventLoop via PlatformContext::new() deadlocks.  In that case the
+        // GraphicsDisplay is provided later via set_external_graphics_display().
+        if self.subsystem_manager.display.is_none()
+            && self.subsystem_manager.platform_context.is_some()
+        {
+            // We have a PlatformContext (standalone/test mode) — create GraphicsDisplay normally.
             let graphics_context =
                 if let Some(context) = self.subsystem_manager.platform_context.as_ref() {
                     let size = context.window.inner_size();
@@ -2683,26 +2682,33 @@ impl GameClient {
         } else if let Some(display) = self.subsystem_manager.display.as_ref() {
             register_script_display_bridge(Some(Arc::clone(display)));
         }
+        // If neither PlatformContext nor display exists, we skip GraphicsDisplay
+        // creation — the engine's own wgpu pipeline handles rendering.  All logical
+        // UI subsystems below still initialise normally.
 
         if self.subsystem_manager.font_library.is_none() {
+            log::info!("init_display_subsystems: initializing FontLibrary");
             let mut font_library = FontLibrarySubsystem::new();
             font_library.init()?;
             self.subsystem_manager.font_library = Some(Arc::new(Mutex::new(font_library)));
         }
 
         if self.subsystem_manager.header_templates.is_none() {
+            log::info!("init_display_subsystems: initializing HeaderTemplates");
             let mut header_templates = HeaderTemplateManagerSubsystem::new();
             header_templates.init()?;
             self.subsystem_manager.header_templates = Some(Arc::new(Mutex::new(header_templates)));
         }
 
         if self.subsystem_manager.window_manager.is_none() {
+            log::info!("init_display_subsystems: initializing WindowManager");
             let mut window_manager = WindowManagerSubsystem::new();
             window_manager.init()?;
             self.subsystem_manager.window_manager = Some(Arc::new(Mutex::new(window_manager)));
         }
 
         {
+            log::info!("init_display_subsystems: initializing IME manager");
             let ime_manager = get_ime_manager();
             let mut ime = ime_manager.lock().map_err(|_| {
                 GameClientError::SubsystemError("IME manager lock poisoned during init".to_string())
@@ -2711,11 +2717,14 @@ impl GameClient {
         }
 
         {
+            log::info!("init_display_subsystems: initializing Shell");
             let mut shell = get_shell();
             shell.init().map_err(|err| {
                 GameClientError::SubsystemError(format!("Shell init failed: {err}"))
             })?;
         }
+
+        log::info!("init_display_subsystems: continuing after Shell init");
 
         if let Some(context) = self.subsystem_manager.platform_context.as_ref() {
             let config = context.graphics.config();
@@ -2742,12 +2751,11 @@ impl GameClient {
             self.subsystem_manager.hot_key_manager = Some(Arc::new(Mutex::new(hot_keys)));
         }
 
+        log::debug!("init_display_subsystems done");
         Ok(())
     }
 
-    fn init_audio_subsystems(&mut self) -> GameClientResult<()> {
-        log::debug!("Initializing audio subsystems");
-
+    pub fn init_audio_subsystems(&mut self) -> GameClientResult<()> {
         if self.subsystem_manager.audio.is_none() {
             let mut audio = AudioSubsystem::new()
                 .map_err(|e| GameClientError::SubsystemError(format!("Audio init failed: {e}")))?;
@@ -2770,7 +2778,6 @@ impl GameClient {
     }
 
     pub fn init_game_subsystems(&mut self) -> GameClientResult<()> {
-        log::debug!("Initializing game subsystems");
         register_campaign_snapshot_block();
         register_game_client_snapshot_block();
         crate::snow::register_weather_definition_parser();
@@ -2873,7 +2880,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn post_process_display_strings(&mut self) -> GameClientResult<()> {
+    pub fn post_process_display_strings(&mut self) -> GameClientResult<()> {
         if let Some(display_strings) = self.subsystem_manager.display_strings.as_ref() {
             display_strings
                 .lock()
@@ -2906,7 +2913,6 @@ impl GameClient {
     }
 
     pub fn init_message_translators(&mut self) -> GameClientResult<()> {
-        log::debug!("Initializing message translators");
         let mut stream = THE_MESSAGE_STREAM
             .write()
             .map_err(|_| GameClientError::SubsystemError("Message stream lock poisoned".into()))?;
@@ -2983,7 +2989,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn pump_message_stream(&self) -> GameClientResult<()> {
+    pub fn pump_message_stream(&self) -> GameClientResult<()> {
         let completed_messages = {
             let mut stream = THE_MESSAGE_STREAM.write().map_err(|_| {
                 GameClientError::SubsystemError("Message stream lock poisoned".into())
@@ -3030,7 +3036,7 @@ impl GameClient {
         Ok(())
     }
 
-    fn init_recorder_bridge(&self) {
+    pub fn init_recorder_bridge(&self) {
         init_recorder();
 
         let command_source: Arc<dyn Fn() -> Vec<GameMessage> + Send + Sync> = Arc::new(|| {
@@ -3070,7 +3076,7 @@ impl GameClient {
         });
     }
 
-    fn update_input(&mut self) -> GameClientResult<()> {
+    pub fn update_input(&mut self) -> GameClientResult<()> {
         if let Some(ref keyboard) = self.subsystem_manager.input_keyboard {
             keyboard.lock().unwrap().update();
         }
@@ -3444,7 +3450,7 @@ impl GameClient {
         let mut shell = get_shell();
         if shell.get_screen_count() == 0 || !shell.is_shell_active() {
             log::info!(
-                "Ensuring shell visibility: screen_count={}, shell_active={}",
+                "Activating shell: screen_count={}, shell_active={}",
                 shell.get_screen_count(),
                 shell.is_shell_active()
             );

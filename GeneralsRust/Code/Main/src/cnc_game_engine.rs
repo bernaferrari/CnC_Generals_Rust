@@ -3268,19 +3268,60 @@ impl CnCGameEngine {
             if let Err(e) = engine.game_client.init_asset_systems() {
                 warn!("GameClient asset systems init failed: {}", e);
             }
-            if let Err(e) = engine.game_client.init_input_subsystems() {
-                warn!("GameClient input subsystems init failed: {}", e);
-            }
-            // Skip init_display_subsystems() — creates PlatformContext (second window/GL context) → deadlock
-            // Skip init_audio_subsystems() — audio handled by Main's AudioManagerSubsystem
-            // Skip init_game_subsystems() — blocks on particle/weather subsystem locks
             if let Err(e) = engine.game_client.init_message_translators() {
                 warn!("GameClient message translators init failed: {}", e);
             }
+            if let Err(e) = engine.game_client.init_input_subsystems() {
+                warn!("GameClient input subsystems init failed: {}", e);
+            }
+            if let Err(e) = engine.game_client.init_display_subsystems() {
+                warn!("GameClient display subsystems init failed: {}", e);
+            }
+
+            // Create UIRenderer from GraphicsSystem instead of PlatformContext.
+            // C++ SAGE uses PlatformContext (OpenGL window) for UI rendering, but we skip
+            // PlatformContext creation to avoid macOS winit deadlock (second EventLoop).
+            // The GraphicsSystem holds the same wgpu device/queue we need.
+            {
+                use game_client::gui::ui_globals::set_ui_renderer;
+                use game_client::gui::ui_renderer::UIRenderer;
+
+                let device = engine.graphics_system.device_arc();
+                let queue = engine.graphics_system.queue_arc();
+                let format = engine.graphics_system.color_format();
+
+                match UIRenderer::new(device, queue, format) {
+                    Ok(renderer) => {
+                        set_ui_renderer(Arc::new(std::sync::RwLock::new(renderer)));
+                        info!("UIRenderer created from GraphicsSystem (format: {:?})", format);
+                    }
+                    Err(err) => {
+                        warn!("UIRenderer creation from GraphicsSystem failed: {err}");
+                    }
+                }
+            }
+
+            if let Err(e) = engine.game_client.init_game_subsystems() {
+                warn!("GameClient game subsystems init failed: {}", e);
+            }
+            if let Err(e) = engine.game_client.post_process_display_strings() {
+                warn!("GameClient post-process display strings failed: {}", e);
+            }
+
+            if let Err(e) = engine.game_client.init_audio_subsystems() {
+                warn!("GameClient audio subsystems init failed: {}", e);
+            }
+
+            engine.game_client.init_savegame_counter_bridge();
+
+            engine.game_client.init_recorder_bridge();
+
             engine.game_client.mark_initialized();
+            info!("GameClient: all subsystems initialized");
         }
 
-        if let Some(subsystem_manager) = get_subsystem_manager() {            let mut manager = subsystem_manager.lock();
+        if let Some(subsystem_manager) = get_subsystem_manager() {
+            let mut manager = subsystem_manager.lock();
             if let Err(err) = manager.reset_all() {
                 warn!("Subsystem reset after startup init failed: {}", err);
             }
@@ -4818,8 +4859,10 @@ impl CnCGameEngine {
                 #[cfg(feature = "game_client")]
                 {
                     self.game_client.ensure_shell_visible().ok();
+                    self.game_client.update_input().ok();
                     self.game_client.update_pre_draw_ui().ok();
                     self.game_client.update_post_draw_ui().ok();
+                    self.game_client.pump_message_stream().ok();
                 }
                 return;
             }
@@ -5186,9 +5229,10 @@ impl CnCGameEngine {
 
         #[cfg(feature = "game_client")]
         {
-            if let Err(e) = self.game_client.draw_display() {
-                log::trace!("GameClient draw_display failed (non-fatal): {}", e);
-            }
+            // C++ has a single render path: W3DDisplay::draw() which does 3D scene + UI + mouse.
+            // We use render_pipeline.execute() below as that unified path.
+            // game_client.draw_display() was a second competing render path that acquired
+            // its own surface frame and called present(), stomping the render_pipeline output.
         }
 
         let render_pipeline_started = Instant::now();
