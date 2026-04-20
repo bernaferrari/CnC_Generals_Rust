@@ -963,11 +963,12 @@ impl INI {
         }
 
         self.staged_temp_file = None;
-        let file = match File::open(&filename) {
+        let filename_ref = filename.as_ref();
+        let file = match File::open(filename_ref) {
             Ok(file) => file,
             Err(_) => {
                 let staged = self
-                    .stage_virtual_file_to_temp(filename.as_ref())
+                    .stage_virtual_file_to_temp(filename_ref)
                     .ok_or(INIError::CantOpenFile)?;
                 let file = File::open(&staged).map_err(|_| INIError::CantOpenFile)?;
                 self.staged_temp_file = Some(staged);

@@ -165,6 +165,7 @@ impl AsciiString {
     }
 
     /// Ensure we have a unique buffer for mutation (copy-on-write)
+    #[allow(dead_code)]
     fn ensure_unique(&mut self) {
         if let Some(ref arc) = self.inner {
             // If there are multiple references, we need our own copy

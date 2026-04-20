@@ -445,6 +445,7 @@ impl CommandLineParser {
     }
 
     /// Parse -preload flag
+    #[allow(dead_code)]
     fn parse_preload(&mut self, _args: &[String]) -> usize {
         self.global_data.preload_assets = true;
         1

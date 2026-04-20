@@ -38,6 +38,7 @@ use crate::common::command_line::CrcDebugSettings;
 use crate::common::time;
 
 /// Maximum number of debug strings to store
+#[cfg(feature = "debug_crc")]
 const MAX_STRINGS: usize = 64000;
 
 #[cfg(feature = "debug_crc")]
@@ -581,30 +582,36 @@ fn is_frame_ok_to_log() -> bool {
 }
 
 /// Placeholder functions that would be implemented elsewhere
+#[allow(dead_code)]
 fn is_in_game() -> bool {
     // Would check TheGameLogic->isInGame()
     true
 }
 
+#[allow(dead_code)]
 fn is_in_shell_game() -> bool {
     // Would check TheGameLogic->isInShellGame()
     false
 }
 
+#[allow(dead_code)]
 fn is_in_multiplayer_game() -> bool {
     // Would check TheGameLogic->isInMultiplayerGame()
     false
 }
 
+#[allow(dead_code)]
 fn get_current_frame() -> i32 {
     time::frame() as i32
 }
 
+#[allow(dead_code)]
 fn get_game_logic_crc(_deep: bool) -> u32 {
     // Would call TheGameLogic->getCRC()
     0
 }
 
+#[allow(dead_code)]
 fn get_machine_name() -> String {
     // Would get machine name from IP enumeration
     "localhost".to_string()
@@ -648,6 +655,7 @@ pub fn output_crc_dump_lines() {
 }
 
 /// Get filename from full path
+#[allow(dead_code)]
 fn get_fname(path: &str) -> &str {
     if let Some(pos) = path.rfind('\\') {
         &path[pos + 1..]

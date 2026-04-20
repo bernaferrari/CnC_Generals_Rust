@@ -106,7 +106,7 @@ const REPLAY_FRAME_DURATION_OFFSET: u64 = REPLAY_END_TIME_OFFSET + REPLAY_TIME_T
 const REPLAY_DESYNC_OFFSET: u64 = REPLAY_FRAME_DURATION_OFFSET + 4;
 const REPLAY_QUIT_EARLY_OFFSET: u64 = REPLAY_DESYNC_OFFSET + 1;
 const REPLAY_PLAYER_DISCONNECTS_OFFSET: u64 = REPLAY_QUIT_EARLY_OFFSET + 1;
-const REPLAY_FIXED_HEADER_SIZE: usize = REPLAY_PLAYER_DISCONNECTS_OFFSET as usize + 8;
+const _REPLAY_FIXED_HEADER_SIZE: usize = REPLAY_PLAYER_DISCONNECTS_OFFSET as usize + 8;
 
 /// CRC information for sync validation
 /// Matches C++ CRCInfo from Recorder.cpp:903-956
@@ -114,7 +114,7 @@ const REPLAY_FIXED_HEADER_SIZE: usize = REPLAY_PLAYER_DISCONNECTS_OFFSET as usiz
 struct CrcInfo {
     local_player: u32,
     saw_crc_mismatch: bool,
-    skipped_one: bool,
+    _skipped_one: bool,
     data: Vec<u32>,
 }
 
@@ -123,7 +123,7 @@ impl CrcInfo {
         Self {
             local_player: u32::MAX,
             saw_crc_mismatch: false,
-            skipped_one: false,
+            _skipped_one: false,
             data: Vec::new(),
         }
     }
@@ -1919,7 +1919,7 @@ mod tests {
 
     fn replay_version_offsets(bytes: &[u8]) -> (usize, usize, usize, usize, usize) {
         // Magic + fixed replay stats block
-        let mut offset = REPLAY_FIXED_HEADER_SIZE;
+        let mut offset = _REPLAY_FIXED_HEADER_SIZE;
         // Replay name
         offset = read_utf16_z_end(bytes, offset);
         // Timestamp
@@ -2211,7 +2211,7 @@ mod tests {
         assert!(end_time >= start_time);
         assert_eq!(frame_duration, 11);
 
-        let mut name_offset = REPLAY_FIXED_HEADER_SIZE;
+        let mut name_offset = _REPLAY_FIXED_HEADER_SIZE;
         name_offset = read_utf16_z_end(&bytes, name_offset);
         let time_bytes = &bytes[name_offset..name_offset + REPLAY_SYSTEM_TIME_BYTES];
         let year = u16::from_le_bytes([time_bytes[0], time_bytes[1]]);

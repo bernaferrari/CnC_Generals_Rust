@@ -184,6 +184,7 @@ pub enum ShadowType {
 
 /// Module parsing modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 enum ModuleParseMode {
     Normal,
     AddRemoveReplace,
@@ -781,91 +782,7 @@ impl WeaponSetDefinition {
     }
 }
 
-#[derive(Default)]
-struct WeaponSetDefinitionBuilder {
-    conditions: Vec<String>,
-    weapon_names: [Option<AsciiString>; WEAPON_SLOT_COUNT],
-    auto_choose_masks: [Option<u32>; WEAPON_SLOT_COUNT],
-    preferred_against_masks:
-        [Option<crate::common::system::kind_of::KindOfMask>; WEAPON_SLOT_COUNT],
-    share_reload_time: Option<bool>,
-    share_weapon_lock: Option<bool>,
-}
 
-impl WeaponSetDefinitionBuilder {
-    fn apply_field(&mut self, field: &str, value: &str) -> Result<(), String> {
-        let trimmed = value.trim();
-        match field {
-            "Conditions" => {
-                for token in split_weapon_condition_tokens(trimmed) {
-                    self.conditions.push(token);
-                }
-            }
-            "ShareWeaponReloadTime" | "ShareReloadTime" => {
-                self.share_reload_time = Some(parse_bool_field(trimmed)?);
-            }
-            "WeaponLockSharedAcrossSets" | "ShareWeaponLock" => {
-                self.share_weapon_lock = Some(parse_bool_field(trimmed)?);
-            }
-            "PrimaryWeapon" => self.weapon_names[0] = Some(AsciiString::from(trimmed)),
-            "SecondaryWeapon" => self.weapon_names[1] = Some(AsciiString::from(trimmed)),
-            "TertiaryWeapon" => self.weapon_names[2] = Some(AsciiString::from(trimmed)),
-            "AutoChoosePrimary" | "AutoChooseSourcesPrimary" => {
-                self.auto_choose_masks[0] = Some(parse_u32_field(trimmed)?);
-            }
-            "AutoChooseSecondary" | "AutoChooseSourcesSecondary" => {
-                self.auto_choose_masks[1] = Some(parse_u32_field(trimmed)?);
-            }
-            "AutoChooseTertiary" | "AutoChooseSourcesTertiary" => {
-                self.auto_choose_masks[2] = Some(parse_u32_field(trimmed)?);
-            }
-            "PreferredAgainstPrimary" => {
-                self.preferred_against_masks[0] = Some(
-                    crate::common::system::kind_of::KindOfMask::from_bits_retain(parse_u32_field(
-                        trimmed,
-                    )?
-                        as u128),
-                );
-            }
-            "PreferredAgainstSecondary" => {
-                self.preferred_against_masks[1] = Some(
-                    crate::common::system::kind_of::KindOfMask::from_bits_retain(parse_u32_field(
-                        trimmed,
-                    )?
-                        as u128),
-                );
-            }
-            "PreferredAgainstTertiary" => {
-                self.preferred_against_masks[2] = Some(
-                    crate::common::system::kind_of::KindOfMask::from_bits_retain(parse_u32_field(
-                        trimmed,
-                    )?
-                        as u128),
-                );
-            }
-            _ => {
-                return Err(format!("Unrecognised weapon set field '{}'", field));
-            }
-        }
-
-        Ok(())
-    }
-
-    fn build(self) -> WeaponSetDefinition {
-        let mut definition = WeaponSetDefinition::new();
-        for condition in self.conditions {
-            definition.add_condition(condition);
-        }
-        for slot in 0..WEAPON_SLOT_COUNT {
-            definition.weapon_names[slot] = self.weapon_names[slot].clone();
-            definition.auto_choose_masks[slot] = self.auto_choose_masks[slot];
-            definition.preferred_against_masks[slot] = self.preferred_against_masks[slot];
-        }
-        definition.share_reload_time = self.share_reload_time;
-        definition.share_weapon_lock = self.share_weapon_lock;
-        definition
-    }
-}
 
 pub(crate) fn parse_bool_field(value: &str) -> Result<bool, String> {
     match value.to_ascii_lowercase().as_str() {
@@ -1042,8 +959,8 @@ pub struct ThingTemplate {
     hijack_guard: bool,
 
     // Visual properties
-    selected_portrait_image: Option<Arc<crate::common::ini::ini_fx_list::FXList>>,
-    button_image: Option<Arc<crate::common::ini::ini_fx_list::FXList>>,
+    _selected_portrait_image: Option<Arc<crate::common::ini::ini_fx_list::FXList>>,
+    _button_image: Option<Arc<crate::common::ini::ini_fx_list::FXList>>,
     selected_portrait_image_name: AsciiString,
     button_image_name: AsciiString,
     upgrade_cameo_upgrade_names: [AsciiString; MAX_UPGRADE_CAMEO_UPGRADES],
@@ -1090,9 +1007,9 @@ pub struct ThingTemplate {
     // Internal state
     armor_copied_from_default: bool,
     weapons_copied_from_default: bool,
-    module_parsing_mode: ModuleParseMode,
-    module_being_replaced_name: AsciiString,
-    module_being_replaced_tag: AsciiString,
+    _module_parsing_mode: ModuleParseMode,
+    _module_being_replaced_name: AsciiString,
+    _module_being_replaced_tag: AsciiString,
 
     #[cfg(feature = "load_test_assets")]
     lta_name: AsciiString,
@@ -1145,8 +1062,8 @@ impl ThingTemplate {
             enter_guard: false,
             hijack_guard: false,
 
-            selected_portrait_image: None,
-            button_image: None,
+            _selected_portrait_image: None,
+            _button_image: None,
             selected_portrait_image_name: AsciiString::new(),
             button_image_name: AsciiString::new(),
             upgrade_cameo_upgrade_names: [
@@ -1194,9 +1111,9 @@ impl ThingTemplate {
 
             armor_copied_from_default: false,
             weapons_copied_from_default: false,
-            module_parsing_mode: ModuleParseMode::Normal,
-            module_being_replaced_name: AsciiString::new(),
-            module_being_replaced_tag: AsciiString::new(),
+            _module_parsing_mode: ModuleParseMode::Normal,
+            _module_being_replaced_name: AsciiString::new(),
+            _module_being_replaced_tag: AsciiString::new(),
 
             #[cfg(feature = "load_test_assets")]
             lta_name: AsciiString::new(),

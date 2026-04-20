@@ -117,7 +117,7 @@ pub struct Coord3D {
 /// This would be fully implemented in the game logic module
 pub struct Object {
     // Placeholder fields
-    id: u32,
+    _id: u32,
 }
 
 /// Player in the game

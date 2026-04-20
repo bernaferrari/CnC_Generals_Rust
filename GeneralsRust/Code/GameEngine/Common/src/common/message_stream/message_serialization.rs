@@ -1107,10 +1107,6 @@ impl MessageSerializer {
         Ok(id)
     }
 
-    /// Create a message type from its ID (simplified implementation)
-    fn create_message_type_from_id(id: u16) -> Result<GameMessageType, SerializationError> {
-        Err(SerializationError::InvalidMessageType(id))
-    }
 }
 
 /// Batch serialization for multiple messages

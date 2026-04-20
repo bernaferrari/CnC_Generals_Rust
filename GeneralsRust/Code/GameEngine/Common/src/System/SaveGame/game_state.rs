@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 // ------------------------------------------------------------------------------------------------
 const SAVE_FILE_EOF: &str = "SG_EOF";
 const SAVE_GAME_EXTENSION: &str = ".sav";
-const ZERO_NAME_ONLY: &str = "00000000";
+const _ZERO_NAME_ONLY: &str = "00000000";
 const MAX_SAVE_FILE_NUMBER: i32 = 99999999;
 
 const GAME_STATE_BLOCK_STRING: &str = "CHUNK_GameState";
@@ -390,6 +390,7 @@ impl GameState {
     }
 
     /// Find a snapshot block by token
+    #[allow(dead_code)]
     fn find_block_info_by_token(
         &mut self,
         token: &str,

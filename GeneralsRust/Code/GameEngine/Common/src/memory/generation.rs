@@ -112,7 +112,7 @@ pub(crate) struct FreeListEntry {
     /// Index of the next free slot, or None if this is the last.
     pub next_free: Option<u32>,
     /// Current generation of this slot.
-    pub generation: Generation,
+    pub _generation: Generation,
 }
 
 impl FreeListEntry {
@@ -120,7 +120,7 @@ impl FreeListEntry {
     pub fn new(next_free: Option<u32>, generation: Generation) -> Self {
         Self {
             next_free,
-            generation,
+            _generation: generation,
         }
     }
 }

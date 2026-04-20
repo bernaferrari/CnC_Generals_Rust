@@ -552,6 +552,7 @@ mod tests {
 // ------------------------------------------------------------------------------------------------
 
 /// Get map leaf and directory name
+#[allow(dead_code)]
 fn get_map_leaf_and_dir_name(path: &str) -> String {
     let path_obj = Path::new(path);
 
@@ -575,6 +576,7 @@ fn get_map_leaf_and_dir_name(path: &str) -> String {
 }
 
 /// Remove extension from filename
+#[allow(dead_code)]
 fn remove_extension(path: &str) -> String {
     Path::new(path)
         .file_stem()

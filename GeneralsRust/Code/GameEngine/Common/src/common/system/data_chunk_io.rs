@@ -20,8 +20,8 @@ pub struct DataChunkInfo {
 
 #[derive(Debug, Clone)]
 struct Mapping {
-    id: u32,
-    name: String,
+    _id: u32,
+    _name: String,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -64,8 +64,8 @@ impl DataChunkTableOfContents {
             let id = stream.read_u32().unwrap_or(0);
             let name = String::from_utf8_lossy(&buf).to_string();
             self.list.push(Mapping {
-                id,
-                name: name.clone(),
+                _id: id,
+                _name: name.clone(),
             });
             self.by_id.insert(id, name);
             max_id = max_id.max(id);
@@ -167,7 +167,7 @@ struct InputChunk {
     version: DataChunkVersionType,
     data_size: i32,
     data_left: i32,
-    chunk_start: usize,
+    _chunk_start: usize,
 }
 
 type ParserFn = fn(&mut DataChunkInput, &DataChunkInfo, &mut dyn std::any::Any) -> bool;
@@ -185,7 +185,7 @@ pub struct DataChunkInput {
     contents: DataChunkTableOfContents,
     chunk_stack: Vec<InputChunk>,
     parser_list: Vec<ParserEntry>,
-    filepos_first_chunk: usize,
+    _filepos_first_chunk: usize,
 }
 
 impl DataChunkInput {
@@ -193,13 +193,13 @@ impl DataChunkInput {
         let mut stream = ChunkInputStream::new(data);
         let mut contents = DataChunkTableOfContents::default();
         contents.read(&mut stream);
-        let filepos_first_chunk = stream.tell();
+        let _filepos_first_chunk = stream.tell();
         Self {
             stream,
             contents,
             chunk_stack: Vec::new(),
             parser_list: Vec::new(),
-            filepos_first_chunk,
+            _filepos_first_chunk,
         }
     }
 
@@ -304,7 +304,7 @@ impl DataChunkInput {
             version,
             data_size,
             data_left: data_size,
-            chunk_start: self.stream.tell(),
+            _chunk_start: self.stream.tell(),
         };
         self.chunk_stack.push(chunk);
         Some(version)
