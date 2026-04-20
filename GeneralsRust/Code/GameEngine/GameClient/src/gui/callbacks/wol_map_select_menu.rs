@@ -164,7 +164,7 @@ fn update_preview(state: &mut WolMapSelectState) {
     let preview_name = get_map_preview_image(&map_name).unwrap_or_default();
     set_window_image(&state.map_preview, &preview_name);
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     if let Some(preview) = state.map_preview.as_ref() {
         preview.borrow_mut().set_user_data(meta.clone());
@@ -230,8 +230,7 @@ fn show_underlying_game_options(show: bool) {
 
 pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = map_select_state()
-        .lock()
-        .expect("WOLMapSelectMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("WOLMapSelectMenu.wnd:WOLMapSelectMenuParent");
     state.button_back_id = name_to_id("WOLMapSelectMenu.wnd:ButtonBack");
@@ -321,8 +320,7 @@ pub fn wol_map_select_menu_update(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     let mut state = map_select_state()
-        .lock()
-        .expect("WOLMapSelectMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if state.raise_message_boxes {
         raise_gs_message_box();
         state.raise_message_boxes = false;
@@ -343,8 +341,7 @@ pub fn wol_map_select_menu_input(
     }
 
     let state = map_select_state()
-        .lock()
-        .expect("WOLMapSelectMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
@@ -366,8 +363,7 @@ pub fn wol_map_select_menu_system(
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let mut state = map_select_state()
-                .lock()
-                .expect("WOLMapSelectMenu state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             let control_id = data1 as i32;
             if control_id == state.button_back_id {
                 show_underlying_game_options(true);
@@ -400,7 +396,7 @@ pub fn wol_map_select_menu_system(
             if control_id == state.button_ok_id {
                 if let Some(map_name) = state.selected_map.clone() {
                     let map_cache = get_map_cache_manager();
-                    let mut cache_guard = map_cache.lock().unwrap();
+                    let mut cache_guard = map_cache.lock().unwrap_or_else(|e| e.into_inner());
                     cache_guard.update_cache();
                     let meta = cache_guard.find_map(&map_name).cloned();
 
@@ -431,8 +427,7 @@ pub fn wol_map_select_menu_system(
         }
         WindowMessage::GadgetValueChanged => {
             let mut state = map_select_state()
-                .lock()
-                .expect("WOLMapSelectMenu state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
                 update_preview(&mut state);
@@ -441,14 +436,13 @@ pub fn wol_map_select_menu_system(
         }
         WindowMessage::User(0x8000) => {
             let mut state = map_select_state()
-                .lock()
-                .expect("WOLMapSelectMenu state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
                 update_preview(&mut state);
                 if let Some(map_name) = state.selected_map.clone() {
                     let map_cache = get_map_cache_manager();
-                    let mut cache_guard = map_cache.lock().unwrap();
+                    let mut cache_guard = map_cache.lock().unwrap_or_else(|e| e.into_inner());
                     cache_guard.update_cache();
                     let meta = cache_guard.find_map(&map_name).cloned();
 

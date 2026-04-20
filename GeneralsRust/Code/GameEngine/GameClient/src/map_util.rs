@@ -69,7 +69,7 @@ impl MapCache {
     pub fn update_cache(&mut self) {
         {
             let file_system_ref = get_file_system();
-            let mut file_system = file_system_ref.lock().unwrap();
+            let mut file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
             let _ = file_system.create_directory(AsciiString::from(&self.user_map_dir));
         }
 
@@ -129,7 +129,7 @@ impl MapCache {
         let map_cache_path = map_cache_path.to_string_lossy().into_owned();
         let map_cache_exists = {
             let file_system_ref = get_file_system();
-            let file_system = file_system_ref.lock().unwrap();
+            let file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
             file_system.does_file_exist(&map_cache_path)
         };
         if !map_cache_exists {
@@ -153,7 +153,7 @@ impl MapCache {
                 .into_owned();
             let map_cache_exists = {
                 let file_system_ref = get_file_system();
-                let file_system = file_system_ref.lock().unwrap();
+                let file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
                 file_system.does_file_exist(&map_cache_path)
             };
             if map_cache_exists {
@@ -181,7 +181,7 @@ impl MapCache {
 
             let file_info = {
                 let file_system_ref = get_file_system();
-                let file_system = file_system_ref.lock().unwrap();
+                let file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
                 file_system.get_file_info(&AsciiString::from(&map_path))
             };
             if let Some(info) = file_info {
@@ -301,7 +301,7 @@ impl MapCache {
         };
 
         let file_system_ref = get_file_system();
-        let mut file_system = file_system_ref.lock().unwrap();
+        let mut file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
         let _ = file_system.create_directory(AsciiString::from(&map_dir));
 
         let map_cache_path = PathBuf::from(&map_dir).join(MAP_CACHE_NAME);
@@ -414,13 +414,13 @@ struct MapCacheLadderProvider;
 impl LadderMapProvider for MapCacheLadderProvider {
     fn map_dir(&self) -> String {
         let cache = get_map_cache_manager();
-        let cache_guard = cache.lock().unwrap();
+        let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
         cache_guard.map_dir.clone()
     }
 
     fn find_map(&self, map_path: &str) -> Option<LadderMapMeta> {
         let cache = get_map_cache_manager();
-        let mut cache_guard = cache.lock().unwrap();
+        let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
         cache_guard.update_cache();
         cache_guard.find_map(map_path).map(|meta| LadderMapMeta {
             display_name: meta.display_name.as_str().to_string(),
@@ -459,7 +459,7 @@ pub fn populate_map_listbox_no_reset(
     const BRUTAL_AI: i32 = 4;
 
     let cache = get_map_cache_manager();
-    let mut cache_guard = cache.lock().unwrap();
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     cache_guard.update_cache();
 
     let map_dir = if use_system_maps {
@@ -620,7 +620,7 @@ pub fn populate_map_listbox_no_reset(
 
 pub fn is_valid_map(map_name: &str, is_multiplayer: bool) -> bool {
     let cache = get_map_cache_manager();
-    let mut cache_guard = cache.lock().unwrap();
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     cache_guard.update_cache();
     let map_name = normalize_path(map_name);
     cache_guard
@@ -631,7 +631,7 @@ pub fn is_valid_map(map_name: &str, is_multiplayer: bool) -> bool {
 
 pub fn get_default_map(is_multiplayer: bool) -> String {
     let cache = get_map_cache_manager();
-    let mut cache_guard = cache.lock().unwrap();
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     cache_guard.update_cache();
     let mut names: Vec<_> = cache_guard
         .iter_maps()
@@ -645,7 +645,7 @@ pub fn get_default_map(is_multiplayer: bool) -> String {
 
 pub fn get_default_official_map() -> String {
     let cache = get_map_cache_manager();
-    let mut cache_guard = cache.lock().unwrap();
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     cache_guard.update_cache();
     let mut names: Vec<_> = cache_guard
         .iter_maps()
@@ -659,7 +659,7 @@ pub fn get_default_official_map() -> String {
 
 pub fn is_official_map(map_name: &str) -> bool {
     let cache = get_map_cache_manager();
-    let mut cache_guard = cache.lock().unwrap();
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     cache_guard.update_cache();
     let map_name = normalize_path(map_name);
     cache_guard
@@ -753,7 +753,7 @@ pub fn find_draw_positions(
 pub fn would_map_transfer(map_name: &str) -> bool {
     let map_name = normalize_path(map_name);
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     map_name.starts_with(&normalize_path(&cache_guard.user_map_dir))
 }
 
@@ -895,14 +895,14 @@ fn map_extent(heightmap: &gamelogic::system::map_loader::HeightMap) -> Region3D 
 
 pub fn is_map_cached(map_name: &str) -> bool {
     let cache = get_map_cache_manager();
-    let mut cache_guard = cache.lock().unwrap();
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     cache_guard.update_cache();
     cache_guard.has_map(map_name)
 }
 
 pub fn refresh_map_cache() {
     let cache = get_map_cache_manager();
-    let mut cache_guard = cache.lock().unwrap();
+    let mut cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     cache_guard.update_cache();
 }
 
@@ -912,7 +912,7 @@ pub fn is_map_cached_without_refresh(map_name: &str) -> bool {
     }
 
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     cache_guard.has_map_cpp_key(map_name)
 }
 
@@ -922,7 +922,7 @@ fn to_ini_coord3d(coord: gamelogic::system::map_loader::Coord3D) -> Coord3D {
 
 fn read_file_bytes(filename: &str) -> Result<Vec<u8>, std::io::Error> {
     let file_system_ref = get_file_system();
-    let mut file_system = file_system_ref.lock().unwrap();
+    let mut file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
     let mut file = file_system
         .open_file(filename, FileAccess::READ.combine(FileAccess::BINARY))
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "file not found"))?;
@@ -932,7 +932,7 @@ fn read_file_bytes(filename: &str) -> Result<Vec<u8>, std::io::Error> {
 fn copy_from_file_system(source: &str, dest: &str) -> Result<(), std::io::Error> {
     let data = read_file_bytes(source)?;
     let file_system_ref = get_file_system();
-    let mut file_system = file_system_ref.lock().unwrap();
+    let mut file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(mut file) = file_system.open_file(
         dest,
         FileAccess::WRITE
@@ -952,7 +952,7 @@ fn copy_from_file_system(source: &str, dest: &str) -> Result<(), std::io::Error>
 
 fn file_exists(path: &str) -> bool {
     let file_system_ref = get_file_system();
-    let file_system = file_system_ref.lock().unwrap();
+    let file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
     file_system.does_file_exist(path)
 }
 
@@ -982,7 +982,7 @@ fn collect_map_files(map_dir: &str) -> Vec<String> {
     let mut filename_list = FilenameList::new();
     {
         let file_system_ref = get_file_system();
-        let file_system = file_system_ref.lock().unwrap();
+        let file_system = file_system_ref.lock().unwrap_or_else(|e| e.into_inner());
         file_system.get_file_list_in_directory(
             &AsciiString::from(map_dir),
             &AsciiString::from(&format!("*.{}", MAP_EXTENSION)),

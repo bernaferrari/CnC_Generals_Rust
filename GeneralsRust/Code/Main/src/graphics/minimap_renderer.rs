@@ -727,7 +727,7 @@ mod tests {
     #[test]
     fn test_minimap_fow_manager_tracks_dimensions() {
         let manager = get_minimap_fow_manager();
-        let mut manager = manager.lock().expect("minimap manager mutex poisoned");
+        let mut manager = manager.lock().unwrap_or_else(|e| e.into_inner());
 
         manager.ensure_dimensions(MinimapDimensions {
             width: 8,

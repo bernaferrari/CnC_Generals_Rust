@@ -452,8 +452,7 @@ fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &str) {
     let (size_x, size_y) = window.get_size();
 
     let mut state = main_menu_pulse_state()
-        .lock()
-        .expect("main menu pulse state poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if !state.initialized {
         state.width = size_x + image.width;
         state.x = -800;
@@ -4850,7 +4849,7 @@ pub fn w3d_draw_map_preview(window: &GameWindow, inst_data: &WindowInstanceData)
 
     const SUPPLY_TECH_SIZE: i32 = 15;
     let supply_and_tech = get_supply_and_tech_image_locations();
-    let overlay = supply_and_tech.lock().unwrap();
+    let overlay = supply_and_tech.lock().unwrap_or_else(|e| e.into_inner());
     with_window_manager_ref(|manager| {
         if let Some(image) = manager.win_find_image("TecBuilding") {
             for pos in &overlay.tech_positions {

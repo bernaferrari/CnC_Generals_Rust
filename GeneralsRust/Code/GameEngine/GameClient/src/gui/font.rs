@@ -257,13 +257,13 @@ impl FontLibrary {
             )));
         }
 
-        let mut cache = self.font_cache.lock().unwrap();
-        let mut order = self.font_order.lock().unwrap();
+        let mut cache = self.font_cache.lock().unwrap_or_else(|e| e.into_inner());
+        let mut order = self.font_order.lock().unwrap_or_else(|e| e.into_inner());
 
         // Check if font is already cached
         if let Some(weak_font) = cache.get(desc) {
             if let Some(font) = weak_font.upgrade() {
-                *self.cache_hits.lock().unwrap() += 1;
+                *self.cache_hits.lock().unwrap_or_else(|e| e.into_inner()) += 1;
                 return Ok(font);
             } else {
                 // Weak reference is dead, remove it
@@ -273,7 +273,7 @@ impl FontLibrary {
         }
 
         // Font not in cache or weak reference is dead, load it
-        *self.cache_misses.lock().unwrap() += 1;
+        *self.cache_misses.lock().unwrap_or_else(|e| e.into_inner()) += 1;
 
         let game_font =
             GameFont::new(desc.clone()).map_err(|e| FontError::LoadError(e.to_string()))?;
@@ -289,27 +289,27 @@ impl FontLibrary {
 
     /// Get the first loaded font description.
     pub fn first_font_desc(&self) -> Option<FontDesc> {
-        let cache = self.font_cache.lock().unwrap();
+        let cache = self.font_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.keys().next().cloned()
     }
 
     /// Get all font descriptions currently loaded
     pub fn get_loaded_fonts(&self) -> Vec<FontDesc> {
-        let cache = self.font_cache.lock().unwrap();
+        let cache = self.font_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.keys().cloned().collect()
     }
 
     /// Get the number of fonts currently cached
     pub fn get_count(&self) -> usize {
-        let order = self.font_order.lock().unwrap();
+        let order = self.font_order.lock().unwrap_or_else(|e| e.into_inner());
         order.len()
     }
 
     /// Clean up dead weak references from the cache
     pub fn cleanup_cache(&mut self) {
-        let mut cache = self.font_cache.lock().unwrap();
+        let mut cache = self.font_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.retain(|_, weak_ref| weak_ref.strong_count() > 0);
-        let mut order = self.font_order.lock().unwrap();
+        let mut order = self.font_order.lock().unwrap_or_else(|e| e.into_inner());
         order.retain(|desc| {
             cache
                 .get(desc)
@@ -320,16 +320,16 @@ impl FontLibrary {
 
     /// Get cache statistics
     pub fn get_cache_stats(&self) -> (u64, u64) {
-        let hits = *self.cache_hits.lock().unwrap();
-        let misses = *self.cache_misses.lock().unwrap();
+        let hits = *self.cache_hits.lock().unwrap_or_else(|e| e.into_inner());
+        let misses = *self.cache_misses.lock().unwrap_or_else(|e| e.into_inner());
         (hits, misses)
     }
 
     /// Clear all fonts from the cache
     pub fn clear_cache(&mut self) {
-        let mut cache = self.font_cache.lock().unwrap();
+        let mut cache = self.font_cache.lock().unwrap_or_else(|e| e.into_inner());
         cache.clear();
-        let mut order = self.font_order.lock().unwrap();
+        let mut order = self.font_order.lock().unwrap_or_else(|e| e.into_inner());
         order.clear();
     }
 
@@ -347,7 +347,7 @@ impl FontLibrary {
     /// Return the first font in insertion order.
     pub fn first_font(&mut self) -> Option<Arc<GameFont>> {
         self.cleanup_cache();
-        let order = self.font_order.lock().unwrap();
+        let order = self.font_order.lock().unwrap_or_else(|e| e.into_inner());
         let desc = order.first()?.clone();
         drop(order);
         self.get_font(&desc).ok()
@@ -356,7 +356,7 @@ impl FontLibrary {
     /// Return the next font after the provided font description.
     pub fn next_font(&mut self, current: &FontDesc) -> Option<Arc<GameFont>> {
         self.cleanup_cache();
-        let order = self.font_order.lock().unwrap();
+        let order = self.font_order.lock().unwrap_or_else(|e| e.into_inner());
         let index = order.iter().position(|desc| desc == current)?;
         let next = order.get(index + 1)?.clone();
         drop(order);
@@ -382,12 +382,12 @@ impl SubsystemInterface for FontLibrary {
 
         // Clear cache using interior mutability
         {
-            let mut cache = self.font_cache.lock().unwrap();
+            let mut cache = self.font_cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.clear();
         }
 
-        *self.cache_hits.lock().unwrap() = 0;
-        *self.cache_misses.lock().unwrap() = 0;
+        *self.cache_hits.lock().unwrap_or_else(|e| e.into_inner()) = 0;
+        *self.cache_misses.lock().unwrap_or_else(|e| e.into_inner()) = 0;
 
         log::info!("Font library reset successfully");
         Ok(())
@@ -396,7 +396,7 @@ impl SubsystemInterface for FontLibrary {
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Periodic cleanup of dead weak references using interior mutability
         {
-            let mut cache = self.font_cache.lock().unwrap();
+            let mut cache = self.font_cache.lock().unwrap_or_else(|e| e.into_inner());
             cache.retain(|_, weak_ref| weak_ref.strong_count() > 0);
         }
         Ok(())
@@ -421,8 +421,8 @@ impl FontLibrary {
         log::info!("Resetting font library");
 
         self.clear_cache();
-        *self.cache_hits.lock().unwrap() = 0;
-        *self.cache_misses.lock().unwrap() = 0;
+        *self.cache_hits.lock().unwrap_or_else(|e| e.into_inner()) = 0;
+        *self.cache_misses.lock().unwrap_or_else(|e| e.into_inner()) = 0;
 
         log::info!("Font library reset successfully");
         Ok(())
@@ -461,7 +461,7 @@ static FONT_LIBRARY: std::sync::OnceLock<std::sync::Mutex<FontLibrary>> =
 /// Get the global font library instance
 pub fn get_font_library() -> std::sync::MutexGuard<'static, FontLibrary> {
     let lock = FONT_LIBRARY.get_or_init(|| std::sync::Mutex::new(FontLibrary::new()));
-    lock.lock().expect("FontLibrary mutex poisoned")
+    lock.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]

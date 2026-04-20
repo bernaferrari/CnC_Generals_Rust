@@ -141,8 +141,7 @@ fn cancel_difficulty_select(window: &GameWindow) {
 
     let state_handle = difficulty_select_state();
     let state = state_handle
-        .lock()
-        .expect("difficulty select state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         with_window_manager(|manager| {
             let _ = manager.unset_modal(parent);
@@ -167,8 +166,7 @@ fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
 
     let state_handle = difficulty_select_state();
     let state = state_handle
-        .lock()
-        .expect("difficulty select state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         with_window_manager(|manager| {
             let _ = manager.unset_modal(parent);
@@ -187,8 +185,7 @@ fn start_campaign_game(window: &GameWindow, difficulty: GameDifficulty) {
 pub fn difficulty_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = difficulty_select_state();
     let mut state = state_handle
-        .lock()
-        .expect("difficulty select state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("DifficultySelect.wnd:DifficultySelectParent");
     state.button_ok_id = name_to_id("DifficultySelect.wnd:ButtonOk");
@@ -219,8 +216,7 @@ pub fn difficulty_select_system(
 ) -> WindowMsgHandled {
     let state_handle = difficulty_select_state();
     let mut state = state_handle
-        .lock()
-        .expect("difficulty select state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::Create | WindowMessage::Destroy | WindowMessage::InputFocus => {

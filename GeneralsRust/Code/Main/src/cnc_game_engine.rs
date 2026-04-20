@@ -94,14 +94,14 @@ mod tests {
     static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_global_data_snapshot_restored<F: FnOnce()>(f: F) {
-        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap();
+        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let snapshot = game_engine::common::global_data::read().clone();
         f();
         *game_engine::common::global_data::write() = snapshot;
     }
 
     fn with_global_and_startup_state_snapshot_restored<F: FnOnce()>(f: F) {
-        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap();
+        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let global_snapshot = game_engine::common::global_data::read().clone();
         let previous_difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
         let previous_rank_points =
@@ -2985,7 +2985,7 @@ impl CnCGameEngine {
         let mut ui_sound_cache: HashMap<String, Arc<[u8]>> = HashMap::new();
         if audio_handle.is_some() {
             if let Some(manager_arc) = crate::assets::manager::get_asset_manager() {
-                let mut manager = manager_arc.lock().unwrap();
+                let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
                 for &path in &[
                     crate::ui::sound_files::BUTTON_CLICK,
                     crate::ui::sound_files::BUTTON_HOVER,
@@ -3960,7 +3960,7 @@ impl CnCGameEngine {
         ];
 
         if let Some(asset_manager_arc) = get_asset_manager() {
-            let mut asset_manager = asset_manager_arc.lock().unwrap();
+            let mut asset_manager = asset_manager_arc.lock().unwrap_or_else(|e| e.into_inner());
             let mut loaded_count = 0;
             let total_units = unit_types.len();
 
@@ -4061,7 +4061,7 @@ impl CnCGameEngine {
         ];
 
         if let Some(asset_manager_arc) = get_asset_manager() {
-            let mut asset_manager = asset_manager_arc.lock().unwrap();
+            let mut asset_manager = asset_manager_arc.lock().unwrap_or_else(|e| e.into_inner());
             let mut loaded_count = 0;
             let total_units = unit_types.len();
 
@@ -8851,7 +8851,7 @@ impl CnCGameEngine {
         if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
             // First, get the list of texture filenames
             let texture_filenames = {
-                let asset_manager = asset_manager_arc.lock().unwrap();
+                let asset_manager = asset_manager_arc.lock().unwrap_or_else(|e| e.into_inner());
                 asset_manager.get_all_texture_filenames()
             };
 
@@ -8959,7 +8959,7 @@ impl CnCGameEngine {
         if let Some(asset_manager_arc) = crate::assets::get_asset_manager() {
             // CRITICAL FIX: Load model in a scope to release asset manager lock before cache_model()
             let w3d_model = {
-                let mut asset_manager = asset_manager_arc.lock().unwrap();
+                let mut asset_manager = asset_manager_arc.lock().unwrap_or_else(|e| e.into_inner());
                 match asset_manager.load_w3d_model_blocking(model_name) {
                     Ok(model) => Ok(model),
                     Err(e) => Err(anyhow::anyhow!(

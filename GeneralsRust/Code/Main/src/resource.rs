@@ -150,7 +150,7 @@ impl AssetManager {
 
         // Check cache first
         {
-            let cache = self.cache.read().unwrap();
+            let cache = self.cache.read().unwrap_or_else(|e| e.into_inner());
             if let Some(asset) = cache.get(&cache_key) {
                 // Update access time
                 // Note: This would require interior mutability in a real implementation
@@ -200,7 +200,7 @@ impl AssetManager {
 
         // Check cache first
         {
-            let cache = self.cache.read().unwrap();
+            let cache = self.cache.read().unwrap_or_else(|e| e.into_inner());
             if cache.contains_key(&cache_key) {
                 return true;
             }
@@ -232,29 +232,29 @@ impl AssetManager {
         info!("Clearing asset cache");
 
         {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write().unwrap_or_else(|e| e.into_inner());
             cache.clear();
         }
 
         {
-            let mut cache_size = self.current_cache_size.write().unwrap();
+            let mut cache_size = self.current_cache_size.write().unwrap_or_else(|e| e.into_inner());
             *cache_size = 0;
         }
     }
 
     /// Get asset loading statistics
     pub fn get_stats(&self) -> AssetStats {
-        self.stats.read().unwrap().clone()
+        self.stats.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Get current cache size
     pub fn get_cache_size(&self) -> u64 {
-        *self.current_cache_size.read().unwrap()
+        *self.current_cache_size.read().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Get cache utilization (0.0 to 1.0)
     pub fn get_cache_utilization(&self) -> f64 {
-        let current = *self.current_cache_size.read().unwrap();
+        let current = *self.current_cache_size.read().unwrap_or_else(|e| e.into_inner());
         current as f64 / self.max_cache_size as f64
     }
 
@@ -319,7 +319,7 @@ impl AssetManager {
 
         // Check if we need to evict assets
         {
-            let current_size = self.current_cache_size.write().unwrap();
+            let current_size = self.current_cache_size.write().unwrap_or_else(|e| e.into_inner());
             if *current_size + asset_size > self.max_cache_size {
                 drop(current_size);
                 self.evict_assets(asset_size)?;
@@ -328,13 +328,13 @@ impl AssetManager {
 
         // Add to cache
         {
-            let mut cache = self.cache.write().unwrap();
+            let mut cache = self.cache.write().unwrap_or_else(|e| e.into_inner());
             cache.insert(key, asset);
         }
 
         // Update cache size
         {
-            let mut current_size = self.current_cache_size.write().unwrap();
+            let mut current_size = self.current_cache_size.write().unwrap_or_else(|e| e.into_inner());
             *current_size += asset_size;
         }
 
@@ -350,7 +350,7 @@ impl AssetManager {
 
         // Simple LRU eviction based on loaded_at time
         {
-            let cache = self.cache.read().unwrap();
+            let cache = self.cache.read().unwrap_or_else(|e| e.into_inner());
             let mut assets: Vec<_> = cache.iter().collect();
             assets.sort_by_key(|(_, asset)| asset.loaded_at);
 
@@ -365,8 +365,8 @@ impl AssetManager {
 
         // Evict selected assets
         {
-            let mut cache = self.cache.write().unwrap();
-            let mut current_size = self.current_cache_size.write().unwrap();
+            let mut cache = self.cache.write().unwrap_or_else(|e| e.into_inner());
+            let mut current_size = self.current_cache_size.write().unwrap_or_else(|e| e.into_inner());
 
             for (key, size) in to_evict {
                 cache.remove(&key);
@@ -380,26 +380,26 @@ impl AssetManager {
 
     /// Update statistics for cache hit
     fn update_stats_cache_hit(&self) {
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
         stats.cache_hits += 1;
     }
 
     /// Update statistics for cache miss
     fn update_stats_cache_miss(&self) {
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
         stats.cache_misses += 1;
     }
 
     /// Update statistics for loaded asset
     fn update_stats_loaded(&self, asset: &CachedAsset) {
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
         stats.total_loaded += 1;
         stats.total_size += asset.data.len() as u64;
     }
 
     /// Update statistics for failed load
     fn update_stats_failed(&self) {
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
         stats.failed_loads += 1;
     }
 }

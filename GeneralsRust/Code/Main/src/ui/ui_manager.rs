@@ -175,7 +175,7 @@ impl UIManager {
 
         #[cfg(not(feature = "game_client"))]
         {
-            let mut font_manager = self.font_manager.lock().unwrap();
+            let mut font_manager = self.font_manager.lock().unwrap_or_else(|e| e.into_inner());
             font_manager.load_font("title", "fonts/generals_title.ttf", 36.0)?;
             font_manager.load_font("menu", "fonts/generals_menu.ttf", 24.0)?;
             font_manager.load_font("button", "fonts/generals_button.ttf", 18.0)?;
@@ -188,7 +188,10 @@ impl UIManager {
         // path is compiled in so startup does not depend on fake asset names.
         #[cfg(not(feature = "game_client"))]
         {
-            let mut texture_manager = self.texture_manager.lock().unwrap();
+            let mut texture_manager = self
+                .texture_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             texture_manager.load_texture("background", "textures/menu_background.tga")?;
             texture_manager.load_texture("button_normal", "textures/button_normal.tga")?;
             texture_manager.load_texture("button_hover", "textures/button_hover.tga")?;

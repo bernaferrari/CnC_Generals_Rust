@@ -107,8 +107,7 @@ fn backend_slot() -> &'static Mutex<Option<Arc<dyn InGameUiHooks>>> {
 
 pub fn register_in_game_ui_backend(hooks: Arc<dyn InGameUiHooks>) {
     let mut slot = backend_slot()
-        .lock()
-        .expect("In-game UI backend lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     *slot = Some(hooks);
 }
 
@@ -118,8 +117,7 @@ where
 {
     let backend = {
         let slot = backend_slot()
-            .lock()
-            .expect("In-game UI backend lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         slot.clone()
     };
     if let Some(handler) = backend {
@@ -136,8 +134,7 @@ where
 {
     let backend = {
         let slot = backend_slot()
-            .lock()
-            .expect("In-game UI backend lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         slot.clone()
     };
     backend.map(|handler| f(handler.as_ref()))
@@ -153,8 +150,7 @@ static MOUSE_CURSOR_VISIBLE: AtomicBool = AtomicBool::new(true);
 pub fn register_mouse_backend(mouse: Arc<Mutex<Mouse>>) {
     let visible = MOUSE_CURSOR_VISIBLE.load(Ordering::Relaxed);
     let mut slot = mouse_backend_slot()
-        .lock()
-        .expect("Mouse backend lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     *slot = Some(mouse);
 
     if let Some(mouse) = slot.as_ref() {
@@ -168,8 +164,7 @@ pub fn set_mouse_cursor_visibility(visible: bool) {
     MOUSE_CURSOR_VISIBLE.store(visible, Ordering::Relaxed);
     let backend = {
         let slot = mouse_backend_slot()
-            .lock()
-            .expect("Mouse backend lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         slot.clone()
     };
 
@@ -183,8 +178,7 @@ pub fn set_mouse_cursor_visibility(visible: bool) {
 pub fn is_mouse_cursor_visible() -> bool {
     let backend = {
         let slot = mouse_backend_slot()
-            .lock()
-            .expect("Mouse backend lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         slot.clone()
     };
 
@@ -220,8 +214,7 @@ fn control_bar_backend_slot() -> &'static Mutex<Option<Arc<dyn ControlBarHooks>>
 
 pub fn register_control_bar_backend(hooks: Arc<dyn ControlBarHooks>) {
     let mut slot = control_bar_backend_slot()
-        .lock()
-        .expect("Control bar backend lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     *slot = Some(hooks);
 }
 
@@ -231,8 +224,7 @@ where
 {
     let backend = {
         let slot = control_bar_backend_slot()
-            .lock()
-            .expect("Control bar backend lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         slot.clone()
     };
     if let Some(handler) = backend {
@@ -249,8 +241,7 @@ where
 {
     let backend = {
         let slot = control_bar_backend_slot()
-            .lock()
-            .expect("Control bar backend lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         slot.clone()
     };
     backend.map(|handler| f(handler.as_ref()))
@@ -262,8 +253,7 @@ impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
     fn ensure_background_window(&self) {
         let layout_slot = background_layout_slot();
         let existing = layout_slot
-            .lock()
-            .expect("Background layout lock poisoned")
+            .lock().unwrap_or_else(|e| e.into_inner())
             .clone();
         if let Some(layout) = existing {
             layout.borrow_mut().hide(false);
@@ -285,7 +275,7 @@ impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
             if let Some(window) = layout.borrow().get_first_window() {
                 window.borrow_mut().clear_status(WindowStatus::IMAGE);
             }
-            let mut slot = layout_slot.lock().expect("Background layout lock poisoned");
+            let mut slot = layout_slot.lock().unwrap_or_else(|e| e.into_inner());
             *slot = Some(layout);
         }
     }
@@ -379,8 +369,7 @@ impl GamePauseHooks for GameClientPauseHooks {
     fn on_game_pause_state_changed(&self, paused: bool) {
         let (input_enabled_memory, mouse_visible_memory) = {
             let mut state = pause_transition_state()
-                .lock()
-                .expect("Pause transition state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if paused {
                 state.input_enabled_memory = TheInGameUI::get_input_enabled();
                 state.mouse_visible_memory = is_mouse_cursor_visible();
@@ -621,8 +610,7 @@ pub struct TheInGameUI;
 impl TheInGameUI {
     fn set_cursor(cursor: CursorType) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.cursor = cursor;
     }
 
@@ -733,29 +721,25 @@ impl TheInGameUI {
 
     pub fn set_quit_menu_visible(visible: bool) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.quit_menu_visible = visible;
     }
 
     pub fn is_quit_menu_visible() -> bool {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.quit_menu_visible
     }
 
     pub fn get_input_enabled() -> bool {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.input_enabled && gamelogic::helpers::TheGameLogic::is_input_enabled()
     }
 
     pub fn set_input_enabled(enabled: bool) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.input_enabled = enabled;
         if !enabled {
             guard.scrolling = false;
@@ -767,22 +751,19 @@ impl TheInGameUI {
 
     pub fn is_selecting() -> bool {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.selecting
     }
 
     pub fn set_selecting(selecting: bool) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.selecting = selecting;
     }
 
     pub fn set_scrolling(scrolling: bool) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.scrolling = scrolling;
         if !scrolling {
             guard.scroll_amount_x = 0.0;
@@ -792,52 +773,45 @@ impl TheInGameUI {
 
     pub fn is_scrolling() -> bool {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.scrolling
     }
 
     pub fn set_scroll_amount(x: f32, y: f32) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.scroll_amount_x = x;
         guard.scroll_amount_y = y;
     }
 
     pub fn get_scroll_amount() -> (f32, f32) {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         (guard.scroll_amount_x, guard.scroll_amount_y)
     }
 
     pub fn set_client_quiet(quiet: bool) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.client_quiet = quiet;
     }
 
     pub fn is_client_quiet() -> bool {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.client_quiet
     }
 
     pub fn toggle_messages() -> bool {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.messages_on = !guard.messages_on;
         guard.messages_on
     }
 
     pub fn is_messages_on() -> bool {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.messages_on
     }
 
@@ -849,8 +823,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = enabled;
     }
 
@@ -861,8 +834,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click
     }
 
@@ -876,8 +848,7 @@ impl TheInGameUI {
 
     pub fn get_cursor_name() -> &'static str {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         Self::cursor_name(guard.cursor)
     }
 
@@ -886,8 +857,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.radius_cursor_active = true;
         guard.radius_cursor_type.clear();
     }
@@ -899,8 +869,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         let radius_type = radius_cursor_type.trim();
         guard.radius_cursor_active =
             !radius_type.is_empty() && !radius_type.eq_ignore_ascii_case("NONE");
@@ -912,8 +881,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_template.clone()
     }
 
@@ -924,8 +892,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_source_object_id
     }
 
@@ -936,8 +903,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_template = template_name;
         guard.pending_source_object_id = source_object_id.unwrap_or(0);
         guard.placement_start = None;
@@ -950,8 +916,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_special_power.clone()
     }
 
@@ -965,8 +930,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_special_power = Some(pending);
     }
 
@@ -975,8 +939,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_special_power = None;
     }
 
@@ -985,8 +948,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_command.clone()
     }
 
@@ -1007,8 +969,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_command = Some(pending);
     }
 
@@ -1032,8 +993,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_command = Some(pending);
     }
 
@@ -1042,8 +1002,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.pending_command = None;
     }
 
@@ -1052,8 +1011,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.placement_start.is_some()
     }
 
@@ -1062,8 +1020,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.placement_start = start.clone();
         if start.is_none() {
             guard.placement_end = None;
@@ -1077,8 +1034,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.placement_end = end;
     }
 
@@ -1087,8 +1043,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         let start = guard.placement_start.clone()?;
         let end = guard.placement_end.clone().unwrap_or_else(|| start.clone());
         Some((start, end))
@@ -1099,8 +1054,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.placement_angle
     }
 
@@ -1109,8 +1063,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.placement_angle = angle;
     }
 
@@ -1119,8 +1072,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.radius_cursor_active = false;
         guard.radius_cursor_type.clear();
     }
@@ -1169,8 +1121,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.attack_move_to_mode = false;
     }
 
@@ -1179,8 +1130,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.attack_move_to_mode
     }
 
@@ -1189,8 +1139,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.attack_move_to_mode = enabled;
     }
 
@@ -1205,8 +1154,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.force_attack_mode
     }
 
@@ -1215,8 +1163,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.force_move_to_mode
     }
 
@@ -1225,8 +1172,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.prefer_selection_mode
     }
 
@@ -1235,8 +1181,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.force_attack_mode = enabled;
     }
 
@@ -1245,8 +1190,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.force_move_to_mode = enabled;
     }
 
@@ -1255,8 +1199,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.prefer_selection_mode = enabled;
     }
 
@@ -1316,8 +1259,7 @@ impl TheInGameUI {
         {
             let state_handle = popup_message_state();
             let mut state = state_handle
-                .lock()
-                .expect("popup message state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             state.data = Some(data);
         }
 
@@ -1338,8 +1280,7 @@ impl TheInGameUI {
         let data = {
             let state_handle = popup_message_state();
             let mut state = state_handle
-                .lock()
-                .expect("popup message state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             state.data.take()
         };
 
@@ -1360,22 +1301,19 @@ impl TheInGameUI {
 
     pub fn set_mouse_cursor(cursor: MouseCursor) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.mouse_cursor = cursor;
     }
 
     pub fn get_mouse_cursor() -> MouseCursor {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.mouse_cursor
     }
 
     pub fn set_mouse_mode(mode: MouseMode) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.mouse_mode = mode;
         if mode != MouseMode::GuiCommand {
             guard.mouse_mode_cursor = MouseCursor::Arrow;
@@ -1384,29 +1322,25 @@ impl TheInGameUI {
 
     pub fn get_mouse_mode() -> MouseMode {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.mouse_mode
     }
 
     pub fn get_mouse_mode_cursor() -> MouseCursor {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.mouse_mode_cursor
     }
 
     pub fn set_moused_over_drawable_id(id: u32) {
         let mut guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.moused_over_drawable_id = id;
     }
 
     pub fn get_moused_over_drawable_id() -> u32 {
         let guard = in_game_ui_status_state()
-            .lock()
-            .expect("In-game UI status lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.moused_over_drawable_id
     }
 
@@ -1424,7 +1358,7 @@ impl TheInGameUI {
             lifetime_frames: 60,
         };
         let state = hint_state();
-        let mut guard = state.lock().expect("hint state lock poisoned");
+        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
         guard.retain(|h| !(h.hint_type == HintType::Move && h.source_id == source_id));
         if guard.len() >= 256 {
             if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Move) {
@@ -1448,7 +1382,7 @@ impl TheInGameUI {
             lifetime_frames: 60,
         };
         let state = hint_state();
-        let mut guard = state.lock().expect("hint state lock poisoned");
+        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
         if guard.len() >= 256 {
             if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Attack) {
                 guard.remove(pos);
@@ -1467,13 +1401,13 @@ impl TheInGameUI {
             lifetime_frames: 300,
         };
         let state = hint_state();
-        let mut guard = state.lock().expect("hint state lock poisoned");
+        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
         guard.push(hint);
     }
 
     pub fn end_area_select_hint() {
         let state = hint_state();
-        let mut guard = state.lock().expect("hint state lock poisoned");
+        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(pos) = guard
             .iter()
             .rposition(|h| h.hint_type == HintType::AreaSelect)
@@ -1484,19 +1418,19 @@ impl TheInGameUI {
 
     pub fn expire_hints(current_frame: u32) {
         let state = hint_state();
-        let mut guard = state.lock().expect("hint state lock poisoned");
+        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
         guard.retain(|h| current_frame < h.creation_frame + h.lifetime_frames);
     }
 
     pub fn clear_hints() {
         let state = hint_state();
-        let mut guard = state.lock().expect("hint state lock poisoned");
+        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
         guard.clear();
     }
 
     pub fn get_hints() -> Vec<HintData> {
         let state = hint_state();
-        let guard = state.lock().expect("hint state lock poisoned");
+        let guard = state.lock().unwrap_or_else(|e| e.into_inner());
         guard.clone()
     }
 
@@ -1505,8 +1439,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.waypoint_mode
     }
 
@@ -1515,8 +1448,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.waypoint_mode = enabled;
     }
 
@@ -1525,8 +1457,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_rotating_left
     }
 
@@ -1535,8 +1466,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_rotating_left = set;
     }
 
@@ -1545,8 +1475,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_rotating_right
     }
 
@@ -1555,8 +1484,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_rotating_right = set;
     }
 
@@ -1565,8 +1493,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_zooming_in
     }
 
@@ -1575,8 +1502,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_zooming_in = set;
     }
 
@@ -1585,8 +1511,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_zooming_out
     }
 
@@ -1595,8 +1520,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_zooming_out = set;
     }
 
@@ -1605,8 +1529,7 @@ impl TheInGameUI {
             return value;
         }
         let guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_tracking_drawable
     }
 
@@ -1615,8 +1538,7 @@ impl TheInGameUI {
             return;
         }
         let mut guard = fallback_placement_state()
-            .lock()
-            .expect("In-game UI placement state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         guard.camera_tracking_drawable = set;
     }
 

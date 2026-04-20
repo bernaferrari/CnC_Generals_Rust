@@ -223,7 +223,7 @@ fn update_map_preview(state: &mut LanGameOptionsState) {
     let preview_name = get_map_preview_image(&map_name).unwrap_or_default();
     set_window_image(&state.map_window, &preview_name);
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     position_start_buttons(state, meta.as_ref());
     update_map_start_spots(state, meta.as_ref());
@@ -237,7 +237,7 @@ fn update_map_preview(state: &mut LanGameOptionsState) {
 
 fn sync_map_metadata(map_name: &str) {
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let mut setup = get_lan_setup();
     let info = setup.game_info_mut();
     if let Some(meta) = cache_guard.find_map(map_name) {
@@ -608,7 +608,7 @@ fn lan_update_slot_list(state: &mut LanGameOptionsState) {
         setup.game_info().get_map().to_string()
     };
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     update_map_start_spots(state, meta.as_ref());
 }
@@ -618,7 +618,7 @@ fn choose_default_map(state: &mut LanGameOptionsState) {
         return;
     }
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let mut candidates: Vec<_> = cache_guard
         .iter_maps()
         .into_iter()
@@ -889,7 +889,7 @@ fn start_lan_game(state: &mut LanGameOptionsState) {
             .unwrap_or(2)
             .max(1);
         let cache = get_map_cache_manager();
-        let cache_guard = cache.lock().unwrap();
+        let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(meta) = cache_guard.find_map(&map_name) {
             if meta.num_players > 0 && num_users > meta.num_players as usize {
                 return;

@@ -115,7 +115,7 @@ impl VideoBufferHandle {
     }
 
     pub fn lock(&self) -> MutexGuard<'_, dyn VideoBuffer + Send + 'static> {
-        self.inner.lock().unwrap()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 

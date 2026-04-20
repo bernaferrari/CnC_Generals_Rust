@@ -31,7 +31,7 @@ impl RadioButtonGroup {
 
     /// Add a button to the group
     fn add_button(&self, button_id: GadgetId) {
-        let mut buttons = self.buttons.lock().unwrap();
+        let mut buttons = self.buttons.lock().unwrap_or_else(|e| e.into_inner());
         if !buttons.contains(&button_id) {
             buttons.push(button_id);
         }
@@ -39,10 +39,10 @@ impl RadioButtonGroup {
 
     /// Remove a button from the group
     fn remove_button(&self, button_id: GadgetId) {
-        let mut buttons = self.buttons.lock().unwrap();
+        let mut buttons = self.buttons.lock().unwrap_or_else(|e| e.into_inner());
         buttons.retain(|&id| id != button_id);
 
-        let mut selected = self.selected.lock().unwrap();
+        let mut selected = self.selected.lock().unwrap_or_else(|e| e.into_inner());
         if *selected == Some(button_id) {
             *selected = None;
         }
@@ -50,28 +50,28 @@ impl RadioButtonGroup {
 
     /// Set selected button
     fn set_selected(&self, button_id: GadgetId) {
-        let mut selected = self.selected.lock().unwrap();
+        let mut selected = self.selected.lock().unwrap_or_else(|e| e.into_inner());
         *selected = Some(button_id);
     }
 
     /// Get selected button
     pub fn get_selected(&self) -> Option<GadgetId> {
-        *self.selected.lock().unwrap()
+        *self.selected.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Get all buttons in group
     pub fn get_buttons(&self) -> Vec<GadgetId> {
-        self.buttons.lock().unwrap().clone()
+        self.buttons.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Check if a button is selected
     pub fn is_selected(&self, button_id: GadgetId) -> bool {
-        *self.selected.lock().unwrap() == Some(button_id)
+        *self.selected.lock().unwrap_or_else(|e| e.into_inner()) == Some(button_id)
     }
 
     /// Clear selection
     pub fn clear_selection(&self) {
-        *self.selected.lock().unwrap() = None;
+        *self.selected.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 

@@ -922,7 +922,7 @@ lazy_static::lazy_static! {
 
 /// Initialize the global replay system
 pub fn init_replay_system() -> SaveLoadResult<()> {
-    let mut manager = REPLAY_MANAGER.lock().unwrap();
+    let mut manager = REPLAY_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
     manager.init()
 }
 

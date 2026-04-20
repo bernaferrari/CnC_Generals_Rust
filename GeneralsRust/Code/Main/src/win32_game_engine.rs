@@ -291,7 +291,7 @@ impl Win32GameEngine {
             let Some(manager_arc) = get_asset_manager() else {
                 continue;
             };
-            let manager = manager_arc.lock().expect("asset manager mutex poisoned");
+            let manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(model) = manager.get_cached_model(&unit_type) {
                 self.loaded_models
                     .insert(unit_type.clone(), Arc::new(model));

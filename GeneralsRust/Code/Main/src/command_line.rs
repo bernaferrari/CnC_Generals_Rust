@@ -675,7 +675,7 @@ pub fn initialize_command_line() -> Result<CommandLineArgs> {
 
     // Store globally for access by other systems
     {
-        let mut global_args = COMMAND_LINE_ARGS.lock().unwrap();
+        let mut global_args = COMMAND_LINE_ARGS.lock().unwrap_or_else(|e| e.into_inner());
         *global_args = Some(args.clone());
     }
 
@@ -685,7 +685,10 @@ pub fn initialize_command_line() -> Result<CommandLineArgs> {
 
 /// Get the global command line arguments
 pub fn get_command_line_args() -> Option<CommandLineArgs> {
-    COMMAND_LINE_ARGS.lock().unwrap().clone()
+    COMMAND_LINE_ARGS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 /// Check if a specific command line option was provided

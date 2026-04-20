@@ -462,7 +462,7 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
         };
         if is_challenge {
             if let Some(generals_mutex) = get_challenge_generals() {
-                let generals = generals_mutex.lock().unwrap();
+                let generals = generals_mutex.lock().unwrap_or_else(|e| e.into_inner());
                 let manager = get_campaign_manager();
                 if let Some(mission) = manager.get_current_mission() {
                     if let Some(general) = generals.general_by_general_name(&mission.general_name) {
@@ -579,7 +579,7 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
         };
         if is_challenge {
             if let Some(generals_mutex) = get_challenge_generals() {
-                let generals = generals_mutex.lock().unwrap();
+                let generals = generals_mutex.lock().unwrap_or_else(|e| e.into_inner());
                 let manager = get_campaign_manager();
                 if let Some(mission) = manager.get_current_mission() {
                     if let Some(general) = generals.general_by_general_name(&mission.general_name) {

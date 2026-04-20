@@ -92,7 +92,7 @@ fn wol_state() -> &'static Mutex<WolWelcomeState> {
 
 pub fn set_look_at_player(profile_id: i32, name: &str) {
     let slot = LOOK_AT_PLAYER.get_or_init(|| Mutex::new((0, String::new())));
-    let mut guard = slot.lock().expect("LookAtPlayer lock poisoned");
+    let mut guard = slot.lock().unwrap_or_else(|e| e.into_inner());
     *guard = (profile_id, name.to_string());
 }
 
@@ -126,8 +126,7 @@ fn update_server_display(state: &mut WolWelcomeState, server_name: &str) {
 
 pub fn set_wol_server_name(server_name: &str) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLWelcomeMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     update_server_display(&mut state, server_name);
 }
 
@@ -219,8 +218,7 @@ fn update_num_players_online(state: &mut WolWelcomeState) {
 
 pub fn handle_num_players_online(num_players_online: i32) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLWelcomeMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.last_num_players_online = num_players_online.max(1);
     update_num_players_online(&mut state);
 }
@@ -240,8 +238,7 @@ fn find_next_number(mut input: &str) -> &str {
 
 pub fn handle_overall_stats(stats_text: &str) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLWelcomeMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     let Some(today_idx) = stats_text.find("Today") else {
         return;
     };
@@ -856,8 +853,7 @@ fn handle_persistent_storage_responses() {
 
 fn shutdown_complete(layout: &WindowLayout, next_screen: Option<String>) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLWelcomeMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = false;
     layout.hide(true);
     let mut shell = get_shell();
@@ -870,8 +866,7 @@ fn shutdown_complete(layout: &WindowLayout, next_screen: Option<String>) {
 
 pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLWelcomeMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.next_screen = None;
     state.button_pushed = false;
     state.is_shutting_down = false;
@@ -980,8 +975,7 @@ pub fn wol_welcome_menu_shutdown(layout: &WindowLayout, user_data: Option<&mut d
         .unwrap_or(false);
     {
         let mut state = wol_state()
-            .lock()
-            .expect("WOLWelcomeMenu state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         state.listbox_info = None;
         state.is_shutting_down = true;
     }
@@ -998,8 +992,7 @@ pub fn wol_welcome_menu_shutdown(layout: &WindowLayout, user_data: Option<&mut d
 
 pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = wol_state()
-        .lock()
-        .expect("WOLWelcomeMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     let shell_finished = get_shell().is_anim_finished();
     let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
     if state.is_shutting_down && shell_finished && transitions_finished {
@@ -1100,8 +1093,7 @@ pub fn wol_welcome_menu_input(
         return WindowMsgHandled::Handled;
     }
     let mut state = wol_state()
-        .lock()
-        .expect("WOLWelcomeMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if state.button_pushed {
         return WindowMsgHandled::Handled;
     }
@@ -1190,8 +1182,7 @@ pub fn wol_welcome_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1;
             let mut state = wol_state()
-                .lock()
-                .expect("WOLWelcomeMenu state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }

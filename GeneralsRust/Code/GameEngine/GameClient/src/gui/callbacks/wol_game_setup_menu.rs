@@ -298,7 +298,7 @@ fn update_map_preview(state: &mut WolGameSetupState) {
     let preview_name = get_map_preview_image(&map_name).unwrap_or_default();
     set_window_image(&state.map_window, &preview_name);
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     position_start_buttons(state, meta.as_ref());
     update_map_start_spots(state, meta.as_ref());
@@ -329,8 +329,7 @@ fn get_additional_disconnects_from_user_file(profile_id: i32) -> i32 {
 
 fn player_tooltip(window: &GameWindow, _inst: &WindowInstanceData, _mouse: u32) {
     let state = game_setup_state()
-        .lock()
-        .expect("WOLGameSetup state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     let window_id = window.get_id() as i32;
     let mut slot_idx = None;
     for i in 0..MAX_SLOTS {
@@ -458,7 +457,7 @@ fn map_selector_tooltip(window: &GameWindow, _inst: &WindowInstanceData, mouse: 
     let (pixel_x, pixel_y) = window.get_screen_position();
 
     let supply_and_tech = get_supply_and_tech_image_locations();
-    let guard = supply_and_tech.lock().unwrap();
+    let guard = supply_and_tech.lock().unwrap_or_else(|e| e.into_inner());
     let tech_positions = &guard.tech_positions;
     let supply_positions = &guard.supply_positions;
 
@@ -1183,7 +1182,7 @@ fn start_pressed(state: &mut WolGameSetupState) {
 
     let map_name = game.get_map().to_string();
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let map_data = cache_guard.find_map(&map_name);
     let map_display_name = map_data
         .as_ref()
@@ -1543,8 +1542,7 @@ fn first_selectable_player(game: &GameInfo) -> usize {
 
 pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = game_setup_state()
-        .lock()
-        .expect("WOLGameSetupMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     if with_gamespy_game_info(|info| info.is_game_in_progress()) {
         with_gamespy_game_info_mut(|info| info.set_game_in_progress(false));
@@ -1881,8 +1879,7 @@ pub fn wol_game_setup_menu_update(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     let mut state = game_setup_state()
-        .lock()
-        .expect("WOLGameSetupMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     if state.is_shutting_down
         && get_shell().is_anim_finished()
@@ -2317,8 +2314,7 @@ pub fn wol_game_setup_menu_shutdown(
     user_data: Option<&mut dyn std::any::Any>,
 ) {
     let mut state = game_setup_state()
-        .lock()
-        .expect("WOLGameSetupMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     if let Some(info) = get_gamespy_info() {
         if let Ok(mut info) = info.lock() {
@@ -2373,8 +2369,7 @@ pub fn wol_game_setup_menu_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let mut state = game_setup_state()
-        .lock()
-        .expect("WOLGameSetupMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::Create => {

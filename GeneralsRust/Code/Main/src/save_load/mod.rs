@@ -270,7 +270,7 @@ static SAVE_LOAD_MANAGER: OnceLock<Arc<Mutex<SaveLoadManager>>> = OnceLock::new(
 pub fn init_save_load_system() -> SaveLoadResult<()> {
     let manager_arc =
         SAVE_LOAD_MANAGER.get_or_init(|| Arc::new(Mutex::new(SaveLoadManager::new())));
-    let mut manager = manager_arc.lock().unwrap();
+    let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
     manager.init()
 }
 

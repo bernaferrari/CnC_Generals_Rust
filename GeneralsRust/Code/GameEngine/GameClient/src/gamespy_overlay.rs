@@ -79,8 +79,7 @@ fn overlay_script(overlay: GameSpyOverlayType) -> &'static str {
 fn clear_gs_message_boxes() {
     let window = {
         let mut state = overlay_state()
-            .lock()
-            .expect("GameSpy overlay state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         state.message_box_ok = None;
         state.message_box_cancel = None;
         state.message_box_window.take()
@@ -96,8 +95,7 @@ fn clear_gs_message_boxes() {
 fn message_box_ok_clicked() {
     let callback = {
         let mut state = overlay_state()
-            .lock()
-            .expect("GameSpy overlay state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         state.message_box_window = None;
         state.message_box_ok.take()
     };
@@ -109,8 +107,7 @@ fn message_box_ok_clicked() {
 fn message_box_cancel_clicked() {
     let callback = {
         let mut state = overlay_state()
-            .lock()
-            .expect("GameSpy overlay state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         state.message_box_window = None;
         state.message_box_cancel.take()
     };
@@ -123,8 +120,7 @@ pub fn gs_message_box_ok(title: &str, body: &str, ok_callback: Option<MessageBox
     clear_gs_message_boxes();
     let window = message_box_ok(title, body, Some(Box::new(message_box_ok_clicked)));
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.message_box_window = window;
     state.message_box_ok = ok_callback;
 }
@@ -143,8 +139,7 @@ pub fn gs_message_box_ok_cancel(
         Some(Box::new(message_box_cancel_clicked)),
     );
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.message_box_window = window;
     state.message_box_ok = ok_callback;
     state.message_box_cancel = cancel_callback;
@@ -164,8 +159,7 @@ pub fn gs_message_box_yes_no(
         Some(Box::new(message_box_cancel_clicked)),
     );
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.message_box_window = window;
     state.message_box_ok = yes_callback;
     state.message_box_cancel = no_callback;
@@ -220,8 +214,7 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
 
     let layout = {
         let mut state = overlay_state()
-            .lock()
-            .expect("GameSpy overlay state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         if let Some(layout) = state.overlays.get(&overlay).cloned() {
             layout.borrow_mut().hide(false);
             Some(layout)
@@ -253,8 +246,7 @@ pub fn open_overlay(overlay: GameSpyOverlayType) {
 pub fn close_overlay(overlay: GameSpyOverlayType) {
     let layout = {
         let mut state = overlay_state()
-            .lock()
-            .expect("GameSpy overlay state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         state.overlays.remove(&overlay)
     };
     if let Some(layout) = layout {
@@ -266,8 +258,7 @@ pub fn close_overlay(overlay: GameSpyOverlayType) {
 pub fn close_all_overlays() {
     let overlays = {
         let mut state = overlay_state()
-            .lock()
-            .expect("GameSpy overlay state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         let overlays = state.overlays.drain().map(|(_, v)| v).collect::<Vec<_>>();
         overlays
     };
@@ -319,16 +310,14 @@ fn raise_overlays() {
 
 pub fn reopen_player_info() {
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.reopen_player_info = true;
 }
 
 pub fn check_reopen_player_info() {
     let reopen = {
         let mut state = overlay_state()
-            .lock()
-            .expect("GameSpy overlay state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         if state.reopen_player_info {
             state.reopen_player_info = false;
             true
@@ -355,8 +344,7 @@ pub fn is_overlay_visible(overlay: GameSpyOverlayType) -> bool {
 
 pub fn set_lobby_attempt_host_join(enabled: bool) {
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.lobby_attempt_host_join = enabled;
 }
 
@@ -369,8 +357,7 @@ pub fn lobby_attempt_host_join() -> bool {
 
 pub fn set_current_staging_room_id(id: Option<i32>) {
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.current_staging_room_id = id;
 }
 
@@ -383,15 +370,13 @@ pub fn current_staging_room_id() -> Option<i32> {
 
 pub fn register_staging_room(room: GameSpyStagingRoom) {
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.staging_rooms.insert(room.id, room);
 }
 
 pub fn remove_staging_room(id: i32) {
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.staging_rooms.remove(&id);
 }
 
@@ -404,8 +389,7 @@ pub fn find_staging_room_by_id(id: i32) -> Option<GameSpyStagingRoom> {
 
 pub fn queue_join_request(room_id: i32, password: String) {
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.last_join_request = Some((room_id, password));
 }
 
@@ -418,8 +402,7 @@ pub fn last_join_request() -> Option<(i32, String)> {
 
 pub fn queue_host_request(request: GameSpyHostRequest) {
     let mut state = overlay_state()
-        .lock()
-        .expect("GameSpy overlay state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.last_host_request = Some(request);
 }
 

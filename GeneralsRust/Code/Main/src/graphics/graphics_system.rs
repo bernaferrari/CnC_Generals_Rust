@@ -457,7 +457,7 @@ impl GraphicsSystem {
         key: &str,
     ) -> Option<wgpu::BindGroup> {
         let asset_manager_arc = crate::assets::get_asset_manager()?;
-        let asset_manager = asset_manager_arc.lock().unwrap();
+        let asset_manager = asset_manager_arc.lock().unwrap_or_else(|e| e.into_inner());
 
         // C++ approach: get texture from cache or use default
         // Textures should already be preloaded before rendering starts

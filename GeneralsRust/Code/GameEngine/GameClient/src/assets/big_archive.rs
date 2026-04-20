@@ -311,7 +311,7 @@ impl BigArchive {
             .as_ref()
             .ok_or_else(|| BigError::InvalidStructure("No file handle available".to_string()))?;
 
-        let mut file = file_handle.lock().unwrap();
+        let mut file = file_handle.lock().unwrap_or_else(|e| e.into_inner());
         file.seek(SeekFrom::Start(file_info.offset))?;
 
         let size = if let Some(compressed_size) = file_info.compressed_size {

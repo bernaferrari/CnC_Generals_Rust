@@ -399,8 +399,7 @@ fn process_load_button_press(state: &mut SaveLoadMenuState, window: &GameWindow)
 pub fn save_load_menu_init(layout: &WindowLayout, user_data: Option<&dyn std::any::Any>) {
     let state_handle = save_load_menu_state();
     let mut state = state_handle
-        .lock()
-        .expect("save load menu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     state.current_layout_type = SaveLoadLayoutType::SaveAndLoad;
     state.is_popup = true;
@@ -448,8 +447,7 @@ pub fn save_load_menu_full_screen_init(
 
     let state_handle = save_load_menu_state();
     let mut state = state_handle
-        .lock()
-        .expect("save load menu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     state.is_popup = false;
     state.current_layout_type = SaveLoadLayoutType::LoadOnly;
@@ -510,16 +508,14 @@ pub fn save_load_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     });
     let state_handle = save_load_menu_state();
     let mut state = state_handle
-        .lock()
-        .expect("save load menu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = true;
 }
 
 pub fn save_load_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = save_load_menu_state();
     let mut state = state_handle
-        .lock()
-        .expect("save load menu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     if get_dont_show_main_menu() && state.just_entered {
         state.just_entered = false;
@@ -567,8 +563,7 @@ pub fn save_load_menu_input(
 
     let state_handle = save_load_menu_state();
     let mut state = state_handle
-        .lock()
-        .expect("save load menu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if let Some(confirm) = state.delete_confirm.as_ref() {
         let _ = confirm.borrow_mut().hide(true);
     }
@@ -598,8 +593,7 @@ pub fn save_load_menu_system(
 ) -> WindowMsgHandled {
     let state_handle = save_load_menu_state();
     let mut state = state_handle
-        .lock()
-        .expect("save load menu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,

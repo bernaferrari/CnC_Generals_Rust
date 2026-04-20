@@ -364,7 +364,7 @@ impl UnitControlSystem {
         ctrl_pressed: bool,
         game_logic: &Arc<AsyncMutex<GameLogic>>,
     ) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         let now = logic.get_total_play_time();
         let is_double_click = if let Some(last_click) = self.last_click_time {
             (now - last_click) < self.double_click_threshold
@@ -418,7 +418,7 @@ impl UnitControlSystem {
         screen_pos: Vec2,
         game_logic: &Arc<AsyncMutex<GameLogic>>,
     ) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         if self.selected_objects.is_empty() {
             println!("No units selected for command");
@@ -465,7 +465,7 @@ impl UnitControlSystem {
         shift_pressed: bool,
         game_logic: &Arc<AsyncMutex<GameLogic>>,
     ) {
-        let logic = game_logic.lock().unwrap();
+        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Convert screen box to world coordinates
         let start_world = self.screen_to_ground(start_screen);
@@ -517,7 +517,7 @@ impl UnitControlSystem {
 
                 // Update game logic selection
                 drop(logic);
-                let mut logic = game_logic.lock().unwrap();
+                let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
                 logic.select_objects(self.player_id, self.selected_objects.clone());
 
                 println!("📦 Box selected {} units", self.selected_objects.len());
@@ -531,7 +531,7 @@ impl UnitControlSystem {
         screen_pos: Vec2,
         game_logic: &Arc<AsyncMutex<GameLogic>>,
     ) {
-        let logic = game_logic.lock().unwrap();
+        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         let new_hovered = self
             .pick_object_at_screen_pos(screen_pos, &logic)
@@ -631,7 +631,7 @@ impl UnitControlSystem {
             return;
         }
 
-        let logic = game_logic.lock().unwrap();
+        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         let mut control_group = ControlGroup::new();
         for &object_id in &self.selected_objects {
@@ -660,7 +660,7 @@ impl UnitControlSystem {
         }
 
         if let Some(control_group) = self.control_groups.get_mut(&group_num) {
-            let mut logic = game_logic.lock().unwrap();
+            let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
             // Filter out dead objects
             let valid_objects: Vec<ObjectId> = control_group
@@ -715,7 +715,7 @@ impl UnitControlSystem {
 
     /// Select all player units (Ctrl+A)
     pub async fn select_all_units(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         self.selected_objects.clear();
 
@@ -782,7 +782,7 @@ impl UnitControlSystem {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         let command = self.create_stop_command();
 
         for &object_id in &self.selected_objects {
@@ -806,7 +806,7 @@ impl UnitControlSystem {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         for &object_id in &self.selected_objects {
             if let Some(obj) = logic.get_object_mut(object_id) {
@@ -826,7 +826,7 @@ impl UnitControlSystem {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         for &object_id in &self.selected_objects {
             if let Some(obj) = logic.get_object_mut(object_id) {

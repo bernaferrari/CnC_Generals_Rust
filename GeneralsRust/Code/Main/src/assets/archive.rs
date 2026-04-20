@@ -417,7 +417,7 @@ pub async fn init_archive_file_system() -> Result<()> {
     let archive_system = Arc::new(Mutex::new(ArchiveFileSystem::new()));
 
     {
-        let mut system = archive_system.lock().unwrap();
+        let mut system = archive_system.lock().unwrap_or_else(|e| e.into_inner());
         system.init().await?;
     }
 
@@ -464,7 +464,7 @@ impl AsyncRead for BlockingAsyncReader {
             let inner = this.inner.clone();
             let to_read = buf.remaining().min(64 * 1024);
             this.in_flight = Some(tokio::task::spawn_blocking(move || {
-                let mut guard = inner.lock().unwrap();
+                let mut guard = inner.lock().unwrap_or_else(|e| e.into_inner());
                 let mut tmp = vec![0u8; to_read];
                 loop {
                     match guard.read(&mut tmp) {

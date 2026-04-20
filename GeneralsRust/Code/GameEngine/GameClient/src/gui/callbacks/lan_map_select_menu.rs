@@ -192,7 +192,7 @@ fn update_preview(state: &mut LanMapSelectState) {
     let preview_name = get_map_preview_image(&map_name).unwrap_or_default();
     set_window_image(&state.map_preview, &preview_name);
     let cache = get_map_cache_manager();
-    let cache_guard = cache.lock().unwrap();
+    let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
     let meta = cache_guard.find_map(&map_name);
     if let Some(preview) = state.map_preview.as_ref() {
         preview.borrow_mut().set_user_data(meta.clone());
@@ -203,8 +203,7 @@ fn update_preview(state: &mut LanMapSelectState) {
 pub fn lan_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let state_handle = map_select_state();
     let mut state = state_handle
-        .lock()
-        .expect("LanMapSelectMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("LanMapSelectMenu.wnd:LanMapSelectMenuParent");
     state.listbox_map_id = name_to_id("LanMapSelectMenu.wnd:ListboxMap");
@@ -286,8 +285,7 @@ pub fn lan_map_select_menu_shutdown(
     layout.hide(true);
     let state_handle = map_select_state();
     let mut state = state_handle
-        .lock()
-        .expect("LanMapSelectMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.listbox_map = None;
     state.map_preview = None;
@@ -301,8 +299,7 @@ pub fn lan_map_select_menu_system(
 ) -> WindowMsgHandled {
     let state_handle = map_select_state();
     let mut state = state_handle
-        .lock()
-        .expect("LanMapSelectMenu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::InputFocus => return WindowMsgHandled::Handled,
@@ -390,8 +387,7 @@ pub fn lan_map_select_menu_input(
         if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
             let state_handle = map_select_state();
             let state = state_handle
-                .lock()
-                .expect("LanMapSelectMenu state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if let Some(parent) = state.parent.as_ref() {
                 let _ = parent.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,

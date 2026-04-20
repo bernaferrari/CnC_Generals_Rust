@@ -262,12 +262,12 @@ impl DebugSystem {
             let formatted = format!("[{}] [{}] {}\n", timestamp, level.to_uppercase(), message);
 
             {
-                let mut writer_guard = writer.lock().unwrap();
+                let mut writer_guard = writer.lock().unwrap_or_else(|e| e.into_inner());
                 writer_guard.write_all(formatted.as_bytes())?;
 
                 // Update stats
                 {
-                    let mut stats = self.stats.lock().unwrap();
+                    let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
                     stats.log_entries_written += 1;
                     stats.total_log_size += formatted.len() as u64;
 
@@ -289,7 +289,10 @@ impl DebugSystem {
             return;
         }
 
-        let mut timers = self.performance_timers.lock().unwrap();
+        let mut timers = self
+            .performance_timers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let timer = timers
             .entry(name.to_string())
             .or_insert_with(|| PerformanceTimer::new(name.to_string()));
@@ -302,7 +305,10 @@ impl DebugSystem {
             return;
         }
 
-        let mut timers = self.performance_timers.lock().unwrap();
+        let mut timers = self
+            .performance_timers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(timer) = timers.get_mut(name) {
             timer.stop();
 
@@ -318,21 +324,24 @@ impl DebugSystem {
 
     /// Get performance statistics
     pub fn get_performance_stats(&self) -> std::collections::HashMap<String, PerformanceTimer> {
-        self.performance_timers.lock().unwrap().clone()
+        self.performance_timers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Get debug system statistics
     pub fn get_stats(&self) -> DebugStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Flush log buffers to disk
     pub fn flush(&self) -> Result<()> {
         if let Some(ref writer) = self.log_writer {
-            let mut writer_guard = writer.lock().unwrap();
+            let mut writer_guard = writer.lock().unwrap_or_else(|e| e.into_inner());
             writer_guard.flush()?;
 
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
             stats.last_flush_time = SystemTime::now();
         }
         Ok(())
@@ -369,7 +378,7 @@ impl DebugSystem {
         file.flush()?;
 
         {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
             stats.crashes_handled += 1;
         }
 
@@ -410,7 +419,7 @@ pub fn initialize_debug_system(config: Option<DebugConfig>) -> Result<Arc<DebugS
     let system = Arc::new(DebugSystem::new(config)?);
 
     {
-        let mut global_system = DEBUG_SYSTEM.lock().unwrap();
+        let mut global_system = DEBUG_SYSTEM.lock().unwrap_or_else(|e| e.into_inner());
         *global_system = Some(system.clone());
     }
 
@@ -420,7 +429,10 @@ pub fn initialize_debug_system(config: Option<DebugConfig>) -> Result<Arc<DebugS
 
 /// Get the global debug system
 pub fn get_debug_system() -> Option<Arc<DebugSystem>> {
-    DEBUG_SYSTEM.lock().unwrap().clone()
+    DEBUG_SYSTEM
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 /// Start a performance timer on the global debug system

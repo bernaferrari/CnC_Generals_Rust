@@ -177,7 +177,7 @@ impl CompleteUISystem {
 
         // Configure renderer
         {
-            let mut renderer = self.renderer.write().unwrap();
+            let mut renderer = self.renderer.write().unwrap_or_else(|e| e.into_inner());
             renderer.set_screen_size(self.config.screen_width, self.config.screen_height);
             renderer.set_time(0.0);
         }
@@ -191,7 +191,7 @@ impl CompleteUISystem {
         // Load default font
         // In a real implementation, you would load font data from file
         // let font_data = std::fs::read(format!("{}/{}.ttf", self.config.font_path, self.config.default_font))?;
-        // self.renderer.write().unwrap().load_font(&self.config.default_font, &font_data)?;
+        // self.renderer.write().unwrap_or_else(|e| e.into_inner()).load_font(&self.config.default_font, &font_data)?;
 
         // Initialize shell system
         self.shell.set_window_manager(self.window_manager.clone());
@@ -238,7 +238,7 @@ impl CompleteUISystem {
             if let Err(err) = collection.load_from_directory(&self.config.image_path, true) {
                 log::warn!("Failed to load UI images: {}", err);
             }
-            let renderer = self.renderer.read().unwrap();
+            let renderer = self.renderer.read().unwrap_or_else(|e| e.into_inner());
             if let Err(err) = collection.create_gpu_textures(renderer.device(), renderer.queue()) {
                 log::warn!("Failed to upload UI textures: {}", err);
             }
@@ -369,7 +369,7 @@ impl CompleteUISystem {
 
         // Update renderer time
         {
-            let mut renderer = self.renderer.write().unwrap();
+            let mut renderer = self.renderer.write().unwrap_or_else(|e| e.into_inner());
             renderer.set_time(self.current_time);
         }
 
@@ -435,9 +435,7 @@ impl CompleteUISystem {
 
         // Create render pass
         let mut encoder = self
-            .renderer
-            .read()
-            .unwrap()
+            .renderer.read().unwrap_or_else(|e| e.into_inner())
             .device()
             .create_command_encoder(
             &wgpu::CommandEncoderDescriptor {
@@ -470,14 +468,12 @@ impl CompleteUISystem {
             self.window_manager.render()?;
 
             // Render UI through the renderer including any radar overlay emitted this frame.
-            let mut renderer = self.renderer.write().unwrap();
+            let mut renderer = self.renderer.write().unwrap_or_else(|e| e.into_inner());
             renderer.render(&mut render_pass)?;
         }
 
         // Submit the command buffer
-        self.renderer
-            .read()
-            .unwrap()
+        self.renderer.read().unwrap_or_else(|e| e.into_inner())
             .queue()
             .submit(std::iter::once(encoder.finish()));
 
@@ -518,7 +514,7 @@ impl CompleteUISystem {
 
     /// Get performance statistics
     pub fn get_performance_stats(&self) -> UIPerformanceStats {
-        let render_stats = self.renderer.read().unwrap().get_stats().clone();
+        let render_stats = self.renderer.read().unwrap_or_else(|e| e.into_inner()).get_stats().clone();
 
         UIPerformanceStats {
             frame_time_ms: self.frame_time_ms,

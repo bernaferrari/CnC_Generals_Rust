@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Simulate game state changes
     {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         println!(
             "Game state: In Game = {}, Paused = {}",
             logic.isInGame(),
