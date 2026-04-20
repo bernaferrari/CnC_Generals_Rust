@@ -50,7 +50,6 @@ impl HeaderTemplateManager {
     }
 
     pub fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        register_header_template_parser();
         self.templates.clear();
 
         let language = get_registry_language().as_str().to_string();
@@ -120,6 +119,10 @@ impl HeaderTemplateManager {
 static HEADER_TEMPLATE_MANAGER: OnceLock<Mutex<HeaderTemplateManager>> = OnceLock::new();
 static HEADER_TEMPLATE_PARSER: OnceLock<()> = OnceLock::new();
 
+thread_local! {
+    static ACTIVE_HEADER_TEMPLATE_MANAGER: std::cell::RefCell<Option<*mut HeaderTemplateManager>> = const { std::cell::RefCell::new(None) };
+}
+
 pub fn get_header_template_manager() -> std::sync::MutexGuard<'static, HeaderTemplateManager> {
     HEADER_TEMPLATE_MANAGER
         .get_or_init(|| Mutex::new(HeaderTemplateManager::new()))
@@ -127,9 +130,21 @@ pub fn get_header_template_manager() -> std::sync::MutexGuard<'static, HeaderTem
         .expect("HeaderTemplateManager lock poisoned")
 }
 
-fn register_header_template_parser() {
+pub fn register_parser() {
     HEADER_TEMPLATE_PARSER.get_or_init(|| {
         let _ = register_block_parser("HeaderTemplate", parse_header_template_definition);
+    });
+}
+
+pub fn set_active_manager(manager: *mut HeaderTemplateManager) {
+    ACTIVE_HEADER_TEMPLATE_MANAGER.with(|opt| {
+        *opt.borrow_mut() = Some(manager);
+    });
+}
+
+pub fn clear_active_manager() {
+    ACTIVE_HEADER_TEMPLATE_MANAGER.with(|opt| {
+        *opt.borrow_mut() = None;
     });
 }
 
@@ -142,16 +157,34 @@ fn parse_header_template_definition(ini: &mut INI) -> INIResult<()> {
         .ok_or(INIError::InvalidData)?
         .to_string();
 
+    let active_result: Option<INIResult<()>> = ACTIVE_HEADER_TEMPLATE_MANAGER.with(|opt| {
+        let borrowed = opt.borrow();
+        if let Some(ptr) = *borrowed {
+            let manager: &mut HeaderTemplateManager = unsafe { &mut *ptr };
+            if manager.find_header_template(&name).is_some() {
+                return Some(Err(INIError::InvalidData));
+            }
+            manager.add_template(HeaderTemplate::new(name.clone()));
+            let last_index = manager.templates.len().saturating_sub(1);
+            let template = &mut manager.templates[last_index];
+            Some(ini.init_from_ini_with_fields(template, HEADER_TEMPLATE_FIELD_PARSE_TABLE))
+        } else {
+            None
+        }
+    });
+
+    if let Some(result) = active_result {
+        return result;
+    }
+
     let mut manager = get_header_template_manager();
     if manager.find_header_template(&name).is_some() {
         return Err(INIError::InvalidData);
     }
-
     manager.add_template(HeaderTemplate::new(name.clone()));
     let last_index = manager.templates.len().saturating_sub(1);
     let template = &mut manager.templates[last_index];
-    ini.init_from_ini_with_fields(template, HEADER_TEMPLATE_FIELD_PARSE_TABLE)?;
-    Ok(())
+    ini.init_from_ini_with_fields(template, HEADER_TEMPLATE_FIELD_PARSE_TABLE)
 }
 
 fn parse_font_name(
