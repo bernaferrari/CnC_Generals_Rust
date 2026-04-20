@@ -102,26 +102,28 @@ pub fn register_weather_definition_parser() {
 
 fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
     let settings = ensure_weather_setting();
-    let mut guard = settings.write().map_err(|_| INIError::InvalidData)?;
-    if ini.get_load_type() == INILoadType::Overwrite {
-        *guard = WeatherSetting::default();
-    }
+    {
+        let mut guard = settings.write().map_err(|_| INIError::InvalidData)?;
+        if ini.get_load_type() == INILoadType::Overwrite {
+            *guard = WeatherSetting::default();
+        }
 
-    loop {
-        ini.read_line()?;
-        if ini.is_eof() {
-            return Err(INIError::EndOfFile);
+        loop {
+            ini.read_line()?;
+            if ini.is_eof() {
+                return Err(INIError::EndOfFile);
+            }
+            let tokens = ini.get_line_tokens();
+            if tokens.is_empty() {
+                continue;
+            }
+            let key = tokens[0];
+            if key.eq_ignore_ascii_case("End") {
+                break;
+            }
+            let args: Vec<&str> = tokens[1..].iter().copied().collect();
+            guard.apply_field(key, &args)?;
         }
-        let tokens = ini.get_line_tokens();
-        if tokens.is_empty() {
-            continue;
-        }
-        let key = tokens[0];
-        if key.eq_ignore_ascii_case("End") {
-            break;
-        }
-        let args: Vec<&str> = tokens[1..].iter().copied().collect();
-        guard.apply_field(key, &args)?;
     }
 
     if let Some(manager) = get_snow_manager() {

@@ -520,10 +520,11 @@ impl SubsystemInterface for Display {
 
 impl DisplayInterface for Display {
     fn draw(&self) -> Result<(), Box<dyn std::error::Error>> {
-        self.draw_views();
         let (frame, view) = self
             .begin_frame()
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+        self.draw_views();
 
         let mut encoder =
             self.graphics
