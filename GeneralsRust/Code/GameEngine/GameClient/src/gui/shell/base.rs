@@ -2534,7 +2534,6 @@ impl Shell {
             }
         }
 
-        // Match C++ Shell::showShell(): only auto-push MainMenu when global shell-map mode is disabled.
         let global_shell_map_on = get_global_data()
             .map(|data| data.read().shell_map_on)
             .unwrap_or(false);
@@ -2872,12 +2871,6 @@ impl SubsystemInterface for Shell {
 
             self.animate_window_manager.update();
             self.scheme_manager.update()?;
-            if self.is_shell_active {
-                // C++ shell schemes are rendered as part of the active shell frame.
-                // Draw here as a safety net so loaded menu schemes still affect the UI
-                // even when a dedicated scheme-draw window is absent.
-                self.scheme_manager.draw();
-            }
 
             self.last_update = now;
         }
