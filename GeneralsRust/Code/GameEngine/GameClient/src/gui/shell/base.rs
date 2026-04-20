@@ -2534,10 +2534,7 @@ impl Shell {
             }
         }
 
-        let global_shell_map_on = get_global_data()
-            .map(|data| data.read().shell_map_on)
-            .unwrap_or(false);
-        if !global_shell_map_on && self.screen_stack.is_empty() {
+        if self.screen_stack.is_empty() {
             self.push("Menus/MainMenu.wnd", false)?;
         }
 
@@ -3153,7 +3150,9 @@ mod tests {
         use std::fs;
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        let _guard = shell_global_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = shell_global_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         struct CwdGuard(PathBuf);
         impl Drop for CwdGuard {
@@ -3328,7 +3327,9 @@ mod tests {
 
     #[test]
     fn test_shell_show_hide() {
-        let _guard = shell_global_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = shell_global_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         game_engine::common::ini::ini_game_data::init_global_data();
         if let Some(global) = get_global_data() {
             let mut global = global.write();
@@ -3356,7 +3357,9 @@ mod tests {
 
     #[test]
     fn test_show_shell_does_not_push_main_menu_when_shell_map_is_on() {
-        let _guard = shell_global_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = shell_global_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         game_engine::common::ini::ini_game_data::init_global_data();
         if let Some(global) = get_global_data() {
             let mut global = global.write();
@@ -3376,7 +3379,9 @@ mod tests {
 
     #[test]
     fn test_show_shell_map_reapplies_background_image_status() {
-        let _guard = shell_global_test_lock().lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = shell_global_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         game_engine::common::ini::ini_game_data::init_global_data();
         if let Some(global) = get_global_data() {
             let mut global = global.write();
