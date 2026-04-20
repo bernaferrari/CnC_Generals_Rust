@@ -11,7 +11,7 @@ use crate::gui::game_window::{
     read_video_frame, resolve_window_text, WindowState, WindowStatus, WIN_COLOR_UNDEFINED,
 };
 use crate::gui::shell::get_shell;
-use crate::gui::ui_globals::with_ui_renderer;
+use crate::gui::ui_globals::with_ui_renderer_mut;
 use crate::gui::ui_renderer::UIRect;
 use crate::gui::window_manager::with_window_manager_ref;
 use crate::gui::{GameWindow, WindowInstanceData};
@@ -193,8 +193,7 @@ fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceData) {
         display.set_text(text.clone());
         display.draw(text_x, text_y, text_color, border_color);
     } else {
-        let _ = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().ok()?;
+        let _ = with_ui_renderer_mut(|renderer| {
             let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
             if let Err(err) = renderer.draw_text_simple(
                 &text,
@@ -212,7 +211,6 @@ fn draw_button_text(window: &GameWindow, inst_data: &WindowInstanceData) {
             ) {
                 log::warn!("W3DGadgetDraw text render failed: {err}");
             }
-            Some(())
         });
     }
 }
@@ -262,8 +260,7 @@ fn draw_main_menu_button_drop_shadow_text(window: &GameWindow, inst_data: &Windo
         return;
     }
 
-    let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().ok()?;
+    let _ = with_ui_renderer_mut(|renderer| {
         let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
         let text_width = (text.chars().count() as f32 * font_size * 0.6).round() as i32;
         let text_height = font_size.round() as i32;
@@ -281,7 +278,6 @@ fn draw_main_menu_button_drop_shadow_text(window: &GameWindow, inst_data: &Windo
             font_size,
             super::game_window::color_to_rgba(text_color),
         );
-        Some(())
     });
 }
 
@@ -315,12 +311,7 @@ fn truncate_to_i32(value: f32) -> i32 {
 }
 
 fn ui_screen_height() -> i32 {
-    with_ui_renderer(|renderer| {
-        let renderer = renderer.read().ok()?;
-        Some(renderer.screen_size().1 as i32)
-    })
-    .flatten()
-    .unwrap_or(720)
+    with_ui_renderer_mut(|renderer| renderer.screen_size().1 as i32).unwrap_or(720)
 }
 
 fn draw_main_menu_frame(window: &GameWindow, vertical_ratios: &[f32]) {
@@ -452,7 +443,8 @@ fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &str) {
     let (size_x, size_y) = window.get_size();
 
     let mut state = main_menu_pulse_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if !state.initialized {
         state.width = size_x + image.width;
         state.x = -800;
@@ -782,8 +774,7 @@ pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowIns
         return;
     }
 
-    let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().ok()?;
+    let _ = with_ui_renderer_mut(|renderer| {
         let font_size = inst_data.font.as_ref().map(|font| font.size).unwrap_or(12) as f32;
         let text_height = font_size.round() as i32;
         let text_y = origin_y + (height / 2) - (text_height / 2);
@@ -807,7 +798,6 @@ pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowIns
             super::game_window::color_to_rgba(inst_data.disabled_text.color),
             scissor,
         );
-        Some(())
     });
 }
 
@@ -912,8 +902,7 @@ pub fn w3d_clock_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
         (size_y - 2).max(0) as f32,
     );
 
-    let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().ok()?;
+    let _ = with_ui_renderer_mut(|renderer| {
         let font_size = font.as_ref().map(|font| font.desc.size).unwrap_or(16) as f32;
         let _ = renderer.draw_text_simple_with_scissor(
             &datestr,
@@ -929,7 +918,6 @@ pub fn w3d_clock_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
             [1.0, 1.0, 1.0, 1.0],
             scissor,
         );
-        Some(())
     });
 }
 
@@ -1027,10 +1015,7 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         return;
     }
 
-    let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().ok()?;
-
-        // Create texture from radar terrain data (RGBA format)
+    let _ = with_ui_renderer_mut(|renderer| {
         let texture = renderer.create_texture_from_rgba(
             game_engine::common::system::radar::RADAR_CELL_WIDTH,
             game_engine::common::system::radar::RADAR_CELL_HEIGHT,
@@ -1117,8 +1102,6 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                 0.0,
             );
         }
-
-        Some(())
     });
 }
 
@@ -1690,11 +1673,9 @@ fn draw_video_buffer(window: &GameWindow, inst_data: &WindowInstanceData) {
         rect.width,
         rect.height,
     );
-    let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().ok()?;
+    let _ = with_ui_renderer_mut(|renderer| {
         let texture = renderer.create_texture_from_rgba(frame.width, frame.height, &frame.data);
         renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
-        Some(())
     });
 }
 
@@ -1947,8 +1928,7 @@ fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
         return;
     }
 
-    let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().ok()?;
+    let _ = with_ui_renderer_mut(|renderer| {
         if let Some(entry) = draw_data.first() {
             if entry.color != WIN_COLOR_UNDEFINED {
                 renderer.draw_rect(rect, super::game_window::color_to_rgba(entry.color), 0.0);
@@ -1962,7 +1942,6 @@ fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
                 );
             }
         }
-        Some(())
     });
 
     let _ = text_colors;
@@ -2231,8 +2210,7 @@ fn draw_progress_bar_image(
                 bar_width as f32,
                 (end_y - start_y) as f32,
             );
-            let _ = with_ui_renderer(|renderer| {
-                let mut renderer = renderer.write().ok()?;
+            let _ = with_ui_renderer_mut(|renderer| {
                 let texture = {
                     let collection = get_mapped_image_collection();
                     let mut collection = collection.write();
@@ -2260,7 +2238,6 @@ fn draw_progress_bar_image(
                         0.0,
                     );
                 }
-                Some(())
             });
         }
     }
@@ -4160,8 +4137,7 @@ fn draw_mapped_image_clipped(
         (iy2 - iy1) as f32,
     );
 
-    let _ = with_ui_renderer(|renderer| {
-        let mut renderer = renderer.write().ok()?;
+    let _ = with_ui_renderer_mut(|renderer| {
         let texture = {
             let collection = get_mapped_image_collection();
             let mut collection = collection.write();
@@ -4193,7 +4169,6 @@ fn draw_mapped_image_clipped(
             };
             renderer.draw_textured_rect(rect, texture, color, Some(tex_rect), 0.0);
         }
-        Some(())
     });
 }
 

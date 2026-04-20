@@ -253,7 +253,7 @@ pub use integrated_ui_system::{
     IntegratedUIError, IntegratedUISystem, IntegratedUISystemBuilder, UICommand,
 };
 
-pub use ui_globals::{set_ui_renderer, with_ui_renderer};
+pub use ui_globals::{set_ui_renderer, with_ui_renderer, with_ui_renderer_mut};
 
 /// Maximum number of windows that can be created
 pub const MAX_WINDOWS: usize = 576;

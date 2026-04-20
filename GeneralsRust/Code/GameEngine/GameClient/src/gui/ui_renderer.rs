@@ -200,6 +200,7 @@ pub struct UIRenderer {
 
     // Textures and samplers
     default_texture: Arc<TextureView>,
+    default_texture_bind_group: BindGroup,
     linear_sampler: Sampler,
     nearest_sampler: Sampler,
 
@@ -519,6 +520,21 @@ impl UIRenderer {
             ..Default::default()
         });
 
+        let default_texture_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("UI Default Texture Bind Group"),
+            layout: &texture_bind_group_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&default_texture_view),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&linear_sampler),
+                },
+            ],
+        });
+
         Ok(Self {
             device,
             queue,
@@ -541,6 +557,7 @@ impl UIRenderer {
             text_buffer,
             font_cache: HashMap::new(),
             default_texture: default_texture_view,
+            default_texture_bind_group,
             linear_sampler,
             nearest_sampler,
             screen_size: (800, 600),
@@ -1083,6 +1100,7 @@ impl UIRenderer {
 
             // Render batched geometry
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
+            render_pass.set_bind_group(1, &self.default_texture_bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
@@ -1133,7 +1151,10 @@ impl UIRenderer {
                         }
                     }
                     None => {
-                        current_texture = None;
+                        if current_texture.is_some() {
+                            render_pass.set_bind_group(1, &self.default_texture_bind_group, &[]);
+                            current_texture = None;
+                        }
                     }
                 }
 
