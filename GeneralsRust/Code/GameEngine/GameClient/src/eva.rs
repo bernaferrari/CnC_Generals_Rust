@@ -1,5 +1,6 @@
 //! EVA voice system (GameClient/Eva.cpp).
 
+use std::cell::Cell;
 use std::sync::{Mutex, OnceLock};
 
 use game_engine::common::ini::{
@@ -663,20 +664,45 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
         return Err(INIError::InvalidData);
     };
 
+    let ptr = ACTIVE_EVA_MANAGER.with(|p| p.get());
+    if !ptr.is_null() {
+        let eva = unsafe { &mut *ptr };
+        let Some(check) = eva.new_eva_check_info(name) else {
+            return Ok(());
+        };
+        ini.init_from_ini_with_fields(check, EvaCheckInfo::field_parse())?;
+        return Ok(());
+    }
+
     let Some(eva) = THE_EVA.get() else {
         return Err(INIError::InvalidData);
     };
     let mut eva = eva.lock().map_err(|_| INIError::InvalidData)?;
-
     let Some(check) = eva.new_eva_check_info(name) else {
         return Ok(());
     };
-
     ini.init_from_ini_with_fields(check, EvaCheckInfo::field_parse())?;
     Ok(())
 }
 
 static THE_EVA: OnceLock<Mutex<Eva>> = OnceLock::new();
+
+thread_local! {
+    static ACTIVE_EVA_MANAGER: Cell<*mut Eva> = Cell::new(std::ptr::null_mut());
+}
+
+/// Set the active EVA manager pointer for INI parser callbacks.
+/// Must be cleared after use. Only call when THE_EVA lock is already held.
+///
+/// # Safety
+/// Caller must ensure the pointer is valid and the mutex is held for the duration.
+unsafe fn set_active_eva_manager(eva: *mut Eva) {
+    ACTIVE_EVA_MANAGER.with(|ptr| ptr.set(eva));
+}
+
+fn clear_active_eva_manager() {
+    ACTIVE_EVA_MANAGER.with(|ptr| ptr.set(std::ptr::null_mut()));
+}
 
 pub fn get_eva() -> &'static Mutex<Eva> {
     THE_EVA.get_or_init(|| Mutex::new(Eva::new()))
@@ -684,7 +710,13 @@ pub fn get_eva() -> &'static Mutex<Eva> {
 
 pub fn initialize_eva_system() -> INIResult<()> {
     let eva = get_eva();
-    eva.lock().map_err(|_| INIError::InvalidData)?.init()
+    let mut guard = eva.lock().map_err(|_| INIError::InvalidData)?;
+    unsafe {
+        set_active_eva_manager(&mut *guard as *mut Eva);
+    }
+    let result = guard.init();
+    clear_active_eva_manager();
+    result
 }
 
 pub fn reset_eva_system() {
