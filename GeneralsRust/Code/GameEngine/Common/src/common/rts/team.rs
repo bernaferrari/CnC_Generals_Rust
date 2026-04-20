@@ -2333,7 +2333,7 @@ pub struct TeamPrototype {
     /// Flag set to true if we don't have a production condition
     production_condition_always_false: bool,
     /// Whether we've retrieved generic scripts yet
-    retrieved_generic_scripts: bool,
+    _retrieved_generic_scripts: bool,
 }
 
 impl TeamPrototype {
@@ -2372,7 +2372,7 @@ impl TeamPrototype {
             team_instances: Vec::new(),
             attack_priority_name: String::new(),
             production_condition_always_false: false,
-            retrieved_generic_scripts: false,
+            _retrieved_generic_scripts: false,
         }
     }
 

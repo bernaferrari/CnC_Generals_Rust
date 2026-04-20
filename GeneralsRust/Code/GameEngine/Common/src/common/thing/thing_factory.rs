@@ -495,6 +495,7 @@ impl ThingFactory {
     }
 
     /// Free all template database data
+    #[allow(dead_code)]
     fn free_database(&mut self) {
         // Clear all templates
         self.first_template = None;

@@ -1004,8 +1004,8 @@ struct FileLocator {
 
 struct PreparedEntry {
     entry: BigFileEntry,
-    normalized_path: AsciiString,
-    original_path: AsciiString,
+    _normalized_path: AsciiString,
+    _original_path: AsciiString,
     data: Option<Vec<u8>>,
     stream: Option<File>,
 }
@@ -1245,8 +1245,8 @@ impl BigFileSystem {
             let data = archive.big_file.extract_file_data(&entry)?;
             Ok(Some(PreparedEntry {
                 entry,
-                normalized_path: locator.normalized_path,
-                original_path: locator.original_path,
+                _normalized_path: locator.normalized_path,
+                _original_path: locator.original_path,
                 data: Some(data),
                 stream: None,
             }))
@@ -1254,8 +1254,8 @@ impl BigFileSystem {
             let file = archive.big_file.clone_underlying_file()?;
             Ok(Some(PreparedEntry {
                 entry,
-                normalized_path: locator.normalized_path,
-                original_path: locator.original_path,
+                _normalized_path: locator.normalized_path,
+                _original_path: locator.original_path,
                 data: None,
                 stream: Some(file),
             }))
@@ -1263,8 +1263,8 @@ impl BigFileSystem {
             let data = archive.big_file.extract_file_data(&entry)?;
             Ok(Some(PreparedEntry {
                 entry,
-                normalized_path: locator.normalized_path,
-                original_path: locator.original_path,
+                _normalized_path: locator.normalized_path,
+                _original_path: locator.original_path,
                 data: Some(data),
                 stream: None,
             }))

@@ -63,9 +63,6 @@ impl CacheFlags {
         (self.0 & flag.0) != 0
     }
 
-    fn set(&mut self, flag: CacheFlags) {
-        self.0 |= flag.0;
-    }
 
     fn clear(&mut self, flag: CacheFlags) {
         self.0 &= !flag.0;
@@ -156,7 +153,7 @@ pub trait Thing: Send + Sync {
 pub struct BaseThing {
     template: Arc<ThingTemplate>,
     #[cfg(any(debug_assertions, feature = "internal"))]
-    template_name: AsciiString,
+    _template_name: AsciiString,
 
     // Transform data - m_transform is the authoritative source
     transform: Matrix3D,
@@ -180,7 +177,7 @@ impl BaseThing {
         Self {
             template: thing_template.clone(),
             #[cfg(any(debug_assertions, feature = "internal"))]
-            template_name: thing_template.get_name().clone(),
+            _template_name: thing_template.get_name().clone(),
 
             transform: Matrix3D::identity(),
             cached_pos: Coord3D::new(0.0, 0.0, 0.0),

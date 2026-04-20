@@ -291,6 +291,7 @@ pub struct ScopedHandle<'a, T> {
 }
 
 impl<'a, T> ScopedHandle<'a, T> {
+    #[allow(dead_code)]
     pub(crate) fn new(pool: &'a ObjectPool<T>, index: GenerationalIndex) -> Self {
         Self { pool, index }
     }

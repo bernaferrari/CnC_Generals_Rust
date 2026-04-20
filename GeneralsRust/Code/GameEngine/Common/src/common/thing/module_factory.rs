@@ -364,14 +364,6 @@ pub struct ModuleFactory {
     descriptor_order: [Vec<NameKeyType>; ModuleType::NUM_MODULE_TYPES],
 }
 
-#[derive(Clone)]
-struct DescriptorRecord {
-    name: AsciiString,
-    interface_mask: ModuleInterfaceType,
-    inheritable: bool,
-    overrideable_by_like_kind: bool,
-    copied_from_default: bool,
-}
 
 /// Template hash size constant
 const TEMPLATE_HASH_SIZE: usize = 4096;
