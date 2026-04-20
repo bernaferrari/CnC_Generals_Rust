@@ -755,9 +755,12 @@ impl HeaderTemplateManagerSubsystem {
 
 impl SubsystemInterface for HeaderTemplateManagerSubsystem {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        crate::gui::header_template::register_parser();
         let mut manager = crate::gui::header_template::get_header_template_manager();
-        manager.init()?;
-        Ok(())
+        crate::gui::header_template::set_active_manager(&mut *manager);
+        let result = manager.init();
+        crate::gui::header_template::clear_active_manager();
+        result
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {

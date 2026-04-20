@@ -1060,7 +1060,9 @@ pub fn sync_mapped_images_from_common() -> usize {
         imported += 1;
     }
 
-    // C++ materializes the shell backdrop set before the first menu frame.
+    drop(client);
+    drop(common);
+
     let _ = materialize_startup_shell_images();
 
     imported

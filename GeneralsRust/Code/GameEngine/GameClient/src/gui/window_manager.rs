@@ -2619,7 +2619,7 @@ impl WindowManager {
             let name = window_def.draw_callback.as_str();
             match name {
                 "GameWinDefaultDraw" => {
-                    window.set_draw_callback(legacy_default_draw_callback);
+                    window.set_draw_callback(default_draw_callback);
                 }
                 "W3DGameWinDefaultDraw" => {
                     window.set_draw_callback(default_draw_callback);
