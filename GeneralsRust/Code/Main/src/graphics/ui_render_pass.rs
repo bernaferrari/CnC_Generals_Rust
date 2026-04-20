@@ -8,19 +8,27 @@
 //! In Rust, gadget draw callbacks queue commands into the UIRenderer (immediate-mode
 //! batching). This module flushes those commands into a WGPU render pass after the 3D scene.
 
-use log::{trace, warn};
+use log::{info, trace, warn};
 use ww3d_renderer_3d::RendererResult;
 
-/// Flush all queued UI draw commands into the given WGPU render frame.
-///
-/// PARITY_NOTE: Equivalent to C++ SAGE post-scene 2D overlay pass where
-/// W3DDevice::StretchRect, DrawLine, and font rasterization are issued after
-/// the 3D scene render. Orthographic projection uses screen-space coordinates
-/// (0,0 at top-left, Y increasing downward).
+use std::sync::atomic::{AtomicU32, Ordering};
+static UI_FLUSH_CALL_COUNT: AtomicU32 = AtomicU32::new(0);
+static UI_FLUSH_ZERO_CMD_LOGGED: AtomicU32 = AtomicU32::new(0);
+
 pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
+    let call = UI_FLUSH_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
+
     let renderer_arc = match game_client::gui::ui_globals::with_ui_renderer(|r| r.clone()) {
         Some(arc) => arc,
-        None => return Ok(()),
+        None => {
+            if call < 5 {
+                warn!(
+                    "flush_ui_to_frame: no UI renderer available (call #{})",
+                    call
+                );
+            }
+            return Ok(());
+        }
     };
 
     let mut renderer = match renderer_arc.write() {
@@ -33,13 +41,35 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
 
     renderer.begin_frame();
 
-    // PARITY_NOTE: Matches C++ WinRepaint() z-order (BELOW → normal → ABOVE → modal).
-    let had_draw_commands = game_client::gui::window_manager::with_window_manager(|wm| {
-        wm.draw_all();
-        renderer.queued_draw_command_count()
-    });
+    game_client::gui::ui_globals::set_active_ui_renderer(Some(&mut *renderer));
+    let (root_count, had_draw_commands) =
+        game_client::gui::window_manager::with_window_manager(|wm| {
+            let roots = wm.root_window_count();
+            wm.draw_all();
+            let cmds = renderer.queued_draw_command_count();
+            (roots, cmds)
+        });
+    game_client::gui::ui_globals::set_active_ui_renderer(None);
+
+    let should_log = call < 10 || call % 300 == 0;
+    if should_log {
+        info!(
+            "flush_ui_to_frame #{}: root_windows={}, draw_commands={}, screen={}x{}",
+            call,
+            root_count,
+            had_draw_commands,
+            renderer.screen_size().0,
+            renderer.screen_size().1,
+        );
+    }
 
     if had_draw_commands == 0 {
+        if UI_FLUSH_ZERO_CMD_LOGGED.fetch_add(1, Ordering::Relaxed) < 5 {
+            info!(
+                "flush_ui_to_frame: zero draw commands (root_windows={}) — no UI to render",
+                root_count,
+            );
+        }
         renderer.end_frame();
         return Ok(());
     }

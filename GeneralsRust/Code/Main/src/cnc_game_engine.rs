@@ -739,6 +739,16 @@ const DEFAULT_VIEW_FOV_RADIANS: f32 = 50.0_f32.to_radians();
 const DEFAULT_VIEW_NEAR_CLIP: f32 = 1.0;
 const DEFAULT_LOADING_PHASE: &str = "Loading assets...";
 
+#[cfg(feature = "game_client")]
+thread_local! {
+    static LOADING_PROGRESS: std::cell::Cell<f32> = std::cell::Cell::new(0.0);
+    static LOADING_PHASE: std::cell::RefCell<String> = std::cell::RefCell::new(String::new());
+}
+
+const LOADING_WIN_BG: &str = "LoadingScreenBg";
+const LOADING_WIN_PROGRESS: &str = "LoadingScreenProgress";
+const LOADING_WIN_TEXT: &str = "LoadingScreenText";
+
 fn pack_ui_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
 }
@@ -937,6 +947,7 @@ pub mod parity_test_support {
                     self.game_paused = false;
                     self.game_logic_paused = false;
                     self.ui_screen = Some(Screen::MainMenu);
+                    self.menu_world_frames_rendered = 0;
                 }
                 GameState::Loading => {
                     self.ui_screen = Some(Screen::Loading);
@@ -1064,6 +1075,7 @@ pub struct CnCGameEngine {
     startup_max_stall_duration: Duration,
     startup_health_summary_logged: bool,
     last_caustic_warmup_attempt: Option<Instant>,
+    loading_overlay_active: bool,
 
     // Game client — C++ parity: TheGameClient singleton, wired into Main's frame loop
     // for drawable updates and display draw. Full GameClient::update() is NOT called
@@ -1160,6 +1172,10 @@ pub struct CnCGameEngine {
     shell_ui_enqueued_frame: Option<u64>,
     last_shell_prewarm_log: Option<Instant>,
     shell_prewarm_completion_logged: bool,
+    /// How many Menu frames have rendered the full world scene so far.
+    /// The first few Menu frames skip the world render to avoid a freeze while
+    /// models/textures/terrain are loaded lazily for the first time.
+    menu_world_frames_rendered: u32,
     last_slow_menu_tick_log: Option<Instant>,
     match_over: bool,
     victory_summary: Option<VictorySummary>,
@@ -1855,11 +1871,165 @@ impl CnCGameEngine {
             self.startup_loading_phase = DEFAULT_LOADING_PHASE.to_string();
         }
         self.set_runtime_ui_state_projection(UISystemState::Loading);
+
+        #[cfg(feature = "game_client")]
+        {
+            if self.loading_overlay_active {
+                return;
+            }
+
+            game_client::gui::with_window_manager(|wm| {
+                let (screen_w, screen_h) = wm.screen_size();
+
+                let bg = wm
+                    .create_window(None, 0, 0, screen_w, screen_h)
+                    .expect("loading bg window");
+                {
+                    let mut bg_win = bg.borrow_mut();
+                    bg_win.set_name(LOADING_WIN_BG);
+                    bg_win.set_status(
+                        game_client::gui::WindowStatus::ENABLED
+                            | game_client::gui::WindowStatus::NO_INPUT,
+                    );
+                    bg_win.set_draw_callback(|_w, _inst| {
+                        game_client::gui::with_window_manager_ref(|wm| {
+                            let (sw, sh) = wm.screen_size();
+                            wm.win_fill_rect(0xFF303050, 1.0, 0, 0, sw, sh);
+                        });
+                    });
+                }
+
+                let bar_w = (screen_w as f32 * 0.40) as i32;
+                let bar_h = 16;
+                let bar_x = (screen_w - bar_w) / 2;
+                let bar_y = screen_h - 24;
+
+                let bar = wm
+                    .create_window(Some(&bg), bar_x, bar_y, bar_w, bar_h)
+                    .expect("loading progress bar");
+                {
+                    let mut bar_win = bar.borrow_mut();
+                    bar_win.set_name(LOADING_WIN_PROGRESS);
+                    bar_win.set_status(
+                        game_client::gui::WindowStatus::ENABLED
+                            | game_client::gui::WindowStatus::NO_INPUT,
+                    );
+                    bar_win.set_enabled_color(0, 0xFF505050).ok();
+                    bar_win.set_enabled_color(1, 0xFF44AA44).ok();
+                    bar_win.set_draw_callback(|_w, _inst| {
+                        let progress = LOADING_PROGRESS.with(|p| p.get());
+                        game_client::gui::with_window_manager_ref(|wm| {
+                            let (sw, sh) = wm.screen_size();
+                            let bw = (sw as f32 * 0.40) as i32;
+                            let bh = 16;
+                            let bx = (sw - bw) / 2;
+                            let by = sh - 24;
+
+                            wm.win_open_rect(0xFF808080, 1.0, bx, by, bx + bw, by + bh);
+                            wm.win_fill_rect(0xFF303030, 1.0, bx + 1, by + 1, bx + bw - 1, by + bh - 1);
+
+                            if progress > 0.0 {
+                                let fill_w = ((bw as f32) * progress).max(1.0) as i32;
+                                wm.win_fill_rect(
+                                    0xFF44AA44,
+                                    1.0,
+                                    bx + 1,
+                                    by + 1,
+                                    bx + 1 + fill_w - 1,
+                                    by + bh - 1,
+                                );
+                                wm.win_draw_line(
+                                    0xFFFFFFFF,
+                                    1.0,
+                                    bx + 1,
+                                    by + 1,
+                                    bx + 1 + fill_w - 1,
+                                    by + 1,
+                                );
+                            }
+                        });
+                    });
+                }
+
+                let text_w = screen_w;
+                let text_h = 24;
+                let text_x = 0;
+                let text_y = bar_y - text_h - 4;
+
+                let text = wm
+                    .create_window(Some(&bg), text_x, text_y, text_w, text_h)
+                    .expect("loading text");
+                {
+                    let mut text_win = text.borrow_mut();
+                    text_win.set_name(LOADING_WIN_TEXT);
+                    text_win.set_status(
+                        game_client::gui::WindowStatus::ENABLED
+                            | game_client::gui::WindowStatus::NO_INPUT,
+                    );
+                    text_win.set_enabled_text_colors(0xFFCCCCCC, 0xFF000000);
+                    let _ = text_win.set_text("");
+                    text_win.set_draw_callback(|w, inst| {
+                        let progress = LOADING_PROGRESS.with(|p| p.get());
+                        let phase = LOADING_PHASE.with(|p| p.borrow().clone());
+                        let pct = (progress * 100.0) as i32;
+                        let label = format!("{} - {}%", phase, pct);
+
+                        if let Some(display) = inst.display_text.as_ref() {
+                            let mut display = display.borrow_mut();
+                            display.set_text(label.clone());
+                            if let Some(font_desc) = inst.font.as_ref() {
+                                display.set_font(font_desc);
+                            } else {
+                                let resolved =
+                                    game_client::gui::get_font_library()
+                                        .get_font(&game_client::gui::FontDesc::new("Arial", 14, false))
+                                        .ok();
+                                if let Some(font_ref) = resolved {
+                                    display.set_font(&font_ref);
+                                }
+                            }
+                            let (tw, th) = display.get_size();
+                            let (ox, oy) = w.get_screen_position();
+                            let (sw, _sh) = w.get_size();
+                            let tx = ox + (sw / 2) - (tw / 2);
+                            let ty = oy + (24 / 2) - (th / 2);
+                            display.draw(tx, ty, inst.enabled_text.color, inst.enabled_text.border_color);
+                        }
+                    });
+                }
+
+                LOADING_PROGRESS.with(|p| p.set(0.0));
+                LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
+            });
+
+            self.loading_overlay_active = true;
+            info!("Loading screen overlay created");
+        }
     }
 
     fn hide_shell_loading_overlay(&mut self) {
         if self.startup_loading_phase.trim().is_empty() {
             self.startup_loading_phase = "Startup complete".to_string();
+        }
+
+        #[cfg(feature = "game_client")]
+        {
+            if !self.loading_overlay_active {
+                return;
+            }
+
+            game_client::gui::with_window_manager(|wm| {
+                if let Some(bg) = wm.find_window_by_name(LOADING_WIN_BG) {
+                    let children: Vec<_> = bg.borrow().children().to_vec();
+                    for child in children {
+                        let _ = wm.destroy_window(child);
+                    }
+                    let _ = wm.destroy_window(bg);
+                }
+                wm.flush_destroy_queue();
+            });
+
+            self.loading_overlay_active = false;
         }
     }
 
@@ -1888,6 +2058,12 @@ impl CnCGameEngine {
             if !phase.is_empty() {
                 self.startup_loading_phase = phase.to_string();
             }
+        }
+
+        #[cfg(feature = "game_client")]
+        {
+            LOADING_PROGRESS.with(|p| p.set(self.startup_last_reported_progress));
+            LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
         }
     }
 
@@ -2039,11 +2215,12 @@ impl CnCGameEngine {
     #[cfg(feature = "game_client")]
     fn should_skip_world_scene_for_shell_menu(&self) -> bool {
         if self.current_state == GameState::Loading {
-            // C++ load screens are full-screen UI overlays; they do not render live terrain/world.
             return true;
         }
-        // C++ shell menus keep the shell map running in the background (e.g. ShellMap flyover).
-        // GPUI overlays should sit on top of this world render, not replace it with a black scene.
+        const MENU_WORLD_WARMUP_FRAMES: u32 = 3;
+        if self.menu_world_frames_rendered < MENU_WORLD_WARMUP_FRAMES {
+            return true;
+        }
         false
     }
 
@@ -3159,6 +3336,7 @@ impl CnCGameEngine {
             startup_max_stall_duration: Duration::ZERO,
             startup_health_summary_logged: false,
             last_caustic_warmup_attempt: None,
+            loading_overlay_active: false,
 
             #[cfg(feature = "game_client")]
             game_client: game_client::core::game_client::GameClient::new()
@@ -3240,6 +3418,7 @@ impl CnCGameEngine {
             shell_ui_enqueued_frame: None,
             last_shell_prewarm_log: None,
             shell_prewarm_completion_logged: false,
+            menu_world_frames_rendered: 0,
             last_slow_menu_tick_log: None,
             match_over: false,
             victory_summary: None,
@@ -4487,9 +4666,6 @@ impl CnCGameEngine {
 
     /// Advance simulation using the internal fallback clock (no WW3D timing).
     pub fn update_with_frame_clock(&mut self) {
-        // Shell/loading logic must tick at a stable 30 FPS cadence. The event loop can deliver
-        // redraws much faster than that, and advancing on every redraw overdrives shell scripts
-        // and menu transitions (visible as menu flicker/disappear behavior).
         const SHELL_MENU_STEP: Duration = Duration::from_nanos(33_333_333);
 
         let now = Instant::now();
@@ -4506,7 +4682,15 @@ impl CnCGameEngine {
         let clock_timing = self.frame_clock.advance_fixed(SHELL_MENU_STEP);
         let timing = Self::to_engine_timing(clock_timing, Instant::now());
         let dt = self.apply_frame_timing(timing);
+        static UC_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let uc_n = UC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if uc_n < 15 || (uc_n < 50 && matches!(self.current_state, GameState::Menu)) {
+            info!("update_with_frame_clock #{} start state={:?}", uc_n, self.current_state);
+        }
         self.update_internal(dt);
+        if uc_n < 15 || (uc_n < 50 && matches!(self.current_state, GameState::Menu)) {
+            info!("update_with_frame_clock #{} done state={:?}", uc_n, self.current_state);
+        }
     }
 
     pub fn update(&mut self, dt: f32) {
@@ -4604,16 +4788,21 @@ impl CnCGameEngine {
         // Enter new state
         match new_state {
             GameState::Menu => {
-                info!("Entering Menu state");
+                info!("Entering Menu state — transition_to_state start");
                 // C++ shell menus keep the shell map simulation alive behind the UI.
                 self.game_paused = false;
                 self.game_logic.set_paused(false);
                 self.active_menu_shell_hook = None;
+                info!("Menu transition: calling hide_gameplay_layouts");
                 self.hide_gameplay_layouts();
+                info!("Menu transition: calling ui_manager.transition_to_screen(MainMenu)");
                 self.ui_manager
                     .transition_to_screen(crate::ui::Screen::MainMenu);
+                info!("Menu transition: ui_manager.transition_to_screen done");
                 self.set_runtime_ui_state_projection(UISystemState::MainMenu);
+                info!("Menu transition: calling prime_subsystems_before_menu_transition");
                 self.prime_subsystems_before_menu_transition();
+                info!("Menu transition: prime_subsystems done. transition_to_state complete.");
                 self.last_slow_menu_tick_log = None;
             }
             GameState::Loading => {
@@ -4773,8 +4962,16 @@ impl CnCGameEngine {
 
         let dt = dt.max(0.0);
         let visual_dt = dt * self.game_logic.visual_speed_multiplier().max(0.0);
+
+        // Diagnostic: log first few Menu update_internal calls
+        if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
+            info!("update_internal: Menu state, about to call update_runtime_subsystems (menu_frame={})", self.menu_world_frames_rendered);
+        }
         // C++ parity: radar/audio/client/message/network/cd updates happen each frame.
         self.update_runtime_subsystems(dt);
+        if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
+            info!("update_internal: Menu state, update_runtime_subsystems done, entering state match");
+        }
         // State-based update logic - matches C++ GameEngine::update() conditional updates
         match self.current_state {
             GameState::Menu => {
@@ -4858,11 +5055,47 @@ impl CnCGameEngine {
 
                 #[cfg(feature = "game_client")]
                 {
-                    self.game_client.ensure_shell_visible().ok();
-                    self.game_client.update_input().ok();
-                    self.game_client.update_pre_draw_ui().ok();
-                    self.game_client.update_post_draw_ui().ok();
-                    self.game_client.pump_message_stream().ok();
+                    let gc = &mut self.game_client;
+                    let early_menu_frame = self.menu_world_frames_rendered < 5;
+                    if early_menu_frame {
+                        info!("Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})", self.menu_world_frames_rendered);
+                    }
+                    let t0 = std::time::Instant::now();
+                    gc.ensure_shell_visible().ok();
+                    let t1 = std::time::Instant::now();
+                    if early_menu_frame {
+                        info!("Menu update_internal: calling gc.update_input");
+                    }
+                    gc.update_input().ok();
+                    let t2 = std::time::Instant::now();
+                    if early_menu_frame {
+                        info!("Menu update_internal: calling gc.update_pre_draw_ui");
+                    }
+                    gc.update_pre_draw_ui().ok();
+                    let t3 = std::time::Instant::now();
+                    if early_menu_frame {
+                        info!("Menu update_internal: calling gc.update_post_draw_ui");
+                    }
+                    gc.update_post_draw_ui().ok();
+                    let t4 = std::time::Instant::now();
+                    if early_menu_frame {
+                        info!("Menu update_internal: calling gc.pump_message_stream");
+                    }
+                    gc.pump_message_stream().ok();
+                    let t5 = std::time::Instant::now();
+                    let menu_gc_elapsed = t0.elapsed();
+                    if menu_gc_elapsed >= std::time::Duration::from_millis(50) || early_menu_frame {
+                        info!(
+                            "Menu GC update: total={:?} shell={:?} input={:?} pre_draw={:?} post_draw={:?} pump={:?} frame={}",
+                            menu_gc_elapsed,
+                            t1.duration_since(t0),
+                            t2.duration_since(t1),
+                            t3.duration_since(t2),
+                            t4.duration_since(t3),
+                            t5.duration_since(t4),
+                            self.frame_counter,
+                        );
+                    }
                 }
                 return;
             }
@@ -5138,6 +5371,11 @@ impl CnCGameEngine {
 
     pub fn render(&mut self) -> Result<()> {
         let render_started = Instant::now();
+        static RENDER_CALL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let render_call = RENDER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if render_call < 30 || render_call % 300 == 0 {
+            info!("render() called #{}, state={:?}", render_call, self.current_state);
+        }
 
         if !matches!(self.current_state, GameState::Loading | GameState::Menu) {
             let mut ui_state = self.game_logic.update_ui_state(self.current_player_id);
@@ -5229,6 +5467,20 @@ impl CnCGameEngine {
 
         #[cfg(feature = "game_client")]
         {
+            if !skip_world_scene && matches!(self.current_state, GameState::Menu) {
+                let prev = self.menu_world_frames_rendered;
+                self.menu_world_frames_rendered += 1;
+                if prev < 3 {
+                    info!(
+                        "Menu world render frame {}/3 (skip=false for first time)",
+                        self.menu_world_frames_rendered
+                    );
+                }
+            }
+        }
+
+        #[cfg(feature = "game_client")]
+        {
             // C++ has a single render path: W3DDisplay::draw() which does 3D scene + UI + mouse.
             // We use render_pipeline.execute() below as that unified path.
             // game_client.draw_display() was a second competing render path that acquired
@@ -5236,6 +5488,12 @@ impl CnCGameEngine {
         }
 
         let render_pipeline_started = Instant::now();
+        if render_call < 30 || (render_call < 50 && matches!(self.current_state, GameState::Menu)) {
+            info!(
+                "render() #{}, calling render_pipeline.execute skip_world={} state={:?}",
+                render_call, skip_world_scene, self.current_state
+            );
+        }
         self.render_pipeline.execute(
             &mut self.graphics_system,
             &self.game_logic,
@@ -5265,6 +5523,15 @@ impl CnCGameEngine {
                 self.render_pipeline.debug_last_deferred_model_loads(),
                 self.render_pipeline.debug_last_deferred_model_load_budget(),
                 self.startup_last_reported_progress * 100.0
+            );
+        }
+        if render_call < 30 || (render_call < 50 && matches!(self.current_state, GameState::Menu)) {
+            info!(
+                "render() #{} done, pipeline={:?} total={:?} state={:?}",
+                render_call,
+                render_pipeline_elapsed,
+                render_started.elapsed(),
+                self.current_state
             );
         }
         Ok(())
@@ -8145,9 +8412,17 @@ pub async fn run_cnc_game(
                 engine.update_with_frame_clock();
             }
             let update_elapsed = update_started.elapsed();
+            static DRIVE_FRAME_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+            let dfn = DRIVE_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
+                info!("drive_frame #{} update_done {:?} state={:?} render_frame={}", dfn, update_elapsed, engine.get_state(), render_frame);
+            }
 
             let render_started = Instant::now();
             if render_frame {
+                if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
+                    info!("drive_frame #{} calling render()", dfn);
+                }
                 match engine.render() {
                     Ok(_) => {}
                     Err(e) => {

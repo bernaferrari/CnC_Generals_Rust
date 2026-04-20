@@ -711,6 +711,10 @@ impl WindowManager {
         self.window_count
     }
 
+    pub fn root_window_count(&self) -> usize {
+        self.root_windows.len()
+    }
+
     pub fn debug_collect_window_texts_by_prefix(
         &self,
         prefix: &str,

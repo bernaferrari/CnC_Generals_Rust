@@ -14,7 +14,7 @@ use crate::system::SubsystemInterface;
 
 use super::font::{get_font_library, FontDesc, GameFont};
 use super::game_window::GameFont as LegacyGameFont;
-use super::ui_globals::with_ui_renderer;
+use super::ui_globals::with_ui_renderer_mut;
 use super::ui_renderer::{UIRect, UIRenderer};
 
 pub type DisplayStringHandle = Rc<RefCell<DisplayString>>;
@@ -208,10 +208,8 @@ impl DisplayString {
         x_drop: i32,
         y_drop: i32,
     ) {
-        let _ = with_ui_renderer(|renderer| {
-            let mut renderer = renderer.write().ok()?;
-            self.draw_with_renderer(&mut renderer, x, y, color, drop_color, x_drop, y_drop);
-            Some(())
+        let _ = with_ui_renderer_mut(|renderer| {
+            self.draw_with_renderer(renderer, x, y, color, drop_color, x_drop, y_drop);
         });
     }
 
