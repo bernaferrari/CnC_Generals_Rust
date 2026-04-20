@@ -588,7 +588,7 @@ static CAMPAIGN_MANAGER: std::sync::OnceLock<std::sync::Mutex<CampaignManager>> 
 
 pub fn get_campaign_manager() -> std::sync::MutexGuard<'static, CampaignManager> {
     let lock = CAMPAIGN_MANAGER.get_or_init(|| std::sync::Mutex::new(CampaignManager::new()));
-    lock.lock().expect("CampaignManager mutex poisoned")
+    lock.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[cfg(test)]

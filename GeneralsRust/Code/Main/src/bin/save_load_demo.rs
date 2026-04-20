@@ -99,7 +99,7 @@ fn demo_replay() -> anyhow::Result<()> {
     ];
 
     {
-        let mut manager = GAME_STATE_MANAGER.lock().unwrap();
+        let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
         manager.start_replay_recording(
             "demo_map",
             GameMode::Skirmish,
@@ -124,7 +124,7 @@ fn demo_replay() -> anyhow::Result<()> {
     update_replay_system()?;
 
     {
-        let mut manager = GAME_STATE_MANAGER.lock().unwrap();
+        let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
         manager.stop_replay_recording()?;
     }
 
@@ -135,7 +135,7 @@ fn demo_replay() -> anyhow::Result<()> {
 #[cfg(feature = "dev-tools")]
 fn demo_campaign() -> anyhow::Result<()> {
     {
-        let mut manager = GAME_STATE_MANAGER.lock().unwrap();
+        let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
         manager.start_campaign(CampaignId::USACampaign, "Demo Player")?;
 
         let completion = MissionCompletionData {

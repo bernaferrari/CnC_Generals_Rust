@@ -556,8 +556,7 @@ fn shutdown_complete(
 
 pub fn wol_login_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = wol_login_state()
-        .lock()
-        .expect("WOLLogin state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.next_screen = None;
     state.button_pushed = false;
     state.is_shutting_down = false;
@@ -730,8 +729,7 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&mut dyn
         .unwrap_or(false);
 
     let mut state = wol_login_state()
-        .lock()
-        .expect("WOLLogin state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = true;
     state.logged_in_ok = false;
     with_window_manager(|manager| manager.clear_tab_list());
@@ -752,8 +750,7 @@ pub fn wol_login_menu_shutdown(layout: &WindowLayout, user_data: Option<&mut dyn
 
 pub fn wol_login_menu_update(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let mut state = wol_login_state()
-        .lock()
-        .expect("WOLLogin state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     let shell_finished = get_shell().is_anim_finished();
     let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
@@ -860,8 +857,7 @@ pub fn wol_login_menu_input(
     let state_up = data2 & 0x0001;
     if key == 0x1B && state_up != 0 {
         let mut state = wol_login_state()
-            .lock()
-            .expect("WOLLogin state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         if state.button_pushed {
             return WindowMsgHandled::Handled;
         }
@@ -963,8 +959,7 @@ pub fn wol_login_menu_system(
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as u32;
             let mut state = wol_login_state()
-                .lock()
-                .expect("WOLLogin state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }
@@ -981,8 +976,7 @@ pub fn wol_login_menu_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let mut state = wol_login_state()
-                .lock()
-                .expect("WOLLogin state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }

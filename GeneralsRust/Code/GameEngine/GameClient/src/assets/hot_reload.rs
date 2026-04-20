@@ -359,12 +359,12 @@ impl HotReloadManager {
 
         // Start worker task
         let worker_handle = self.spawn_worker_task().await?;
-        *self.worker_handle.lock().unwrap() = Some(worker_handle);
+        *self.worker_handle.lock().unwrap_or_else(|e| e.into_inner()) = Some(worker_handle);
 
         // Start profiler if enabled
         if self.config.enable_profiling {
             let profiler_handle = self.spawn_profiler_task().await?;
-            *self.profiler_handle.lock().unwrap() = Some(profiler_handle);
+            *self.profiler_handle.lock().unwrap_or_else(|e| e.into_inner()) = Some(profiler_handle);
         }
 
         log::info!("Hot reload manager started");
@@ -404,11 +404,11 @@ impl HotReloadManager {
         }
 
         // Store watcher
-        *self.watcher.lock().unwrap() = Some(Box::new(watcher));
+        *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = Some(Box::new(watcher));
 
         // Update stats
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.files_watched = self.count_watched_files();
         }
 
@@ -439,7 +439,7 @@ impl HotReloadManager {
             // Debounce rapid changes
             let now = Instant::now();
             let should_process = {
-                let mut debounce = debounce_map.lock().unwrap();
+                let mut debounce = debounce_map.lock().unwrap_or_else(|e| e.into_inner());
                 if let Some(last_change) = debounce.get(&path) {
                     if now.duration_since(*last_change)
                         < Duration::from_millis(config.debounce_duration_ms)
@@ -468,7 +468,7 @@ impl HotReloadManager {
                     affected_handles: Vec::new(), // Will be populated later
                 };
 
-                pending_changes.lock().unwrap().push_back(change_event);
+                pending_changes.lock().unwrap_or_else(|e| e.into_inner()).push_back(change_event);
                 log::debug!(
                     "File change detected: {} ({:?})",
                     path.display(),
@@ -515,7 +515,7 @@ impl HotReloadManager {
 
                 // Process pending changes
                 let changes = {
-                    let mut pending = pending_changes.lock().unwrap();
+                    let mut pending = pending_changes.lock().unwrap_or_else(|e| e.into_inner());
                     let mut batch = Vec::new();
 
                     // Process up to 10 changes at once
@@ -547,7 +547,7 @@ impl HotReloadManager {
 
                 // Process reload queue
                 let reload_paths = {
-                    let mut queue = reload_queue.lock().unwrap();
+                    let mut queue = reload_queue.lock().unwrap_or_else(|e| e.into_inner());
                     let mut batch = Vec::new();
 
                     for _ in 0..5 {
@@ -602,7 +602,7 @@ impl HotReloadManager {
     ) {
         // Find affected asset handles
         {
-            let handle_map = path_to_handle.read().unwrap();
+            let handle_map = path_to_handle.read().unwrap_or_else(|e| e.into_inner());
             if let Some(handle) = handle_map.get(&change.path) {
                 change.affected_handles.push(*handle);
             }
@@ -619,7 +619,7 @@ impl HotReloadManager {
 
         if should_reload && change.change_type != ChangeType::Deleted {
             // Add to reload queue
-            reload_queue.lock().unwrap().push_back(change.path.clone());
+            reload_queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(change.path.clone());
 
             // Handle dependency cascade if enabled
             if config.enable_dependency_tracking {
@@ -642,16 +642,16 @@ impl HotReloadManager {
         handle_to_path: &Arc<RwLock<HashMap<AssetHandle, PathBuf>>>,
         reload_queue: &Arc<Mutex<VecDeque<PathBuf>>>,
     ) {
-        let handle_map = handle_to_path.read().unwrap();
+        let handle_map = handle_to_path.read().unwrap_or_else(|e| e.into_inner());
         let mut queued = HashSet::new();
         for handle in &change.affected_handles {
-            let deps = dependencies.read().unwrap();
+            let deps = dependencies.read().unwrap_or_else(|e| e.into_inner());
             if let Some(dependency) = deps.get(handle) {
                 // Queue all dependents for reload
                 for dependent_handle in &dependency.dependents {
                     if let Some(path) = handle_map.get(dependent_handle) {
                         if queued.insert(path.clone()) {
-                            reload_queue.lock().unwrap().push_back(path.clone());
+                            reload_queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(path.clone());
                         }
                     }
                 }
@@ -690,7 +690,7 @@ impl HotReloadManager {
 
         // Check previous attempts
         {
-            let attempts = reload_attempts.read().unwrap();
+            let attempts = reload_attempts.read().unwrap_or_else(|e| e.into_inner());
             if let Some(previous_attempts) = attempts.get(path) {
                 attempt_number = previous_attempts.len() as u32 + 1;
 
@@ -711,7 +711,7 @@ impl HotReloadManager {
             AssetType::from_extension(path.extension().and_then(|e| e.to_str()).unwrap_or(""));
 
         let handle = {
-            let handles = path_to_handle.read().unwrap();
+            let handles = path_to_handle.read().unwrap_or_else(|e| e.into_inner());
             handles.get(path).copied()
         };
 
@@ -720,7 +720,7 @@ impl HotReloadManager {
 
         if let Some(handle) = handle {
             let handlers = {
-                let callbacks = reload_callbacks.read().unwrap();
+                let callbacks = reload_callbacks.read().unwrap_or_else(|e| e.into_inner());
                 callbacks
                     .get(&asset_type)
                     .or_else(|| callbacks.get(&AssetType::Unknown))
@@ -765,7 +765,7 @@ impl HotReloadManager {
         };
 
         {
-            let mut attempts = reload_attempts.write().unwrap();
+            let mut attempts = reload_attempts.write().unwrap_or_else(|e| e.into_inner());
             attempts
                 .entry(path.to_path_buf())
                 .or_insert_with(Vec::new)
@@ -774,7 +774,7 @@ impl HotReloadManager {
 
         // Update statistics
         {
-            let mut stats = stats.write().unwrap();
+            let mut stats = stats.write().unwrap_or_else(|e| e.into_inner());
             stats.total_reloads += 1;
 
             if success {
@@ -827,7 +827,7 @@ impl HotReloadManager {
                 // Take memory snapshot
                 if now.duration_since(last_memory_snapshot) >= memory_snapshot_interval {
                     let snapshot_data = {
-                        let provider = memory_snapshot_provider.read().unwrap();
+                        let provider = memory_snapshot_provider.read().unwrap_or_else(|e| e.into_inner());
                         provider.as_ref().map(|provider| provider())
                     };
 
@@ -859,13 +859,13 @@ impl HotReloadManager {
                             .unwrap_or(0),
                     };
 
-                    profiler_data.write().unwrap().memory_usage.push(snapshot);
+                    profiler_data.write().unwrap_or_else(|e| e.into_inner()).memory_usage.push(snapshot);
                     last_memory_snapshot = now;
                 }
 
                 // Limit memory usage snapshots to last 1000 entries
                 {
-                    let mut data = profiler_data.write().unwrap();
+                    let mut data = profiler_data.write().unwrap_or_else(|e| e.into_inner());
                     if data.memory_usage.len() > 1000 {
                         data.memory_usage.drain(0..100); // Remove oldest 100 entries
                     }
@@ -882,7 +882,7 @@ impl HotReloadManager {
 
     /// Register asset dependency
     pub fn register_dependency(&self, dependent: AssetHandle, dependencies: Vec<AssetHandle>) {
-        let mut deps = self.dependencies.write().unwrap();
+        let mut deps = self.dependencies.write().unwrap_or_else(|e| e.into_inner());
 
         // Update dependent's dependencies
         let dependency_info = deps.entry(dependent).or_insert_with(|| AssetDependency {
@@ -909,7 +909,7 @@ impl HotReloadManager {
             }
         }
 
-        let mut stats = self.stats.write().unwrap();
+        let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
         stats.dependency_updates += 1;
     }
 
@@ -919,7 +919,7 @@ impl HotReloadManager {
             .write()
             .unwrap()
             .insert(path.clone(), handle);
-        self.handle_to_path.write().unwrap().insert(handle, path);
+        self.handle_to_path.write().unwrap_or_else(|e| e.into_inner()).insert(handle, path);
     }
 
     /// Register reload callback for an asset type
@@ -943,7 +943,7 @@ impl HotReloadManager {
     where
         F: Fn() -> MemorySnapshotData + Send + Sync + 'static,
     {
-        *self.memory_snapshot_provider.write().unwrap() = Some(Arc::new(provider));
+        *self.memory_snapshot_provider.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(provider));
     }
 
     /// Record asset load for profiling
@@ -959,19 +959,19 @@ impl HotReloadManager {
 
     /// Get hot reload statistics
     pub fn get_stats(&self) -> HotReloadStats {
-        self.stats.read().unwrap().clone()
+        self.stats.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Get profiler data
     pub fn get_profiler_data(&self) -> ProfilerData {
-        self.profiler_data.read().unwrap().clone()
+        self.profiler_data.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// Generate debug visualization data
     pub fn generate_debug_visualization(&self) -> DebugVisualization {
-        let dependencies = self.dependencies.read().unwrap();
-        let reload_attempts = self.reload_attempts.read().unwrap();
-        let profiler = self.profiler_data.read().unwrap();
+        let dependencies = self.dependencies.read().unwrap_or_else(|e| e.into_inner());
+        let reload_attempts = self.reload_attempts.read().unwrap_or_else(|e| e.into_inner());
+        let profiler = self.profiler_data.read().unwrap_or_else(|e| e.into_inner());
         let mut dependency_graph = Vec::new();
         let mut memory_breakdown = HashMap::new();
         let mut load_timeline = Vec::new();
@@ -1101,16 +1101,16 @@ impl HotReloadManager {
         self.shutdown_notify.notify_waiters();
 
         // Stop file watcher
-        *self.watcher.lock().unwrap() = None;
+        *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
         // Wait for worker tasks
-        if let Some(worker_handle) = self.worker_handle.lock().unwrap().take() {
+        if let Some(worker_handle) = self.worker_handle.lock().unwrap_or_else(|e| e.into_inner()).take() {
             if let Err(e) = worker_handle.await {
                 log::error!("Worker task failed to shutdown cleanly: {}", e);
             }
         }
 
-        if let Some(profiler_handle) = self.profiler_handle.lock().unwrap().take() {
+        if let Some(profiler_handle) = self.profiler_handle.lock().unwrap_or_else(|e| e.into_inner()).take() {
             if let Err(e) = profiler_handle.await {
                 log::error!("Profiler task failed to shutdown cleanly: {}", e);
             }

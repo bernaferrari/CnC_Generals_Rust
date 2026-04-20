@@ -594,7 +594,7 @@ lazy_static::lazy_static! {
 
 /// Initialize the global save file system
 pub fn init_save_file_system() -> SaveLoadResult<()> {
-    let mut manager = SAVE_FILE_MANAGER.lock().unwrap();
+    let mut manager = SAVE_FILE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
     manager.init()
 }
 

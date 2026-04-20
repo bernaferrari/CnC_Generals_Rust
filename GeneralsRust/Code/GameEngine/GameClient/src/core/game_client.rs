@@ -1935,7 +1935,10 @@ impl GameClient {
 
         // Preload UI assets
         if let Some(ref display) = self.subsystem_manager.display {
-            display.lock().unwrap().preload_common_textures()?;
+            display
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .preload_common_textures()?;
         }
 
         if let Some(ref asset_manager) = self.subsystem_manager.asset_manager {
@@ -2616,12 +2619,12 @@ impl GameClient {
 
         // Create keyboard
         let keyboard = create_keyboard();
-        keyboard.lock().unwrap().init()?;
+        keyboard.lock().unwrap_or_else(|e| e.into_inner()).init()?;
         self.subsystem_manager.input_keyboard = Some(keyboard);
 
         // Create mouse
         let mouse = create_mouse();
-        mouse.lock().unwrap().init()?;
+        mouse.lock().unwrap_or_else(|e| e.into_inner()).init()?;
         register_mouse_backend(mouse.clone());
         self.subsystem_manager.input_mouse = Some(mouse);
 
@@ -3078,11 +3081,11 @@ impl GameClient {
 
     pub fn update_input(&mut self) -> GameClientResult<()> {
         if let Some(ref keyboard) = self.subsystem_manager.input_keyboard {
-            keyboard.lock().unwrap().update();
+            keyboard.lock().unwrap_or_else(|e| e.into_inner()).update();
         }
 
         if let Some(ref mouse) = self.subsystem_manager.input_mouse {
-            mouse.lock().unwrap().update();
+            mouse.lock().unwrap_or_else(|e| e.into_inner()).update();
         }
 
         Ok(())
@@ -3090,7 +3093,7 @@ impl GameClient {
 
     fn update_audio(&mut self) -> GameClientResult<()> {
         if let Some(ref audio) = self.subsystem_manager.audio {
-            audio.lock().unwrap().update()?;
+            audio.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
 
         if let (Some(ref mut queue), Some(ref mut engine)) =
@@ -3301,21 +3304,21 @@ impl GameClient {
 
     fn update_display_only(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.subsystem_manager.display {
-            display.lock().unwrap().update()?;
+            display.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
         Ok(())
     }
 
     pub fn draw_display(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.subsystem_manager.display {
-            display.lock().unwrap().draw()?;
+            display.lock().unwrap_or_else(|e| e.into_inner()).draw()?;
         }
         Ok(())
     }
 
     fn update_startup_movie_display(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.subsystem_manager.display {
-            let mut display = display.lock().unwrap();
+            let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
             display.draw()?;
             display.update()?;
         }
@@ -3467,11 +3470,17 @@ impl GameClient {
 
     pub fn update_pre_draw_ui(&mut self) -> GameClientResult<()> {
         if let Some(ref window_manager) = self.subsystem_manager.window_manager {
-            window_manager.lock().unwrap().update()?;
+            window_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .update()?;
         }
 
         if let Some(ref video_player) = self.subsystem_manager.video_player {
-            video_player.lock().unwrap().update()?;
+            video_player
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .update()?;
         }
 
         Ok(())
@@ -3486,7 +3495,7 @@ impl GameClient {
         }
 
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-            ui.lock().unwrap().update()?;
+            ui.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
 
         crate::eva::update_eva_system();
@@ -3519,15 +3528,21 @@ impl GameClient {
         }
 
         if let Some(ref ui) = self.subsystem_manager.in_game_ui {
-            ui.lock().unwrap().update()?;
+            ui.lock().unwrap_or_else(|e| e.into_inner()).update()?;
         }
 
         if let Some(ref window_manager) = self.subsystem_manager.window_manager {
-            window_manager.lock().unwrap().update()?;
+            window_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .update()?;
         }
 
         if let Some(ref video_player) = self.subsystem_manager.video_player {
-            video_player.lock().unwrap().update()?;
+            video_player
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .update()?;
         }
 
         crate::eva::update_eva_system();
@@ -3936,51 +3951,63 @@ impl SubsystemManager {
 
     fn reset_all(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.display {
-            display.lock().unwrap().reset()?;
+            display.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref audio) = self.audio {
-            audio.lock().unwrap().reset()?;
+            audio.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref keyboard) = self.input_keyboard {
-            keyboard.lock().unwrap().reset()?;
+            keyboard.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref mouse) = self.input_mouse {
-            mouse.lock().unwrap().reset()?;
+            mouse.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref terrain) = self.terrain_visual {
-            terrain.lock().unwrap().reset()?;
+            terrain.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref window_manager) = self.window_manager {
-            window_manager.lock().unwrap().reset()?;
+            window_manager
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .reset()?;
         }
 
         if let Some(ref font_library) = self.font_library {
-            font_library.lock().unwrap().reset()?;
+            font_library
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .reset()?;
         }
 
         if let Some(ref header_templates) = self.header_templates {
-            header_templates.lock().unwrap().reset()?;
+            header_templates
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .reset()?;
         }
 
         if let Some(ref display_strings) = self.display_strings {
-            display_strings.lock().unwrap().reset()?;
+            display_strings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .reset()?;
         }
 
         if let Some(ref hot_keys) = self.hot_key_manager {
-            hot_keys.lock().unwrap().reset()?;
+            hot_keys.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref ui) = self.in_game_ui {
-            ui.lock().unwrap().reset()?;
+            ui.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref video) = self.video_player {
-            video.lock().unwrap().reset()?;
+            video.lock().unwrap_or_else(|e| e.into_inner()).reset()?;
         }
 
         if let Some(ref decals) = self.decal_manager {

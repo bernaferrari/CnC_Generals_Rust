@@ -576,8 +576,8 @@ impl AudioLoader {
         let handle = AssetHandle::new();
 
         // Check cache
-        if let Some(cached_handle) = self.asset_index.read().unwrap().get(path) {
-            let mut stats = self.stats.write().unwrap();
+        if let Some(cached_handle) = self.asset_index.read().unwrap_or_else(|e| e.into_inner()).get(path) {
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.cache_hits += 1;
             return Ok(*cached_handle);
         }
@@ -651,7 +651,7 @@ impl AudioLoader {
 
         // Update statistics
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.cache_misses += 1;
             stats.total_assets += 1;
             stats.memory_used_mb += (data.len() as f32) / (1024.0 * 1024.0);
@@ -770,25 +770,21 @@ impl AudioLoader {
         position: Option<Vector3<f32>>,
     ) -> Result<u64, AudioError> {
         let asset = self
-            .audio_assets
-            .read()
-            .unwrap()
+            .audio_assets.read().unwrap_or_else(|e| e.into_inner())
             .get(&asset_handle)
             .cloned()
             .ok_or_else(|| AudioError::EngineError("Asset not found".to_string()))?;
 
         // Generate instance ID
         let instance_id = {
-            let mut counter = self.instance_counter.lock().unwrap();
+            let mut counter = self.instance_counter.lock().unwrap_or_else(|e| e.into_inner());
             *counter += 1;
             *counter
         };
 
         // Get sound data from cache and play it through Kira
         let sound_data = self
-            .sound_data_cache
-            .read()
-            .unwrap()
+            .sound_data_cache.read().unwrap_or_else(|e| e.into_inner())
             .get(&asset_handle)
             .cloned()
             .ok_or_else(|| AudioError::EngineError("Sound data not found".to_string()))?;
@@ -801,7 +797,7 @@ impl AudioLoader {
 
         let emitter_handle = if let Some(position) = position {
             let spatial_settings = asset.spatial_settings.clone().unwrap_or_default();
-            let mut scene = self.spatial_scene.lock().unwrap();
+            let mut scene = self.spatial_scene.lock().unwrap_or_else(|e| e.into_inner());
             let emitter = scene
                 .add_emitter(
                     mint::Vector3 {
@@ -818,22 +814,22 @@ impl AudioLoader {
         } else {
             match asset.asset_type {
                 AudioAssetType::Music => {
-                    if let Some(track) = self.music_track.lock().unwrap().as_ref() {
+                    if let Some(track) = self.music_track.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                         settings = settings.output_destination(track);
                     }
                 }
                 AudioAssetType::Voice => {
-                    if let Some(track) = self.voice_track.lock().unwrap().as_ref() {
+                    if let Some(track) = self.voice_track.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                         settings = settings.output_destination(track);
                     }
                 }
                 AudioAssetType::UI => {
-                    if let Some(track) = self.ui_track.lock().unwrap().as_ref() {
+                    if let Some(track) = self.ui_track.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                         settings = settings.output_destination(track);
                     }
                 }
                 _ => {
-                    if let Some(track) = self.sfx_track.lock().unwrap().as_ref() {
+                    if let Some(track) = self.sfx_track.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
                         settings = settings.output_destination(track);
                     }
                 }
@@ -843,9 +839,7 @@ impl AudioLoader {
 
         // Play the sound using the audio manager
         let sound_handle = self
-            .audio_manager
-            .lock()
-            .unwrap()
+            .audio_manager.lock().unwrap_or_else(|e| e.into_inner())
             .play(sound_data.with_settings(settings))
             .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))?;
 
@@ -871,7 +865,7 @@ impl AudioLoader {
 
         // Update statistics
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.active_instances += 1;
             stats.total_played += 1;
             stats.peak_concurrent_sounds = stats.peak_concurrent_sounds.max(stats.active_instances);
@@ -883,7 +877,7 @@ impl AudioLoader {
 
     /// Stop playing sound instance
     pub fn stop_sound(&self, instance_id: u64) -> Result<(), AudioError> {
-        if let Some(mut instance) = self.active_instances.write().unwrap().remove(&instance_id) {
+        if let Some(mut instance) = self.active_instances.write().unwrap_or_else(|e| e.into_inner()).remove(&instance_id) {
             instance.state = PlaybackState::Stopped;
 
             if let Some(mut handle) = instance.sound_handle.take() {
@@ -892,7 +886,7 @@ impl AudioLoader {
                 }
             }
 
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.active_instances = stats.active_instances.saturating_sub(1);
 
             log::debug!("Stopped sound instance: {}", instance_id);
@@ -906,7 +900,7 @@ impl AudioLoader {
 
     /// Pause a playing sound instance.
     pub fn pause_sound(&self, instance_id: u64) -> Result<(), AudioError> {
-        if let Some(instance) = self.active_instances.write().unwrap().get_mut(&instance_id) {
+        if let Some(instance) = self.active_instances.write().unwrap_or_else(|e| e.into_inner()).get_mut(&instance_id) {
             instance.state = PlaybackState::Paused;
             if let Some(handle) = instance.sound_handle.as_mut() {
                 handle.pause(Tween::default()).map_err(|e| {
@@ -924,7 +918,7 @@ impl AudioLoader {
 
     /// Resume a paused sound instance.
     pub fn resume_sound(&self, instance_id: u64) -> Result<(), AudioError> {
-        if let Some(instance) = self.active_instances.write().unwrap().get_mut(&instance_id) {
+        if let Some(instance) = self.active_instances.write().unwrap_or_else(|e| e.into_inner()).get_mut(&instance_id) {
             instance.state = PlaybackState::Playing;
             if let Some(handle) = instance.sound_handle.as_mut() {
                 handle.resume(Tween::default()).map_err(|e| {
@@ -941,9 +935,7 @@ impl AudioLoader {
     }
 
     pub fn is_sound_playing(&self, instance_id: u64) -> bool {
-        self.active_instances
-            .read()
-            .unwrap()
+        self.active_instances.read().unwrap_or_else(|e| e.into_inner())
             .get(&instance_id)
             .and_then(|instance| instance.sound_handle.as_ref())
             .map(|handle| {
@@ -955,7 +947,7 @@ impl AudioLoader {
 
     /// Update 3D listener position
     pub fn update_listener(&self, position: Vector3<f32>, forward: Vector3<f32>, up: Vector3<f32>) {
-        let mut listener = self.listener.write().unwrap();
+        let mut listener = self.listener.write().unwrap_or_else(|e| e.into_inner());
         listener.position = position;
         listener.forward = forward;
         listener.up = up;
@@ -981,7 +973,7 @@ impl AudioLoader {
         instance_id: u64,
         position: Vector3<f32>,
     ) -> Result<(), AudioError> {
-        if let Some(instance) = self.active_instances.write().unwrap().get_mut(&instance_id) {
+        if let Some(instance) = self.active_instances.write().unwrap_or_else(|e| e.into_inner()).get_mut(&instance_id) {
             instance.position = Some(position);
 
             if let Some(handle) = instance.emitter_handle.as_mut() {
@@ -1004,9 +996,9 @@ impl AudioLoader {
 
     /// Set environmental audio effects
     pub fn set_environment(&self, environment_name: &str) -> Result<(), AudioError> {
-        let environments = self.environments.read().unwrap();
+        let environments = self.environments.read().unwrap_or_else(|e| e.into_inner());
         if let Some(environment) = environments.get(environment_name) {
-            *self.current_environment.write().unwrap() = environment.clone();
+            *self.current_environment.write().unwrap_or_else(|e| e.into_inner()) = environment.clone();
 
             self.apply_environment_effects(environment);
             log::info!("Set audio environment: {}", environment_name);
@@ -1023,7 +1015,7 @@ impl AudioLoader {
     pub fn update(&self) -> Result<(), AudioError> {
         let mut finished_instances = Vec::new();
         {
-            let instances = self.active_instances.read().unwrap();
+            let instances = self.active_instances.read().unwrap_or_else(|e| e.into_inner());
             for (id, instance) in instances.iter() {
                 let state = instance
                     .sound_handle
@@ -1039,8 +1031,8 @@ impl AudioLoader {
         }
 
         if !finished_instances.is_empty() {
-            let mut instances = self.active_instances.write().unwrap();
-            let mut stats = self.stats.write().unwrap();
+            let mut instances = self.active_instances.write().unwrap_or_else(|e| e.into_inner());
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
 
             for id in finished_instances {
                 instances.remove(&id);
@@ -1053,9 +1045,9 @@ impl AudioLoader {
 
     /// Get audio statistics
     pub fn get_stats(&self) -> AudioStats {
-        let stats = self.stats.read().unwrap();
+        let stats = self.stats.read().unwrap_or_else(|e| e.into_inner());
         let mut result = stats.clone();
-        result.active_instances = self.active_instances.read().unwrap().len() as u32;
+        result.active_instances = self.active_instances.read().unwrap_or_else(|e| e.into_inner()).len() as u32;
         result
     }
 
@@ -1173,9 +1165,7 @@ impl AudioLoader {
     pub fn cleanup(&self) {
         // Stop all active instances
         let instance_ids: Vec<u64> = self
-            .active_instances
-            .read()
-            .unwrap()
+            .active_instances.read().unwrap_or_else(|e| e.into_inner())
             .keys()
             .cloned()
             .collect();
@@ -1184,9 +1174,9 @@ impl AudioLoader {
         }
 
         // Clear all caches including sound data
-        self.audio_assets.write().unwrap().clear();
-        self.asset_index.write().unwrap().clear();
-        self.sound_data_cache.write().unwrap().clear();
+        self.audio_assets.write().unwrap_or_else(|e| e.into_inner()).clear();
+        self.asset_index.write().unwrap_or_else(|e| e.into_inner()).clear();
+        self.sound_data_cache.write().unwrap_or_else(|e| e.into_inner()).clear();
 
         log::info!("Audio system cleanup complete");
     }

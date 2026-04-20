@@ -327,8 +327,7 @@ fn keyboard_text_entry_input(
 ) -> WindowMsgHandled {
     let state_handle = keyboard_options_menu_state();
     let mut state = state_handle
-        .lock()
-        .expect("keyboard options menu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::Char => {
@@ -423,8 +422,7 @@ fn keyboard_text_entry_input(
 pub fn keyboard_options_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = keyboard_options_menu_state();
     let mut state = state_handle
-        .lock()
-        .expect("keyboard options menu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("KeyboardOptionsMenu.wnd:ParentKeyboardOptionsMenu");
     state.button_back_id = name_to_id("KeyboardOptionsMenu.wnd:ButtonBack");
@@ -489,8 +487,7 @@ pub fn keyboard_options_menu_input(
     if msg == WindowMessage::Char && data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
         let state_handle = keyboard_options_menu_state();
         let state = state_handle
-            .lock()
-            .expect("keyboard options menu state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,
@@ -512,8 +509,7 @@ pub fn keyboard_options_menu_system(
 ) -> WindowMsgHandled {
     let state_handle = keyboard_options_menu_state();
     let mut state = state_handle
-        .lock()
-        .expect("keyboard options menu state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,

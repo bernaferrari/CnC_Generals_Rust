@@ -160,7 +160,7 @@ impl ControlBarCallbacksEnhanced {
 
         if control_id == self.ids.beacon_delete {
             if TheGameLogic::is_in_multiplayer_game() {
-                let mut stream = get_message_stream().write().unwrap();
+                let mut stream = get_message_stream().write().unwrap_or_else(|e| e.into_inner());
                 stream.append_message(GameMessageType::RemoveBeacon(
                     crate::message_stream::game_message::Coord3D::default(),
                 ));
@@ -215,7 +215,7 @@ impl ControlBarCallbacksEnhanced {
 
         if TheGameLogic::is_in_multiplayer_game() && !selection_is_empty() {
             let text = window.get_text().to_string();
-            let mut stream = get_message_stream().write().unwrap();
+            let mut stream = get_message_stream().write().unwrap_or_else(|e| e.into_inner());
             stream.append_message(GameMessageType::SetBeaconText(
                 crate::message_stream::game_message::Coord3D::default(),
                 text,
@@ -365,7 +365,7 @@ fn handle_left_hud_mouse_down(
             view.look_at(&Point3::new(world.x, world.y, world.z));
         });
     } else {
-        let mut stream = get_message_stream().write().unwrap();
+        let mut stream = get_message_stream().write().unwrap_or_else(|e| e.into_inner());
         stream.append_message(GameMessageType::DoMoveTo(
             crate::message_stream::game_message::Coord3D::new(world.x, world.y, world.z),
         ));
@@ -1545,7 +1545,7 @@ impl EnhancedControlBar {
             return Ok(false);
         };
 
-        let mut stream = get_message_stream().write().unwrap();
+        let mut stream = get_message_stream().write().unwrap_or_else(|e| e.into_inner());
         match entry.production_type {
             gamelogic::object::production::queue::ProductionType::Unit => {
                 if let Some(template) =
@@ -1807,7 +1807,7 @@ impl EnhancedControlBar {
             return Ok(());
         }
 
-        let mut stream = get_message_stream().write().unwrap();
+        let mut stream = get_message_stream().write().unwrap_or_else(|e| e.into_inner());
         match command_type {
             gamelogic::commands::command::CommandType::Exit => {
                 let exit_object = exit_target_override.unwrap_or(source_object);

@@ -149,24 +149,21 @@ static FX_SHAKE_SYSTEM: OnceLock<RwLock<Option<Arc<Mutex<CameraShakeSystem>>>>> 
 pub fn register_fx_audio(mut hook: AudioHook) {
     FX_AUDIO
         .get_or_init(|| RwLock::new(None))
-        .write()
-        .expect("FX audio lock poisoned")
+        .write().unwrap_or_else(|e| e.into_inner())
         .replace(hook);
 }
 
 pub fn register_ray_effect_manager(manager: Arc<Mutex<RayEffectManager>>) {
     FX_RAY_MANAGER
         .get_or_init(|| RwLock::new(None))
-        .write()
-        .expect("FX ray manager lock poisoned")
+        .write().unwrap_or_else(|e| e.into_inner())
         .replace(manager);
 }
 
 pub fn register_decal_manager(manager: Arc<Mutex<DecalManager>>) {
     FX_DECAL_MANAGER
         .get_or_init(|| RwLock::new(None))
-        .write()
-        .expect("FX decal manager lock poisoned")
+        .write().unwrap_or_else(|e| e.into_inner())
         .replace(manager);
 }
 
@@ -178,8 +175,7 @@ pub fn get_decal_manager() -> Option<Arc<Mutex<DecalManager>>> {
 pub fn register_camera_shake_system(system: Arc<Mutex<CameraShakeSystem>>) {
     FX_SHAKE_SYSTEM
         .get_or_init(|| RwLock::new(None))
-        .write()
-        .expect("FX shake lock poisoned")
+        .write().unwrap_or_else(|e| e.into_inner())
         .replace(system);
 }
 
@@ -315,15 +311,13 @@ static FX_LIST_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 pub fn get_fx_list_store() -> std::sync::RwLockReadGuard<'static, FXListStore> {
     FX_LIST_STORE
         .get_or_init(|| RwLock::new(FXListStore::new()))
-        .read()
-        .expect("FXListStore lock poisoned")
+        .read().unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn get_fx_list_store_mut() -> std::sync::RwLockWriteGuard<'static, FXListStore> {
     FX_LIST_STORE
         .get_or_init(|| RwLock::new(FXListStore::new()))
-        .write()
-        .expect("FXListStore lock poisoned")
+        .write().unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn init_fx_list_store() -> Result<(), Box<dyn std::error::Error>> {

@@ -1362,7 +1362,7 @@ impl MapSelectMenu {
 
         self.start_game = false;
         let message_stream = get_message_stream();
-        let mut stream = message_stream.write().unwrap();
+        let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
         let msg = stream.append_message(GameMessageType::NewGame);
         msg.append_integer_argument(GAME_SINGLE_PLAYER);
         msg.append_integer_argument(self.difficulty);

@@ -52,7 +52,7 @@ pub fn in_game_popup_message_init(_layout: &WindowLayout, _user_data: Option<&dy
         .and_then(|parent| parent.borrow().find_child_by_id(button_ok_id as i32));
 
     let state_handle = popup_ui_state();
-    let mut state = state_handle.lock().expect("popup ui state lock poisoned");
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.parent_id = Some(parent_id);
     state.static_text_id = Some(static_text_id);
     state.button_ok_id = Some(button_ok_id);
@@ -160,7 +160,7 @@ pub fn in_game_popup_message_input(
     }
 
     let state_handle = popup_ui_state();
-    let state_guard = state_handle.lock().expect("popup ui state lock poisoned");
+    let state_guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     let button_ok_id = state_guard.button_ok_id.unwrap_or(0) as u32;
 
     with_window_manager(|manager| {
@@ -188,7 +188,7 @@ pub fn in_game_popup_message_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let state_handle = popup_ui_state();
-            let state_guard = state_handle.lock().expect("popup ui state lock poisoned");
+            let state_guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             let button_ok_id = state_guard.button_ok_id.unwrap_or(0);
 
             if control_id == button_ok_id {

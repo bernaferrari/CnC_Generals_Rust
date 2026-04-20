@@ -40,7 +40,7 @@ impl AttachmentHookRegistry {
     }
 
     pub fn dispatch(&self, record: &AttachmentRecord) {
-        let guard = self.listeners.read().expect("attachment registry poisoned");
+        let guard = self.listeners.read().unwrap_or_else(|e| e.into_inner());
         if guard.is_empty() {
             trace!(
                 "Attachment dispatch with no listeners: {} (parent {})",

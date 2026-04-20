@@ -41,6 +41,5 @@ static LAN_SETUP: OnceLock<Mutex<LanSetup>> = OnceLock::new();
 pub fn get_lan_setup() -> std::sync::MutexGuard<'static, LanSetup> {
     LAN_SETUP
         .get_or_init(|| Mutex::new(LanSetup::default()))
-        .lock()
-        .expect("LanSetup mutex poisoned")
+        .lock().unwrap_or_else(|e| e.into_inner())
 }

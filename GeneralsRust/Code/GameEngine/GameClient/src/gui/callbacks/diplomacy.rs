@@ -108,8 +108,7 @@ impl DiplomacyCallbacks {
             WindowMessage::None => {
                 let state_handle = diplomacy_ui_state();
                 let mut state = state_handle
-                    .lock()
-                    .expect("diplomacy ui state lock poisoned");
+                    .lock().unwrap_or_else(|e| e.into_inner());
                 state.animate_manager.update();
                 WindowMsgHandled::Handled
             }
@@ -345,8 +344,7 @@ impl DiplomacyCallbacks {
 
         let state_handle = diplomacy_ui_state();
         let mut state = state_handle
-            .lock()
-            .expect("diplomacy ui state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         if state.layout.is_none() {
             let layout =
                 with_window_manager(|manager| manager.create_layout("Diplomacy.wnd".to_string()));
@@ -380,8 +378,7 @@ impl DiplomacyCallbacks {
     fn hide_layout(&self) {
         let state_handle = diplomacy_ui_state();
         let mut state = state_handle
-            .lock()
-            .expect("diplomacy ui state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         if let Some(window) = &state.window {
             let _ = window.borrow_mut().hide(true);
         }
@@ -521,25 +518,25 @@ impl DiplomacySystem {
 
     /// Toggle diplomacy through the system
     pub fn toggle_diplomacy(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap();
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.toggle_diplomacy(immediate)
     }
 
     /// Hide diplomacy through the system
     pub fn hide_diplomacy(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap();
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.hide_diplomacy(immediate)
     }
 
     /// Reset diplomacy through the system
     pub fn reset_diplomacy(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap();
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.reset_diplomacy()
     }
 
     /// Check if diplomacy is active
     pub fn is_active(&self) -> bool {
-        let callbacks = self.callbacks.read().unwrap();
+        let callbacks = self.callbacks.read().unwrap_or_else(|e| e.into_inner());
         callbacks.is_active()
     }
 
@@ -549,7 +546,7 @@ impl DiplomacySystem {
         player_id: i32,
         info: PlayerInfo,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap();
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.update_player_info(player_id, info)
     }
 
@@ -559,7 +556,7 @@ impl DiplomacySystem {
         player_id: i32,
         relationship: DiplomaticRelationship,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap();
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.set_relationship(player_id, relationship)
     }
 
@@ -569,7 +566,7 @@ impl DiplomacySystem {
         player_id: i32,
         muted: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut callbacks = self.callbacks.write().unwrap();
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.set_player_muted(player_id, muted)
     }
 }
@@ -594,25 +591,25 @@ pub fn get_diplomacy_system() -> Arc<RwLock<DiplomacySystem>> {
 /// Convenience functions for global diplomacy operations
 pub fn toggle_diplomacy(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_diplomacy_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.toggle_diplomacy(immediate)
 }
 
 pub fn hide_diplomacy(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_diplomacy_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.hide_diplomacy(immediate)
 }
 
 pub fn reset_diplomacy() -> Result<(), Box<dyn std::error::Error>> {
     let system = get_diplomacy_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.reset_diplomacy()
 }
 
 pub fn is_diplomacy_active() -> bool {
     let system = get_diplomacy_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.is_active()
 }
 

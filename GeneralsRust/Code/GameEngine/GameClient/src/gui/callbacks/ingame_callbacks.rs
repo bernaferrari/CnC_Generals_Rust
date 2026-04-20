@@ -270,8 +270,7 @@ impl InGameChatCallbacks {
                 if control_id == button_clear_id {
                     let state_handle = chat_ui_state();
                     let mut state = state_handle
-                        .lock()
-                        .expect("InGameChat ui state lock poisoned");
+                        .lock().unwrap_or_else(|e| e.into_inner());
                     set_text_entry_text(&state.text_entry, "");
                     state.saved_text.clear();
                 }
@@ -313,8 +312,7 @@ impl InGameChatCallbacks {
         {
             let state_handle = chat_ui_state();
             let mut state = state_handle
-                .lock()
-                .expect("InGameChat ui state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             if state.just_hid {
                 state.just_hid = false;
                 return Ok(());
@@ -324,16 +322,14 @@ impl InGameChatCallbacks {
         {
             let state_handle = chat_ui_state();
             let mut state = state_handle
-                .lock()
-                .expect("InGameChat ui state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             ensure_chat_layout(&mut state);
         }
 
         let is_hidden = {
             let state_handle = chat_ui_state();
             let state = state_handle
-                .lock()
-                .expect("InGameChat ui state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             state
                 .parent
                 .as_ref()
@@ -346,8 +342,7 @@ impl InGameChatCallbacks {
         } else {
             let state_handle = chat_ui_state();
             let mut state = state_handle
-                .lock()
-                .expect("InGameChat ui state lock poisoned");
+                .lock().unwrap_or_else(|e| e.into_inner());
             let mut msg = text_entry_text(&state.text_entry);
             msg = msg.trim().to_string();
             if !msg.is_empty() && !handle_slash_commands(&msg) {
@@ -371,8 +366,7 @@ impl InGameChatCallbacks {
             self.hide_in_game_chat(immediate)?;
             let state_handle = chat_ui_state();
             state_handle
-                .lock()
-                .expect("InGameChat ui state lock poisoned")
+                .lock().unwrap_or_else(|e| e.into_inner())
                 .just_hid = true;
         }
 
@@ -385,8 +379,7 @@ impl InGameChatCallbacks {
 
         let state_handle = chat_ui_state();
         let mut state = state_handle
-            .lock()
-            .expect("InGameChat ui state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         state.saved_text = text_entry_text(&state.text_entry);
         let parent = state.parent.clone();
         let text_entry = state.text_entry.clone();
@@ -418,8 +411,7 @@ impl InGameChatCallbacks {
 
         let state_handle = chat_ui_state();
         let mut state = state_handle
-            .lock()
-            .expect("InGameChat ui state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         ensure_chat_layout(&mut state);
 
         if let Some(parent) = &state.parent {
@@ -452,8 +444,7 @@ impl InGameChatCallbacks {
         self.history.clear();
         let state_handle = chat_ui_state();
         let mut state = state_handle
-            .lock()
-            .expect("InGameChat ui state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         if let Some(layout) = &state.layout {
             with_window_manager(|manager| manager.destroy_layout(layout));
         }
@@ -471,8 +462,7 @@ impl InGameChatCallbacks {
         self.chat_type = chat_type;
         let state_handle = chat_ui_state();
         let state = state_handle
-            .lock()
-            .expect("InGameChat ui state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         let Some(label) = &state.chat_type_text else {
             return Ok(());
         };
@@ -501,8 +491,7 @@ impl InGameChatCallbacks {
     pub fn is_in_game_chat_active(&self) -> bool {
         let state_handle = chat_ui_state();
         let state = state_handle
-            .lock()
-            .expect("InGameChat ui state lock poisoned");
+            .lock().unwrap_or_else(|e| e.into_inner());
         state
             .parent
             .as_ref()
@@ -834,31 +823,31 @@ impl InGameUISystem {
         target_mask: i32,
         is_disconnect: bool,
     ) {
-        let mut chat = self.chat.write().unwrap();
+        let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
         chat.receive_network_message(sender_id, message, target_mask, is_disconnect);
     }
 
     /// Toggle chat through the system
     pub fn toggle_in_game_chat(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut chat = self.chat.write().unwrap();
+        let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
         chat.toggle_in_game_chat(immediate)
     }
 
     /// Hide chat through the system
     pub fn hide_in_game_chat(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut chat = self.chat.write().unwrap();
+        let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
         chat.hide_in_game_chat(immediate)
     }
 
     /// Show chat through the system
     pub fn show_in_game_chat(&self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut chat = self.chat.write().unwrap();
+        let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
         chat.show_in_game_chat(immediate)
     }
 
     /// Reset chat through the system
     pub fn reset_in_game_chat(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut chat = self.chat.write().unwrap();
+        let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
         chat.reset_in_game_chat()
     }
 
@@ -867,13 +856,13 @@ impl InGameUISystem {
         &self,
         chat_type: InGameChatType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut chat = self.chat.write().unwrap();
+        let mut chat = self.chat.write().unwrap_or_else(|e| e.into_inner());
         chat.set_in_game_chat_type(chat_type)
     }
 
     /// Check if chat is active
     pub fn is_in_game_chat_active(&self) -> bool {
-        let chat = self.chat.read().unwrap();
+        let chat = self.chat.read().unwrap_or_else(|e| e.into_inner());
         chat.is_in_game_chat_active()
     }
 }
@@ -898,37 +887,37 @@ pub fn get_ingame_ui_system() -> Arc<RwLock<InGameUISystem>> {
 /// Convenience functions for global in-game UI operations
 pub fn toggle_in_game_chat(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_ingame_ui_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.toggle_in_game_chat(immediate)
 }
 
 pub fn hide_in_game_chat(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_ingame_ui_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.hide_in_game_chat(immediate)
 }
 
 pub fn show_in_game_chat(immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_ingame_ui_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.show_in_game_chat(immediate)
 }
 
 pub fn reset_in_game_chat() -> Result<(), Box<dyn std::error::Error>> {
     let system = get_ingame_ui_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.reset_in_game_chat()
 }
 
 pub fn set_in_game_chat_type(chat_type: InGameChatType) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_ingame_ui_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.set_in_game_chat_type(chat_type)
 }
 
 pub fn is_in_game_chat_active() -> bool {
     let system = get_ingame_ui_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.is_in_game_chat_active()
 }
 
@@ -939,7 +928,7 @@ pub fn push_network_chat_message(
     is_disconnect: bool,
 ) {
     let system = get_ingame_ui_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.push_chat_message(sender_id, message, target_mask, is_disconnect);
 }
 

@@ -559,7 +559,7 @@ fn push_command_map_file(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, 
 
 pub fn get_command_map_entries() -> Vec<CommandMapEntry> {
     ensure_meta_map_loaded();
-    let guard = get_meta_map().read().expect("MetaMap lock poisoned");
+    let guard = get_meta_map().read().unwrap_or_else(|e| e.into_inner());
     guard
         .iter()
         .map(|record| CommandMapEntry {
@@ -680,8 +680,7 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
     }
 
     get_meta_map()
-        .write()
-        .expect("MetaMap lock poisoned")
+        .write().unwrap_or_else(|e| e.into_inner())
         .add_record(record);
     Ok(())
 }
@@ -983,8 +982,7 @@ fn cycle_lod_level_state() -> &'static RwLock<DynamicGameLODLevel> {
 fn cycle_dynamic_lod_level() {
     let next = {
         let mut guard = cycle_lod_level_state()
-            .write()
-            .expect("LOD cycle lock poisoned");
+            .write().unwrap_or_else(|e| e.into_inner());
         *guard = match *guard {
             DynamicGameLODLevel::VeryHigh => DynamicGameLODLevel::High,
             DynamicGameLODLevel::High => DynamicGameLODLevel::Medium,
@@ -3052,7 +3050,7 @@ impl GameMessageTranslator for MetaEventTranslator {
                 crate::core::game_client::with_live_game_client_mut(|client| client.get_frame())
                     .unwrap_or(0);
 
-            let map_guard = get_meta_map().read().expect("MetaMap lock poisoned");
+            let map_guard = get_meta_map().read().unwrap_or_else(|e| e.into_inner());
             for map in map_guard.iter() {
                 // C++ parity: ignore game-only keybinds before the GameClient reaches frame 1.
                 // This prevents load-screen input from getting stuck in frame-0 menu transitions.
@@ -3260,7 +3258,7 @@ mod tests {
 
     #[test]
     fn test_fast_forward_replay_meta_record_is_destroyed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let mut record = alias_record("TOGGLE_FAST_FORWARD_REPLAY");
         record.meta = Some(GameMessageType::MetaToggleFastForwardReplay);
@@ -3316,7 +3314,7 @@ mod tests {
 
     #[test]
     fn test_alias_command_map_entries_use_runtime_dispatch_paths() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         assert_eq!(
             dispatch_map_entry(&alias_record("PLACE_BEACON")),
@@ -3334,14 +3332,14 @@ mod tests {
 
     #[test]
     fn test_unimplemented_cpp_command_entries_are_consumed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         assert!(!is_unimplemented_cpp_command_name("DEMO_CYCLE_EXTENT_TYPE"));
     }
 
     #[test]
     fn test_dispatch_handled_cpp_command_entries_are_supported_and_not_unimplemented() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         for alias in [
             "CHEAT_ADD_CASH",
@@ -3410,7 +3408,7 @@ mod tests {
 
     #[test]
     fn test_demo_adjust_aliases_toggle_camera_adjust_state() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         reset_demo_camera_adjust_state_for_tests();
         apply_demo_camera_adjust_from_mouse_position(&ICoord2D::new(50, 60));
@@ -3447,7 +3445,7 @@ mod tests {
 
     #[test]
     fn test_raw_mouse_position_applies_demo_pitch_and_fov_adjustments() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         reset_demo_camera_adjust_state_for_tests();
         let mut translator = MetaEventTranslator::default();
@@ -3498,7 +3496,7 @@ mod tests {
 
     #[test]
     fn test_extent_adjust_aliases_are_consumed_and_adjust_geometry_values() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         for alias in [
             "DEMO_CYCLE_EXTENT_TYPE",
@@ -3567,7 +3565,7 @@ mod tests {
 
     #[test]
     fn test_demo_toggle_no_draw_sets_cpp_equivalent_runtime_value() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         global_data.write().no_draw = 0;
 
@@ -3580,7 +3578,7 @@ mod tests {
 
     #[test]
     fn test_demo_lod_aliases_adjust_texture_reduction_factor_with_cpp_clamp() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         global_data.write().texture_reduction_factor = 0;
 
@@ -3609,7 +3607,7 @@ mod tests {
 
     #[test]
     fn test_deshroud_aliases_follow_cpp_keep_message_semantics() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(dispatch_map_entry(&alias_record("CHEAT_DESHROUD")), None);
         assert_eq!(dispatch_map_entry(&alias_record("DEMO_DESHROUD")), None);
         assert_eq!(dispatch_map_entry(&alias_record("DEMO_ENSHROUD")), None);
@@ -3617,7 +3615,7 @@ mod tests {
 
     #[test]
     fn test_help_alias_is_consumed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_map_entry(&alias_record("HELP")),
             Some(GameMessageDisposition::DestroyMessage)
@@ -3626,7 +3624,7 @@ mod tests {
 
     #[test]
     fn test_demo_vtune_aliases_toggle_compat_state() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         set_vtune_enabled(false);
         assert!(!is_vtune_enabled_for_tests());
 
@@ -3645,7 +3643,7 @@ mod tests {
 
     #[test]
     fn test_demo_skate_speed_aliases_keep_message_and_adjust_value() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         set_skate_distance_override_for_tests(0.0);
 
         assert_eq!(
@@ -3663,7 +3661,7 @@ mod tests {
 
     #[test]
     fn test_selection_debug_toggle_aliases_flip_compat_state() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         set_bool_state_for_tests(hand_of_god_mode_state(), false);
         set_bool_state_for_tests(hurt_me_mode_state(), false);
         set_bool_state_for_tests(debug_selection_mode_state(), false);
@@ -3695,7 +3693,7 @@ mod tests {
 
     #[test]
     fn test_demo_dump_assets_alias_is_consumed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let output_path = PathBuf::from("UsedMapAssets.txt");
         let _ = fs::remove_file(&output_path);
 
@@ -3709,7 +3707,7 @@ mod tests {
 
     #[test]
     fn test_demo_toggle_aliases_apply_cpp_global_data_side_effects() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         {
             let mut global = global_data.write();
@@ -3803,11 +3801,11 @@ mod tests {
 
     #[test]
     fn test_demo_cash_and_science_point_aliases_apply_local_player_effects() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut local_guard = local_player.write().expect("player lock");
+            let mut local_guard = local_player.write().unwrap_or_else(|e| e.into_inner());
             local_guard.get_money_mut().set_money(0);
             let spp = local_guard.get_science_purchase_points();
             if spp != 0 {
@@ -3816,7 +3814,7 @@ mod tests {
         }
 
         {
-            let mut list = ThePlayerList().write().expect("player list lock");
+            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
@@ -3829,7 +3827,7 @@ mod tests {
         );
 
         {
-            let local_guard = local_player.read().expect("player lock");
+            let local_guard = local_player.read().unwrap_or_else(|e| e.into_inner());
             assert_eq!(local_guard.get_money().get_money(), 10_000);
             assert_eq!(local_guard.get_science_purchase_points(), 1);
         }
@@ -3837,23 +3835,22 @@ mod tests {
         assert_eq!(dispatch_map_entry(&alias_record("CHEAT_ADD_CASH")), None);
         assert_eq!(
             local_player
-                .read()
-                .expect("player lock")
+                .read().unwrap_or_else(|e| e.into_inner())
                 .get_money()
                 .get_money(),
             20_000
         );
 
-        ThePlayerList().write().expect("player list lock").clear();
+        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     #[test]
     fn test_demo_build_mode_aliases_toggle_local_player_debug_flags() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = ThePlayerList().write().expect("player list lock");
+            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
@@ -3873,27 +3870,27 @@ mod tests {
         );
 
         {
-            let local_guard = local_player.read().expect("player lock");
+            let local_guard = local_player.read().unwrap_or_else(|e| e.into_inner());
             assert!(local_guard.builds_instantly());
             assert!(local_guard.builds_for_free());
             assert!(local_guard.ignores_prereqs());
         }
 
-        ThePlayerList().write().expect("player list lock").clear();
+        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     #[test]
     fn test_demo_rank_level_aliases_adjust_local_player_rank() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut local_guard = local_player.write().expect("player lock");
+            let mut local_guard = local_player.write().unwrap_or_else(|e| e.into_inner());
             let _ = local_guard.set_rank_level(1);
         }
 
         {
-            let mut list = ThePlayerList().write().expect("player list lock");
+            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
@@ -3913,16 +3910,16 @@ mod tests {
         );
 
         {
-            let local_guard = local_player.read().expect("player lock");
+            let local_guard = local_player.read().unwrap_or_else(|e| e.into_inner());
             assert_eq!(local_guard.get_rank_level(), 2);
         }
 
-        ThePlayerList().write().expect("player list lock").clear();
+        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     #[test]
     fn test_message_text_aliases_toggle_ingame_ui_message_state() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         if !TheInGameUI::is_messages_on() {
             TheInGameUI::toggle_messages();
@@ -3944,7 +3941,7 @@ mod tests {
 
     #[test]
     fn test_demo_zoom_lock_alias_toggles_view_zoom_limit() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         with_tactical_view(|view| view.set_zoom_limited(false));
         assert_eq!(
@@ -3966,7 +3963,7 @@ mod tests {
 
     #[test]
     fn test_demo_objective_movie_aliases_update_index_when_in_game() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_SINGLE_PLAYER);
@@ -3980,7 +3977,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            *get_objective_movie_index().read().expect("objective lock"),
+            *get_objective_movie_index().read().unwrap_or_else(|e| e.into_inner()),
             4
         );
 
@@ -3989,7 +3986,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            *get_objective_movie_index().read().expect("objective lock"),
+            *get_objective_movie_index().read().unwrap_or_else(|e| e.into_inner()),
             5
         );
 
@@ -4001,7 +3998,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            *get_objective_movie_index().read().expect("objective lock"),
+            *get_objective_movie_index().read().unwrap_or_else(|e| e.into_inner()),
             1
         );
 
@@ -4012,7 +4009,7 @@ mod tests {
 
     #[test]
     fn test_demo_military_subtitles_and_time_of_day_aliases_are_wired() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
 
         {
@@ -4033,7 +4030,7 @@ mod tests {
 
     #[test]
     fn test_demo_play_cameo_movie_alias_is_consumed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_SINGLE_PLAYER);
@@ -4049,29 +4046,29 @@ mod tests {
 
     #[test]
     fn test_switch_team_aliases_cycle_or_swap_local_player_index() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let player_usa = Arc::new(RwLock::new(Player::new(0)));
         let player_china = Arc::new(RwLock::new(Player::new(1)));
         let player_neutral = Arc::new(RwLock::new(Player::new(2)));
         {
-            let mut usa = player_usa.write().expect("player lock");
+            let mut usa = player_usa.write().unwrap_or_else(|e| e.into_inner());
             usa.set_side("America");
             usa.set_player_type(PlayerType::Human, false);
         }
         {
-            let mut china = player_china.write().expect("player lock");
+            let mut china = player_china.write().unwrap_or_else(|e| e.into_inner());
             china.set_side("China");
             china.set_player_type(PlayerType::Human, false);
         }
         {
-            let mut neutral = player_neutral.write().expect("player lock");
+            let mut neutral = player_neutral.write().unwrap_or_else(|e| e.into_inner());
             neutral.set_side("Neutral");
             neutral.set_player_type(PlayerType::Neutral, false);
         }
 
         {
-            let mut list = ThePlayerList().write().expect("player list lock");
+            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&player_usa));
             list.add_player(Arc::clone(&player_china));
@@ -4089,8 +4086,7 @@ mod tests {
         );
         assert_eq!(
             ThePlayerList()
-                .read()
-                .expect("player list lock")
+                .read().unwrap_or_else(|e| e.into_inner())
                 .get_local_player_index(),
             1
         );
@@ -4102,8 +4098,7 @@ mod tests {
         );
         assert_eq!(
             ThePlayerList()
-                .read()
-                .expect("player list lock")
+                .read().unwrap_or_else(|e| e.into_inner())
                 .get_local_player_index(),
             0
         );
@@ -4112,28 +4107,28 @@ mod tests {
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
         }
-        ThePlayerList().write().expect("player list lock").clear();
+        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     #[test]
     fn test_cheat_switch_teams_keeps_message_in_multiplayer() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let player_usa = Arc::new(RwLock::new(Player::new(0)));
         let player_china = Arc::new(RwLock::new(Player::new(1)));
         {
-            let mut usa = player_usa.write().expect("player lock");
+            let mut usa = player_usa.write().unwrap_or_else(|e| e.into_inner());
             usa.set_side("America");
             usa.set_player_type(PlayerType::Human, false);
         }
         {
-            let mut china = player_china.write().expect("player lock");
+            let mut china = player_china.write().unwrap_or_else(|e| e.into_inner());
             china.set_side("China");
             china.set_player_type(PlayerType::Human, false);
         }
 
         {
-            let mut list = ThePlayerList().write().expect("player list lock");
+            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&player_usa));
             list.add_player(Arc::clone(&player_china));
@@ -4150,8 +4145,7 @@ mod tests {
         );
         assert_eq!(
             ThePlayerList()
-                .read()
-                .expect("player list lock")
+                .read().unwrap_or_else(|e| e.into_inner())
                 .get_local_player_index(),
             0
         );
@@ -4160,16 +4154,16 @@ mod tests {
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
         }
-        ThePlayerList().write().expect("player list lock").clear();
+        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     #[test]
     fn test_multiplayer_gated_cheat_aliases_keep_message() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut list = ThePlayerList().write().expect("player list lock");
+            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
@@ -4201,16 +4195,16 @@ mod tests {
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
         }
-        ThePlayerList().write().expect("player list lock").clear();
+        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     #[test]
     fn test_demo_toggle_sound_and_music_aliases_update_audio_flags() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         {
-            let mut audio = manager.lock().expect("audio lock");
+            let mut audio = manager.lock().unwrap_or_else(|e| e.into_inner());
             audio.set_on(true, AudioAffect::All);
             audio.set_on(true, AudioAffect::Music);
         }
@@ -4220,7 +4214,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
-            let audio = manager.lock().expect("audio lock");
+            let audio = manager.lock().unwrap_or_else(|e| e.into_inner());
             assert!(!audio.is_on(AudioAffect::Sound));
             assert!(!audio.is_on(AudioAffect::Music));
         }
@@ -4230,7 +4224,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
-            let audio = manager.lock().expect("audio lock");
+            let audio = manager.lock().unwrap_or_else(|e| e.into_inner());
             assert!(audio.is_on(AudioAffect::Sound));
             assert!(audio.is_on(AudioAffect::Music));
         }
@@ -4240,7 +4234,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
-            let audio = manager.lock().expect("audio lock");
+            let audio = manager.lock().unwrap_or_else(|e| e.into_inner());
             assert!(!audio.is_on(AudioAffect::Music));
             assert!(audio.is_on(AudioAffect::Sound));
         }
@@ -4250,7 +4244,7 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         {
-            let audio = manager.lock().expect("audio lock");
+            let audio = manager.lock().unwrap_or_else(|e| e.into_inner());
             assert!(audio.is_on(AudioAffect::Music));
         }
 
@@ -4266,7 +4260,7 @@ mod tests {
 
     #[test]
     fn test_demo_debug_display_and_movie_capture_aliases_are_consumed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         for alias in [
             "DEMO_TOGGLE_DEBUG_STATS",
@@ -4284,7 +4278,7 @@ mod tests {
 
     #[test]
     fn test_demo_view_filter_aliases_toggle_expected_filter_modes() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         with_tactical_view(|view| {
             view.set_view_filter_mode(FilterMode::Null);
@@ -4343,7 +4337,7 @@ mod tests {
 
     #[test]
     fn test_demo_toggle_bw_view_alias_cycles_cpp_compat_state() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         reset_bw_view_state_for_tests();
         with_tactical_view(|view| {
@@ -4382,7 +4376,7 @@ mod tests {
 
     #[test]
     fn test_demo_toggle_network_alias_is_consumed_and_toggles_compat_state() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_TOGGLE_NETWORK")),
@@ -4404,7 +4398,7 @@ mod tests {
 
     #[test]
     fn test_demo_cycle_lod_level_alias_matches_cpp_decrement_wrap_order() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         set_cycle_lod_level_state_for_tests(DynamicGameLODLevel::VeryHigh);
 
         for expected in ["High", "Medium", "Low", "VeryHigh"] {
@@ -4418,7 +4412,7 @@ mod tests {
 
     #[test]
     fn test_debug_dump_player_object_aliases_are_consumed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_map_entry(&alias_record("DEBUG_DUMP_PLAYER_OBJECTS")),
             Some(GameMessageDisposition::DestroyMessage)
@@ -4431,7 +4425,7 @@ mod tests {
 
     #[test]
     fn test_debug_sleepy_update_performance_alias_keeps_message() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_map_entry(&alias_record("DEBUG_SLEEPY_UPDATE_PERFORMANCE")),
             None
@@ -4440,7 +4434,7 @@ mod tests {
 
     #[test]
     fn test_debug_id_performance_aliases_keep_message() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_map_entry(&alias_record("DEBUG_OBJECT_ID_PERFORMANCE")),
             None
@@ -4453,7 +4447,7 @@ mod tests {
 
     #[test]
     fn test_demo_perform_statistical_dump_sets_dump_flag() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
         global_data.write().dump_performance_statistics = false;
 
@@ -4466,15 +4460,15 @@ mod tests {
 
     #[test]
     fn test_demo_win_alias_sets_local_victory_state() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         let local_player = Arc::new(RwLock::new(Player::new(0)));
         {
-            let mut guard = local_player.write().expect("player lock");
+            let mut guard = local_player.write().unwrap_or_else(|e| e.into_inner());
             guard.set_defeated(true);
         }
         {
-            let mut list = ThePlayerList().write().expect("player list lock");
+            let mut list = ThePlayerList().write().unwrap_or_else(|e| e.into_inner());
             list.clear();
             list.add_player(Arc::clone(&local_player));
             list.set_local_player_index(0);
@@ -4486,9 +4480,9 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(TheVictoryConditions::is_local_allied_victory());
-        assert!(!local_player.read().expect("player lock").is_defeated());
+        assert!(!local_player.read().unwrap_or_else(|e| e.into_inner()).is_defeated());
 
-        ThePlayerList().write().expect("player list lock").clear();
+        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
     #[test]
@@ -4503,7 +4497,7 @@ mod tests {
 
     #[test]
     fn test_demo_battle_cry_alias_is_consumed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_BATTLE_CRY")),
             Some(GameMessageDisposition::DestroyMessage)
@@ -4512,7 +4506,7 @@ mod tests {
 
     #[test]
     fn test_kill_selection_and_runscript_aliases_are_consumed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         if let Ok(mut manager) = get_selection_manager().write() {
             manager.initialize_player(0);
@@ -4554,7 +4548,7 @@ mod tests {
 
     #[test]
     fn test_demo_lock_camera_to_selection_alias_clears_lock_when_no_selection() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         if let Ok(mut manager) = get_selection_manager().write() {
             manager.initialize_player(0);
@@ -4577,7 +4571,7 @@ mod tests {
 
     #[test]
     fn test_demo_lock_camera_to_planes_alias_is_consumed() {
-        let _guard = test_state_lock().lock().expect("lock poisoned");
+        let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
         set_last_plane_lock_object_id_for_tests(None);
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_LOCK_CAMERA_TO_PLANES")),

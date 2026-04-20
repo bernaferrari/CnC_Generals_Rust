@@ -1060,9 +1060,9 @@ fn gogo_ex_message_box(
             .borrow_mut()
             .set_system_callback(|window, msg, data1, data2| {
                 let system = get_message_box_system();
-                let system = system.read().unwrap();
+                let system = system.read().unwrap_or_else(|e| e.into_inner());
                 let extended = system.get_extended().clone();
-                let mut extended_guard = extended.write().unwrap();
+                let mut extended_guard = extended.write().unwrap_or_else(|e| e.into_inner());
                 extended_guard.system(window, msg, data1, data2)
             });
 
@@ -1353,13 +1353,13 @@ impl MessageBoxSystem {
         message: &str,
         message_type: MessageBoxType,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let mut standard = self.standard.write().unwrap();
+        let mut standard = self.standard.write().unwrap_or_else(|e| e.into_inner());
         standard.show_message_box(title, message, message_type)
     }
 
     /// Show quit dialog through the system
     pub fn show_quit_dialog(&self, force_quit: bool) -> Result<(), Box<dyn std::error::Error>> {
-        let mut quit = self.quit.write().unwrap();
+        let mut quit = self.quit.write().unwrap_or_else(|e| e.into_inner());
         quit.show_quit_dialog(force_quit)
     }
 }
@@ -1388,13 +1388,13 @@ pub fn show_message_box(
     message_type: MessageBoxType,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_message_box_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.show_message_box(title, message, message_type)
 }
 
 pub fn show_quit_dialog(force_quit: bool) -> Result<(), Box<dyn std::error::Error>> {
     let system = get_message_box_system();
-    let system = system.read().unwrap();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
     system.show_quit_dialog(force_quit)
 }
 

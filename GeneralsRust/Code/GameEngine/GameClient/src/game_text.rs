@@ -30,7 +30,7 @@ impl GameText {
     }
 
     pub fn init_map_string_file(path: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let mut guard = get_game_text().write().unwrap();
+        let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
         guard.map_strings.clear();
         let content = fs::read_to_string(path)?;
         parse_string_file(&content, &mut guard.map_strings);
@@ -52,7 +52,7 @@ impl GameText {
     }
 
     pub fn reset() {
-        let mut guard = get_game_text().write().unwrap();
+        let mut guard = get_game_text().write().unwrap_or_else(|e| e.into_inner());
         guard.map_strings.clear();
     }
 

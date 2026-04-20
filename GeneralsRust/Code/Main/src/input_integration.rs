@@ -65,7 +65,7 @@ impl InputProcessor {
     pub async fn process_input(&mut self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
         // Get current frame from GameLogic
         let current_frame = {
-            let logic = game_logic.lock().unwrap();
+            let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
             logic.get_frame()
         };
 
@@ -222,7 +222,7 @@ impl InputProcessor {
         ctrl_pressed: bool,
         game_logic: &Arc<std::sync::Mutex<GameLogic>>,
     ) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Find object at world position
         let clicked_object = self.find_object_at_position(world_pos, &logic);
@@ -283,7 +283,7 @@ impl InputProcessor {
         world_pos: Vec3,
         game_logic: &Arc<std::sync::Mutex<GameLogic>>,
     ) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Get currently selected units
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
@@ -339,7 +339,7 @@ impl InputProcessor {
         shift_pressed: bool,
         game_logic: &Arc<std::sync::Mutex<GameLogic>>,
     ) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Create selection rectangle
         let min_x = start_world.x.min(end_world.x);
@@ -391,7 +391,7 @@ impl InputProcessor {
         world_pos: Vec3,
         game_logic: &Arc<std::sync::Mutex<GameLogic>>,
     ) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         let Some(clicked_object_id) = self.find_object_at_position(world_pos, &logic) else {
             return;
@@ -425,7 +425,7 @@ impl InputProcessor {
 
     /// Select all player units
     async fn select_all_units(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Find all selectable units belonging to the player
         let mut all_units = Vec::new();
@@ -443,7 +443,7 @@ impl InputProcessor {
 
     /// Delete selected units
     async fn delete_selected_units(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
@@ -468,7 +468,7 @@ impl InputProcessor {
 
     /// Cycle through units
     async fn cycle_units(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Get all selectable units
         let player_team = self.local_player_team(&logic);
@@ -510,7 +510,7 @@ impl InputProcessor {
 
     /// Toggle game pause
     async fn toggle_pause(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         let is_paused = logic.is_paused();
         logic.set_paused(!is_paused);
 
@@ -527,7 +527,7 @@ impl InputProcessor {
         group_num: u8,
         game_logic: &Arc<std::sync::Mutex<GameLogic>>,
     ) {
-        let logic = game_logic.lock().unwrap();
+        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
@@ -555,7 +555,7 @@ impl InputProcessor {
         group_num: u8,
         game_logic: &Arc<std::sync::Mutex<GameLogic>>,
     ) {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         let Some(group) = self.control_groups.get(&group_num) else {
             println!("Control group {} is empty", group_num);

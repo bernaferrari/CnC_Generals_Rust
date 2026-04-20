@@ -550,7 +550,7 @@ impl MainMenu {
     ) -> MainMenuResult<()> {
         log::info!("MainMenuInit: Initializing main menu");
 
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
 
         if let Some(global) = get_global_data() {
             global.write().break_the_movie = false;
@@ -680,7 +680,7 @@ impl MainMenu {
     ) -> MainMenuResult<()> {
         log::info!("MainMenuShutdown: Shutting down main menu");
 
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
 
         if !state.start_game {
             state.is_shutting_down = true;
@@ -721,7 +721,7 @@ impl MainMenu {
         layout: &dyn std::any::Any,
         user_data: Option<&dyn std::any::Any>,
     ) -> MainMenuResult<()> {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         let mut focus_target = None;
         let mut pending_actions = Vec::new();
         if TheGameLogic::is_in_game()
@@ -837,7 +837,7 @@ impl MainMenu {
     /// Handle input messages
     /// Port of MainMenuInput() - C++ lines 957-1016
     pub fn input(&mut self, window: u32, msg: u32, data1: u32, data2: u32) -> bool {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
 
         if !state.not_shown {
             return false; // MSG_IGNORED
@@ -887,7 +887,7 @@ impl MainMenu {
     /// Handle system messages
     /// Port of MainMenuSystem() - C++ lines 1021-1688
     pub fn system(&mut self, window: u32, msg: u32, data1: u32, data2: u32) -> bool {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         let mut pending_actions = Vec::new();
 
         match msg {
@@ -1048,13 +1048,13 @@ impl MainMenu {
         }
         if TheGameLogic::is_in_game() {
             let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap();
+            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
             stream.append_message(GameMessageType::ClearGameData);
         }
     }
 
     fn start_patch_check(&self) {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         state.checking_for_patch_before_gamespy = true;
         state.cant_connect_before_online = false;
         state.checks_left_before_online = 4;
@@ -1751,7 +1751,7 @@ impl MainMenu {
     /// Public wrapper used by external menu callbacks that must follow
     /// MainMenu::setupGameStart behavior (for example DifficultySelect popup flow).
     pub fn setup_game_start_from_callback(&mut self, map_name: &str, diff: GameDifficulty) {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         self.setup_game_start(&mut state, map_name, diff);
     }
 
@@ -1783,12 +1783,12 @@ impl MainMenu {
     }
 
     fn run_campaign_start_after_cd_check(&mut self, diff: GameDifficulty) {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         self.prepare_campaign_game(&mut state, diff);
     }
 
     fn cancel_campaign_start_after_cd_check(&mut self) {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         state.button_pushed = false;
     }
 
@@ -1841,7 +1841,7 @@ impl MainMenu {
             )
         };
         let message_stream = get_message_stream();
-        let mut stream = message_stream.write().unwrap();
+        let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
         let msg = stream.append_message(GameMessageType::NewGame);
         msg.append_integer_argument(gamelogic::system::game_logic::GAME_SINGLE_PLAYER);
         msg.append_integer_argument(difficulty);
@@ -1904,7 +1904,7 @@ impl MainMenu {
     /// Accept resolution change
     /// Port of AcceptResolution() - C++ lines 704-710
     pub fn accept_resolution(&mut self) {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         state.old_disp_settings = state.new_disp_settings;
         state.disp_changed = false;
         log::info!(
@@ -1953,7 +1953,7 @@ impl MainMenu {
     }
 
     fn rollback_resolution_state(&self) -> DisplaySettings {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
 
         // Revert to old resolution
         // if (TheDisplay->setDisplayMode(...))
@@ -1967,7 +1967,7 @@ impl MainMenu {
         old_settings: DisplaySettings,
         new_settings: DisplaySettings,
     ) {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         state.old_disp_settings = old_settings;
         state.new_disp_settings = new_settings;
         state.disp_changed = true;
@@ -1977,7 +1977,7 @@ impl MainMenu {
     /// Port of DoResolutionDialog() - C++ lines 757-773
     pub fn do_resolution_dialog(&self) {
         let (x_res, y_res) = {
-            let state = self.state.read().unwrap();
+            let state = self.state.read().unwrap_or_else(|e| e.into_inner());
             (state.new_disp_settings.x_res, state.new_disp_settings.y_res)
         };
         let title = crate::game_text::GameText::fetch("GUI:Resolution");
@@ -2058,7 +2058,7 @@ impl MainMenu {
     }
 
     pub fn handle_canceled_download(&mut self, reset_dropdown: bool) {
-        let mut state = self.state.write().unwrap();
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         self.handle_canceled_download_state(&mut state, reset_dropdown);
     }
 }
@@ -2122,7 +2122,7 @@ static MAIN_MENU: OnceLock<Mutex<MainMenu>> = OnceLock::new();
 
 pub fn get_main_menu() -> std::sync::MutexGuard<'static, MainMenu> {
     let lock = MAIN_MENU.get_or_init(|| Mutex::new(MainMenu::new()));
-    lock.lock().expect("MainMenu mutex poisoned")
+    lock.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 // ================================================================================================
@@ -2136,7 +2136,7 @@ mod tests {
     #[test]
     fn test_main_menu_creation() {
         let mut menu = MainMenu::new();
-        let state = menu.state.read().unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
 
         assert!(state.raise_message_boxes);
         assert!(!state.campaign_selected);
@@ -2188,7 +2188,7 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
             state.new_disp_settings.x_res = 1920;
             state.new_disp_settings.y_res = 1080;
             state.disp_changed = true;
@@ -2196,7 +2196,7 @@ mod tests {
 
         menu.accept_resolution();
 
-        let state = menu.state.read().unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
         assert_eq!(state.old_disp_settings.x_res, 1920);
         assert_eq!(state.old_disp_settings.y_res, 1080);
         assert!(!state.disp_changed);
@@ -2207,7 +2207,7 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
             state.old_disp_settings = DisplaySettings {
                 x_res: 1280,
                 y_res: 720,
@@ -2228,7 +2228,7 @@ mod tests {
         assert_eq!(reverted.x_res, 1280);
         assert_eq!(reverted.y_res, 720);
 
-        let state = menu.state.read().unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
         assert_eq!(state.new_disp_settings.x_res, 1280);
         assert_eq!(state.new_disp_settings.y_res, 720);
         assert!(!state.disp_changed);
@@ -2239,7 +2239,7 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
             state.button_pushed = true;
             state.drop_down = DropdownType::Difficulty;
             state.checking_for_patch_before_gamespy = true;
@@ -2250,7 +2250,7 @@ mod tests {
 
         menu.handle_canceled_download(true);
 
-        let state = menu.state.read().unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
         assert!(!state.button_pushed);
         assert_eq!(state.drop_down, DropdownType::Difficulty);
         assert!(state.checking_for_patch_before_gamespy);
@@ -2264,7 +2264,7 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
             state.button_pushed = true;
             state.drop_down = DropdownType::Difficulty;
             state.checking_for_patch_before_gamespy = true;
@@ -2274,11 +2274,11 @@ mod tests {
         }
 
         {
-            let mut state = menu.state.write().unwrap();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
             MainMenu::cancel_patch_check_callback_state(&mut state);
         }
 
-        let state = menu.state.read().unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
         assert!(!state.button_pushed);
         assert_eq!(state.drop_down, DropdownType::Difficulty);
         assert!(!state.checking_for_patch_before_gamespy);
@@ -2290,7 +2290,7 @@ mod tests {
     #[test]
     fn test_initial_state() {
         let mut menu = MainMenu::new();
-        let state = menu.state.read().unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
 
         assert_eq!(state.initial_gadget_delay, INITIAL_GADGET_DELAY_DEFAULT);
         assert!(state.not_shown);
@@ -2309,14 +2309,14 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
             state.button_pushed = true;
             state.dont_allow_transitions = true;
         }
 
         menu.start_patch_check();
 
-        let state = menu.state.read().unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
         assert!(state.button_pushed);
         assert!(state.dont_allow_transitions);
         assert!(state.checking_for_patch_before_gamespy);
@@ -2349,21 +2349,21 @@ mod tests {
         let mut menu = MainMenu::new();
 
         {
-            let mut state = menu.state.write().unwrap();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
             state.checking_for_patch_before_gamespy = true;
             state.checks_left_before_online = 4;
             state.online_cancel_window_open = true;
         }
 
         {
-            let mut state = menu.state.write().unwrap();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
             menu.http_think_wrapper(&mut state);
             menu.http_think_wrapper(&mut state);
             menu.http_think_wrapper(&mut state);
             menu.http_think_wrapper(&mut state);
         }
 
-        let state = menu.state.read().unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
         assert!(!state.checking_for_patch_before_gamespy);
         assert_eq!(state.checks_left_before_online, 0);
         assert!(!state.online_cancel_window_open);
@@ -2434,7 +2434,7 @@ mod tests {
     fn test_input_focus_does_not_reveal_hidden_menu() {
         let mut menu = MainMenu::new();
         {
-            let mut state = menu.state.write().unwrap();
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
             state.window_ids = build_window_ids();
             state.not_shown = true;
         }
@@ -2442,7 +2442,7 @@ mod tests {
         let handled = menu.system(build_window_ids().main_menu_id, GWM_INPUT_FOCUS, 1, 0);
         assert!(handled);
 
-        let state = menu.state.read().unwrap();
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
         assert!(state.not_shown);
         assert_eq!(state.drop_down, DropdownType::None);
     }

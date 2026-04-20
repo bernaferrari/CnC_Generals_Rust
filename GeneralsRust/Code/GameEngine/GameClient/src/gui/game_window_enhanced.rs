@@ -394,27 +394,27 @@ impl EnhancedGameWindow {
     }
     
     pub fn get_status(&self) -> WindowStatus {
-        *self.status.read().unwrap()
+        *self.status.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn set_window_type(&self, window_type: &str) {
-        *self.window_type.write().unwrap() = window_type.to_string();
+        *self.window_type.write().unwrap_or_else(|e| e.into_inner()) = window_type.to_string();
     }
 
     pub fn get_window_type(&self) -> String {
-        self.window_type.read().unwrap().clone()
+        self.window_type.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn set_style(&self, style: u32) {
-        *self.style.write().unwrap() = style;
+        *self.style.write().unwrap_or_else(|e| e.into_inner()) = style;
     }
 
     pub fn get_style(&self) -> u32 {
-        *self.style.read().unwrap()
+        *self.style.read().unwrap_or_else(|e| e.into_inner())
     }
     
     pub fn get_position(&self) -> (i32, i32) {
-        *self.position.read().unwrap()
+        *self.position.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn get_screen_position(&self) -> (i32, i32) {
@@ -431,11 +431,11 @@ impl EnhancedGameWindow {
     }
     
     pub fn get_size(&self) -> (i32, i32) {
-        *self.size.read().unwrap()
+        *self.size.read().unwrap_or_else(|e| e.into_inner())
     }
     
     pub fn get_bounds(&self) -> UIRect {
-        if let Some(bounds) = self.render_bounds_override.read().unwrap().as_ref() {
+        if let Some(bounds) = self.render_bounds_override.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
             return *bounds;
         }
         let pos = self.get_position();
@@ -444,72 +444,72 @@ impl EnhancedGameWindow {
     }
 
     pub fn get_enabled_image_name(&self) -> Option<String> {
-        let draw_data = self.draw_data.read().unwrap();
+        let draw_data = self.draw_data.read().unwrap_or_else(|e| e.into_inner());
         draw_data.enabled.clone()
     }
     
     pub fn get_text(&self) -> String {
-        self.text.read().unwrap().clone()
+        self.text.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
     
     pub fn get_font_name(&self) -> String {
-        self.font_name.read().unwrap().clone()
+        self.font_name.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
     
     pub fn get_font_size(&self) -> i32 {
-        *self.font_size.read().unwrap()
+        *self.font_size.read().unwrap_or_else(|e| e.into_inner())
     }
     
     // Property setters
     pub fn set_status(&self, status: WindowStatus) {
-        *self.status.write().unwrap() = status;
+        *self.status.write().unwrap_or_else(|e| e.into_inner()) = status;
     }
 
     pub fn set_widget(&self, widget: WindowWidget) {
-        *self.widget.lock().unwrap() = Some(widget);
+        *self.widget.lock().unwrap_or_else(|e| e.into_inner()) = Some(widget);
         self.sync_widget_bounds();
-        if let Some(widget) = self.widget.lock().unwrap().as_mut() {
+        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             set_widget_visible(widget, !self.is_hidden());
             set_widget_enabled(widget, self.is_enabled());
         }
     }
 
     pub fn with_widget_mut<T>(&self, f: impl FnOnce(&mut WindowWidget) -> T) -> Option<T> {
-        let mut guard = self.widget.lock().unwrap();
+        let mut guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
         guard.as_mut().map(f)
     }
 
     pub fn set_combobox_links(&self, links: ComboBoxLinks) {
-        *self.combobox_links.write().unwrap() = Some(links);
+        *self.combobox_links.write().unwrap_or_else(|e| e.into_inner()) = Some(links);
     }
 
     pub fn combobox_links(&self) -> Option<ComboBoxLinks> {
-        *self.combobox_links.read().unwrap()
+        *self.combobox_links.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn set_listbox_links(&self, links: ListBoxLinks) {
-        *self.listbox_links.write().unwrap() = Some(links);
+        *self.listbox_links.write().unwrap_or_else(|e| e.into_inner()) = Some(links);
     }
 
     pub fn listbox_links(&self) -> Option<ListBoxLinks> {
-        *self.listbox_links.read().unwrap()
+        *self.listbox_links.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn set_slider_thumb(&self, thumb_id: WindowId) {
-        *self.slider_thumb.write().unwrap() = Some(thumb_id);
+        *self.slider_thumb.write().unwrap_or_else(|e| e.into_inner()) = Some(thumb_id);
     }
 
     pub fn slider_thumb(&self) -> Option<WindowId> {
-        *self.slider_thumb.read().unwrap()
+        *self.slider_thumb.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn set_position(&self, x: i32, y: i32) {
-        *self.position.write().unwrap() = (x, y);
+        *self.position.write().unwrap_or_else(|e| e.into_inner()) = (x, y);
         self.sync_widget_bounds();
     }
     
     pub fn set_size(&self, width: i32, height: i32) {
-        *self.size.write().unwrap() = (width, height);
+        *self.size.write().unwrap_or_else(|e| e.into_inner()) = (width, height);
         self.sync_widget_bounds();
     }
     
@@ -521,17 +521,17 @@ impl EnhancedGameWindow {
     fn sync_widget_bounds(&self) {
         let (x, y) = self.get_position();
         let (width, height) = self.get_size();
-        if let Some(widget) = self.widget.lock().unwrap().as_mut() {
+        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             set_widget_bounds(widget, x, y, width, height);
         }
     }
     
     pub fn set_text(&self, text: &str) {
-        *self.text.write().unwrap() = text.to_string();
+        *self.text.write().unwrap_or_else(|e| e.into_inner()) = text.to_string();
     }
 
     pub fn set_progress_value(&self, value: f32) {
-        if let Some(widget) = self.widget.lock().unwrap().as_mut() {
+        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             if let WindowWidget::ProgressBar(bar) = widget {
                 bar.set_value(value);
             }
@@ -539,7 +539,7 @@ impl EnhancedGameWindow {
     }
 
     pub fn set_progress_percent(&self, percent: f32) {
-        if let Some(widget) = self.widget.lock().unwrap().as_mut() {
+        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             if let WindowWidget::ProgressBar(bar) = widget {
                 bar.set_percentage(percent);
             }
@@ -547,8 +547,8 @@ impl EnhancedGameWindow {
     }
     
     pub fn set_font(&self, name: &str, size: i32) {
-        *self.font_name.write().unwrap() = name.to_string();
-        *self.font_size.write().unwrap() = size;
+        *self.font_name.write().unwrap_or_else(|e| e.into_inner()) = name.to_string();
+        *self.font_size.write().unwrap_or_else(|e| e.into_inner()) = size;
     }
 
     pub fn set_draw_images(
@@ -558,7 +558,7 @@ impl EnhancedGameWindow {
         hilited: Option<&str>,
         pushed: Option<&str>,
     ) {
-        let mut draw_data = self.draw_data.write().unwrap();
+        let mut draw_data = self.draw_data.write().unwrap_or_else(|e| e.into_inner());
         draw_data.enabled = enabled.map(|s| s.to_string());
         draw_data.disabled = disabled.map(|s| s.to_string());
         draw_data.hilited = hilited.map(|s| s.to_string());
@@ -580,7 +580,7 @@ impl EnhancedGameWindow {
         pushed_color: [f32; 4],
         pushed_border: [f32; 4],
     ) {
-        let mut draw_data = self.draw_data.write().unwrap();
+        let mut draw_data = self.draw_data.write().unwrap_or_else(|e| e.into_inner());
         draw_data.enabled = enabled;
         draw_data.disabled = disabled;
         draw_data.hilited = hilited;
@@ -606,7 +606,7 @@ impl EnhancedGameWindow {
         hilited_border: [f32; 4],
         pushed_border: [f32; 4],
     ) {
-        let mut colors = self.text_colors.write().unwrap();
+        let mut colors = self.text_colors.write().unwrap_or_else(|e| e.into_inner());
         colors.enabled = enabled;
         colors.disabled = disabled;
         colors.hilited = hilited;
@@ -618,20 +618,20 @@ impl EnhancedGameWindow {
     }
     
     pub fn set_callbacks(&self, callbacks: Box<dyn WindowCallbacks>) {
-        *self.callbacks.write().unwrap() = Some(callbacks);
+        *self.callbacks.write().unwrap_or_else(|e| e.into_inner()) = Some(callbacks);
     }
     
     pub fn set_tooltip(&self, text: &str, delay: u32) {
-        *self.tooltip_text.write().unwrap() = text.to_string();
-        *self.tooltip_delay.write().unwrap() = delay;
+        *self.tooltip_text.write().unwrap_or_else(|e| e.into_inner()) = text.to_string();
+        *self.tooltip_delay.write().unwrap_or_else(|e| e.into_inner()) = delay;
     }
 
     pub fn get_tooltip(&self) -> String {
-        self.tooltip_text.read().unwrap().clone()
+        self.tooltip_text.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     pub fn get_tooltip_delay(&self) -> u32 {
-        *self.tooltip_delay.read().unwrap()
+        *self.tooltip_delay.read().unwrap_or_else(|e| e.into_inner())
     }
     
     // Status checks
@@ -652,15 +652,15 @@ impl EnhancedGameWindow {
     }
     
     pub fn is_mouse_over(&self) -> bool {
-        *self.is_mouse_over.read().unwrap()
+        *self.is_mouse_over.read().unwrap_or_else(|e| e.into_inner())
     }
     
     pub fn is_pressed(&self) -> bool {
-        *self.is_pressed.read().unwrap()
+        *self.is_pressed.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn is_toggled(&self) -> bool {
-        *self.is_toggled.read().unwrap()
+        *self.is_toggled.read().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn is_input_enabled(&self) -> bool {
@@ -674,34 +674,34 @@ impl EnhancedGameWindow {
     }
 
     fn widget_pressed_state(&self) -> Option<bool> {
-        let widget_guard = self.widget.lock().unwrap();
+        let widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
         let widget = widget_guard.as_ref()?;
         Some(matches!(widget_state(widget), GadgetState::Pressed))
     }
 
     pub fn get_press_scale(&self) -> f32 {
         if self.is_press_anim_enabled() {
-            *self.press_scale.read().unwrap()
+            *self.press_scale.read().unwrap_or_else(|e| e.into_inner())
         } else {
             1.0
         }
     }
 
     fn update_press_state(&self, pressed: bool) {
-        *self.is_pressed.write().unwrap() = pressed;
+        *self.is_pressed.write().unwrap_or_else(|e| e.into_inner()) = pressed;
 
         if !self.is_press_anim_enabled() {
-            *self.press_scale.write().unwrap() = 1.0;
-            *self.press_scale_target.write().unwrap() = 1.0;
-            *self.press_scale_velocity.write().unwrap() = 0.0;
-            *self.press_was_down.write().unwrap() = pressed;
+            *self.press_scale.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
+            *self.press_scale_target.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
+            *self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner()) = 0.0;
+            *self.press_was_down.write().unwrap_or_else(|e| e.into_inner()) = pressed;
             return;
         }
 
-        let mut was_down = self.press_was_down.write().unwrap();
+        let mut was_down = self.press_was_down.write().unwrap_or_else(|e| e.into_inner());
         if pressed != *was_down {
-            *self.press_scale_target.write().unwrap() = if pressed { 0.94 } else { 1.0 };
-            *self.press_scale_velocity.write().unwrap() = if pressed {
+            *self.press_scale_target.write().unwrap_or_else(|e| e.into_inner()) = if pressed { 0.94 } else { 1.0 };
+            *self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner()) = if pressed {
                 self.press_impulse
             } else {
                 self.release_impulse
@@ -712,10 +712,10 @@ impl EnhancedGameWindow {
 
     pub fn update_press_animation(&self, delta_time: f32) {
         if !self.is_press_anim_enabled() {
-            *self.press_scale.write().unwrap() = 1.0;
-            *self.press_scale_target.write().unwrap() = 1.0;
-            *self.press_scale_velocity.write().unwrap() = 0.0;
-            *self.press_was_down.write().unwrap() = false;
+            *self.press_scale.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
+            *self.press_scale_target.write().unwrap_or_else(|e| e.into_inner()) = 1.0;
+            *self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner()) = 0.0;
+            *self.press_was_down.write().unwrap_or_else(|e| e.into_inner()) = false;
             return;
         }
 
@@ -728,9 +728,9 @@ impl EnhancedGameWindow {
             return;
         }
 
-        let target = *self.press_scale_target.read().unwrap();
-        let mut scale = self.press_scale.write().unwrap();
-        let mut velocity = self.press_scale_velocity.write().unwrap();
+        let target = *self.press_scale_target.read().unwrap_or_else(|e| e.into_inner());
+        let mut scale = self.press_scale.write().unwrap_or_else(|e| e.into_inner());
+        let mut velocity = self.press_scale_velocity.write().unwrap_or_else(|e| e.into_inner());
 
         let displacement = *scale - target;
         let accel = -self.press_spring_strength * displacement
@@ -745,36 +745,36 @@ impl EnhancedGameWindow {
     }
     
     pub fn is_focused(&self) -> bool {
-        *self.is_focused.read().unwrap()
+        *self.is_focused.read().unwrap_or_else(|e| e.into_inner())
     }
     
     // Status modification
     pub fn enable(&self, enabled: bool) {
-        let mut status = self.status.write().unwrap();
+        let mut status = self.status.write().unwrap_or_else(|e| e.into_inner());
         if enabled {
             status.insert(WindowStatus::ENABLED);
         } else {
             status.remove(WindowStatus::ENABLED);
         }
-        if let Some(widget) = self.widget.lock().unwrap().as_mut() {
+        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             set_widget_enabled(widget, enabled);
         }
     }
     
     pub fn hide(&self, hidden: bool) {
-        let mut status = self.status.write().unwrap();
+        let mut status = self.status.write().unwrap_or_else(|e| e.into_inner());
         if hidden {
             status.insert(WindowStatus::HIDDEN);
         } else {
             status.remove(WindowStatus::HIDDEN);
         }
-        if let Some(widget) = self.widget.lock().unwrap().as_mut() {
+        if let Some(widget) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
             set_widget_visible(widget, !hidden);
         }
     }
     
     pub fn activate(&self, active: bool) {
-        let mut status = self.status.write().unwrap();
+        let mut status = self.status.write().unwrap_or_else(|e| e.into_inner());
         if active {
             status.insert(WindowStatus::ACTIVE);
         } else {
@@ -786,12 +786,12 @@ impl EnhancedGameWindow {
     pub fn add_child(self: &Arc<Self>, child: Arc<EnhancedGameWindow>) -> Result<()> {
         // Set parent reference in child
         {
-            let mut child_parent = child.parent.write().unwrap();
+            let mut child_parent = child.parent.write().unwrap_or_else(|e| e.into_inner());
             *child_parent = Some(Arc::downgrade(self));
         }
         
         // Add to children list
-        self.children.write().unwrap().push(child);
+        self.children.write().unwrap_or_else(|e| e.into_inner()).push(child);
         
         Ok(())
     }
@@ -799,31 +799,31 @@ impl EnhancedGameWindow {
     pub fn remove_child(&self, child: &Arc<EnhancedGameWindow>) -> Result<()> {
         // Clear parent reference in child
         {
-            let mut child_parent = child.parent.write().unwrap();
+            let mut child_parent = child.parent.write().unwrap_or_else(|e| e.into_inner());
             *child_parent = None;
         }
         
         // Remove from children list
-        let mut children = self.children.write().unwrap();
+        let mut children = self.children.write().unwrap_or_else(|e| e.into_inner());
         children.retain(|c| c.get_id() != child.get_id());
         
         Ok(())
     }
     
     pub fn get_parent(&self) -> Option<Arc<EnhancedGameWindow>> {
-        self.parent.read().unwrap().as_ref().and_then(|weak| weak.upgrade())
+        self.parent.read().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|weak| weak.upgrade())
     }
     
     pub fn get_children(&self) -> Vec<Arc<EnhancedGameWindow>> {
-        self.children.read().unwrap().clone()
+        self.children.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
     
     pub fn get_child_count(&self) -> usize {
-        self.children.read().unwrap().len()
+        self.children.read().unwrap_or_else(|e| e.into_inner()).len()
     }
     
     pub fn find_child_by_name(&self, name: &str) -> Option<Arc<EnhancedGameWindow>> {
-        let children = self.children.read().unwrap();
+        let children = self.children.read().unwrap_or_else(|e| e.into_inner());
         for child in children.iter() {
             if child.get_name() == name {
                 return Some(child.clone());
@@ -837,7 +837,7 @@ impl EnhancedGameWindow {
     }
     
     pub fn find_child_by_id(&self, id: WindowId) -> Option<Arc<EnhancedGameWindow>> {
-        let children = self.children.read().unwrap();
+        let children = self.children.read().unwrap_or_else(|e| e.into_inner());
         for child in children.iter() {
             if child.get_id() == id {
                 return Some(child.clone());
@@ -860,7 +860,7 @@ impl EnhancedGameWindow {
                 _ => {}
             }
         }
-        if let Some(callbacks) = self.callbacks.read().unwrap().as_ref() {
+        if let Some(callbacks) = self.callbacks.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
             // Try input handler first
             let result = callbacks.on_input(self, message, wparam, lparam);
             if result == WindowMsgHandled::Handled {
@@ -920,7 +920,7 @@ impl EnhancedGameWindow {
         
         match message {
             WindowMessage::MouseEntering if is_in_bounds => {
-                *self.is_mouse_over.write().unwrap() = true;
+                *self.is_mouse_over.write().unwrap_or_else(|e| e.into_inner()) = true;
                 let handled = self.send_message(message, 0, pack_coords(x, y));
                 if is_gadget_style {
                     let _ = self.send_message(WindowMessage::GadgetMouseEntering, 0, 0);
@@ -928,7 +928,7 @@ impl EnhancedGameWindow {
                 handled
             }
             WindowMessage::MouseLeaving => {
-                *self.is_mouse_over.write().unwrap() = false;
+                *self.is_mouse_over.write().unwrap_or_else(|e| e.into_inner()) = false;
                 let handled = self.send_message(message, 0, pack_coords(x, y));
                 if is_gadget_style {
                     let _ = self.send_message(WindowMessage::GadgetMouseLeaving, 0, 0);
@@ -938,7 +938,7 @@ impl EnhancedGameWindow {
             WindowMessage::LeftDown if is_in_bounds => {
                 self.update_press_state(true);
                 if toggle_like && trigger_on_mouse_down {
-                    let mut toggled = self.is_toggled.write().unwrap();
+                    let mut toggled = self.is_toggled.write().unwrap_or_else(|e| e.into_inner());
                     *toggled = !*toggled;
                 }
                 let handled = self.send_message(message, 0, pack_coords(x, y));
@@ -952,7 +952,7 @@ impl EnhancedGameWindow {
                 self.update_press_state(false);
                 if was_pressed && is_in_bounds {
                     if toggle_like && !trigger_on_mouse_down {
-                        let mut toggled = self.is_toggled.write().unwrap();
+                        let mut toggled = self.is_toggled.write().unwrap_or_else(|e| e.into_inner());
                         *toggled = !*toggled;
                     }
                     let handled = self.send_message(message, 0, pack_coords(x, y));
@@ -982,7 +982,7 @@ impl EnhancedGameWindow {
     }
 
     fn handle_widget_input(&self, msg: WindowMessage, data1: WindowMsgData, data2: WindowMsgData) -> WindowMsgHandled {
-        let mut widget_guard = self.widget.lock().unwrap();
+        let mut widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
         let Some(widget) = widget_guard.as_mut() else {
             return WindowMsgHandled::Ignored;
         };
@@ -1090,7 +1090,7 @@ impl EnhancedGameWindow {
         let target_parent = self.get_parent();
         for message in messages {
             if let GadgetMessage::ValueChanged { value: GadgetValue::Boolean(state), .. } = message {
-                *self.is_toggled.write().unwrap() = state;
+                *self.is_toggled.write().unwrap_or_else(|e| e.into_inner()) = state;
             }
 
             let (msg, data1) = match message {
@@ -1135,7 +1135,7 @@ impl EnhancedGameWindow {
         data1: WindowMsgData,
         _data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        let mut widget_guard = self.widget.lock().unwrap();
+        let mut widget_guard = self.widget.lock().unwrap_or_else(|e| e.into_inner());
         let Some(widget) = widget_guard.as_mut() else {
             return WindowMsgHandled::Ignored;
         };
@@ -1275,7 +1275,7 @@ impl EnhancedGameWindow {
     }
 
     fn sync_combobox_listbox(&self, list_box: &Arc<EnhancedGameWindow>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap().as_ref() else {
+        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
             return;
         };
         let Some(_) = list_box.with_widget_mut(|widget| {
@@ -1298,7 +1298,7 @@ impl EnhancedGameWindow {
     }
 
     fn sync_combobox_edit_box(&self, edit_box: &Arc<EnhancedGameWindow>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap().as_ref() else {
+        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
             return;
         };
         let _ = edit_box.with_widget_mut(|widget| {
@@ -1309,7 +1309,7 @@ impl EnhancedGameWindow {
     }
 
     fn resize_combobox_listbox(&self, list_box: &Arc<EnhancedGameWindow>) {
-        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap().as_ref() else {
+        let Some(WindowWidget::ComboBox(combo)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
             return;
         };
         let count = combo.items().len().max(1);
@@ -1351,7 +1351,7 @@ impl EnhancedGameWindow {
         let Some(links) = self.listbox_links() else {
             return;
         };
-        let Some(WindowWidget::ListBox(listbox)) = self.widget.lock().unwrap().as_ref() else {
+        let Some(WindowWidget::ListBox(listbox)) = self.widget.lock().unwrap_or_else(|e| e.into_inner()).as_ref() else {
             return;
         };
 
@@ -1462,7 +1462,7 @@ impl EnhancedGameWindow {
         let panes: Vec<Arc<EnhancedGameWindow>> = self
             .children
             .read()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .filter(|child| (child.get_style() & GWS_TAB_PANE) != 0)
             .cloned()
@@ -1512,16 +1512,16 @@ impl EnhancedGameWindow {
         let toggled = self.is_toggled();
         let pressed_or_toggled = self.is_pressed() || toggled;
         let (state_color, border_color, z_order) = if use_disabled_colors {
-            let colors = self.text_colors.read().unwrap();
+            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
             (colors.disabled, colors.disabled_border, 0.1)
         } else if pressed_or_toggled {
-            let colors = self.text_colors.read().unwrap();
+            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
             (colors.pushed, colors.pushed_border, 0.3)
         } else if self.is_mouse_over() {
-            let colors = self.text_colors.read().unwrap();
+            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
             (colors.hilited, colors.hilited_border, 0.2)
         } else {
-            let colors = self.text_colors.read().unwrap();
+            let colors = self.text_colors.read().unwrap_or_else(|e| e.into_inner());
             (colors.enabled, colors.enabled_border, 0.1)
         };
         
@@ -1529,7 +1529,7 @@ impl EnhancedGameWindow {
 
         if !self.get_status().contains(WindowStatus::SEE_THRU) {
             // Call custom draw callback if available
-            if let Some(callbacks) = self.callbacks.read().unwrap().as_ref() {
+            if let Some(callbacks) = self.callbacks.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
                 if callbacks.on_draw(self, renderer).is_ok() {
                     // Custom rendering handled by callback
                 } else {
@@ -1559,7 +1559,7 @@ impl EnhancedGameWindow {
         z_order: f32,
     ) -> Result<()> {
         // Draw background if needed
-        let draw_data = self.draw_data.read().unwrap().clone();
+        let draw_data = self.draw_data.read().unwrap_or_else(|e| e.into_inner()).clone();
         let use_disabled_images = !self.is_enabled() && !status.contains(WindowStatus::ALWAYS_COLOR);
         let (image_name, fill_color, border_color) = if use_disabled_images {
             (
@@ -1683,7 +1683,7 @@ impl EnhancedGameWindow {
                     };
                     let base_y = bounds.y + (bounds.height - font_size * 1.2) * 0.5;
                     if let Some(ch) = text_layout.text.chars().nth(hotkey_idx) {
-                        let hotkey_color = self.text_colors.read().unwrap().hilited;
+                        let hotkey_color = self.text_colors.read().unwrap_or_else(|e| e.into_inner()).hilited;
                         let pos = Vec2::new(base_x + (hotkey_idx as f32 * char_width), base_y);
                         renderer.draw_text_simple(&ch.to_string(), pos, font_size, hotkey_color)?;
                     }
@@ -1718,11 +1718,11 @@ impl EnhancedGameWindow {
     
     // User data management
     pub fn set_user_data<T: std::any::Any + Send + Sync>(&self, key: &str, value: T) {
-        self.user_data.write().unwrap().insert(key.to_string(), Box::new(value));
+        self.user_data.write().unwrap_or_else(|e| e.into_inner()).insert(key.to_string(), Box::new(value));
     }
     
     pub fn get_user_data<T: std::any::Any + Send + Sync>(&self, key: &str) -> Option<&T> {
-        let store = self.user_data.read().unwrap();
+        let store = self.user_data.read().unwrap_or_else(|e| e.into_inner());
         store.get(key).and_then(|value| value.downcast_ref::<T>())
     }
 }
@@ -1733,14 +1733,14 @@ struct RenderBoundsOverride<'a> {
 
 impl<'a> RenderBoundsOverride<'a> {
     fn new(window: &'a EnhancedGameWindow, bounds: UIRect) -> Self {
-        *window.render_bounds_override.write().unwrap() = Some(bounds);
+        *window.render_bounds_override.write().unwrap_or_else(|e| e.into_inner()) = Some(bounds);
         Self { window }
     }
 }
 
 impl Drop for RenderBoundsOverride<'_> {
     fn drop(&mut self) {
-        *self.window.render_bounds_override.write().unwrap() = None;
+        *self.window.render_bounds_override.write().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 

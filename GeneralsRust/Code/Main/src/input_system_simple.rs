@@ -68,7 +68,7 @@ impl SimpleInputProcessor {
     ) -> Result<()> {
         // Get current frame from GameLogic (async, non-blocking)
         let current_frame = {
-            let logic = game_logic.lock().unwrap();
+            let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
             logic.get_frame()
         };
 
@@ -79,7 +79,7 @@ impl SimpleInputProcessor {
         self.last_frame = current_frame;
 
         // Process input events asynchronously
-        let input = input_system.lock().unwrap();
+        let input = input_system.lock().unwrap_or_else(|e| e.into_inner());
 
         // Collect input state without holding the lock for long
         let ctrl_pressed = input.is_ctrl_pressed();
@@ -140,7 +140,7 @@ impl SimpleInputProcessor {
 
     /// Process all queued input events asynchronously
     async fn process_queued_events(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut receiver = self.input_receiver.lock().unwrap();
+        let mut receiver = self.input_receiver.lock().unwrap_or_else(|e| e.into_inner());
 
         while let Ok(event) = receiver.try_recv() {
             drop(receiver);
@@ -177,7 +177,7 @@ impl SimpleInputProcessor {
                 }
             }
 
-            receiver = self.input_receiver.lock().unwrap();
+            receiver = self.input_receiver.lock().unwrap_or_else(|e| e.into_inner());
         }
 
         Ok(())
@@ -185,7 +185,7 @@ impl SimpleInputProcessor {
 
     /// Select all player units asynchronously
     async fn select_all_units_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Find all selectable units belonging to the player
         let mut all_units = Vec::new();
@@ -205,7 +205,7 @@ impl SimpleInputProcessor {
 
     /// Delete selected units asynchronously
     async fn delete_selected_units_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
@@ -232,7 +232,7 @@ impl SimpleInputProcessor {
 
     /// Toggle game pause asynchronously
     async fn toggle_pause_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         let is_paused = logic.is_paused();
         logic.set_paused(!is_paused);
 
@@ -247,7 +247,7 @@ impl SimpleInputProcessor {
 
     /// Cycle through units asynchronously
     async fn cycle_units_async(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Get all selectable units
         let player_team = self.local_player_team(&logic);
@@ -295,7 +295,7 @@ impl SimpleInputProcessor {
         group_num: u8,
         game_logic: &Arc<Mutex<GameLogic>>,
     ) -> Result<()> {
-        let logic = game_logic.lock().unwrap();
+        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
@@ -336,7 +336,7 @@ impl SimpleInputProcessor {
             return Ok(());
         };
 
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
         let mut selection = Vec::new();
         for id in stored {
             if let Some(obj) = logic.find_object(id) {
@@ -362,7 +362,7 @@ impl SimpleInputProcessor {
         input_system: &Arc<Mutex<RtsInputSystem>>,
     ) -> Result<()> {
         let shift_pressed = {
-            let input = input_system.lock().unwrap();
+            let input = input_system.lock().unwrap_or_else(|e| e.into_inner());
             input.is_shift_pressed()
         };
 
@@ -382,7 +382,7 @@ impl SimpleInputProcessor {
         shift_held: bool,
         game_logic: &Arc<Mutex<GameLogic>>,
     ) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Find object at world position
         let clicked_object = self.find_object_at_position(world_pos, &logic);
@@ -437,7 +437,7 @@ impl SimpleInputProcessor {
         world_pos: Vec3,
         game_logic: &Arc<Mutex<GameLogic>>,
     ) -> Result<()> {
-        let mut logic = game_logic.lock().unwrap();
+        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Get currently selected units
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
@@ -577,13 +577,13 @@ impl SimpleInputProcessor {
     /// Flush all pending input events (useful for frame cleanup or shutdown)
     pub async fn flush_events(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<usize> {
         let mut count = 0;
-        let mut receiver = self.input_receiver.lock().unwrap();
+        let mut receiver = self.input_receiver.lock().unwrap_or_else(|e| e.into_inner());
 
         while let Ok(event) = receiver.try_recv() {
             count += 1;
             drop(receiver); // Release lock during event processing
             self.process_single_event(event, game_logic).await?;
-            receiver = self.input_receiver.lock().unwrap(); // Re-acquire for next iteration
+            receiver = self.input_receiver.lock().unwrap_or_else(|e| e.into_inner()); // Re-acquire for next iteration
         }
 
         Ok(count)
@@ -596,7 +596,7 @@ impl SimpleInputProcessor {
 ** This modernized input system provides several key performance improvements:
 **
 ** 1. NON-BLOCKING OPERATIONS:
-**    - All mutex operations use std::sync::Mutex with .lock().unwrap()
+**    - All mutex operations use std::sync::Mutex with .lock().unwrap_or_else(|e| e.into_inner())
 **    - Input processing never blocks the main game loop
 **    - Event processing is batched for maximum throughput
 **

@@ -977,7 +977,7 @@ pub fn the_mouse() -> &'static Arc<Mutex<Mouse>> {
 
 pub fn with_mouse<R>(f: impl FnOnce(&mut Mouse) -> R) -> R {
     let mouse = the_mouse();
-    let mut guard = mouse.lock().unwrap();
+    let mut guard = mouse.lock().unwrap_or_else(|e| e.into_inner());
     f(&mut guard)
 }
 

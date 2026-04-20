@@ -51,8 +51,7 @@ pub fn wol_qm_score_screen_init(layout: &WindowLayout, _user_data: Option<&mut d
     }
 
     let mut state = wol_qm_score_state()
-        .lock()
-        .expect("wol qm score state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     state.parent_id = parent_id;
     state.button_disconnect_id = button_disconnect_id;
     state.button_quickmatch_id = button_quickmatch_id;
@@ -90,8 +89,7 @@ pub fn wol_qm_score_screen_input(
     }
 
     let state = wol_qm_score_state()
-        .lock()
-        .expect("wol qm score state lock poisoned");
+        .lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,

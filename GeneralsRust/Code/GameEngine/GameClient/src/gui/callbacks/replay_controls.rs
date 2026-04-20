@@ -11,10 +11,10 @@ pub fn replay_control_input(
 ) -> WindowMsgHandled {
     let replay = {
         let system = get_ingame_ui_system();
-        let system = system.read().unwrap();
+        let system = system.read().unwrap_or_else(|e| e.into_inner());
         system.get_replay()
     };
-    let mut replay = replay.write().unwrap();
+    let mut replay = replay.write().unwrap_or_else(|e| e.into_inner());
     replay.input(window, msg, data1, data2)
 }
 
@@ -26,9 +26,9 @@ pub fn replay_control_system(
 ) -> WindowMsgHandled {
     let replay = {
         let system = get_ingame_ui_system();
-        let system = system.read().unwrap();
+        let system = system.read().unwrap_or_else(|e| e.into_inner());
         system.get_replay()
     };
-    let mut replay = replay.write().unwrap();
+    let mut replay = replay.write().unwrap_or_else(|e| e.into_inner());
     replay.system(window, msg, data1, data2)
 }

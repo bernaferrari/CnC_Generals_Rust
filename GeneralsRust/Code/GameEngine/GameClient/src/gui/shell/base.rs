@@ -2717,7 +2717,7 @@ impl Shell {
 
             if TheGameLogic::is_in_game() {
                 let message_stream = get_message_stream();
-                let mut stream = message_stream.write().unwrap();
+                let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
                 stream.append_message(GameMessageType::ClearGameData);
             }
 
@@ -2728,14 +2728,14 @@ impl Shell {
             }
             init_random_with_seed(0);
             let message_stream = get_message_stream();
-            let mut stream = message_stream.write().unwrap();
+            let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
             let msg = stream.append_message(GameMessageType::NewGame);
             msg.append_integer_argument(GAME_SHELL);
             self.shell_map_on = true;
         } else {
             if TheGameLogic::is_in_game() && TheGameLogic::get_game_mode() == GAME_SHELL {
                 let message_stream = get_message_stream();
-                let mut stream = message_stream.write().unwrap();
+                let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
                 stream.append_message(GameMessageType::ClearGameData);
             }
 
@@ -3153,7 +3153,7 @@ mod tests {
         use std::fs;
         use std::time::{SystemTime, UNIX_EPOCH};
 
-        let _guard = shell_global_test_lock().lock().unwrap();
+        let _guard = shell_global_test_lock().lock().unwrap_or_else(|e| e.into_inner());
 
         struct CwdGuard(PathBuf);
         impl Drop for CwdGuard {
@@ -3328,7 +3328,7 @@ mod tests {
 
     #[test]
     fn test_shell_show_hide() {
-        let _guard = shell_global_test_lock().lock().unwrap();
+        let _guard = shell_global_test_lock().lock().unwrap_or_else(|e| e.into_inner());
         game_engine::common::ini::ini_game_data::init_global_data();
         if let Some(global) = get_global_data() {
             let mut global = global.write();
@@ -3356,7 +3356,7 @@ mod tests {
 
     #[test]
     fn test_show_shell_does_not_push_main_menu_when_shell_map_is_on() {
-        let _guard = shell_global_test_lock().lock().unwrap();
+        let _guard = shell_global_test_lock().lock().unwrap_or_else(|e| e.into_inner());
         game_engine::common::ini::ini_game_data::init_global_data();
         if let Some(global) = get_global_data() {
             let mut global = global.write();
@@ -3376,7 +3376,7 @@ mod tests {
 
     #[test]
     fn test_show_shell_map_reapplies_background_image_status() {
-        let _guard = shell_global_test_lock().lock().unwrap();
+        let _guard = shell_global_test_lock().lock().unwrap_or_else(|e| e.into_inner());
         game_engine::common::ini::ini_game_data::init_global_data();
         if let Some(global) = get_global_data() {
             let mut global = global.write();

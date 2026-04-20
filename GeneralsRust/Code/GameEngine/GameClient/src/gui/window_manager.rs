@@ -193,7 +193,7 @@ fn generate_window_id() -> WindowId {
 }
 
 fn with_arc_write<T, R>(lock: &Arc<std::sync::RwLock<T>>, f: impl FnOnce(&mut T) -> R) -> R {
-    let mut guard = lock.write().unwrap();
+    let mut guard = lock.write().unwrap_or_else(|e| e.into_inner());
     f(&mut *guard)
 }
 
@@ -1432,7 +1432,7 @@ impl WindowManager {
                 })),
                 "SinglePlayerMenuInit" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_single_player_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("Single player menu init failed: {}", err);
@@ -1440,7 +1440,7 @@ impl WindowManager {
                 })),
                 "OptionsMenuInit" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_options_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("Options menu init failed: {}", err);
@@ -1448,7 +1448,7 @@ impl WindowManager {
                 })),
                 "MapSelectMenuInit" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_map_select_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("Map select menu init failed: {}", err);
@@ -1456,7 +1456,7 @@ impl WindowManager {
                 })),
                 "CreditsMenuInit" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_credits_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("Credits menu init failed: {}", err);
@@ -1464,7 +1464,7 @@ impl WindowManager {
                 })),
                 "LanLobbyMenuInit" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_lan_lobby_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.init(layout, None)) {
                         warn!("LAN lobby menu init failed: {}", err);
@@ -1596,7 +1596,7 @@ impl WindowManager {
                 })),
                 "SinglePlayerMenuUpdate" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_single_player_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("Single player menu update failed: {}", err);
@@ -1604,7 +1604,7 @@ impl WindowManager {
                 })),
                 "OptionsMenuUpdate" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_options_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("Options menu update failed: {}", err);
@@ -1612,7 +1612,7 @@ impl WindowManager {
                 })),
                 "MapSelectMenuUpdate" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_map_select_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("Map select menu update failed: {}", err);
@@ -1620,7 +1620,7 @@ impl WindowManager {
                 })),
                 "CreditsMenuUpdate" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_credits_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("Credits menu update failed: {}", err);
@@ -1628,7 +1628,7 @@ impl WindowManager {
                 })),
                 "LanLobbyMenuUpdate" => Some(Box::new(|layout, _| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_lan_lobby_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.update(layout, None)) {
                         warn!("LAN lobby menu update failed: {}", err);
@@ -1739,7 +1739,7 @@ impl WindowManager {
                 })),
                 "SinglePlayerMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_single_player_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("Single player menu shutdown failed: {}", err);
@@ -1747,7 +1747,7 @@ impl WindowManager {
                 })),
                 "OptionsMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_options_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("Options menu shutdown failed: {}", err);
@@ -1755,7 +1755,7 @@ impl WindowManager {
                 })),
                 "MapSelectMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_map_select_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("Map select menu shutdown failed: {}", err);
@@ -1763,7 +1763,7 @@ impl WindowManager {
                 })),
                 "CreditsMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_credits_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("Credits menu shutdown failed: {}", err);
@@ -1771,7 +1771,7 @@ impl WindowManager {
                 })),
                 "LanLobbyMenuShutdown" => Some(Box::new(|layout, data| {
                     let manager = get_menu_manager();
-                    let manager = manager.read().unwrap();
+                    let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                     let menu = manager.get_lan_lobby_menu();
                     if let Err(err) = with_arc_write(&menu, |menu| menu.shutdown(layout, None)) {
                         warn!("LAN lobby menu shutdown failed: {}", err);
@@ -1896,7 +1896,7 @@ impl WindowManager {
                 "ControlBarSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let system = get_control_bar_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let callbacks = system.get_callbacks();
                         with_arc_write(&callbacks, |callbacks| {
                             callbacks.system(window, msg, data1, data2)
@@ -1906,7 +1906,7 @@ impl WindowManager {
                 "ControlBarObserverSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let system = get_control_bar_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let callbacks = system.get_observer();
                         with_arc_write(&callbacks, |callbacks| {
                             callbacks.system(window, msg, data1, data2)
@@ -1916,7 +1916,7 @@ impl WindowManager {
                 "DiplomacySystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let system = get_diplomacy_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let callbacks = system.get_callbacks();
                         with_arc_write(&callbacks, |callbacks| {
                             callbacks.system(window, msg, data1, data2)
@@ -1926,7 +1926,7 @@ impl WindowManager {
                 "InGameChatSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let system = get_ingame_ui_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let chat = system.get_chat();
                         with_arc_write(&chat, |chat| chat.system(window, msg, data1, data2))
                     });
@@ -1934,7 +1934,7 @@ impl WindowManager {
                 "ReplayControlSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let system = get_ingame_ui_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let replay = system.get_replay();
                         with_arc_write(&replay, |replay| replay.system(window, msg, data1, data2))
                     });
@@ -1942,7 +1942,7 @@ impl WindowManager {
                 "IdleWorkerSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let system = get_ingame_ui_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let idle_worker = system.get_idle_worker();
                         with_arc_write(&idle_worker, |idle_worker| {
                             idle_worker.system(window, msg, data1, data2)
@@ -1952,7 +1952,7 @@ impl WindowManager {
                 "MessageBoxSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let system = get_message_box_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let standard = system.get_standard();
                         with_arc_write(&standard, |standard| {
                             standard.system(window, msg, data1, data2)
@@ -1962,7 +1962,7 @@ impl WindowManager {
                 "ExtendedMessageBoxSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let system = get_message_box_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let extended = system.get_extended();
                         with_arc_write(&extended, |extended| {
                             extended.system(window, msg, data1, data2)
@@ -1972,14 +1972,14 @@ impl WindowManager {
                 "EstablishConnectionsControlSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let menu = get_establish_connections_menu();
-                        let mut menu = menu.write().unwrap();
+                        let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
                         menu.system(window, msg, data1, data2)
                     });
                 }
                 "DisconnectControlSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let menu = get_disconnect_menu();
-                        let mut menu = menu.write().unwrap();
+                        let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
                         menu.system(window, msg, data1, data2)
                     });
                 }
@@ -2000,7 +2000,7 @@ impl WindowManager {
                 "SinglePlayerMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_single_player_menu();
                         with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
@@ -2008,7 +2008,7 @@ impl WindowManager {
                 "OptionsMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_options_menu();
                         with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
@@ -2016,7 +2016,7 @@ impl WindowManager {
                 "MapSelectMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_map_select_menu();
                         with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
@@ -2024,7 +2024,7 @@ impl WindowManager {
                 "CreditsMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_credits_menu();
                         with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
@@ -2032,7 +2032,7 @@ impl WindowManager {
                 "LanLobbyMenuSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_lan_lobby_menu();
                         with_arc_write(&menu, |menu| menu.system(window, msg, data1, data2))
                     });
@@ -2040,7 +2040,7 @@ impl WindowManager {
                 "QuitMessageBoxSystem" => {
                     window.set_system_callback(|window, msg, data1, data2| {
                         let system = get_message_box_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let quit = system.get_quit();
                         with_arc_write(&quit, |quit| quit.system(window, msg, data1, data2))
                     });
@@ -2328,7 +2328,7 @@ impl WindowManager {
                 "ControlBarInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let system = get_control_bar_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let callbacks = system.get_callbacks();
                         with_arc_write(&callbacks, |callbacks| {
                             callbacks.system(window, msg, data1, data2)
@@ -2338,7 +2338,7 @@ impl WindowManager {
                 "LeftHUDInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let system = get_control_bar_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let callbacks = system.get_left_hud();
                         with_arc_write(&callbacks, |callbacks| {
                             callbacks.input(window, msg, data1, data2)
@@ -2348,7 +2348,7 @@ impl WindowManager {
                 "DiplomacyInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let system = get_diplomacy_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let callbacks = system.get_callbacks();
                         with_arc_write(&callbacks, |callbacks| {
                             callbacks.input(window, msg, data1, data2)
@@ -2358,7 +2358,7 @@ impl WindowManager {
                 "InGameChatInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let system = get_ingame_ui_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let chat = system.get_chat();
                         with_arc_write(&chat, |chat| chat.input(window, msg, data1, data2))
                     });
@@ -2366,7 +2366,7 @@ impl WindowManager {
                 "ReplayControlInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let system = get_ingame_ui_system();
-                        let system = system.read().unwrap();
+                        let system = system.read().unwrap_or_else(|e| e.into_inner());
                         let replay = system.get_replay();
                         with_arc_write(&replay, |replay| replay.input(window, msg, data1, data2))
                     });
@@ -2388,7 +2388,7 @@ impl WindowManager {
                 "SinglePlayerMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_single_player_menu();
                         with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });
@@ -2396,7 +2396,7 @@ impl WindowManager {
                 "OptionsMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_options_menu();
                         with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });
@@ -2404,7 +2404,7 @@ impl WindowManager {
                 "MapSelectMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_map_select_menu();
                         with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });
@@ -2412,7 +2412,7 @@ impl WindowManager {
                 "CreditsMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_credits_menu();
                         with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });
@@ -2420,7 +2420,7 @@ impl WindowManager {
                 "LanLobbyMenuInput" => {
                     window.set_input_callback(|window, msg, data1, data2| {
                         let manager = get_menu_manager();
-                        let manager = manager.read().unwrap();
+                        let manager = manager.read().unwrap_or_else(|e| e.into_inner());
                         let menu = manager.get_lan_lobby_menu();
                         with_arc_write(&menu, |menu| menu.input(window, msg, data1, data2))
                     });

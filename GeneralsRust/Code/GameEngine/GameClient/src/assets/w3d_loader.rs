@@ -465,7 +465,7 @@ impl W3DLoader {
         let start_time = std::time::Instant::now();
 
         // Check cache first
-        if let Some(cached_model) = self.model_cache.read().unwrap().get(path) {
+        if let Some(cached_model) = self.model_cache.read().unwrap_or_else(|e| e.into_inner()).get(path) {
             return Ok(cached_model.clone());
         }
 
@@ -483,8 +483,8 @@ impl W3DLoader {
 
         // Update statistics
         let parse_time = start_time.elapsed();
-        *self.load_count.write().unwrap() += 1;
-        *self.parse_time_total.write().unwrap() += parse_time;
+        *self.load_count.write().unwrap_or_else(|e| e.into_inner()) += 1;
+        *self.parse_time_total.write().unwrap_or_else(|e| e.into_inner()) += parse_time;
 
         log::info!(
             "W3D model loaded: {} ({} ms, {} meshes, {} bones)",
@@ -875,8 +875,8 @@ impl W3DLoader {
 
     /// Get loader statistics
     pub fn get_stats(&self) -> W3DLoaderStats {
-        let load_count = *self.load_count.read().unwrap();
-        let total_time = *self.parse_time_total.read().unwrap();
+        let load_count = *self.load_count.read().unwrap_or_else(|e| e.into_inner());
+        let total_time = *self.parse_time_total.read().unwrap_or_else(|e| e.into_inner());
         let average_time = if load_count > 0 {
             total_time.as_millis() as f32 / load_count as f32
         } else {
@@ -887,13 +887,13 @@ impl W3DLoader {
             models_loaded: load_count,
             total_parse_time_ms: total_time.as_millis() as u64,
             average_parse_time_ms: average_time,
-            cache_size: self.model_cache.read().unwrap().len(),
+            cache_size: self.model_cache.read().unwrap_or_else(|e| e.into_inner()).len(),
         }
     }
 
     /// Clear model cache
     pub fn clear_cache(&self) {
-        self.model_cache.write().unwrap().clear();
+        self.model_cache.write().unwrap_or_else(|e| e.into_inner()).clear();
     }
 }
 

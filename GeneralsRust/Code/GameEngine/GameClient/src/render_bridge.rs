@@ -749,7 +749,7 @@ lazy_static::lazy_static! {
 }
 
 pub fn init_render_bridge() {
-    let mut guard = THE_RENDER_BRIDGE.lock().unwrap();
+    let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
     *guard = Some(RenderBridge::new());
 }
 

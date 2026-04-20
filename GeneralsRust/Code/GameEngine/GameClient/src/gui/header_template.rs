@@ -101,7 +101,7 @@ impl HeaderTemplateManager {
 
     fn populate_game_fonts(&mut self) {
         let language_data = get_global_language_data();
-        let language_guard = language_data.read().unwrap();
+        let language_guard = language_data.read().unwrap_or_else(|e| e.into_inner());
 
         for template in &mut self.templates {
             let point_size = language_guard.adjust_font_size(template.point);
@@ -126,8 +126,7 @@ thread_local! {
 pub fn get_header_template_manager() -> std::sync::MutexGuard<'static, HeaderTemplateManager> {
     HEADER_TEMPLATE_MANAGER
         .get_or_init(|| Mutex::new(HeaderTemplateManager::new()))
-        .lock()
-        .expect("HeaderTemplateManager lock poisoned")
+        .lock().unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn register_parser() {

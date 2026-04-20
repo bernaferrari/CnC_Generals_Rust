@@ -1169,8 +1169,7 @@ mod tests {
     fn test_state_lock() -> MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("selection_xlat test lock poisoned")
+            .lock().unwrap_or_else(|e| e.into_inner())
     }
 
     #[test]

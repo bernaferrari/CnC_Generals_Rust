@@ -28,7 +28,7 @@ pub fn test_input_system() {
 
     // Test camera controls
     {
-        let input = input_system.lock().unwrap();
+        let input = input_system.lock().unwrap_or_else(|e| e.into_inner());
         let camera = input.get_camera();
         println!(
             "✓ Camera position: {:?}, zoom: {:.1}",

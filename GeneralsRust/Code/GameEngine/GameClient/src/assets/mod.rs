@@ -225,11 +225,11 @@ impl AssetData {
     }
 
     pub fn add_ref(&self) {
-        *self.ref_count.lock().unwrap() += 1;
+        *self.ref_count.lock().unwrap_or_else(|e| e.into_inner()) += 1;
     }
 
     pub fn release(&self) -> u32 {
-        let mut count = self.ref_count.lock().unwrap();
+        let mut count = self.ref_count.lock().unwrap_or_else(|e| e.into_inner());
         if *count > 0 {
             *count -= 1;
         }
@@ -237,7 +237,7 @@ impl AssetData {
     }
 
     pub fn ref_count(&self) -> u32 {
-        *self.ref_count.lock().unwrap()
+        *self.ref_count.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -479,7 +479,7 @@ impl AssetManager {
     /// Load BIG archives from configured paths
     async fn load_archives(&self) -> Result<(), AssetError> {
         let archive_paths = self.config.archive_paths.clone();
-        let mut archives = self.big_archives.write().unwrap();
+        let mut archives = self.big_archives.write().unwrap_or_else(|e| e.into_inner());
 
         for archive_path in archive_paths {
             if archive_path.exists() {
@@ -495,7 +495,7 @@ impl AssetManager {
                 archives.insert(archive_path.clone(), Arc::new(archive));
 
                 // Update stats
-                let mut stats = self.stats.write().unwrap();
+                let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
                 stats.archives_loaded += 1;
             } else {
                 log::warn!("Archive not found: {}", archive_path.display());
@@ -532,7 +532,7 @@ impl AssetManager {
         let mut matching_assets = Vec::new();
 
         // Search in BIG archives
-        let archives = self.big_archives.read().unwrap();
+        let archives = self.big_archives.read().unwrap_or_else(|e| e.into_inner());
         for archive in archives.values() {
             let archive_matches = archive.find_matching_entries(pattern).await?;
             matching_assets.extend(archive_matches);
@@ -567,10 +567,10 @@ impl AssetManager {
         let path = path.as_ref().to_path_buf();
 
         // Check if already loaded
-        if let Some(handle) = self.asset_index.read().unwrap().get(&path) {
-            if let Some(asset) = self.assets.read().unwrap().get(handle) {
+        if let Some(handle) = self.asset_index.read().unwrap_or_else(|e| e.into_inner()).get(&path) {
+            if let Some(asset) = self.assets.read().unwrap_or_else(|e| e.into_inner()).get(handle) {
                 asset.add_ref();
-                let mut stats = self.stats.write().unwrap();
+                let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
                 stats.cache_hits += 1;
                 return Ok(*handle);
             }
@@ -602,7 +602,7 @@ impl AssetManager {
             submitted_time: Instant::now(),
         };
 
-        self.load_queue.lock().unwrap().push_back(request);
+        self.load_queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(request);
         Ok(())
     }
 
@@ -654,13 +654,9 @@ impl AssetManager {
         let asset_data = Arc::new(AssetData::new(descriptor, data, load_time));
 
         // Store in cache
-        self.assets
-            .write()
-            .unwrap()
+        self.assets.write().unwrap_or_else(|e| e.into_inner())
             .insert(handle, asset_data.clone());
-        self.asset_index
-            .write()
-            .unwrap()
+        self.asset_index.write().unwrap_or_else(|e| e.into_inner())
             .insert(path.clone(), handle);
 
         if let Some(hot_reload) = &self.hot_reload {
@@ -681,13 +677,13 @@ impl AssetManager {
 
         // Update memory usage
         {
-            let mut memory_used = self.memory_used.lock().unwrap();
+            let mut memory_used = self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
             *memory_used += asset_data.descriptor.size_bytes;
         }
 
         // Update statistics
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.cache_misses += 1;
             stats.loads_completed += 1;
             stats.total_assets += 1;
@@ -731,7 +727,7 @@ impl AssetManager {
         }
 
         let (priority, dependencies, tags) = {
-            let assets = self.assets.read().unwrap();
+            let assets = self.assets.read().unwrap_or_else(|e| e.into_inner());
             if let Some(existing) = assets.get(&handle) {
                 (
                     existing.descriptor.priority,
@@ -761,7 +757,7 @@ impl AssetManager {
         let asset_data = Arc::new(AssetData::new(descriptor, data, load_time));
 
         let old_size = {
-            let mut assets = self.assets.write().unwrap();
+            let mut assets = self.assets.write().unwrap_or_else(|e| e.into_inner());
             let old_size = assets
                 .get(&handle)
                 .map(|asset| asset.descriptor.size_bytes)
@@ -770,14 +766,12 @@ impl AssetManager {
             old_size
         };
 
-        self.asset_index
-            .write()
-            .unwrap()
+        self.asset_index.write().unwrap_or_else(|e| e.into_inner())
             .insert(path.to_path_buf(), handle);
 
         let new_size = asset_data.descriptor.size_bytes;
         {
-            let mut memory_used = self.memory_used.lock().unwrap();
+            let mut memory_used = self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
             if new_size >= old_size {
                 *memory_used += new_size - old_size;
             } else {
@@ -786,7 +780,7 @@ impl AssetManager {
         }
 
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.loads_completed += 1;
             stats.hot_reloads += 1;
             stats.memory_used = stats
@@ -950,7 +944,7 @@ impl AssetManager {
         let asset_manager = Arc::clone(self);
         hot_reload.register_memory_snapshot_provider(move || {
             let stats = asset_manager.get_stats();
-            let assets = asset_manager.assets.read().unwrap();
+            let assets = asset_manager.assets.read().unwrap_or_else(|e| e.into_inner());
             let mut texture_memory = 0u64;
             let mut audio_memory = 0u64;
             let mut model_memory = 0u64;
@@ -1023,7 +1017,7 @@ impl AssetManager {
     /// Load raw data by exact path without falling back to substitute assets.
     pub async fn load_raw_data_exact(&self, path: &Path) -> Result<Vec<u8>, AssetError> {
         let archives: Vec<_> = {
-            let guard = self.big_archives.read().unwrap();
+            let guard = self.big_archives.read().unwrap_or_else(|e| e.into_inner());
             guard.values().cloned().collect()
         };
 
@@ -1065,7 +1059,7 @@ impl AssetManager {
         let mut paths: Vec<PathBuf> = Vec::new();
 
         let archives: Vec<_> = {
-            let guard = self.big_archives.read().unwrap();
+            let guard = self.big_archives.read().unwrap_or_else(|e| e.into_inner());
             guard.values().cloned().collect()
         };
 
@@ -1136,7 +1130,7 @@ impl AssetManager {
             }
 
             let archives: Vec<_> = {
-                let guard = self.big_archives.read().unwrap();
+                let guard = self.big_archives.read().unwrap_or_else(|e| e.into_inner());
                 guard.values().cloned().collect()
             };
 
@@ -1184,7 +1178,7 @@ impl AssetManager {
                 }
 
                 {
-                    let mut stats = self.stats.write().unwrap();
+                    let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
                     stats.fallback_uses += 1;
                 }
 
@@ -1200,19 +1194,19 @@ impl AssetManager {
 
     /// Get asset by handle
     pub fn get_asset(&self, handle: AssetHandle) -> Option<Arc<AssetData>> {
-        self.assets.read().unwrap().get(&handle).cloned()
+        self.assets.read().unwrap_or_else(|e| e.into_inner()).get(&handle).cloned()
     }
 
     /// Release asset reference
     pub fn release_asset(&self, handle: AssetHandle) {
-        if let Some(asset) = self.assets.read().unwrap().get(&handle) {
+        if let Some(asset) = self.assets.read().unwrap_or_else(|e| e.into_inner()).get(&handle) {
             asset.release();
         }
     }
 
     /// Check memory pressure and perform cleanup
     async fn check_memory_pressure(&self) {
-        let memory_used = *self.memory_used.lock().unwrap();
+        let memory_used = *self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
         let pressure = memory_used as f32 / self.memory_budget as f32;
 
         if pressure > self.config.memory_pressure_threshold {
@@ -1230,7 +1224,7 @@ impl AssetManager {
         let cutoff_time = Instant::now() - Duration::from_secs(30);
 
         // Find assets with zero references and not recently used
-        let assets = self.assets.read().unwrap();
+        let assets = self.assets.read().unwrap_or_else(|e| e.into_inner());
         for (handle, asset) in assets.iter() {
             if asset.ref_count() == 0 && asset.last_accessed < cutoff_time {
                 assets_to_remove.push(*handle);
@@ -1240,8 +1234,8 @@ impl AssetManager {
 
         if !assets_to_remove.is_empty() {
             let removed_count = assets_to_remove.len();
-            let mut assets = self.assets.write().unwrap();
-            let mut index = self.asset_index.write().unwrap();
+            let mut assets = self.assets.write().unwrap_or_else(|e| e.into_inner());
+            let mut index = self.asset_index.write().unwrap_or_else(|e| e.into_inner());
             let mut memory_freed = 0u64;
 
             for handle in assets_to_remove {
@@ -1255,10 +1249,10 @@ impl AssetManager {
             drop(index);
 
             if memory_freed > 0 {
-                let mut memory_used = self.memory_used.lock().unwrap();
+                let mut memory_used = self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
                 *memory_used = memory_used.saturating_sub(memory_freed);
 
-                let mut stats = self.stats.write().unwrap();
+                let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
                 stats.memory_used = stats.memory_used.saturating_sub(memory_freed);
 
                 log::info!(
@@ -1272,9 +1266,9 @@ impl AssetManager {
 
     /// Get asset statistics
     pub fn get_stats(&self) -> AssetStats {
-        let stats = self.stats.read().unwrap();
+        let stats = self.stats.read().unwrap_or_else(|e| e.into_inner());
         let mut result = stats.clone();
-        result.memory_used = *self.memory_used.lock().unwrap();
+        result.memory_used = *self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
         result
     }
 
@@ -1309,7 +1303,7 @@ impl AssetManager {
     /// Evict an asset from memory if it is no longer referenced
     pub async fn evict_asset(&self, handle: AssetHandle) -> Result<u64, AssetError> {
         let (path, size_bytes, can_evict) = {
-            let assets = self.assets.read().unwrap();
+            let assets = self.assets.read().unwrap_or_else(|e| e.into_inner());
             let Some(asset) = assets.get(&handle) else {
                 return Ok(0);
             };
@@ -1329,22 +1323,22 @@ impl AssetManager {
         }
 
         {
-            let mut assets = self.assets.write().unwrap();
+            let mut assets = self.assets.write().unwrap_or_else(|e| e.into_inner());
             assets.remove(&handle);
         }
 
         {
-            let mut index = self.asset_index.write().unwrap();
+            let mut index = self.asset_index.write().unwrap_or_else(|e| e.into_inner());
             index.remove(&path);
         }
 
         {
-            let mut memory_used = self.memory_used.lock().unwrap();
+            let mut memory_used = self.memory_used.lock().unwrap_or_else(|e| e.into_inner());
             *memory_used = memory_used.saturating_sub(size_bytes);
         }
 
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.memory_used = stats.memory_used.saturating_sub(size_bytes);
         }
 
@@ -1366,14 +1360,14 @@ impl SubsystemInterface for AssetManager {
         log::info!("Resetting AssetManager subsystem");
 
         // Clear all assets
-        self.assets.write().unwrap().clear();
-        self.asset_index.write().unwrap().clear();
+        self.assets.write().unwrap_or_else(|e| e.into_inner()).clear();
+        self.asset_index.write().unwrap_or_else(|e| e.into_inner()).clear();
 
         // Reset memory usage
-        *self.memory_used.lock().unwrap() = 0;
+        *self.memory_used.lock().unwrap_or_else(|e| e.into_inner()) = 0;
 
         // Reset statistics
-        *self.stats.write().unwrap() = AssetStats::default();
+        *self.stats.write().unwrap_or_else(|e| e.into_inner()) = AssetStats::default();
 
         Ok(())
     }
