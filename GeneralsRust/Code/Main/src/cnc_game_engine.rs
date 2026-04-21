@@ -745,9 +745,9 @@ thread_local! {
     static LOADING_PHASE: std::cell::RefCell<String> = std::cell::RefCell::new(String::new());
 }
 
-const LOADING_WIN_BG: &str = "LoadingScreenBg";
-const LOADING_WIN_PROGRESS: &str = "LoadingScreenProgress";
-const LOADING_WIN_TEXT: &str = "LoadingScreenText";
+// Window names from ShellGameLoadScreen.wnd (C++ parity: winCreateFromScript)
+const LOAD_SCREEN_ROOT: &str = "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen";
+const LOAD_SCREEN_PROGRESS: &str = "ShellGameLoadScreen.wnd:ProgressLoad";
 
 fn pack_ui_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
@@ -1879,131 +1879,40 @@ impl CnCGameEngine {
             }
 
             game_client::gui::with_window_manager(|wm| {
-                let (screen_w, screen_h) = wm.screen_size();
-
-                let bg = wm
-                    .create_window(None, 0, 0, screen_w, screen_h)
-                    .expect("loading bg window");
-                {
-                    let mut bg_win = bg.borrow_mut();
-                    bg_win.set_name(LOADING_WIN_BG);
-                    bg_win.set_status(
-                        game_client::gui::WindowStatus::ENABLED
-                            | game_client::gui::WindowStatus::NO_INPUT,
-                    );
-                    bg_win.set_draw_callback(|_w, _inst| {
-                        game_client::gui::with_window_manager_ref(|wm| {
-                            let (sw, sh) = wm.screen_size();
-                            wm.win_fill_rect(0xFF303050, 1.0, 0, 0, sw, sh);
-                        });
-                    });
+                // C++ parity: ShellGameLoadScreen::init()
+                // Step 1: winCreateFromScript("Menus/ShellGameLoadScreen.wnd")
+                if let Err(e) = wm.create_layout_with_windows("Menus/ShellGameLoadScreen.wnd") {
+                    warn!("Failed to load ShellGameLoadScreen.wnd: {:?}, loading screen unavailable", e);
+                    return;
                 }
 
-                let bar_w = (screen_w as f32 * 0.40) as i32;
-                let bar_h = 16;
-                let bar_x = (screen_w - bar_w) / 2;
-                let bar_y = screen_h - 24;
-
-                let bar = wm
-                    .create_window(Some(&bg), bar_x, bar_y, bar_w, bar_h)
-                    .expect("loading progress bar");
-                {
-                    let mut bar_win = bar.borrow_mut();
-                    bar_win.set_name(LOADING_WIN_PROGRESS);
-                    bar_win.set_status(
-                        game_client::gui::WindowStatus::ENABLED
-                            | game_client::gui::WindowStatus::NO_INPUT,
-                    );
-                    bar_win.set_enabled_color(0, 0xFF505050).ok();
-                    bar_win.set_enabled_color(1, 0xFF44AA44).ok();
-                    bar_win.set_draw_callback(|_w, _inst| {
-                        let progress = LOADING_PROGRESS.with(|p| p.get());
-                        game_client::gui::with_window_manager_ref(|wm| {
-                            let (sw, sh) = wm.screen_size();
-                            let bw = (sw as f32 * 0.40) as i32;
-                            let bh = 16;
-                            let bx = (sw - bw) / 2;
-                            let by = sh - 24;
-
-                            wm.win_open_rect(0xFF808080, 1.0, bx, by, bx + bw, by + bh);
-                            wm.win_fill_rect(0xFF303030, 1.0, bx + 1, by + 1, bx + bw - 1, by + bh - 1);
-
-                            if progress > 0.0 {
-                                let fill_w = ((bw as f32) * progress).max(1.0) as i32;
-                                wm.win_fill_rect(
-                                    0xFF44AA44,
-                                    1.0,
-                                    bx + 1,
-                                    by + 1,
-                                    bx + 1 + fill_w - 1,
-                                    by + bh - 1,
-                                );
-                                wm.win_draw_line(
-                                    0xFFFFFFFF,
-                                    1.0,
-                                    bx + 1,
-                                    by + 1,
-                                    bx + 1 + fill_w - 1,
-                                    by + 1,
-                                );
-                            }
-                        });
-                    });
+                // Step 2: Find progress bar — winGetWindowFromId(m_loadScreen, "ProgressLoad")
+                if let Some(progress_bar) = wm.find_window_by_name(LOAD_SCREEN_PROGRESS) {
+                    let mut pb = progress_bar.borrow_mut();
+                    if let Some(game_client::gui::WindowWidget::ProgressBar(ref mut bar)) =
+                        pb.widget_mut()
+                    {
+                        bar.set_percentage(0.0);
+                    }
+                    let _ = pb.hide(true);
                 }
 
-                let text_w = screen_w;
-                let text_h = 24;
-                let text_x = 0;
-                let text_y = bar_y - text_h - 4;
-
-                let text = wm
-                    .create_window(Some(&bg), text_x, text_y, text_w, text_h)
-                    .expect("loading text");
-                {
-                    let mut text_win = text.borrow_mut();
-                    text_win.set_name(LOADING_WIN_TEXT);
-                    text_win.set_status(
-                        game_client::gui::WindowStatus::ENABLED
-                            | game_client::gui::WindowStatus::NO_INPUT,
-                    );
-                    text_win.set_enabled_text_colors(0xFFCCCCCC, 0xFF000000);
-                    let _ = text_win.set_text("");
-                    text_win.set_draw_callback(|w, inst| {
-                        let progress = LOADING_PROGRESS.with(|p| p.get());
-                        let phase = LOADING_PHASE.with(|p| p.borrow().clone());
-                        let pct = (progress * 100.0) as i32;
-                        let label = format!("{} - {}%", phase, pct);
-
-                        if let Some(display) = inst.display_text.as_ref() {
-                            let mut display = display.borrow_mut();
-                            display.set_text(label.clone());
-                            if let Some(font_desc) = inst.font.as_ref() {
-                                display.set_font(font_desc);
-                            } else {
-                                let resolved =
-                                    game_client::gui::get_font_library()
-                                        .get_font(&game_client::gui::FontDesc::new("Arial", 14, false))
-                                        .ok();
-                                if let Some(font_ref) = resolved {
-                                    display.set_font(&font_ref);
-                                }
-                            }
-                            let (tw, th) = display.get_size();
-                            let (ox, oy) = w.get_screen_position();
-                            let (sw, _sh) = w.get_size();
-                            let tx = ox + (sw / 2) - (tw / 2);
-                            let ty = oy + (24 / 2) - (th / 2);
-                            display.draw(tx, ty, inst.enabled_text.color, inst.enabled_text.border_color);
-                        }
-                    });
+                // Step 3: winHide(FALSE) + winBringToTop() on root window
+                if let Some(load_screen) = wm.find_window_by_name(LOAD_SCREEN_ROOT) {
+                    let _ = load_screen.borrow_mut().hide(false);
+                    let _ = load_screen.borrow_mut().bring_to_front();
                 }
 
-                LOADING_PROGRESS.with(|p| p.set(0.0));
-                LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
+                // Step 4: Unhide progress bar — m_progressBar->winHide(FALSE)
+                if let Some(progress_bar) = wm.find_window_by_name(LOAD_SCREEN_PROGRESS) {
+                    let _ = progress_bar.borrow_mut().hide(false);
+                }
             });
 
             self.loading_overlay_active = true;
-            info!("Loading screen overlay created");
+            LOADING_PROGRESS.with(|p| p.set(0.0));
+            LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
+            info!("Loading screen overlay created from ShellGameLoadScreen.wnd");
         }
     }
 
@@ -2019,12 +1928,8 @@ impl CnCGameEngine {
             }
 
             game_client::gui::with_window_manager(|wm| {
-                if let Some(bg) = wm.find_window_by_name(LOADING_WIN_BG) {
-                    let children: Vec<_> = bg.borrow().children().to_vec();
-                    for child in children {
-                        let _ = wm.destroy_window(child);
-                    }
-                    let _ = wm.destroy_window(bg);
+                if let Some(load_screen) = wm.find_window_by_name(LOAD_SCREEN_ROOT) {
+                    let _ = wm.destroy_window(load_screen);
                 }
                 wm.flush_destroy_queue();
             });
@@ -2064,6 +1969,18 @@ impl CnCGameEngine {
         {
             LOADING_PROGRESS.with(|p| p.set(self.startup_last_reported_progress));
             LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
+
+            let percent = self.startup_last_reported_progress * 100.0;
+            game_client::gui::with_window_manager(|wm| {
+                if let Some(pb) = wm.find_window_by_name(LOAD_SCREEN_PROGRESS) {
+                    let mut pb_mut = pb.borrow_mut();
+                    if let Some(game_client::gui::WindowWidget::ProgressBar(ref mut bar)) =
+                        pb_mut.widget_mut()
+                    {
+                        bar.set_percentage(percent);
+                    }
+                }
+            });
         }
     }
 

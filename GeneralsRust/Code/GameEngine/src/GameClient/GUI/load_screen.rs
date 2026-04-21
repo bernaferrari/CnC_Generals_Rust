@@ -503,7 +503,7 @@ impl LoadScreen for SinglePlayerLoadScreen {
     }
 
     fn update(&mut self, percent: i32) {
-        let percent = (percent + FRAME_FUDGE_ADD) / 1;
+        let percent = ((percent + FRAME_FUDGE_ADD) as f32 / 1.3) as i32;
         let per = format!("{}%", percent);
         // TheMouse->setCursorTooltip(UnicodeString::TheEmptyString);
         // GadgetProgressBarSetProgress(m_progressBar, percent);
@@ -1073,7 +1073,7 @@ impl LoadScreen for ChallengeLoadScreen {
     }
 
     fn update(&mut self, percent: i32) {
-        let percent = (percent + FRAME_FUDGE_ADD) / 1;
+        let percent = ((percent + FRAME_FUDGE_ADD) as f32 / 1.3) as i32;
         let per = format!("{}%", percent);
         // TheMouse->setCursorTooltip(UnicodeString::TheEmptyString);
         // GadgetProgressBarSetProgress(m_progressBar, percent);
