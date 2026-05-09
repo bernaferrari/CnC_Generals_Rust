@@ -11,7 +11,7 @@ use crate::common::{
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -71,6 +71,8 @@ crate::impl_legacy_module_data_via_base!(WeaponBonusUpdateModuleData, base);
 pub struct WeaponBonusUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<WeaponBonusUpdateModuleData>,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
 }
 
 impl WeaponBonusUpdate {
@@ -80,7 +82,7 @@ impl WeaponBonusUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<WeaponBonusUpdateModuleData>()
+            .downcast_ref::<WeaponBonusUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         if let Ok(obj) = object.read() {
@@ -90,6 +92,7 @@ impl WeaponBonusUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
         })
     }
 }
@@ -186,6 +189,7 @@ impl Snapshotable for WeaponBonusUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         Ok(())
     }
 
