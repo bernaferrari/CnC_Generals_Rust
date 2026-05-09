@@ -1011,6 +1011,10 @@ impl Snapshotable for BattleBusSlowDeathBehavior {
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
 
+        self.ensure_base_behavior()
+            .map_err(|e| e.to_string())?
+            .xfer(xfer)?;
+
         xfer.xfer_bool(&mut self.is_real_death)
             .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.is_in_first_death)
