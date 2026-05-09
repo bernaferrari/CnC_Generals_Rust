@@ -10,7 +10,7 @@ use crate::helpers::{TheGameLogic, TheGlobalData};
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -43,6 +43,8 @@ impl BaseRegenerateUpdateModuleData {
 pub struct BaseRegenerateUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<BaseRegenerateUpdateModuleData>,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
 }
 
 impl BaseRegenerateUpdate {
@@ -52,12 +54,13 @@ impl BaseRegenerateUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<BaseRegenerateUpdateModuleData>()
+            .downcast_ref::<BaseRegenerateUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
         })
     }
 }
@@ -192,6 +195,7 @@ impl Snapshotable for BaseRegenerateUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("BaseRegenerateUpdate xfer version failed: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         Ok(())
     }
 
