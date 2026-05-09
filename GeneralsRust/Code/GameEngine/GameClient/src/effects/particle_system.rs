@@ -536,7 +536,7 @@ impl Snapshotable for Particle {
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| e.to_string())?;
 
-        ParticleInfo {
+        let mut particle_info = ParticleInfo {
             velocity: self.velocity,
             position: self.position,
             emitter_position: self.emitter_position,
@@ -553,8 +553,26 @@ impl Snapshotable for Particle {
             color_scale: self.color_scale,
             wind_randomness: self.wind_randomness,
             particle_up_towards_emitter: self.particle_up_towards_emitter,
+        };
+        particle_info.xfer(xfer)?;
+
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.velocity = particle_info.velocity;
+            self.position = particle_info.position;
+            self.emitter_position = particle_info.emitter_position;
+            self.vel_damping = particle_info.vel_damping;
+            self.angle_z = particle_info.angle_z;
+            self.angular_rate_z = particle_info.angular_rate_z;
+            self.lifetime = particle_info.lifetime;
+            self.size = particle_info.size;
+            self.size_rate = particle_info.size_rate;
+            self.size_rate_damping = particle_info.size_rate_damping;
+            self.alpha_keys = particle_info.alpha_keys;
+            self.color_keys = particle_info.color_keys;
+            self.color_scale = particle_info.color_scale;
+            self.wind_randomness = particle_info.wind_randomness;
+            self.particle_up_towards_emitter = particle_info.particle_up_towards_emitter;
         }
-        .xfer(xfer)?;
 
         xfer.xfer_unsigned_int(&mut self.personality)
             .map_err(|e| e.to_string())?;
@@ -1740,6 +1758,93 @@ mod tests {
         assert_eq!(particle.personality, 1);
         assert_eq!(particle.lifetime_left, 30);
         assert_eq!(particle.alpha, 1.0);
+    }
+
+    #[test]
+    fn test_particle_xfer_load_applies_particle_info_base() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut info = ParticleInfo::default();
+        info.velocity = Vector3::new(1.0, 2.0, 3.0);
+        info.position = Point3::new(4.0, 5.0, 6.0);
+        info.emitter_position = Point3::new(7.0, 8.0, 9.0);
+        info.vel_damping = 0.75;
+        info.angle_z = 10.0;
+        info.angular_rate_z = 11.0;
+        info.lifetime = 99;
+        info.size = 12.0;
+        info.size_rate = 13.0;
+        info.size_rate_damping = 0.5;
+        info.alpha_keys[0] = Keyframe {
+            value: 0.25,
+            frame: 14,
+        };
+        info.color_keys[0] = RGBColorKeyframe {
+            color: [0.1, 0.2, 0.3],
+            frame: 15,
+        };
+        info.color_scale = 0.8;
+        info.wind_randomness = 0.6;
+        info.particle_up_towards_emitter = true;
+
+        let mut saved = Particle::new(&info, 123, 456);
+        saved.acceleration = Vector3::new(16.0, 17.0, 18.0);
+        saved.last_position = Point3::new(19.0, 20.0, 21.0);
+        saved.lifetime_left = 77;
+        saved.alpha = 0.4;
+        saved.alpha_rate = 0.05;
+        saved.alpha_target_key = 2;
+        saved.color = [0.4, 0.5, 0.6];
+        saved.color_rate = [0.7, 0.8, 0.9];
+        saved.color_target_key = 3;
+        saved.controlled_system = Some(321);
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("particle").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = Particle::new(&ParticleInfo::default(), 0, 0);
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("particle").unwrap();
+        loaded.xfer(&mut load).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(loaded.velocity, Vector3::new(1.0, 2.0, 3.0));
+        assert_eq!(loaded.position, Point3::new(4.0, 5.0, 6.0));
+        assert_eq!(loaded.emitter_position, Point3::new(7.0, 8.0, 9.0));
+        assert_eq!(loaded.vel_damping, 0.75);
+        assert_eq!(loaded.angle_z, 10.0);
+        assert_eq!(loaded.angular_rate_z, 11.0);
+        assert_eq!(loaded.lifetime, 99);
+        assert_eq!(loaded.size, 12.0);
+        assert_eq!(loaded.size_rate, 13.0);
+        assert_eq!(loaded.size_rate_damping, 0.5);
+        assert_eq!(loaded.alpha_keys[0].value, 0.25);
+        assert_eq!(loaded.alpha_keys[0].frame, 14);
+        assert_eq!(loaded.color_keys[0].color, [0.1, 0.2, 0.3]);
+        assert_eq!(loaded.color_keys[0].frame, 15);
+        assert_eq!(loaded.color_scale, 0.8);
+        assert_eq!(loaded.wind_randomness, 0.6);
+        assert!(loaded.particle_up_towards_emitter);
+        assert_eq!(loaded.personality, 123);
+        assert_eq!(loaded.acceleration, Vector3::new(16.0, 17.0, 18.0));
+        assert_eq!(loaded.last_position, Point3::new(19.0, 20.0, 21.0));
+        assert_eq!(loaded.lifetime_left, 77);
+        assert_eq!(loaded.create_timestamp, 456);
+        assert_eq!(loaded.alpha, 0.4);
+        assert_eq!(loaded.alpha_rate, 0.05);
+        assert_eq!(loaded.alpha_target_key, 2);
+        assert_eq!(loaded.color, [0.4, 0.5, 0.6]);
+        assert_eq!(loaded.color_rate, [0.7, 0.8, 0.9]);
+        assert_eq!(loaded.color_target_key, 3);
+        assert_eq!(loaded.controlled_system, Some(321));
     }
 
     #[test]
