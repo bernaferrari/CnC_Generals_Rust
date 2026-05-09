@@ -14,7 +14,7 @@ use crate::modules::{
     SpecialPowerModuleInterface, SpecialPowerUpdateInterface, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::special_power_module::Waypoint;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object::update::does_special_power_update_pass_science_test_for_object;
@@ -188,6 +188,7 @@ const SPECTRE_GUNSHIP_DEPLOYMENT_FIELDS: &[FieldParse<SpectreGunshipDeploymentUp
 pub struct SpectreGunshipDeploymentUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<SpectreGunshipDeploymentUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     initial_target_position: Coord3D,
     gunship_id: ObjectID,
 }
@@ -199,12 +200,13 @@ impl SpectreGunshipDeploymentUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>()
+            .downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(data.clone()),
+            next_call_frame_and_phase: 0,
             initial_target_position: Coord3D::ZERO,
             gunship_id: crate::common::INVALID_ID,
         })
@@ -488,6 +490,7 @@ impl Snapshotable for SpectreGunshipDeploymentUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_object_id(&mut self.gunship_id)
             .map_err(|e| format!("Failed to xfer gunship_id: {:?}", e))?;
         Ok(())
