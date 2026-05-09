@@ -1567,6 +1567,9 @@ pub struct BasicDrawable {
     flash_count: u32,
     flash_color: Vector3,
     expiration_frame: Option<u32>,
+    ambient_sound_enabled: bool,
+    ambient_sound_enabled_from_script: bool,
+    custom_sound_ambient_off: bool,
     current_frame: u32,
     /// Model condition flags for animation state (matches C++ m_conditionState)
     model_condition_flags: ModelConditionBitFlags,
@@ -1648,6 +1651,9 @@ impl BasicDrawable {
             flash_count: 0,
             flash_color: Vector3::zero(),
             expiration_frame: None,
+            ambient_sound_enabled: true,
+            ambient_sound_enabled_from_script: true,
+            custom_sound_ambient_off: false,
             current_frame: 0,
             model_condition_flags: create_model_condition_flags(),
             animation_loop_duration: 0,
@@ -3766,7 +3772,8 @@ impl Snapshotable for BasicDrawable {
         // Rust version 4 adds the instance matrix after instance_is_identity.
         // Rust version 5 adds DrawableInfo shroud status object id.
         // Rust version 6 stores icons in C++ layout: count byte followed by entries.
-        const CURRENT_VERSION: XferVersion = 6;
+        // Rust version 7 adds the C++ ambient sound tail and stops writing Rust-only tail fields.
+        const CURRENT_VERSION: XferVersion = 7;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("{:?}", e))?;
@@ -4050,7 +4057,59 @@ impl Snapshotable for BasicDrawable {
             }
         }
 
-        // --- Rust-specific fields not in C++ (preserved for v2 compat) ---
+        if xfer.get_xfer_mode() == XferMode::Load {
+            // C++ resets stealth look after load so a subsequent update re-applies
+            // hidden/shadow behavior from authoritative object state.
+            // (C++ Drawable.cpp line 5274: m_stealthLook = STEALTHLOOK_NONE)
+            self.stealth_look = StealthLook::None;
+        }
+
+        // --- ambient sound enabled (C++ line 5300: version >= 4) ---
+        if version >= 7 {
+            let mut ambient_sound_enabled = self.ambient_sound_enabled;
+            xfer.xfer_bool(&mut ambient_sound_enabled)
+                .map_err(|e| format!("{:?}", e))?;
+            self.ambient_sound_enabled = ambient_sound_enabled;
+        }
+
+        // --- ambient sound enabled from script (C++ line 5305: version >= 6) ---
+        if version >= 7 {
+            let mut ambient_sound_enabled_from_script = self.ambient_sound_enabled_from_script;
+            xfer.xfer_bool(&mut ambient_sound_enabled_from_script)
+                .map_err(|e| format!("{:?}", e))?;
+            self.ambient_sound_enabled_from_script = ambient_sound_enabled_from_script;
+        }
+
+        // --- custom ambient sound info (C++ line 5311: version >= 7) ---
+        if version >= 7 {
+            let mut customized = self.custom_sound_ambient_off;
+            xfer.xfer_bool(&mut customized)
+                .map_err(|e| format!("{:?}", e))?;
+
+            if customized {
+                let mut customized_to_silence = self.custom_sound_ambient_off;
+                xfer.xfer_bool(&mut customized_to_silence)
+                    .map_err(|e| format!("{:?}", e))?;
+
+                if xfer.get_xfer_mode() == XferMode::Load {
+                    self.custom_sound_ambient_off = customized_to_silence;
+                    if !customized_to_silence {
+                        return Err(
+                            "BasicDrawable::xfer - custom ambient sound data is not ported"
+                                .to_string(),
+                        );
+                    }
+                }
+            } else if xfer.get_xfer_mode() == XferMode::Load {
+                self.custom_sound_ambient_off = false;
+            }
+        }
+
+        // --- Rust-specific fields not in C++ (preserved for old Rust save compatibility) ---
+        if version >= 7 {
+            return Ok(());
+        }
+
         let mut visible = self.visible;
         xfer.xfer_bool(&mut visible)
             .map_err(|e| format!("{:?}", e))?;
@@ -4084,13 +4143,6 @@ impl Snapshotable for BasicDrawable {
         xfer.xfer_unsigned_int(&mut current_frame)
             .map_err(|e| format!("{:?}", e))?;
         self.current_frame = current_frame;
-
-        if xfer.get_xfer_mode() == XferMode::Load {
-            // C++ resets stealth look after load so a subsequent update re-applies
-            // hidden/shadow behavior from authoritative object state.
-            // (C++ Drawable.cpp line 5274: m_stealthLook = STEALTHLOOK_NONE)
-            self.stealth_look = StealthLook::None;
-        }
 
         Ok(())
     }
@@ -4551,6 +4603,38 @@ mod tests {
 
         assert_eq!(loaded.get_id(), DrawableId(88));
         assert_eq!(loaded.shroud_status_object_id(), 1234);
+    }
+
+    #[test]
+    fn test_drawable_xfer_preserves_ambient_sound_flags() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = BasicDrawable::new(DrawableId(99));
+        saved.ambient_sound_enabled = false;
+        saved.ambient_sound_enabled_from_script = true;
+        saved.custom_sound_ambient_off = true;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_ambient_sound_flags").unwrap();
+            saved.xfer_snapshot(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = BasicDrawable::new(DrawableId(0));
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_ambient_sound_flags").unwrap();
+        loaded.xfer_snapshot(&mut load).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(loaded.get_id(), DrawableId(99));
+        assert!(!loaded.ambient_sound_enabled);
+        assert!(loaded.ambient_sound_enabled_from_script);
+        assert!(loaded.custom_sound_ambient_off);
     }
 
     #[test]
