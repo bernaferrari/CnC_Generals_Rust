@@ -184,7 +184,7 @@ impl GrantStealthBehavior {
         let specific_data = {
             let data_ref = module_data
                 .as_ref()
-        .downcast_ref::<GrantStealthBehaviorModuleData>()
+                .downcast_ref::<GrantStealthBehaviorModuleData>()
                 .ok_or("Invalid module data type for GrantStealthBehavior")?;
             data_ref.clone()
         };
@@ -368,10 +368,7 @@ impl GrantStealthBehavior {
         let Ok(self_guard) = self_obj.read() else {
             return false;
         };
-        matches!(
-            self_guard.relationship_to(other),
-            Relationship::Allies
-        )
+        matches!(self_guard.relationship_to(other), Relationship::Allies)
     }
 }
 
@@ -408,6 +405,30 @@ impl UpdateModuleInterface for GrantStealthBehavior {
         }
 
         UPDATE_SLEEP_NONE
+    }
+}
+
+impl Snapshotable for GrantStealthBehavior {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("{:?}", e))?;
+
+        xfer.xfer_unsigned_int(&mut self.radius_particle_system_id)
+            .map_err(|e| format!("GrantStealthBehavior radius_particle_system_id: {:?}", e))?;
+        xfer.xfer_real(&mut self.current_scan_radius)
+            .map_err(|e| format!("GrantStealthBehavior current_scan_radius: {:?}", e))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
@@ -448,6 +469,9 @@ impl GrantStealthBehaviorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     #[test]
     fn test_grant_stealth_creation() {
@@ -482,5 +506,45 @@ mod tests {
             .as_ref()
             .expect("radius particle system template expected");
         assert_eq!(radius_fx.name.as_str(), "StealthPulseFX");
+    }
+
+    #[test]
+    fn grant_stealth_behavior_xfer_preserves_cpp_runtime_fields() {
+        let module_data = Arc::new(GrantStealthBehaviorModuleData::default());
+        let mut saved = GrantStealthBehavior {
+            object: Weak::new(),
+            module_data: module_data.clone(),
+            radius_particle_system_id: 0x1234_5678,
+            current_scan_radius: 42.25,
+        };
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("grant_stealth_behavior").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        saved.radius_particle_system_id = INVALID_PARTICLE_SYSTEM_ID;
+
+        let mut loaded = GrantStealthBehavior {
+            object: Weak::new(),
+            module_data,
+            radius_particle_system_id: 0,
+            current_scan_radius: 0.0,
+        };
+        {
+            let mut load = XferLoad::new(Cursor::new(bytes), 1);
+            load.open("grant_stealth_behavior").unwrap();
+            loaded.xfer(&mut load).unwrap();
+            load.close().unwrap();
+        }
+
+        assert_eq!(loaded.radius_particle_system_id, 0x1234_5678);
+        assert_eq!(loaded.current_scan_radius, 42.25);
+
+        loaded.radius_particle_system_id = INVALID_PARTICLE_SYSTEM_ID;
     }
 }
