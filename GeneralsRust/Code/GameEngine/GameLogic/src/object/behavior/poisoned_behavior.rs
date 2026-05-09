@@ -1,9 +1,11 @@
 //! Poisoned Behavior Module
-//! 
+//!
 //! Behavior that reacts to poison damage by continuously damaging the object
 //! further in an update loop. Converted from PoisonedBehavior.cpp/h.
 
-use crate::common::{ObjectId, FrameNumber, HealthPoints, Percentage};
+use crate::common::{FrameNumber, HealthPoints, ObjectId, Percentage};
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use thiserror::Error;
@@ -41,6 +43,24 @@ pub enum DeathType {
     Poisoned,
     /// No death
     None,
+}
+
+impl DeathType {
+    fn to_cpp_value(self) -> u32 {
+        match self {
+            DeathType::Normal => 0,
+            DeathType::None => 1,
+            DeathType::Poisoned => 5,
+        }
+    }
+
+    fn from_cpp_value(value: u32) -> Self {
+        match value {
+            1 => DeathType::None,
+            5 => DeathType::Poisoned,
+            _ => DeathType::Normal,
+        }
+    }
 }
 
 /// Mask for disabled states
@@ -132,11 +152,17 @@ pub enum PoisonedBehaviorError {
 /// Trait for objects that can be damaged
 pub trait DamageModuleInterface {
     /// Called when damage is dealt to the object
-    fn on_damage(&mut self, damage_info: &mut DamageInfo) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-    
+    fn on_damage(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
     /// Called when healing is applied to the object
-    fn on_healing(&mut self, damage_info: &mut DamageInfo) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-    
+    fn on_healing(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
     /// Called when body damage state changes
     fn on_body_damage_state_change(
         &mut self,
@@ -166,7 +192,7 @@ pub enum BodyDamageType {
 pub trait UpdateModule {
     /// Update the module for one frame
     fn update(&mut self) -> PoisonedBehaviorResult<UpdateSleepTime>;
-    
+
     /// Get the disabled types this module processes
     fn get_disabled_types_to_process(&self) -> DisabledMask {
         0 // By default, don't process disabled objects
@@ -177,7 +203,7 @@ pub trait UpdateModule {
 pub trait Drawable {
     /// Set tint status for visual effects
     fn set_tint_status(&mut self, status: TintStatus);
-    
+
     /// Clear tint status
     fn clear_tint_status(&mut self, status: TintStatus);
 }
@@ -186,13 +212,13 @@ pub trait Drawable {
 pub trait Object {
     /// Get the object's ID
     fn get_id(&self) -> ObjectId;
-    
+
     /// Attempt to deal damage to this object
     fn attempt_damage(&mut self, damage_info: &mut DamageInfo) -> PoisonedBehaviorResult<()>;
-    
+
     /// Check if the object is effectively dead
     fn is_effectively_dead(&self) -> bool;
-    
+
     /// Get the object's drawable component
     fn get_drawable(&self) -> Option<&mut dyn Drawable>;
 }
@@ -207,31 +233,32 @@ pub trait GameLogic {
 pub struct PoisonedBehavior {
     /// Configuration data
     config: PoisonedBehaviorModuleData,
-    
+
+    /// Inherited UpdateModule scheduler state.
+    next_call_frame_and_phase: FrameNumber,
+
     /// Frame when the next poison damage should be applied
     poison_damage_frame: FrameNumber,
-    
+
     /// Frame when poison effects should stop
     poison_overall_stop_frame: FrameNumber,
-    
+
     /// Amount of poison damage to deal
     poison_damage_amount: HealthPoints,
-    
+
     /// Type of death caused by poison
     death_type: DeathType,
-    
+
     /// Reference to the object this behavior is attached to
     object_id: ObjectId,
 }
 
 impl PoisonedBehavior {
     /// Creates a new poisoned behavior instance
-    pub fn new(
-        config: PoisonedBehaviorModuleData,
-        object_id: ObjectId,
-    ) -> Self {
+    pub fn new(config: PoisonedBehaviorModuleData, object_id: ObjectId) -> Self {
         Self {
             config,
+            next_call_frame_and_phase: 0,
             poison_damage_frame: 0,
             poison_overall_stop_frame: 0,
             poison_damage_amount: 0.0,
@@ -239,7 +266,7 @@ impl PoisonedBehavior {
             object_id,
         }
     }
-    
+
     /// Start the poison effects from the given damage info
     pub fn start_poisoned_effects(
         &mut self,
@@ -249,65 +276,64 @@ impl PoisonedBehavior {
     ) -> PoisonedBehaviorResult<()> {
         // Store the damage amount dealt by the original poisoner
         self.poison_damage_amount = damage_info.actual_damage_dealt;
-        
+
         // Set when poison effects should stop
         self.poison_overall_stop_frame = current_frame + self.config.poison_duration;
-        
+
         // Set when the next poison damage should occur
         if self.poison_damage_frame != 0 {
             // If we're getting re-poisoned, don't reset the damage counter if already running
-            self.poison_damage_frame = self.poison_damage_frame.min(current_frame + self.config.poison_damage_interval);
+            self.poison_damage_frame = self
+                .poison_damage_frame
+                .min(current_frame + self.config.poison_damage_interval);
         } else {
             self.poison_damage_frame = current_frame + self.config.poison_damage_interval;
         }
-        
+
         // Store the death type
         self.death_type = damage_info.input.death_type;
-        
+
         // Apply visual effects
         if let Some(drawable) = object.get_drawable() {
             drawable.set_tint_status(TintStatus::Poisoned);
         }
-        
+
         Ok(())
     }
-    
+
     /// Stop all poison effects
-    pub fn stop_poisoned_effects(
-        &mut self,
-        object: &mut dyn Object,
-    ) -> PoisonedBehaviorResult<()> {
+    pub fn stop_poisoned_effects(&mut self, object: &mut dyn Object) -> PoisonedBehaviorResult<()> {
         self.poison_damage_frame = 0;
         self.poison_overall_stop_frame = 0;
         self.poison_damage_amount = 0.0;
-        
+
         // Remove visual effects
         if let Some(drawable) = object.get_drawable() {
             drawable.clear_tint_status(TintStatus::Poisoned);
         }
-        
+
         Ok(())
     }
-    
+
     /// Calculate the sleep time until the next update
     fn calc_sleep_time(&self, current_frame: FrameNumber) -> UpdateSleepTime {
         if self.poison_overall_stop_frame == 0 || self.poison_overall_stop_frame == current_frame {
             return UpdateSleepTime::Forever;
         }
-        
+
         // Return the minimum of the two times (next damage or stop time)
         let next_damage_frames = if self.poison_damage_frame > current_frame {
             self.poison_damage_frame - current_frame
         } else {
             0
         };
-        
+
         let stop_frames = if self.poison_overall_stop_frame > current_frame {
             self.poison_overall_stop_frame - current_frame
         } else {
             0
         };
-        
+
         if next_damage_frames == 0 && stop_frames == 0 {
             UpdateSleepTime::None
         } else if next_damage_frames == 0 {
@@ -361,20 +387,19 @@ impl UpdateModule for PoisonedBehavior {
 
         // Check if poison effects should stop
         // Matches C++ lines 112-117
-        if self.poison_overall_stop_frame != 0
-            && current_frame >= self.poison_overall_stop_frame
-        {
+        if self.poison_overall_stop_frame != 0 && current_frame >= self.poison_overall_stop_frame {
             // Check if object is not effectively dead before stopping effects
             // Matches C++ line 114: !getObject()->isEffectivelyDead()
-            let should_stop = if let Some(object) = crate::game_logic::get_object_by_id(self.object_id) {
-                if let Ok(obj) = object.try_lock() {
-                    !obj.is_effectively_dead()
+            let should_stop =
+                if let Some(object) = crate::game_logic::get_object_by_id(self.object_id) {
+                    if let Ok(obj) = object.try_lock() {
+                        !obj.is_effectively_dead()
+                    } else {
+                        true
+                    }
                 } else {
                     true
-                }
-            } else {
-                true
-            };
+                };
 
             if should_stop {
                 // Stop poison effects - matches C++ line 116
@@ -389,7 +414,7 @@ impl UpdateModule for PoisonedBehavior {
         // Matches C++ line 119: return calcSleepTime();
         Ok(self.calc_sleep_time(current_frame))
     }
-    
+
     fn get_disabled_types_to_process(&self) -> DisabledMask {
         DISABLED_MASK_ALL // Process even when disabled (poison continues)
     }
@@ -398,7 +423,10 @@ impl UpdateModule for PoisonedBehavior {
 impl DamageModuleInterface for PoisonedBehavior {
     /// Called when damage is dealt - matches C++ PoisonedBehavior::onDamage()
     /// Matches C++ lines 67-71
-    fn on_damage(&mut self, damage_info: &mut DamageInfo) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn on_damage(
+        &mut self,
+        damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Matches C++ line 69: if(damageInfo->in.m_damageType == DAMAGE_POISON)
         if damage_info.input.damage_type == DamageType::Poison {
             // Get current frame from game logic singleton
@@ -417,7 +445,10 @@ impl DamageModuleInterface for PoisonedBehavior {
 
     /// Called when healing is applied - matches C++ PoisonedBehavior::onHealing()
     /// Matches C++ lines 75-80
-    fn on_healing(&mut self, _damage_info: &mut DamageInfo) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    fn on_healing(
+        &mut self,
+        _damage_info: &mut DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Matches C++ line 77: stopPoisonedEffects();
         if let Some(object) = crate::game_logic::get_object_by_id(self.object_id) {
             if let Ok(mut obj) = object.try_lock() {
@@ -426,6 +457,40 @@ impl DamageModuleInterface for PoisonedBehavior {
         }
         // Matches C++ line 79: setWakeFrame(getObject(), UPDATE_SLEEP_FOREVER);
         // Wake frame management is handled by the module system
+        Ok(())
+    }
+}
+
+impl Snapshotable for PoisonedBehavior {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|err| err.to_string())?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
+        xfer.xfer_unsigned_int(&mut self.poison_damage_frame)
+            .map_err(|err| err.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.poison_overall_stop_frame)
+            .map_err(|err| err.to_string())?;
+        xfer.xfer_real(&mut self.poison_damage_amount)
+            .map_err(|err| err.to_string())?;
+
+        if version >= 2 {
+            let mut death_type = self.death_type.to_cpp_value();
+            xfer.xfer_unsigned_int(&mut death_type)
+                .map_err(|err| err.to_string())?;
+            self.death_type = DeathType::from_cpp_value(death_type);
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
     }
 }
@@ -442,7 +507,7 @@ impl PoisonedBehaviorSync {
             inner: Arc::new(RwLock::new(PoisonedBehavior::new(config, object_id))),
         }
     }
-    
+
     /// Update the behavior (thread-safe)
     pub fn update(&self) -> PoisonedBehaviorResult<UpdateSleepTime> {
         self.inner
@@ -450,7 +515,7 @@ impl PoisonedBehaviorSync {
             .map_err(|e| PoisonedBehaviorError::Threading(e.to_string()))?
             .update()
     }
-    
+
     /// Handle damage (thread-safe)
     pub fn on_damage(&self, damage_info: &mut DamageInfo) -> PoisonedBehaviorResult<()> {
         self.inner
@@ -460,7 +525,7 @@ impl PoisonedBehaviorSync {
             .map_err(|e| PoisonedBehaviorError::Threading(e.to_string()))?;
         Ok(())
     }
-    
+
     /// Handle healing (thread-safe)
     pub fn on_healing(&self, damage_info: &mut DamageInfo) -> PoisonedBehaviorResult<()> {
         self.inner
@@ -475,7 +540,7 @@ impl PoisonedBehaviorSync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_poisoned_behavior_creation() {
         let config = PoisonedBehaviorModuleData::default();
@@ -484,34 +549,29 @@ mod tests {
         assert_eq!(behavior.poison_damage_frame, 0);
         assert_eq!(behavior.poison_overall_stop_frame, 0);
     }
-    
+
     #[test]
     fn test_thread_safe_wrapper() {
         let config = PoisonedBehaviorModuleData::default();
         let behavior = PoisonedBehaviorSync::new(config, 1);
-        
+
         // Should be able to update without issues
         let result = behavior.update();
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), UpdateSleepTime::Forever);
     }
-    
+
     #[test]
     fn test_damage_info_creation() {
-        let damage = DamageInfo::new(
-            10.0,
-            123,
-            DamageType::Poison,
-            DeathType::Poisoned,
-        );
-        
+        let damage = DamageInfo::new(10.0, 123, DamageType::Poison, DeathType::Poisoned);
+
         assert_eq!(damage.amount, 10.0);
         assert_eq!(damage.source_id, 123);
         assert_eq!(damage.damage_type, DamageType::Poison);
         assert_eq!(damage.death_type, DeathType::Poisoned);
         assert_eq!(damage.actual_damage_dealt, 0.0);
     }
-    
+
     #[test]
     fn test_sleep_time_calculation() {
         let config = PoisonedBehaviorModuleData {
@@ -519,7 +579,7 @@ mod tests {
             poison_duration: 150,
         };
         let behavior = PoisonedBehavior::new(config, 1);
-        
+
         // When not poisoned, should sleep forever
         let sleep_time = behavior.calc_sleep_time(100);
         assert_eq!(sleep_time, UpdateSleepTime::Forever);
