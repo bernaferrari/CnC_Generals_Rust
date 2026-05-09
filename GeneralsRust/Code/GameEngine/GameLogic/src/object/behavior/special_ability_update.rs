@@ -22,6 +22,7 @@ use crate::modules::{
     BehaviorModuleInterface, PhysicsBehaviorExt, SpecialPowerCommandOptions,
     SpecialPowerModuleInterface, SpecialPowerUpdateInterface, UpdateModuleInterface,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 // use crate::object::behavior::ObjectBehavior;
 use crate::command_button::CommandButton;
@@ -52,13 +53,14 @@ use std::sync::{Arc, Weak};
 
 const SPECIAL_ABILITY_HUGE_DISTANCE: Real = 10000000.0;
 
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PackingState {
-    None,
-    Packing,
-    Unpacking,
-    Packed,
-    Unpacked,
+    None = 0,
+    Packing = 1,
+    Unpacking = 2,
+    Packed = 3,
+    Unpacked = 4,
 }
 
 #[derive(Debug, Clone)]
@@ -461,6 +463,7 @@ pub struct SpecialAbilityUpdate {
     module_data: Arc<SpecialAbilityUpdateModuleData>,
     #[allow(dead_code)]
     this_module_data: Option<Arc<dyn ModuleData>>, // Keep reference to raw module data if needed
+    next_call_frame_and_phase: UnsignedInt,
     active: bool,
     prep_frames: u32,
     anim_frames: u32,
@@ -488,7 +491,7 @@ impl SpecialAbilityUpdate {
 
         let sa_data = module_data
             .as_ref()
-        .downcast_ref::<SpecialAbilityUpdateModuleData>()
+            .downcast_ref::<SpecialAbilityUpdateModuleData>()
             .expect("Invalid ModuleData for SpecialAbilityUpdate")
             .clone();
 
@@ -496,6 +499,7 @@ impl SpecialAbilityUpdate {
             base: SpecialPowerUpdateModule::new(object_id, object_ptr.clone()),
             module_data: Arc::new(sa_data),
             this_module_data: Some(module_data),
+            next_call_frame_and_phase: 0,
             active: false,
             prep_frames: 0,
             anim_frames: 0,
@@ -2023,15 +2027,13 @@ impl Snapshotable for SpecialAbilityUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        use crate::common::xfer::XferMode;
-
         // version -- C++ SpecialAbilityUpdate.cpp line 1991: currentVersion = 1
         let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("SpecialAbilityUpdate version xfer failed: {:?}", e))?;
 
         // extend base class -- C++ SpecialAbilityUpdate.cpp line 1996: UpdateModule::xfer( xfer )
-        self.base.xfer(xfer)?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         // active -- C++ SpecialAbilityUpdate.cpp line 1999
         xfer.xfer_bool(&mut self.active)
@@ -2062,37 +2064,13 @@ impl Snapshotable for SpecialAbilityUpdate {
             .map_err(|e| format!("SpecialAbilityUpdate location_count xfer failed: {:?}", e))?;
 
         // special object id list -- C++ SpecialAbilityUpdate.cpp line 2017: xferSTLObjectIDList
-        {
-            let mut count: u32 = self.special_object_id_list.len() as u32;
-            xfer.xfer_unsigned_int(&mut count).map_err(|e| {
+        xfer.xfer_stl_object_id_list(&mut self.special_object_id_list)
+            .map_err(|e| {
                 format!(
-                    "SpecialAbilityUpdate special_object_id_list count xfer failed: {:?}",
+                    "SpecialAbilityUpdate special_object_id_list xfer failed: {:?}",
                     e
                 )
             })?;
-            if xfer.get_xfer_mode() == XferMode::Load {
-                self.special_object_id_list.clear();
-                for _ in 0..count {
-                    let mut id: ObjectID = INVALID_ID;
-                    xfer.xfer_object_id(&mut id).map_err(|e| {
-                        format!(
-                            "SpecialAbilityUpdate special_object_id_list item xfer failed: {:?}",
-                            e
-                        )
-                    })?;
-                    self.special_object_id_list.push(id);
-                }
-            } else {
-                for id in self.special_object_id_list.iter_mut() {
-                    xfer.xfer_object_id(id).map_err(|e| {
-                        format!(
-                            "SpecialAbilityUpdate special_object_id_list item xfer failed: {:?}",
-                            e
-                        )
-                    })?;
-                }
-            }
-        }
 
         // special object entries -- C++ SpecialAbilityUpdate.cpp line 2020
         // This field tracks active special object count. The Rust port doesn't store it
@@ -2118,20 +2096,23 @@ impl Snapshotable for SpecialAbilityUpdate {
 
         // packing state -- C++ SpecialAbilityUpdate.cpp line 2026: xferUser( &m_packingState, sizeof(PackingState) )
         {
-            let mut state_val: u8 = self.packing_state as u8;
-            // SAFETY: state_val is a valid u8 on the stack
-            unsafe { xfer.xfer_user(&mut state_val as *mut u8, std::mem::size_of::<u8>()) }
-                .map_err(|e| format!("SpecialAbilityUpdate packing_state xfer failed: {:?}", e))?;
-            if state_val <= 4 {
-                self.packing_state = match state_val {
-                    0 => PackingState::None,
-                    1 => PackingState::Packing,
-                    2 => PackingState::Unpacking,
-                    3 => PackingState::Packed,
-                    4 => PackingState::Unpacked,
-                    _ => PackingState::None,
-                };
+            let mut state_val: i32 = self.packing_state as i32;
+            // SAFETY: state_val is a valid enum-sized integer on the stack.
+            unsafe {
+                xfer.xfer_user(
+                    &mut state_val as *mut i32 as *mut u8,
+                    std::mem::size_of::<i32>(),
+                )
             }
+            .map_err(|e| format!("SpecialAbilityUpdate packing_state xfer failed: {:?}", e))?;
+            self.packing_state = match state_val {
+                0 => PackingState::None,
+                1 => PackingState::Packing,
+                2 => PackingState::Unpacking,
+                3 => PackingState::Packed,
+                4 => PackingState::Unpacked,
+                _ => PackingState::None,
+            };
         }
 
         // facing initiated -- C++ SpecialAbilityUpdate.cpp line 2029
