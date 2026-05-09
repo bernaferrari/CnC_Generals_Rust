@@ -3739,10 +3739,10 @@ impl Snapshotable for BasicDrawable {
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // PARITY_NOTE: C++ Drawable::xfer is at version 7 (Drawable.cpp line 4900).
-        // Rust version 3 adds object_id, drawable module stub, and instance_is_identity
-        // to match the C++ save/load field coverage. Existing v2 fields are preserved
-        // in their original order for backward compatibility.
-        const CURRENT_VERSION: XferVersion = 3;
+        // Rust version 3 adds object_id, drawable module stub, and instance_is_identity.
+        // Rust version 4 adds the instance matrix after instance_is_identity, matching
+        // C++ Drawable::xfer line 5155.
+        const CURRENT_VERSION: XferVersion = 4;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("{:?}", e))?;
@@ -3954,6 +3954,11 @@ impl Snapshotable for BasicDrawable {
             let mut instance_is_identity = self.is_instance_identity();
             xfer.xfer_bool(&mut instance_is_identity)
                 .map_err(|e| format!("{:?}", e))?;
+        }
+
+        // --- instance matrix (C++ line 5155) ---
+        if version >= 4 {
+            xfer_matrix4(xfer, &mut self.instance_transform)?;
         }
 
         // --- instance scale (C++ line 5158) ---
@@ -4406,6 +4411,39 @@ mod tests {
                 "CarBomb",
             ]
         );
+    }
+
+    #[test]
+    fn test_drawable_xfer_preserves_instance_matrix() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let instance =
+            Matrix4::translation(Vector3::new(11.0, 22.0, 33.0)).mul(&Matrix4::scale(2.5));
+        let mut saved = BasicDrawable::new(DrawableId(77));
+        saved.set_instance_transform(instance);
+        saved.set_instance_scale(3.0);
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_instance_matrix").unwrap();
+            saved.xfer_snapshot(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = BasicDrawable::new(DrawableId(0));
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_instance_matrix").unwrap();
+        loaded.xfer_snapshot(&mut load).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(loaded.get_id(), DrawableId(77));
+        assert_eq!(loaded.instance_transform, instance);
+        assert_eq!(loaded.get_instance_scale(), 3.0);
+        assert!(!loaded.is_instance_identity());
     }
 
     #[test]
