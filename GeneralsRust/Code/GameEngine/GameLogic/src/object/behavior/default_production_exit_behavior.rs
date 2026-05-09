@@ -10,7 +10,7 @@ use crate::modules::{
     ExitDoorType as ModuleExitDoorType, ExitInterface as ModuleExitInterface,
     UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_FOREVER,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -58,6 +58,7 @@ crate::impl_behavior_module_data_via_base!(DefaultProductionExitModuleData, base
 pub struct DefaultProductionExitBehavior {
     data: DefaultProductionExitModuleData,
     owner_id: ObjectID,
+    next_call_frame_and_phase: UnsignedInt,
     rally_point: Coord3D,
     rally_point_exists: bool,
 }
@@ -67,6 +68,7 @@ impl DefaultProductionExitBehavior {
         Self {
             data,
             owner_id,
+            next_call_frame_and_phase: 0,
             rally_point: Coord3D::new(0.0, 0.0, 0.0),
             rally_point_exists: false,
         }
@@ -289,7 +291,6 @@ impl Snapshotable for DefaultProductionExitBehaviorModule {
 }
 
 impl Module for DefaultProductionExitBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -374,7 +375,7 @@ impl Snapshotable for DefaultProductionExitBehavior {
         xfer.xfer_version(&mut version, 1)
             .map_err(|err| format!("DefaultProductionExitBehavior::xfer version failed: {err}"))?;
 
-        self.data.xfer(xfer)?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_coord3d(&mut self.rally_point);
         xfer.xfer_bool(&mut self.rally_point_exists)
             .map_err(|err| {
