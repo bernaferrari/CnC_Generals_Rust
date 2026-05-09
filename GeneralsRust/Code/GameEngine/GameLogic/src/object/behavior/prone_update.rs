@@ -7,12 +7,13 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, ModelConditionFlags, ModuleData, ObjectStatusMaskType, Real, XferVersion,
+    AsciiString, ModelConditionFlags, ModuleData, ObjectStatusMaskType, Real, UnsignedInt,
+    XferVersion,
 };
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -63,6 +64,8 @@ const PRONE_UPDATE_FIELDS: &[FieldParse<ProneUpdateModuleData>] = &[FieldParse {
 pub struct ProneUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<ProneUpdateModuleData>,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
     /// Number of frames remaining in prone state
     prone_frames: i32,
 }
@@ -74,12 +77,13 @@ impl ProneUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<ProneUpdateModuleData>()
+            .downcast_ref::<ProneUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             prone_frames: 0,
         })
     }
@@ -149,6 +153,7 @@ impl Snapshotable for ProneUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_i32(&mut self.prone_frames)
             .map_err(|e| format!("Failed to xfer prone_frames: {:?}", e))?;
         Ok(())
