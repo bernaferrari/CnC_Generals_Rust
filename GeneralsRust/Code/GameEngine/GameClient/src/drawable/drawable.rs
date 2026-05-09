@@ -1148,6 +1148,24 @@ pub enum TerrainDecalType {
 /// C++ parity: `DrawModule` base class + `ObjectDrawInterface` for bone/FX queries.
 /// Each method corresponds to a C++ dispatch loop inside `Drawable::methodName()`.
 pub trait DrawModule: std::fmt::Debug + Send + Sync {
+    /// Save-game tag for this module, matching C++ `Module::getModuleTagNameKey`.
+    ///
+    /// Modules that have not ported C++ snapshot state should leave this as `None`;
+    /// `Drawable::xferDrawableModules` will omit them from the saved bucket.
+    fn snapshot_module_identifier(&self) -> Option<&str> {
+        None
+    }
+
+    /// Save/load this module's C++ snapshot block.
+    fn xfer_snapshot(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// C++ drawable module bucket: 0 = draw, 1 = client update.
+    fn drawable_module_type_index(&self) -> usize {
+        0
+    }
+
     /// Draw this module. C++ `DrawModule::doDrawModule(transformMtx)`.
     fn do_draw(&mut self, _transform: &Matrix4, _view: &Matrix4, _projection: &Matrix4) {}
 
@@ -3929,11 +3947,8 @@ impl Snapshotable for BasicDrawable {
         }
 
         // --- drawable modules (C++ line 5130: xferDrawableModules) ---
-        // PARITY_NOTE: Added in version 3. C++ saves module count per type with name-keyed
-        // blocks. Rust draw modules don't yet support Snapshotable, so we write a versioned
-        // stub with module count = 0 to preserve the format structure.
         if version >= 3 {
-            xfer_drawable_modules(xfer, &self.draw_modules)?;
+            xfer_drawable_modules(xfer, &mut self.draw_modules)?;
         }
 
         // --- stealth look (C++ line 5133: xferUser sizeof StealthLookType) ---
@@ -4347,13 +4362,10 @@ fn color_bits_to_vector3(bits: i32) -> Vector3 {
 
 fn xfer_drawable_modules(
     xfer: &mut dyn Xfer,
-    _modules: &[Box<dyn DrawModule>],
+    modules: &mut [Box<dyn DrawModule>],
 ) -> Result<(), String> {
     // PARITY_NOTE: C++ Drawable::xferDrawableModules (Drawable.cpp line 4767).
     // Saves version, module type count, then per-type: module count + name-keyed blocks.
-    // Rust GameClient draw modules don't yet expose snapshot names or state, so saves
-    // write the two C++ drawable module buckets with zero entries. Loads still consume
-    // and skip any module blocks so following Drawable fields stay aligned.
     const CURRENT_VERSION: XferVersion = 1;
     let mut version = CURRENT_VERSION;
     xfer.xfer_version(&mut version, CURRENT_VERSION)
@@ -4363,19 +4375,55 @@ fn xfer_drawable_modules(
     xfer.xfer_unsigned_short(&mut module_types)
         .map_err(|e| format!("{:?}", e))?;
 
-    for _ in 0..module_types {
-        let mut module_count: u16 = 0;
+    for module_type in 0..module_types {
+        let module_type_index = module_type as usize;
+        let mut module_indices = if xfer.get_xfer_mode() == XferMode::Save {
+            modules
+                .iter()
+                .enumerate()
+                .filter_map(|(index, module)| {
+                    (module.drawable_module_type_index() == module_type_index
+                        && module.snapshot_module_identifier().is_some())
+                    .then_some(index)
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+
+        let mut module_count = module_indices.len().min(u16::MAX as usize) as u16;
         xfer.xfer_unsigned_short(&mut module_count)
             .map_err(|e| format!("{:?}", e))?;
 
-        if xfer.get_xfer_mode() == XferMode::Load {
+        if xfer.get_xfer_mode() == XferMode::Save {
+            module_indices.truncate(module_count as usize);
+            for module_index in module_indices {
+                let module = &mut modules[module_index];
+                let mut module_identifier = module
+                    .snapshot_module_identifier()
+                    .unwrap_or_default()
+                    .to_string();
+                xfer.xfer_ascii_string(&mut module_identifier)
+                    .map_err(|e| format!("{:?}", e))?;
+                xfer.begin_block().map_err(|e| format!("{:?}", e))?;
+                module.xfer_snapshot(xfer)?;
+                xfer.end_block().map_err(|e| format!("{:?}", e))?;
+            }
+        } else {
             for _ in 0..module_count {
                 let mut module_identifier = String::new();
                 xfer.xfer_ascii_string(&mut module_identifier)
                     .map_err(|e| format!("{:?}", e))?;
 
                 let data_size = xfer.begin_block().map_err(|e| format!("{:?}", e))?;
-                xfer.skip(data_size).map_err(|e| format!("{:?}", e))?;
+                if let Some(module) = modules.iter_mut().find(|module| {
+                    module.drawable_module_type_index() == module_type_index
+                        && module.snapshot_module_identifier() == Some(module_identifier.as_str())
+                }) {
+                    module.xfer_snapshot(xfer)?;
+                } else {
+                    xfer.skip(data_size).map_err(|e| format!("{:?}", e))?;
+                }
                 xfer.end_block().map_err(|e| format!("{:?}", e))?;
             }
         }
@@ -4431,6 +4479,33 @@ pub enum DrawableType {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug)]
+    struct SnapshotTestDrawModule {
+        identifier: &'static str,
+        module_type: usize,
+        payload: u32,
+        observed_payload: Option<Arc<std::sync::atomic::AtomicU32>>,
+    }
+
+    impl DrawModule for SnapshotTestDrawModule {
+        fn snapshot_module_identifier(&self) -> Option<&str> {
+            Some(self.identifier)
+        }
+
+        fn drawable_module_type_index(&self) -> usize {
+            self.module_type
+        }
+
+        fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+            xfer.xfer_unsigned_int(&mut self.payload)
+                .map_err(|e| format!("{:?}", e))?;
+            if let Some(observed_payload) = &self.observed_payload {
+                observed_payload.store(self.payload, std::sync::atomic::Ordering::SeqCst);
+            }
+            Ok(())
+        }
+    }
 
     #[test]
     fn test_drawable_creation() {
@@ -4602,17 +4677,132 @@ mod tests {
         use game_engine::common::system::xfer_save::XferSave;
         use std::io::Cursor;
 
-        let modules: Vec<Box<dyn DrawModule>> = Vec::new();
+        let mut modules: Vec<Box<dyn DrawModule>> = Vec::new();
         let mut bytes = Vec::new();
         {
             let cursor = Cursor::new(&mut bytes);
             let mut save = XferSave::new(cursor, 1);
             save.open("drawable_modules_empty").unwrap();
-            xfer_drawable_modules(&mut save, &modules).unwrap();
+            xfer_drawable_modules(&mut save, &mut modules).unwrap();
             save.close().unwrap();
         }
 
         assert_eq!(bytes, vec![1, 2, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_drawable_modules_save_writes_named_snapshot_blocks() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut modules: Vec<Box<dyn DrawModule>> = vec![
+            Box::new(SnapshotTestDrawModule {
+                identifier: "DrawTag",
+                module_type: 0,
+                payload: 0x1122_3344,
+                observed_payload: None,
+            }),
+            Box::new(SnapshotTestDrawModule {
+                identifier: "ClientUpdateTag",
+                module_type: 1,
+                payload: 0x5566_7788,
+                observed_payload: None,
+            }),
+        ];
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_modules_named").unwrap();
+            xfer_drawable_modules(&mut save, &mut modules).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_modules_named").unwrap();
+        let mut version = 0;
+        load.xfer_version(&mut version, 1).unwrap();
+        assert_eq!(version, 1);
+        let mut module_types = 0u16;
+        load.xfer_unsigned_short(&mut module_types).unwrap();
+        assert_eq!(module_types, 2);
+
+        let mut draw_count = 0u16;
+        load.xfer_unsigned_short(&mut draw_count).unwrap();
+        assert_eq!(draw_count, 1);
+        let mut draw_identifier = String::new();
+        load.xfer_ascii_string(&mut draw_identifier).unwrap();
+        assert_eq!(draw_identifier, "DrawTag");
+        let draw_block_size = load.begin_block().unwrap();
+        assert_eq!(draw_block_size, 4);
+        let mut draw_payload = 0;
+        load.xfer_unsigned_int(&mut draw_payload).unwrap();
+        load.end_block().unwrap();
+        assert_eq!(draw_payload, 0x1122_3344);
+
+        let mut client_update_count = 0u16;
+        load.xfer_unsigned_short(&mut client_update_count).unwrap();
+        assert_eq!(client_update_count, 1);
+        let mut client_update_identifier = String::new();
+        load.xfer_ascii_string(&mut client_update_identifier)
+            .unwrap();
+        assert_eq!(client_update_identifier, "ClientUpdateTag");
+        let client_update_block_size = load.begin_block().unwrap();
+        assert_eq!(client_update_block_size, 4);
+        let mut client_update_payload = 0;
+        load.xfer_unsigned_int(&mut client_update_payload).unwrap();
+        load.end_block().unwrap();
+        assert_eq!(client_update_payload, 0x5566_7788);
+        load.close().unwrap();
+    }
+
+    #[test]
+    fn test_drawable_modules_load_applies_matching_snapshot_block() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let observed_payload = Arc::new(AtomicU32::new(0));
+        let mut modules: Vec<Box<dyn DrawModule>> = vec![Box::new(SnapshotTestDrawModule {
+            identifier: "ExistingDrawModule",
+            module_type: 0,
+            payload: 0,
+            observed_payload: Some(Arc::clone(&observed_payload)),
+        })];
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_modules_matching").unwrap();
+            let mut version = 1;
+            save.xfer_version(&mut version, 1).unwrap();
+            let mut module_types = 2u16;
+            save.xfer_unsigned_short(&mut module_types).unwrap();
+
+            let mut draw_module_count = 1u16;
+            save.xfer_unsigned_short(&mut draw_module_count).unwrap();
+            let mut module_identifier = "ExistingDrawModule".to_string();
+            save.xfer_ascii_string(&mut module_identifier).unwrap();
+            save.begin_block().unwrap();
+            let mut payload = 0xCAFE_BABE;
+            save.xfer_unsigned_int(&mut payload).unwrap();
+            save.end_block().unwrap();
+
+            let mut client_update_count = 0u16;
+            save.xfer_unsigned_short(&mut client_update_count).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_modules_matching").unwrap();
+        xfer_drawable_modules(&mut load, &mut modules).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(observed_payload.load(Ordering::SeqCst), 0xCAFE_BABE);
     }
 
     #[test]
@@ -4649,10 +4839,10 @@ mod tests {
             save.close().unwrap();
         }
 
-        let modules: Vec<Box<dyn DrawModule>> = Vec::new();
+        let mut modules: Vec<Box<dyn DrawModule>> = Vec::new();
         let mut load = XferLoad::new(Cursor::new(bytes), 1);
         load.open("drawable_modules_with_unknown").unwrap();
-        xfer_drawable_modules(&mut load, &modules).unwrap();
+        xfer_drawable_modules(&mut load, &mut modules).unwrap();
         let mut marker = 0;
         load.xfer_unsigned_int(&mut marker).unwrap();
         load.close().unwrap();
