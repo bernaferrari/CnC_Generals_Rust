@@ -6,6 +6,7 @@
 
 use crate::common::*;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::player::player_list;
@@ -261,6 +262,7 @@ pub struct SpyVisionUpdate {
     module_name_key: NameKeyType,
     data: Arc<SpyVisionUpdateModuleData>,
     controller: Arc<Mutex<SpyVisionController>>,
+    next_call_frame_and_phase: UnsignedInt,
     object_id: ObjectID,
     upgrade_mux: UpgradeMux,
 }
@@ -280,6 +282,7 @@ impl SpyVisionUpdate {
             module_name_key,
             data,
             controller,
+            next_call_frame_and_phase: 0,
             object_id,
             upgrade_mux,
         }
@@ -374,6 +377,7 @@ impl Snapshotable for SpyVisionUpdate {
         _xfer
             .xfer_version(&mut version, 2)
             .map_err(|e| format!("SpyVisionUpdate xfer version failed: {:?}", e))?;
+        xfer_update_module_base_state(_xfer, &mut self.next_call_frame_and_phase)?;
         if let Ok(mut controller) = self.controller.lock() {
             _xfer
                 .xfer_unsigned_int(&mut controller.deactivate_frame)
