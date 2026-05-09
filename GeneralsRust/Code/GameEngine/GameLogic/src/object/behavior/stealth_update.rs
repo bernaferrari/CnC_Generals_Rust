@@ -13,6 +13,7 @@ use crate::common::{
 use crate::modules::{
     BehaviorModuleInterface, UpdateModule, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object as GameObject, ObjectID, INVALID_ID as OBJECT_INVALID_ID};
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -197,6 +198,7 @@ pub struct StealthUpdate {
     module_data: Arc<StealthUpdateModuleData>,
 
     // State
+    next_call_frame_and_phase: UnsignedInt,
     stealth_allowed_frame: UnsignedInt,
     detection_expires_frame: UnsignedInt,
     next_black_market_check_frame: UnsignedInt,
@@ -237,6 +239,7 @@ impl StealthUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             stealth_allowed_frame: 0,
             detection_expires_frame: 0,
             next_black_market_check_frame: 0,
@@ -775,6 +778,7 @@ impl Snapshotable for StealthUpdate {
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("StealthUpdate version xfer failed: {:?}", e))?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         // stealth allowed frame -- C++ StealthUpdate.cpp line 1127
         xfer.xfer_unsigned_int(&mut self.stealth_allowed_frame)
             .map_err(|e| format!("StealthUpdate stealth_allowed_frame xfer failed: {:?}", e))?;
