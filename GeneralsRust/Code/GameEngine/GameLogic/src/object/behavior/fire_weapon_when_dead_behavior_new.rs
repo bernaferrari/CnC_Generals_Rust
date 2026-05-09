@@ -12,7 +12,9 @@ use crate::common::{
 };
 use crate::damage::DamageInfo;
 use crate::modules::{BehaviorModuleInterface, DieModuleInterface, UpgradeModuleInterface};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{
+    xfer_behavior_module_base_versions, BehaviorModuleData,
+};
 use crate::object::die::{
     parse_death_type_flags_tokens, parse_object_status_mask_tokens,
     parse_veterancy_level_flags_tokens, DieMuxData,
@@ -239,7 +241,7 @@ impl FireWeaponWhenDeadBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>()
+            .downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>()
             .ok_or("Invalid module data for FireWeaponWhenDeadBehavior")?;
 
         let data = Arc::new(specific_data.clone());
@@ -394,6 +396,8 @@ impl Snapshotable for FireWeaponWhenDeadBehavior {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_behavior_module_base_versions(xfer)
+            .map_err(|e| format!("Failed to xfer behavior base: {}", e))?;
         self.upgrade_mux.xfer(xfer)
     }
 
