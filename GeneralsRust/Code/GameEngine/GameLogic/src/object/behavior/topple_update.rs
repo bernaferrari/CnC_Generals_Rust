@@ -3,7 +3,9 @@
 
 use crate::ai::integration::with_ai_integration_mut;
 use crate::common::xfer::XferExt;
-use crate::common::{AsciiString, Coord3D, ICoord2D, Matrix3D, ModuleData, Real, XferVersion};
+use crate::common::{
+    AsciiString, Coord3D, ICoord2D, Matrix3D, ModuleData, Real, UnsignedInt, XferVersion,
+};
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::effects::FXList;
 use crate::helpers::{TheFXListStore, TheGameLogic, TheThingFactory};
@@ -11,7 +13,7 @@ use crate::modules::UpdateSleepTime;
 use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, PhysicsBehaviorExt, UpdateModuleInterface,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
 use crate::path::{grid_to_world, world_to_grid, PathfindLayerEnum, PATHFIND_CELL_SIZE_F};
@@ -226,6 +228,7 @@ enum ToppleState {
 pub struct ToppleUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<ToppleUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     angular_velocity: Real,
     angular_acceleration: Real,
     topple_direction: Coord3D,
@@ -245,7 +248,7 @@ impl ToppleUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<ToppleUpdateModuleData>()
+            .downcast_ref::<ToppleUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         if let Ok(obj) = object.read() {
@@ -255,6 +258,7 @@ impl ToppleUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             angular_velocity: 0.0,
             angular_acceleration: 0.0,
             topple_direction: Coord3D::ZERO,
@@ -275,6 +279,7 @@ impl ToppleUpdate {
         Self {
             object: Arc::downgrade(&object),
             module_data,
+            next_call_frame_and_phase: 0,
             angular_velocity: 0.0,
             angular_acceleration: 0.0,
             topple_direction: Coord3D::ZERO,
@@ -695,6 +700,7 @@ impl Snapshotable for ToppleUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_real(&mut self.angular_velocity)
             .map_err(|e| e.to_string())?;
         xfer.xfer_real(&mut self.angular_acceleration)
