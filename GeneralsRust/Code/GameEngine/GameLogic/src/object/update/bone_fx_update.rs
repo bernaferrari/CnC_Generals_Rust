@@ -10,6 +10,7 @@ use crate::damage::{DamageType, DamageTypeFlags};
 use crate::helpers::{
     get_fx_list_manager, TheGameLogic, TheObjectCreationListStore, TheParticleSystemManager,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_creation_list::{live_creation_context, nuggets::INVALID_ANGLE};
 use crate::prelude::*;
@@ -916,6 +917,7 @@ const BONE_FX_UPDATE_FIELDS: &[FieldParse<BoneFXUpdateModuleData>] = &[
 pub struct BoneFXUpdate {
     object_id: ObjectID,
     module_data: Arc<BoneFXUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     /// Next frame to trigger FX for each damage state and bone.
     next_fx_frame: [[i32; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
     /// Next frame to trigger OCL for each damage state and bone.
@@ -945,6 +947,7 @@ impl BoneFXUpdate {
         Self {
             object_id,
             module_data,
+            next_call_frame_and_phase: 0,
             next_fx_frame: [[-1; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
             next_ocl_frame: [[-1; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
             next_particle_system_frame: [[-1; BONE_FX_MAX_BONES]; BODY_DAMAGE_TYPE_COUNT],
@@ -1361,7 +1364,7 @@ impl BoneFXUpdate {
 
     /// Save state to xfer.
     /// Matches C++ BoneFXUpdate.cpp:548-629
-    pub fn save(&self, xfer: &mut dyn Xfer) {
+    pub fn save(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |result: std::io::Result<()>, field: &str| {
             if let Err(err) = result {
                 panic!("BoneFXUpdate::save failed to xfer {field}: {err}");
@@ -1369,6 +1372,7 @@ impl BoneFXUpdate {
         };
 
         xfer.xfer_version_write(1);
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_u16(&mut (self.particle_system_ids.len() as u16));
         for id in &self.particle_system_ids {
@@ -1380,20 +1384,46 @@ impl BoneFXUpdate {
             for j in 0..BONE_FX_MAX_BONES {
                 let mut next_fx_frame = self.next_fx_frame[i][j];
                 xfer_io(xfer.xfer_i32(&mut next_fx_frame), "next_fx_frame");
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
                 let mut next_ocl_frame = self.next_ocl_frame[i][j];
                 xfer_io(xfer.xfer_i32(&mut next_ocl_frame), "next_ocl_frame");
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
                 let mut next_ps_frame = self.next_particle_system_frame[i][j];
                 xfer_io(
                     xfer.xfer_i32(&mut next_ps_frame),
                     "next_particle_system_frame",
                 );
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
                 xfer.xfer_coord3d(&mut self.fx_bone_positions[i][j].clone());
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
                 xfer.xfer_coord3d(&mut self.ocl_bone_positions[i][j].clone());
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
                 xfer.xfer_coord3d(&mut self.ps_bone_positions[i][j].clone());
             }
         }
 
-        xfer.xfer_u8(&mut (self.cur_body_state as u8));
+        let mut cur_body_state = self.cur_body_state as i32;
+        xfer_io(xfer.xfer_i32(&mut cur_body_state), "cur_body_state");
 
         for resolved in &self.bones_resolved {
             let mut value = *resolved;
@@ -1402,11 +1432,13 @@ impl BoneFXUpdate {
 
         let mut active = self.active;
         xfer_io(xfer.xfer_bool(&mut active), "active");
+
+        Ok(())
     }
 
     /// Load state from xfer.
     /// Matches C++ BoneFXUpdate.cpp:548-629
-    pub fn load(&mut self, xfer: &mut dyn Xfer) {
+    pub fn load(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |result: std::io::Result<()>, field: &str| {
             if let Err(err) = result {
                 panic!("BoneFXUpdate::load failed to xfer {field}: {err}");
@@ -1415,6 +1447,8 @@ impl BoneFXUpdate {
 
         let version = xfer.xfer_version_read();
         if version >= 1 {
+            xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
             let mut count: u16 = 0;
             xfer.xfer_u16(&mut count);
             if !self.particle_system_ids.is_empty() {
@@ -1432,22 +1466,47 @@ impl BoneFXUpdate {
                         xfer.xfer_i32(&mut self.next_fx_frame[i][j]),
                         "next_fx_frame",
                     );
+                }
+            }
+
+            for i in 0..BODY_DAMAGE_TYPE_COUNT {
+                for j in 0..BONE_FX_MAX_BONES {
                     xfer_io(
                         xfer.xfer_i32(&mut self.next_ocl_frame[i][j]),
                         "next_ocl_frame",
                     );
+                }
+            }
+
+            for i in 0..BODY_DAMAGE_TYPE_COUNT {
+                for j in 0..BONE_FX_MAX_BONES {
                     xfer_io(
                         xfer.xfer_i32(&mut self.next_particle_system_frame[i][j]),
                         "next_particle_system_frame",
                     );
+                }
+            }
+
+            for i in 0..BODY_DAMAGE_TYPE_COUNT {
+                for j in 0..BONE_FX_MAX_BONES {
                     xfer.xfer_coord3d(&mut self.fx_bone_positions[i][j]);
+                }
+            }
+
+            for i in 0..BODY_DAMAGE_TYPE_COUNT {
+                for j in 0..BONE_FX_MAX_BONES {
                     xfer.xfer_coord3d(&mut self.ocl_bone_positions[i][j]);
+                }
+            }
+
+            for i in 0..BODY_DAMAGE_TYPE_COUNT {
+                for j in 0..BONE_FX_MAX_BONES {
                     xfer.xfer_coord3d(&mut self.ps_bone_positions[i][j]);
                 }
             }
 
-            let mut state: u8 = 0;
-            xfer.xfer_u8(&mut state);
+            let mut state: i32 = 0;
+            xfer_io(xfer.xfer_i32(&mut state), "cur_body_state");
             self.cur_body_state = match state {
                 0 => BodyDamageType::Pristine,
                 1 => BodyDamageType::Damaged,
@@ -1462,6 +1521,7 @@ impl BoneFXUpdate {
 
             xfer_io(xfer.xfer_bool(&mut self.active), "active");
         }
+        Ok(())
     }
 }
 
@@ -1488,9 +1548,9 @@ impl Snapshotable for BoneFXUpdate {
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         if xfer.is_writing() {
-            self.save(xfer);
+            self.save(xfer)?;
         } else {
-            self.load(xfer);
+            self.load(xfer)?;
         }
         Ok(())
     }
