@@ -16,7 +16,8 @@ use crate::common::{
     PathfindLayerEnum, Real, Relationship, UnsignedInt, MODELCONDITION_RUBBLE,
 };
 use crate::modules::UpdateSleepTime;
-use crate::object::behavior::behavior_module::LandMineInterface;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, LandMineInterface};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -283,6 +284,7 @@ pub struct MinefieldBehavior {
     weapon_store: Arc<dyn WeaponStore>,
     terrain_logic: Arc<dyn TerrainLogic>,
     global_data: Arc<dyn GlobalData>,
+    next_call_frame_and_phase: UnsignedInt,
 
     /// Next frame to check if creator is dead
     next_death_check_frame: UnsignedInt,
@@ -326,6 +328,7 @@ impl MinefieldBehavior {
             weapon_store,
             terrain_logic,
             global_data,
+            next_call_frame_and_phase: 0,
             next_death_check_frame: 0,
             scoot_frames_left: 0,
             scoot_vel: Coord3D::new(0.0, 0.0, 0.0),
@@ -893,6 +896,75 @@ impl MinefieldBehavior {
 // Thread safety implementations
 unsafe impl Send for MinefieldBehavior {}
 unsafe impl Sync for MinefieldBehavior {}
+
+impl Snapshotable for MinefieldBehavior {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| err.to_string())?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
+        xfer.xfer_unsigned_int(&mut self.virtual_mines_remaining)
+            .map_err(|err| err.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.next_death_check_frame)
+            .map_err(|err| err.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.scoot_frames_left)
+            .map_err(|err| err.to_string())?;
+
+        xfer_coord3d(xfer, &mut self.scoot_vel)?;
+        xfer_coord3d(xfer, &mut self.scoot_accel)?;
+
+        xfer.xfer_bool(&mut self.ignore_damage)
+            .map_err(|err| err.to_string())?;
+        xfer.xfer_bool(&mut self.regenerates)
+            .map_err(|err| err.to_string())?;
+        xfer.xfer_bool(&mut self.draining)
+            .map_err(|err| err.to_string())?;
+
+        let mut max_immunity = Self::MAX_IMMUNITY as u8;
+        xfer.xfer_unsigned_byte(&mut max_immunity)
+            .map_err(|err| err.to_string())?;
+        if max_immunity as usize != Self::MAX_IMMUNITY {
+            return Err(format!(
+                "MinefieldBehavior::xfer expected MAX_IMMUNITY {}, got {}",
+                Self::MAX_IMMUNITY,
+                max_immunity
+            ));
+        }
+
+        if self.immunes.len() < Self::MAX_IMMUNITY {
+            self.immunes
+                .resize_with(Self::MAX_IMMUNITY, ImmuneInfo::new);
+        }
+        for immune in self.immunes.iter_mut().take(Self::MAX_IMMUNITY) {
+            xfer.xfer_object_id(&mut immune.id)
+                .map_err(|err| err.to_string())?;
+            xfer.xfer_unsigned_int(&mut immune.collide_time)
+                .map_err(|err| err.to_string())?;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+fn xfer_coord3d(xfer: &mut dyn Xfer, coord: &mut Coord3D) -> Result<(), String> {
+    xfer.xfer_real(&mut coord.x)
+        .map_err(|err| err.to_string())?;
+    xfer.xfer_real(&mut coord.y)
+        .map_err(|err| err.to_string())?;
+    xfer.xfer_real(&mut coord.z)
+        .map_err(|err| err.to_string())?;
+    Ok(())
+}
 
 impl crate::modules::BehaviorModuleInterface for MinefieldBehavior {
     fn get_land_mine_interface(&mut self) -> Option<&mut dyn LandMineInterface> {
