@@ -426,7 +426,9 @@ impl Object {
             if let Ok(mut guard) = obj.write() {
                 // Convert glam 0.24 Vec3 -> gamelogic Coord3D (glam 0.28)
                 let coord = gamelogic::common::Coord3D::new(position.x, position.y, position.z);
-                guard.set_position(&coord);
+                if let Err(err) = guard.set_position(&coord) {
+                    log::warn!("failed to synchronize bridge object {engine_id} position: {err}");
+                }
             }
         }
     }
@@ -451,7 +453,11 @@ impl Object {
         if let Some(engine_id) = self.engine_object_id {
             if let Some(obj) = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id) {
                 if let Ok(mut guard) = obj.write() {
-                    guard.set_orientation(angle);
+                    if let Err(err) = guard.set_orientation(angle) {
+                        log::warn!(
+                            "failed to synchronize bridge object {engine_id} orientation: {err}"
+                        );
+                    }
                 }
             }
         }
