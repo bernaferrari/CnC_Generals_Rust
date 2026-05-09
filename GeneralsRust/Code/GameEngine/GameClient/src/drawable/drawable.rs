@@ -19,6 +19,7 @@ use crate::render_bridge::get_render_bridge;
 use crate::system::TimeOfDay;
 use crate::system::{Anim2D, Anim2DCollection};
 use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::bit_flags::{
     create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
 };
@@ -1570,6 +1571,8 @@ pub struct BasicDrawable {
     ambient_sound_enabled: bool,
     ambient_sound_enabled_from_script: bool,
     custom_sound_ambient_off: bool,
+    custom_sound_ambient_base_name: Option<String>,
+    custom_sound_ambient_dynamic_info: Option<DynamicAudioEventInfo>,
     current_frame: u32,
     /// Model condition flags for animation state (matches C++ m_conditionState)
     model_condition_flags: ModelConditionBitFlags,
@@ -1654,6 +1657,8 @@ impl BasicDrawable {
             ambient_sound_enabled: true,
             ambient_sound_enabled_from_script: true,
             custom_sound_ambient_off: false,
+            custom_sound_ambient_base_name: None,
+            custom_sound_ambient_dynamic_info: None,
             current_frame: 0,
             model_condition_flags: create_model_condition_flags(),
             animation_loop_duration: 0,
@@ -4082,7 +4087,8 @@ impl Snapshotable for BasicDrawable {
 
         // --- custom ambient sound info (C++ line 5311: version >= 7) ---
         if version >= 7 {
-            let mut customized = self.custom_sound_ambient_off;
+            let mut customized =
+                self.custom_sound_ambient_off || self.custom_sound_ambient_dynamic_info.is_some();
             xfer.xfer_bool(&mut customized)
                 .map_err(|e| format!("{:?}", e))?;
 
@@ -4094,14 +4100,46 @@ impl Snapshotable for BasicDrawable {
                 if xfer.get_xfer_mode() == XferMode::Load {
                     self.custom_sound_ambient_off = customized_to_silence;
                     if !customized_to_silence {
-                        return Err(
-                            "BasicDrawable::xfer - custom ambient sound data is not ported"
-                                .to_string(),
-                        );
+                        let mut base_info_name = String::new();
+                        xfer.xfer_ascii_string(&mut base_info_name)
+                            .map_err(|e| format!("{:?}", e))?;
+
+                        let mut custom_info = DynamicAudioEventInfo::new();
+                        custom_info
+                            .xfer_no_name(xfer)
+                            .map_err(|e| format!("{:?}", e))?;
+                        self.custom_sound_ambient_base_name = Some(base_info_name);
+                        self.custom_sound_ambient_dynamic_info = Some(custom_info);
+                    } else {
+                        self.custom_sound_ambient_base_name = None;
+                        self.custom_sound_ambient_dynamic_info = None;
                     }
+                } else if !customized_to_silence {
+                    let mut base_info_name = self
+                        .custom_sound_ambient_base_name
+                        .clone()
+                        .or_else(|| {
+                            self.custom_sound_ambient_dynamic_info
+                                .as_ref()
+                                .map(|info| info.get_original_name().to_string())
+                        })
+                        .unwrap_or_default();
+                    xfer.xfer_ascii_string(&mut base_info_name)
+                        .map_err(|e| format!("{:?}", e))?;
+
+                    let Some(custom_info) = self.custom_sound_ambient_dynamic_info.as_mut() else {
+                        return Err(
+                            "BasicDrawable::xfer - missing custom ambient sound data".to_string()
+                        );
+                    };
+                    custom_info
+                        .xfer_no_name(xfer)
+                        .map_err(|e| format!("{:?}", e))?;
                 }
             } else if xfer.get_xfer_mode() == XferMode::Load {
                 self.custom_sound_ambient_off = false;
+                self.custom_sound_ambient_base_name = None;
+                self.custom_sound_ambient_dynamic_info = None;
             }
         }
 
@@ -4635,6 +4673,46 @@ mod tests {
         assert!(!loaded.ambient_sound_enabled);
         assert!(loaded.ambient_sound_enabled_from_script);
         assert!(loaded.custom_sound_ambient_off);
+    }
+
+    #[test]
+    fn test_drawable_xfer_preserves_custom_ambient_sound_info() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut custom_info = DynamicAudioEventInfo::new();
+        custom_info.override_volume(0.75);
+        custom_info.override_loop_count(4);
+
+        let mut saved = BasicDrawable::new(DrawableId(100));
+        saved.custom_sound_ambient_base_name = Some("UnitAmbientBase".to_string());
+        saved.custom_sound_ambient_dynamic_info = Some(custom_info);
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_custom_ambient_sound_info").unwrap();
+            saved.xfer_snapshot(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = BasicDrawable::new(DrawableId(0));
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_custom_ambient_sound_info").unwrap();
+        loaded.xfer_snapshot(&mut load).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(loaded.get_id(), DrawableId(100));
+        assert_eq!(
+            loaded.custom_sound_ambient_base_name.as_deref(),
+            Some("UnitAmbientBase")
+        );
+        assert!(!loaded.custom_sound_ambient_off);
+        let loaded_info = loaded.custom_sound_ambient_dynamic_info.as_ref().unwrap();
+        assert!((loaded_info.get_audio_event_info().volume - 0.75).abs() < f32::EPSILON);
+        assert_eq!(loaded_info.get_audio_event_info().loop_count, 4);
     }
 
     #[test]
