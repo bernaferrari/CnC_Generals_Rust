@@ -13,6 +13,7 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
 /// Flammability status types - matches C++ FlammabilityStatusType
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlammabilityStatus {
     Normal,
@@ -294,8 +295,8 @@ impl Snapshotable for FlammableUpdate {
             .map_err(|e| format!("FlammableUpdate xfer version: {:?}", e))?;
         xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
-        let mut status: UnsignedInt = self.status as UnsignedInt;
-        xfer.xfer_unsigned_int(&mut status)
+        let mut status = self.status as i32;
+        xfer.xfer_int(&mut status)
             .map_err(|e| format!("FlammableUpdate xfer status: {:?}", e))?;
         self.status = match status {
             0 => FlammabilityStatus::Normal,
