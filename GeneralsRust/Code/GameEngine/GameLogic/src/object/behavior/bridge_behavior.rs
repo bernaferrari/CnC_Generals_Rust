@@ -29,6 +29,7 @@ use crate::modules::{
     UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::{
+    behavior::behavior_module::xfer_update_module_base_state,
     behavior::bridge_tower_behavior::BridgeTowerBehaviorModule, drawable::DrawableExt,
     registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
 };
@@ -407,6 +408,7 @@ pub struct BridgeBehavior {
     pub module_data: Arc<BridgeBehaviorModuleData>,
     object_id: ObjectID,
     object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
+    next_call_frame_and_phase: UnsignedInt,
 
     // Tower references
     pub tower_id: [ObjectID; BRIDGE_MAX_TOWERS],
@@ -475,6 +477,7 @@ impl BridgeBehavior {
             module_data,
             object_id,
             object_handle: Mutex::new(initial_handle),
+            next_call_frame_and_phase: 0,
             tower_id: [OBJECT_INVALID_ID; BRIDGE_MAX_TOWERS],
             damage_to_ocl,
             damage_to_fx,
@@ -1520,6 +1523,7 @@ impl BridgeBehavior {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         if xfer.get_xfer_mode() == XferMode::Load {
             if let Ok(mut terrain) = THE_TERRAIN_LOGIC.write() {
