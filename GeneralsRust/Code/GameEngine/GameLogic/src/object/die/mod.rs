@@ -49,10 +49,12 @@ use crate::object::Object;
 use bitflags::bitflags;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData};
 use std::any::Any;
 use std::sync::{Arc, RwLock};
+
+use crate::object::behavior::behavior_module::xfer_behavior_module_base_versions;
 
 /// Veterancy level flags for die module filtering
 pub type VeterancyLevelFlags = u32;
@@ -396,8 +398,8 @@ pub trait DieModuleInterface: Send + Sync + std::fmt::Debug + AsAny + Any {
     }
 
     /// Snapshot hook for die-module-specific state.
-    fn snapshot_xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer_die_module_with_derived_version(xfer)
     }
 
     /// Snapshot hook for die-module-specific state.
@@ -413,6 +415,20 @@ pub trait DieModuleInterface: Send + Sync + std::fmt::Debug + AsAny + Any {
     fn notify_script_engine_with_player_index(&self, _player_index: Option<usize>) -> bool {
         false
     }
+}
+
+pub fn xfer_die_module_base_versions(xfer: &mut dyn Xfer) -> Result<(), String> {
+    let mut version: XferVersion = 1;
+    xfer.xfer_version(&mut version, 1)
+        .map_err(|err| format!("DieModule::xfer version failed: {err}"))?;
+    xfer_behavior_module_base_versions(xfer)
+}
+
+pub fn xfer_die_module_with_derived_version(xfer: &mut dyn Xfer) -> Result<(), String> {
+    let mut version: XferVersion = 1;
+    xfer.xfer_version(&mut version, 1)
+        .map_err(|err| format!("DieModule derived xfer version failed: {err}"))?;
+    xfer_die_module_base_versions(xfer)
 }
 
 /// Base struct for die modules with common functionality
@@ -468,36 +484,19 @@ impl DieModuleWrapper {
 
 impl Snapshotable for DieModuleWrapper {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.module_data.crc(xfer)?;
         self.die_module.snapshot_crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        if let Some(data) = Arc::get_mut(&mut self.module_data) {
-            data.xfer(xfer)?;
-        } else {
-            return Err("DieModuleWrapper module data not uniquely owned during xfer".to_string());
-        }
-
         self.die_module.snapshot_xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        if let Some(data) = Arc::get_mut(&mut self.module_data) {
-            data.load_post_process()?;
-        } else {
-            return Err(
-                "DieModuleWrapper module data not uniquely owned during load_post_process"
-                    .to_string(),
-            );
-        }
-
         self.die_module.snapshot_load_post_process()
     }
 }
 
 impl Module for DieModuleWrapper {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
