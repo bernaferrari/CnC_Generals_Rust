@@ -1003,11 +1003,6 @@ impl Snapshotable for LocoInfo {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| format!("{:?}", e))?;
-
         let mut pitch = self.pitch;
         xfer.xfer_real(&mut pitch).map_err(|e| format!("{:?}", e))?;
         self.pitch = pitch;
@@ -1065,16 +1060,6 @@ impl Snapshotable for LocoInfo {
             .map_err(|e| format!("{:?}", e))?;
         self.wobble = wobble;
 
-        let mut yaw_modulator = self.yaw_modulator;
-        xfer.xfer_real(&mut yaw_modulator)
-            .map_err(|e| format!("{:?}", e))?;
-        self.yaw_modulator = yaw_modulator;
-
-        let mut pitch_modulator = self.pitch_modulator;
-        xfer.xfer_real(&mut pitch_modulator)
-            .map_err(|e| format!("{:?}", e))?;
-        self.pitch_modulator = pitch_modulator;
-
         self.wheel_info.xfer(xfer)?;
 
         Ok(())
@@ -1091,11 +1076,6 @@ impl Snapshotable for WheelInfo {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| format!("{:?}", e))?;
-
         let mut front_left_height_offset = self.front_left_height_offset;
         xfer.xfer_real(&mut front_left_height_offset)
             .map_err(|e| format!("{:?}", e))?;
@@ -4785,6 +4765,76 @@ mod tests {
         );
         assert_eq!(fading_mode_from_u32(fading_mode), FadingMode::FadingOut);
         assert_eq!(stealth_look_from_u32(stealth_look), StealthLook::Invisible);
+    }
+
+    #[test]
+    fn test_loco_info_uses_inline_cpp_layout() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = LocoInfo {
+            pitch: 1.0,
+            pitch_rate: 2.0,
+            roll: 3.0,
+            roll_rate: 4.0,
+            yaw: 5.0,
+            acceleration_pitch: 6.0,
+            acceleration_pitch_rate: 7.0,
+            acceleration_roll: 8.0,
+            acceleration_roll_rate: 9.0,
+            overlap_z_velocity: 10.0,
+            overlap_z: 11.0,
+            wobble: 12.0,
+            yaw_modulator: 99.0,
+            pitch_modulator: 100.0,
+            wheel_info: WheelInfo {
+                front_left_height_offset: 13.0,
+                front_right_height_offset: 14.0,
+                rear_left_height_offset: 15.0,
+                rear_right_height_offset: 16.0,
+                wheel_angle: 17.0,
+                frames_airborne_counter: 18,
+                frames_airborne: 19,
+            },
+        };
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("loco_info").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        assert_eq!(
+            bytes.len(),
+            17 * std::mem::size_of::<f32>() + 2 * std::mem::size_of::<i32>()
+        );
+        assert_eq!(&bytes[0..4], &1.0f32.to_le_bytes());
+        assert_eq!(&bytes[44..48], &12.0f32.to_le_bytes());
+        assert_eq!(&bytes[48..52], &13.0f32.to_le_bytes());
+        assert_eq!(&bytes[64..68], &17.0f32.to_le_bytes());
+        assert_eq!(&bytes[68..72], &18i32.to_le_bytes());
+        assert_eq!(&bytes[72..76], &19i32.to_le_bytes());
+
+        let mut loaded = LocoInfo::default();
+        loaded.yaw_modulator = -1.0;
+        loaded.pitch_modulator = -2.0;
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("loco_info").unwrap();
+        loaded.xfer(&mut load).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(loaded.pitch, 1.0);
+        assert_eq!(loaded.wobble, 12.0);
+        assert_eq!(loaded.wheel_info.front_left_height_offset, 13.0);
+        assert_eq!(loaded.wheel_info.wheel_angle, 17.0);
+        assert_eq!(loaded.wheel_info.frames_airborne_counter, 18);
+        assert_eq!(loaded.wheel_info.frames_airborne, 19);
+        assert_eq!(loaded.yaw_modulator, -1.0);
+        assert_eq!(loaded.pitch_modulator, -2.0);
     }
 
     #[test]
