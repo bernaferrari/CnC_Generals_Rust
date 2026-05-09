@@ -6,7 +6,7 @@
 //!
 //! FILE: FireWeaponWhenDamagedBehavior.cpp lines 1-342
 
-use crate::common::{AsciiString, Bool, ModuleData, Real, XferVersion};
+use crate::common::{AsciiString, Bool, ModuleData, Real, UnsignedInt, XferVersion};
 use crate::damage::{
     get_damage_type_flag, BodyDamageType, DamageInfo, DamageType, DamageTypeFlags,
 };
@@ -15,7 +15,7 @@ use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, UpdateModuleInterface, UpdateSleepTime,
     UpgradeModuleInterface,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use crate::upgrade::{UpgradeMask, UpgradeMux, UpgradeMuxData};
 use crate::weapon::with_weapon_store;
@@ -373,6 +373,7 @@ pub struct FireWeaponWhenDamagedBehavior {
     continuous_weapon_really_damaged: Option<Arc<Mutex<Weapon>>>,
     continuous_weapon_rubble: Option<Arc<Mutex<Weapon>>>,
 
+    next_call_frame_and_phase: UnsignedInt,
     upgrade_mux: UpgradeMux,
 }
 
@@ -384,7 +385,7 @@ impl FireWeaponWhenDamagedBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
+            .downcast_ref::<FireWeaponWhenDamagedBehaviorModuleData>()
             .ok_or("Invalid module data for FireWeaponWhenDamagedBehavior")?;
 
         let data = Arc::new(specific_data.clone());
@@ -464,6 +465,7 @@ impl FireWeaponWhenDamagedBehavior {
             continuous_weapon_damaged,
             continuous_weapon_really_damaged,
             continuous_weapon_rubble,
+            next_call_frame_and_phase: 0,
             upgrade_mux,
         })
     }
@@ -743,6 +745,8 @@ impl Snapshotable for FireWeaponWhenDamagedBehavior {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|e| format!("Failed to xfer update module base state: {}", e))?;
         self.upgrade_mux
             .xfer(xfer)
             .map_err(|e| format!("Failed to xfer upgrade mux: {}", e))?;
