@@ -1,0 +1,91 @@
+{
+  "generated_at_utc": "2026-05-09T22:50:59.577585+00:00",
+  "inputs": {
+    "cpp_include_root": "GeneralsMD/Code/GameEngine/Include",
+    "cpp_source_root": "GeneralsMD/Code/GameEngine/Source",
+    "rust_root": "GeneralsRust/Code/GameEngine"
+  },
+  "source": "generate_port_tracking.py",
+  "subsystems": {
+    "Common": {
+      "include": {
+        "found": 138,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 138
+      },
+      "source": {
+        "found": 132,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 132
+      }
+    },
+    "GameClient": {
+      "include": {
+        "found": 94,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 94
+      },
+      "source": {
+        "found": 147,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 147
+      }
+    },
+    "GameLogic": {
+      "include": {
+        "found": 268,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 268
+      },
+      "source": {
+        "found": 259,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 259
+      }
+    },
+    "GameNetwork": {
+      "include": {
+        "found": 52,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 52
+      },
+      "source": {
+        "found": 47,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 47
+      }
+    },
+    "Precompiled": {
+      "include": {
+        "found": 1,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 1
+      },
+      "source": {
+        "found": 1,
+        "found_by_basename": 0,
+        "missing": 0,
+        "parity_percent": 100.0,
+        "total": 1
+      }
+    }
+  }
+}
