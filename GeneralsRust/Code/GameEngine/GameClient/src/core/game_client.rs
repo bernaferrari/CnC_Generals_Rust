@@ -124,6 +124,9 @@ use gamelogic::helpers::{
     register_animation_metadata_hook, register_scorch_hook, register_terrain_tree_hook,
     TerrainTreeEvent, TheGameClient, TheGameLogic, TheScriptEngine,
 };
+use gamelogic::object::draw::{
+    W3DModelDraw, W3DModelDrawModuleData, W3DTreeDraw, W3DTreeDrawModuleData,
+};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::Object as GameLogicObject;
 use ww3d_core::w3d_io::{W3DChunk, W3DReader};
@@ -1668,8 +1671,52 @@ impl GameClient {
         &mut self,
         template: &ThingTemplate,
     ) -> GameClientResult<DrawableId> {
-        let drawable: Box<dyn Drawable> = Box::new(BasicDrawable::new(DrawableId::INVALID));
+        let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+        for module in Self::create_snapshot_modules_from_template(template) {
+            drawable.add_draw_module(module);
+        }
+        let drawable: Box<dyn Drawable> = Box::new(drawable);
         self.register_drawable_with_template(drawable, Some(template.get_name().to_string()))
+    }
+
+    fn create_snapshot_modules_from_template(template: &ThingTemplate) -> Vec<Box<dyn DrawModule>> {
+        let mut snapshot_modules: Vec<Box<dyn DrawModule>> = Vec::new();
+
+        for entry in template.get_draw_module_info().iter() {
+            let identifier = if entry.module_tag.is_empty() {
+                entry.name.as_str()
+            } else {
+                entry.module_tag.as_str()
+            };
+
+            match entry.name.as_str() {
+                "W3DTreeDraw" => {
+                    if let Some(data) = entry.data.as_any().downcast_ref::<W3DTreeDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DTreeDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                "W3DModelDraw" => {
+                    if let Some(data) = entry.data.as_any().downcast_ref::<W3DModelDrawModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::draw_module(
+                                identifier.to_string(),
+                                Box::new(W3DModelDraw::new(data.clone())),
+                            ),
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        snapshot_modules
     }
 
     /// Finds a drawable by its ID
@@ -4206,6 +4253,43 @@ mod tests {
         drawable.set_template_name(Some(template_name.to_string()));
         drawable.set_position(position);
         client.drawable_map.insert(drawable_id, Box::new(drawable));
+    }
+
+    #[test]
+    fn test_create_drawable_from_template_attaches_w3d_snapshot_modules() {
+        use game_engine::common::rts::AsciiString;
+        use game_engine::common::thing::module::{ModuleData, ModuleInterfaceType};
+
+        let mut template = ThingTemplate::new();
+        template.set_template_name(AsciiString::from("SnapshotTemplate"));
+        template.add_draw_module_info(
+            AsciiString::from("W3DTreeDraw"),
+            AsciiString::from("TreeDrawTag"),
+            Arc::new(W3DTreeDrawModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleInterfaceType::DRAW,
+        );
+
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
+        let drawable_id = client
+            .create_drawable_from_template(&template)
+            .expect("template drawable should be created");
+        let drawable = client
+            .find_drawable_by_id(drawable_id)
+            .expect("created drawable should be registered");
+        let basic = drawable
+            .as_any()
+            .downcast_ref::<BasicDrawable>()
+            .expect("template drawable should be BasicDrawable");
+
+        assert_eq!(basic.get_draw_modules().len(), 1);
+        assert_eq!(
+            basic.get_draw_modules()[0].snapshot_module_identifier(),
+            Some("TreeDrawTag")
+        );
+        assert_eq!(
+            basic.get_draw_modules()[0].drawable_module_type_index(),
+            LogicDrawModuleSnapshotAdapter::DRAW_MODULE_TYPE_INDEX
+        );
     }
 
     #[test]

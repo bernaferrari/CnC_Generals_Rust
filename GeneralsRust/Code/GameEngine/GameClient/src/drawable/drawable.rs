@@ -26,8 +26,8 @@ use game_engine::common::bit_flags::{
 use game_engine::common::ini::{get_anim2d_collection, get_global_data, Anim2DTemplate};
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
+use game_engine::common::thing::module::Module;
 use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
-use gamelogic::object::draw::DrawModule as LogicDrawModule;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::AnimatedParticleSysBoneClientUpdateModule;
 use gamelogic::object::update::BeaconClientUpdateModule;
@@ -1242,21 +1242,16 @@ pub trait DrawModule: std::fmt::Debug + Send + Sync {
     }
 }
 
-/// Snapshot-capable GameLogic draw module that can be hosted by GameClient.
-pub trait LogicDrawableSnapshotModule: LogicDrawModule {}
-
-impl<T> LogicDrawableSnapshotModule for T where T: LogicDrawModule {}
-
-/// Adapts concrete GameLogic W3D draw modules into GameClient drawable save buckets.
+/// Adapts concrete GameLogic/GameEngine modules into GameClient drawable save buckets.
 ///
 /// C++ saves drawable modules by drawable-module bucket and module tag name. The
-/// Rust GameClient renderer is not yet fully backed by these GameLogic modules,
+/// Rust GameClient renderer is not yet fully backed by these logic modules,
 /// so this adapter keeps the snapshot path concrete while draw dispatch remains
 /// owned by the WGPU-facing client code.
 pub struct LogicDrawModuleSnapshotAdapter {
     module_identifier: String,
     module_type_index: usize,
-    module: Box<dyn LogicDrawableSnapshotModule>,
+    module: Box<dyn Module>,
 }
 
 impl LogicDrawModuleSnapshotAdapter {
@@ -1266,7 +1261,7 @@ impl LogicDrawModuleSnapshotAdapter {
     pub fn new(
         module_identifier: impl Into<String>,
         module_type_index: usize,
-        module: Box<dyn LogicDrawableSnapshotModule>,
+        module: Box<dyn Module>,
     ) -> Self {
         Self {
             module_identifier: module_identifier.into(),
@@ -1275,16 +1270,13 @@ impl LogicDrawModuleSnapshotAdapter {
         }
     }
 
-    pub fn draw_module(
-        module_identifier: impl Into<String>,
-        module: Box<dyn LogicDrawableSnapshotModule>,
-    ) -> Self {
+    pub fn draw_module(module_identifier: impl Into<String>, module: Box<dyn Module>) -> Self {
         Self::new(module_identifier, Self::DRAW_MODULE_TYPE_INDEX, module)
     }
 
     pub fn client_update_module(
         module_identifier: impl Into<String>,
-        module: Box<dyn LogicDrawableSnapshotModule>,
+        module: Box<dyn Module>,
     ) -> Self {
         Self::new(
             module_identifier,
