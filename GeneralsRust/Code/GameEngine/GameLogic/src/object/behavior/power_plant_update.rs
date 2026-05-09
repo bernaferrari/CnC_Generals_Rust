@@ -72,7 +72,7 @@ impl PowerPlantUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<PowerPlantUpdateModuleData>()
+            .downcast_ref::<PowerPlantUpdateModuleData>()
             .ok_or("Invalid module data type for PowerPlantUpdate")?;
 
         Ok(Self {
@@ -185,8 +185,6 @@ impl Snapshotable for PowerPlantUpdate {
 
         xfer.xfer_bool(&mut self.extended)
             .map_err(|e| format!("Failed to xfer extended: {:?}", e))?;
-        xfer.xfer_unsigned_int(&mut self.extend_done_frame)
-            .map_err(|e| format!("Failed to xfer extend_done_frame: {:?}", e))?;
         Ok(())
     }
 
@@ -236,7 +234,6 @@ impl Snapshotable for PowerPlantUpdateModule {
 }
 
 impl Module for PowerPlantUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -266,10 +263,49 @@ impl PowerPlantUpdateFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     #[test]
     fn test_power_plant_creation() {
         let data = PowerPlantUpdateModuleData::default();
         assert_eq!(data.rods_extend_time, 0);
+    }
+
+    #[test]
+    fn power_plant_update_xfer_preserves_cpp_runtime_fields_only() {
+        let module_data = Arc::new(PowerPlantUpdateModuleData::default());
+        let mut saved = PowerPlantUpdate {
+            object: Weak::new(),
+            module_data: module_data.clone(),
+            extended: true,
+            extend_done_frame: 1234,
+        };
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("power_plant_update").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = PowerPlantUpdate {
+            object: Weak::new(),
+            module_data,
+            extended: false,
+            extend_done_frame: 77,
+        };
+        {
+            let mut load = XferLoad::new(Cursor::new(bytes), 1);
+            load.open("power_plant_update").unwrap();
+            loaded.xfer(&mut load).unwrap();
+            load.close().unwrap();
+        }
+
+        assert!(loaded.extended);
+        assert_eq!(loaded.extend_done_frame, 77);
     }
 }
