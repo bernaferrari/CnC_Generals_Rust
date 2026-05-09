@@ -19,6 +19,7 @@ use crate::common::ModelConditionFlags;
 use crate::common::*;
 use crate::damage::DamageType;
 use crate::modules::StealthControllerExt;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::drawable::{Drawable, StealthLookType};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object, ObjectScriptStatusBit};
@@ -1058,6 +1059,7 @@ pub struct StealthUpdate {
     controller: Arc<Mutex<StealthUpdateController>>,
     object_id: ObjectID,
     current_frame: UnsignedInt,
+    next_call_frame_and_phase: UnsignedInt,
 }
 
 impl StealthUpdate {
@@ -1079,6 +1081,7 @@ impl StealthUpdate {
             controller,
             object_id,
             current_frame: 0,
+            next_call_frame_and_phase: 0,
         }
     }
 
@@ -1136,6 +1139,8 @@ impl Snapshotable for StealthUpdate {
         _xfer
             .xfer_version(&mut version, 2)
             .map_err(|e| format!("Failed xfer version: {e}"))?;
+
+        xfer_update_module_base_state(_xfer, &mut self.next_call_frame_and_phase)?;
 
         _xfer
             .xfer_unsigned_int(
