@@ -7,13 +7,13 @@
 
 use crate::common::{
     AsciiString, Coord3D, CoordOrigin, ModuleData, RadiusDecal, RadiusDecalTemplate, Real,
-    SHADOW_NAMES,
+    UnsignedInt, SHADOW_NAMES,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use crate::player::ThePlayerList;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -298,6 +298,7 @@ const DYNAMIC_SHROUD_UPDATE_FIELDS: &[FieldParse<DynamicShroudClearingRangeUpdat
 pub struct DynamicShroudClearingRangeUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<DynamicShroudClearingRangeUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
 
     /// Current state machine state
     state: DSCRUState,
@@ -334,7 +335,7 @@ impl DynamicShroudClearingRangeUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>()
+            .downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         // Calculate state timeline (see C++ diagram comment)
@@ -373,6 +374,7 @@ impl DynamicShroudClearingRangeUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(data.clone()),
+            next_call_frame_and_phase: 0,
             state: DSCRUState::NotStartedYet,
             state_countdown,
             total_frames,
@@ -587,16 +589,7 @@ impl Snapshotable for DynamicShroudClearingRangeUpdate {
             )
         })?;
 
-        let mut state = self.state as i32;
-        xfer.xfer_i32(&mut state).map_err(|e| e.to_string())?;
-        self.state = match state {
-            1 => DSCRUState::Growing,
-            2 => DSCRUState::Sustaining,
-            3 => DSCRUState::Shrinking,
-            4 => DSCRUState::DoneForever,
-            5 => DSCRUState::Sleeping,
-            _ => DSCRUState::NotStartedYet,
-        };
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_i32(&mut self.state_countdown)
             .map_err(|e| e.to_string())?;
