@@ -93,6 +93,7 @@ impl ArchiveFileSystem {
         }
 
         let mut root_candidates: Vec<PathBuf> = Vec::new();
+        let mut direct_install_candidates: Vec<PathBuf> = Vec::new();
         if let Ok(cwd) = std::env::current_dir() {
             root_candidates.push(cwd);
         }
@@ -104,13 +105,19 @@ impl ArchiveFileSystem {
         root_candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
 
         if let Ok(from_env) = std::env::var("GENERALS_ASSETS_DIR") {
-            root_candidates.push(PathBuf::from(from_env));
+            let path = PathBuf::from(from_env);
+            direct_install_candidates.push(path.clone());
+            root_candidates.push(path);
         }
         if let Ok(from_env) = std::env::var("GENERALS_INSTALL_PATH") {
-            root_candidates.push(PathBuf::from(from_env));
+            let path = PathBuf::from(from_env);
+            direct_install_candidates.push(path.clone());
+            root_candidates.push(path);
         }
         if let Ok(from_env) = std::env::var("GENERALS_BASE_INSTALL_PATH") {
-            root_candidates.push(PathBuf::from(from_env));
+            let path = PathBuf::from(from_env);
+            direct_install_candidates.push(path.clone());
+            root_candidates.push(path);
         }
 
         let mut ordered = Vec::new();
@@ -126,6 +133,10 @@ impl ArchiveFileSystem {
         };
 
         let home_dir = std::env::var("HOME").ok().map(PathBuf::from);
+
+        for path in direct_install_candidates {
+            push_unique(path);
+        }
 
         for root in root_candidates {
             for ancestor in root.ancestors().take(8) {
@@ -600,6 +611,54 @@ pub fn get_big_archive_file_reader() -> Option<Arc<BigArchiveFileReader>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+    use std::sync::{Mutex as StdMutex, OnceLock as StdOnceLock};
+
+    fn env_lock() -> &'static StdMutex<()> {
+        static LOCK: StdOnceLock<StdMutex<()>> = StdOnceLock::new();
+        LOCK.get_or_init(|| StdMutex::new(()))
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &Path) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = &self.previous {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
+    fn create_single_file_big(path: &Path, virtual_path: &str, data: &[u8]) -> std::io::Result<()> {
+        let mut file = std::fs::File::create(path)?;
+        let data_offset = 0x10 + 8 + virtual_path.len() + 1;
+        let archive_size = data_offset + data.len();
+
+        file.write_all(b"BIGF")?;
+        file.write_all(&(archive_size as u32).to_le_bytes())?;
+        file.write_all(&1u32.to_be_bytes())?;
+        file.write_all(&(data_offset as u32).to_be_bytes())?;
+        file.write_all(&(data_offset as u32).to_be_bytes())?;
+        file.write_all(&(data.len() as u32).to_be_bytes())?;
+        file.write_all(virtual_path.as_bytes())?;
+        file.write_all(&[0])?;
+        file.write_all(data)?;
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn archive_system_initializes() {
@@ -698,6 +757,31 @@ mod tests {
             owner.ends_with("/inizh.big"),
             "GameData.ini should be owned by INIZH.big, got {owner}"
         );
+    }
+
+    #[test]
+    fn init_discovers_direct_install_path_from_env() {
+        let _guard = env_lock().lock().unwrap();
+        let temp_dir = tempfile::tempdir().unwrap();
+        let archive_path = temp_dir.path().join("INIZH.big");
+        create_single_file_big(
+            &archive_path,
+            "Data/INI/EnvInstall.ini",
+            b"env install data",
+        )
+        .unwrap();
+        let _env = EnvVarGuard::set("GENERALS_INSTALL_PATH", temp_dir.path());
+
+        let mut archive_system = ArchiveFileSystem::new();
+        futures::executor::block_on(archive_system.init()).unwrap();
+
+        assert!(
+            archive_system.does_file_exist("data/ini/envinstall.ini"),
+            "GENERALS_INSTALL_PATH should load BIG files directly in the install directory"
+        );
+        let data = futures::executor::block_on(archive_system.open_file("Data/INI/EnvInstall.ini"))
+            .unwrap();
+        assert_eq!(data, b"env install data");
     }
 
     #[test]
