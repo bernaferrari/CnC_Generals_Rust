@@ -11,12 +11,12 @@ use crate::common::{
 };
 use crate::helpers::{game_client_random_value_real, TheGameText, TheInGameUI};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use crate::upgrade::center::get_upgrade_center;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -71,6 +71,8 @@ impl AutoDepositUpdateModuleData {
 pub struct AutoDepositUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<AutoDepositUpdateModuleData>,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
     /// Frame when next deposit occurs. Matches C++ line 83
     deposit_on_frame: UnsignedInt,
     /// Whether to award initial capture bonus. Matches C++ line 84
@@ -87,7 +89,7 @@ impl AutoDepositUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<AutoDepositUpdateModuleData>()
+            .downcast_ref::<AutoDepositUpdateModuleData>()
             .ok_or("Invalid module data for AutoDepositUpdate")?;
 
         // Get current frame from game logic
@@ -97,6 +99,7 @@ impl AutoDepositUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             // Matches C++ line 83
             deposit_on_frame: current_frame + specific_data.deposit_frame,
             // Matches C++ line 84
@@ -316,9 +319,11 @@ impl Snapshotable for AutoDepositUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 2;
+        let mut version: XferVersion = 2;
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("AutoDepositUpdate xfer version failed: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_unsigned_int(&mut self.deposit_on_frame)
             .map_err(|e| format!("AutoDepositUpdate xfer deposit_on_frame failed: {:?}", e))?;
