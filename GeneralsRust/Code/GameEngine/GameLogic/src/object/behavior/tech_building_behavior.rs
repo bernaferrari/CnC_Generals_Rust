@@ -6,12 +6,12 @@
 //! Original Author: Colin Day, October 2002
 //! Rust conversion: 2025
 
-use crate::common::{Bool, ModuleData, ObjectID, UnsignedInt};
+use crate::common::{Bool, ModuleData, ObjectID, UnsignedInt, XferVersion};
 use crate::helpers::{TheFXListStore, TheGameLogic};
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -96,6 +96,7 @@ pub struct TechBuildingBehavior {
     object: Weak<RwLock<Object>>,
     object_id: ObjectID,
     module_data: Arc<TechBuildingBehaviorModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
 }
 
 impl TechBuildingBehavior {
@@ -118,6 +119,7 @@ impl TechBuildingBehavior {
             object: Arc::downgrade(&thing),
             object_id,
             module_data: Arc::new(data),
+            next_call_frame_and_phase: 0,
         })
     }
 
@@ -241,6 +243,27 @@ impl BehaviorModuleInterface for TechBuildingBehavior {
     }
 }
 
+impl Snapshotable for TechBuildingBehavior {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|e| format!("Failed to xfer update module base state: {}", e))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 /// Module wrapper for TechBuildingBehavior.
 pub struct TechBuildingBehaviorModule {
     behavior: TechBuildingBehavior,
@@ -269,20 +292,19 @@ impl TechBuildingBehaviorModule {
 
 impl Snapshotable for TechBuildingBehaviorModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.module_data.crc(xfer)
+        self.behavior.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).xfer(xfer)
+        self.behavior.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).load_post_process()
+        self.behavior.load_post_process()
     }
 }
 
 impl Module for TechBuildingBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
