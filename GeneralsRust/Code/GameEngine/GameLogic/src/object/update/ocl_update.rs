@@ -10,11 +10,12 @@ use crate::helpers::{
 use crate::modules::{
     OCLUpdateInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::Object;
 use crate::object_creation_list::live_creation_context;
 use crate::player::PlayerArcExt;
 use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use std::any::Any;
 use std::sync::Arc;
@@ -226,6 +227,7 @@ const OCL_UPDATE_FIELDS: &[FieldParse<OCLUpdateModuleData>] = &[
 pub struct OCLUpdate {
     object_id: ObjectID,
     module_data: Arc<OCLUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     next_creation_frame: UnsignedInt,
     timer_started_frame: UnsignedInt,
     is_faction_neutral: Bool,
@@ -237,6 +239,7 @@ impl OCLUpdate {
         Self {
             object_id,
             module_data,
+            next_call_frame_and_phase: 0,
             next_creation_frame: 0,
             timer_started_frame: 0,
             is_faction_neutral: true,
@@ -396,66 +399,57 @@ impl OCLUpdate {
         self.next_creation_frame.saturating_sub(now)
     }
 
-    pub fn save(&self, xfer: &mut dyn Xfer) {
-        let xfer_io = |result: std::io::Result<()>, field: &str| {
-            if let Err(err) = result {
-                panic!("OCLUpdate::save failed to xfer {field}: {err}");
-            }
-        };
+    fn xfer_runtime(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| format!("OCLUpdate::xfer version failed: {err}"))?;
 
-        let mut version: u8 = 1;
-        xfer_io(xfer.xfer_version(&mut version, 1), "version");
-        let mut next_creation_frame = self.next_creation_frame;
-        xfer_io(
-            xfer.xfer_u32(&mut next_creation_frame),
-            "next_creation_frame",
-        );
-        let mut timer_started_frame = self.timer_started_frame;
-        xfer_io(
-            xfer.xfer_u32(&mut timer_started_frame),
-            "timer_started_frame",
-        );
-        let mut is_faction_neutral = self.is_faction_neutral;
-        xfer_io(
-            xfer.xfer_bool(&mut is_faction_neutral),
-            "is_faction_neutral",
-        );
-        let mut packed_color = ((self.current_player_color.a as u32) << 24)
-            | ((self.current_player_color.b as u32) << 16)
-            | ((self.current_player_color.g as u32) << 8)
-            | (self.current_player_color.r as u32);
-        xfer_io(xfer.xfer_u32(&mut packed_color), "current_player_color");
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
+        xfer.xfer_unsigned_int(&mut self.next_creation_frame)
+            .map_err(|err| format!("OCLUpdate::xfer next_creation_frame failed: {err}"))?;
+        xfer.xfer_unsigned_int(&mut self.timer_started_frame)
+            .map_err(|err| format!("OCLUpdate::xfer timer_started_frame failed: {err}"))?;
+        xfer.xfer_bool(&mut self.is_faction_neutral)
+            .map_err(|err| format!("OCLUpdate::xfer is_faction_neutral failed: {err}"))?;
+
+        let mut packed_color = pack_color(self.current_player_color);
+        xfer.xfer_int(&mut packed_color)
+            .map_err(|err| format!("OCLUpdate::xfer current_player_color failed: {err}"))?;
+        self.current_player_color = unpack_color(packed_color);
+        Ok(())
+    }
+}
+
+fn pack_color(color: Color) -> i32 {
+    let packed = ((color.a as u32) << 24)
+        | ((color.b as u32) << 16)
+        | ((color.g as u32) << 8)
+        | color.r as u32;
+    packed as i32
+}
+
+fn unpack_color(packed: i32) -> Color {
+    let packed = packed as u32;
+    Color {
+        r: (packed & 0xFF) as u8,
+        g: ((packed >> 8) & 0xFF) as u8,
+        b: ((packed >> 16) & 0xFF) as u8,
+        a: ((packed >> 24) & 0xFF) as u8,
+    }
+}
+
+impl Snapshotable for OCLUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
     }
 
-    pub fn load(&mut self, xfer: &mut dyn Xfer) {
-        let xfer_io = |result: std::io::Result<()>, field: &str| {
-            if let Err(err) = result {
-                panic!("OCLUpdate::load failed to xfer {field}: {err}");
-            }
-        };
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer_runtime(xfer)
+    }
 
-        let mut version: u8 = 1;
-        xfer_io(xfer.xfer_version(&mut version, 1), "version");
-        if version >= 1 {
-            xfer_io(
-                xfer.xfer_u32(&mut self.next_creation_frame),
-                "next_creation_frame",
-            );
-            xfer_io(
-                xfer.xfer_u32(&mut self.timer_started_frame),
-                "timer_started_frame",
-            );
-            xfer_io(
-                xfer.xfer_bool(&mut self.is_faction_neutral),
-                "is_faction_neutral",
-            );
-            let mut packed_color = 0u32;
-            xfer_io(xfer.xfer_u32(&mut packed_color), "current_player_color");
-            self.current_player_color.r = (packed_color & 0xFF) as u8;
-            self.current_player_color.g = ((packed_color >> 8) & 0xFF) as u8;
-            self.current_player_color.b = ((packed_color >> 16) & 0xFF) as u8;
-            self.current_player_color.a = ((packed_color >> 24) & 0xFF) as u8;
-        }
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
@@ -538,22 +532,19 @@ impl OCLUpdateModule {
 
 impl Snapshotable for OCLUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.module_data.crc(xfer)
+        self.update.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).xfer(xfer)?;
-        self.update.save(xfer);
-        Ok(())
+        self.update.xfer_runtime(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).load_post_process()
+        self.update.load_post_process()
     }
 }
 
 impl Module for OCLUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
