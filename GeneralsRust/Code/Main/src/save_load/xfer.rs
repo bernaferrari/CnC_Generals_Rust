@@ -76,7 +76,7 @@ pub trait Xfer {
 
     fn xfer_hashmap<K, V>(&mut self, data: &mut HashMap<K, V>) -> SaveLoadResult<()>
     where
-        K: XferData + std::hash::Hash + Eq + Default,
+        K: XferData + std::hash::Hash + Eq + Default + Clone,
         V: XferData + Default,
         Self: Sized;
 
@@ -214,6 +214,23 @@ fn xfer_f64_bytes<X: CommonXfer>(inner: &mut X, data: &mut f64) -> SaveLoadResul
     Ok(())
 }
 
+fn map_version_result(
+    result: std::io::Result<()>,
+    version: XferVersion,
+    current_version: XferVersion,
+) -> SaveLoadResult<()> {
+    match result {
+        Ok(()) => Ok(()),
+        Err(err) if err.kind() == std::io::ErrorKind::InvalidData && version > current_version => {
+            Err(SaveLoadError::VersionMismatch {
+                expected: current_version as u32,
+                actual: version as u32,
+            })
+        }
+        Err(err) => Err(SaveLoadError::Io(err)),
+    }
+}
+
 pub struct XferSave<W: Write + Seek> {
     identifier: String,
     options: XferOptions,
@@ -274,8 +291,8 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
         version: &mut XferVersion,
         current_version: XferVersion,
     ) -> SaveLoadResult<()> {
-        CommonXfer::xfer_version(&mut self.inner, version, current_version)
-            .map_err(SaveLoadError::Io)
+        let result = CommonXfer::xfer_version(&mut self.inner, version, current_version);
+        map_version_result(result, *version, current_version)
     }
 
     fn xfer_bool(&mut self, data: &mut bool) -> SaveLoadResult<()> {
@@ -392,16 +409,15 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
 
     fn xfer_hashmap<K, V>(&mut self, data: &mut HashMap<K, V>) -> SaveLoadResult<()>
     where
-        K: XferData + std::hash::Hash + Eq + Default,
+        K: XferData + std::hash::Hash + Eq + Default + Clone,
         V: XferData + Default,
     {
         let mut len = data.len() as u32;
         self.xfer_u32(&mut len)?;
         for (key, value) in data.iter_mut() {
-            let mut key_copy = unsafe { std::ptr::read(key as *const K) };
+            let mut key_copy = key.clone();
             key_copy.xfer(self)?;
             value.xfer(self)?;
-            std::mem::forget(key_copy);
         }
         Ok(())
     }
@@ -496,8 +512,8 @@ impl<R: Read + Seek> Xfer for XferLoad<R> {
         version: &mut XferVersion,
         current_version: XferVersion,
     ) -> SaveLoadResult<()> {
-        CommonXfer::xfer_version(&mut self.inner, version, current_version)
-            .map_err(SaveLoadError::Io)
+        let result = CommonXfer::xfer_version(&mut self.inner, version, current_version);
+        map_version_result(result, *version, current_version)
     }
 
     fn xfer_bool(&mut self, data: &mut bool) -> SaveLoadResult<()> {
@@ -626,7 +642,7 @@ impl<R: Read + Seek> Xfer for XferLoad<R> {
 
     fn xfer_hashmap<K, V>(&mut self, data: &mut HashMap<K, V>) -> SaveLoadResult<()>
     where
-        K: XferData + std::hash::Hash + Eq + Default,
+        K: XferData + std::hash::Hash + Eq + Default + Clone,
         V: XferData + Default,
     {
         let mut len = 0u32;
