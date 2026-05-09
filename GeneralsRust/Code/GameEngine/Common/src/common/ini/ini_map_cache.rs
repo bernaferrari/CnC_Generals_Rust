@@ -996,7 +996,7 @@ mod tests {
         assert!(!FIELD_PARSE_TABLE.is_empty());
 
         // Check that expected fields are present
-        let field_names: Vec<&str> = FIELD_PARSE_TABLE.iter().map(|f| f.name).collect();
+        let field_names: Vec<&str> = FIELD_PARSE_TABLE.iter().map(|f| f.token).collect();
         assert!(field_names.contains(&"isOfficial"));
         assert!(field_names.contains(&"isMultiplayer"));
         assert!(field_names.contains(&"numPlayers"));

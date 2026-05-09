@@ -210,15 +210,16 @@ impl Default for ThreadPool {
 }
 
 /// Utility for running code once across multiple threads
+#[derive(Clone)]
 pub struct Once {
-    inner: parking_lot::Once,
+    inner: std::sync::Arc<parking_lot::Once>,
 }
 
 impl Once {
     /// Create a new Once instance
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            inner: parking_lot::Once::new(),
+            inner: std::sync::Arc::new(parking_lot::Once::new()),
         }
     }
 

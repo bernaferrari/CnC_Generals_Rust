@@ -1624,6 +1624,10 @@ fn sync_runtime_global_data_from_ini(data: &GlobalData) {
         return;
     };
 
+    apply_to_runtime_global_data(data, &mut runtime);
+}
+
+fn apply_to_runtime_global_data(data: &GlobalData, runtime: &mut runtime_global_data::GlobalData) {
     runtime.move_hint_name = data.move_hint_name.clone();
     runtime.use_trees = data.use_trees;
     runtime.use_cloud_map = data.use_cloud_map;
@@ -2222,7 +2226,7 @@ mod tests {
         data.shell_map_name = "ShellMap".to_string();
         data.shell_map_on = false;
 
-        let mut runtime = runtime_global_data::RuntimeGlobalData::default();
+        let mut runtime = runtime_global_data::GlobalData::default();
         apply_to_runtime_global_data(&data, &mut runtime);
 
         assert!(!runtime.writable.play_intro);
