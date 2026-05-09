@@ -100,6 +100,7 @@ use game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
 use game_engine::common::game_lod::prefers_low_res_movies;
 use game_engine::common::global_data as runtime_global_data;
 use game_engine::common::ini::{get_global_data, get_global_language_read, INILoadType, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{init_recorder, with_recorder_mut};
 use game_engine::common::system::{
     geometry::Matrix3D, Snapshot as CommonSnapshotData, Snapshotable, Xfer,
@@ -128,6 +129,10 @@ use gamelogic::object::draw::{
     W3DModelDraw, W3DModelDrawModuleData, W3DTreeDraw, W3DTreeDrawModuleData,
 };
 use gamelogic::object::registry::OBJECT_REGISTRY;
+use gamelogic::object::update::{
+    AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
+    BeaconClientUpdateModuleData, SwayClientUpdateModule,
+};
 use gamelogic::object::Object as GameLogicObject;
 use ww3d_core::w3d_io::{W3DChunk, W3DReader};
 
@@ -1711,6 +1716,61 @@ impl GameClient {
                             ),
                         ));
                     }
+                }
+                _ => {}
+            }
+        }
+
+        for entry in template.get_client_update_module_info().iter() {
+            let identifier = if entry.module_tag.is_empty() {
+                entry.name.as_str()
+            } else {
+                entry.module_tag.as_str()
+            };
+            let module_name_key = NameKeyGenerator::name_to_key(entry.name.as_str());
+
+            match entry.name.as_str() {
+                "BeaconClientUpdate" => {
+                    if let Some(data) = entry
+                        .data
+                        .as_any()
+                        .downcast_ref::<BeaconClientUpdateModuleData>()
+                    {
+                        snapshot_modules.push(Box::new(
+                            LogicDrawModuleSnapshotAdapter::client_update_module(
+                                identifier.to_string(),
+                                Box::new(BeaconClientUpdateModule::new(
+                                    module_name_key,
+                                    Arc::new(data.clone()),
+                                    INVALID_ID,
+                                )),
+                            ),
+                        ));
+                    }
+                }
+                "SwayClientUpdate" => {
+                    snapshot_modules.push(Box::new(
+                        LogicDrawModuleSnapshotAdapter::client_update_module(
+                            identifier.to_string(),
+                            Box::new(SwayClientUpdateModule::new(
+                                module_name_key,
+                                Arc::clone(&entry.data),
+                                INVALID_ID,
+                            )),
+                        ),
+                    ));
+                }
+                "AnimatedParticleSysBoneClientUpdate" => {
+                    snapshot_modules.push(Box::new(
+                        LogicDrawModuleSnapshotAdapter::client_update_module(
+                            identifier.to_string(),
+                            Box::new(AnimatedParticleSysBoneClientUpdateModule::new(
+                                module_name_key,
+                                Arc::clone(&entry.data),
+                                INVALID_ID,
+                            )),
+                        ),
+                    ));
                 }
                 _ => {}
             }
@@ -4289,6 +4349,43 @@ mod tests {
         assert_eq!(
             basic.get_draw_modules()[0].drawable_module_type_index(),
             LogicDrawModuleSnapshotAdapter::DRAW_MODULE_TYPE_INDEX
+        );
+    }
+
+    #[test]
+    fn test_create_drawable_from_template_attaches_client_update_snapshot_modules() {
+        use game_engine::common::rts::AsciiString;
+        use game_engine::common::thing::module::{BaseModuleData, ModuleData, ModuleInterfaceType};
+
+        let mut template = ThingTemplate::new();
+        template.set_template_name(AsciiString::from("ClientUpdateSnapshotTemplate"));
+        template.add_client_update_module_info(
+            AsciiString::from("SwayClientUpdate"),
+            AsciiString::from("SwayTag"),
+            Arc::new(BaseModuleData::new()) as Arc<dyn ModuleData>,
+            ModuleInterfaceType::CLIENT_UPDATE,
+        );
+
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
+        let drawable_id = client
+            .create_drawable_from_template(&template)
+            .expect("template drawable should be created");
+        let drawable = client
+            .find_drawable_by_id(drawable_id)
+            .expect("created drawable should be registered");
+        let basic = drawable
+            .as_any()
+            .downcast_ref::<BasicDrawable>()
+            .expect("template drawable should be BasicDrawable");
+
+        assert_eq!(basic.get_draw_modules().len(), 1);
+        assert_eq!(
+            basic.get_draw_modules()[0].snapshot_module_identifier(),
+            Some("SwayTag")
+        );
+        assert_eq!(
+            basic.get_draw_modules()[0].drawable_module_type_index(),
+            LogicDrawModuleSnapshotAdapter::CLIENT_UPDATE_MODULE_TYPE_INDEX
         );
     }
 
