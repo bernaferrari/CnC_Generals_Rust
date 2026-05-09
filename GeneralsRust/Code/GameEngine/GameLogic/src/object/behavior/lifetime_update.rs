@@ -6,7 +6,7 @@
 
 use crate::common::{AsciiString, ModuleData, UnsignedInt, XferVersion};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -80,6 +80,7 @@ pub struct LifetimeUpdate {
     object: Weak<RwLock<GameObject>>,
     #[allow(dead_code)]
     module_data: Arc<LifetimeUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     die_frame: UnsignedInt,
 }
 
@@ -90,7 +91,7 @@ impl LifetimeUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<LifetimeUpdateModuleData>()
+            .downcast_ref::<LifetimeUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         // Get current frame from game logic - matches C++ LifetimeUpdate.cpp
@@ -101,6 +102,7 @@ impl LifetimeUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             die_frame,
         })
     }
@@ -177,6 +179,8 @@ impl Snapshotable for LifetimeUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("LifetimeUpdate version xfer failed: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         // die frame -- C++ LifetimeUpdate.cpp line 104
         xfer.xfer_unsigned_int(&mut self.die_frame)
