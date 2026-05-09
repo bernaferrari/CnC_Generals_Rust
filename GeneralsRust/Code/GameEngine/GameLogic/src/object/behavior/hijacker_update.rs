@@ -4,12 +4,13 @@
 //! Author: Mark Lorenzen, July 2002 (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{Bool, Coord3D, ModuleData, ObjectID};
+use crate::common::xfer::XferExt;
+use crate::common::{Bool, Coord3D, ModuleData, ObjectID, UnsignedInt};
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock, Weak};
 
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
@@ -37,6 +38,8 @@ pub struct HijackerUpdate {
     object: Weak<RwLock<GameObject>>,
     #[allow(dead_code)]
     module_data: Arc<HijackerUpdateModuleData>,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
     target_id: ObjectID,
     eject_pos: Coord3D,
     update: Bool,
@@ -51,12 +54,13 @@ impl HijackerUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<HijackerUpdateModuleData>()
+            .downcast_ref::<HijackerUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             target_id: OBJECT_INVALID_ID,
             eject_pos: Coord3D {
                 x: 0.0,
@@ -147,14 +151,13 @@ impl Snapshotable for HijackerUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("HijackerUpdate xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_object_id(&mut self.target_id)
             .map_err(|e| format!("HijackerUpdate xfer target_id: {:?}", e))?;
-        xfer.xfer_real(&mut self.eject_pos.x)
-            .map_err(|e| format!("HijackerUpdate xfer eject_pos.x: {:?}", e))?;
-        xfer.xfer_real(&mut self.eject_pos.y)
-            .map_err(|e| format!("HijackerUpdate xfer eject_pos.y: {:?}", e))?;
-        xfer.xfer_real(&mut self.eject_pos.z)
-            .map_err(|e| format!("HijackerUpdate xfer eject_pos.z: {:?}", e))?;
+        xfer.xfer_coord3d(&mut self.eject_pos);
         xfer.xfer_bool(&mut self.update)
             .map_err(|e| format!("HijackerUpdate xfer update: {:?}", e))?;
         xfer.xfer_bool(&mut self.is_in_vehicle)
