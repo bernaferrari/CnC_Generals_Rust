@@ -1,6 +1,7 @@
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::deterministic_trace::{
-    calculate_frame_crc, first_trace_difference, FrameTrace, TraceObject,
+    calculate_frame_crc, first_trace_difference, run_trace_scenario, FrameTrace, TraceObject,
+    TraceScenario,
 };
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon};
 use glam::Vec3;
@@ -230,4 +231,35 @@ fn frame_trace_captures_real_game_logic_command_and_damage_frames() {
         .find(|object| object.id == technical)
         .expect("technical should be traced");
     assert!(traced_technical.health < 240.0);
+}
+
+#[test]
+fn trace_scenario_runs_scheduled_commands_before_each_frame_capture() {
+    let (mut game_logic, humvee, technical) = traced_game_logic();
+    let scenario = TraceScenario::new(seed(), 3).with_commands(
+        1,
+        vec![command(
+            7,
+            CommandType::AttackObject {
+                target_id: technical,
+            },
+            vec![humvee],
+        )],
+    );
+
+    let trace = run_trace_scenario(&mut game_logic, &scenario);
+
+    assert_eq!(trace.len(), 3);
+    assert_eq!(trace[0].frame, 1);
+    assert_eq!(trace[0].commands.len(), 1);
+    assert_eq!(trace[0].commands[0].command_id, 7);
+    assert!(trace[1].commands.is_empty());
+    assert_ne!(trace[0].crc, trace[2].crc);
+
+    let final_technical = trace[2]
+        .objects
+        .iter()
+        .find(|object| object.id == technical)
+        .expect("technical should be traced");
+    assert!(final_technical.health < 240.0);
 }
