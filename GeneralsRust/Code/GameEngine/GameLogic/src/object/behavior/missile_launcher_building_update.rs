@@ -11,14 +11,14 @@ use crate::common::types::{
     OBJECT_STATUS_UNDER_CONSTRUCTION,
 };
 /// Rust conversion: 2025
-use crate::common::{AsciiString, Coord3D, ModuleData, ObjectID, Real};
+use crate::common::{AsciiString, Coord3D, ModuleData, ObjectID, Real, UnsignedInt};
 use crate::helpers::TheFXList;
 use crate::helpers::{TheAudio, TheGameLogic};
 use crate::modules::{
     BehaviorModuleInterface, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -26,6 +26,7 @@ use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData,
 use std::sync::{Arc, RwLock, Weak};
 
 /// Door states for building animations
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DoorStateType {
     Closed,
@@ -77,6 +78,7 @@ pub struct MissileLauncherBuildingUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<MissileLauncherBuildingUpdateModuleData>,
 
+    next_call_frame_and_phase: UnsignedInt,
     door_state: DoorStateType,
     timeout_state: DoorStateType,
     timeout_frame: u32,
@@ -101,6 +103,7 @@ impl MissileLauncherBuildingUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(data.clone()),
+            next_call_frame_and_phase: 0,
             door_state: DoorStateType::Closed,
             timeout_state: DoorStateType::Closed,
             timeout_frame: 0,
@@ -467,9 +470,10 @@ impl Snapshotable for MissileLauncherBuildingUpdateModule {
 
         let b = &mut self.behavior;
 
-        let mut door_state = b.door_state as u32;
-        xfer.xfer_unsigned_int(&mut door_state)
-            .map_err(|e| e.to_string())?;
+        xfer_update_module_base_state(xfer, &mut b.next_call_frame_and_phase)?;
+
+        let mut door_state = b.door_state as i32;
+        xfer.xfer_int(&mut door_state).map_err(|e| e.to_string())?;
         if xfer.is_reading() {
             b.door_state = match door_state {
                 0 => DoorStateType::Closed,
@@ -481,8 +485,8 @@ impl Snapshotable for MissileLauncherBuildingUpdateModule {
             };
         }
 
-        let mut timeout_state = b.timeout_state as u32;
-        xfer.xfer_unsigned_int(&mut timeout_state)
+        let mut timeout_state = b.timeout_state as i32;
+        xfer.xfer_int(&mut timeout_state)
             .map_err(|e| e.to_string())?;
         if xfer.is_reading() {
             b.timeout_state = match timeout_state {
