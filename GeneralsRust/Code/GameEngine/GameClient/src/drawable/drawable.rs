@@ -4353,18 +4353,35 @@ fn xfer_drawable_modules(
 ) -> Result<(), String> {
     // PARITY_NOTE: C++ Drawable::xferDrawableModules (Drawable.cpp line 4767).
     // Saves version, module type count, then per-type: module count + name-keyed blocks.
-    // Rust draw modules don't yet implement Snapshotable, so we write a versioned
-    // stub with 0 module types to preserve the stream format.
+    // Rust GameClient draw modules don't yet expose snapshot names or state, so saves
+    // write the two C++ drawable module buckets with zero entries. Loads still consume
+    // and skip any module blocks so following Drawable fields stay aligned.
     const CURRENT_VERSION: XferVersion = 1;
     let mut version = CURRENT_VERSION;
     xfer.xfer_version(&mut version, CURRENT_VERSION)
         .map_err(|e| format!("{:?}", e))?;
 
-    // C++ writes NUM_DRAWABLE_MODULE_TYPES as UnsignedShort (Drawable.cpp line 4786).
-    // Rust currently has 0 drawable module types in the save format.
-    let mut module_types: u16 = 0;
+    let mut module_types: u16 = 2;
     xfer.xfer_unsigned_short(&mut module_types)
         .map_err(|e| format!("{:?}", e))?;
+
+    for _ in 0..module_types {
+        let mut module_count: u16 = 0;
+        xfer.xfer_unsigned_short(&mut module_count)
+            .map_err(|e| format!("{:?}", e))?;
+
+        if xfer.get_xfer_mode() == XferMode::Load {
+            for _ in 0..module_count {
+                let mut module_identifier = String::new();
+                xfer.xfer_ascii_string(&mut module_identifier)
+                    .map_err(|e| format!("{:?}", e))?;
+
+                let data_size = xfer.begin_block().map_err(|e| format!("{:?}", e))?;
+                xfer.skip(data_size).map_err(|e| format!("{:?}", e))?;
+                xfer.end_block().map_err(|e| format!("{:?}", e))?;
+            }
+        }
+    }
 
     Ok(())
 }
@@ -4580,6 +4597,69 @@ mod tests {
         }
 
         assert_eq!(bytes, vec![0]);
+    }
+
+    #[test]
+    fn test_drawable_modules_save_writes_cpp_empty_type_buckets() {
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let modules: Vec<Box<dyn DrawModule>> = Vec::new();
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_modules_empty").unwrap();
+            xfer_drawable_modules(&mut save, &modules).unwrap();
+            save.close().unwrap();
+        }
+
+        assert_eq!(bytes, vec![1, 2, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_drawable_modules_load_skips_unknown_module_blocks() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_modules_with_unknown").unwrap();
+
+            let mut version = 1;
+            save.xfer_version(&mut version, 1).unwrap();
+            let mut module_types = 2u16;
+            save.xfer_unsigned_short(&mut module_types).unwrap();
+
+            let mut draw_module_count = 1u16;
+            save.xfer_unsigned_short(&mut draw_module_count).unwrap();
+            let mut module_identifier = "UnknownDrawModule".to_string();
+            save.xfer_ascii_string(&mut module_identifier).unwrap();
+            save.begin_block().unwrap();
+            let mut skipped_payload = 0x1234_5678;
+            save.xfer_unsigned_int(&mut skipped_payload).unwrap();
+            save.end_block().unwrap();
+
+            let mut client_update_count = 0u16;
+            save.xfer_unsigned_short(&mut client_update_count).unwrap();
+
+            let mut marker = 0xAABB_CCDD;
+            save.xfer_unsigned_int(&mut marker).unwrap();
+            save.close().unwrap();
+        }
+
+        let modules: Vec<Box<dyn DrawModule>> = Vec::new();
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_modules_with_unknown").unwrap();
+        xfer_drawable_modules(&mut load, &modules).unwrap();
+        let mut marker = 0;
+        load.xfer_unsigned_int(&mut marker).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(marker, 0xAABB_CCDD);
     }
 
     #[test]
