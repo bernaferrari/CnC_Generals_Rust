@@ -4,10 +4,10 @@
 //! Author: EA Pacific (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{Bool, ModuleData, Real, UnsignedInt};
+use crate::common::{Bool, ModuleData, Real, UnsignedInt, XferVersion};
 use crate::damage::DamageType;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
@@ -56,6 +56,7 @@ crate::impl_behavior_module_data_via_base!(FlammableUpdateModuleData, base);
 pub struct FlammableUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<FlammableUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     status: FlammabilityStatus,
     aflame_end_frame: UnsignedInt,
     burned_end_frame: UnsignedInt,
@@ -71,7 +72,7 @@ impl FlammableUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<FlammableUpdateModuleData>()
+            .downcast_ref::<FlammableUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let flame_limit = specific_data.flame_damage_limit;
@@ -79,6 +80,7 @@ impl FlammableUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             status: FlammabilityStatus::Normal,
             aflame_end_frame: 0,
             burned_end_frame: 0,
@@ -287,8 +289,13 @@ impl Snapshotable for FlammableUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut status: i8 = self.status as i8;
-        xfer.xfer_byte(&mut status)
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("FlammableUpdate xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
+        let mut status: UnsignedInt = self.status as UnsignedInt;
+        xfer.xfer_unsigned_int(&mut status)
             .map_err(|e| format!("FlammableUpdate xfer status: {:?}", e))?;
         self.status = match status {
             0 => FlammabilityStatus::Normal,

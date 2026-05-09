@@ -6,12 +6,12 @@
 //! Rust conversion: 2025
 
 use crate::ai::THE_AI;
-use crate::common::{GeometryInfo, ModelConditionFlag, ModuleData, Real};
+use crate::common::{GeometryInfo, ModelConditionFlag, ModuleData, Real, UnsignedInt, XferVersion};
 use crate::helpers::get_game_logic_random_value;
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -42,6 +42,7 @@ crate::impl_behavior_module_data_via_base!(CheckpointUpdateModuleData, base);
 pub struct CheckpointUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<CheckpointUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
 
     /// Is an enemy currently near?
     enemy_near: bool,
@@ -60,7 +61,7 @@ impl CheckpointUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<CheckpointUpdateModuleData>()
+            .downcast_ref::<CheckpointUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         // Get max bounding radius from object geometry
@@ -76,6 +77,7 @@ impl CheckpointUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             enemy_near: false,
             ally_near: false,
             max_bounding_radius,
@@ -238,6 +240,10 @@ impl Snapshotable for CheckpointUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("CheckpointUpdate xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_bool(&mut self.enemy_near)
             .map_err(|e| format!("CheckpointUpdate xfer enemy_near: {:?}", e))?;
         xfer.xfer_bool(&mut self.ally_near)
