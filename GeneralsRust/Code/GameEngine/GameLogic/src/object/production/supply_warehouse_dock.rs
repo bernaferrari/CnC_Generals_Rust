@@ -13,7 +13,7 @@ use crate::object::Object;
 use crate::GameLogicRandomValueReal;
 use game_engine::common::global_data;
 use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::sync::{Arc, RwLock};
 
@@ -472,15 +472,23 @@ impl SupplyWarehouseDockUpdateModule {
 
 impl Snapshotable for SupplyWarehouseDockUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.module_data.crc(xfer)
+        self.behavior.base.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).xfer(xfer)
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1).map_err(|err| {
+            format!("SupplyWarehouseDockUpdateModule::xfer version failed: {err}")
+        })?;
+        self.behavior.base.xfer(xfer)?;
+        xfer.xfer_int(&mut self.behavior.boxes_stored)
+            .map_err(|err| {
+                format!("SupplyWarehouseDockUpdateModule::xfer boxes_stored failed: {err}")
+            })
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).load_post_process()
+        self.behavior.base.load_post_process()
     }
 }
 

@@ -3,10 +3,11 @@
 //! Provides docking infrastructure for units to enter buildings for various
 //! purposes: repair, supply collection, transport, etc.
 
+use crate::common::xfer::XferExt;
 use crate::common::*;
 use crate::helpers::{FindPositionOptions, ThePartitionManager};
 use crate::modules::{BehaviorModule, BehaviorModuleInterface, DockUpdateInterface};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::{Object, ObjectLockExt};
 use game_engine::common::global_data;
@@ -89,6 +90,8 @@ pub struct DockUpdate {
     data: DockUpdateModuleData,
     /// Owning object ID
     owner_id: ObjectID,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
     /// Dock positions loaded from drawable bones.
     enter_position: Coord3D,
     dock_position: Coord3D,
@@ -128,6 +131,7 @@ impl DockUpdate {
         Self {
             data,
             owner_id,
+            next_call_frame_and_phase: 0,
             enter_position: Coord3D::ZERO,
             dock_position: Coord3D::ZERO,
             exit_position: Coord3D::ZERO,
@@ -720,6 +724,74 @@ impl DockUpdateInterface for DockUpdate {
         crippled: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.dock_crippled = crippled;
+        Ok(())
+    }
+}
+
+impl Snapshotable for DockUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| format!("DockUpdate::xfer version failed: {err}"))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
+        xfer.xfer_coord3d(&mut self.enter_position);
+        xfer.xfer_coord3d(&mut self.dock_position);
+        xfer.xfer_coord3d(&mut self.exit_position);
+        xfer.xfer_int(&mut self.number_approach_positions)
+            .map_err(|err| format!("DockUpdate::xfer number_approach_positions failed: {err}"))?;
+        xfer.xfer_bool(&mut self.positions_loaded)
+            .map_err(|err| format!("DockUpdate::xfer positions_loaded failed: {err}"))?;
+
+        let mut vector_size = self.approach_positions.len() as Int;
+        xfer.xfer_int(&mut vector_size)
+            .map_err(|err| format!("DockUpdate::xfer approach_positions size failed: {err}"))?;
+        self.approach_positions
+            .resize(vector_size.max(0) as usize, Coord3D::ZERO);
+        for position in &mut self.approach_positions {
+            xfer.xfer_coord3d(position);
+        }
+
+        let mut vector_size = self.approach_position_owners.len() as Int;
+        xfer.xfer_int(&mut vector_size).map_err(|err| {
+            format!("DockUpdate::xfer approach_position_owners size failed: {err}")
+        })?;
+        self.approach_position_owners
+            .resize(vector_size.max(0) as usize, INVALID_ID);
+        for owner in &mut self.approach_position_owners {
+            xfer.xfer_object_id(owner)
+                .map_err(|err| format!("DockUpdate::xfer approach_position_owner failed: {err}"))?;
+        }
+
+        let mut vector_size = self.approach_position_reached.len() as Int;
+        xfer.xfer_int(&mut vector_size).map_err(|err| {
+            format!("DockUpdate::xfer approach_position_reached size failed: {err}")
+        })?;
+        self.approach_position_reached
+            .resize(vector_size.max(0) as usize, false);
+        for reached in &mut self.approach_position_reached {
+            xfer.xfer_bool(reached).map_err(|err| {
+                format!("DockUpdate::xfer approach_position_reached failed: {err}")
+            })?;
+        }
+
+        xfer.xfer_object_id(&mut self.active_docker)
+            .map_err(|err| format!("DockUpdate::xfer active_docker failed: {err}"))?;
+        xfer.xfer_bool(&mut self.docker_inside)
+            .map_err(|err| format!("DockUpdate::xfer docker_inside failed: {err}"))?;
+        xfer.xfer_bool(&mut self.dock_crippled)
+            .map_err(|err| format!("DockUpdate::xfer dock_crippled failed: {err}"))?;
+        xfer.xfer_bool(&mut self.dock_open)
+            .map_err(|err| format!("DockUpdate::xfer dock_open failed: {err}"))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
     }
 }
@@ -1437,15 +1509,18 @@ impl SupplyCenterDockUpdateModule {
 
 impl Snapshotable for SupplyCenterDockUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.module_data.crc(xfer)
+        self.behavior.base.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).xfer(xfer)
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| format!("SupplyCenterDockUpdateModule::xfer version failed: {err}"))?;
+        self.behavior.base.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).load_post_process()
+        self.behavior.base.load_post_process()
     }
 }
 
