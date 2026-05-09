@@ -144,6 +144,11 @@ impl AsciiString {
         }
     }
 
+    /// Compatibility alias for older port tests and call sites.
+    pub fn to_str(&self) -> &str {
+        self.as_str()
+    }
+
     /// Get a C-style string pointer (for compatibility)
     pub fn str(&self) -> &str {
         self.as_str()

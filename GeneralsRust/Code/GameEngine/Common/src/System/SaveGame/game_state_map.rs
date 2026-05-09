@@ -389,11 +389,11 @@ impl Drop for GameStateMap {
 mod tests {
     use super::*;
     use crate::common::ini::ini_game_data::{get_global_data, init_global_data};
-    use crate::common::system::save_game::{
+    use crate::System::SaveGame::{
         init_game_state, register_drawable_id_counter_hooks, register_object_id_counter_hooks,
         register_save_load_lifecycle_hooks, register_save_load_skirmish_hooks,
     };
-    use crate::common::xfer::{XferLoad, XferSave};
+    use crate::System::{XferLoad, XferSave};
     use std::fs;
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};

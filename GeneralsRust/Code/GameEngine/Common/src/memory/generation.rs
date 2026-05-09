@@ -16,6 +16,13 @@ use std::num::NonZeroU32;
 pub struct Generation(NonZeroU32);
 
 impl Generation {
+    /// Create a generation from a raw value, mapping zero to the first valid generation.
+    #[inline]
+    pub fn new(value: u32) -> Self {
+        let value = value.max(1);
+        Generation(NonZeroU32::new(value).expect("generation value is non-zero"))
+    }
+
     /// Create the first generation (1).
     #[inline]
     pub fn first() -> Self {

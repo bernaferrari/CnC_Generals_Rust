@@ -325,7 +325,7 @@ mod tests {
 
     #[test]
     fn test_handle_creation() {
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(42).unwrap();
         assert!(handle.is_valid());
         assert_eq!(*handle.try_get().unwrap(), 42);
@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_handle_with() {
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(42).unwrap();
 
         let result = handle.with(|val| *val * 2).unwrap();
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn test_weak_handle() {
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(42).unwrap();
         let weak = handle.downgrade();
 
@@ -356,7 +356,7 @@ mod tests {
 
     #[test]
     fn test_handle_deref() {
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(42).unwrap();
 
         assert_eq!(*handle, 42);
@@ -365,7 +365,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_stale_handle_deref_panics() {
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(42).unwrap();
         let index = handle.index();
 
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn test_deref_option_valid_handle() {
         // deref_option should return Some for valid handles
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(99).unwrap();
 
         let result = handle.deref_option();
@@ -394,7 +394,7 @@ mod tests {
     #[test]
     fn test_deref_option_stale_handle() {
         // deref_option should return None for stale handles (no panic)
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(99).unwrap();
         let index = handle.index();
 
@@ -410,7 +410,7 @@ mod tests {
     #[test]
     fn test_deref_option_mut_valid_handle() {
         // deref_option_mut should return Some for valid handles
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let mut handle = pool.alloc(50).unwrap();
 
         let result = handle.deref_option_mut();
@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn test_deref_or_valid_handle() {
         // deref_or should return the value for valid handles
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(123).unwrap();
 
         let result = handle.deref_or(&0);
@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn test_deref_or_stale_handle() {
         // deref_or should return the default for stale handles
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(123).unwrap();
         let index = handle.index();
 
@@ -450,7 +450,7 @@ mod tests {
     #[test]
     fn test_deref_or_else_valid_handle() {
         // deref_or_else should return the value for valid handles (not call closure)
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(456).unwrap();
 
         let mut closure_called = false;
@@ -470,7 +470,7 @@ mod tests {
     #[test]
     fn test_deref_or_else_stale_handle() {
         // deref_or_else should call closure for stale handles
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(456).unwrap();
         let index = handle.index();
 
@@ -488,7 +488,7 @@ mod tests {
     #[test]
     fn test_handle_is_valid_after_creation() {
         // Handle should be valid immediately after creation
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(77).unwrap();
 
         assert!(handle.is_valid());
@@ -497,7 +497,7 @@ mod tests {
     #[test]
     fn test_handle_is_invalid_after_free() {
         // Handle should be invalid after freeing
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(77).unwrap();
 
         assert!(handle.is_valid());
@@ -508,7 +508,7 @@ mod tests {
     #[test]
     fn test_handle_try_get_returns_none_after_drop() {
         // try_get should return None after handle is dropped
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(88).unwrap();
         let index = handle.index();
 
@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn test_handle_clone_creates_shared_reference() {
         // Cloning a handle creates a shared reference to the same object
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle1 = pool.alloc(555).unwrap();
         let handle2 = handle1.clone();
 
@@ -533,7 +533,7 @@ mod tests {
     #[test]
     fn test_multiple_handle_accesses() {
         // Multiple handles can safely access the same object
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle1 = pool.alloc(777).unwrap();
         let handle2 = handle1.clone();
         let handle3 = handle1.clone();
@@ -546,7 +546,7 @@ mod tests {
     #[test]
     fn test_weak_handle_upgrade_valid() {
         // Weak handle should upgrade successfully when object is alive
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(111).unwrap();
         let weak = handle.downgrade();
 
@@ -558,7 +558,7 @@ mod tests {
     #[test]
     fn test_weak_handle_upgrade_fails_after_free() {
         // Weak handle upgrade should fail after object is freed
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(222).unwrap();
         let weak = handle.downgrade();
 
@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn test_handle_with_mut_modifies_object() {
         // with_mut should allow modification of the object
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(333).unwrap();
 
         let result = handle.with_mut(|val| {
@@ -607,7 +607,7 @@ mod tests {
     #[test]
     fn test_scoped_handle_access() {
         // ScopedHandle should allow access without freeing
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(444).unwrap();
 
         let result = handle.with(|val| *val * 2);
@@ -620,7 +620,7 @@ mod tests {
     #[test]
     fn test_handle_debug_valid() {
         // Debug formatting for valid handle
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(555).unwrap();
 
         let debug_str = format!("{:?}", handle);
@@ -631,7 +631,7 @@ mod tests {
     #[test]
     fn test_handle_debug_stale() {
         // Debug formatting for stale handle
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = pool.alloc(555).unwrap();
         let index = handle.index();
 
@@ -645,7 +645,7 @@ mod tests {
     #[test]
     fn test_concurrent_handle_access() {
         // Handles should be safe to access from multiple threads
-        let pool = Arc::new(ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap());
+        let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
         let handle = Arc::new(pool.alloc(777).unwrap());
 
         let mut threads = vec![];

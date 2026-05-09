@@ -6,7 +6,9 @@
 
 //! Integration tests for Common component features
 
-use generals_common::common::*;
+extern crate game_engine as ge;
+
+use ge::common::*;
 
 #[test]
 fn test_global_data_comprehensive() {

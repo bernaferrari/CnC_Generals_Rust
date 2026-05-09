@@ -927,6 +927,7 @@ mod tests {
         let h1 = pool.alloc(1).unwrap();
         let h2 = pool.alloc(2).unwrap();
         let h3 = pool.alloc(3).unwrap();
+        let h2_index = h2.index();
 
         h2.free().unwrap();
 
@@ -934,7 +935,7 @@ mod tests {
 
         assert_eq!(pool.len(), 3);
         assert!(pool.is_valid(h1.index()));
-        assert!(!pool.is_valid(h2.index()));
+        assert!(!pool.is_valid(h2_index));
         assert!(pool.is_valid(h3.index()));
         assert!(pool.is_valid(h4.index()));
     }
