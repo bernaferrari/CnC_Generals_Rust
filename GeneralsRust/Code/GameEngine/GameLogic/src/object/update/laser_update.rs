@@ -187,6 +187,16 @@ impl Snapshotable for LaserUpdateModule {
 
         let u = &mut self.update;
 
+        let drawable_module_version = current_version;
+        let mut drawable_version = drawable_module_version;
+        xfer.xfer_version(&mut drawable_version, drawable_module_version)
+            .map_err(|e| e.to_string())?;
+
+        let module_version = current_version;
+        let mut base_version = module_version;
+        xfer.xfer_version(&mut base_version, module_version)
+            .map_err(|e| e.to_string())?;
+
         xfer.xfer_real(&mut u.start_pos.x)
             .map_err(|e| e.to_string())?;
         xfer.xfer_real(&mut u.start_pos.y)
