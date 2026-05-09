@@ -507,11 +507,15 @@ impl BehaviorModuleRegistry {
         #[cfg(feature = "allow_surrender")]
         registry.register_factory(
             "PropagandaCenterBehavior",
-            Box::new(|thing, data| {
+            Box::new(|thing: Arc<Locked<Object>>, data: Arc<dyn ModuleData>| {
                 let typed = data
                     .as_any()
                     .downcast_ref::<PropagandaCenterBehaviorModuleData>()
-                    .ok_or_else(|| "PropagandaCenterBehaviorModuleData expected".into())?;
+                    .ok_or_else(|| {
+                        Box::<dyn std::error::Error + Send + Sync>::from(
+                            "PropagandaCenterBehaviorModuleData expected",
+                        )
+                    })?;
                 let module_data = Arc::new(typed.clone());
                 PropagandaCenterBehavior::new(thing, module_data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)

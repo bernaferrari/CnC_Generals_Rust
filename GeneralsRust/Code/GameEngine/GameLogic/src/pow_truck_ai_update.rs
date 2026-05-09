@@ -763,7 +763,7 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
                 .lock()
                 .map(|mut contain| contain.release_object(prisoner_id));
 
-            if let Ok(mut prison_guard) = prison.write() {
+            if let Ok(prison_guard) = prison.write() {
                 if let Some(prison_contain) = prison_guard.get_contain() {
                     let _ = prison_contain
                         .lock()
@@ -777,7 +777,7 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
                     .map(|gd| gd.get_prison_bounty_multiplier())
                     .unwrap_or(0.0);
                 bounty = bounty.saturating_add((multiplier * cost) as u32);
-            }
+            };
         }
 
         if let Ok(prison_guard) = prison.read() {
@@ -795,7 +795,7 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
                     .get_max_height_above_position();
                 let color = TheGlobalData::get()
                     .map(|gd| gd.get_prison_bounty_text_color())
-                    .unwrap_or(crate::common::Color::WHITE);
+                    .unwrap_or_else(crate::common::Color::white);
                 let text = format!("+{}", bounty);
                 let _ = TheInGameUI::add_floating_text(&text, &pos, color);
             }

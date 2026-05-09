@@ -60,7 +60,7 @@ fn parse_yard_bone_prefix(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.prison_yard_bone_prefix = AsciiString::from(token);
+    data.prison_yard_bone_prefix = AsciiString::from(*token);
     Ok(())
 }
 
@@ -304,9 +304,7 @@ impl PrisonBehavior {
 #[cfg(feature = "allow_surrender")]
 impl UpdateModuleInterface for PrisonBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        self.contain
-            .update()
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        self.contain.update()
     }
 }
 
@@ -348,7 +346,9 @@ impl ContainModuleInterface for PrisonBehavior {
         &mut self,
         obj: &Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.contain.add_to_contain(obj)
+        self.contain
+            .contain_object(obj.get_id())
+            .map_err(|err| err.into())
     }
 
     fn on_object_wants_to_enter_or_exit(
@@ -356,7 +356,8 @@ impl ContainModuleInterface for PrisonBehavior {
         obj: &Object,
         want: ContainWant,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.contain.on_object_wants_to_enter_or_exit(obj, want)
+        self.contain.on_object_wants_to_enter_or_exit(obj, want);
+        Ok(())
     }
 
     fn on_containing(
@@ -440,7 +441,57 @@ impl PrisonBehaviorModule {
     }
 
     pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
-        Arc::clone(&self.behavior)
+        Arc::new(Mutex::new(PrisonBehaviorContainHandle {
+            behavior: Arc::clone(&self.behavior),
+        }))
+    }
+}
+
+#[cfg(feature = "allow_surrender")]
+#[derive(Debug)]
+struct PrisonBehaviorContainHandle {
+    behavior: Arc<Mutex<PrisonBehavior>>,
+}
+
+#[cfg(feature = "allow_surrender")]
+impl ContainModuleInterface for PrisonBehaviorContainHandle {
+    fn can_contain(&self, object_id: ObjectID) -> bool {
+        self.behavior
+            .lock()
+            .map(|guard| guard.can_contain(object_id))
+            .unwrap_or(false)
+    }
+
+    fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        self.behavior
+            .lock()
+            .map_err(|_| "PrisonBehaviorContainHandle lock poisoned".to_string())?
+            .contain_object(object_id)
+    }
+
+    fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        self.behavior
+            .lock()
+            .map_err(|_| "PrisonBehaviorContainHandle lock poisoned".to_string())?
+            .release_object(object_id)
+    }
+
+    fn get_contained_objects(&self) -> &[ObjectID] {
+        &[]
+    }
+
+    fn get_contained_count(&self) -> usize {
+        self.behavior
+            .lock()
+            .map(|guard| guard.get_contained_count())
+            .unwrap_or(0)
+    }
+
+    fn get_max_capacity(&self) -> usize {
+        self.behavior
+            .lock()
+            .map(|guard| guard.get_max_capacity())
+            .unwrap_or(0)
     }
 }
 
@@ -499,13 +550,28 @@ impl Snapshotable for PrisonBehaviorModule {
 }
 
 #[cfg(feature = "allow_surrender")]
+impl Snapshotable for PrisonBehavior {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "allow_surrender")]
 impl Module for PrisonBehaviorModule {
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        ModuleData::get_module_tag_name_key(self.module_data.as_ref())
     }
 
     fn get_module_data(&self) -> &dyn ModuleData {

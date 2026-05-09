@@ -189,7 +189,7 @@ impl PropagandaCenterBehavior {
                     let Ok(subject_guard) = subject_arc.read() else {
                         return Ok(());
                     };
-                    let Ok(exit_guard) = exit_interface.lock() else {
+                    let Ok(mut exit_guard) = exit_interface.lock() else {
                         return Ok(());
                     };
 
@@ -227,9 +227,9 @@ impl PropagandaCenterBehavior {
                     self.brainwashed_list.push(subject_id);
                 }
 
-                if let Ok(exit_guard) = exit_interface.lock() {
+                if let Ok(mut exit_guard) = exit_interface.lock() {
                     let _ = exit_guard.exit_object_via_door(&subject_arc, exit_door);
-                }
+                };
             }
         }
 
@@ -250,7 +250,7 @@ impl PropagandaCenterBehavior {
 #[cfg(feature = "allow_surrender")]
 impl UpdateModuleInterface for PropagandaCenterBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let _ = self.prison_behavior.update()?;
+        let _ = UpdateModuleInterface::update(&mut self.prison_behavior)?;
         self.process_brainwashing()?;
         Ok(UpdateSleepTime::None)
     }
@@ -459,7 +459,57 @@ impl PropagandaCenterBehaviorModule {
     }
 
     pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
-        Arc::clone(&self.behavior)
+        Arc::new(Mutex::new(PropagandaCenterBehaviorContainHandle {
+            behavior: Arc::clone(&self.behavior),
+        }))
+    }
+}
+
+#[cfg(feature = "allow_surrender")]
+#[derive(Debug)]
+struct PropagandaCenterBehaviorContainHandle {
+    behavior: Arc<Mutex<PropagandaCenterBehavior>>,
+}
+
+#[cfg(feature = "allow_surrender")]
+impl ContainModuleInterface for PropagandaCenterBehaviorContainHandle {
+    fn can_contain(&self, object_id: ObjectID) -> bool {
+        self.behavior
+            .lock()
+            .map(|guard| guard.can_contain(object_id))
+            .unwrap_or(false)
+    }
+
+    fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        self.behavior
+            .lock()
+            .map_err(|_| "PropagandaCenterBehaviorContainHandle lock poisoned".to_string())?
+            .contain_object(object_id)
+    }
+
+    fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        self.behavior
+            .lock()
+            .map_err(|_| "PropagandaCenterBehaviorContainHandle lock poisoned".to_string())?
+            .release_object(object_id)
+    }
+
+    fn get_contained_objects(&self) -> &[ObjectID] {
+        &[]
+    }
+
+    fn get_contained_count(&self) -> usize {
+        self.behavior
+            .lock()
+            .map(|guard| guard.get_contained_count())
+            .unwrap_or(0)
+    }
+
+    fn get_max_capacity(&self) -> usize {
+        self.behavior
+            .lock()
+            .map(|guard| guard.get_max_capacity())
+            .unwrap_or(0)
     }
 }
 
@@ -484,13 +534,12 @@ impl Snapshotable for PropagandaCenterBehaviorModule {
 
 #[cfg(feature = "allow_surrender")]
 impl Module for PropagandaCenterBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        ModuleData::get_module_tag_name_key(self.module_data.as_ref())
     }
 
     fn get_module_data(&self) -> &dyn ModuleData {
