@@ -3,6 +3,7 @@
 // Ported to Rust
 
 use crate::modules::FlammableUpdateExt;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::ObjectArcExt;
 use crate::prelude::*;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -75,13 +76,18 @@ impl Snapshotable for FireSpreadUpdateModuleData {
 pub struct FireSpreadUpdate {
     thing: ThingId,
     module_data: FireSpreadUpdateModuleData,
+    next_call_frame_and_phase: UnsignedInt,
 }
 
 impl FireSpreadUpdate {
     /// Create new FireSpreadUpdate module
     /// Matches C++ FireSpreadUpdate.cpp:80-83
     pub fn new(thing: ThingId, module_data: FireSpreadUpdateModuleData) -> Self {
-        Self { thing, module_data }
+        Self {
+            thing,
+            module_data,
+            next_call_frame_and_phase: 0,
+        }
     }
 
     /// Update callback - spreads fire to nearby flammable objects
@@ -187,6 +193,7 @@ impl Snapshotable for FireSpreadUpdate {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         Ok(())
     }
 

@@ -17,7 +17,7 @@ use crate::helpers::TheTerrainLogic;
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
@@ -62,6 +62,7 @@ crate::impl_behavior_module_data_via_base!(HeightDieUpdateModuleData, base);
 pub struct HeightDieUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<HeightDieUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     /// TRUE once we have triggered death. C++ m_hasDied.
     has_died: Bool,
     /// TRUE once we destroy attached systems (so we do it only once). C++ m_particlesDestroyed.
@@ -79,12 +80,13 @@ impl HeightDieUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<HeightDieUpdateModuleData>()
+            .downcast_ref::<HeightDieUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             // Matches C++ HeightDieUpdate.cpp:73-78
             has_died: false,
             particles_destroyed: false,
@@ -297,6 +299,8 @@ impl Snapshotable for HeightDieUpdate {
         let mut version: XferVersion = 2;
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("HeightDieUpdate xfer version failed: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         // has died. C++ line 278
         xfer.xfer_bool(&mut self.has_died)
