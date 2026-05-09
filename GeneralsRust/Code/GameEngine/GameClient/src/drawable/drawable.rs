@@ -3625,8 +3625,8 @@ impl Snapshotable for BasicDrawable {
             }
         }
 
-        let mut decal_type = terrain_decal_to_u8(self.terrain_decal_type);
-        xfer.xfer_unsigned_byte(&mut decal_type)
+        let mut decal_type = terrain_decal_to_u32(self.terrain_decal_type);
+        xfer.xfer_unsigned_int(&mut decal_type)
             .map_err(|e| format!("{:?}", e))?;
 
         let mut explicit_opacity = self.explicit_opacity;
@@ -3669,8 +3669,8 @@ impl Snapshotable for BasicDrawable {
         xfer.xfer_unsigned_int(&mut prev_tint_status_bits)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut fade_mode = fading_mode_to_u8(self.fade_mode);
-        xfer.xfer_unsigned_byte(&mut fade_mode)
+        let mut fade_mode = fading_mode_to_u32(self.fade_mode);
+        xfer.xfer_unsigned_int(&mut fade_mode)
             .map_err(|e| format!("{:?}", e))?;
 
         let mut time_elapsed_fade = self.time_elapsed_fade;
@@ -3690,8 +3690,8 @@ impl Snapshotable for BasicDrawable {
             }
         }
 
-        let mut stealth_look = stealth_look_to_u8(self.stealth_look);
-        xfer.xfer_unsigned_byte(&mut stealth_look)
+        let mut stealth_look = stealth_look_to_u32(self.stealth_look);
+        xfer.xfer_unsigned_int(&mut stealth_look)
             .map_err(|e| format!("{:?}", e))?;
 
         let mut flash_count = self.flash_count as i32;
@@ -3841,10 +3841,10 @@ impl Snapshotable for BasicDrawable {
         }
 
         // --- terrain decal type (C++ line 4986: xferUser sizeof TerrainDecalType) ---
-        let mut decal_type = terrain_decal_to_u8(self.terrain_decal_type);
-        xfer.xfer_unsigned_byte(&mut decal_type)
+        let mut decal_type = terrain_decal_to_u32(self.terrain_decal_type);
+        xfer.xfer_unsigned_int(&mut decal_type)
             .map_err(|e| format!("{:?}", e))?;
-        self.terrain_decal_type = terrain_decal_from_u8(decal_type);
+        self.terrain_decal_type = terrain_decal_from_u32(decal_type);
 
         // --- explicit opacity (C++ line 4992) ---
         let mut explicit_opacity = self.explicit_opacity;
@@ -3916,10 +3916,10 @@ impl Snapshotable for BasicDrawable {
         self.prev_tint_status.bits = prev_tint_status_bits;
 
         // --- fading mode (C++ line 5068: xferUser sizeof FadingMode) ---
-        let mut fade_mode = fading_mode_to_u8(self.fade_mode);
-        xfer.xfer_unsigned_byte(&mut fade_mode)
+        let mut fade_mode = fading_mode_to_u32(self.fade_mode);
+        xfer.xfer_unsigned_int(&mut fade_mode)
             .map_err(|e| format!("{:?}", e))?;
-        self.fade_mode = fading_mode_from_u8(fade_mode);
+        self.fade_mode = fading_mode_from_u32(fade_mode);
 
         // --- time elapsed fade (C++ line 5071) ---
         let mut time_elapsed_fade = self.time_elapsed_fade;
@@ -3957,10 +3957,10 @@ impl Snapshotable for BasicDrawable {
         }
 
         // --- stealth look (C++ line 5133: xferUser sizeof StealthLookType) ---
-        let mut stealth_look = stealth_look_to_u8(self.stealth_look);
-        xfer.xfer_unsigned_byte(&mut stealth_look)
+        let mut stealth_look = stealth_look_to_u32(self.stealth_look);
+        xfer.xfer_unsigned_int(&mut stealth_look)
             .map_err(|e| format!("{:?}", e))?;
-        self.stealth_look = stealth_look_from_u8(stealth_look);
+        self.stealth_look = stealth_look_from_u32(stealth_look);
 
         // --- flash count (C++ line 5137: xferInt) ---
         let mut flash_count = self.flash_count as i32;
@@ -4280,7 +4280,7 @@ fn envelope_state_from_u8(value: u8) -> EnvelopeState {
     }
 }
 
-fn stealth_look_to_u8(look: StealthLook) -> u8 {
+fn stealth_look_to_u32(look: StealthLook) -> u32 {
     match look {
         StealthLook::None => 0,
         StealthLook::VisibleFriendly => 1,
@@ -4291,7 +4291,7 @@ fn stealth_look_to_u8(look: StealthLook) -> u8 {
     }
 }
 
-fn stealth_look_from_u8(value: u8) -> StealthLook {
+fn stealth_look_from_u32(value: u32) -> StealthLook {
     match value {
         1 => StealthLook::VisibleFriendly,
         2 => StealthLook::DisguisedEnemy,
@@ -4302,7 +4302,7 @@ fn stealth_look_from_u8(value: u8) -> StealthLook {
     }
 }
 
-fn terrain_decal_to_u8(decal: TerrainDecalType) -> u8 {
+fn terrain_decal_to_u32(decal: TerrainDecalType) -> u32 {
     match decal {
         TerrainDecalType::Demoralized => 0,
         TerrainDecalType::Horde => 1,
@@ -4317,7 +4317,7 @@ fn terrain_decal_to_u8(decal: TerrainDecalType) -> u8 {
     }
 }
 
-fn terrain_decal_from_u8(value: u8) -> TerrainDecalType {
+fn terrain_decal_from_u32(value: u32) -> TerrainDecalType {
     match value {
         0 => TerrainDecalType::Demoralized,
         1 => TerrainDecalType::Horde,
@@ -4332,7 +4332,7 @@ fn terrain_decal_from_u8(value: u8) -> TerrainDecalType {
     }
 }
 
-fn fading_mode_to_u8(mode: FadingMode) -> u8 {
+fn fading_mode_to_u32(mode: FadingMode) -> u32 {
     match mode {
         FadingMode::None => 0,
         FadingMode::FadingIn => 1,
@@ -4340,7 +4340,7 @@ fn fading_mode_to_u8(mode: FadingMode) -> u8 {
     }
 }
 
-fn fading_mode_from_u8(value: u8) -> FadingMode {
+fn fading_mode_from_u32(value: u32) -> FadingMode {
     match value {
         1 => FadingMode::FadingIn,
         2 => FadingMode::FadingOut,
@@ -4740,6 +4740,51 @@ mod tests {
         assert_eq!(loaded.elements[1], [5.0, 6.0, 7.0, 8.0]);
         assert_eq!(loaded.elements[2], [9.0, 10.0, 11.0, 12.0]);
         assert_eq!(loaded.elements[3], [0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_drawable_enum_fields_use_cpp_u32_layout() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_enum_layout").unwrap();
+
+            let mut terrain_decal = terrain_decal_to_u32(TerrainDecalType::ShadowTexture);
+            save.xfer_unsigned_int(&mut terrain_decal).unwrap();
+            let mut fading_mode = fading_mode_to_u32(FadingMode::FadingOut);
+            save.xfer_unsigned_int(&mut fading_mode).unwrap();
+            let mut stealth_look = stealth_look_to_u32(StealthLook::Invisible);
+            save.xfer_unsigned_int(&mut stealth_look).unwrap();
+
+            save.close().unwrap();
+        }
+
+        assert_eq!(bytes.len(), 3 * std::mem::size_of::<u32>());
+        assert_eq!(&bytes[0..4], &9u32.to_le_bytes());
+        assert_eq!(&bytes[4..8], &2u32.to_le_bytes());
+        assert_eq!(&bytes[8..12], &5u32.to_le_bytes());
+
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_enum_layout").unwrap();
+        let mut terrain_decal = 0;
+        load.xfer_unsigned_int(&mut terrain_decal).unwrap();
+        let mut fading_mode = 0;
+        load.xfer_unsigned_int(&mut fading_mode).unwrap();
+        let mut stealth_look = 0;
+        load.xfer_unsigned_int(&mut stealth_look).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(
+            terrain_decal_from_u32(terrain_decal),
+            TerrainDecalType::ShadowTexture
+        );
+        assert_eq!(fading_mode_from_u32(fading_mode), FadingMode::FadingOut);
+        assert_eq!(stealth_look_from_u32(stealth_look), StealthLook::Invisible);
     }
 
     #[test]
