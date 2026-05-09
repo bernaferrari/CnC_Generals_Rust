@@ -9,7 +9,7 @@ use crate::common::{
 };
 use crate::helpers::get_game_logic_random_value;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -43,6 +43,7 @@ impl EnemyNearUpdateModuleData {
 pub struct EnemyNearUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<EnemyNearUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     enemy_near: Bool,
     enemy_scan_delay: UnsignedInt,
 }
@@ -54,7 +55,7 @@ impl EnemyNearUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<EnemyNearUpdateModuleData>()
+            .downcast_ref::<EnemyNearUpdateModuleData>()
             .ok_or("Invalid module data for EnemyNearUpdate")?;
 
         let mut enemy_scan_delay = 0;
@@ -66,6 +67,7 @@ impl EnemyNearUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(data.clone()),
+            next_call_frame_and_phase: 0,
             enemy_near: false,
             enemy_scan_delay,
         })
@@ -143,6 +145,8 @@ impl Snapshotable for EnemyNearUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("EnemyNearUpdate xfer version failed: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_unsigned_int(&mut self.enemy_scan_delay)
             .map_err(|e| format!("EnemyNearUpdate xfer enemy_scan_delay failed: {:?}", e))?;
