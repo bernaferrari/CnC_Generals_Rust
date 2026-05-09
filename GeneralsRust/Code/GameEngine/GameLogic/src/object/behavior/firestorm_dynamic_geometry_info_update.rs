@@ -6,7 +6,7 @@
 //! Rust conversion: 2025
 
 use crate::common::EmissionVolumeType;
-use crate::common::{Coord3D, ModuleData, Real};
+use crate::common::{Coord3D, ModuleData, Real, XferVersion};
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::helpers::{
     TheFXList, TheGameClient, TheGameLogic, TheParticleSystemManager, ThePartitionManager,
@@ -16,10 +16,12 @@ use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
 use crate::object::behavior::dynamic_geometry_info_update::{
-    DynamicGeometryInfoUpdateLogic, DynamicGeometryInfoUpdateModuleData,
+    xfer_dynamic_geometry_info_update_logic, DynamicGeometryInfoUpdateLogic,
+    DynamicGeometryInfoUpdateModuleData,
 };
 use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
+use std::mem::size_of;
 use std::sync::{Arc, RwLock, Weak};
 
 const MAX_FIRESTORM_SYSTEMS: usize = 16;
@@ -74,7 +76,7 @@ impl FirestormDynamicGeometryInfoUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>()
+            .downcast_ref::<FirestormDynamicGeometryInfoUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
@@ -253,80 +255,25 @@ impl Snapshotable for FirestormDynamicGeometryInfoUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Transfer base geometry logic
-        xfer.xfer_unsigned_int(&mut self.logic.starting_delay_countdown)
-            .map_err(|e| {
-                format!(
-                    "FirestormDynamicGeometryInfoUpdate xfer starting_delay_countdown: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_unsigned_int(&mut self.logic.time_active)
-            .map_err(|e| {
-                format!(
-                    "FirestormDynamicGeometryInfoUpdate xfer time_active: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_bool(&mut self.logic.started)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer started: {:?}", e))?;
-        xfer.xfer_bool(&mut self.logic.finished)
-            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer finished: {:?}", e))?;
-        xfer.xfer_bool(&mut self.logic.switched_directions)
-            .map_err(|e| {
-                format!(
-                    "FirestormDynamicGeometryInfoUpdate xfer switched_directions: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_real(&mut self.logic.initial_height)
-            .map_err(|e| {
-                format!(
-                    "FirestormDynamicGeometryInfoUpdate xfer initial_height: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_real(&mut self.logic.initial_major_radius)
-            .map_err(|e| {
-                format!(
-                    "FirestormDynamicGeometryInfoUpdate xfer initial_major_radius: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_real(&mut self.logic.initial_minor_radius)
-            .map_err(|e| {
-                format!(
-                    "FirestormDynamicGeometryInfoUpdate xfer initial_minor_radius: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_real(&mut self.logic.final_height).map_err(|e| {
-            format!(
-                "FirestormDynamicGeometryInfoUpdate xfer final_height: {:?}",
-                e
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("FirestormDynamicGeometryInfoUpdate xfer version: {e:?}"))?;
+
+        xfer_dynamic_geometry_info_update_logic(
+            xfer,
+            &mut self.logic,
+            "FirestormDynamicGeometryInfoUpdate base",
+        )?;
+
+        unsafe {
+            xfer.xfer_user(
+                self.particle_system_ids.as_mut_ptr().cast::<u8>(),
+                self.particle_system_ids.len() * size_of::<u32>(),
             )
+        }
+        .map_err(|e| {
+            format!("FirestormDynamicGeometryInfoUpdate xfer particle_system_ids: {e:?}")
         })?;
-        xfer.xfer_real(&mut self.logic.final_major_radius)
-            .map_err(|e| {
-                format!(
-                    "FirestormDynamicGeometryInfoUpdate xfer final_major_radius: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_real(&mut self.logic.final_minor_radius)
-            .map_err(|e| {
-                format!(
-                    "FirestormDynamicGeometryInfoUpdate xfer final_minor_radius: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_unsigned_int(&mut self.logic.transition_time)
-            .map_err(|e| {
-                format!(
-                    "FirestormDynamicGeometryInfoUpdate xfer transition_time: {:?}",
-                    e
-                )
-            })?;
 
         // Transfer firestorm-specific state
         xfer.xfer_bool(&mut self.effects_fired).map_err(|e| {
