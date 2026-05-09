@@ -19,7 +19,7 @@ use crate::helpers::{TheFXListStore, TheGameLogic};
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
 use crate::upgrade::template::UpgradeTemplate;
 use crate::weapon::WeaponTemplate;
@@ -209,6 +209,7 @@ pub struct BunkerBusterBehavior {
     object: Weak<RwLock<GameObject>>,
     /// Module data
     module_data: Arc<BunkerBusterBehaviorModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     /// ID of the victim object (target building)
     victim_id: ObjectID,
     /// Cached upgrade template pointer (would be resolved from upgrade_required name)
@@ -224,12 +225,13 @@ impl BunkerBusterBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<BunkerBusterBehaviorModuleData>()
+            .downcast_ref::<BunkerBusterBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             victim_id: OBJECT_INVALID_ID,
             upgrade_required_resolved: None,
         })
@@ -249,6 +251,7 @@ impl BunkerBusterBehavior {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data,
+            next_call_frame_and_phase: 0,
             victim_id: OBJECT_INVALID_ID,
             upgrade_required_resolved: None,
         })
@@ -421,6 +424,7 @@ impl BunkerBusterBehavior {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         Ok(())
     }
 
@@ -554,7 +558,6 @@ impl Snapshotable for BunkerBusterBehaviorModule {
 }
 
 impl EngineModule for BunkerBusterBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
