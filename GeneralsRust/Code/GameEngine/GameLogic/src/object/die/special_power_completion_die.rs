@@ -4,7 +4,7 @@
 //! Original C++ Author: Matthew D. Campbell, May 2002
 //! Rust conversion: 2025
 
-use super::{DieModule, DieModuleData, DieModuleInterface};
+use super::{xfer_die_module_base_versions, DieModule, DieModuleData, DieModuleInterface};
 use crate::common::xfer::XferExt;
 use crate::common::{Bool, ObjectID};
 use crate::damage::DamageInfo;
@@ -284,6 +284,8 @@ impl Snapshotable for SpecialPowerCompletionDie {
         let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("SpecialPowerCompletionDie version xfer failed: {:?}", e))?;
+
+        xfer_die_module_base_versions(xfer)?;
 
         let mut creator_id = self.creator_id;
         xfer.xfer_object_id(&mut creator_id)
