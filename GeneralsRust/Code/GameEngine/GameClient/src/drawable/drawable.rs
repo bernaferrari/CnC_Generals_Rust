@@ -27,6 +27,7 @@ use game_engine::common::ini::{get_anim2d_collection, get_global_data, Anim2DTem
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
+use gamelogic::object::draw::DrawModule as LogicDrawModule;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::AnimatedParticleSysBoneClientUpdateModule;
 use gamelogic::object::update::BeaconClientUpdateModule;
@@ -1238,6 +1239,81 @@ pub trait DrawModule: std::fmt::Debug + Send + Sync {
         _turret_pitch_pos: Option<&mut Vector3>,
     ) -> bool {
         false
+    }
+}
+
+/// Snapshot-capable GameLogic draw module that can be hosted by GameClient.
+pub trait LogicDrawableSnapshotModule: LogicDrawModule {}
+
+impl<T> LogicDrawableSnapshotModule for T where T: LogicDrawModule {}
+
+/// Adapts concrete GameLogic W3D draw modules into GameClient drawable save buckets.
+///
+/// C++ saves drawable modules by drawable-module bucket and module tag name. The
+/// Rust GameClient renderer is not yet fully backed by these GameLogic modules,
+/// so this adapter keeps the snapshot path concrete while draw dispatch remains
+/// owned by the WGPU-facing client code.
+pub struct LogicDrawModuleSnapshotAdapter {
+    module_identifier: String,
+    module_type_index: usize,
+    module: Box<dyn LogicDrawableSnapshotModule>,
+}
+
+impl LogicDrawModuleSnapshotAdapter {
+    pub const DRAW_MODULE_TYPE_INDEX: usize = 0;
+    pub const CLIENT_UPDATE_MODULE_TYPE_INDEX: usize = 1;
+
+    pub fn new(
+        module_identifier: impl Into<String>,
+        module_type_index: usize,
+        module: Box<dyn LogicDrawableSnapshotModule>,
+    ) -> Self {
+        Self {
+            module_identifier: module_identifier.into(),
+            module_type_index,
+            module,
+        }
+    }
+
+    pub fn draw_module(
+        module_identifier: impl Into<String>,
+        module: Box<dyn LogicDrawableSnapshotModule>,
+    ) -> Self {
+        Self::new(module_identifier, Self::DRAW_MODULE_TYPE_INDEX, module)
+    }
+
+    pub fn client_update_module(
+        module_identifier: impl Into<String>,
+        module: Box<dyn LogicDrawableSnapshotModule>,
+    ) -> Self {
+        Self::new(
+            module_identifier,
+            Self::CLIENT_UPDATE_MODULE_TYPE_INDEX,
+            module,
+        )
+    }
+}
+
+impl std::fmt::Debug for LogicDrawModuleSnapshotAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LogicDrawModuleSnapshotAdapter")
+            .field("module_identifier", &self.module_identifier)
+            .field("module_type_index", &self.module_type_index)
+            .finish()
+    }
+}
+
+impl DrawModule for LogicDrawModuleSnapshotAdapter {
+    fn snapshot_module_identifier(&self) -> Option<&str> {
+        Some(&self.module_identifier)
+    }
+
+    fn xfer_snapshot(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.module.xfer(xfer)
+    }
+
+    fn drawable_module_type_index(&self) -> usize {
+        self.module_type_index
     }
 }
 
@@ -4755,6 +4831,99 @@ mod tests {
         load.xfer_unsigned_int(&mut client_update_payload).unwrap();
         load.end_block().unwrap();
         assert_eq!(client_update_payload, 0x5566_7788);
+        load.close().unwrap();
+    }
+
+    #[test]
+    fn test_logic_draw_module_adapter_saves_concrete_w3d_snapshot_block() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use gamelogic::object::draw::{W3DTreeDraw, W3DTreeDrawModuleData};
+        use std::io::Cursor;
+
+        let mut modules: Vec<Box<dyn DrawModule>> =
+            vec![Box::new(LogicDrawModuleSnapshotAdapter::draw_module(
+                "W3DTreeDraw",
+                Box::new(W3DTreeDraw::new(W3DTreeDrawModuleData::new())),
+            ))];
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_modules_w3d_tree").unwrap();
+            xfer_drawable_modules(&mut save, &mut modules).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_modules_w3d_tree").unwrap();
+        let mut version = 0;
+        load.xfer_version(&mut version, 1).unwrap();
+        assert_eq!(version, 1);
+        let mut module_types = 0u16;
+        load.xfer_unsigned_short(&mut module_types).unwrap();
+        assert_eq!(module_types, 2);
+
+        let mut draw_count = 0u16;
+        load.xfer_unsigned_short(&mut draw_count).unwrap();
+        assert_eq!(draw_count, 1);
+        let mut draw_identifier = String::new();
+        load.xfer_ascii_string(&mut draw_identifier).unwrap();
+        assert_eq!(draw_identifier, "W3DTreeDraw");
+        let draw_block_size = load.begin_block().unwrap();
+        assert_eq!(draw_block_size, 1);
+        let mut tree_draw_version = 0;
+        load.xfer_version(&mut tree_draw_version, 1).unwrap();
+        load.end_block().unwrap();
+        assert_eq!(tree_draw_version, 1);
+
+        let mut client_update_count = 0u16;
+        load.xfer_unsigned_short(&mut client_update_count).unwrap();
+        assert_eq!(client_update_count, 0);
+        load.close().unwrap();
+    }
+
+    #[test]
+    fn test_logic_draw_module_adapter_loads_matching_w3d_snapshot_block() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use gamelogic::object::draw::{W3DTreeDraw, W3DTreeDrawModuleData};
+        use std::io::Cursor;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_modules_w3d_tree_load").unwrap();
+            let mut version = 1;
+            save.xfer_version(&mut version, 1).unwrap();
+            let mut module_types = 2u16;
+            save.xfer_unsigned_short(&mut module_types).unwrap();
+
+            let mut draw_count = 1u16;
+            save.xfer_unsigned_short(&mut draw_count).unwrap();
+            let mut module_identifier = "W3DTreeDraw".to_string();
+            save.xfer_ascii_string(&mut module_identifier).unwrap();
+            save.begin_block().unwrap();
+            let mut tree_draw_version = 1;
+            save.xfer_version(&mut tree_draw_version, 1).unwrap();
+            save.end_block().unwrap();
+
+            let mut client_update_count = 0u16;
+            save.xfer_unsigned_short(&mut client_update_count).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut modules: Vec<Box<dyn DrawModule>> =
+            vec![Box::new(LogicDrawModuleSnapshotAdapter::draw_module(
+                "W3DTreeDraw",
+                Box::new(W3DTreeDraw::new(W3DTreeDrawModuleData::new())),
+            ))];
+
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_modules_w3d_tree_load").unwrap();
+        xfer_drawable_modules(&mut load, &mut modules).unwrap();
         load.close().unwrap();
     }
 
