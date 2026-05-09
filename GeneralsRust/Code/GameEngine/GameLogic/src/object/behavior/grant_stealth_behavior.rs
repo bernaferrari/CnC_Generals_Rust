@@ -6,11 +6,12 @@
 
 use crate::common::{
     AsciiString, Coord3D, KindOfMaskType, ModuleData, NameKeyType, ObjectID, ParticleSystemID,
-    ParticleSystemTemplate, Real, Relationship,
+    ParticleSystemTemplate, Real, Relationship, UnsignedInt, XferVersion,
 };
 use crate::helpers::{TheGameLogic, TheParticleSystemManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -171,6 +172,7 @@ impl GrantStealthBehaviorModuleData {
 pub struct GrantStealthBehavior {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<GrantStealthBehaviorModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     radius_particle_system_id: ParticleSystemID,
     current_scan_radius: Real,
 }
@@ -191,6 +193,7 @@ impl GrantStealthBehavior {
         let mut behavior = Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
             current_scan_radius: specific_data.start_radius,
         };
@@ -414,10 +417,13 @@ impl Snapshotable for GrantStealthBehavior {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: u8 = 1;
+        const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("{:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|e| format!("GrantStealthBehavior update module base state: {}", e))?;
 
         xfer.xfer_unsigned_int(&mut self.radius_particle_system_id)
             .map_err(|e| format!("GrantStealthBehavior radius_particle_system_id: {:?}", e))?;
@@ -514,6 +520,7 @@ mod tests {
         let mut saved = GrantStealthBehavior {
             object: Weak::new(),
             module_data: module_data.clone(),
+            next_call_frame_and_phase: 0,
             radius_particle_system_id: 0x1234_5678,
             current_scan_radius: 42.25,
         };
@@ -532,6 +539,7 @@ mod tests {
         let mut loaded = GrantStealthBehavior {
             object: Weak::new(),
             module_data,
+            next_call_frame_and_phase: 0,
             radius_particle_system_id: 0,
             current_scan_radius: 0.0,
         };
