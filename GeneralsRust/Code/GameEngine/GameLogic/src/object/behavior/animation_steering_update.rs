@@ -1,10 +1,10 @@
 //! AnimationSteeringUpdate - Steers animation based on movement
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
-use crate::common::{ModelConditionFlags, ModuleData, Real, UnsignedInt};
+use crate::common::{ModelConditionFlags, ModuleData, UnsignedInt};
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
@@ -29,7 +29,7 @@ crate::impl_behavior_module_data_via_base!(AnimationSteeringUpdateModuleData, ba
 pub struct AnimationSteeringUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<AnimationSteeringUpdateModuleData>,
-    last_direction: Real,
+    next_call_frame_and_phase: UnsignedInt,
     current_turn_anim: ModelConditionFlags,
     next_transition_frame: UnsignedInt,
 }
@@ -41,13 +41,13 @@ impl AnimationSteeringUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<AnimationSteeringUpdateModuleData>()
+            .downcast_ref::<AnimationSteeringUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
-            last_direction: 0.0,
+            next_call_frame_and_phase: 0,
             current_turn_anim: ModelConditionFlags::Invalid,
             next_transition_frame: 0,
         })
@@ -152,15 +152,10 @@ impl Snapshotable for AnimationSteeringUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        xfer.xfer_real(&mut self.last_direction)
-            .map_err(|e| format!("AnimationSteeringUpdate xfer last_direction: {:?}", e))?;
-        xfer.xfer_unsigned_int(&mut self.next_transition_frame)
-            .map_err(|e| {
-                format!(
-                    "AnimationSteeringUpdate xfer next_transition_frame: {:?}",
-                    e
-                )
-            })?;
+        let mut version = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("AnimationSteeringUpdate xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         Ok(())
     }
 
