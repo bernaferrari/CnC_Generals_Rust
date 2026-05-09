@@ -12,7 +12,7 @@ use game_engine::common::system::archive_file_system as core;
 use log::warn;
 use std::future::Future;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
@@ -285,6 +285,11 @@ impl ArchiveFileSystem {
     /// Find an archive by name across registered search paths.
     pub fn find_archive(&self, name: &str) -> Option<PathBuf> {
         let requested = PathBuf::from(name);
+        if let Some(path) = resolve_existing_path_case_insensitive(&requested) {
+            if path.is_file() {
+                return Some(path);
+            }
+        }
         if requested.is_file() {
             return Some(requested);
         }
@@ -293,6 +298,11 @@ impl ArchiveFileSystem {
         for base in &search_paths {
             // Fast path: exact join with caller-provided casing.
             let direct = base.join(name);
+            if let Some(path) = resolve_existing_path_case_insensitive(&direct) {
+                if path.is_file() {
+                    return Some(path);
+                }
+            }
             if direct.is_file() {
                 return Some(direct);
             }
@@ -399,6 +409,47 @@ impl ArchiveFileSystem {
             unique_files: self.core.total_virtual_files(),
         }
     }
+}
+
+fn resolve_existing_path_case_insensitive(path: &Path) -> Option<PathBuf> {
+    let mut resolved = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Prefix(prefix) => resolved.push(prefix.as_os_str()),
+            Component::RootDir => resolved.push(component.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !resolved.pop() {
+                    return None;
+                }
+            }
+            Component::Normal(part) => {
+                let search_dir = if resolved.as_os_str().is_empty() {
+                    Path::new(".")
+                } else {
+                    resolved.as_path()
+                };
+                let part = part.to_string_lossy();
+                let matched = std::fs::read_dir(search_dir)
+                    .ok()?
+                    .filter_map(Result::ok)
+                    .find_map(|entry| {
+                        if entry
+                            .file_name()
+                            .to_string_lossy()
+                            .eq_ignore_ascii_case(&part)
+                        {
+                            Some(entry.path())
+                        } else {
+                            None
+                        }
+                    })?;
+                resolved = matched;
+            }
+        }
+    }
+
+    resolved.exists().then_some(resolved)
 }
 
 /// Archive system statistics (mirrors legacy reporting).
@@ -533,8 +584,8 @@ impl ArchiveFileReader for BigArchiveFileReader {
 static BIG_ARCHIVE_READER: OnceLock<Arc<BigArchiveFileReader>> = OnceLock::new();
 
 pub fn init_big_archive_file_reader() -> Result<()> {
-    let archive_system = get_archive_file_system()
-        .ok_or_else(|| anyhow!("Archive file system not initialized"))?;
+    let archive_system =
+        get_archive_file_system().ok_or_else(|| anyhow!("Archive file system not initialized"))?;
     let reader = Arc::new(BigArchiveFileReader::new(archive_system));
     BIG_ARCHIVE_READER
         .set(reader)
@@ -590,5 +641,44 @@ mod tests {
         assert_eq!(stats.total_archives, 0);
         assert_eq!(stats.total_files, 0);
         assert_eq!(stats.unique_files, 0);
+    }
+
+    #[test]
+    fn find_archive_resolves_nested_case_insensitive_paths() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let actual_dir = temp_dir.path().join("Data").join("English");
+        std::fs::create_dir_all(&actual_dir).unwrap();
+        let actual_archive = actual_dir.join("AudioEnglishZH.big");
+        std::fs::write(&actual_archive, b"placeholder").unwrap();
+
+        let mut archive_system = ArchiveFileSystem::new();
+        archive_system.add_search_path(temp_dir.path());
+
+        let resolved = archive_system
+            .find_archive("data/english/audioenglishzh.big")
+            .expect("nested archive path should resolve case-insensitively");
+
+        assert_eq!(resolved, actual_archive);
+    }
+
+    #[test]
+    fn find_archive_resolves_absolute_case_insensitive_paths() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let actual_dir = temp_dir.path().join("Command & Conquer Generals Zero Hour");
+        std::fs::create_dir_all(&actual_dir).unwrap();
+        let actual_archive = actual_dir.join("INIZH.big");
+        std::fs::write(&actual_archive, b"placeholder").unwrap();
+
+        let requested = temp_dir
+            .path()
+            .join("command & conquer generals zero hour")
+            .join("inizh.big");
+        let archive_system = ArchiveFileSystem::new();
+
+        let resolved = archive_system
+            .find_archive(requested.to_str().unwrap())
+            .expect("absolute archive path should resolve case-insensitively");
+
+        assert_eq!(resolved, actual_archive);
     }
 }
