@@ -9,12 +9,17 @@
 // Port of Common/StreamingArchiveFile.cpp
 ///////////////////////////////////////////////////////////////////////////////
 
-use std::io;
+use std::{cell::RefCell, io, rc::Rc};
 
 use crate::common::{
     ascii_string::AsciiString,
-    system::file::{BaseFile, File, FileAccess, SeekMode},
+    system::{
+        file::{BaseFile, File, FileAccess, SeekMode},
+        file_system::get_file_system,
+    },
 };
+
+pub type SharedArchiveFile = Rc<RefCell<Box<dyn File>>>;
 
 /// StreamingArchiveFile - A file abstraction that provides a view into a portion
 /// of an existing archive file.
@@ -31,8 +36,12 @@ use crate::common::{
 pub struct StreamingArchiveFile {
     /// Base file state (name, access flags, open status)
     base: BaseFile,
-    /// The archive file that this streaming file came from
-    file: Option<Box<dyn File>>,
+    /// The archive file that this streaming file came from.
+    ///
+    /// C++ stores a borrowed `File*` owned by the BIG archive.  Rust keeps the
+    /// same shared ownership shape explicitly, so multiple streaming views can
+    /// seek/read the same archive handle without raw pointers.
+    file: Option<SharedArchiveFile>,
     /// Starting position in the archive (offset)
     starting_pos: i32,
     /// Length of this virtual file
@@ -68,11 +77,26 @@ impl StreamingArchiveFile {
     /// `true` if successful, `false` otherwise
     pub fn open_from_archive(
         &mut self,
-        mut archive_file: Box<dyn File>,
+        archive_file: Box<dyn File>,
         filename: &AsciiString,
         offset: i32,
         size: i32,
     ) -> bool {
+        self.open_from_shared_archive(Rc::new(RefCell::new(archive_file)), filename, offset, size)
+    }
+
+    /// Open a streaming file from a shared archive handle.
+    pub fn open_from_shared_archive(
+        &mut self,
+        archive_file: SharedArchiveFile,
+        filename: &AsciiString,
+        offset: i32,
+        size: i32,
+    ) -> bool {
+        if offset < 0 || size < 0 {
+            return false;
+        }
+
         // Initialize base file state
         if !self.base_open(
             filename.as_str(),
@@ -84,19 +108,14 @@ impl StreamingArchiveFile {
         }
 
         // Verify the archive can seek to the expected positions
-        if archive_file.seek(offset, SeekMode::Start).unwrap_or(-1) != offset {
-            self.base.close_base();
-            return false;
-        }
+        let seek_ok = {
+            let mut file = archive_file.borrow_mut();
+            file.seek(offset, SeekMode::Start).unwrap_or(-1) == offset
+                && file.seek(size, SeekMode::Current).unwrap_or(-1) == offset + size
+                && file.seek(offset, SeekMode::Start).unwrap_or(-1) == offset
+        };
 
-        // Verify the size is accessible
-        if archive_file.seek(size, SeekMode::Current).unwrap_or(-1) != offset + size {
-            self.base.close_base();
-            return false;
-        }
-
-        // Seek back to the starting position
-        if archive_file.seek(offset, SeekMode::Start).unwrap_or(-1) != offset {
+        if !seek_ok {
             self.base.close_base();
             return false;
         }
@@ -109,9 +128,11 @@ impl StreamingArchiveFile {
         true
     }
 
-    /// Open from a mutable reference to a file (for compatibility)
+    /// Open from a mutable reference to a file (for compatibility).
     ///
-    /// This method is less common but matches the C++ API where File* is passed.
+    /// A bare `&mut File` cannot be stored safely after this call returns.  Use
+    /// `open_from_archive` to transfer ownership or `open_from_shared_archive`
+    /// to mirror the C++ borrowed archive pointer with explicit shared state.
     pub fn open_from_archive_ref<F: File + 'static>(
         &mut self,
         archive_file: &mut F,
@@ -119,44 +140,23 @@ impl StreamingArchiveFile {
         offset: i32,
         size: i32,
     ) -> bool {
-        // Initialize base file state
-        if !self.base_open(
-            filename.as_str(),
-            FileAccess::READ
-                .combine(FileAccess::BINARY)
-                .combine(FileAccess::STREAMING),
-        ) {
+        if offset < 0 || size < 0 {
             return false;
         }
 
-        // Verify the archive can seek to the expected positions
+        // Validate the same range C++ validates, but do not keep a dangling
+        // reference. Returning false makes misuse fail immediately.
         if archive_file.seek(offset, SeekMode::Start).unwrap_or(-1) != offset {
-            self.base.close_base();
             return false;
         }
-
-        // Verify the size is accessible
         if archive_file.seek(size, SeekMode::Current).unwrap_or(-1) != offset + size {
-            self.base.close_base();
             return false;
         }
-
-        // Seek back to the starting position
         if archive_file.seek(offset, SeekMode::Start).unwrap_or(-1) != offset {
-            self.base.close_base();
             return false;
         }
 
-        // Note: We don't take ownership in this variant
-        // This is for cases where the caller retains ownership
-        self.file = None; // No ownership taken
-        self.starting_pos = offset;
-        self.size = size;
-        self.cur_pos = 0;
-
-        // Store reference info for later use - but this requires a different approach
-        // For now, this is a placeholder that won't work without ownership
-        self.base.close_base();
+        let _ = filename;
         false
     }
 
@@ -197,14 +197,33 @@ impl File for StreamingArchiveFile {
     ///
     /// Note: This matches the C++ behavior where `open(filename, access)` calls
     /// `TheFileSystem->openFile()` internally.
-    fn open(&mut self, _filename: &str, _access: FileAccess) -> Result<(), io::Error> {
-        // In the C++ code, this opens via TheFileSystem and then calls open(file)
-        // For now, this is a stub that returns an error since we need a FileSystem
-        // implementation to properly support this.
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "StreamingArchiveFile::open requires FileSystem - use open_from_archive instead",
-        ))
+    fn open(&mut self, filename: &str, access: FileAccess) -> Result<(), io::Error> {
+        let file_system = get_file_system();
+        let mut file_system = file_system
+            .lock()
+            .map_err(|_| io::Error::other("FileSystem mutex poisoned"))?;
+
+        let archive_file = file_system
+            .open_file(filename, access)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, filename.to_string()))?;
+
+        let size = archive_file.size();
+        if size < 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "File reported a negative size",
+            ));
+        }
+
+        let name = AsciiString::from(filename);
+        if self.open_from_archive(archive_file, &name, 0, size) {
+            Ok(())
+        } else {
+            Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Failed to open streaming archive view",
+            ))
+        }
     }
 
     /// Close the streaming file
@@ -219,15 +238,15 @@ impl File for StreamingArchiveFile {
 
     /// Read data from the streaming file
     ///
-    /// If buffer is null (empty slice), just advances the current position by `bytes`.
-    /// Otherwise, reads up to `buffer.len()` bytes into the buffer.
+    /// Reads up to `buffer.len()` bytes into the buffer.
     fn read(&mut self, buffer: &mut [u8]) -> Result<usize, io::Error> {
-        let Some(ref mut file) = self.file else {
+        let Some(ref file) = self.file else {
             return Err(io::Error::new(
                 io::ErrorKind::NotConnected,
                 "No archive file",
             ));
         };
+        let mut file = file.borrow_mut();
 
         // Seek to the correct position in the archive
         file.seek(self.starting_pos + self.cur_pos, SeekMode::Start)?;
@@ -484,4 +503,5 @@ mod tests {
         file.cur_pos = 150;
         assert!(file.eof());
     }
+
 }
