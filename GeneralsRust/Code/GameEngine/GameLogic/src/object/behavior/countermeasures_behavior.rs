@@ -735,7 +735,7 @@ impl CountermeasuresBehavior {
                 as Box<dyn std::error::Error + Send + Sync>
         })?;
 
-        if version >= 2 {
+        if current_version >= 2 {
             let mut state = self.state.write().unwrap();
             let mut count: UnsignedInt = state.countermeasures.len() as UnsignedInt;
             xfer.xfer_unsigned_int(&mut count)?;
