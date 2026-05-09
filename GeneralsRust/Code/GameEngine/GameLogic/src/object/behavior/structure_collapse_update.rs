@@ -13,7 +13,7 @@ use crate::helpers::{
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::die::{
     parse_death_type_flags_tokens, parse_object_status_mask_tokens,
     parse_veterancy_level_flags_tokens, DieMuxData, ObjectStatusMask,
@@ -50,6 +50,7 @@ impl StructureCollapsePhaseType {
     }
 }
 
+#[repr(i32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum StructureCollapseStateType {
     Standing,
@@ -320,6 +321,7 @@ const STRUCTURE_COLLAPSE_UPDATE_FIELDS: &[FieldParse<StructureCollapseUpdateModu
 pub struct StructureCollapseUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<StructureCollapseUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     collapse_frame: UnsignedInt,
     burst_frame: UnsignedInt,
     collapse_state: StructureCollapseStateType,
@@ -334,7 +336,7 @@ impl StructureCollapseUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<StructureCollapseUpdateModuleData>()
+            .downcast_ref::<StructureCollapseUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         if let Ok(obj) = object.read() {
@@ -344,6 +346,7 @@ impl StructureCollapseUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             collapse_frame: 0,
             burst_frame: 0,
             collapse_state: StructureCollapseStateType::Standing,
@@ -642,6 +645,7 @@ impl Snapshotable for StructureCollapseUpdate {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_unsigned_int(&mut self.collapse_frame)
             .map_err(|e| e.to_string())?;
