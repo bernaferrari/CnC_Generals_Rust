@@ -9,7 +9,7 @@ use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, SlavedUpdateInterface, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::draw::draw_module::RGBColor;
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
 use crate::path::PATHFIND_CELL_SIZE_F;
@@ -123,6 +123,7 @@ const MOB_MEMBER_SLAVED_UPDATE_FIELDS: &[FieldParse<MobMemberSlavedUpdateModuleD
 pub struct MobMemberSlavedUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<MobMemberSlavedUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     mob_leader: ObjectID,
     frames_to_wait: Int,
     mob_state: MobStates,
@@ -140,12 +141,13 @@ impl MobMemberSlavedUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<MobMemberSlavedUpdateModuleData>()
+            .downcast_ref::<MobMemberSlavedUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             mob_leader: OBJECT_INVALID_ID,
             frames_to_wait: crate::GameLogicRandomValue!(0, 20),
             mob_state: MobStates::None,
@@ -435,6 +437,7 @@ impl Snapshotable for MobMemberSlavedUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         let mut slaver = self.mob_leader;
         xfer.xfer_object_id(&mut slaver)
             .map_err(|e| e.to_string())?;
@@ -455,13 +458,17 @@ impl Snapshotable for MobMemberSlavedUpdate {
             _ => MobStates::None,
         };
 
-        let mut r = self.personal_color.r;
-        let mut g = self.personal_color.g;
-        let mut b = self.personal_color.b;
-        xfer.xfer_u8(&mut r);
-        xfer.xfer_u8(&mut g);
-        xfer.xfer_u8(&mut b);
-        self.personal_color = RGBColor::new(r, g, b);
+        let mut r = self.personal_color.r as Real / 255.0;
+        let mut g = self.personal_color.g as Real / 255.0;
+        let mut b = self.personal_color.b as Real / 255.0;
+        xfer.xfer_real(&mut r).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut g).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut b).map_err(|e| e.to_string())?;
+        self.personal_color = RGBColor::new(
+            (r.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (g.clamp(0.0, 1.0) * 255.0).round() as u8,
+            (b.clamp(0.0, 1.0) * 255.0).round() as u8,
+        );
 
         let mut primary_victim_id = self.primary_victim_id;
         xfer.xfer_object_id(&mut primary_victim_id)
