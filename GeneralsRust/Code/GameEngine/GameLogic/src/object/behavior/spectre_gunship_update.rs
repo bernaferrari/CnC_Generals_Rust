@@ -24,7 +24,7 @@ use crate::modules::{
     SpecialPowerCommandOptions, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::special_power_module::Waypoint;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object::update::does_special_power_update_pass_science_test_for_object;
@@ -46,6 +46,7 @@ const ORBIT_INSERTION_SLOPE_MAX: Real = 0.8;
 const ORBIT_INSERTION_SLOPE_MIN: Real = 0.5;
 const LOTS_OF_SHOTS: i32 = 9999;
 
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GunshipStatus {
     Inserting,
@@ -488,6 +489,7 @@ const SPECTRE_GUNSHIP_UPDATE_FIELDS: &[FieldParse<SpectreGunshipUpdateModuleData
 pub struct SpectreGunshipUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<SpectreGunshipUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     gattling_id: ObjectID,
     status: GunshipStatus,
     initial_target_position: Coord3D,
@@ -511,12 +513,13 @@ impl SpectreGunshipUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<SpectreGunshipUpdateModuleData>()
+            .downcast_ref::<SpectreGunshipUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(data.clone()),
+            next_call_frame_and_phase: 0,
             gattling_id: crate::common::INVALID_ID,
             status: GunshipStatus::Idle,
             initial_target_position: Coord3D::ZERO,
@@ -1341,6 +1344,7 @@ impl Snapshotable for SpectreGunshipUpdate {
         let mut version: game_engine::common::system::xfer::XferVersion = 2;
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_coord3d(&mut self.initial_target_position);
         xfer.xfer_coord3d(&mut self.override_target_destination);
