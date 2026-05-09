@@ -120,7 +120,6 @@ impl SwayClientUpdateModule {
 }
 
 impl Module for SwayClientUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -139,7 +138,26 @@ impl Snapshotable for SwayClientUpdateModule {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("{:?}", e))?;
+
+        xfer.xfer_real(&mut self.cur_value)
+            .map_err(|e| format!("{:?}", e))?;
+        xfer.xfer_real(&mut self.cur_angle)
+            .map_err(|e| format!("{:?}", e))?;
+        xfer.xfer_real(&mut self.cur_delta)
+            .map_err(|e| format!("{:?}", e))?;
+        xfer.xfer_real(&mut self.cur_angle_limit)
+            .map_err(|e| format!("{:?}", e))?;
+        xfer.xfer_real(&mut self.lean_angle)
+            .map_err(|e| format!("{:?}", e))?;
+        xfer.xfer_short(&mut self.cur_version)
+            .map_err(|e| format!("{:?}", e))?;
+        xfer.xfer_bool(&mut self.swaying)
+            .map_err(|e| format!("{:?}", e))?;
         Ok(())
     }
 
@@ -157,4 +175,51 @@ fn current_breeze_info() -> Option<BreezeInfo> {
     guard
         .as_ref()
         .map(|engine| engine.get_breeze_info().clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use game_engine::common::thing::module::BaseModuleData;
+    use std::io::Cursor;
+
+    #[test]
+    fn test_sway_client_update_xfer_preserves_cpp_runtime_fields() {
+        let module_data = Arc::new(BaseModuleData::new());
+        let mut saved = SwayClientUpdateModule::new(11, module_data.clone(), 22);
+        saved.cur_value = 1.25;
+        saved.cur_angle = -0.5;
+        saved.cur_delta = 0.125;
+        saved.cur_angle_limit = 0.75;
+        saved.lean_angle = -0.25;
+        saved.cur_version = 7;
+        saved.swaying = false;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("sway_client_update").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = SwayClientUpdateModule::new(11, module_data, 22);
+        {
+            let mut load = XferLoad::new(Cursor::new(bytes), 1);
+            load.open("sway_client_update").unwrap();
+            loaded.xfer(&mut load).unwrap();
+            load.close().unwrap();
+        }
+
+        assert_eq!(loaded.cur_value, 1.25);
+        assert_eq!(loaded.cur_angle, -0.5);
+        assert_eq!(loaded.cur_delta, 0.125);
+        assert_eq!(loaded.cur_angle_limit, 0.75);
+        assert_eq!(loaded.lean_angle, -0.25);
+        assert_eq!(loaded.cur_version, 7);
+        assert!(!loaded.swaying);
+    }
 }
