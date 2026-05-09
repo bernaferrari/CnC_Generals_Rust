@@ -25,8 +25,7 @@ use game_engine::common::bit_flags::{
 use game_engine::common::ini::{get_anim2d_collection, get_global_data, Anim2DTemplate};
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
-use gamelogic::common::types::FormationID;
-use gamelogic::common::types::WeaponSlotType;
+use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::AnimatedParticleSysBoneClientUpdateModule;
 use gamelogic::object::update::BeaconClientUpdateModule;
@@ -1520,6 +1519,7 @@ pub trait Drawable: std::fmt::Debug + Send + Sync + DrawableDowncast {
 pub struct BasicDrawable {
     id: DrawableId,
     object_id: Option<u32>,
+    shroud_status_object_id: ObjectID,
     template_name: Option<String>,
     position: Vector3,
     instance_transform: Matrix4,
@@ -1600,6 +1600,7 @@ impl BasicDrawable {
         Self {
             id,
             object_id: None,
+            shroud_status_object_id: INVALID_ID,
             template_name: None,
             position: Vector3::zero(),
             instance_transform: Matrix4::identity(),
@@ -1779,6 +1780,16 @@ impl BasicDrawable {
     /// Set owning object ID.
     pub fn set_object_id(&mut self, object_id: Option<u32>) {
         self.object_id = object_id;
+    }
+
+    /// Get the object used for shroud status when this drawable has no direct object.
+    pub fn shroud_status_object_id(&self) -> ObjectID {
+        self.shroud_status_object_id
+    }
+
+    /// Set the object used for shroud status when this drawable has no direct object.
+    pub fn set_shroud_status_object_id(&mut self, object_id: ObjectID) {
+        self.shroud_status_object_id = object_id;
     }
 
     /// Flash contained objects when this drawable is selected.
@@ -3740,9 +3751,9 @@ impl Snapshotable for BasicDrawable {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // PARITY_NOTE: C++ Drawable::xfer is at version 7 (Drawable.cpp line 4900).
         // Rust version 3 adds object_id, drawable module stub, and instance_is_identity.
-        // Rust version 4 adds the instance matrix after instance_is_identity, matching
-        // C++ Drawable::xfer line 5155.
-        const CURRENT_VERSION: XferVersion = 4;
+        // Rust version 4 adds the instance matrix after instance_is_identity.
+        // Rust version 5 adds DrawableInfo shroud status object id.
+        const CURRENT_VERSION: XferVersion = 5;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("{:?}", e))?;
@@ -3966,6 +3977,12 @@ impl Snapshotable for BasicDrawable {
         xfer.xfer_real(&mut instance_scale)
             .map_err(|e| format!("{:?}", e))?;
         self.instance_scale = instance_scale;
+
+        // --- drawable info shroud-status object id (C++ line 5161) ---
+        if version >= 5 {
+            xfer.xfer_object_id(&mut self.shroud_status_object_id)
+                .map_err(|e| format!("{:?}", e))?;
+        }
 
         // --- expiration date (C++ line 5182: xferUnsignedInt) ---
         let mut expiration = self.expiration_frame.unwrap_or(0);
@@ -4444,6 +4461,34 @@ mod tests {
         assert_eq!(loaded.instance_transform, instance);
         assert_eq!(loaded.get_instance_scale(), 3.0);
         assert!(!loaded.is_instance_identity());
+    }
+
+    #[test]
+    fn test_drawable_xfer_preserves_shroud_status_object_id() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = BasicDrawable::new(DrawableId(88));
+        saved.set_shroud_status_object_id(1234);
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("drawable_shroud_status_object_id").unwrap();
+            saved.xfer_snapshot(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = BasicDrawable::new(DrawableId(0));
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("drawable_shroud_status_object_id").unwrap();
+        loaded.xfer_snapshot(&mut load).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(loaded.get_id(), DrawableId(88));
+        assert_eq!(loaded.shroud_status_object_id(), 1234);
     }
 
     #[test]
