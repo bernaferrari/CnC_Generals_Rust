@@ -529,51 +529,16 @@ impl IconInfo {
             self.clear_icon(icon_type);
         }
     }
-}
 
-impl Snapshotable for IconInfo {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer_cpp_layout(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut icon_count = self.icons.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut icon_count)
             .map_err(|e| format!("{:?}", e))?;
 
-        for icon_type in IconType::XFER_ORDER {
-            let Some(icon) = self.icons.get(&icon_type) else {
-                continue;
-            };
-
-            let mut icon_name = icon_type.name().to_string();
-            xfer.xfer_ascii_string(&mut icon_name)
-                .map_err(|e| format!("{:?}", e))?;
-
-            let mut keep = *self.keep_till_frame.get(&icon_type).unwrap_or(&0);
-            xfer.xfer_unsigned_int(&mut keep)
-                .map_err(|e| format!("{:?}", e))?;
-
-            let icon = icon
-                .as_any()
-                .downcast_ref::<Anim2DIcon>()
-                .ok_or_else(|| "Icon is not Anim2D-backed".to_string())?;
-            let mut template_name = icon.template_name().to_string();
-            xfer.xfer_ascii_string(&mut template_name)
-                .map_err(|e| format!("{:?}", e))?;
-
-            icon.xfer(xfer)?;
-        }
-
-        Ok(())
+        self.xfer_icon_entries(xfer, icon_count)
     }
 
-    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| format!("{:?}", e))?;
-
-        let mut icon_count = self.icons.len().min(u8::MAX as usize) as u8;
-        xfer.xfer_unsigned_byte(&mut icon_count)
-            .map_err(|e| format!("{:?}", e))?;
-
+    fn xfer_icon_entries(&mut self, xfer: &mut dyn Xfer, icon_count: u8) -> Result<(), String> {
         match xfer.get_xfer_mode() {
             XferMode::Save | XferMode::Crc => {
                 for icon_type in IconType::XFER_ORDER {
@@ -626,11 +591,58 @@ impl Snapshotable for IconInfo {
                 }
             }
             XferMode::Invalid => {
-                return Err("IconInfo::xfer - invalid xfer mode".to_string());
+                return Err("IconInfo::xfer_icon_entries - invalid xfer mode".to_string());
             }
         }
 
         Ok(())
+    }
+}
+
+impl Snapshotable for IconInfo {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut icon_count = self.icons.len().min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut icon_count)
+            .map_err(|e| format!("{:?}", e))?;
+
+        for icon_type in IconType::XFER_ORDER {
+            let Some(icon) = self.icons.get(&icon_type) else {
+                continue;
+            };
+
+            let mut icon_name = icon_type.name().to_string();
+            xfer.xfer_ascii_string(&mut icon_name)
+                .map_err(|e| format!("{:?}", e))?;
+
+            let mut keep = *self.keep_till_frame.get(&icon_type).unwrap_or(&0);
+            xfer.xfer_unsigned_int(&mut keep)
+                .map_err(|e| format!("{:?}", e))?;
+
+            let icon = icon
+                .as_any()
+                .downcast_ref::<Anim2DIcon>()
+                .ok_or_else(|| "Icon is not Anim2D-backed".to_string())?;
+            let mut template_name = icon.template_name().to_string();
+            xfer.xfer_ascii_string(&mut template_name)
+                .map_err(|e| format!("{:?}", e))?;
+
+            icon.xfer(xfer)?;
+        }
+
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut icon_count = self.icons.len().min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut icon_count)
+            .map_err(|e| format!("{:?}", e))?;
+
+        self.xfer_icon_entries(xfer, icon_count)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -3753,7 +3765,8 @@ impl Snapshotable for BasicDrawable {
         // Rust version 3 adds object_id, drawable module stub, and instance_is_identity.
         // Rust version 4 adds the instance matrix after instance_is_identity.
         // Rust version 5 adds DrawableInfo shroud status object id.
-        const CURRENT_VERSION: XferVersion = 5;
+        // Rust version 6 stores icons in C++ layout: count byte followed by entries.
+        const CURRENT_VERSION: XferVersion = 6;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("{:?}", e))?;
@@ -3995,18 +4008,46 @@ impl Snapshotable for BasicDrawable {
         };
 
         // --- icon count + icons (C++ line 5185-5267) ---
-        let mut has_icon_info = self.icon_info.is_some();
-        xfer.xfer_bool(&mut has_icon_info)
-            .map_err(|e| format!("{:?}", e))?;
-        if has_icon_info {
-            if self.icon_info.is_none() {
-                self.icon_info = Some(IconInfo::new());
-            }
-            if let Some(ref mut icon_info) = self.icon_info {
-                icon_info.xfer(xfer)?;
+        if version >= 6 {
+            match xfer.get_xfer_mode() {
+                XferMode::Save | XferMode::Crc => {
+                    let mut empty_icon_info;
+                    let icon_info = match self.icon_info.as_mut() {
+                        Some(icon_info) => icon_info,
+                        None => {
+                            empty_icon_info = IconInfo::new();
+                            &mut empty_icon_info
+                        }
+                    };
+                    icon_info.xfer_cpp_layout(xfer)?;
+                }
+                XferMode::Load => {
+                    let mut icon_info = IconInfo::new();
+                    icon_info.xfer_cpp_layout(xfer)?;
+                    self.icon_info = if icon_info.icons.is_empty() {
+                        None
+                    } else {
+                        Some(icon_info)
+                    };
+                }
+                XferMode::Invalid => {
+                    return Err("BasicDrawable::xfer - invalid xfer mode".to_string());
+                }
             }
         } else {
-            self.icon_info = None;
+            let mut has_icon_info = self.icon_info.is_some();
+            xfer.xfer_bool(&mut has_icon_info)
+                .map_err(|e| format!("{:?}", e))?;
+            if has_icon_info {
+                if self.icon_info.is_none() {
+                    self.icon_info = Some(IconInfo::new());
+                }
+                if let Some(ref mut icon_info) = self.icon_info {
+                    icon_info.xfer(xfer)?;
+                }
+            } else {
+                self.icon_info = None;
+            }
         }
 
         // --- Rust-specific fields not in C++ (preserved for v2 compat) ---
@@ -4358,6 +4399,9 @@ mod tests {
         assert_eq!(envelope.state, EnvelopeState::Sustain);
 
         envelope.update();
+        assert_eq!(envelope.state, EnvelopeState::Sustain);
+
+        envelope.update();
         assert_eq!(envelope.state, EnvelopeState::Decay);
     }
 
@@ -4428,6 +4472,24 @@ mod tests {
                 "CarBomb",
             ]
         );
+    }
+
+    #[test]
+    fn test_icon_info_cpp_layout_empty_writes_only_count() {
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut icon_info = IconInfo::new();
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("empty_icon_info").unwrap();
+            icon_info.xfer_cpp_layout(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        assert_eq!(bytes, vec![0]);
     }
 
     #[test]
