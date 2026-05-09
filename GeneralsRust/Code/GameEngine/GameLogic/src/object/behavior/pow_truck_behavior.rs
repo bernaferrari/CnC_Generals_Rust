@@ -69,7 +69,6 @@ crate::impl_legacy_module_data_with_key_field!(POWTruckBehaviorModuleData, modul
 #[derive(Debug)]
 pub struct POWTruckBehavior {
     object: Weak<RwLock<Object>>,
-    module_data: Arc<POWTruckBehaviorModuleData>,
     contain: OpenContain,
 }
 
@@ -82,7 +81,6 @@ impl POWTruckBehavior {
         let contain = OpenContain::new(Arc::downgrade(&object), &module_data.base)?;
         Ok(Self {
             object: Arc::downgrade(&object),
-            module_data,
             contain,
         })
     }
@@ -122,9 +120,7 @@ impl POWTruckBehavior {
 #[cfg(feature = "allow_surrender")]
 impl UpdateModuleInterface for POWTruckBehavior {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        self.contain
-            .update()
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        self.contain.update()
     }
 }
 
@@ -190,14 +186,17 @@ impl ContainModuleInterface for POWTruckBehavior {
         &mut self,
         obj: &Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.contain.add_to_contain(obj)
+        self.contain
+            .contain_object(obj.get_id())
+            .map_err(|err| err.into())
     }
 
     fn enable_load_sounds(
         &mut self,
         enabled: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.contain.enable_load_sounds(enabled)
+        self.contain.enable_load_sounds(enabled);
+        Ok(())
     }
 
     fn on_object_wants_to_enter_or_exit(
@@ -205,7 +204,8 @@ impl ContainModuleInterface for POWTruckBehavior {
         obj: &Object,
         want: ContainWant,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.contain.on_object_wants_to_enter_or_exit(obj, want)
+        self.contain.on_object_wants_to_enter_or_exit(obj, want);
+        Ok(())
     }
 
     fn is_garrisonable(&self) -> bool {
@@ -321,7 +321,6 @@ impl LegacyCollideAdapter for POWTruckCollideAdapter {
         &self,
         other: Arc<RwLock<Object>>,
     ) -> Result<bool, GameError> {
-        let other_id = other.read().map(|guard| guard.get_id()).unwrap_or_default();
         let surrendered = other
             .read()
             .ok()
@@ -366,7 +365,57 @@ impl POWTruckBehaviorModule {
     }
 
     pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
-        Arc::clone(&self.behavior)
+        Arc::new(Mutex::new(POWTruckBehaviorContainHandle {
+            behavior: Arc::clone(&self.behavior),
+        }))
+    }
+}
+
+#[cfg(feature = "allow_surrender")]
+#[derive(Debug)]
+struct POWTruckBehaviorContainHandle {
+    behavior: Arc<Mutex<POWTruckBehavior>>,
+}
+
+#[cfg(feature = "allow_surrender")]
+impl ContainModuleInterface for POWTruckBehaviorContainHandle {
+    fn can_contain(&self, object_id: ObjectID) -> bool {
+        self.behavior
+            .lock()
+            .map(|guard| guard.can_contain(object_id))
+            .unwrap_or(false)
+    }
+
+    fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        self.behavior
+            .lock()
+            .map_err(|_| "POWTruckBehaviorContainHandle lock poisoned".to_string())?
+            .contain_object(object_id)
+    }
+
+    fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
+        self.behavior
+            .lock()
+            .map_err(|_| "POWTruckBehaviorContainHandle lock poisoned".to_string())?
+            .release_object(object_id)
+    }
+
+    fn get_contained_objects(&self) -> &[ObjectID] {
+        &[]
+    }
+
+    fn get_contained_count(&self) -> usize {
+        self.behavior
+            .lock()
+            .map(|guard| guard.get_contained_count())
+            .unwrap_or(0)
+    }
+
+    fn get_max_capacity(&self) -> usize {
+        self.behavior
+            .lock()
+            .map(|guard| guard.get_max_capacity())
+            .unwrap_or(0)
     }
 }
 
@@ -387,13 +436,12 @@ impl Snapshotable for POWTruckBehaviorModule {
 
 #[cfg(feature = "allow_surrender")]
 impl Module for POWTruckBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        ModuleData::get_module_tag_name_key(self.module_data.as_ref())
     }
 
     fn get_module_data(&self) -> &dyn ModuleData {
