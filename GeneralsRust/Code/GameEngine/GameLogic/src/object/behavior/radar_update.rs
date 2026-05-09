@@ -7,15 +7,13 @@
 use crate::common::{AsciiString, Bool, ModuleData, Real, UnsignedInt, XferVersion};
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
-
-const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 
 #[derive(Clone, Debug)]
 pub struct RadarUpdateModuleData {
@@ -64,6 +62,8 @@ const RADAR_UPDATE_FIELDS: &[FieldParse<RadarUpdateModuleData>] = &[FieldParse {
 pub struct RadarUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<RadarUpdateModuleData>,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
     extend_done_frame: UnsignedInt,
     extend_complete: Bool,
     radar_active: Bool,
@@ -76,12 +76,13 @@ impl RadarUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<RadarUpdateModuleData>()
+            .downcast_ref::<RadarUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             extend_done_frame: 0,
             extend_complete: false,
             radar_active: false,
@@ -91,6 +92,7 @@ impl RadarUpdate {
     pub fn extend_radar(&mut self) {
         let current_frame = TheGameLogic::get_frame();
         self.extend_done_frame = current_frame + self.module_data.radar_extend_time as UnsignedInt;
+        self.radar_active = true;
     }
 
     pub fn is_radar_active(&self) -> Bool {
@@ -107,6 +109,7 @@ impl Snapshotable for RadarUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_unsigned_int(&mut self.extend_done_frame)
             .map_err(|e| format!("Failed to xfer extend_done_frame: {:?}", e))?;
         xfer.xfer_bool(&mut self.extend_complete)
@@ -125,15 +128,16 @@ impl UpdateModuleInterface for RadarUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         let current_frame = TheGameLogic::get_frame();
 
-        if !self.extend_complete && self.extend_done_frame > 0 {
-            if current_frame >= self.extend_done_frame {
-                self.extend_complete = true;
-                self.radar_active = true;
-            }
-            return UpdateSleepTime::Frames(1);
+        if self.extend_done_frame == 0 || self.extend_complete {
+            return UpdateSleepTime::None;
         }
 
-        UPDATE_SLEEP_FOREVER
+        if current_frame > self.extend_done_frame {
+            self.extend_complete = true;
+            self.extend_done_frame = 0;
+        }
+
+        UpdateSleepTime::None
     }
 }
 
