@@ -9,7 +9,7 @@ use crate::common::{
 };
 use crate::helpers::ThePartitionManager;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use crate::player::PlayerType;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -50,6 +50,7 @@ impl AutoFindHealingUpdateModuleData {
 pub struct AutoFindHealingUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<AutoFindHealingUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     next_scan_frames: i32,
 }
 
@@ -60,12 +61,13 @@ impl AutoFindHealingUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<AutoFindHealingUpdateModuleData>()
+            .downcast_ref::<AutoFindHealingUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             next_scan_frames: 0,
         })
     }
@@ -198,6 +200,7 @@ impl Snapshotable for AutoFindHealingUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("AutoFindHealingUpdate xfer version failed: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         let mut next_scan_frames = self.next_scan_frames;
         xfer.xfer_int(&mut next_scan_frames).map_err(|e| {
