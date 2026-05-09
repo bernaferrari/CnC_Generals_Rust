@@ -24,6 +24,7 @@ use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModuleInterface, SpecialAbilityUpdateExt,
     UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::get_special_power_store;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -118,6 +119,7 @@ const COMMAND_BUTTON_HUNT_UPDATE_FIELDS: &[FieldParse<CommandButtonHuntUpdateMod
 pub struct CommandButtonHuntUpdate {
     object_id: ObjectID,
     module_data: Arc<CommandButtonHuntUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     command_button_name: String,
     command_button: Option<CommandButtonId>,
 }
@@ -127,6 +129,7 @@ impl CommandButtonHuntUpdate {
         Self {
             object_id,
             module_data,
+            next_call_frame_and_phase: 0,
             command_button_name: String::new(),
             command_button: None,
         }
@@ -603,6 +606,7 @@ impl Snapshotable for CommandButtonHuntUpdate {
         let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_ascii_string(&mut self.command_button_name)
             .map_err(|e| format!("Failed to xfer command button name: {:?}", e))?;
@@ -705,7 +709,6 @@ impl Snapshotable for CommandButtonHuntUpdateModule {
 }
 
 impl Module for CommandButtonHuntUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
