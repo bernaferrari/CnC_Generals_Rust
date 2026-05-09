@@ -175,7 +175,8 @@ impl IniParser {
                     };
 
                     // Parse specific fields
-                    match key.to_lowercase().as_str() {
+                    let lower_key = key.to_lowercase();
+                    match lower_key.as_str() {
                         "type" => obj.object_type = value.to_string(),
                         "displayname" => obj.display_name = value.to_string(),
                         "conditionstate" => {
@@ -194,7 +195,7 @@ impl IniParser {
                         }
                         "owner" => obj.owner = Some(value.to_string()),
                         // Texture references (various formats used in C&C)
-                        key if key.contains("texture") => {
+                        _ if lower_key.contains("texture") => {
                             obj.textures.insert(key.to_string(), value.to_string());
                         }
                         // Store other attributes
@@ -457,6 +458,11 @@ End
         let def = parser.get_definition("Bush08").unwrap();
         assert_eq!(def.model_name.as_deref(), Some("PTBush08"));
         assert_eq!(def.draw_module.as_deref(), Some("W3DTreeDraw ModuleTag_01"));
+        assert_eq!(
+            def.textures.get("TextureName").map(|s| s.as_str()),
+            Some("PTBush01.tga")
+        );
+        assert!(!def.textures.contains_key("texturename"));
     }
 
     #[test]
