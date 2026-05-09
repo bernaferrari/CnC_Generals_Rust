@@ -1,13 +1,18 @@
 //! PilotFindVehicleUpdate - Ejected pilot finds and enters vehicle
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
-use crate::common::{KindOf, ModuleData, ObjectID, Real, UnsignedInt};
+use crate::ai::integration::{with_ai_integration, IntegratedAiPlayer};
+use crate::common::{CommandSourceType, Coord3D, KindOf, ModuleData, Real, UnsignedInt};
 use crate::helpers::{TheGameLogic, ThePartitionManager};
-use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::modules::{
+    AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
+};
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::contain::open_contain::ObjectRelationship;
-use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
-use game_engine::common::system::{Snapshotable, Xfer};
+use crate::object::Object as GameObject;
+use crate::player::PlayerType;
+use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -15,6 +20,7 @@ pub struct PilotFindVehicleUpdateModuleData {
     pub base: BehaviorModuleData,
     pub scan_rate: UnsignedInt,
     pub scan_range: Real,
+    pub min_health: Real,
 }
 
 impl Default for PilotFindVehicleUpdateModuleData {
@@ -23,16 +29,81 @@ impl Default for PilotFindVehicleUpdateModuleData {
             base: BehaviorModuleData::default(),
             scan_rate: 15,
             scan_range: 150.0,
+            min_health: 1.0,
         }
     }
 }
 
 crate::impl_behavior_module_data_via_base!(PilotFindVehicleUpdateModuleData, base);
 
+impl PilotFindVehicleUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, PILOT_FIND_VEHICLE_UPDATE_FIELDS)
+    }
+}
+
+fn parse_scan_rate(
+    _ini: &mut INI,
+    data: &mut PilotFindVehicleUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.scan_rate = INI::parse_duration_unsigned_int(token)?;
+    Ok(())
+}
+
+fn parse_scan_range(
+    _ini: &mut INI,
+    data: &mut PilotFindVehicleUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.scan_range = INI::parse_real(token)?;
+    Ok(())
+}
+
+fn parse_min_health(
+    _ini: &mut INI,
+    data: &mut PilotFindVehicleUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.min_health = INI::parse_real(token)?;
+    Ok(())
+}
+
+const PILOT_FIND_VEHICLE_UPDATE_FIELDS: &[FieldParse<PilotFindVehicleUpdateModuleData>] = &[
+    FieldParse {
+        token: "ScanRate",
+        parse: parse_scan_rate,
+    },
+    FieldParse {
+        token: "ScanRange",
+        parse: parse_scan_range,
+    },
+    FieldParse {
+        token: "MinHealth",
+        parse: parse_min_health,
+    },
+];
+
 pub struct PilotFindVehicleUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<PilotFindVehicleUpdateModuleData>,
-    target_vehicle: ObjectID,
+    next_call_frame_and_phase: UnsignedInt,
+    did_move_to_base: bool,
 }
 
 impl PilotFindVehicleUpdate {
@@ -42,14 +113,27 @@ impl PilotFindVehicleUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<PilotFindVehicleUpdateModuleData>()
+            .downcast_ref::<PilotFindVehicleUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
-            target_vehicle: OBJECT_INVALID_ID,
+            next_call_frame_and_phase: 0,
+            did_move_to_base: false,
         })
+    }
+
+    fn owner_base_center(owner: &GameObject) -> Option<Coord3D> {
+        let player_id = owner.get_controlling_player_id()? as u32;
+        with_ai_integration(|manager| {
+            manager.with_ai_player(player_id, |ai_player| match ai_player {
+                IntegratedAiPlayer::Standard(player) => player.get_base_center(),
+                IntegratedAiPlayer::Skirmish(player) => player.get_base_center(),
+            })
+        })
+        .flatten()
+        .flatten()
     }
 }
 
@@ -64,6 +148,23 @@ impl UpdateModuleInterface for PilotFindVehicleUpdate {
 
         if owner_guard.is_destroyed() || owner_guard.get_container().is_some() {
             return UpdateSleepTime::Forever;
+        }
+
+        let is_human = owner_guard
+            .get_controlling_player()
+            .and_then(|player| player.read().ok().map(|guard| guard.get_player_type()))
+            == Some(PlayerType::Human);
+        if is_human {
+            return UpdateSleepTime::Forever;
+        }
+
+        let Some(ai) = owner_guard.get_ai() else {
+            return UpdateSleepTime::Forever;
+        };
+        if let Ok(ai_guard) = ai.lock() {
+            if !ai_guard.is_idle() {
+                return UpdateSleepTime::from_u32(self.module_data.scan_rate);
+            }
         }
 
         let owner_id = owner_guard.get_id();
@@ -96,6 +197,17 @@ impl UpdateModuleInterface for PilotFindVehicleUpdate {
                 continue;
             }
 
+            let Some(body) = obj_guard.get_body_module() else {
+                continue;
+            };
+            let Ok(body_guard) = body.lock() else {
+                continue;
+            };
+            if body_guard.get_health() < body_guard.get_max_health() * self.module_data.min_health {
+                continue;
+            }
+            drop(body_guard);
+
             let Some(contain_arc) = obj_guard.get_contain() else {
                 continue;
             };
@@ -117,14 +229,12 @@ impl UpdateModuleInterface for PilotFindVehicleUpdate {
         }
 
         if let Some(target_id) = best_target {
-            if let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) {
-                if let Ok(target_guard) = target_arc.read() {
-                    if let Some(contain_arc) = target_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain_arc.lock() {
-                            let _ = contain_guard.contain_object(owner_id);
-                        }
-                    }
-                }
+            ai.ai_enter(target_id, CommandSourceType::FromAi);
+            self.did_move_to_base = false;
+        } else if !self.did_move_to_base {
+            if let Some(base_center) = Self::owner_base_center(&owner_guard) {
+                ai.ai_move_to_position(&base_center, false, CommandSourceType::FromAi);
+                self.did_move_to_base = true;
             }
         }
 
@@ -147,8 +257,12 @@ impl Snapshotable for PilotFindVehicleUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        xfer.xfer_object_id(&mut self.target_vehicle)
-            .map_err(|e| format!("PilotFindVehicleUpdate xfer target_vehicle: {:?}", e))?;
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("PilotFindVehicleUpdate xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+        xfer.xfer_bool(&mut self.did_move_to_base)
+            .map_err(|e| format!("PilotFindVehicleUpdate xfer did_move_to_base: {:?}", e))?;
         Ok(())
     }
 
