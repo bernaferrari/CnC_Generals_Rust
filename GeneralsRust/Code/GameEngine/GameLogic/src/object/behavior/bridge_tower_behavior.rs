@@ -25,7 +25,9 @@ use game_engine::common::thing::module::{
 };
 use game_engine::system::Xfer as EngineXfer;
 
-use super::behavior_module::{BridgeTowerBehaviorInterface, BridgeTowerType};
+use super::behavior_module::{
+    xfer_behavior_module_base_versions, BridgeTowerBehaviorInterface, BridgeTowerType,
+};
 
 const BRIDGE_MAX_TOWERS: usize = 4;
 
@@ -348,10 +350,12 @@ impl BridgeTowerBehavior {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
 
+        xfer_behavior_module_base_versions(xfer)?;
+
         xfer.xfer_object_id(&mut self.bridge_id)?;
 
-        let mut tower_kind = self.tower_type as u8;
-        xfer.xfer_u8(&mut tower_kind);
+        let mut tower_kind = self.tower_type as u32;
+        xfer.xfer_unsigned_int(&mut tower_kind)?;
         self.tower_type = match tower_kind {
             0 => BridgeTowerType::North,
             1 => BridgeTowerType::South,
@@ -532,7 +536,6 @@ impl Snapshotable for BridgeTowerBehaviorModule {
 }
 
 impl EngineModule for BridgeTowerBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
