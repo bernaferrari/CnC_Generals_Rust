@@ -3604,11 +3604,8 @@ impl Snapshotable for BasicDrawable {
         let mut flags = self.model_condition_flags.clone();
         xfer_model_condition_flags(xfer, &mut flags)?;
 
-        let mut position = self.position;
-        xfer_vector3(xfer, &mut position)?;
-
-        let mut instance_transform = self.instance_transform;
-        xfer_matrix4(xfer, &mut instance_transform)?;
+        let mut transform = Matrix4::translation(self.position).mul(&self.instance_transform);
+        xfer_matrix3d(xfer, &mut transform)?;
 
         let mut has_selection_flash = self.selection_flash_envelope.is_some();
         xfer.xfer_bool(&mut has_selection_flash)
@@ -3798,9 +3795,20 @@ impl Snapshotable for BasicDrawable {
             }
         }
 
-        // --- transform (C++ version >= 5: Matrix3D, line 4935) ---
-        xfer_vector3(xfer, &mut self.position)?;
-        xfer_matrix4(xfer, &mut self.instance_transform)?;
+        // --- transform (C++ version >= 5: xferMatrix3D, line 4935) ---
+        let mut transform = Matrix4::translation(self.position).mul(&self.instance_transform);
+        xfer_matrix3d(xfer, &mut transform)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.position = Vector3::new(
+                transform.elements[0][3],
+                transform.elements[1][3],
+                transform.elements[2][3],
+            );
+            transform.elements[0][3] = 0.0;
+            transform.elements[1][3] = 0.0;
+            transform.elements[2][3] = 0.0;
+            self.instance_transform = transform;
+        }
 
         // --- selection flash envelope (C++ line 4956) ---
         let mut has_selection_flash = self.selection_flash_envelope.is_some();
@@ -3994,7 +4002,7 @@ impl Snapshotable for BasicDrawable {
 
         // --- instance matrix (C++ line 5155) ---
         if version >= 4 {
-            xfer_matrix4(xfer, &mut self.instance_transform)?;
+            xfer_matrix3d_user(xfer, &mut self.instance_transform)?;
         }
 
         // --- instance scale (C++ line 5158) ---
@@ -4200,12 +4208,22 @@ fn xfer_vector3(xfer: &mut dyn Xfer, value: &mut Vector3) -> Result<(), String> 
     Ok(())
 }
 
-fn xfer_matrix4(xfer: &mut dyn Xfer, value: &mut Matrix4) -> Result<(), String> {
-    for row in 0..4 {
+fn xfer_matrix3d(xfer: &mut dyn Xfer, value: &mut Matrix4) -> Result<(), String> {
+    let mut version: XferVersion = 1;
+    xfer.xfer_version(&mut version, 1)
+        .map_err(|e| format!("{:?}", e))?;
+    xfer_matrix3d_user(xfer, value)
+}
+
+fn xfer_matrix3d_user(xfer: &mut dyn Xfer, value: &mut Matrix4) -> Result<(), String> {
+    for row in 0..3 {
         for col in 0..4 {
             xfer.xfer_real(&mut value.elements[row][col])
                 .map_err(|e| format!("{:?}", e))?;
         }
+    }
+    if xfer.get_xfer_mode() == XferMode::Load {
+        value.elements[3] = [0.0, 0.0, 0.0, 1.0];
     }
     Ok(())
 }
@@ -4660,6 +4678,68 @@ mod tests {
         load.close().unwrap();
 
         assert_eq!(marker, 0xAABB_CCDD);
+    }
+
+    #[test]
+    fn test_matrix3d_save_layout_matches_cpp_xfer_matrix3d() {
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut matrix = Matrix4::identity();
+        matrix.elements[0] = [1.0, 2.0, 3.0, 4.0];
+        matrix.elements[1] = [5.0, 6.0, 7.0, 8.0];
+        matrix.elements[2] = [9.0, 10.0, 11.0, 12.0];
+        matrix.elements[3] = [13.0, 14.0, 15.0, 16.0];
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("matrix3d").unwrap();
+            xfer_matrix3d(&mut save, &mut matrix).unwrap();
+            save.close().unwrap();
+        }
+
+        assert_eq!(bytes.len(), 1 + 12 * std::mem::size_of::<f32>());
+        assert_eq!(bytes[0], 1);
+        assert_eq!(&bytes[1..5], &1.0f32.to_le_bytes());
+        assert_eq!(&bytes[45..49], &12.0f32.to_le_bytes());
+    }
+
+    #[test]
+    fn test_matrix3d_user_load_restores_identity_bottom_row() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = Matrix4::identity();
+        saved.elements[0] = [1.0, 2.0, 3.0, 4.0];
+        saved.elements[1] = [5.0, 6.0, 7.0, 8.0];
+        saved.elements[2] = [9.0, 10.0, 11.0, 12.0];
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("matrix3d_user").unwrap();
+            xfer_matrix3d_user(&mut save, &mut saved).unwrap();
+            save.close().unwrap();
+        }
+
+        assert_eq!(bytes.len(), 12 * std::mem::size_of::<f32>());
+
+        let mut loaded = Matrix4 {
+            elements: [[99.0; 4]; 4],
+        };
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("matrix3d_user").unwrap();
+        xfer_matrix3d_user(&mut load, &mut loaded).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(loaded.elements[0], [1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(loaded.elements[1], [5.0, 6.0, 7.0, 8.0]);
+        assert_eq!(loaded.elements[2], [9.0, 10.0, 11.0, 12.0]);
+        assert_eq!(loaded.elements[3], [0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]
