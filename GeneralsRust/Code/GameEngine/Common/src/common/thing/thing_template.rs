@@ -1216,12 +1216,46 @@ impl ThingTemplate {
         &self.draw_module_info
     }
 
+    pub fn add_draw_module_info(
+        &mut self,
+        name: AsciiString,
+        module_tag: AsciiString,
+        data: Arc<dyn ModuleData>,
+        interface_mask: ModuleInterfaceType,
+    ) {
+        self.draw_module_info.add_module_info(
+            name,
+            module_tag,
+            data,
+            interface_mask.0 as i32,
+            false,
+            false,
+        );
+    }
+
     /// Returns descriptors for draw modules defined on this template.
     pub fn draw_module_descriptors(&self) -> Vec<ModuleDescriptor> {
         self.draw_module_info.descriptors()
     }
     pub fn get_client_update_module_info(&self) -> &ModuleInfo {
         &self.client_update_module_info
+    }
+
+    pub fn add_client_update_module_info(
+        &mut self,
+        name: AsciiString,
+        module_tag: AsciiString,
+        data: Arc<dyn ModuleData>,
+        interface_mask: ModuleInterfaceType,
+    ) {
+        self.client_update_module_info.add_module_info(
+            name,
+            module_tag,
+            data,
+            interface_mask.0 as i32,
+            false,
+            false,
+        );
     }
 
     /// Returns the grouped module descriptors extracted from this template.
