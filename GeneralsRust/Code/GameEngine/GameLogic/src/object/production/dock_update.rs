@@ -1441,15 +1441,24 @@ impl RepairDockUpdateModule {
 
 impl Snapshotable for RepairDockUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.module_data.crc(xfer)
+        self.behavior.base.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).xfer(xfer)
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| format!("RepairDockUpdateModule::xfer version failed: {err}"))?;
+        self.behavior.base.xfer(xfer)?;
+        xfer.xfer_object_id(&mut self.behavior.last_repair)
+            .map_err(|err| format!("RepairDockUpdateModule::xfer last_repair failed: {err}"))?;
+        xfer.xfer_real(&mut self.behavior.health_to_add_per_frame)
+            .map_err(|err| {
+                format!("RepairDockUpdateModule::xfer health_to_add_per_frame failed: {err}")
+            })
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).load_post_process()
+        self.behavior.base.load_post_process()
     }
 }
 
