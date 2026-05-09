@@ -9,6 +9,7 @@ use crate::common::{AsciiString, Bool, ModuleData, UnsignedInt};
 use crate::modules::{
     BehaviorModuleInterface, PowerPlantUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::Object as GameObject;
 use crate::system::game_logic::get_game_logic;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -60,6 +61,7 @@ impl Snapshotable for PowerPlantUpdateModuleData {
 pub struct PowerPlantUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<PowerPlantUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     extended: Bool,
     extend_done_frame: UnsignedInt,
 }
@@ -78,6 +80,7 @@ impl PowerPlantUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             extended: false,
             extend_done_frame: 0,
         })
@@ -183,6 +186,8 @@ impl Snapshotable for PowerPlantUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
         xfer.xfer_bool(&mut self.extended)
             .map_err(|e| format!("Failed to xfer extended: {:?}", e))?;
         Ok(())
@@ -279,6 +284,7 @@ mod tests {
         let mut saved = PowerPlantUpdate {
             object: Weak::new(),
             module_data: module_data.clone(),
+            next_call_frame_and_phase: 0x1234,
             extended: true,
             extend_done_frame: 1234,
         };
@@ -295,6 +301,7 @@ mod tests {
         let mut loaded = PowerPlantUpdate {
             object: Weak::new(),
             module_data,
+            next_call_frame_and_phase: 0,
             extended: false,
             extend_done_frame: 77,
         };
@@ -306,6 +313,7 @@ mod tests {
         }
 
         assert!(loaded.extended);
+        assert_eq!(loaded.next_call_frame_and_phase, 0x1234);
         assert_eq!(loaded.extend_done_frame, 77);
     }
 }
