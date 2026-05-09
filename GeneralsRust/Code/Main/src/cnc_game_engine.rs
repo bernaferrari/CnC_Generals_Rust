@@ -823,6 +823,7 @@ pub mod parity_test_support {
         victory_summary_present: bool,
         selected_objects: Vec<u32>,
         quit_requests_emitted: usize,
+        menu_world_frames_rendered: u32,
     }
 
     impl Default for StateMachineParityHarness {
@@ -837,6 +838,7 @@ pub mod parity_test_support {
                 victory_summary_present: false,
                 selected_objects: Vec::new(),
                 quit_requests_emitted: 0,
+                menu_world_frames_rendered: 0,
             }
         }
     }

@@ -10,8 +10,12 @@
 ** - Error handling and recovery
 */
 
-use generals_rust::save_load::*;
+use generals_main::game_logic::*;
+use generals_main::save_load::GameMode as ReplayGameMode;
+use generals_main::save_load::*;
+use std::collections::HashMap;
 use std::io::Cursor;
+use std::time::SystemTime;
 use tempfile::TempDir;
 
 #[test]
@@ -98,6 +102,36 @@ fn test_xfer_vectors() {
 
         xfer.close().unwrap();
     }
+}
+
+#[test]
+fn test_xfer_hashmap_round_trip() {
+    let mut buffer = Vec::new();
+    let mut saved: HashMap<String, u32> = HashMap::from([
+        ("AmericaTankCrusader".to_string(), 1200),
+        ("ChinaTankOverlord".to_string(), 2000),
+        ("GLAVehicleScorpion".to_string(), 600),
+    ]);
+
+    {
+        let mut xfer = XferSave::new(Cursor::new(&mut buffer));
+        xfer.open("test_hashmap").unwrap();
+        xfer.xfer_hashmap(&mut saved).unwrap();
+        xfer.close().unwrap();
+    }
+
+    let mut loaded: HashMap<String, u32> = HashMap::new();
+    {
+        let mut xfer = XferLoad::new(Cursor::new(&buffer));
+        xfer.open("test_hashmap").unwrap();
+        xfer.xfer_hashmap(&mut loaded).unwrap();
+        xfer.close().unwrap();
+    }
+
+    assert_eq!(loaded.len(), 3);
+    assert_eq!(loaded["AmericaTankCrusader"], 1200);
+    assert_eq!(loaded["ChinaTankOverlord"], 2000);
+    assert_eq!(loaded["GLAVehicleScorpion"], 600);
 }
 
 #[test]
@@ -304,14 +338,14 @@ fn test_world_snapshot_serialization() {
 
 #[test]
 fn test_object_snapshot_serialization() {
-    let mut snapshot = ObjectSnapshot {
+    let snapshot = ObjectSnapshot {
         id: ObjectId(123),
         template_name: "TestUnit".to_string(),
         team: Team::USA,
         player_id: 1,
         geometry: GeometryInfo::default(),
         status: ObjectStatusSnapshot::default(),
-        health: Health::default(),
+        health: Health::new(100.0),
         movement: Movement::default(),
         experience: Experience::default(),
         weapons: Vec::new(),
@@ -429,7 +463,7 @@ fn test_campaign_progress_serialization() {
 fn test_replay_header_serialization() {
     let mut header = ReplayHeader::default();
     header.map_name = "Tournament Desert".to_string();
-    header.game_mode = GameMode::Multiplayer;
+    header.game_mode = ReplayGameMode::Multiplayer;
     header.difficulty = GameDifficulty::Hard;
     header.total_frames = 100000;
 
@@ -450,9 +484,9 @@ fn test_replay_header_serialization() {
     // Deserialize
     let deserialized: ReplayHeader = bincode::deserialize(&serialized).unwrap();
 
-    assert_eq!(deserialized.magic, REPLAY_MAGIC);
+    assert_eq!(deserialized.magic, *b"GZRP");
     assert_eq!(deserialized.map_name, "Tournament Desert");
-    assert_eq!(deserialized.game_mode, GameMode::Multiplayer);
+    assert_eq!(deserialized.game_mode, ReplayGameMode::Multiplayer);
     assert_eq!(deserialized.total_frames, 100000);
     assert_eq!(deserialized.players.len(), 1);
 }
@@ -567,8 +601,6 @@ fn test_save_game_info() {
 
 #[cfg(test)]
 mod integration_tests {
-    use super::*;
-
     // These tests would require a full game_logic implementation
     // They are placeholders demonstrating the API usage
 
