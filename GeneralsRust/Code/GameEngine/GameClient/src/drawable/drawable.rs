@@ -952,12 +952,12 @@ impl Snapshotable for TintEnvelope {
         xfer.xfer_unsigned_int(&mut sustain_counter)
             .map_err(|e| format!("{:?}", e))?;
 
-        let mut state = envelope_state_to_u8(self.state);
-        xfer.xfer_unsigned_byte(&mut state)
-            .map_err(|e| format!("{:?}", e))?;
-
         let mut effective = self.is_effective;
         xfer.xfer_bool(&mut effective)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut state = envelope_state_to_u8(self.state);
+        xfer.xfer_unsigned_byte(&mut state)
             .map_err(|e| format!("{:?}", e))?;
 
         Ok(())
@@ -979,15 +979,15 @@ impl Snapshotable for TintEnvelope {
             .map_err(|e| format!("{:?}", e))?;
         self.sustain_counter = sustain_counter;
 
-        let mut state = envelope_state_to_u8(self.state);
-        xfer.xfer_unsigned_byte(&mut state)
-            .map_err(|e| format!("{:?}", e))?;
-        self.state = envelope_state_from_u8(state);
-
         let mut effective = self.is_effective;
         xfer.xfer_bool(&mut effective)
             .map_err(|e| format!("{:?}", e))?;
         self.is_effective = effective;
+
+        let mut state = envelope_state_to_u8(self.state);
+        xfer.xfer_unsigned_byte(&mut state)
+            .map_err(|e| format!("{:?}", e))?;
+        self.state = envelope_state_from_u8(state);
 
         Ok(())
     }
@@ -4720,6 +4720,55 @@ mod tests {
         assert_eq!(loaded.elements[1], [5.0, 6.0, 7.0, 8.0]);
         assert_eq!(loaded.elements[2], [9.0, 10.0, 11.0, 12.0]);
         assert_eq!(loaded.elements[3], [0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_tint_envelope_xfer_order_matches_cpp() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut saved = TintEnvelope {
+            attack_rate: Vector3::new(1.0, 2.0, 3.0),
+            decay_rate: Vector3::new(4.0, 5.0, 6.0),
+            peak_color: Vector3::new(7.0, 8.0, 9.0),
+            current_color: Vector3::new(10.0, 11.0, 12.0),
+            sustain_counter: 13,
+            state: EnvelopeState::Sustain,
+            is_effective: true,
+        };
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("tint_envelope").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        assert_eq!(
+            bytes.len(),
+            1 + 12 * std::mem::size_of::<f32>() + 4 + std::mem::size_of::<i32>() + 1
+        );
+        assert_eq!(bytes[0], 1);
+        assert_eq!(&bytes[1..5], &1.0f32.to_le_bytes());
+        assert_eq!(&bytes[45..49], &12.0f32.to_le_bytes());
+        assert_eq!(&bytes[49..53], &13u32.to_le_bytes());
+        assert_eq!(&bytes[53..57], &1i32.to_le_bytes());
+        assert_eq!(bytes[57], 3);
+
+        let mut loaded = TintEnvelope::new();
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("tint_envelope").unwrap();
+        loaded.xfer(&mut load).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(loaded.attack_rate, Vector3::new(1.0, 2.0, 3.0));
+        assert_eq!(loaded.current_color, Vector3::new(10.0, 11.0, 12.0));
+        assert_eq!(loaded.sustain_counter, 13);
+        assert!(loaded.is_effective);
+        assert_eq!(loaded.state, EnvelopeState::Sustain);
     }
 
     #[test]
