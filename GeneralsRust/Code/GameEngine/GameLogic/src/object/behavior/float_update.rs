@@ -5,12 +5,12 @@
 //! Rust conversion: 2025
 
 use crate::common::xfer::XferExt;
-use crate::common::{AsciiString, Bool, ModuleData, Real, XferVersion};
+use crate::common::{AsciiString, Bool, ModuleData, Real, UnsignedInt, XferVersion};
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -62,6 +62,7 @@ pub struct FloatUpdate {
     object: Weak<RwLock<GameObject>>,
     #[allow(dead_code)]
     module_data: Arc<FloatUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     enabled: Bool,
 }
 
@@ -72,12 +73,13 @@ impl FloatUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<FloatUpdateModuleData>()
+            .downcast_ref::<FloatUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             enabled: specific_data.enabled,
         })
     }
@@ -153,6 +155,7 @@ impl Snapshotable for FloatUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_bool(&mut self.enabled)
             .map_err(|e| format!("Failed to xfer enabled: {:?}", e))?;
         Ok(())
