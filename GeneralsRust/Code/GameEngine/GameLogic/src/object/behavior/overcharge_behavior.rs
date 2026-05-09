@@ -19,14 +19,18 @@ use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, Thing as ModuleThing};
 
-use crate::common::{Bool, NameKeyType, ObjectID, Real, LOGICFRAMES_PER_SECOND};
+use crate::common::{
+    Bool, NameKeyType, ObjectID, Real, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
+};
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheInGameUI, TheRadar};
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, PowerPlantUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::OverchargeBehaviorInterface;
+use crate::object::behavior::behavior_module::{
+    xfer_update_module_base_state, OverchargeBehaviorInterface,
+};
 use crate::object::Object;
 use crate::player::{player_list, Player};
 
@@ -113,6 +117,7 @@ const OVERCHARGE_BEHAVIOR_FIELDS: &[FieldParse<OverchargeBehaviorModuleData>] = 
 pub struct OverchargeBehavior {
     object_id: ObjectID,
     module_data: Arc<OverchargeBehaviorModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     overcharge_active: Bool,
 }
 
@@ -125,6 +130,7 @@ impl OverchargeBehavior {
         Self {
             object_id,
             module_data,
+            next_call_frame_and_phase: 0,
             overcharge_active: false,
         }
     }
@@ -402,9 +408,11 @@ impl Snapshotable for OverchargeBehavior {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
+        let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("xfer version failed: {e:?}"))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|e| format!("xfer update module base state failed: {e}"))?;
         xfer.xfer_bool(&mut self.overcharge_active)
             .map_err(|e| format!("xfer overcharge_active failed: {e:?}"))?;
         Ok(())
@@ -462,7 +470,6 @@ impl Snapshotable for OverchargeBehaviorModule {
 }
 
 impl Module for OverchargeBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
