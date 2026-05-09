@@ -10,7 +10,7 @@ use crate::modules::{
     ExitInterface as ModuleExitInterface, UpdateModuleInterface, UpdateSleepTime,
     UPDATE_SLEEP_FOREVER,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
@@ -55,6 +55,7 @@ crate::impl_behavior_module_data_via_base!(SpawnPointProductionExitModuleData, b
 pub struct SpawnPointProductionExitBehavior {
     data: SpawnPointProductionExitModuleData,
     owner_id: ObjectID,
+    next_call_frame_and_phase: UnsignedInt,
     bones_initialized: bool,
     spawn_point_count: usize,
     world_coord_spawn_points: [Coord3D; MAX_SPAWN_POINTS],
@@ -67,6 +68,7 @@ impl SpawnPointProductionExitBehavior {
         Self {
             data,
             owner_id,
+            next_call_frame_and_phase: 0,
             bones_initialized: false,
             spawn_point_count: 0,
             world_coord_spawn_points: [Coord3D::new(0.0, 0.0, 0.0); MAX_SPAWN_POINTS],
@@ -310,7 +312,6 @@ impl Snapshotable for SpawnPointProductionExitBehaviorModule {
 }
 
 impl Module for SpawnPointProductionExitBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -357,7 +358,7 @@ impl Snapshotable for SpawnPointProductionExitBehavior {
             format!("SpawnPointProductionExitBehavior::xfer version failed: {err}")
         })?;
 
-        self.data.xfer(xfer)?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         for id in &mut self.spawn_point_occupier {
             xfer.xfer_object_id(id).map_err(|err| {
                 format!("SpawnPointProductionExitBehavior::xfer spawn_point_occupier failed: {err}")

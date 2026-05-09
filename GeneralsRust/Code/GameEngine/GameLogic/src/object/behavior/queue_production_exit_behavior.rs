@@ -24,7 +24,7 @@ use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, ExitDoorType as ModuleExitDoorType,
     ExitInterface as ModuleExitInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -88,6 +88,8 @@ crate::impl_behavior_module_data_via_base!(QueueProductionExitModuleData, base);
 pub struct QueueProductionExitBehavior {
     /// Module configuration
     data: QueueProductionExitModuleData,
+    /// UpdateModule scheduler state serialized by the C++ base class
+    next_call_frame_and_phase: UnsignedInt,
     /// Current delay counter (frames until next unit can exit)
     /// Matches C++ m_currentDelay (line 23)
     current_delay: u32,
@@ -114,6 +116,7 @@ impl QueueProductionExitBehavior {
         Self {
             current_burst_count: data.initial_burst,
             data,
+            next_call_frame_and_phase: 0,
             current_delay: 0,
             rally_point: Coord3D::new(0.0, 0.0, 0.0),
             rally_point_exists: false,
@@ -564,7 +567,7 @@ impl Snapshotable for QueueProductionExitBehavior {
         xfer.xfer_version(&mut version, 1)
             .map_err(|err| format!("QueueProductionExitBehavior::xfer version failed: {err}"))?;
 
-        self.data.xfer(xfer)?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_unsigned_int(&mut self.current_delay)
             .map_err(|err| {
                 format!("QueueProductionExitBehavior::xfer current_delay failed: {err}")
@@ -631,7 +634,6 @@ impl Snapshotable for QueueProductionExitBehaviorModule {
 }
 
 impl Module for QueueProductionExitBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
