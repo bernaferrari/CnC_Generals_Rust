@@ -31,9 +31,10 @@ use crate::modules::{
     UpdateModule, UpdateModuleInterface, UpdateSleepTime, MODULEINTERFACE_DIE, UPDATE_SLEEP,
     UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::weapon::with_weapon_store;
 use crate::MAKE_MODELCONDITION_MASK;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 pub type DieMuxData = crate::object::die::DieMuxData;
 use crate::helpers::TheWeaponStore;
 use crate::object::die::{
@@ -462,6 +463,7 @@ pub struct SlowDeathBehavior {
     module_data: Arc<SlowDeathBehaviorModuleData>,
 
     // State tracking
+    next_call_frame_and_phase: UnsignedInt,
     flags: UnsignedInt,
     sink_frame: UnsignedInt,
     midpoint_frame: UnsignedInt,
@@ -495,6 +497,7 @@ impl SlowDeathBehavior {
         Ok(Self {
             object: None, // Will be set after creation
             module_data: Arc::new(data),
+            next_call_frame_and_phase: 0,
             flags: 0,
             sink_frame: 0,
             midpoint_frame: 0,
@@ -1062,8 +1065,12 @@ impl Snapshotable for SlowDeathBehavior {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        xfer.xfer_unsigned_int(&mut self.flags)
-            .map_err(|e| format!("SlowDeathBehavior xfer flags: {:?}", e))?;
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("SlowDeathBehavior xfer version: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
         xfer.xfer_unsigned_int(&mut self.sink_frame)
             .map_err(|e| format!("SlowDeathBehavior xfer sink_frame: {:?}", e))?;
         xfer.xfer_unsigned_int(&mut self.midpoint_frame)
@@ -1072,6 +1079,8 @@ impl Snapshotable for SlowDeathBehavior {
             .map_err(|e| format!("SlowDeathBehavior xfer destruction_frame: {:?}", e))?;
         xfer.xfer_real(&mut self.accelerated_time_scale)
             .map_err(|e| format!("SlowDeathBehavior xfer accelerated_time_scale: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.flags)
+            .map_err(|e| format!("SlowDeathBehavior xfer flags: {:?}", e))?;
         Ok(())
     }
 
