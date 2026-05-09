@@ -8,7 +8,7 @@ use crate::common::{
 };
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::Object as GameObject;
 use crate::weapon::{WeaponAntiMask, WeaponBonus, WeaponSlotType};
@@ -55,9 +55,10 @@ pub struct PointDefenseLaserUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<PointDefenseLaserUpdateModuleData>,
     enabled: Bool,
+    next_call_frame_and_phase: UnsignedInt,
     best_target_id: crate::common::ObjectID,
-    next_scan_frames: UnsignedInt,
-    next_shot_available_in_frames: UnsignedInt,
+    next_scan_frames: i32,
+    next_shot_available_in_frames: i32,
     in_range: Bool,
 }
 
@@ -155,13 +156,14 @@ impl PointDefenseLaserUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<PointDefenseLaserUpdateModuleData>()
+            .downcast_ref::<PointDefenseLaserUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
             enabled: true,
+            next_call_frame_and_phase: 0,
             best_target_id: crate::common::INVALID_ID,
             next_scan_frames: 0,
             next_shot_available_in_frames: 0,
@@ -342,13 +344,13 @@ impl PointDefenseLaserUpdate {
             self.in_range = true;
         } else {
             if self.in_range {
-                self.next_scan_frames = crate::GameLogicRandomValue!(0, 3) as UnsignedInt;
+                self.next_scan_frames = crate::GameLogicRandomValue!(0, 3) as i32;
                 self.best_target_id = crate::common::INVALID_ID;
                 if self.next_scan_frames == 0 {
                     if let Some(target_id) = self.scan_closest_target(owner_guard) {
                         self.best_target_id = target_id;
                     }
-                    self.next_scan_frames = self.module_data.scan_rate;
+                    self.next_scan_frames = self.module_data.scan_rate as i32;
                 }
             }
             self.in_range = false;
@@ -361,19 +363,18 @@ impl PointDefenseLaserUpdate {
             weapon
                 .fire_weapon_at_object(owner_guard.get_id(), target_guard.get_id())
                 .map_err(|err| err.to_string())?;
-            self.next_shot_available_in_frames =
-                template.get_delay_between_shots(&bonus) as UnsignedInt;
+            self.next_shot_available_in_frames = template.get_delay_between_shots(&bonus) as i32;
             Ok::<(), String>(())
         });
 
         if target_guard.is_destroyed() {
-            self.next_scan_frames = crate::GameLogicRandomValue!(0, 3) as UnsignedInt;
+            self.next_scan_frames = crate::GameLogicRandomValue!(0, 3) as i32;
             self.best_target_id = crate::common::INVALID_ID;
             if self.next_scan_frames == 0 {
                 if let Some(target_id) = self.scan_closest_target(owner_guard) {
                     self.best_target_id = target_id;
                 }
-                self.next_scan_frames = self.module_data.scan_rate;
+                self.next_scan_frames = self.module_data.scan_rate as i32;
             }
         }
     }
@@ -401,7 +402,7 @@ impl UpdateModuleInterface for PointDefenseLaserUpdate {
             return UpdateSleepTime::Frames(1);
         }
 
-        self.next_scan_frames = self.module_data.scan_rate;
+        self.next_scan_frames = self.module_data.scan_rate as i32;
         if let Some(target_id) = self.scan_closest_target(&owner_guard) {
             self.best_target_id = target_id;
             self.fire_when_ready(&owner_guard);
@@ -460,15 +461,14 @@ impl Snapshotable for PointDefenseLaserUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
-        xfer.xfer_bool(&mut self.enabled)
-            .map_err(|e| e.to_string())?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_object_id(&mut self.best_target_id)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.next_scan_frames)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.next_shot_available_in_frames)
-            .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.in_range)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_i32(&mut self.next_scan_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_i32(&mut self.next_shot_available_in_frames)
             .map_err(|e| e.to_string())?;
         Ok(())
     }
