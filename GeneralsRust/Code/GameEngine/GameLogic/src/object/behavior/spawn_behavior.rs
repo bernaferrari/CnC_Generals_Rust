@@ -4,12 +4,15 @@
 //! Original Authors: Graham Smallwood, January 2002; Colin Day, October 2002
 //! Rust conversion: 2025
 
+use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Byte, Coord3D, DisabledType, Int, KindOf, ModuleData, ObjectID,
     PlayerMaskType, Real, TheObjectFactory, UnsignedInt, VeterancyLevel, INVALID_ID,
     LOGICFRAMES_PER_SECOND,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{
+    xfer_behavior_module_base_versions, BehaviorModuleData,
+};
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
@@ -43,7 +46,7 @@ use crate::team::Team;
 use crate::template::ObjectTemplate;
 use crate::MAKE_OBJECT_STATUS_MASK;
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 pub type DieMuxData = crate::object::die::DieMuxData;
 use crate::object::die::{
@@ -1619,6 +1622,82 @@ impl Drop for SpawnBehavior {
     }
 }
 
+impl Snapshotable for SpawnBehavior {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|err| format!("SpawnBehavior::xfer version failed: {err}"))?;
+
+        xfer_behavior_module_base_versions(xfer)?;
+
+        if version >= 2 {
+            xfer.xfer_bool(&mut self.initial_burst_times_inited)
+                .map_err(|err| {
+                    format!("SpawnBehavior::xfer initial_burst_times_inited failed: {err}")
+                })?;
+        }
+
+        let mut template_name = self
+            .spawn_template
+            .as_ref()
+            .map(|template| template.get_name().to_string())
+            .unwrap_or_default();
+        xfer.xfer_ascii_string(&mut template_name)
+            .map_err(|err| format!("SpawnBehavior::xfer spawn_template failed: {err}"))?;
+        if xfer.is_loading() {
+            self.spawn_template = if template_name.is_empty() {
+                None
+            } else {
+                let name = AsciiString::from(template_name.as_str());
+                Some(TheObjectFactory::find_template(&name).ok_or_else(|| {
+                    format!("SpawnBehavior::xfer unable to find template '{template_name}'")
+                })?)
+            };
+        }
+
+        xfer.xfer_int(&mut self.one_shot_countdown)
+            .map_err(|err| format!("SpawnBehavior::xfer one_shot_countdown failed: {err}"))?;
+        xfer.xfer_int(&mut self.frames_to_wait)
+            .map_err(|err| format!("SpawnBehavior::xfer frames_to_wait failed: {err}"))?;
+        xfer.xfer_int(&mut self.first_batch_count)
+            .map_err(|err| format!("SpawnBehavior::xfer first_batch_count failed: {err}"))?;
+
+        let mut replacement_times: Vec<Int> = self.replacement_times.iter().copied().collect();
+        if xfer.is_loading() {
+            replacement_times.clear();
+        }
+        xfer.xfer_stl_int_list(&mut replacement_times)
+            .map_err(|err| format!("SpawnBehavior::xfer replacement_times failed: {err}"))?;
+        if xfer.is_loading() {
+            self.replacement_times = replacement_times.into();
+        }
+
+        if xfer.is_loading() {
+            self.spawn_ids.clear();
+        }
+        xfer.xfer_stl_object_id_list(&mut self.spawn_ids)
+            .map_err(|err| format!("SpawnBehavior::xfer spawn_ids failed: {err}"))?;
+
+        xfer.xfer_bool(&mut self.active)
+            .map_err(|err| format!("SpawnBehavior::xfer active failed: {err}"))?;
+        xfer.xfer_bool(&mut self.aggregate_health)
+            .map_err(|err| format!("SpawnBehavior::xfer aggregate_health failed: {err}"))?;
+        xfer.xfer_unsigned_int(&mut self.spawn_count)
+            .map_err(|err| format!("SpawnBehavior::xfer spawn_count failed: {err}"))?;
+        xfer.xfer_unsigned_int(&mut self.self_tasking_spawn_count)
+            .map_err(|err| format!("SpawnBehavior::xfer self_tasking_spawn_count failed: {err}"))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 /// Glue that exposes SpawnBehavior through the common Module trait.
 pub struct SpawnBehaviorModule {
     behavior: SpawnBehavior,
@@ -1647,15 +1726,15 @@ impl SpawnBehaviorModule {
 
 impl Snapshotable for SpawnBehaviorModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.module_data.crc(xfer)
+        self.behavior.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).xfer(xfer)
+        self.behavior.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).load_post_process()
+        self.behavior.load_post_process()
     }
 }
 
