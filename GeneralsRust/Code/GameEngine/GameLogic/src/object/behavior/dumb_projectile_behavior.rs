@@ -25,6 +25,7 @@ use crate::helpers::{
 use crate::modules::{
     BehaviorModuleInterface, ProjectileUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::{
     registry::OBJECT_REGISTRY, DrawableArcExt, Object as GameObject,
     INVALID_ID as OBJECT_INVALID_ID,
@@ -479,6 +480,7 @@ pub struct DumbProjectileBehavior {
     module_data: Arc<DumbProjectileBehaviorModuleData>,
     object_id: ObjectID,
     object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
+    next_call_frame_and_phase: UnsignedInt,
     launcher_id: ObjectID,
     victim_id: ObjectID,
     detonation_weapon: Option<Arc<WeaponTemplate>>,
@@ -508,6 +510,7 @@ impl DumbProjectileBehavior {
             module_data,
             object_id,
             object_handle: Mutex::new(handle),
+            next_call_frame_and_phase: 0,
             launcher_id: OBJECT_INVALID_ID,
             victim_id: OBJECT_INVALID_ID,
             detonation_weapon: None,
@@ -1239,6 +1242,8 @@ impl Snapshotable for DumbProjectileBehaviorModule {
         xfer.xfer_version(&mut version, current_version)
             .map_err(|err| err.to_string())?;
 
+        xfer_update_module_base_state(xfer, &mut self.behavior.next_call_frame_and_phase)?;
+
         let mut launcher_id = self.behavior.launcher_id;
         xfer.xfer_object_id(&mut launcher_id)
             .map_err(|err| err.to_string())?;
@@ -1309,7 +1314,6 @@ impl Snapshotable for DumbProjectileBehaviorModule {
 }
 
 impl EngineModule for DumbProjectileBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1410,7 +1414,7 @@ mod tests {
         let data_box = dumb_projectile_behavior_module_data_factory(None);
         let typed = data_box
             .as_ref()
-        .downcast_ref::<DumbProjectileBehaviorModuleData>()
+            .downcast_ref::<DumbProjectileBehaviorModuleData>()
             .expect("dumb projectile data");
         assert_eq!(
             typed.max_lifespan,
