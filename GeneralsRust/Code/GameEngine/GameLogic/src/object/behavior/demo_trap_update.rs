@@ -7,13 +7,14 @@
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Coord3D, KindOfMask, ModuleData, ObjectID, ObjectStatusTypes, Real,
+    UnsignedInt,
 };
 use crate::helpers::ThePartitionManager;
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_FOREVER,
     UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
@@ -23,7 +24,7 @@ use crate::weapon::{
 };
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -226,7 +227,9 @@ const DEMO_TRAP_UPDATE_FIELDS: &[FieldParse<DemoTrapUpdateModuleData>] = &[
 pub struct DemoTrapUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<DemoTrapUpdateModuleData>,
-    next_scan_frames: u32,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
+    next_scan_frames: i32,
     detonated: bool,
 }
 
@@ -237,12 +240,13 @@ impl DemoTrapUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<DemoTrapUpdateModuleData>()
+            .downcast_ref::<DemoTrapUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             next_scan_frames: 0,
             detonated: false,
         })
@@ -332,7 +336,7 @@ impl UpdateModuleInterface for DemoTrapUpdate {
 
         // Reset timer here -- because if we are in manual mode, and switch, we want instant
         // gratification (if possible).
-        self.next_scan_frames = self.module_data.scan_frames;
+        self.next_scan_frames = self.module_data.scan_frames as i32;
 
         // Scan for a valid enemy in proximity range.
         let me_pos = *me.get_position();
@@ -413,11 +417,13 @@ impl Snapshotable for DemoTrapUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
+        let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("DemoTrapUpdate xfer version failed: {:?}", e))?;
 
-        xfer.xfer_unsigned_int(&mut self.next_scan_frames)
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
+        xfer.xfer_i32(&mut self.next_scan_frames)
             .map_err(|e| format!("DemoTrapUpdate xfer scan frames failed: {:?}", e))?;
         xfer.xfer_bool(&mut self.detonated)
             .map_err(|e| format!("DemoTrapUpdate xfer detonated failed: {:?}", e))?;
