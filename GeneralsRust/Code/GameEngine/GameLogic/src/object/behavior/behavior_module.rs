@@ -33,6 +33,22 @@ pub(crate) fn xfer_behavior_module_base_versions(xfer: &mut dyn Xfer) -> Result<
     Ok(())
 }
 
+pub(crate) fn xfer_update_module_base_state(
+    xfer: &mut dyn Xfer,
+    next_call_frame_and_phase: &mut UnsignedInt,
+) -> Result<(), String> {
+    let mut update_module_version: XferVersion = 1;
+    xfer.xfer_version(&mut update_module_version, 1)
+        .map_err(|e| e.to_string())?;
+
+    xfer_behavior_module_base_versions(xfer)?;
+
+    xfer.xfer_unsigned_int(next_call_frame_and_phase)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 pub trait SpyVisionUpdate: Send + Sync {
     fn set_disabled_until_frame(
         &mut self,
