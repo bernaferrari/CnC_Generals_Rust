@@ -7,18 +7,19 @@
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::xfer::XferExt;
 use crate::common::{
-    AsciiString, Coord3D, KindOf, ModuleData, ObjectID, Real, FROM_CENTER_2D, INVALID_ID,
+    AsciiString, Coord3D, KindOf, ModuleData, ObjectID, Real, UnsignedInt, FROM_CENTER_2D,
+    INVALID_ID,
 };
 use crate::helpers::{game_logic_random_value, ThePartitionManager};
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, CleanupHazardUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::{Object as GameObject, OBJECT_REGISTRY};
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType, WeaponTemplate};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use log::error;
 use std::sync::{Arc, RwLock, Weak};
@@ -47,6 +48,8 @@ crate::impl_behavior_module_data_via_base!(CleanupHazardUpdateModuleData, base);
 pub struct CleanupHazardUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<CleanupHazardUpdateModuleData>,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
     best_target_id: ObjectID,
     next_scan_frames: i32,
     next_shot_available_in_frames: i32,
@@ -63,12 +66,13 @@ impl CleanupHazardUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<CleanupHazardUpdateModuleData>()
+            .downcast_ref::<CleanupHazardUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             best_target_id: INVALID_ID,
             next_scan_frames: 0,
             next_shot_available_in_frames: 0,
@@ -287,19 +291,22 @@ impl Snapshotable for CleanupHazardUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
+        let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("CleanupHazardUpdate xfer version failed: {:?}", e))?;
-        xfer.xfer_real(&mut self.move_range)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_coord3d(&mut self.pos);
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
         xfer.xfer_object_id(&mut self.best_target_id)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.in_range)
             .map_err(|e| e.to_string())?;
         xfer.xfer_i32(&mut self.next_scan_frames)
             .map_err(|e| e.to_string())?;
         xfer.xfer_i32(&mut self.next_shot_available_in_frames)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.in_range)
+        xfer.xfer_coord3d(&mut self.pos);
+        xfer.xfer_real(&mut self.move_range)
             .map_err(|e| e.to_string())?;
         Ok(())
     }
