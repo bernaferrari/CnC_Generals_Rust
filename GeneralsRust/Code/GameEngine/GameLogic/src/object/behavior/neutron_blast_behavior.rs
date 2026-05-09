@@ -7,20 +7,23 @@
 //! - Optionally affects airborne targets and allies
 
 use crate::ai::CommandSourceType;
-use crate::common::{Bool, KindOf, ModuleData, Real, Relationship, PLAYERMASK_ALL};
+use crate::common::{
+    Bool, KindOf, ModuleData, Real, Relationship, UnsignedInt, XferVersion, PLAYERMASK_ALL,
+};
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::draw::draw_module::DrawModule;
 use crate::object::draw::w3d_model_draw::W3DModelDraw;
 use crate::object::draw::TerrainDecalType;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
+use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -47,6 +50,7 @@ crate::impl_behavior_module_data_via_base!(NeutronBlastBehaviorModuleData, base)
 pub struct NeutronBlastBehavior {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<NeutronBlastBehaviorModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
 }
 
 impl NeutronBlastBehavior {
@@ -56,12 +60,13 @@ impl NeutronBlastBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<NeutronBlastBehaviorModuleData>()
+            .downcast_ref::<NeutronBlastBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
         })
     }
 
@@ -198,6 +203,24 @@ impl BehaviorModuleInterface for NeutronBlastBehavior {
 
     fn get_die(&mut self) -> Option<&mut dyn DieModuleInterface> {
         Some(self)
+    }
+}
+
+impl Snapshotable for NeutronBlastBehavior {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| err.to_string())?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
