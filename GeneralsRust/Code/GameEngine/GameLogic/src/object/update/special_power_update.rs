@@ -6,8 +6,8 @@
 use crate::common::science::{ScienceType, SCIENCE_INVALID};
 use crate::common::types::ModuleData;
 use crate::common::xfer::{Xfer, XferExt, XferVersion};
-use crate::common::NameKeyGenerator;
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::common::{NameKeyGenerator, UnsignedInt};
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_module::Waypoint;
 use crate::object::Object as GameObject;
@@ -52,6 +52,7 @@ pub struct SpecialPowerUpdateModule {
     owner_object_id: u32,
     object: std::sync::Weak<std::sync::RwLock<GameObject>>,
     module_data: SpecialPowerUpdateModuleData,
+    next_call_frame_and_phase: UnsignedInt,
 }
 
 impl SpecialPowerUpdateModule {
@@ -64,6 +65,7 @@ impl SpecialPowerUpdateModule {
             owner_object_id,
             object,
             module_data: SpecialPowerUpdateModuleData::default(),
+            next_call_frame_and_phase: 0,
         }
     }
 
@@ -74,6 +76,11 @@ impl SpecialPowerUpdateModule {
 
     /// Match C++ SpecialPowerUpdateModule::doesSpecialPowerUpdatePassScienceTest.
     pub fn does_special_power_update_pass_science_test(&self) -> bool {
+        let extra_required_science = self.get_extra_required_science();
+        if extra_required_science == SCIENCE_INVALID {
+            return true;
+        }
+
         let obj_arc = self
             .object
             .upgrade()
@@ -84,10 +91,7 @@ impl SpecialPowerUpdateModule {
         let Ok(obj_guard) = obj_arc.read() else {
             return false;
         };
-        does_special_power_update_pass_science_test_for_object(
-            &obj_guard,
-            self.get_extra_required_science(),
-        )
+        does_special_power_update_pass_science_test_for_object(&obj_guard, extra_required_science)
     }
 
     /// C++ default: SCIENCE_INVALID (override in derived modules).
@@ -106,14 +110,21 @@ impl SpecialPowerUpdateModule {
     /// Match C++ SpecialPowerUpdateModule::crc (no additional state).
     pub fn crc(&self, _xfer: &mut dyn Xfer) {}
 
-    /// Match C++ SpecialPowerUpdateModule::xfer (versioned, no extra fields).
+    /// Match C++ SpecialPowerUpdateModule::xfer.
     pub fn save(&self, xfer: &mut dyn Xfer) {
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
         xfer.xfer_version_write(1);
+        if let Err(err) = xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase) {
+            panic!("SpecialPowerUpdateModule::save failed to xfer base state: {err}");
+        }
     }
 
-    /// Match C++ SpecialPowerUpdateModule::xfer (versioned, no extra fields).
+    /// Match C++ SpecialPowerUpdateModule::xfer.
     pub fn load(&mut self, xfer: &mut dyn Xfer) {
         let _version = xfer.xfer_version_read();
+        if let Err(err) = xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase) {
+            panic!("SpecialPowerUpdateModule::load failed to xfer base state: {err}");
+        }
     }
 
     /// Match C++ SpecialPowerUpdateModule::loadPostProcess (no-op).
@@ -256,6 +267,7 @@ impl Snapshotable for SpecialPowerUpdateModule {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         Ok(())
     }
 
