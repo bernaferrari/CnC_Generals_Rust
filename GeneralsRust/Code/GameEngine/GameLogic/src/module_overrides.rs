@@ -380,6 +380,9 @@ use crate::object::behavior::slow_death_behavior::{
 use crate::object::behavior::wave_guide_update::{
     WaveGuideUpdate, WaveGuideUpdateFactory, WaveGuideUpdateModuleData,
 };
+use crate::object::update::neutron_missile_update::{
+    NeutronMissileUpdate, NeutronMissileUpdateModuleData,
+};
 
 #[cfg(feature = "allow_surrender")]
 use crate::object::behavior::pow_truck_behavior::{
@@ -4881,6 +4884,36 @@ fn neutron_missile_slow_death_update_module_factory(
         "NeutronMissileSlowDeathUpdate",
         module_data_arc,
         behavior,
+    ))
+}
+
+fn neutron_missile_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = NeutronMissileUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse NeutronMissileUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn neutron_missile_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_ref()
+        .downcast_ref::<NeutronMissileUpdateModuleData>()
+        .expect("NeutronMissileUpdateModuleData expected");
+    let (owner_id, _) = resolve_owner_info(&thing);
+    Box::new(NeutronMissileUpdate::new(
+        owner_id,
+        typed_data.clone(),
+        &AsciiString::from("NeutronMissileUpdate"),
     ))
 }
 
@@ -9846,6 +9879,13 @@ pub fn install_module_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         neutron_missile_slow_death_update_module_factory,
         neutron_missile_slow_death_update_module_data_factory,
+    )?;
+
+    register_module_override(
+        "NeutronMissileUpdate",
+        ModuleType::Behavior,
+        neutron_missile_update_module_factory,
+        neutron_missile_update_module_data_factory,
     )?;
 
     register_module_override(
