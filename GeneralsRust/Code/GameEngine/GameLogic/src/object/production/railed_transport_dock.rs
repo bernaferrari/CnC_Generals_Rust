@@ -7,6 +7,7 @@
 //! Original C++ Author: Colin Day, August 2002
 //! Rust conversion: 2025
 
+use crate::common::xfer::XferExt;
 use crate::common::*;
 use crate::helpers::TheTerrainLogic;
 use crate::modules::{
@@ -15,7 +16,7 @@ use crate::modules::{
 };
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::sync::{Arc, RwLock};
 
@@ -687,15 +688,43 @@ impl RailedTransportDockUpdateModule {
 
 impl Snapshotable for RailedTransportDockUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.module_data.crc(xfer)
+        self.behavior.base.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).xfer(xfer)
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1).map_err(|err| {
+            format!("RailedTransportDockUpdateModule::xfer version failed: {err}")
+        })?;
+        self.behavior.base.xfer(xfer)?;
+        xfer.xfer_object_id(&mut self.behavior.docking_object_id)
+            .map_err(|err| {
+                format!("RailedTransportDockUpdateModule::xfer docking_object_id failed: {err}")
+            })?;
+        xfer.xfer_real(&mut self.behavior.pull_inside_distance_per_frame)
+            .map_err(|err| {
+                format!(
+                    "RailedTransportDockUpdateModule::xfer pull_inside_distance_per_frame failed: {err}"
+                )
+            })?;
+        xfer.xfer_object_id(&mut self.behavior.unloading_object_id)
+            .map_err(|err| {
+                format!("RailedTransportDockUpdateModule::xfer unloading_object_id failed: {err}")
+            })?;
+        xfer.xfer_real(&mut self.behavior.push_outside_distance_per_frame)
+            .map_err(|err| {
+                format!(
+                    "RailedTransportDockUpdateModule::xfer push_outside_distance_per_frame failed: {err}"
+                )
+            })?;
+        xfer.xfer_int(&mut self.behavior.unload_count)
+            .map_err(|err| {
+                format!("RailedTransportDockUpdateModule::xfer unload_count failed: {err}")
+            })
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).load_post_process()
+        self.behavior.base.load_post_process()
     }
 }
 
