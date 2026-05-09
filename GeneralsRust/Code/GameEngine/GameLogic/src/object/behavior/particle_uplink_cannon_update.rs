@@ -3,6 +3,7 @@
 
 use crate::command_button::CommandButton;
 use crate::common::audio::AudioEventRts;
+use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Coord3D, DisabledType, DrawableID, Matrix3D, ModelConditionFlags,
     ModuleData, ObjectID, ObjectShroudStatus, ParticleSystemID, PlayerMaskType, Real, UnsignedInt,
@@ -18,7 +19,7 @@ use crate::modules::{
     BehaviorModuleInterface, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::special_power_module::SpecialPowerCommandOptions;
 use crate::object::special_power_module::Waypoint;
 use crate::object::special_power_template::SpecialPowerTemplate;
@@ -28,16 +29,18 @@ use crate::player::ThePlayerList;
 use crate::system::shroud_manager::get_shroud_manager;
 use crate::weapon::{DamageType, DeathType};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferMode};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 
 const INVALID_PARTICLE_SYSTEM_ID: ParticleSystemID = 0;
 const INVALID_DRAWABLE_ID: DrawableID = 0;
+const MAX_OUTER_NODES: usize = 16;
 const SCORCH_1: i32 = 1;
 const SCORCH_4: i32 = 4;
 
 /// Status for the Particle Uplink Cannon
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PUCStatus {
     Idle,
@@ -52,6 +55,7 @@ pub enum PUCStatus {
 }
 
 /// Status for the laser beam
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LaserStatus {
     None,
@@ -185,8 +189,10 @@ pub struct ParticleUplinkCannonUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<ParticleUplinkCannonUpdateModuleData>,
 
+    next_call_frame_and_phase: UnsignedInt,
     status: PUCStatus,
     laser_status: LaserStatus,
+    frames: UnsignedInt,
 
     // Position/Steering state
     connector_node_position: Coord3D,
@@ -251,8 +257,10 @@ impl ParticleUplinkCannonUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             status: PUCStatus::Idle,
             laser_status: LaserStatus::None,
+            frames: 0,
             connector_node_position: *position,
             laser_origin_position: *position,
             initial_target_position: Coord3D::ZERO,
@@ -1320,125 +1328,176 @@ impl ParticleUplinkCannonUpdateModule {
     }
 }
 
+fn particle_uplink_status_from_raw(raw: UnsignedInt) -> PUCStatus {
+    match raw {
+        1 => PUCStatus::Charging,
+        2 => PUCStatus::Preparing,
+        3 => PUCStatus::AlmostReady,
+        4 => PUCStatus::ReadyToFire,
+        5 => PUCStatus::PreFire,
+        6 => PUCStatus::Firing,
+        7 => PUCStatus::PostFire,
+        8 => PUCStatus::Packing,
+        _ => PUCStatus::Idle,
+    }
+}
+
+fn particle_uplink_laser_status_from_raw(raw: UnsignedInt) -> LaserStatus {
+    match raw {
+        1 => LaserStatus::Born,
+        2 => LaserStatus::Decaying,
+        3 => LaserStatus::Dead,
+        _ => LaserStatus::None,
+    }
+}
+
+fn xfer_matrix3d_user_rows(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) -> Result<(), String> {
+    let cols = matrix.to_cols_array();
+    let mut row0 = [cols[0], cols[4], cols[8], cols[12]];
+    let mut row1 = [cols[1], cols[5], cols[9], cols[13]];
+    let mut row2 = [cols[2], cols[6], cols[10], cols[14]];
+
+    for value in &mut row0 {
+        xfer.xfer_real(value).map_err(|e| e.to_string())?;
+    }
+    for value in &mut row1 {
+        xfer.xfer_real(value).map_err(|e| e.to_string())?;
+    }
+    for value in &mut row2 {
+        xfer.xfer_real(value).map_err(|e| e.to_string())?;
+    }
+
+    let rebuilt_cols = [
+        row0[0], row1[0], row2[0], 0.0, row0[1], row1[1], row2[1], 0.0, row0[2], row1[2], row2[2],
+        0.0, row0[3], row1[3], row2[3], 1.0,
+    ];
+    *matrix = Matrix3D::from_cols_array(&rebuilt_cols);
+
+    Ok(())
+}
+
+fn xfer_fixed_particle_ids(
+    xfer: &mut dyn Xfer,
+    ids: &mut Vec<ParticleSystemID>,
+) -> Result<(), String> {
+    ids.resize(MAX_OUTER_NODES, INVALID_PARTICLE_SYSTEM_ID);
+    for id in ids.iter_mut().take(MAX_OUTER_NODES) {
+        xfer.xfer_unsigned_int(id).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn xfer_fixed_drawable_ids(xfer: &mut dyn Xfer, ids: &mut Vec<DrawableID>) -> Result<(), String> {
+    ids.resize(MAX_OUTER_NODES, INVALID_DRAWABLE_ID);
+    for id in ids.iter_mut().take(MAX_OUTER_NODES) {
+        xfer.xfer_drawable_id(id).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn xfer_fixed_coord3d_array(xfer: &mut dyn Xfer, values: &mut Vec<Coord3D>) -> Result<(), String> {
+    values.resize(MAX_OUTER_NODES, Coord3D::ZERO);
+    for value in values.iter_mut().take(MAX_OUTER_NODES) {
+        xfer.xfer_coord3d(value);
+    }
+    Ok(())
+}
+
+fn xfer_fixed_matrix3d_array(
+    xfer: &mut dyn Xfer,
+    values: &mut Vec<Matrix3D>,
+) -> Result<(), String> {
+    values.resize(MAX_OUTER_NODES, Matrix3D::IDENTITY);
+    for value in values.iter_mut().take(MAX_OUTER_NODES) {
+        xfer_matrix3d_user_rows(xfer, value)?;
+    }
+    Ok(())
+}
+
 impl Snapshotable for ParticleUplinkCannonUpdateModule {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
+        let current_version: u8 = 3;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
 
         let b = &mut self.behavior;
 
-        // Enum: PUCStatus as u32
+        xfer_update_module_base_state(xfer, &mut b.next_call_frame_and_phase)?;
+
         let mut status = b.status as u32;
         xfer.xfer_unsigned_int(&mut status)
             .map_err(|e| e.to_string())?;
         if xfer.is_reading() {
-            b.status = match status {
-                0 => PUCStatus::Idle,
-                1 => PUCStatus::Charging,
-                2 => PUCStatus::Preparing,
-                3 => PUCStatus::AlmostReady,
-                4 => PUCStatus::ReadyToFire,
-                5 => PUCStatus::PreFire,
-                6 => PUCStatus::Firing,
-                7 => PUCStatus::PostFire,
-                8 => PUCStatus::Packing,
-                _ => PUCStatus::Idle,
-            };
+            b.status = particle_uplink_status_from_raw(status);
         }
 
-        // Enum: LaserStatus as u32
         let mut laser_status = b.laser_status as u32;
         xfer.xfer_unsigned_int(&mut laser_status)
             .map_err(|e| e.to_string())?;
         if xfer.is_reading() {
-            b.laser_status = match laser_status {
-                0 => LaserStatus::None,
-                1 => LaserStatus::Born,
-                2 => LaserStatus::Decaying,
-                3 => LaserStatus::Dead,
-                _ => LaserStatus::None,
-            };
+            b.laser_status = particle_uplink_laser_status_from_raw(laser_status);
         }
 
-        // Positions
-        xfer.xfer_real(&mut b.connector_node_position.x)
+        xfer.xfer_unsigned_int(&mut b.frames)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.connector_node_position.y)
+        xfer_fixed_particle_ids(xfer, &mut b.outer_system_ids)?;
+        xfer_fixed_drawable_ids(xfer, &mut b.laser_beam_ids)?;
+        xfer.xfer_drawable_id(&mut b.ground_to_orbit_beam_id)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.connector_node_position.z)
+        xfer.xfer_drawable_id(&mut b.orbit_to_target_beam_id)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.laser_origin_position.x)
+        xfer.xfer_unsigned_int(&mut b.connector_system_id)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.laser_origin_position.y)
+        xfer.xfer_unsigned_int(&mut b.laser_base_system_id)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.laser_origin_position.z)
+        xfer_fixed_coord3d_array(xfer, &mut b.outer_node_positions)?;
+        xfer_fixed_matrix3d_array(xfer, &mut b.outer_node_orientations)?;
+        xfer.xfer_coord3d(&mut b.connector_node_position);
+        xfer.xfer_coord3d(&mut b.laser_origin_position);
+        xfer.xfer_coord3d(&mut b.override_target_destination);
+        xfer.xfer_bool(&mut b.up_bones_cached)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.initial_target_position.x)
+        xfer.xfer_bool(&mut b.default_info_cached)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.initial_target_position.y)
+        xfer.xfer_bool(&mut b.invalid_settings)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.initial_target_position.z)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.current_target_position.x)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.current_target_position.y)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.current_target_position.z)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.override_target_destination.x)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.override_target_destination.y)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut b.override_target_destination.z)
-            .map_err(|e| e.to_string())?;
-
-        // Frame counters
-        xfer.xfer_unsigned_int(&mut b.start_attack_frame)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut b.start_decay_frame)
+        xfer.xfer_coord3d(&mut b.initial_target_position);
+        xfer.xfer_coord3d(&mut b.current_target_position);
+        xfer.xfer_unsigned_int(&mut b.scorch_marks_made)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut b.next_scorch_mark_frame)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut b.scorch_marks_made)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut b.next_damage_pulse_frame)
+        xfer.xfer_unsigned_int(&mut b.next_launch_fx_frame)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut b.damage_pulses_made)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut b.next_launch_fx_frame)
+        xfer.xfer_unsigned_int(&mut b.next_damage_pulse_frame)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut b.ground_to_orbit_decay_end_frame)
+        xfer.xfer_unsigned_int(&mut b.start_attack_frame)
             .map_err(|e| e.to_string())?;
-
-        // Bool flags
-        xfer.xfer_bool(&mut b.manual_target_mode)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut b.scripted_waypoint_mode)
-            .map_err(|e| e.to_string())?;
-
-        // Waypoint / driving frames
-        xfer.xfer_unsigned_int(&mut b.next_dest_waypoint_id)
-            .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Save || version >= 2 {
+            xfer.xfer_unsigned_int(&mut b.start_decay_frame)
+                .map_err(|e| e.to_string())?;
+        } else {
+            b.start_decay_frame = b.start_attack_frame + self.module_data.total_firing_frames;
+        }
         xfer.xfer_unsigned_int(&mut b.last_driving_click_frame)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut b.second_last_driving_click_frame)
             .map_err(|e| e.to_string())?;
-
-        // Cached state booleans
-        xfer.xfer_bool(&mut b.default_info_cached)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut b.up_bones_cached)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut b.client_shrouded_last_frame)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut b.invalid_settings)
-            .map_err(|e| e.to_string())?;
+        if version >= 3 {
+            xfer.xfer_bool(&mut b.manual_target_mode)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut b.scripted_waypoint_mode)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_unsigned_int(&mut b.next_dest_waypoint_id)
+                .map_err(|e| e.to_string())?;
+        }
 
         Ok(())
     }
