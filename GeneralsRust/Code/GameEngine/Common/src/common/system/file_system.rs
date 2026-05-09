@@ -421,7 +421,10 @@ pub mod paths {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::system::big_file_system::BigArchiveBackend;
     use std::collections::HashSet;
+    use std::fs;
+    use std::io::{Seek, Write};
 
     // Mock file system backend for testing
     struct MockFileSystemBackend {
@@ -555,5 +558,59 @@ mod tests {
         assert_eq!(info.size_low, 0);
         assert_eq!(info.timestamp_high, 0);
         assert_eq!(info.timestamp_low, 0);
+    }
+
+    fn create_single_file_big(path: &std::path::Path) -> Result<(), std::io::Error> {
+        let mut file = fs::File::create(path)?;
+
+        file.write_all(b"BIGF")?;
+        file.write_all(&100u32.to_le_bytes())?;
+        file.write_all(&1u32.to_be_bytes())?;
+        file.write_all(&50u32.to_be_bytes())?;
+
+        file.write_all(&50u32.to_be_bytes())?;
+        file.write_all(&11u32.to_be_bytes())?;
+        file.write_all(b"test.txt\0")?;
+
+        let current_pos = file.stream_position()? as usize;
+        file.write_all(&vec![0u8; 50 - current_pos])?;
+        file.write_all(b"Hello World")?;
+
+        Ok(())
+    }
+
+    #[test]
+    fn local_backend_overrides_archived_file_like_cpp_file_system() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let loose_dir = temp_dir.path().join("loose");
+        let archive_dir = temp_dir.path().join("archives");
+        fs::create_dir_all(&loose_dir).unwrap();
+        fs::create_dir_all(&archive_dir).unwrap();
+        fs::write(loose_dir.join("test.txt"), b"Loose Override").unwrap();
+        create_single_file_big(&archive_dir.join("Data.big")).unwrap();
+
+        let mut local = crate::common::system::local_file_system::LocalFileSystem::new();
+        local.add_search_path(&loose_dir);
+
+        let mut big = BigArchiveBackend::new();
+        big.add_search_path(&archive_dir);
+
+        let mut fs = FileSystem::new();
+        fs.register_backend(Box::new(local));
+        fs.register_backend(Box::new(big));
+        fs.init().unwrap();
+
+        assert!(fs.does_file_exist("test.txt"));
+
+        let mut file = fs
+            .open_file("test.txt", FileAccess::READ.combine(FileAccess::BINARY))
+            .expect("loose file should open before archive entry");
+        let data = file.read_entire_and_close().unwrap();
+        assert_eq!(data, b"Loose Override");
+
+        let info = fs
+            .get_file_info(&AsciiString::from("test.txt"))
+            .expect("loose file info should win over archive info");
+        assert_eq!(info.size_low, "Loose Override".len() as i32);
     }
 }
