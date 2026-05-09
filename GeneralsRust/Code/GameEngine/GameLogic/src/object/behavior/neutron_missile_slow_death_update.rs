@@ -1,7 +1,7 @@
 //! NeutronMissileSlowDeathUpdate - Neutron missile superweapon slow death behavior
 //! Port of C++ NeutronMissileSlowDeathBehavior (NeutronMissileSlowDeathUpdate.cpp)
 
-use crate::common::{Bool, Coord3D, KindOf, ModuleData, Real, UnsignedInt};
+use crate::common::{Bool, Coord3D, KindOf, ModuleData, Real, UnsignedByte, UnsignedInt};
 use crate::damage::DamageInfo;
 use crate::damage::{DamageType, DeathType};
 use crate::effects::FXList;
@@ -9,18 +9,19 @@ use crate::helpers::{TheGameClient, TheGameLogic, ThePartitionManager, TheTerrai
 use crate::modules::{
     BehaviorModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::behavior::slow_death_behavior::SlowDeathPhaseType;
 use crate::object::behavior::topple_update::{
     ToppleUpdate, TOPPLE_OPTIONS_NO_BOUNCE, TOPPLE_OPTIONS_NO_FX,
 };
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 const MAX_NEUTRON_BLASTS: usize = 9;
 const SCORCH_1: i32 = 1;
+const SLOW_DEATH_ACTIVATED: UnsignedInt = 1 << 0;
 
 #[derive(Clone, Copy, Debug)]
 pub struct BlastInfo {
@@ -78,6 +79,12 @@ pub struct NeutronMissileSlowDeathUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<NeutronMissileSlowDeathUpdateModuleData>,
     activated: Bool,
+    next_call_frame_and_phase: UnsignedInt,
+    slow_death_sink_frame: UnsignedInt,
+    slow_death_midpoint_frame: UnsignedInt,
+    slow_death_destruction_frame: UnsignedInt,
+    slow_death_accelerated_time_scale: Real,
+    slow_death_flags: UnsignedInt,
     scorch_placed: Bool,
     activation_frame: UnsignedInt,
     completed_blasts: [Bool; MAX_NEUTRON_BLASTS],
@@ -91,18 +98,28 @@ impl NeutronMissileSlowDeathUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<NeutronMissileSlowDeathUpdateModuleData>()
+            .downcast_ref::<NeutronMissileSlowDeathUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
             activated: false,
+            next_call_frame_and_phase: 0,
+            slow_death_sink_frame: 0,
+            slow_death_midpoint_frame: 0,
+            slow_death_destruction_frame: 0,
+            slow_death_accelerated_time_scale: 1.0,
+            slow_death_flags: 0,
             scorch_placed: false,
             activation_frame: 0,
             completed_blasts: [false; MAX_NEUTRON_BLASTS],
             completed_scorch_blasts: [false; MAX_NEUTRON_BLASTS],
         })
+    }
+
+    fn is_slow_death_activated(&self) -> bool {
+        self.activated || (self.slow_death_flags & SLOW_DEATH_ACTIVATED) != 0
     }
 
     fn ensure_activation(&mut self, obj: &GameObject) {
@@ -226,7 +243,7 @@ impl NeutronMissileSlowDeathUpdate {
 
 impl UpdateModuleInterface for NeutronMissileSlowDeathUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        if !self.activated {
+        if !self.is_slow_death_activated() {
             return UpdateSleepTime::None;
         }
 
@@ -265,7 +282,7 @@ impl UpdateModuleInterface for NeutronMissileSlowDeathUpdate {
 
 impl SlowDeathBehaviorInterface for NeutronMissileSlowDeathUpdate {
     fn is_slow_death_active(&self) -> bool {
-        self.activated
+        self.is_slow_death_activated()
     }
 
     fn begin_slow_death(
@@ -273,6 +290,7 @@ impl SlowDeathBehaviorInterface for NeutronMissileSlowDeathUpdate {
         _damage_info: &DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.activated = true;
+        self.slow_death_flags |= SLOW_DEATH_ACTIVATED;
         self.activation_frame = 0;
         Ok(())
     }
@@ -286,7 +304,7 @@ impl SlowDeathBehaviorInterface for NeutronMissileSlowDeathUpdate {
     }
 
     fn get_slow_death_phase(&self) -> u32 {
-        if !self.activated {
+        if !self.is_slow_death_activated() {
             return SlowDeathPhaseType::Initial as u32;
         }
 
@@ -330,10 +348,39 @@ impl Snapshotable for NeutronMissileSlowDeathUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        xfer.xfer_bool(&mut self.activated)
-            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer activated: {:?}", e))?;
-        xfer.xfer_bool(&mut self.scorch_placed)
-            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer scorch_placed: {:?}", e))?;
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer version: {:?}", e))?;
+
+        let mut slow_death_version: XferVersion = 1;
+        xfer.xfer_version(&mut slow_death_version, 1).map_err(|e| {
+            format!(
+                "NeutronMissileSlowDeathUpdate xfer slow death version: {:?}",
+                e
+            )
+        })?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+        xfer.xfer_unsigned_int(&mut self.slow_death_sink_frame)
+            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer sink frame: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.slow_death_midpoint_frame)
+            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer midpoint frame: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.slow_death_destruction_frame)
+            .map_err(|e| {
+                format!(
+                    "NeutronMissileSlowDeathUpdate xfer destruction frame: {:?}",
+                    e
+                )
+            })?;
+        xfer.xfer_real(&mut self.slow_death_accelerated_time_scale)
+            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer time scale: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.slow_death_flags)
+            .map_err(|e| {
+                format!(
+                    "NeutronMissileSlowDeathUpdate xfer slow death flags: {:?}",
+                    e
+                )
+            })?;
+
         xfer.xfer_unsigned_int(&mut self.activation_frame)
             .map_err(|e| {
                 format!(
@@ -341,6 +388,17 @@ impl Snapshotable for NeutronMissileSlowDeathUpdate {
                     e
                 )
             })?;
+
+        let mut max_neutron_blasts: UnsignedByte = MAX_NEUTRON_BLASTS as UnsignedByte;
+        xfer.xfer_unsigned_byte(&mut max_neutron_blasts)
+            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer blast count: {:?}", e))?;
+        if max_neutron_blasts as usize != MAX_NEUTRON_BLASTS {
+            return Err(format!(
+                "NeutronMissileSlowDeathUpdate invalid blast count: {}",
+                max_neutron_blasts
+            ));
+        }
+
         for completed in &mut self.completed_blasts {
             xfer.xfer_bool(completed).map_err(|e| {
                 format!(
@@ -357,6 +415,10 @@ impl Snapshotable for NeutronMissileSlowDeathUpdate {
                 )
             })?;
         }
+        xfer.xfer_bool(&mut self.scorch_placed)
+            .map_err(|e| format!("NeutronMissileSlowDeathUpdate xfer scorch_placed: {:?}", e))?;
+
+        self.activated = (self.slow_death_flags & SLOW_DEATH_ACTIVATED) != 0;
         Ok(())
     }
 
