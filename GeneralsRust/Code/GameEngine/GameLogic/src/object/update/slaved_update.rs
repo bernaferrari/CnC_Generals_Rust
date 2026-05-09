@@ -20,6 +20,7 @@ use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, BodyModuleInterfaceExt, SlavedUpdateInterface,
     StealthControllerExt, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -380,6 +381,7 @@ const SLAVED_UPDATE_FIELDS: &[FieldParse<SlavedUpdateModuleData>] = &[
     },
 ];
 
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RepairState {
     None = 0,
@@ -395,6 +397,7 @@ enum RepairState {
 pub struct SlavedUpdate {
     object_id: ObjectID,
     module_data: Arc<SlavedUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     slaver: ObjectID,
     guard_point_offset: Coord3D,
     frames_to_wait: Int,
@@ -410,6 +413,7 @@ impl SlavedUpdate {
         Ok(Self {
             object_id,
             module_data,
+            next_call_frame_and_phase: 0,
             slaver: INVALID_ID,
             guard_point_offset: Coord3D::ZERO,
             frames_to_wait: 0,
@@ -926,7 +930,7 @@ impl SlavedUpdate {
         }
     }
 
-    fn save(&self, xfer: &mut dyn Xfer) {
+    fn save(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |result: std::io::Result<()>, field: &str| {
             if let Err(err) = result {
                 panic!("SlavedUpdate::save failed to xfer {field}: {err}");
@@ -934,20 +938,24 @@ impl SlavedUpdate {
         };
 
         xfer.xfer_version_write(1);
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
         let mut slaver = self.slaver;
         let mut guard_point_offset = self.guard_point_offset;
         let mut frames_to_wait = self.frames_to_wait;
-        let mut repair_state = self.repair_state as u32;
+        let mut repair_state = self.repair_state as i32;
         let mut repairing = self.repairing;
 
         xfer_io(xfer.xfer_object_id(&mut slaver), "slaver");
         xfer.xfer_coord3d(&mut guard_point_offset);
         xfer_io(xfer.xfer_i32(&mut frames_to_wait), "frames_to_wait");
-        xfer_io(xfer.xfer_u32(&mut repair_state), "repair_state");
+        xfer_io(xfer.xfer_i32(&mut repair_state), "repair_state");
         xfer_io(xfer.xfer_bool(&mut repairing), "repairing");
+
+        Ok(())
     }
 
-    fn load(&mut self, xfer: &mut dyn Xfer) {
+    fn load(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |result: std::io::Result<()>, field: &str| {
             if let Err(err) = result {
                 panic!("SlavedUpdate::load failed to xfer {field}: {err}");
@@ -956,12 +964,14 @@ impl SlavedUpdate {
 
         let version = xfer.xfer_version_read();
         if version >= 1 {
+            xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
             xfer_io(xfer.xfer_object_id(&mut self.slaver), "slaver");
             xfer.xfer_coord3d(&mut self.guard_point_offset);
             xfer_io(xfer.xfer_i32(&mut self.frames_to_wait), "frames_to_wait");
 
-            let mut repair_state = 0u32;
-            xfer_io(xfer.xfer_u32(&mut repair_state), "repair_state");
+            let mut repair_state = 0i32;
+            xfer_io(xfer.xfer_i32(&mut repair_state), "repair_state");
             self.repair_state = match repair_state {
                 1 => RepairState::Unpacking,
                 2 => RepairState::Packing,
@@ -974,6 +984,7 @@ impl SlavedUpdate {
 
             xfer_io(xfer.xfer_bool(&mut self.repairing), "repairing");
         }
+        Ok(())
     }
 }
 
@@ -1234,9 +1245,9 @@ impl Snapshotable for SlavedUpdate {
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         if xfer.is_writing() {
-            self.save(xfer);
+            self.save(xfer)?;
         } else {
-            self.load(xfer);
+            self.load(xfer)?;
         }
         Ok(())
     }
