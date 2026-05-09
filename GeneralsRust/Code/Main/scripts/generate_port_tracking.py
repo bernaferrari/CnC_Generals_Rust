@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -273,6 +274,56 @@ def write_state(path: Path, rows: Iterable[MappingRow]) -> None:
         handle.write(f"ParityPercent={parity:.2f}\n")
 
 
+def write_subsystem_status(path: Path, rows: Iterable[MappingRow]) -> None:
+    generated_at = datetime.now(timezone.utc).isoformat()
+    subsystems: dict[str, dict[str, dict[str, int]]] = defaultdict(
+        lambda: {
+            "source": {"total": 0, "found": 0, "found_by_basename": 0, "missing": 0},
+            "include": {"total": 0, "found": 0, "found_by_basename": 0, "missing": 0},
+        }
+    )
+
+    for row in rows:
+        kind = "source" if row.kind == "Source" else "include"
+        bucket = subsystems[row.subsystem][kind]
+        bucket["total"] += 1
+        if row.status == SOURCE_STATUS_FOUND:
+            bucket["found"] += 1
+        elif row.status == SOURCE_STATUS_FOUND_BY_BASENAME:
+            bucket["found_by_basename"] += 1
+        elif row.status == SOURCE_STATUS_MISSING:
+            bucket["missing"] += 1
+
+    def add_parity(bucket: dict[str, int]) -> dict[str, int | float]:
+        total = bucket["total"]
+        covered = bucket["found"] + bucket["found_by_basename"]
+        return {
+            **bucket,
+            "parity_percent": round((covered / total * 100.0) if total else 100.0, 2),
+        }
+
+    status = {
+        "generated_at_utc": generated_at,
+        "source": "generate_port_tracking.py",
+        "inputs": {
+            "cpp_source_root": "GeneralsMD/Code/GameEngine/Source",
+            "cpp_include_root": "GeneralsMD/Code/GameEngine/Include",
+            "rust_root": "GeneralsRust/Code/GameEngine",
+        },
+        "subsystems": {
+            subsystem: {
+                "source": add_parity(counts["source"]),
+                "include": add_parity(counts["include"]),
+            }
+            for subsystem, counts in sorted(subsystems.items())
+        },
+    }
+
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(status, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate PORT_* parity tracking artifacts"
@@ -335,16 +386,19 @@ def main() -> None:
     missing_path = output_root / "PORT_MISSING_FILES_BY_SUBSYSTEM.txt"
     mismatch_path = output_root / "PORT_FILE_MISMATCHES_BY_SUBSYSTEM.txt"
     state_path = output_root / "PORT_STATE.txt"
+    subsystem_status_path = output_root / "PORT_SUBSYSTEM_STATUS.json"
 
     write_matrix(matrix_path, all_rows)
     write_missing(missing_path, all_rows)
     write_mismatches(mismatch_path, all_rows)
     write_state(state_path, all_rows)
+    write_subsystem_status(subsystem_status_path, all_rows)
 
     print(f"Generated: {matrix_path}")
     print(f"Generated: {missing_path}")
     print(f"Generated: {mismatch_path}")
     print(f"Generated: {state_path}")
+    print(f"Generated: {subsystem_status_path}")
 
 
 if __name__ == "__main__":
