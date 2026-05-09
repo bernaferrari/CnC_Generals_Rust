@@ -123,9 +123,10 @@ impl Snapshotable for GrantScienceUpgrade {
     fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 1;
         let _ = _xfer.xfer_version(&mut version, 1);
-        let mut applied = self.applied;
-        let _ = _xfer.xfer_bool(&mut applied);
-        self.applied = applied;
+        crate::object::upgrade::upgrade_module::xfer_upgrade_module_state(
+            _xfer,
+            &mut self.applied,
+        )?;
         Ok(())
     }
 
