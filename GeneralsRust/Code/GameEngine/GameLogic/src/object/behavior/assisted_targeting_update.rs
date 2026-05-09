@@ -13,12 +13,12 @@ use crate::modules::{
     AssistedTargetingUpdateInterface, BehaviorModuleInterface, UpdateModuleInterface,
     UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::{Object as GameObject, OBJECT_REGISTRY};
 use crate::weapon::{WeaponLockType, WeaponSlotType, WeaponStatus};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::sync::{Arc, RwLock, Weak};
 const FEEDBACK_LASER_LIFE_FRAMES: UnsignedInt = LOGICFRAMES_PER_SECOND / 2;
@@ -55,6 +55,8 @@ impl AssistedTargetingUpdateModuleData {
 pub struct AssistedTargetingUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<AssistedTargetingUpdateModuleData>,
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
     laser_from_assisted: Option<Arc<dyn ThingTemplate>>,
     laser_to_target: Option<Arc<dyn ThingTemplate>>,
     feedback_beams: Vec<(u32, UnsignedInt)>,
@@ -67,12 +69,13 @@ impl AssistedTargetingUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<AssistedTargetingUpdateModuleData>()
+            .downcast_ref::<AssistedTargetingUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             laser_from_assisted: None,
             laser_to_target: None,
             feedback_beams: Vec::new(),
@@ -246,9 +249,10 @@ impl Snapshotable for AssistedTargetingUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
+        let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("AssistedTargetingUpdate xfer version failed: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         Ok(())
     }
 
