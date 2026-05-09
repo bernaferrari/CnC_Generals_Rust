@@ -1,151 +1,10 @@
-use crc32fast::Hasher;
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
-use generals_main::game_logic::{ObjectId, Team};
+use generals_main::deterministic_trace::{
+    calculate_frame_crc, first_trace_difference, FrameTrace, TraceObject,
+};
+use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon};
 use glam::Vec3;
 use std::time::{Duration, UNIX_EPOCH};
-
-#[derive(Debug, Clone, PartialEq)]
-struct TraceObject {
-    id: ObjectId,
-    template: &'static str,
-    team: Team,
-    position: Vec3,
-    health: u32,
-    status_bits: u32,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct TraceCommand {
-    player_id: u32,
-    command_id: u32,
-    command: String,
-    selected_units: Vec<ObjectId>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct FrameTrace {
-    frame: u32,
-    rng_seed: [u32; 6],
-    commands: Vec<TraceCommand>,
-    objects: Vec<TraceObject>,
-    victory_state: Option<String>,
-    crc: u32,
-}
-
-impl FrameTrace {
-    fn new(
-        frame: u32,
-        rng_seed: [u32; 6],
-        commands: Vec<GameCommand>,
-        objects: Vec<TraceObject>,
-        victory_state: Option<String>,
-    ) -> Self {
-        let mut commands: Vec<TraceCommand> = commands
-            .into_iter()
-            .map(TraceCommand::from_command)
-            .collect();
-        commands.sort_by_key(|command| (command.command_id, command.player_id));
-
-        let mut objects = objects;
-        objects.sort_by_key(|object| object.id);
-
-        let crc = calculate_frame_crc(
-            frame,
-            &rng_seed,
-            &commands,
-            &objects,
-            victory_state.as_deref(),
-        );
-
-        Self {
-            frame,
-            rng_seed,
-            commands,
-            objects,
-            victory_state,
-            crc,
-        }
-    }
-}
-
-impl TraceCommand {
-    fn from_command(command: GameCommand) -> Self {
-        let mut selected_units = command.selected_units;
-        selected_units.sort();
-
-        Self {
-            player_id: command.player_id,
-            command_id: command.command_id,
-            command: summarize_command(&command.command_type),
-            selected_units,
-        }
-    }
-}
-
-fn calculate_frame_crc(
-    frame: u32,
-    rng_seed: &[u32; 6],
-    commands: &[TraceCommand],
-    objects: &[TraceObject],
-    victory_state: Option<&str>,
-) -> u32 {
-    let mut hasher = Hasher::new();
-
-    hasher.update(b"FRAME");
-    hasher.update(&frame.to_le_bytes());
-
-    hasher.update(b"RNG");
-    for seed in rng_seed {
-        hasher.update(&seed.to_le_bytes());
-    }
-
-    hasher.update(b"COMMANDS");
-    for command in commands {
-        hasher.update(&command.player_id.to_le_bytes());
-        hasher.update(&command.command_id.to_le_bytes());
-        hasher.update(command.command.as_bytes());
-        for unit in &command.selected_units {
-            hasher.update(&unit.0.to_le_bytes());
-        }
-    }
-
-    hasher.update(b"OBJECTS");
-    for object in objects {
-        hasher.update(&object.id.0.to_le_bytes());
-        hasher.update(object.template.as_bytes());
-        hasher.update(object.team.get_name().as_bytes());
-        hasher.update(&object.position.x.to_le_bytes());
-        hasher.update(&object.position.y.to_le_bytes());
-        hasher.update(&object.position.z.to_le_bytes());
-        hasher.update(&object.health.to_le_bytes());
-        hasher.update(&object.status_bits.to_le_bytes());
-    }
-
-    hasher.update(b"VICTORY");
-    if let Some(victory_state) = victory_state {
-        hasher.update(victory_state.as_bytes());
-    }
-
-    hasher.finalize()
-}
-
-fn summarize_command(command: &CommandType) -> String {
-    match command {
-        CommandType::MoveTo { destination, .. } => format!(
-            "MoveTo:{:.3},{:.3},{:.3}",
-            destination.x, destination.y, destination.z
-        ),
-        CommandType::AttackObject { target_id } => format!("AttackObject:{}", target_id.0),
-        CommandType::DozerConstruct {
-            template_name,
-            location,
-        } => format!(
-            "DozerConstruct:{}:{:.3},{:.3},{:.3}",
-            template_name, location.x, location.y, location.z
-        ),
-        other => format!("{other:?}"),
-    }
-}
 
 fn command(
     command_id: u32,
@@ -162,11 +21,13 @@ fn command(
     }
 }
 
-fn baseline_trace(command_order_reversed: bool) -> Vec<FrameTrace> {
-    let seed = [
+fn seed() -> [u32; 6] {
+    [
         0x12345678, 0x9abcdef0, 0x13579bdf, 0x2468ace0, 0xfedcba98, 0x76543210,
-    ];
+    ]
+}
 
+fn baseline_trace(command_order_reversed: bool) -> Vec<FrameTrace> {
     let mut frame_10_commands = vec![
         command(
             2,
@@ -191,62 +52,123 @@ fn baseline_trace(command_order_reversed: bool) -> Vec<FrameTrace> {
     vec![
         FrameTrace::new(
             10,
-            seed,
+            seed(),
             frame_10_commands,
             vec![
-                TraceObject {
-                    id: ObjectId(20),
-                    template: "GLAInfantryRebel",
-                    team: Team::GLA,
-                    position: Vec3::new(256.0, 0.0, 256.0),
-                    health: 100,
-                    status_bits: 0,
-                },
-                TraceObject {
-                    id: ObjectId(10),
-                    template: "AmericaVehicleHumvee",
-                    team: Team::USA,
-                    position: Vec3::new(100.0, 0.0, 200.0),
-                    health: 360,
-                    status_bits: 0,
-                },
+                trace_object(
+                    ObjectId(20),
+                    "GLAInfantryRebel",
+                    Team::GLA,
+                    256.0,
+                    256.0,
+                    100.0,
+                ),
+                trace_object(
+                    ObjectId(10),
+                    "AmericaVehicleHumvee",
+                    Team::USA,
+                    100.0,
+                    200.0,
+                    360.0,
+                ),
             ],
             None,
         ),
         FrameTrace::new(
             11,
-            seed,
+            seed(),
             Vec::new(),
             vec![
-                TraceObject {
-                    id: ObjectId(10),
-                    template: "AmericaVehicleHumvee",
-                    team: Team::USA,
-                    position: Vec3::new(104.0, 0.0, 204.0),
-                    health: 360,
-                    status_bits: 1,
-                },
-                TraceObject {
-                    id: ObjectId(20),
-                    template: "GLAInfantryRebel",
-                    team: Team::GLA,
-                    position: Vec3::new(256.0, 0.0, 256.0),
-                    health: 70,
-                    status_bits: 0,
-                },
+                trace_object(
+                    ObjectId(10),
+                    "AmericaVehicleHumvee",
+                    Team::USA,
+                    104.0,
+                    204.0,
+                    360.0,
+                ),
+                trace_object(
+                    ObjectId(20),
+                    "GLAInfantryRebel",
+                    Team::GLA,
+                    256.0,
+                    256.0,
+                    70.0,
+                ),
             ],
             None,
         ),
     ]
 }
 
-fn first_trace_difference<'a>(
-    left: &'a [FrameTrace],
-    right: &'a [FrameTrace],
-) -> Option<(&'a FrameTrace, &'a FrameTrace)> {
-    left.iter()
-        .zip(right.iter())
-        .find(|(left_frame, right_frame)| left_frame.crc != right_frame.crc)
+fn trace_object(
+    id: ObjectId,
+    template: &str,
+    team: Team,
+    x: f32,
+    z: f32,
+    health: f32,
+) -> TraceObject {
+    TraceObject {
+        id,
+        template: template.to_string(),
+        team,
+        position: Vec3::new(x, 0.0, z),
+        orientation: 0.0,
+        health,
+        max_health: health,
+        status_bits: 0,
+        ai_state: "Idle".to_string(),
+        target: None,
+        target_location: None,
+        construction_percent: 1.0,
+    }
+}
+
+fn test_template(name: &str, max_health: f32) -> ThingTemplate {
+    let mut template = ThingTemplate::new(name);
+    template
+        .set_health(max_health)
+        .add_kind_of(KindOf::Selectable)
+        .add_kind_of(KindOf::Attackable)
+        .add_kind_of(KindOf::Vehicle);
+    template
+}
+
+fn traced_game_logic() -> (GameLogic, ObjectId, ObjectId) {
+    let mut game_logic = GameLogic::new();
+    game_logic.add_player(Player::new(0, Team::USA, "USA", true));
+    game_logic.add_player(Player::new(1, Team::GLA, "GLA", false));
+    game_logic.templates.insert(
+        "TraceHumvee".to_string(),
+        test_template("TraceHumvee", 360.0),
+    );
+    game_logic.templates.insert(
+        "TraceTechnical".to_string(),
+        test_template("TraceTechnical", 240.0),
+    );
+
+    let humvee = game_logic
+        .create_object("TraceHumvee", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+        .expect("humvee should spawn");
+    let technical = game_logic
+        .create_object("TraceTechnical", Team::GLA, Vec3::new(35.0, 0.0, 0.0))
+        .expect("technical should spawn");
+
+    let humvee_weapon = Some(Weapon {
+        damage: 25.0,
+        range: 100.0,
+        reload_time: 0.0,
+        projectile_speed: 0.0,
+        ..Weapon::default()
+    });
+    game_logic
+        .get_objects_mut()
+        .get_mut(&humvee)
+        .expect("humvee exists")
+        .weapon = humvee_weapon;
+
+    (game_logic, humvee, technical)
 }
 
 #[test]
@@ -263,7 +185,7 @@ fn frame_trace_is_stable_across_command_and_object_ordering() {
 fn frame_trace_reports_first_divergent_frame() {
     let expected = baseline_trace(false);
     let mut actual = baseline_trace(false);
-    actual[1].objects[1].health = 69;
+    actual[1].objects[1].health = 69.0;
     actual[1].crc = calculate_frame_crc(
         actual[1].frame,
         &actual[1].rng_seed,
@@ -278,4 +200,34 @@ fn frame_trace_reports_first_divergent_frame() {
     assert_eq!(expected_frame.frame, 11);
     assert_eq!(actual_frame.frame, 11);
     assert_ne!(expected_frame.crc, actual_frame.crc);
+}
+
+#[test]
+fn frame_trace_captures_real_game_logic_command_and_damage_frames() {
+    let (mut game_logic, humvee, technical) = traced_game_logic();
+    let attack = command(
+        1,
+        CommandType::AttackObject {
+            target_id: technical,
+        },
+        vec![humvee],
+    );
+
+    game_logic.queue_command(attack.clone());
+    game_logic.update();
+    let frame_1 = FrameTrace::from_game_logic(&game_logic, seed(), vec![attack], None);
+
+    game_logic.update();
+    let frame_2 = FrameTrace::from_game_logic(&game_logic, seed(), Vec::new(), None);
+
+    assert_eq!(frame_1.frame, 1);
+    assert_eq!(frame_1.commands[0].command_id, 1);
+    assert_ne!(frame_1.crc, frame_2.crc);
+
+    let traced_technical = frame_2
+        .objects
+        .iter()
+        .find(|object| object.id == technical)
+        .expect("technical should be traced");
+    assert!(traced_technical.health < 240.0);
 }
