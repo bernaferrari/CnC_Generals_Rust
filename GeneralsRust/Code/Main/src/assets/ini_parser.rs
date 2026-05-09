@@ -217,12 +217,14 @@ impl IniParser {
     }
 
     fn is_object_header(line: &str) -> bool {
-        line.starts_with("Object ")
-            || line.starts_with("ChildObject ")
-            || line.starts_with("ObjectReskin ")
+        Self::parse_object_header(line).is_some()
     }
 
     fn parse_object_header(line: &str) -> Option<(String, Option<String>)> {
+        if line.contains('=') {
+            return None;
+        }
+
         let mut tokens = line.split_whitespace();
         let head = tokens.next()?;
         match head {
@@ -455,5 +457,26 @@ End
         let def = parser.get_definition("Bush08").unwrap();
         assert_eq!(def.model_name.as_deref(), Some("PTBush08"));
         assert_eq!(def.draw_module.as_deref(), Some("W3DTreeDraw ModuleTag_01"));
+    }
+
+    #[test]
+    fn test_object_assignment_does_not_start_template() {
+        let ini_content = r#"
+Object TestStructure
+  Behavior = GrantScienceUpgrade ModuleTag_Science
+    GrantScience = SCIENCE_Test
+    Object = TestHelperObject
+  End
+End
+"#;
+
+        let mut parser = IniParser::new();
+        let count = parser
+            .parse_ini_content(ini_content, "object_assignment.ini")
+            .unwrap();
+
+        assert_eq!(count, 1);
+        assert!(parser.get_definition("TestStructure").is_some());
+        assert!(parser.get_definition("=").is_none());
     }
 }
