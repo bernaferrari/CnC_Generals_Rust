@@ -3,9 +3,9 @@
 
 use crate::common::{Bool, ModuleData, UnsignedInt};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -32,6 +32,7 @@ pub struct DeletionUpdate {
     #[allow(dead_code)]
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<DeletionUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     delete_frame: UnsignedInt,
 }
 
@@ -42,7 +43,7 @@ impl DeletionUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<DeletionUpdateModuleData>()
+            .downcast_ref::<DeletionUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         // Get current frame from game logic - matches C++ DeletionUpdate.cpp
@@ -52,6 +53,7 @@ impl DeletionUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             delete_frame: current_frame + lifetime,
         })
     }
@@ -93,6 +95,12 @@ impl Snapshotable for DeletionUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("DeletionUpdate xfer version: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
         xfer.xfer_unsigned_int(&mut self.delete_frame)
             .map_err(|e| format!("DeletionUpdate xfer delete_frame: {:?}", e))?;
         Ok(())
