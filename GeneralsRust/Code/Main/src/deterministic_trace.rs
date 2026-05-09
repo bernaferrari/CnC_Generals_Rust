@@ -78,6 +78,22 @@ pub struct FrameTrace {
     pub crc: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TraceDifference {
+    FrameCrc {
+        index: usize,
+        left_frame: u32,
+        right_frame: u32,
+        left_crc: u32,
+        right_crc: u32,
+    },
+    Length {
+        matching_frames: usize,
+        left_len: usize,
+        right_len: usize,
+    },
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TraceFrameCommands {
     pub frame: u32,
@@ -211,6 +227,36 @@ pub fn first_trace_difference<'a>(
     left.iter()
         .zip(right.iter())
         .find(|(left_frame, right_frame)| left_frame.crc != right_frame.crc)
+}
+
+pub fn compare_frame_traces(
+    left: &[FrameTrace],
+    right: &[FrameTrace],
+) -> Result<(), TraceDifference> {
+    if let Some((index, (left_frame, right_frame))) = left
+        .iter()
+        .zip(right.iter())
+        .enumerate()
+        .find(|(_, (left_frame, right_frame))| left_frame.crc != right_frame.crc)
+    {
+        return Err(TraceDifference::FrameCrc {
+            index,
+            left_frame: left_frame.frame,
+            right_frame: right_frame.frame,
+            left_crc: left_frame.crc,
+            right_crc: right_frame.crc,
+        });
+    }
+
+    if left.len() != right.len() {
+        return Err(TraceDifference::Length {
+            matching_frames: left.len().min(right.len()),
+            left_len: left.len(),
+            right_len: right.len(),
+        });
+    }
+
+    Ok(())
 }
 
 pub fn calculate_frame_crc(
