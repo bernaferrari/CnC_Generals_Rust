@@ -11,7 +11,7 @@ use crate::common::{
 use crate::common::{GameLogicRandomValue, FROM_CENTER_2D, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::draw::draw_module::{DrawModule, TerrainDecalType};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::Object as GameObject;
@@ -257,6 +257,7 @@ const HORDE_UPDATE_FIELDS: &[FieldParse<HordeUpdateModuleData>] = &[
 pub struct HordeUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<HordeUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     last_horde_refresh_frame: UnsignedInt,
     in_horde: Bool,
     true_horde_member: Bool,
@@ -270,12 +271,13 @@ impl HordeUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<HordeUpdateModuleData>()
+            .downcast_ref::<HordeUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let instance = Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             last_horde_refresh_frame: TheGameLogic::get_frame(),
             in_horde: false,
             true_horde_member: false,
@@ -300,6 +302,7 @@ impl HordeUpdate {
         let instance = Self {
             object: Arc::downgrade(&object),
             module_data,
+            next_call_frame_and_phase: 0,
             last_horde_refresh_frame: TheGameLogic::get_frame(),
             in_horde: false,
             true_horde_member: false,
@@ -558,6 +561,7 @@ impl Snapshotable for HordeUpdate {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_bool(&mut self.in_horde)
             .map_err(|e| format!("Failed to xfer in_horde: {:?}", e))?;
         xfer.xfer_bool(&mut self.has_flag)
