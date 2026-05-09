@@ -337,9 +337,14 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
     #[test]
     fn test_basic_crc() {
-        let mut xfer_crc = XferCRC::new(super::super::xfer_load::XferLoad::new());
+        let mut xfer_crc = XferCRC::new(super::super::xfer_load::XferLoad::new(
+            Cursor::new(Vec::new()),
+            1,
+        ));
 
         let value = 42u32;
         xfer_crc.update_crc(&value.to_le_bytes());
@@ -350,7 +355,10 @@ mod tests {
 
     #[test]
     fn test_deep_crc_hierarchy() {
-        let mut xfer_deep = XferDeepCRC::new(super::super::xfer_load::XferLoad::new());
+        let mut xfer_deep = XferDeepCRC::new(super::super::xfer_load::XferLoad::new(
+            Cursor::new(Vec::new()),
+            1,
+        ));
 
         // Create object hierarchy
         xfer_deep.begin_object("root").unwrap();
@@ -369,7 +377,10 @@ mod tests {
 
     #[test]
     fn test_corruption_detection() {
-        let mut xfer_deep = XferDeepCRC::new(super::super::xfer_load::XferLoad::new());
+        let mut xfer_deep = XferDeepCRC::new(super::super::xfer_load::XferLoad::new(
+            Cursor::new(Vec::new()),
+            1,
+        ));
 
         xfer_deep.begin_object("test").unwrap();
         let value = 999u32;

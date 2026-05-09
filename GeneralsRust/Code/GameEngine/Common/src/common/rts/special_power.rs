@@ -884,10 +884,10 @@ mod tests {
             template.get_detection_time(),
             DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT
         );
-        // Default academy classification is Invalid
+        // Default academy classification is ACT_NONE.
         assert_eq!(
             template.get_academy_classification_type(),
-            AcademyClassificationType::Invalid
+            AcademyClassificationType::None
         );
         // Default required science is SCIENCE_INVALID
         assert_eq!(template.get_required_science(), SCIENCE_INVALID);
@@ -1007,7 +1007,7 @@ mod tests {
         assert_eq!(template.power_type, SpecialPowerType::DaisyCutter);
         assert_eq!(
             template.academy_classification_type,
-            AcademyClassificationType::Superweapon
+            AcademyClassificationType::Superpower
         );
     }
 
@@ -1015,31 +1015,31 @@ mod tests {
     fn test_academy_classification_type() {
         assert_eq!(
             AcademyClassificationType::from_str("TACTICAL"),
-            AcademyClassificationType::Tactical
+            AcademyClassificationType::None
         );
         assert_eq!(
             AcademyClassificationType::from_str("strategic"),
-            AcademyClassificationType::Strategic
+            AcademyClassificationType::None
         );
         assert_eq!(
             AcademyClassificationType::from_str("SUPERWEAPON"),
-            AcademyClassificationType::Superweapon
+            AcademyClassificationType::Superpower
         );
         assert_eq!(
             AcademyClassificationType::from_str("SUPERPOWER"),
-            AcademyClassificationType::Superweapon
+            AcademyClassificationType::Superpower
         );
         assert_eq!(
             AcademyClassificationType::from_str("defensive"),
-            AcademyClassificationType::Defensive
+            AcademyClassificationType::None
         );
         assert_eq!(
             AcademyClassificationType::from_str("economic"),
-            AcademyClassificationType::Economic
+            AcademyClassificationType::None
         );
         assert_eq!(
             AcademyClassificationType::from_str("unknown"),
-            AcademyClassificationType::Invalid
+            AcademyClassificationType::None
         );
     }
 

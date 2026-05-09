@@ -241,20 +241,21 @@ mod tests {
     fn test_callbacks() {
         let mut callbacks = PostLoadCallbacks::new();
 
-        let mut counter = 0;
-        callbacks.add_callback(|| {
-            counter += 1;
+        let counter = std::rc::Rc::new(std::cell::Cell::new(0));
+        let first_counter = counter.clone();
+        callbacks.add_callback(move || {
+            first_counter.set(first_counter.get() + 1);
             Ok(())
         });
-        callbacks.add_callback(|| {
-            counter += 10;
+        let second_counter = counter.clone();
+        callbacks.add_callback(move || {
+            second_counter.set(second_counter.get() + 10);
             Ok(())
         });
 
         assert_eq!(callbacks.count(), 2);
 
-        // Note: This test won't actually increment counter due to closure capture
-        // In real use, callbacks would modify external state
         callbacks.execute_all().unwrap();
+        assert_eq!(counter.get(), 11);
     }
 }

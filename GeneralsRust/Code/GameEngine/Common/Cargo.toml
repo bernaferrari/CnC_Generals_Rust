@@ -114,6 +114,7 @@ backtrace = []
 debug_crc = ["tracing", "tracing-subscriber"]
 debug = []
 perf_timers = []
+no_perf_timers = []
 deterministic = []
 
 [lib]

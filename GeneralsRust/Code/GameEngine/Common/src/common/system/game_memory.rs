@@ -132,7 +132,6 @@ fn sys_allocate(num_bytes: usize) -> *mut u8 {
     ptr
 }
 
-
 unsafe fn sys_free(ptr: *mut u8, num_bytes: usize) {
     if ptr.is_null() {
         return;
@@ -248,11 +247,42 @@ impl BlockHeader {
         }
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(all(test, debug_assertions))]
+    fn verify(&self) -> bool {
+        self.magic_cookie == debug_consts::SINGLEBLOCK_MAGIC_COOKIE
+            && self.check_underrun()
+            && self.check_overrun()
+    }
 
-    #[cfg(debug_assertions)]
+    #[cfg(all(test, debug_assertions))]
+    fn check_underrun(&self) -> bool {
+        let base = self as *const BlockHeader as *const u8;
+        let front_start = unsafe { base.add(std::mem::size_of::<BlockHeader>()) };
+        let wall = front_start as *const u32;
+        for i in 0..debug_consts::WALLCOUNT {
+            let actual = unsafe { ptr::read(wall.add(i)) };
+            if actual != self.wall_pattern.wrapping_add(i as u32) {
+                return false;
+            }
+        }
+        true
+    }
 
-    #[cfg(debug_assertions)]
+    #[cfg(all(test, debug_assertions))]
+    fn check_overrun(&self) -> bool {
+        let back_start = unsafe {
+            self.user_data_ptr()
+                .add(round_up_mem_bound(self.logical_size))
+        };
+        let wall = back_start as *const u32;
+        for i in 0..debug_consts::WALLCOUNT {
+            let actual = unsafe { ptr::read(wall.add(i)) };
+            if actual != self.wall_pattern.wrapping_sub(i as u32) {
+                return false;
+            }
+        }
+        true
+    }
 
     #[cfg(debug_assertions)]
     fn mark_as_freed(&mut self) {

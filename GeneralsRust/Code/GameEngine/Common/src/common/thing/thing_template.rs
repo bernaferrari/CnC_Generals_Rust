@@ -782,8 +782,6 @@ impl WeaponSetDefinition {
     }
 }
 
-
-
 pub(crate) fn parse_bool_field(value: &str) -> Result<bool, String> {
     match value.to_ascii_lowercase().as_str() {
         "true" | "yes" | "1" => Ok(true),
@@ -2314,11 +2312,13 @@ mod tests {
 
     #[test]
     fn load_weapon_sets_from_definitions_populates_template() {
+        use crate::common::system::kind_of::KindOfMask;
+
         let mut definition = WeaponSetDefinition::new();
         definition.add_condition("Hero");
         definition.set_weapon_name(0, Some(AsciiString::from("HeroPrimary")));
         definition.set_auto_choose_mask(0, Some(0x1));
-        definition.set_preferred_against_mask(0, Some(0x2));
+        definition.set_preferred_against_mask(0, Some(KindOfMask::from_bits_retain(0x2)));
         definition.set_share_reload_time(Some(true));
         definition.set_share_weapon_lock(Some(false));
 
@@ -2335,7 +2335,10 @@ mod tests {
             Some("HeroPrimary"),
         );
         assert_eq!(engine_set.auto_choose_mask(0), 0x1);
-        assert_eq!(engine_set.preferred_against_mask(0), 0x2);
+        assert_eq!(
+            engine_set.preferred_against_mask(0),
+            KindOfMask::from_bits_retain(0x2)
+        );
         assert!(engine_set.is_reload_time_shared());
         assert!(!engine_set.is_weapon_lock_shared_across_sets());
     }
