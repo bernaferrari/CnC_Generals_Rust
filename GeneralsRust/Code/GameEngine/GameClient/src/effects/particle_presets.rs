@@ -310,11 +310,13 @@ pub mod weapons {
         info.alpha_keys[0] = RandomKeyframe {
             min_value: 0.8,
             max_value: 1.0,
+            distribution_type: 0,
             frame: 0,
         };
         info.alpha_keys[1] = RandomKeyframe {
             min_value: 0.0,
             max_value: 0.1,
+            distribution_type: 0,
             frame: 20,
         };
 
@@ -370,11 +372,13 @@ pub mod environment {
         info.alpha_keys[0] = RandomKeyframe {
             min_value: 0.7,
             max_value: 0.9,
+            distribution_type: 0,
             frame: 0,
         };
         info.alpha_keys[1] = RandomKeyframe {
             min_value: 0.0,
             max_value: 0.1,
+            distribution_type: 0,
             frame: 80,
         };
 
@@ -466,11 +470,13 @@ pub mod environment {
         info.alpha_keys[0] = RandomKeyframe {
             min_value: 0.6,
             max_value: 0.8,
+            distribution_type: 0,
             frame: 0,
         };
         info.alpha_keys[1] = RandomKeyframe {
             min_value: 0.0,
             max_value: 0.1,
+            distribution_type: 0,
             frame: 45,
         };
 
@@ -522,11 +528,13 @@ pub mod destruction {
         info.alpha_keys[0] = RandomKeyframe {
             min_value: 0.8,
             max_value: 1.0,
+            distribution_type: 0,
             frame: 0,
         };
         info.alpha_keys[1] = RandomKeyframe {
             min_value: 0.0,
             max_value: 0.1,
+            distribution_type: 0,
             frame: 100,
         };
 

@@ -566,11 +566,12 @@ impl Snapshotable for ParticleSystemInfo {
             let mut var = GameClientRandomVariable {
                 min: key.min_value,
                 max: key.max_value,
-                distribution_type: 0,
+                distribution_type: key.distribution_type,
             };
             xfer_random_variable(xfer, &mut var)?;
             key.min_value = var.min;
             key.max_value = var.max;
+            key.distribution_type = var.distribution_type;
             xfer.xfer_unsigned_int(&mut key.frame)
                 .map_err(|e| e.to_string())?;
         }
@@ -2277,6 +2278,7 @@ mod tests {
             info.alpha_keys[0] = RandomKeyframe {
                 min_value: 0.2,
                 max_value: 0.4,
+                distribution_type: 5,
                 frame: 7,
             };
             info.color_keys[0] = RGBColorKeyframe {
@@ -2355,6 +2357,7 @@ mod tests {
         assert_eq!(loaded_info.angle_z.max, 2.0);
         assert_eq!(loaded_info.alpha_keys[0].min_value, 0.2);
         assert_eq!(loaded_info.alpha_keys[0].max_value, 0.4);
+        assert_eq!(loaded_info.alpha_keys[0].distribution_type, 5);
         assert_eq!(loaded_info.alpha_keys[0].frame, 7);
         assert_eq!(loaded_info.color_keys[0].color, [0.1, 0.2, 0.3]);
         assert_eq!(loaded_info.color_keys[0].frame, 8);

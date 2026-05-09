@@ -551,6 +551,7 @@ impl ParticleSystemINIParser {
         Ok(RandomKeyframe {
             min_value,
             max_value,
+            distribution_type: 0,
             frame,
         })
     }
