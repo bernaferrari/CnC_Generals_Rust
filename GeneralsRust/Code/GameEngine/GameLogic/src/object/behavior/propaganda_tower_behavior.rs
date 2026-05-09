@@ -19,7 +19,7 @@ use crate::helpers::{TheFXListStore, TheGameLogic, ThePartitionManager};
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object;
 use crate::player::{player_list, Player};
 use crate::upgrade::{center::get_upgrade_center, UpgradeTemplate, UpgradeType};
@@ -194,6 +194,7 @@ pub struct PropagandaTowerBehavior {
     object: Weak<RwLock<Object>>,
     object_id: ObjectID,
     module_data: Arc<PropagandaTowerBehaviorModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     last_scan_frame: UnsignedInt,
     inside_list: Vec<ObjectID>,
     upgrade_required: Option<Arc<UpgradeTemplate>>,
@@ -206,7 +207,7 @@ impl PropagandaTowerBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<PropagandaTowerBehaviorModuleData>()
+            .downcast_ref::<PropagandaTowerBehaviorModuleData>()
             .ok_or("Invalid module data type for PropagandaTowerBehavior")?;
 
         let object_id = object
@@ -219,6 +220,7 @@ impl PropagandaTowerBehavior {
             object: Arc::downgrade(&object),
             object_id,
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             last_scan_frame: 0,
             inside_list: Vec::new(),
             upgrade_required: None,
@@ -371,10 +373,7 @@ impl PropagandaTowerBehavior {
         if target.is_kind_of(KindOf::Structure) {
             return false;
         }
-        matches!(
-            tower.relationship_to(target),
-            Relationship::Allies
-        )
+        matches!(tower.relationship_to(target), Relationship::Allies)
     }
 
     fn do_scan(&mut self, tower: &Object) {
@@ -580,6 +579,9 @@ impl Snapshotable for PropagandaTowerBehavior {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|e| format!("Failed to xfer UpdateModule base state: {}", e))?;
+
         xfer.xfer_unsigned_int(&mut self.last_scan_frame)
             .map_err(|e| e.to_string())?;
 
@@ -651,7 +653,6 @@ impl Snapshotable for PropagandaTowerBehaviorModule {
 }
 
 impl Module for PropagandaTowerBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
