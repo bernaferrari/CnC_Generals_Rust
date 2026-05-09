@@ -5,11 +5,11 @@
 //! Author: Graham Smallwood, April 2002 (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{ModuleData, Real};
+use crate::common::{ModuleData, Real, UnsignedInt, XferVersion};
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
@@ -55,16 +55,20 @@ crate::impl_behavior_module_data_via_base!(DynamicGeometryInfoUpdateModuleData, 
 
 /// Shared logic for dynamic geometry transitions
 pub struct DynamicGeometryInfoUpdateLogic {
+    /// UpdateModule scheduler state serialized by the C++ base class
+    pub next_call_frame_and_phase: UnsignedInt,
     /// Countdown frames before starting
-    pub starting_delay_countdown: u32,
+    pub starting_delay_countdown: UnsignedInt,
     /// Frames since transition started
-    pub time_active: u32,
+    pub time_active: UnsignedInt,
     /// Whether transition has started
     pub started: bool,
     /// Whether transition is finished
     pub finished: bool,
     /// Whether to reverse at transition time (instance copy)
     pub reverse_at_transition_time: bool,
+    /// C++ persisted this enum even though current transition math uses swapped endpoints.
+    pub direction: DynamicGeometryDirection,
     /// Whether we've switched directions
     pub switched_directions: bool,
 
@@ -76,17 +80,35 @@ pub struct DynamicGeometryInfoUpdateLogic {
     pub final_major_radius: Real,
     pub final_minor_radius: Real,
 
-    pub transition_time: u32,
+    pub transition_time: UnsignedInt,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(i32)]
+pub enum DynamicGeometryDirection {
+    Backward = -1,
+    Forward = 1,
+}
+
+impl DynamicGeometryDirection {
+    fn from_i32(value: i32) -> Self {
+        match value {
+            -1 => Self::Backward,
+            _ => Self::Forward,
+        }
+    }
 }
 
 impl DynamicGeometryInfoUpdateLogic {
     pub fn new(data: &DynamicGeometryInfoUpdateModuleData) -> Self {
         Self {
+            next_call_frame_and_phase: 0,
             starting_delay_countdown: data.initial_delay.max(1),
             time_active: 0,
             started: false,
             finished: false,
             reverse_at_transition_time: data.reverse_at_transition_time,
+            direction: DynamicGeometryDirection::Forward,
             switched_directions: false,
             initial_height: data.initial_height,
             initial_major_radius: data.initial_major_radius,
@@ -136,6 +158,7 @@ impl DynamicGeometryInfoUpdateLogic {
                 self.switched_directions = true;
                 self.time_active = 0;
                 self.reverse_at_transition_time = false;
+                self.direction = DynamicGeometryDirection::Backward;
 
                 // Swap initial and final values
                 std::mem::swap(&mut self.initial_height, &mut self.final_height);
@@ -148,6 +171,51 @@ impl DynamicGeometryInfoUpdateLogic {
 
         UPDATE_SLEEP_NONE
     }
+}
+
+pub(crate) fn xfer_dynamic_geometry_info_update_logic(
+    xfer: &mut dyn Xfer,
+    logic: &mut DynamicGeometryInfoUpdateLogic,
+    label: &str,
+) -> Result<(), String> {
+    let mut version: XferVersion = 1;
+    xfer.xfer_version(&mut version, 1)
+        .map_err(|e| format!("{label} xfer version: {e:?}"))?;
+
+    xfer_update_module_base_state(xfer, &mut logic.next_call_frame_and_phase)?;
+
+    xfer.xfer_unsigned_int(&mut logic.starting_delay_countdown)
+        .map_err(|e| format!("{label} xfer starting_delay_countdown: {e:?}"))?;
+    xfer.xfer_unsigned_int(&mut logic.time_active)
+        .map_err(|e| format!("{label} xfer time_active: {e:?}"))?;
+    xfer.xfer_bool(&mut logic.started)
+        .map_err(|e| format!("{label} xfer started: {e:?}"))?;
+    xfer.xfer_bool(&mut logic.finished)
+        .map_err(|e| format!("{label} xfer finished: {e:?}"))?;
+    xfer.xfer_bool(&mut logic.reverse_at_transition_time)
+        .map_err(|e| format!("{label} xfer reverse_at_transition_time: {e:?}"))?;
+
+    let mut direction = logic.direction as i32;
+    xfer.xfer_int(&mut direction)
+        .map_err(|e| format!("{label} xfer direction: {e:?}"))?;
+    logic.direction = DynamicGeometryDirection::from_i32(direction);
+
+    xfer.xfer_bool(&mut logic.switched_directions)
+        .map_err(|e| format!("{label} xfer switched_directions: {e:?}"))?;
+    xfer.xfer_real(&mut logic.initial_height)
+        .map_err(|e| format!("{label} xfer initial_height: {e:?}"))?;
+    xfer.xfer_real(&mut logic.initial_major_radius)
+        .map_err(|e| format!("{label} xfer initial_major_radius: {e:?}"))?;
+    xfer.xfer_real(&mut logic.initial_minor_radius)
+        .map_err(|e| format!("{label} xfer initial_minor_radius: {e:?}"))?;
+    xfer.xfer_real(&mut logic.final_height)
+        .map_err(|e| format!("{label} xfer final_height: {e:?}"))?;
+    xfer.xfer_real(&mut logic.final_major_radius)
+        .map_err(|e| format!("{label} xfer final_major_radius: {e:?}"))?;
+    xfer.xfer_real(&mut logic.final_minor_radius)
+        .map_err(|e| format!("{label} xfer final_minor_radius: {e:?}"))?;
+
+    Ok(())
 }
 
 /// DynamicGeometryInfoUpdate - smoothly transitions object geometry over time
@@ -163,7 +231,7 @@ impl DynamicGeometryInfoUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<DynamicGeometryInfoUpdateModuleData>()
+            .downcast_ref::<DynamicGeometryInfoUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
@@ -200,51 +268,7 @@ impl Snapshotable for DynamicGeometryInfoUpdate {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        xfer.xfer_unsigned_int(&mut self.logic.starting_delay_countdown)
-            .map_err(|e| {
-                format!(
-                    "DynamicGeometryInfoUpdate xfer starting_delay_countdown: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_unsigned_int(&mut self.logic.time_active)
-            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer time_active: {:?}", e))?;
-        xfer.xfer_bool(&mut self.logic.started)
-            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer started: {:?}", e))?;
-        xfer.xfer_bool(&mut self.logic.finished)
-            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer finished: {:?}", e))?;
-        xfer.xfer_bool(&mut self.logic.switched_directions)
-            .map_err(|e| {
-                format!(
-                    "DynamicGeometryInfoUpdate xfer switched_directions: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_real(&mut self.logic.initial_height)
-            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer initial_height: {:?}", e))?;
-        xfer.xfer_real(&mut self.logic.initial_major_radius)
-            .map_err(|e| {
-                format!(
-                    "DynamicGeometryInfoUpdate xfer initial_major_radius: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_real(&mut self.logic.initial_minor_radius)
-            .map_err(|e| {
-                format!(
-                    "DynamicGeometryInfoUpdate xfer initial_minor_radius: {:?}",
-                    e
-                )
-            })?;
-        xfer.xfer_real(&mut self.logic.final_height)
-            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer final_height: {:?}", e))?;
-        xfer.xfer_real(&mut self.logic.final_major_radius)
-            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer final_major_radius: {:?}", e))?;
-        xfer.xfer_real(&mut self.logic.final_minor_radius)
-            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer final_minor_radius: {:?}", e))?;
-        xfer.xfer_unsigned_int(&mut self.logic.transition_time)
-            .map_err(|e| format!("DynamicGeometryInfoUpdate xfer transition_time: {:?}", e))?;
-        Ok(())
+        xfer_dynamic_geometry_info_update_logic(xfer, &mut self.logic, "DynamicGeometryInfoUpdate")
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
