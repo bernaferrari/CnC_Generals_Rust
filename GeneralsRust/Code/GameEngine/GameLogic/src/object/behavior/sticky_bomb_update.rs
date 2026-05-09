@@ -14,7 +14,7 @@ use crate::helpers::{
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
 use crate::weapon::{with_weapon_store, WeaponBonus, WeaponTemplate};
@@ -138,6 +138,7 @@ const STICKY_BOMB_UPDATE_FIELDS: &[FieldParse<StickyBombUpdateModuleData>] = &[
 pub struct StickyBombUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<StickyBombUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     target_id: ObjectID,
     die_frame: UnsignedInt,
     next_ping_frame: UnsignedInt,
@@ -150,7 +151,7 @@ impl StickyBombUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<StickyBombUpdateModuleData>()
+            .downcast_ref::<StickyBombUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         if let Ok(obj) = object.read() {
@@ -160,6 +161,7 @@ impl StickyBombUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             target_id: OBJECT_INVALID_ID,
             die_frame: 0,
             next_ping_frame: 0,
@@ -492,6 +494,8 @@ impl Snapshotable for StickyBombUpdate {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_object_id(&mut self.target_id)
             .map_err(|e| format!("Failed to xfer target_id: {:?}", e))?;
