@@ -298,8 +298,7 @@ impl Snapshotable for SubObjectsUpgrade {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.applied)
-            .map_err(|e| e.to_string())?;
+        crate::object::upgrade::upgrade_module::xfer_upgrade_module_state(xfer, &mut self.applied)?;
         if let Ok(mut guard) = self.inner.lock() {
             guard.mux.set_upgrade_executed(self.applied);
         }
