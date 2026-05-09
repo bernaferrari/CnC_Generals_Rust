@@ -1,7 +1,7 @@
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::deterministic_trace::{
-    calculate_frame_crc, first_trace_difference, run_trace_scenario, FrameTrace, TraceObject,
-    TraceScenario,
+    calculate_frame_crc, compare_frame_traces, first_trace_difference, run_trace_scenario,
+    FrameTrace, TraceDifference, TraceObject, TraceScenario,
 };
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon};
 use glam::Vec3;
@@ -201,6 +201,51 @@ fn frame_trace_reports_first_divergent_frame() {
     assert_eq!(expected_frame.frame, 11);
     assert_eq!(actual_frame.frame, 11);
     assert_ne!(expected_frame.crc, actual_frame.crc);
+}
+
+#[test]
+fn frame_trace_compare_reports_crc_mismatch_with_frame_context() {
+    let expected = baseline_trace(false);
+    let mut actual = baseline_trace(false);
+    actual[1].objects[1].health = 69.0;
+    actual[1].crc = calculate_frame_crc(
+        actual[1].frame,
+        &actual[1].rng_seed,
+        &actual[1].commands,
+        &actual[1].objects,
+        actual[1].victory_state.as_deref(),
+    );
+
+    let difference = compare_frame_traces(&expected, &actual).expect_err("frame 11 should diverge");
+
+    assert_eq!(
+        difference,
+        TraceDifference::FrameCrc {
+            index: 1,
+            left_frame: 11,
+            right_frame: 11,
+            left_crc: expected[1].crc,
+            right_crc: actual[1].crc,
+        }
+    );
+}
+
+#[test]
+fn frame_trace_compare_reports_length_mismatch_after_common_prefix() {
+    let expected = baseline_trace(false);
+    let actual = expected[..1].to_vec();
+
+    let difference =
+        compare_frame_traces(&expected, &actual).expect_err("missing frame should diverge");
+
+    assert_eq!(
+        difference,
+        TraceDifference::Length {
+            matching_frames: 1,
+            left_len: 2,
+            right_len: 1,
+        }
+    );
 }
 
 #[test]

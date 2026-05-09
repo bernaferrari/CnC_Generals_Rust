@@ -366,6 +366,10 @@ required-features = ["dev-tools"]
 name = "deterministic_trace_dump"
 path = "src/bin/deterministic_trace_dump.rs"
 
+[[bin]]
+name = "deterministic_trace_compare"
+path = "src/bin/deterministic_trace_compare.rs"
+
 [[example]]
 name = "telemetry_bridge"
 path = "examples/telemetry_bridge.rs"
