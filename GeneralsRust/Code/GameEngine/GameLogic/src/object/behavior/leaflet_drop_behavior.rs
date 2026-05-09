@@ -117,7 +117,7 @@ impl LeafletDropBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<LeafletDropBehaviorModuleData>()
+            .downcast_ref::<LeafletDropBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
         let now = TheGameLogic::get_frame();
@@ -234,6 +234,8 @@ impl Snapshotable for LeafletDropBehavior {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut self.start_frame)
+            .map_err(|e| format!("Failed to xfer start_frame: {:?}", e))?;
         Ok(())
     }
 
