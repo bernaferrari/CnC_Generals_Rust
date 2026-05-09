@@ -18,6 +18,7 @@ use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, UpdateModuleInterface, UpdateSleepTime,
     UpgradeModuleInterface, UpgradeMuxData,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::{
     registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
 };
@@ -573,6 +574,7 @@ pub struct AutoHealBehavior {
     pub stopped: Bool,
 
     // Upgrade system
+    pub next_call_frame_and_phase: UnsignedInt,
     pub upgrade_executed: Bool,
     object_id: ObjectID,
     object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
@@ -603,6 +605,7 @@ impl AutoHealBehavior {
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
             soonest_heal_frame: 0,
             stopped: false,
+            next_call_frame_and_phase: 0,
             upgrade_executed: false,
             object_id,
             object_handle: Mutex::new(initial_handle),
@@ -911,7 +914,6 @@ impl Snapshotable for AutoHealBehaviorModule {
 }
 
 impl Module for AutoHealBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1198,13 +1200,20 @@ impl Snapshotable for AutoHealBehavior {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("AutoHealBehavior version xfer failed: {:?}", e))?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|e| format!("AutoHealBehavior update module base state: {}", e))?;
+
+        let mut upgrade_mux_version: XferVersion = 1;
+        xfer.xfer_version(&mut upgrade_mux_version, 1)
+            .map_err(|e| format!("AutoHealBehavior upgrade mux version: {:?}", e))?;
+        xfer.xfer_bool(&mut self.upgrade_executed)
+            .map_err(|e| e.to_string())?;
+
         xfer.xfer_unsigned_int(&mut self.radius_particle_system_id)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut self.soonest_heal_frame)
             .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.stopped)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.upgrade_executed)
             .map_err(|e| e.to_string())?;
 
         if xfer.get_xfer_mode() == XferMode::Load {
