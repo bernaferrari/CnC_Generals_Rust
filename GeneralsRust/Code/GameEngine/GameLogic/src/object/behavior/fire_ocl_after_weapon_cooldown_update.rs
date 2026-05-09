@@ -8,7 +8,7 @@ use crate::common::{
 use crate::effects::ObjectCreationList;
 use crate::helpers::{TheGameLogic, TheObjectCreationListStore};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use crate::upgrade::{UpgradeMask, UpgradeMux, UpgradeMuxData};
 use crate::weapon::WeaponSlotType;
@@ -57,6 +57,7 @@ pub struct FireOCLAfterWeaponCooldownUpdate {
     valid: bool,
     consecutive_shots: UnsignedInt,
     start_frame: UnsignedInt,
+    next_call_frame_and_phase: UnsignedInt,
     upgrade_mux: UpgradeMux,
 }
 
@@ -67,7 +68,7 @@ impl FireOCLAfterWeaponCooldownUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<FireOCLAfterWeaponCooldownUpdateModuleData>()
+            .downcast_ref::<FireOCLAfterWeaponCooldownUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let upgrade_mux = UpgradeMux::new(specific_data.upgrade_mux_data.clone());
@@ -78,6 +79,7 @@ impl FireOCLAfterWeaponCooldownUpdate {
             valid: false,
             consecutive_shots: 0,
             start_frame: 0,
+            next_call_frame_and_phase: 0,
             upgrade_mux,
         })
     }
@@ -200,6 +202,8 @@ impl Snapshotable for FireOCLAfterWeaponCooldownUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|e| format!("Failed to xfer update base: {}", e))?;
         self.upgrade_mux.xfer(xfer)?;
         xfer.xfer_bool(&mut self.valid)
             .map_err(|e| format!("Failed to xfer valid: {:?}", e))?;
