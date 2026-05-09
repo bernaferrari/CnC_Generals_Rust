@@ -11,6 +11,7 @@ use crate::common::{
 };
 use crate::helpers::{TheAudio, TheParticleSystemManager, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::{Object as GameObject, ObjectID, INVALID_ID as OBJECT_INVALID_ID};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -356,6 +357,7 @@ const STEALTH_DETECTOR_UPDATE_FIELDS: &[FieldParse<StealthDetectorUpdateModuleDa
 pub struct StealthDetectorUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<StealthDetectorUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     enabled: Bool,
     grid_particle_ids: Vec<ParticleSystemID>,
     ping_particle_id: Option<ParticleSystemID>,
@@ -370,12 +372,13 @@ impl StealthDetectorUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<StealthDetectorUpdateModuleData>()
+            .downcast_ref::<StealthDetectorUpdateModuleData>()
             .ok_or("Invalid module data type for StealthDetectorUpdate")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             enabled: !specific_data.initially_disabled,
             grid_particle_ids: Vec::new(),
             ping_particle_id: None,
@@ -619,6 +622,7 @@ impl Snapshotable for StealthDetectorUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_bool(&mut self.enabled)
             .map_err(|e| format!("Failed to xfer enabled: {:?}", e))?;
         Ok(())
