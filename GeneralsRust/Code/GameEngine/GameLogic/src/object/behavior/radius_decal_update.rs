@@ -7,14 +7,14 @@
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Coord3D, CoordOrigin, ModuleData, ObjectStatusTypes, RadiusDecal,
-    RadiusDecalTemplate, Real, XferVersion,
+    RadiusDecalTemplate, Real, UnsignedInt, XferVersion,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_FOREVER,
     UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use crate::player::ThePlayerList;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -50,6 +50,7 @@ pub struct RadiusDecalUpdate {
     object: Weak<RwLock<GameObject>>,
     #[allow(dead_code)]
     module_data: Arc<RadiusDecalUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
 
     /// The radius decal being managed
     delivery_decal: RadiusDecal,
@@ -66,7 +67,7 @@ impl RadiusDecalUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<RadiusDecalUpdateModuleData>()
+            .downcast_ref::<RadiusDecalUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let mut decal = RadiusDecal::new(Coord3D::origin(), 0.0);
@@ -79,6 +80,7 @@ impl RadiusDecalUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(data.clone()),
+            next_call_frame_and_phase: 0,
             delivery_decal: decal,
             kill_when_no_longer_attacking: false,
             sleeping: true, // Start sleeping (UPDATE_SLEEP_FOREVER in C++)
@@ -287,6 +289,7 @@ impl Snapshotable for RadiusDecalUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         // xfer_radius_decal_mut follows the legacy extension API and does not surface Result.
         xfer.xfer_radius_decal_mut(&mut self.delivery_decal);
         xfer.xfer_bool(&mut self.kill_when_no_longer_attacking)
