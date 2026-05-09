@@ -19,14 +19,15 @@ use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
     BehaviorModuleInterface, BodyModuleInterfaceExt, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
-use crate::object::behavior::behavior_module::RebuildHoleBehaviorInterface;
+use crate::object::behavior::behavior_module::{
+    xfer_update_module_base_state, BehaviorModuleData, RebuildHoleBehaviorInterface,
+};
 use crate::object::behavior::sticky_bomb_update::StickyBombUpdate;
 use crate::object::Object;
 use crate::scripting::engine::transfer_object_name;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing as ModuleThing};
 
 // ============================================================================
@@ -113,6 +114,7 @@ pub struct RebuildHoleBehavior {
     worker_id: ObjectID,
     reconstructing_id: ObjectID,
     spawner_object_id: ObjectID,
+    next_call_frame_and_phase: UnsignedInt,
     worker_wait_counter: UnsignedInt,
     worker_template: Option<Arc<dyn crate::common::ThingTemplate>>,
     rebuild_template: Option<Arc<dyn crate::common::ThingTemplate>>,
@@ -126,6 +128,7 @@ impl RebuildHoleBehavior {
             worker_id: INVALID_ID,
             reconstructing_id: INVALID_ID,
             spawner_object_id: INVALID_ID,
+            next_call_frame_and_phase: 0,
             worker_wait_counter: 0,
             worker_template: None,
             rebuild_template: None,
@@ -587,9 +590,11 @@ impl Snapshotable for RebuildHoleBehavior {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 2;
+        let mut version: XferVersion = 2;
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("version xfer: {e:?}"))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_object_id(&mut self.worker_id)
             .map_err(|e| e.to_string())?;
@@ -688,7 +693,6 @@ impl Snapshotable for RebuildHoleBehaviorModule {
 }
 
 impl Module for RebuildHoleBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
