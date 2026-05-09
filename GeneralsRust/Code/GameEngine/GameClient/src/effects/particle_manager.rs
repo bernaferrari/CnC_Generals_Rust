@@ -180,6 +180,7 @@ impl Default for RGBColorKeyframe {
 pub struct RandomKeyframe {
     pub min_value: f32,
     pub max_value: f32,
+    pub distribution_type: u32,
     pub frame: u32,
 }
 
@@ -188,6 +189,7 @@ impl Default for RandomKeyframe {
         Self {
             min_value: 0.0,
             max_value: 0.0,
+            distribution_type: 0,
             frame: 0,
         }
     }
