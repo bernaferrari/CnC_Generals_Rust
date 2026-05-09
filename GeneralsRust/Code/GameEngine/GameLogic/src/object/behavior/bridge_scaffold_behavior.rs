@@ -10,7 +10,8 @@ use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use crate::common::{
-    AsciiString, BehaviorModuleData, Coord3D, ObjectID, Real, Xfer, XferExt, XferVersion,
+    AsciiString, BehaviorModuleData, Coord3D, ObjectID, Real, UnsignedInt, Xfer, XferExt,
+    XferVersion,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
@@ -25,7 +26,9 @@ use game_engine::common::thing::module::{
 };
 use game_engine::system::Xfer as EngineXfer;
 
-use super::behavior_module::{BridgeScaffoldBehaviorInterface, ScaffoldTargetMotion};
+use super::behavior_module::{
+    xfer_update_module_base_state, BridgeScaffoldBehaviorInterface, ScaffoldTargetMotion,
+};
 
 /// BridgeScaffoldBehaviorModuleData - configuration container for scaffolds
 #[derive(Debug, Clone)]
@@ -64,6 +67,7 @@ pub struct BridgeScaffoldBehavior {
     pub module_data: Arc<BridgeScaffoldBehaviorModuleData>,
     object_id: ObjectID,
     object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
+    next_call_frame_and_phase: UnsignedInt,
 
     // Motion state
     pub target_motion: ScaffoldTargetMotion,
@@ -107,6 +111,7 @@ impl BridgeScaffoldBehavior {
             module_data,
             object_id,
             object_handle: Mutex::new(initial_handle),
+            next_call_frame_and_phase: 0,
             target_motion: ScaffoldTargetMotion::Still,
             create_pos: Coord3D::new(0.0, 0.0, 0.0),
             rise_to_pos: Coord3D::new(0.0, 0.0, 0.0),
@@ -403,7 +408,6 @@ impl Snapshotable for BridgeScaffoldBehaviorModule {
 }
 
 impl EngineModule for BridgeScaffoldBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -438,9 +442,10 @@ impl BridgeScaffoldBehavior {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
-        let mut motion_value = self.target_motion as u8;
-        xfer.xfer_u8(&mut motion_value);
+        let mut motion_value: UnsignedInt = self.target_motion as UnsignedInt;
+        xfer.xfer_unsigned_int(&mut motion_value)?;
         self.target_motion = match motion_value {
             0 => ScaffoldTargetMotion::Still,
             1 => ScaffoldTargetMotion::Rise,
@@ -453,9 +458,9 @@ impl BridgeScaffoldBehavior {
         xfer.xfer_coord3d(&mut self.create_pos);
         xfer.xfer_coord3d(&mut self.rise_to_pos);
         xfer.xfer_coord3d(&mut self.build_pos);
-        xfer.xfer_coord3d(&mut self.target_pos);
         xfer.xfer_real(&mut self.lateral_speed)?;
         xfer.xfer_real(&mut self.vertical_speed)?;
+        xfer.xfer_coord3d(&mut self.target_pos);
 
         Ok(())
     }
