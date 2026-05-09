@@ -198,7 +198,6 @@ impl BeaconClientUpdateModule {
 }
 
 impl Module for BeaconClientUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -217,7 +216,25 @@ impl Snapshotable for BeaconClientUpdateModule {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut particle_system_id = self.particle_system_id.unwrap_or(0);
+        xfer.xfer_unsigned_int(&mut particle_system_id)
+            .map_err(|e| format!("{:?}", e))?;
+        if xfer.is_reading() {
+            self.particle_system_id = if particle_system_id == 0 {
+                None
+            } else {
+                Some(particle_system_id)
+            };
+        }
+
+        xfer.xfer_unsigned_int(&mut self.last_radar_pulse)
+            .map_err(|e| format!("{:?}", e))?;
         Ok(())
     }
 
@@ -229,6 +246,9 @@ impl Snapshotable for BeaconClientUpdateModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     #[test]
     fn parse_radar_pulse_fields_accept_duration_suffixes() {
@@ -238,5 +258,33 @@ mod tests {
         parse_radar_pulse_duration(&mut ini, &mut data, &["500ms"]).expect("duration");
         assert_eq!(data.frames_between_radar_pulses, 45);
         assert_eq!(data.radar_pulse_duration, 15);
+    }
+
+    #[test]
+    fn beacon_client_update_xfer_preserves_cpp_runtime_fields() {
+        let module_data = Arc::new(BeaconClientUpdateModuleData::default());
+        let mut saved = BeaconClientUpdateModule::new(11, module_data.clone(), 22);
+        saved.particle_system_id = Some(0x1234_5678);
+        saved.last_radar_pulse = 9876;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("beacon_client_update").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = BeaconClientUpdateModule::new(11, module_data, 22);
+        {
+            let mut load = XferLoad::new(Cursor::new(bytes), 1);
+            load.open("beacon_client_update").unwrap();
+            loaded.xfer(&mut load).unwrap();
+            load.close().unwrap();
+        }
+
+        assert_eq!(loaded.particle_system_id, Some(0x1234_5678));
+        assert_eq!(loaded.last_radar_pulse, 9876);
     }
 }
