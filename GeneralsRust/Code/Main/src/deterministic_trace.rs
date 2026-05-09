@@ -78,6 +78,42 @@ pub struct FrameTrace {
     pub crc: u32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraceFrameCommands {
+    pub frame: u32,
+    pub commands: Vec<GameCommand>,
+}
+
+impl TraceFrameCommands {
+    pub fn new(frame: u32, commands: Vec<GameCommand>) -> Self {
+        Self { frame, commands }
+    }
+}
+
+/// Scripted deterministic trace input. Commands are queued before the target
+/// frame is advanced, matching the C++ command-list phase ordering.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraceScenario {
+    pub rng_seed: [u32; 6],
+    pub final_frame: u32,
+    pub commands: Vec<TraceFrameCommands>,
+}
+
+impl TraceScenario {
+    pub fn new(rng_seed: [u32; 6], final_frame: u32) -> Self {
+        Self {
+            rng_seed,
+            final_frame,
+            commands: Vec::new(),
+        }
+    }
+
+    pub fn with_commands(mut self, frame: u32, commands: Vec<GameCommand>) -> Self {
+        self.commands.push(TraceFrameCommands::new(frame, commands));
+        self
+    }
+}
+
 impl FrameTrace {
     pub fn new(
         frame: u32,
@@ -133,6 +169,39 @@ impl FrameTrace {
             victory_state,
         )
     }
+}
+
+pub fn run_trace_scenario(game_logic: &mut GameLogic, scenario: &TraceScenario) -> Vec<FrameTrace> {
+    let mut commands_by_frame = scenario.commands.clone();
+    commands_by_frame.sort_by_key(|entry| entry.frame);
+
+    let mut command_index = 0usize;
+    let mut trace = Vec::new();
+
+    while game_logic.get_frame() < scenario.final_frame {
+        let next_frame = game_logic.get_frame() + 1;
+        let mut frame_commands = Vec::new();
+
+        while command_index < commands_by_frame.len()
+            && commands_by_frame[command_index].frame == next_frame
+        {
+            for command in commands_by_frame[command_index].commands.iter().cloned() {
+                game_logic.queue_command(command.clone());
+                frame_commands.push(command);
+            }
+            command_index += 1;
+        }
+
+        game_logic.update();
+        trace.push(FrameTrace::from_game_logic(
+            game_logic,
+            scenario.rng_seed,
+            frame_commands,
+            None,
+        ));
+    }
+
+    trace
 }
 
 pub fn first_trace_difference<'a>(
