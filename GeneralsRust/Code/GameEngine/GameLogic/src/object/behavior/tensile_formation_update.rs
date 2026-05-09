@@ -6,12 +6,13 @@ use crate::common::xfer::XferExt;
 use crate::common::GameLogicRandomValueReal;
 use crate::common::{
     AsciiString, BodyDamageType, Bool, Coord3D, ICoord2D, KindOf, ModuleData, ObjectID, Real,
+    UnsignedInt,
 };
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic};
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::AudioEventRts;
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
@@ -104,6 +105,7 @@ pub struct TensileFormationUpdate {
     object: Weak<RwLock<GameObject>>,
     #[allow(dead_code)]
     module_data: Arc<TensileFormationUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     enabled: Bool,
     crack_sound: AudioEventRts,
     crack_sound_handle: Option<u32>,
@@ -122,7 +124,7 @@ impl TensileFormationUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<TensileFormationUpdateModuleData>()
+            .downcast_ref::<TensileFormationUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         let owner_id = object.read().map(|obj| obj.get_id()).unwrap_or(0);
@@ -132,6 +134,7 @@ impl TensileFormationUpdate {
         let instance = Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             enabled: specific_data.enabled,
             crack_sound,
             crack_sound_handle: None,
@@ -500,6 +503,7 @@ impl Snapshotable for TensileFormationUpdate {
         let mut version: game_engine::common::system::xfer::XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_bool(&mut self.enabled)
             .map_err(|e| format!("Failed to xfer enabled: {:?}", e))?;
         Ok(())
