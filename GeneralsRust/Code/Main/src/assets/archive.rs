@@ -644,6 +644,63 @@ mod tests {
     }
 
     #[test]
+    fn init_discovers_retail_windows_game_archives() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let Some(repo_root) = manifest_dir.ancestors().nth(3) else {
+            eprintln!("Skipping retail archive discovery test: cannot resolve repo root");
+            return;
+        };
+        let retail_root = repo_root
+            .join("windows_game")
+            .join("Command & Conquer Generals Zero Hour");
+        if !retail_root.join("INIZH.big").is_file() {
+            eprintln!(
+                "Skipping retail archive discovery test: {} is unavailable",
+                retail_root.display()
+            );
+            return;
+        }
+
+        let mut archive_system = ArchiveFileSystem::new();
+        futures::executor::block_on(archive_system.init()).unwrap();
+
+        let loaded: Vec<String> = archive_system
+            .get_loaded_archives()
+            .into_iter()
+            .map(|archive| archive.replace('\\', "/").to_ascii_lowercase())
+            .collect();
+
+        assert!(
+            loaded.iter().any(|archive| archive.ends_with("/inizh.big")),
+            "INIZH.big should be loaded from the retail windows_game layout"
+        );
+        assert!(
+            loaded
+                .iter()
+                .any(|archive| archive.ends_with("/audioenglishzh.big")),
+            "localized English audio archive should be loaded"
+        );
+        assert!(
+            archive_system.does_file_exist("data/ini/gamedata.ini"),
+            "virtual lookups should be case-insensitive"
+        );
+        assert!(
+            archive_system.does_file_exist("Data\\Audio\\Sounds\\English\\aangr01a.wav"),
+            "localized archive entries should accept C++ backslash paths"
+        );
+
+        let owner = archive_system
+            .get_archive_filename_for_file("DATA/INI/GAMEDATA.INI")
+            .expect("GameData.ini should resolve to its owning archive")
+            .replace('\\', "/")
+            .to_ascii_lowercase();
+        assert!(
+            owner.ends_with("/inizh.big"),
+            "GameData.ini should be owned by INIZH.big, got {owner}"
+        );
+    }
+
+    #[test]
     fn find_archive_resolves_nested_case_insensitive_paths() {
         let temp_dir = tempfile::tempdir().unwrap();
         let actual_dir = temp_dir.path().join("Data").join("English");
