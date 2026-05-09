@@ -35,8 +35,8 @@ pub struct ParticleVertex {
     pub rotation: f32,
     /// Alpha value (for separate alpha control)
     pub alpha: f32,
-    /// Padding to align to 16 bytes
-    pub _padding: [f32; 2],
+    /// Padding to keep the instance stride on a 16-byte boundary.
+    pub _padding: f32,
 }
 
 impl Default for ParticleVertex {
@@ -48,7 +48,7 @@ impl Default for ParticleVertex {
             uv_rect: [0.0, 0.0, 1.0, 1.0],
             rotation: 0.0,
             alpha: 1.0,
-            _padding: [0.0; 2],
+            _padding: 0.0,
         }
     }
 }
@@ -141,7 +141,7 @@ impl ParticleBatch {
             uv_rect: [0.0, 0.0, 1.0, 1.0], // Will be set based on texture atlas
             rotation: particle.angle_z,
             alpha: particle.alpha,
-            _padding: [0.0; 2],
+            _padding: 0.0,
         };
 
         self.vertices.push(vertex);
@@ -818,7 +818,7 @@ impl ParticleRenderer {
                 uv_rect: [0.0, 0.0, 1.0, 1.0],
                 rotation: particle.rotation,
                 alpha,
-                _padding: [0.0; 2],
+                _padding: 0.0,
             };
             vertices.push(vertex);
         }
@@ -1165,6 +1165,12 @@ mod tests {
         // Test that ParticleVertex is correctly sized and aligned
         assert_eq!(std::mem::size_of::<ParticleVertex>(), 64);
         assert_eq!(std::mem::align_of::<ParticleVertex>(), 4);
+        assert_eq!(std::mem::offset_of!(ParticleVertex, position), 0);
+        assert_eq!(std::mem::offset_of!(ParticleVertex, size), 12);
+        assert_eq!(std::mem::offset_of!(ParticleVertex, color), 20);
+        assert_eq!(std::mem::offset_of!(ParticleVertex, uv_rect), 36);
+        assert_eq!(std::mem::offset_of!(ParticleVertex, rotation), 52);
+        assert_eq!(std::mem::offset_of!(ParticleVertex, alpha), 56);
     }
 
     #[test]
