@@ -4070,7 +4070,7 @@ impl Snapshotable for BasicDrawable {
         }
 
         // --- ambient sound enabled (C++ line 5300: version >= 4) ---
-        if version >= 7 {
+        if version >= 4 {
             let mut ambient_sound_enabled = self.ambient_sound_enabled;
             xfer.xfer_bool(&mut ambient_sound_enabled)
                 .map_err(|e| format!("{:?}", e))?;
@@ -4078,7 +4078,7 @@ impl Snapshotable for BasicDrawable {
         }
 
         // --- ambient sound enabled from script (C++ line 5305: version >= 6) ---
-        if version >= 7 {
+        if version >= 6 {
             let mut ambient_sound_enabled_from_script = self.ambient_sound_enabled_from_script;
             xfer.xfer_bool(&mut ambient_sound_enabled_from_script)
                 .map_err(|e| format!("{:?}", e))?;
