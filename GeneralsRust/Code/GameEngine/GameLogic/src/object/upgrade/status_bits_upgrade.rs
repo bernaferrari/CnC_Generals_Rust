@@ -490,8 +490,7 @@ impl Snapshotable for StatusBitsUpgrade {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.applied)
-            .map_err(|e| e.to_string())?;
+        crate::object::upgrade::upgrade_module::xfer_upgrade_module_state(xfer, &mut self.applied)?;
         Ok(())
     }
 
