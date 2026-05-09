@@ -4,7 +4,7 @@
 //! Original Author: Graham Smallwood, September 2002
 //! Rust conversion: 2025
 
-use crate::common::{ModuleData, ObjectID, Real, UnsignedInt};
+use crate::common::{ModuleData, ObjectID, Real, UnsignedInt, XferVersion};
 use std::sync::{Arc, RwLock, Weak};
 
 // Forward declarations
@@ -15,7 +15,7 @@ use crate::modules::{
     UpdateModuleInterface, UpdateSleepTime, MODULEINTERFACE_DAMAGE, MODULEINTERFACE_UPDATE,
     UPDATE_SLEEP_FOREVER,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -114,6 +114,7 @@ pub struct SupplyWarehouseCripplingBehavior {
     module_data: Arc<SupplyWarehouseCripplingBehaviorModuleData>,
 
     // State tracking
+    next_call_frame_and_phase: UnsignedInt,
     healing_suppressed_until_frame: UnsignedInt,
     next_healing_frame: UnsignedInt,
 }
@@ -138,6 +139,7 @@ impl SupplyWarehouseCripplingBehavior {
         Ok(Self {
             object: Arc::downgrade(&thing),
             module_data: Arc::new(data),
+            next_call_frame_and_phase: 0,
             healing_suppressed_until_frame: 0,
             next_healing_frame: 0,
         })
@@ -335,7 +337,6 @@ impl Snapshotable for SupplyWarehouseCripplingBehaviorModule {
 }
 
 impl Module for SupplyWarehouseCripplingBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -355,9 +356,12 @@ impl Snapshotable for SupplyWarehouseCripplingBehavior {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
+        let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|e| format!("Failed to xfer update module base state: {}", e))?;
 
         xfer.xfer_unsigned_int(&mut self.healing_suppressed_until_frame)
             .map_err(|e| format!("Failed to xfer healing_suppressed_until_frame: {:?}", e))?;
