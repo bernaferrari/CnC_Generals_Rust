@@ -525,6 +525,127 @@ impl Snapshotable for ParticleInfo {
     }
 }
 
+impl Snapshotable for ParticleSystemInfo {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
+
+        xfer.xfer_bool(&mut self.is_one_shot)
+            .map_err(|e| e.to_string())?;
+        xfer_particle_shader_type(xfer, &mut self.shader_type)?;
+        xfer_particle_type(xfer, &mut self.particle_type)?;
+        xfer.xfer_ascii_string(&mut self.particle_type_name)
+            .map_err(|e| e.to_string())?;
+
+        let mut temp_random = GameClientRandomVariable::default();
+        xfer_random_variable(xfer, &mut temp_random)?;
+        xfer_random_variable(xfer, &mut temp_random)?;
+        xfer_random_variable(xfer, &mut self.angle_z)?;
+
+        xfer_random_variable(xfer, &mut temp_random)?;
+        xfer_random_variable(xfer, &mut temp_random)?;
+        xfer_random_variable(xfer, &mut self.angular_rate_z)?;
+
+        xfer_random_variable(xfer, &mut self.angular_damping)?;
+        xfer_random_variable(xfer, &mut self.vel_damping)?;
+        xfer_random_variable(xfer, &mut self.lifetime)?;
+        xfer.xfer_unsigned_int(&mut self.system_lifetime)
+            .map_err(|e| e.to_string())?;
+        xfer_random_variable(xfer, &mut self.start_size)?;
+        xfer_random_variable(xfer, &mut self.start_size_rate)?;
+        xfer_random_variable(xfer, &mut self.size_rate)?;
+        xfer_random_variable(xfer, &mut self.size_rate_damping)?;
+
+        for key in &mut self.alpha_keys {
+            let mut var = GameClientRandomVariable {
+                min: key.min_value,
+                max: key.max_value,
+                distribution_type: 0,
+            };
+            xfer_random_variable(xfer, &mut var)?;
+            key.min_value = var.min;
+            key.max_value = var.max;
+            xfer.xfer_unsigned_int(&mut key.frame)
+                .map_err(|e| e.to_string())?;
+        }
+
+        for key in &mut self.color_keys {
+            for component in &mut key.color {
+                xfer.xfer_real(component).map_err(|e| e.to_string())?;
+            }
+            xfer.xfer_unsigned_int(&mut key.frame)
+                .map_err(|e| e.to_string())?;
+        }
+
+        xfer_random_variable(xfer, &mut self.color_scale)?;
+        xfer_random_variable(xfer, &mut self.burst_delay)?;
+        xfer_random_variable(xfer, &mut self.burst_count)?;
+        xfer_random_variable(xfer, &mut self.initial_delay)?;
+        xfer_vec3(xfer, &mut self.drift_velocity)?;
+        xfer.xfer_real(&mut self.gravity)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_ascii_string(&mut self.slave_system_name)
+            .map_err(|e| e.to_string())?;
+        xfer_vec3(xfer, &mut self.slave_pos_offset)?;
+        xfer.xfer_ascii_string(&mut self.attached_system_name)
+            .map_err(|e| e.to_string())?;
+        xfer_emission_velocity_type(xfer, &mut self.emission_velocity_type)?;
+        xfer_particle_priority_type(xfer, &mut self.priority)?;
+        xfer_emission_velocity(
+            xfer,
+            self.emission_velocity_type,
+            &mut self.emission_velocity,
+        )?;
+        xfer_emission_volume_type(xfer, &mut self.emission_volume_type)?;
+        xfer_emission_volume(xfer, self.emission_volume_type, &mut self.emission_volume)?;
+        xfer.xfer_bool(&mut self.is_emission_volume_hollow)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_ground_aligned)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_emit_above_ground_only)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_particle_up_towards_emitter)
+            .map_err(|e| e.to_string())?;
+        xfer_wind_motion(xfer, &mut self.wind_motion)?;
+        xfer.xfer_real(&mut self.wind_angle)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_angle_change)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_angle_change_min)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_angle_change_max)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_motion_start_angle)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_motion_start_angle_min)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_motion_start_angle_max)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_motion_end_angle)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_motion_end_angle_min)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.wind_motion_end_angle_max)
+            .map_err(|e| e.to_string())?;
+        let mut moving_to_end = i8::from(self.wind_motion_moving_to_end_angle);
+        xfer.xfer_byte(&mut moving_to_end)
+            .map_err(|e| e.to_string())?;
+        self.wind_motion_moving_to_end_angle = moving_to_end != 0;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 impl Snapshotable for Particle {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
@@ -645,6 +766,20 @@ impl Snapshotable for ParticleSystem {
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| e.to_string())?;
+
+        let mut system_info = self.template.info().clone();
+        system_info.wind_angle = self.wind_angle;
+        system_info.wind_angle_change = self.wind_angle_change;
+        system_info.wind_motion_moving_to_end_angle = self.wind_motion_moving_to_end_angle;
+        system_info.xfer(xfer)?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.wind_angle = system_info.wind_angle;
+            self.wind_angle_change = system_info.wind_angle_change;
+            self.wind_motion_moving_to_end_angle = system_info.wind_motion_moving_to_end_angle;
+            Arc::make_mut(&mut self.template)
+                .info_mut()
+                .clone_from(&system_info);
+        }
 
         xfer.xfer_unsigned_int(&mut self.system_id)
             .map_err(|e| e.to_string())?;
@@ -812,8 +947,266 @@ fn xfer_point3(xfer: &mut dyn Xfer, value: &mut Point3<f32>) -> Result<(), Strin
 }
 
 fn xfer_matrix3(xfer: &mut dyn Xfer, value: &mut Matrix3<f32>) -> Result<(), String> {
-    for element in value.as_mut_slice() {
-        xfer.xfer_real(element).map_err(|e| e.to_string())?;
+    for row in 0..3 {
+        for col in 0..3 {
+            xfer.xfer_real(&mut value[(row, col)])
+                .map_err(|e| e.to_string())?;
+        }
+        let mut translation = 0.0f32;
+        xfer.xfer_real(&mut translation)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn xfer_random_variable(
+    xfer: &mut dyn Xfer,
+    value: &mut GameClientRandomVariable,
+) -> Result<(), String> {
+    xfer.xfer_unsigned_int(&mut value.distribution_type)
+        .map_err(|e| e.to_string())?;
+    xfer.xfer_real(&mut value.min).map_err(|e| e.to_string())?;
+    xfer.xfer_real(&mut value.max).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn xfer_cpp_enum(
+    xfer: &mut dyn Xfer,
+    value: &mut u32,
+    valid: impl Fn(u32) -> bool,
+    fallback: u32,
+) -> Result<(), String> {
+    xfer.xfer_unsigned_int(value).map_err(|e| e.to_string())?;
+    if xfer.get_xfer_mode() == XferMode::Load && !valid(*value) {
+        *value = fallback;
+    }
+    Ok(())
+}
+
+fn xfer_particle_shader_type(
+    xfer: &mut dyn Xfer,
+    value: &mut ParticleShaderType,
+) -> Result<(), String> {
+    let mut raw = *value as u32;
+    xfer_cpp_enum(
+        xfer,
+        &mut raw,
+        |v| (1..=4).contains(&v),
+        ParticleShaderType::Alpha as u32,
+    )?;
+    *value = match raw {
+        1 => ParticleShaderType::Additive,
+        2 => ParticleShaderType::Alpha,
+        3 => ParticleShaderType::AlphaTest,
+        4 => ParticleShaderType::Multiply,
+        _ => ParticleShaderType::Alpha,
+    };
+    Ok(())
+}
+
+fn xfer_particle_type(xfer: &mut dyn Xfer, value: &mut ParticleType) -> Result<(), String> {
+    let mut raw = *value as u32;
+    xfer_cpp_enum(
+        xfer,
+        &mut raw,
+        |v| (1..=5).contains(&v),
+        ParticleType::Particle as u32,
+    )?;
+    *value = match raw {
+        1 => ParticleType::Particle,
+        2 => ParticleType::Drawable,
+        3 => ParticleType::Streak,
+        4 => ParticleType::VolumeParticle,
+        5 => ParticleType::Smudge,
+        _ => ParticleType::Particle,
+    };
+    Ok(())
+}
+
+fn xfer_particle_priority_type(
+    xfer: &mut dyn Xfer,
+    value: &mut ParticlePriorityType,
+) -> Result<(), String> {
+    let mut raw = *value as u32;
+    xfer_cpp_enum(
+        xfer,
+        &mut raw,
+        |v| ParticlePriorityType::from_index(v as usize).is_some(),
+        ParticlePriorityType::Critical as u32,
+    )?;
+    *value =
+        ParticlePriorityType::from_index(raw as usize).unwrap_or(ParticlePriorityType::Critical);
+    Ok(())
+}
+
+fn xfer_emission_velocity_type(
+    xfer: &mut dyn Xfer,
+    value: &mut EmissionVelocityType,
+) -> Result<(), String> {
+    let mut raw = *value as u32;
+    xfer_cpp_enum(
+        xfer,
+        &mut raw,
+        |v| (1..=5).contains(&v),
+        EmissionVelocityType::Spherical as u32,
+    )?;
+    *value = match raw {
+        1 => EmissionVelocityType::Ortho,
+        2 => EmissionVelocityType::Spherical,
+        3 => EmissionVelocityType::Hemispherical,
+        4 => EmissionVelocityType::Cylindrical,
+        5 => EmissionVelocityType::Outward,
+        _ => EmissionVelocityType::Spherical,
+    };
+    Ok(())
+}
+
+fn xfer_emission_volume_type(
+    xfer: &mut dyn Xfer,
+    value: &mut EmissionVolumeType,
+) -> Result<(), String> {
+    let mut raw = *value as u32;
+    xfer_cpp_enum(
+        xfer,
+        &mut raw,
+        |v| (1..=5).contains(&v),
+        EmissionVolumeType::Point as u32,
+    )?;
+    *value = match raw {
+        1 => EmissionVolumeType::Point,
+        2 => EmissionVolumeType::Line,
+        3 => EmissionVolumeType::Box,
+        4 => EmissionVolumeType::Sphere,
+        5 => EmissionVolumeType::Cylinder,
+        _ => EmissionVolumeType::Point,
+    };
+    Ok(())
+}
+
+fn xfer_wind_motion(xfer: &mut dyn Xfer, value: &mut WindMotion) -> Result<(), String> {
+    let mut raw = *value as u32;
+    xfer_cpp_enum(
+        xfer,
+        &mut raw,
+        |v| (1..=3).contains(&v),
+        WindMotion::NotUsed as u32,
+    )?;
+    *value = match raw {
+        1 => WindMotion::NotUsed,
+        2 => WindMotion::PingPong,
+        3 => WindMotion::Circular,
+        _ => WindMotion::NotUsed,
+    };
+    Ok(())
+}
+
+fn xfer_emission_velocity(
+    xfer: &mut dyn Xfer,
+    velocity_type: EmissionVelocityType,
+    velocity: &mut EmissionVelocity,
+) -> Result<(), String> {
+    match velocity_type {
+        EmissionVelocityType::Ortho => {
+            let (mut x, mut y, mut z) = match *velocity {
+                EmissionVelocity::Ortho { x, y, z } => (x, y, z),
+                _ => (
+                    GameClientRandomVariable::default(),
+                    GameClientRandomVariable::default(),
+                    GameClientRandomVariable::default(),
+                ),
+            };
+            xfer_random_variable(xfer, &mut x)?;
+            xfer_random_variable(xfer, &mut y)?;
+            xfer_random_variable(xfer, &mut z)?;
+            *velocity = EmissionVelocity::Ortho { x, y, z };
+        }
+        EmissionVelocityType::Spherical => {
+            let mut speed = match *velocity {
+                EmissionVelocity::Spherical { speed } => speed,
+                _ => GameClientRandomVariable::default(),
+            };
+            xfer_random_variable(xfer, &mut speed)?;
+            *velocity = EmissionVelocity::Spherical { speed };
+        }
+        EmissionVelocityType::Hemispherical => {
+            let mut speed = match *velocity {
+                EmissionVelocity::Hemispherical { speed } => speed,
+                _ => GameClientRandomVariable::default(),
+            };
+            xfer_random_variable(xfer, &mut speed)?;
+            *velocity = EmissionVelocity::Hemispherical { speed };
+        }
+        EmissionVelocityType::Cylindrical => {
+            let (mut radial, mut normal) = match *velocity {
+                EmissionVelocity::Cylindrical { radial, normal } => (radial, normal),
+                _ => (
+                    GameClientRandomVariable::default(),
+                    GameClientRandomVariable::default(),
+                ),
+            };
+            xfer_random_variable(xfer, &mut radial)?;
+            xfer_random_variable(xfer, &mut normal)?;
+            *velocity = EmissionVelocity::Cylindrical { radial, normal };
+        }
+        EmissionVelocityType::Outward => {
+            let (mut speed, mut other_speed) = match *velocity {
+                EmissionVelocity::Outward { speed, other_speed } => (speed, other_speed),
+                _ => (
+                    GameClientRandomVariable::default(),
+                    GameClientRandomVariable::default(),
+                ),
+            };
+            xfer_random_variable(xfer, &mut speed)?;
+            xfer_random_variable(xfer, &mut other_speed)?;
+            *velocity = EmissionVelocity::Outward { speed, other_speed };
+        }
+    }
+    Ok(())
+}
+
+fn xfer_emission_volume(
+    xfer: &mut dyn Xfer,
+    volume_type: EmissionVolumeType,
+    volume: &mut EmissionVolume,
+) -> Result<(), String> {
+    match volume_type {
+        EmissionVolumeType::Point => {
+            *volume = EmissionVolume::Point;
+        }
+        EmissionVolumeType::Line => {
+            let (mut start, mut end) = match *volume {
+                EmissionVolume::Line { start, end } => (start, end),
+                _ => (Point3::origin(), Point3::origin()),
+            };
+            xfer_point3(xfer, &mut start)?;
+            xfer_point3(xfer, &mut end)?;
+            *volume = EmissionVolume::Line { start, end };
+        }
+        EmissionVolumeType::Box => {
+            let mut half_size = match *volume {
+                EmissionVolume::Box { half_size } => half_size,
+                _ => Vector3::zeros(),
+            };
+            xfer_vec3(xfer, &mut half_size)?;
+            *volume = EmissionVolume::Box { half_size };
+        }
+        EmissionVolumeType::Sphere => {
+            let mut radius = match *volume {
+                EmissionVolume::Sphere { radius } => radius,
+                _ => 0.0,
+            };
+            xfer.xfer_real(&mut radius).map_err(|e| e.to_string())?;
+            *volume = EmissionVolume::Sphere { radius };
+        }
+        EmissionVolumeType::Cylinder => {
+            let (mut radius, mut length) = match *volume {
+                EmissionVolume::Cylinder { radius, length } => (radius, length),
+                _ => (0.0, 0.0),
+            };
+            xfer.xfer_real(&mut radius).map_err(|e| e.to_string())?;
+            xfer.xfer_real(&mut length).map_err(|e| e.to_string())?;
+            *volume = EmissionVolume::Cylinder { radius, length };
+        }
     }
     Ok(())
 }
@@ -1855,6 +2248,151 @@ mod tests {
         assert_eq!(system.system_id(), 1);
         assert_eq!(system.particle_count(), 0);
         assert!(!system.is_destroyed());
+    }
+
+    #[test]
+    fn test_particle_system_xfer_preserves_base_info_and_matrix3d_layout() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut template = ParticleSystemTemplate::new("SavedSystem".to_string());
+        {
+            let info = template.info_mut();
+            info.is_one_shot = true;
+            info.shader_type = ParticleShaderType::Multiply;
+            info.particle_type = ParticleType::Drawable;
+            info.particle_type_name = "SavedDrawable".to_string();
+            info.priority = ParticlePriorityType::AlwaysRender;
+            info.angle_z = GameClientRandomVariable::new(1.0, 2.0);
+            info.angular_rate_z = GameClientRandomVariable::new(3.0, 4.0);
+            info.angular_damping = GameClientRandomVariable::new(0.8, 0.9);
+            info.vel_damping = GameClientRandomVariable::new(0.7, 0.75);
+            info.lifetime = GameClientRandomVariable::new(30.0, 60.0);
+            info.system_lifetime = 120;
+            info.start_size = GameClientRandomVariable::new(5.0, 6.0);
+            info.start_size_rate = GameClientRandomVariable::new(0.1, 0.2);
+            info.size_rate = GameClientRandomVariable::new(0.3, 0.4);
+            info.size_rate_damping = GameClientRandomVariable::new(0.95, 0.96);
+            info.alpha_keys[0] = RandomKeyframe {
+                min_value: 0.2,
+                max_value: 0.4,
+                frame: 7,
+            };
+            info.color_keys[0] = RGBColorKeyframe {
+                color: [0.1, 0.2, 0.3],
+                frame: 8,
+            };
+            info.color_scale = GameClientRandomVariable::new(0.5, 0.6);
+            info.burst_delay = GameClientRandomVariable::new(9.0, 10.0);
+            info.burst_count = GameClientRandomVariable::new(11.0, 12.0);
+            info.initial_delay = GameClientRandomVariable::new(13.0, 14.0);
+            info.drift_velocity = Vector3::new(15.0, 16.0, 17.0);
+            info.gravity = -0.25;
+            info.slave_system_name = "SlaveSystem".to_string();
+            info.slave_pos_offset = Vector3::new(18.0, 19.0, 20.0);
+            info.attached_system_name = "AttachedSystem".to_string();
+            info.emission_velocity_type = EmissionVelocityType::Cylindrical;
+            info.emission_velocity = EmissionVelocity::Cylindrical {
+                radial: GameClientRandomVariable::new(21.0, 22.0),
+                normal: GameClientRandomVariable::new(23.0, 24.0),
+            };
+            info.emission_volume_type = EmissionVolumeType::Cylinder;
+            info.emission_volume = EmissionVolume::Cylinder {
+                radius: 25.0,
+                length: 26.0,
+            };
+            info.is_emission_volume_hollow = true;
+            info.is_ground_aligned = true;
+            info.is_emit_above_ground_only = true;
+            info.is_particle_up_towards_emitter = true;
+            info.wind_motion = WindMotion::PingPong;
+            info.wind_angle_change_min = 0.01;
+            info.wind_angle_change_max = 0.02;
+            info.wind_motion_start_angle = 0.03;
+            info.wind_motion_start_angle_min = 0.04;
+            info.wind_motion_start_angle_max = 0.05;
+            info.wind_motion_end_angle = 0.06;
+            info.wind_motion_end_angle_min = 0.07;
+            info.wind_motion_end_angle_max = 0.08;
+        }
+
+        let mut saved = ParticleSystem::new(Arc::new(template), 42, false);
+        saved.local_transform = Matrix3::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0);
+        saved.transform = Matrix3::new(9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0);
+        saved.is_local_identity = false;
+        saved.is_identity = false;
+        saved.wind_angle = 0.33;
+        saved.wind_angle_change = 0.44;
+        saved.wind_motion_moving_to_end_angle = true;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("particle_system").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = ParticleSystem::new(
+            Arc::new(ParticleSystemTemplate::new("LoadedSystem".to_string())),
+            0,
+            false,
+        );
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+        load.open("particle_system").unwrap();
+        loaded.xfer(&mut load).unwrap();
+        load.close().unwrap();
+
+        let loaded_info = loaded.template.info();
+        assert!(loaded_info.is_one_shot);
+        assert_eq!(loaded_info.shader_type, ParticleShaderType::Multiply);
+        assert_eq!(loaded_info.particle_type, ParticleType::Drawable);
+        assert_eq!(loaded_info.particle_type_name, "SavedDrawable");
+        assert_eq!(loaded_info.priority, ParticlePriorityType::AlwaysRender);
+        assert_eq!(loaded_info.angle_z.min, 1.0);
+        assert_eq!(loaded_info.angle_z.max, 2.0);
+        assert_eq!(loaded_info.alpha_keys[0].min_value, 0.2);
+        assert_eq!(loaded_info.alpha_keys[0].max_value, 0.4);
+        assert_eq!(loaded_info.alpha_keys[0].frame, 7);
+        assert_eq!(loaded_info.color_keys[0].color, [0.1, 0.2, 0.3]);
+        assert_eq!(loaded_info.color_keys[0].frame, 8);
+        assert_eq!(loaded_info.drift_velocity, Vector3::new(15.0, 16.0, 17.0));
+        assert_eq!(loaded_info.gravity, -0.25);
+        assert_eq!(loaded_info.slave_system_name, "SlaveSystem");
+        assert_eq!(loaded_info.slave_pos_offset, Vector3::new(18.0, 19.0, 20.0));
+        assert_eq!(loaded_info.attached_system_name, "AttachedSystem");
+        assert_eq!(
+            loaded_info.emission_velocity_type,
+            EmissionVelocityType::Cylindrical
+        );
+        assert!(matches!(
+            loaded_info.emission_velocity,
+            EmissionVelocity::Cylindrical { .. }
+        ));
+        assert_eq!(
+            loaded_info.emission_volume_type,
+            EmissionVolumeType::Cylinder
+        );
+        assert!(matches!(
+            loaded_info.emission_volume,
+            EmissionVolume::Cylinder {
+                radius: 25.0,
+                length: 26.0
+            }
+        ));
+        assert!(loaded_info.is_emission_volume_hollow);
+        assert!(loaded_info.is_ground_aligned);
+        assert!(loaded_info.is_emit_above_ground_only);
+        assert!(loaded_info.is_particle_up_towards_emitter);
+        assert_eq!(loaded_info.wind_motion, WindMotion::PingPong);
+        assert_eq!(loaded.wind_angle, 0.33);
+        assert_eq!(loaded.wind_angle_change, 0.44);
+        assert!(loaded.wind_motion_moving_to_end_angle);
+        assert_eq!(loaded.system_id, 42);
+        assert_eq!(loaded.local_transform, saved.local_transform);
+        assert_eq!(loaded.transform, saved.transform);
     }
 
     #[test]
