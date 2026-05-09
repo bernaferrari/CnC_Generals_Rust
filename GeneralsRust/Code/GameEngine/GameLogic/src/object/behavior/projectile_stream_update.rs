@@ -7,7 +7,7 @@ use crate::common::{
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -40,6 +40,7 @@ pub struct ProjectileStreamUpdate {
     object: Weak<RwLock<GameObject>>,
     #[allow(dead_code)]
     module_data: Arc<ProjectileStreamUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     projectile_ids: [ObjectID; MAX_PROJECTILE_STREAM],
     next_free_index: i32,
     first_valid_index: i32,
@@ -55,12 +56,13 @@ impl ProjectileStreamUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<ProjectileStreamUpdateModuleData>()
+            .downcast_ref::<ProjectileStreamUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
+            next_call_frame_and_phase: 0,
             projectile_ids: [OBJECT_INVALID_ID; MAX_PROJECTILE_STREAM],
             next_free_index: 0,
             first_valid_index: 0,
@@ -235,6 +237,8 @@ impl Snapshotable for ProjectileStreamUpdate {
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
         for id in &mut self.projectile_ids {
             xfer.xfer_object_id(id).map_err(|e| e.to_string())?;
         }
@@ -244,9 +248,11 @@ impl Snapshotable for ProjectileStreamUpdate {
             .map_err(|e| e.to_string())?;
         xfer.xfer_object_id(&mut self.owning_object)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_object_id(&mut self.target_object)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_coord3d(&mut self.target_position);
+        if version >= 2 {
+            xfer.xfer_object_id(&mut self.target_object)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_coord3d(&mut self.target_position);
+        }
         Ok(())
     }
 
