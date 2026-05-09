@@ -2,15 +2,20 @@
 // Author: Michael S. Booth, December 2001
 // Ported to Rust
 
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::drawable::DrawableArcExt;
 use crate::player::ThePlayerList;
 use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::Snapshotable;
+use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 
 const STRAIGHT_DOWN_SLOW_FACTOR: f32 = 0.5;
 
 #[derive(Debug, Clone)]
 pub struct NeutronMissileUpdateModuleData {
+    pub base: BehaviorModuleData,
     pub initial_dist: f32,
     pub max_turn_rate: f32,
     pub forward_damping: f32,
@@ -29,6 +34,7 @@ pub struct NeutronMissileUpdateModuleData {
 impl Default for NeutronMissileUpdateModuleData {
     fn default() -> Self {
         Self {
+            base: BehaviorModuleData::default(),
             initial_dist: 0.0,
             max_turn_rate: 999.0,
             forward_damping: 0.0,
@@ -45,6 +51,8 @@ impl Default for NeutronMissileUpdateModuleData {
         }
     }
 }
+
+crate::impl_behavior_module_data_via_base!(NeutronMissileUpdateModuleData, base);
 
 impl NeutronMissileUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
@@ -307,6 +315,7 @@ const NEUTRON_MISSILE_UPDATE_FIELDS: &[FieldParse<NeutronMissileUpdateModuleData
     },
 ];
 
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MissileStateType {
     PreLaunch,
@@ -319,7 +328,9 @@ enum MissileStateType {
 pub struct NeutronMissileUpdate {
     thing: ThingId,
     module_data: NeutronMissileUpdateModuleData,
+    module_name_key: NameKeyType,
     state: MissileStateType,
+    next_call_frame_and_phase: UnsignedInt,
     target_pos: Coord3D,
     intermed_pos: Coord3D,
     launcher_id: ObjectId,
@@ -342,10 +353,11 @@ impl NeutronMissileUpdate {
     pub fn new(
         thing: ThingId,
         module_data: NeutronMissileUpdateModuleData,
-        ctx: &GameLogicContext<'_>,
+        module_name: &AsciiString,
     ) -> Self {
         Self {
             thing,
+            module_name_key: NameKeyGenerator::name_to_key(module_name.as_str()),
             no_turn_dist_left: module_data.initial_dist,
             reached_intermediate_pos: true,
             module_data,
@@ -354,7 +366,8 @@ impl NeutronMissileUpdate {
             accel: Coord3D::origin(),
             vel: Coord3D::origin(),
             state: MissileStateType::PreLaunch,
-            state_timestamp: ctx.get_frame(),
+            next_call_frame_and_phase: 0,
+            state_timestamp: TheGameLogic::get_frame(),
             is_armed: false,
             is_launched: false,
             launcher_id: INVALID_OBJECT_ID,
@@ -818,6 +831,9 @@ impl NeutronMissileUpdate {
         };
 
         xfer.xfer_version_write(1);
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .expect("NeutronMissileUpdate::save failed to xfer UpdateModule base state");
         let mut state_val = self.state as u32;
         xfer_io(xfer.xfer_u32(&mut state_val), "state");
         let mut target_pos = self.target_pos;
@@ -872,6 +888,9 @@ impl NeutronMissileUpdate {
 
         let version = xfer.xfer_version_read();
         if version >= 1 {
+            xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+                .expect("NeutronMissileUpdate::load failed to xfer UpdateModule base state");
+
             let mut state_val = 0u32;
             xfer_io(xfer.xfer_u32(&mut state_val), "state");
             self.state = match state_val {
@@ -925,6 +944,101 @@ impl NeutronMissileUpdate {
                 Some(AsciiString::from(name.as_str()))
             };
         }
+    }
+}
+
+impl Snapshotable for NeutronMissileUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("NeutronMissileUpdate xfer version: {e:?}"))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
+        let mut state_val = self.state as u32;
+        xfer.xfer_u32(&mut state_val)
+            .map_err(|e| format!("NeutronMissileUpdate xfer state: {e:?}"))?;
+        self.state = match state_val {
+            0 => MissileStateType::PreLaunch,
+            1 => MissileStateType::Launch,
+            2 => MissileStateType::Attack,
+            3 => MissileStateType::Dead,
+            _ => MissileStateType::PreLaunch,
+        };
+
+        xfer.xfer_coord3d(&mut self.target_pos);
+        xfer.xfer_coord3d(&mut self.intermed_pos);
+        xfer.xfer_object_id(&mut self.launcher_id)
+            .map_err(|e| format!("NeutronMissileUpdate xfer launcher id: {e:?}"))?;
+
+        let mut wslot_val = self.attach_wslot as u32;
+        xfer.xfer_u32(&mut wslot_val)
+            .map_err(|e| format!("NeutronMissileUpdate xfer weapon slot: {e:?}"))?;
+        self.attach_wslot = WeaponSlotType::from_u32(wslot_val).unwrap_or(WeaponSlotType::Primary);
+
+        xfer.xfer_i32(&mut self.attach_specific_barrel_to_use)
+            .map_err(|e| format!("NeutronMissileUpdate xfer barrel: {e:?}"))?;
+        xfer.xfer_coord3d(&mut self.accel);
+        xfer.xfer_coord3d(&mut self.vel);
+        xfer.xfer_u32(&mut self.state_timestamp)
+            .map_err(|e| format!("NeutronMissileUpdate xfer state timestamp: {e:?}"))?;
+        xfer.xfer_bool(&mut self.is_launched)
+            .map_err(|e| format!("NeutronMissileUpdate xfer launched flag: {e:?}"))?;
+        xfer.xfer_bool(&mut self.is_armed)
+            .map_err(|e| format!("NeutronMissileUpdate xfer armed flag: {e:?}"))?;
+        xfer.xfer_f32(&mut self.no_turn_dist_left)
+            .map_err(|e| format!("NeutronMissileUpdate xfer no-turn distance: {e:?}"))?;
+        xfer.xfer_bool(&mut self.reached_intermediate_pos)
+            .map_err(|e| format!("NeutronMissileUpdate xfer intermediate flag: {e:?}"))?;
+        xfer.xfer_u32(&mut self.frame_at_launch)
+            .map_err(|e| format!("NeutronMissileUpdate xfer launch frame: {e:?}"))?;
+        xfer.xfer_f32(&mut self.height_at_launch)
+            .map_err(|e| format!("NeutronMissileUpdate xfer launch height: {e:?}"))?;
+        xfer.xfer_radius_decal_mut(&mut self.delivery_decal);
+
+        let mut name = self
+            .exhaust_sys_tmpl
+            .as_ref()
+            .map(|tmpl| tmpl.to_string())
+            .unwrap_or_default();
+        xfer.xfer_string(&mut name)
+            .map_err(|e| format!("NeutronMissileUpdate xfer exhaust template: {e:?}"))?;
+        self.exhaust_sys_tmpl = if name.is_empty() {
+            None
+        } else {
+            Some(AsciiString::from(name.as_str()))
+        };
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl Module for NeutronMissileUpdate {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        EngineModuleData::get_module_tag_name_key(&self.module_data)
+    }
+
+    fn get_module_data(&self) -> &dyn EngineModuleData {
+        &self.module_data
     }
 }
 
