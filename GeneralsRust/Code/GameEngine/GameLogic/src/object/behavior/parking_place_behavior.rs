@@ -29,7 +29,7 @@ use crate::modules::{
     ExitInterface as ModuleExitInterface, UpdateModuleInterface, UpdateSleepTime,
     UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::behavior::behavior_module::{
     ObjectTemplate, PPInfo as BehaviorPPInfo,
     ParkingPlaceBehaviorInterface as ParkingPlaceBehaviorInterfaceTrait,
@@ -291,6 +291,8 @@ pub struct ParkingPlaceBehavior {
     module_data: Arc<ParkingPlaceBehaviorModuleData>,
     /// Whether parking info has been built
     got_info: Bool,
+    /// Inherited UpdateModule scheduler state.
+    next_call_frame_and_phase: UnsignedInt,
     /// Parking spaces
     spaces: Vec<ParkingPlaceInfo>,
     /// Runways
@@ -314,7 +316,7 @@ impl ParkingPlaceBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<ParkingPlaceBehaviorModuleData>()
+            .downcast_ref::<ParkingPlaceBehaviorModuleData>()
             .ok_or("Invalid module data")?;
 
         if let Ok(owner_guard) = object.read() {
@@ -325,6 +327,7 @@ impl ParkingPlaceBehavior {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
             got_info: false,
+            next_call_frame_and_phase: 0,
             spaces: Vec::new(),
             runways: Vec::new(),
             healing: VecDeque::new(),
@@ -975,6 +978,8 @@ impl Snapshotable for ParkingPlaceBehavior {
         let mut version: XferVersion = 3;
         xfer.xfer_version(&mut version, 3)
             .map_err(|e| format!("ParkingPlaceBehavior version xfer failed: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         if xfer.get_xfer_mode() == XferMode::Load {
             self.build_info();
