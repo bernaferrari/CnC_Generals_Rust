@@ -6,11 +6,11 @@
 //! Rust conversion: 2025
 
 use crate::common::xfer::XferExt;
-use crate::common::{AsciiString, Coord3D, ModuleData, Real};
+use crate::common::{AsciiString, Coord3D, ModuleData, Real, UnsignedInt};
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -64,6 +64,7 @@ const SMART_BOMB_TARGET_HOMING_UPDATE_FIELDS: &[FieldParse<
 pub struct SmartBombTargetHomingUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<SmartBombTargetHomingUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
 
     /// Whether a target has been received
     target_received: bool,
@@ -78,12 +79,13 @@ impl SmartBombTargetHomingUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<SmartBombTargetHomingUpdateModuleData>()
+            .downcast_ref::<SmartBombTargetHomingUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(data.clone()),
+            next_call_frame_and_phase: 0,
             target_received: false,
             target: Coord3D::default(),
         })
@@ -174,13 +176,7 @@ impl Snapshotable for SmartBombTargetHomingUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("SmartBombTargetHomingUpdate xfer version failed: {:?}", e))?;
 
-        xfer.xfer_bool(&mut self.target_received).map_err(|e| {
-            format!(
-                "SmartBombTargetHomingUpdate xfer target_received failed: {:?}",
-                e
-            )
-        })?;
-        xfer.xfer_coord3d(&mut self.target);
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         Ok(())
     }
 
