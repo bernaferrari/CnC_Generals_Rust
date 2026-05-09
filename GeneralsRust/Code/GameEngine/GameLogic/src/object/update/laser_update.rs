@@ -674,3 +674,123 @@ impl Drop for LaserUpdate {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    #[test]
+    fn laser_update_xfer_preserves_cpp_runtime_fields() {
+        let module_data = Arc::new(LaserUpdateModuleData::default());
+        let mut saved = LaserUpdateModule::new(11, module_data.clone(), Some(22));
+        let update = saved.update_mut();
+        update.start_pos = Coord3D {
+            x: 1.25,
+            y: -2.5,
+            z: 3.75,
+        };
+        update.end_pos = Coord3D {
+            x: 4.5,
+            y: -5.75,
+            z: 6.125,
+        };
+        update.dirty = true;
+        update.particle_system_id = Some(0x0102_0304);
+        update.target_particle_system_id = Some(0x0506_0708);
+        update.widening = true;
+        update.decaying = true;
+        update.widen_start_frame = 123;
+        update.widen_finish_frame = 456;
+        update.current_width_scalar = 0.625;
+        update.decay_start_frame = 789;
+        update.decay_finish_frame = 999;
+        update.parent_id = Some(0x1111_2222);
+        update.target_id = Some(0x3333_4444);
+        update.parent_bone_name = "MuzzleFX01".to_string();
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("laser_update").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = LaserUpdateModule::new(11, module_data, Some(22));
+        {
+            let mut load = XferLoad::new(Cursor::new(bytes), 1);
+            load.open("laser_update").unwrap();
+            loaded.xfer(&mut load).unwrap();
+            load.close().unwrap();
+        }
+
+        let update = loaded.update_mut();
+        assert_eq!(
+            update.start_pos,
+            Coord3D {
+                x: 1.25,
+                y: -2.5,
+                z: 3.75,
+            }
+        );
+        assert_eq!(
+            update.end_pos,
+            Coord3D {
+                x: 4.5,
+                y: -5.75,
+                z: 6.125,
+            }
+        );
+        assert!(update.dirty);
+        assert_eq!(update.particle_system_id, Some(0x0102_0304));
+        assert_eq!(update.target_particle_system_id, Some(0x0506_0708));
+        assert!(update.widening);
+        assert!(update.decaying);
+        assert_eq!(update.widen_start_frame, 123);
+        assert_eq!(update.widen_finish_frame, 456);
+        assert_eq!(update.current_width_scalar, 0.625);
+        assert_eq!(update.decay_start_frame, 789);
+        assert_eq!(update.decay_finish_frame, 999);
+        assert_eq!(update.parent_id, Some(0x1111_2222));
+        assert_eq!(update.target_id, Some(0x3333_4444));
+        assert_eq!(update.parent_bone_name, "MuzzleFX01");
+    }
+
+    #[test]
+    fn laser_update_xfer_loads_cpp_invalid_ids_as_none() {
+        let module_data = Arc::new(LaserUpdateModuleData::default());
+        let mut saved = LaserUpdateModule::new(11, module_data.clone(), Some(22));
+        saved.update_mut().dirty = true;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("laser_update").unwrap();
+            saved.xfer(&mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = LaserUpdateModule::new(11, module_data, Some(22));
+        loaded.update_mut().particle_system_id = Some(1);
+        loaded.update_mut().target_particle_system_id = Some(2);
+        loaded.update_mut().parent_id = Some(3);
+        loaded.update_mut().target_id = Some(4);
+        {
+            let mut load = XferLoad::new(Cursor::new(bytes), 1);
+            load.open("laser_update").unwrap();
+            loaded.xfer(&mut load).unwrap();
+            load.close().unwrap();
+        }
+
+        let update = loaded.update_mut();
+        assert_eq!(update.particle_system_id, None);
+        assert_eq!(update.target_particle_system_id, None);
+        assert_eq!(update.parent_id, None);
+        assert_eq!(update.target_id, None);
+    }
+}
