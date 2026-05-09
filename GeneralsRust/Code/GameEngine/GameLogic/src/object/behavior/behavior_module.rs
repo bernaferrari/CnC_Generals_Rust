@@ -17,6 +17,22 @@ pub use crate::modules::CountermeasuresBehaviorInterface;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::BaseModuleData;
 
+pub(crate) fn xfer_behavior_module_base_versions(xfer: &mut dyn Xfer) -> Result<(), String> {
+    let mut behavior_module_version: XferVersion = 1;
+    xfer.xfer_version(&mut behavior_module_version, 1)
+        .map_err(|e| e.to_string())?;
+
+    let mut object_module_version: XferVersion = 1;
+    xfer.xfer_version(&mut object_module_version, 1)
+        .map_err(|e| e.to_string())?;
+
+    let mut module_version: XferVersion = 1;
+    xfer.xfer_version(&mut module_version, 1)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 pub trait SpyVisionUpdate: Send + Sync {
     fn set_disabled_until_frame(
         &mut self,

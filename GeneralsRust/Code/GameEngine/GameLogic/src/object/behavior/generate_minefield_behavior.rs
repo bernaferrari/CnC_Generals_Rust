@@ -13,7 +13,9 @@ use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
     UpgradeModuleInterface, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{
+    xfer_behavior_module_base_versions, BehaviorModuleData,
+};
 use crate::object::Object as GameObject;
 use crate::upgrade::center::THE_UPGRADE_CENTER;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -394,6 +396,8 @@ struct MinefieldState {
     generated: bool,
     /// Whether mines have been upgraded
     upgraded: bool,
+    /// C++ UpgradeMux::m_upgradeExecuted for the behavior's upgrade facet.
+    upgrade_executed: bool,
     /// List of placed mine IDs
     mine_list: Vec<ObjectId>,
     /// Current mine template being used
@@ -410,6 +414,7 @@ impl GenerateMinefieldBehavior {
             target: None,
             generated: false,
             upgraded: false,
+            upgrade_executed: false,
             mine_list: Vec::new(),
             current_mine_template: config.mine_name.clone(),
         };
@@ -428,7 +433,7 @@ impl GenerateMinefieldBehavior {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<GenerateMinefieldBehaviorModuleData>()
+            .downcast_ref::<GenerateMinefieldBehaviorModuleData>()
             .ok_or("Invalid module data")?;
         let object_id = object.read().map(|guard| guard.get_id()).unwrap_or(0);
         Ok(Self::new_from_config(object_id, specific_data.clone()))
@@ -1058,6 +1063,7 @@ impl GenerateMinefieldBehavior {
     fn on_upgrade_removed(&self) -> BehaviorResult<()> {
         let mut state = self.state.write().unwrap();
         state.upgraded = false;
+        state.upgrade_executed = false;
         Ok(())
     }
 }
@@ -1096,26 +1102,37 @@ impl Snapshotable for GenerateMinefieldBehavior {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer version failed: {:?}", e))?;
 
+        xfer_behavior_module_base_versions(xfer)
+            .map_err(|e| format!("GenerateMinefieldBehavior xfer behavior base failed: {}", e))?;
+
         let mut state = self.state.write().unwrap();
+
+        let mut upgrade_mux_version: u8 = 1;
+        xfer.xfer_version(&mut upgrade_mux_version, 1)
+            .map_err(|e| format!("GenerateMinefieldBehavior xfer upgrade mux failed: {:?}", e))?;
+        xfer.xfer_bool(&mut state.upgrade_executed).map_err(|e| {
+            format!(
+                "GenerateMinefieldBehavior xfer upgrade executed failed: {:?}",
+                e
+            )
+        })?;
+
         xfer.xfer_bool(&mut state.generated)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer generated failed: {:?}", e))?;
 
         let mut has_target = state.target.is_some();
         xfer.xfer_bool(&mut has_target)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer target flag failed: {:?}", e))?;
-        if has_target {
-            let mut target = state.target.unwrap_or_default();
-            xfer.xfer_coord3d(&mut target);
-            state.target = Some(target);
-        } else {
-            state.target = None;
-        }
 
         xfer.xfer_bool(&mut state.upgraded)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer upgraded failed: {:?}", e))?;
 
-        let mut mine_count = state.mine_list.len() as u32;
-        xfer.xfer_unsigned_int(&mut mine_count)
+        let mut target = state.target.unwrap_or_default();
+        xfer.xfer_coord3d(&mut target);
+        state.target = has_target.then_some(target);
+
+        let mut mine_count = state.mine_list.len().min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut mine_count)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer mine count failed: {:?}", e))?;
 
         if xfer.is_loading() {
@@ -1150,11 +1167,19 @@ impl UpgradeModuleInterface for GenerateMinefieldBehavior {
     }
 
     fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
-        if self.config.upgradable {
+        let applied = if self.config.upgradable {
             self.upgrade_minefield().is_ok()
         } else {
             self.place_mines().is_ok()
+        };
+
+        if applied {
+            if let Ok(mut state) = self.state.write() {
+                state.upgrade_executed = true;
+            }
         }
+
+        applied
     }
 
     fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
