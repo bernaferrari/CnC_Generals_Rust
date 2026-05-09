@@ -140,6 +140,10 @@ impl AISkirmishPlayer {
         skirmish_player
     }
 
+    pub fn get_base_center(&self) -> Option<Coord3D> {
+        self.base.get_base_center()
+    }
+
     /// Main update function - simulates the behavior of a skirmish player
     pub fn update(&mut self) {
         if let Err(err) = self.base.update_without_base_building() {
