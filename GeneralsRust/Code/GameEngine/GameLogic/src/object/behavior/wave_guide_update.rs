@@ -16,7 +16,7 @@ use crate::helpers::{
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
 use crate::path::PATHFIND_CELL_SIZE_F;
@@ -328,6 +328,7 @@ const WAVE_GUIDE_UPDATE_FIELDS: &[FieldParse<WaveGuideUpdateModuleData>] = &[
 pub struct WaveGuideUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<WaveGuideUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     active_frame: UnsignedInt,
     need_disable: bool,
     initialized: bool,
@@ -346,12 +347,13 @@ impl WaveGuideUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<WaveGuideUpdateModuleData>()
+            .downcast_ref::<WaveGuideUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(data.clone()),
+            next_call_frame_and_phase: 0,
             active_frame: 0,
             need_disable: true,
             initialized: false,
@@ -863,6 +865,8 @@ impl Snapshotable for WaveGuideUpdate {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         xfer.xfer_unsigned_int(&mut self.active_frame)
             .map_err(|e| e.to_string())?;
