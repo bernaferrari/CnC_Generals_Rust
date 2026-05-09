@@ -26,6 +26,8 @@
 use crate::common::*;
 use crate::modules::{BehaviorModule, BehaviorModuleInterface, DockUpdateInterface};
 use crate::object::Object;
+#[cfg(feature = "allow_surrender")]
+use game_engine::common::system::XferVersion;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::sync::{Arc, RwLock};
@@ -201,7 +203,7 @@ impl DockUpdateInterface for PrisonDockUpdate {
         })?;
         drop(docker_guard);
 
-        let Some(prison) = TheGameLogic::find_object_by_id(self.base.owner_id) else {
+        let Some(prison) = TheGameLogic::find_object_by_id(self.base.owner_id()) else {
             return Ok(false);
         };
 
@@ -302,15 +304,39 @@ impl PrisonDockUpdateModule {
 
 impl Snapshotable for PrisonDockUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.module_data.crc(xfer)
+        #[cfg(feature = "allow_surrender")]
+        {
+            self.behavior.base.crc(xfer)
+        }
+        #[cfg(not(feature = "allow_surrender"))]
+        {
+            self.module_data.crc(xfer)
+        }
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).xfer(xfer)
+        #[cfg(feature = "allow_surrender")]
+        {
+            let mut version: XferVersion = 1;
+            xfer.xfer_version(&mut version, 1)
+                .map_err(|err| format!("PrisonDockUpdateModule::xfer version failed: {err}"))?;
+            self.behavior.base.xfer(xfer)
+        }
+        #[cfg(not(feature = "allow_surrender"))]
+        {
+            Arc::make_mut(&mut self.module_data).xfer(xfer)
+        }
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Arc::make_mut(&mut self.module_data).load_post_process()
+        #[cfg(feature = "allow_surrender")]
+        {
+            self.behavior.base.load_post_process()
+        }
+        #[cfg(not(feature = "allow_surrender"))]
+        {
+            Arc::make_mut(&mut self.module_data).load_post_process()
+        }
     }
 }
 
