@@ -362,6 +362,10 @@ name = "list_loaded_objects"
 path = "src/bin/list_loaded_objects.rs"
 required-features = ["dev-tools"]
 
+[[bin]]
+name = "deterministic_trace_dump"
+path = "src/bin/deterministic_trace_dump.rs"
+
 [[example]]
 name = "telemetry_bridge"
 path = "examples/telemetry_bridge.rs"
