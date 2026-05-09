@@ -10,7 +10,9 @@ use std::any::Any;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
-use super::behavior_module::{BehaviorModuleInterface, CountermeasuresBehaviorInterface};
+use super::behavior_module::{
+    xfer_update_module_base_state, BehaviorModuleInterface, CountermeasuresBehaviorInterface,
+};
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Coord3D, DisabledMaskType, ObjectID, Real, UnsignedInt, Vec3D, Xfer,
@@ -414,6 +416,7 @@ pub struct CountermeasuresBehavior {
     object_id: ObjectID,
     object_handle: Mutex<Option<Weak<RwLock<GameObject>>>>,
     state: Arc<RwLock<CountermeasuresState>>,
+    next_call_frame_and_phase: UnsignedInt,
     upgrade_mux: UpgradeMux,
 }
 
@@ -439,6 +442,7 @@ impl CountermeasuresBehavior {
             object_id,
             object_handle: Mutex::new(initial_handle),
             state: Arc::new(RwLock::new(state)),
+            next_call_frame_and_phase: 0,
             upgrade_mux,
         }
     }
@@ -720,6 +724,12 @@ impl CountermeasuresBehavior {
         let current_version: XferVersion = 2;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase).map_err(
+            |err| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, err))
+                    as Box<dyn std::error::Error + Send + Sync>
+            },
+        )?;
         self.upgrade_mux.xfer(xfer).map_err(|err| {
             Box::new(std::io::Error::new(std::io::ErrorKind::Other, err))
                 as Box<dyn std::error::Error + Send + Sync>
@@ -969,7 +979,6 @@ impl Snapshotable for CountermeasuresBehaviorModule {
 }
 
 impl EngineModule for CountermeasuresBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
