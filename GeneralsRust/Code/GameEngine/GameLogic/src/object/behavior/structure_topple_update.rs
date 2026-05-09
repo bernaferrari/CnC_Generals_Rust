@@ -15,7 +15,7 @@ use crate::helpers::{
 use crate::modules::{
     BehaviorModuleInterface, DieModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
-use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::die::{
     parse_death_type_flags_tokens, parse_object_status_mask_tokens,
     parse_veterancy_level_flags_tokens, DieMuxData, ObjectStatusMask,
@@ -471,6 +471,7 @@ const STRUCTURE_TOPPLE_UPDATE_FIELDS: &[FieldParse<StructureToppleUpdateModuleDa
 pub struct StructureToppleUpdate {
     object: Weak<RwLock<GameObject>>,
     module_data: Arc<StructureToppleUpdateModuleData>,
+    next_call_frame_and_phase: UnsignedInt,
     topple_frame: UnsignedInt,
     topple_direction: Coord2D,
     topple_state: StructureToppleStateType,
@@ -490,7 +491,7 @@ impl StructureToppleUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
             .as_ref()
-        .downcast_ref::<StructureToppleUpdateModuleData>()
+            .downcast_ref::<StructureToppleUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         if let Ok(building) = object.read() {
@@ -505,6 +506,7 @@ impl StructureToppleUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(data.clone()),
+            next_call_frame_and_phase: 0,
             topple_frame: 0,
             topple_direction: Coord2D::ZERO,
             topple_state: StructureToppleStateType::Standing,
@@ -1092,6 +1094,7 @@ impl Snapshotable for StructureToppleUpdate {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         xfer.xfer_unsigned_int(&mut self.topple_frame)
             .map_err(|e| e.to_string())?;
 
