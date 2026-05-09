@@ -55,11 +55,12 @@ use crate::common::{
     LOGICFRAMES_PER_SECOND,
 };
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::Object as GameObject;
 use crate::weapon::{Weapon, WeaponSlotType, WeaponStatus, WeaponTemplate};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
-use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 use std::any::Any;
 use std::sync::{Arc, RwLock, Weak};
@@ -130,6 +131,9 @@ pub struct FireWeaponUpdate {
     /// The weapon instance we're firing
     weapon: Option<Weapon>,
 
+    /// UpdateModule scheduler state serialized by the C++ base class.
+    next_call_frame_and_phase: UnsignedInt,
+
     /// Frame when initial delay expires and we can start firing
     initial_delay_frame: UnsignedInt,
 
@@ -151,7 +155,7 @@ impl FireWeaponUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<FireWeaponUpdateModuleData>()
+            .downcast_ref::<FireWeaponUpdateModuleData>()
             .ok_or("Invalid module data for FireWeaponUpdate")?;
 
         let data = Arc::new(specific_data.clone());
@@ -197,6 +201,7 @@ impl FireWeaponUpdate {
             object: Arc::downgrade(&object),
             module_data: data,
             weapon,
+            next_call_frame_and_phase: 0,
             initial_delay_frame,
             weapon_template,
         })
@@ -347,24 +352,15 @@ impl Snapshotable for FireWeaponUpdate {
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // Version
-        let mut version: u8 = 2;
+        let mut version: XferVersion = 2;
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
-        // Weapon snapshot
-        let mut has_weapon = self.weapon.is_some();
-        xfer.xfer_bool(&mut has_weapon)
-            .map_err(|e| format!("Failed to xfer weapon presence: {:?}", e))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
-        if has_weapon {
-            if self.weapon.is_none() {
-                self.ensure_weapon_for_xfer()?;
-            }
-            if let Some(ref mut weapon) = self.weapon {
-                weapon.xfer(xfer)?;
-            }
-        } else {
-            self.weapon = None;
+        self.ensure_weapon_for_xfer()?;
+        if let Some(ref mut weapon) = self.weapon {
+            weapon.xfer(xfer)?;
         }
 
         // Version 2 fields
