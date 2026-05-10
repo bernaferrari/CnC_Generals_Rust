@@ -2724,6 +2724,10 @@ impl Drawable {
         self.update_hidden_status();
     }
 
+    pub fn get_stealth_look(&self) -> StealthLookType {
+        self.stealth_look
+    }
+
     /// Helper to update the model based on conditional model settings
     fn update_conditional_model(&mut self) {
         // Check if we need to switch models based on conditions
