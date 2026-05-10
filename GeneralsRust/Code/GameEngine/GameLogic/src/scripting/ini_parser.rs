@@ -114,14 +114,14 @@ impl IniScriptParser {
 
             // Check for ScriptList
             if trimmed.starts_with("ScriptList") {
+                let list_name = trimmed
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("unnamed")
+                    .to_string();
                 match self.parse_script_list(&mut context) {
                     Ok(script_list) => {
-                        let name = script_list
-                            .first_group
-                            .as_ref()
-                            .map(|g| g.group_name.clone())
-                            .unwrap_or_else(|| "unnamed".to_string());
-                        self.script_lists.insert(name, script_list);
+                        self.script_lists.insert(list_name, script_list);
                     }
                     Err(e) => {
                         self.errors.push(format!("{}", e));
@@ -160,8 +160,7 @@ impl IniScriptParser {
         context.advance();
 
         let mut script_list = ScriptList::new();
-        let mut last_group: Option<Box<ScriptGroup>> = None;
-        let mut first_group: Option<Box<ScriptGroup>> = None;
+        let mut groups = Vec::new();
 
         // Parse script groups until we hit EndScriptList
         while !context.is_at_end() {
@@ -183,17 +182,7 @@ impl IniScriptParser {
 
             if trimmed.starts_with("ScriptGroup") {
                 let group = self.parse_script_group(context)?;
-
-                if first_group.is_none() {
-                    first_group = Some(group.clone());
-                }
-
-                if let Some(mut prev) = last_group {
-                    prev.next_group = Some(group.clone());
-                    last_group = Some(prev);
-                }
-
-                last_group = Some(group);
+                groups.push(group);
             } else if trimmed.starts_with("Script") && !trimmed.starts_with("ScriptGroup") {
                 // Orphan script without a group - create implicit group
                 let mut group = ScriptGroup::new();
@@ -202,17 +191,13 @@ impl IniScriptParser {
                 let script = self.parse_script(context)?;
                 group.first_script = Some(script);
 
-                if first_group.is_none() {
-                    first_group = Some(Box::new(group.clone()));
-                }
-
-                last_group = Some(Box::new(group));
+                groups.push(Box::new(group));
             } else {
                 context.advance();
             }
         }
 
-        script_list.first_group = first_group;
+        script_list.first_group = link_script_groups(groups);
 
         Ok(script_list)
     }
@@ -238,8 +223,7 @@ impl IniScriptParser {
         let mut group = ScriptGroup::new();
         group.group_name = group_name;
 
-        let mut last_script: Option<Box<Script>> = None;
-        let mut first_script: Option<Box<Script>> = None;
+        let mut scripts = Vec::new();
 
         // Parse scripts until we hit EndScriptGroup
         while !context.is_at_end() {
@@ -261,17 +245,7 @@ impl IniScriptParser {
 
             if trimmed.starts_with("Script ") {
                 let script = self.parse_script(context)?;
-
-                if first_script.is_none() {
-                    first_script = Some(script.clone());
-                }
-
-                if let Some(mut prev) = last_script {
-                    prev.next_script = Some(script.clone());
-                    last_script = Some(prev);
-                }
-
-                last_script = Some(script);
+                scripts.push(script);
             } else if trimmed.starts_with("IsActive") {
                 let value = self.parse_boolean_value(trimmed)?;
                 group.is_group_active = value;
@@ -285,7 +259,7 @@ impl IniScriptParser {
             }
         }
 
-        group.first_script = first_script;
+        group.first_script = link_scripts(scripts);
 
         Ok(Box::new(group))
     }
@@ -371,8 +345,7 @@ impl IniScriptParser {
     ) -> GameLogicResult<Box<OrCondition>> {
         context.advance(); // Skip the "Conditions = " line
 
-        let mut first_or: Option<Box<OrCondition>> = None;
-        let mut last_or: Option<Box<OrCondition>> = None;
+        let mut or_conditions = Vec::new();
 
         while !context.is_at_end() {
             let line = context
@@ -395,22 +368,14 @@ impl IniScriptParser {
             if trimmed.starts_with("Condition") {
                 let or_condition = self.parse_and_condition_block(context)?;
 
-                if first_or.is_none() {
-                    first_or = Some(or_condition.clone());
-                }
-
-                if let Some(mut prev) = last_or {
-                    prev.next_or = Some(or_condition.clone());
-                    last_or = Some(prev);
-                }
-
-                last_or = Some(or_condition);
+                or_conditions.push(or_condition);
             } else {
                 context.advance();
             }
         }
 
-        first_or.ok_or_else(|| context.error("No conditions found in Conditions block"))
+        link_or_conditions(or_conditions)
+            .ok_or_else(|| context.error("No conditions found in Conditions block"))
     }
 
     /// Parse an AND condition block
@@ -422,8 +387,7 @@ impl IniScriptParser {
         context.advance(); // Skip the "Condition = AND" line
 
         let mut or_condition = OrCondition::new();
-        let mut first_and: Option<Box<Condition>> = None;
-        let mut last_and: Option<Box<Condition>> = None;
+        let mut conditions = Vec::new();
 
         while !context.is_at_end() {
             let line = context
@@ -446,19 +410,10 @@ impl IniScriptParser {
             let condition = self.parse_single_condition(trimmed)?;
             context.advance();
 
-            if first_and.is_none() {
-                first_and = Some(condition.clone());
-            }
-
-            if let Some(mut prev) = last_and {
-                prev.next_and_condition = Some(condition.clone());
-                last_and = Some(prev);
-            }
-
-            last_and = Some(condition);
+            conditions.push(condition);
         }
 
-        or_condition.first_and = first_and;
+        or_condition.first_and = link_and_conditions(conditions);
 
         Ok(Box::new(or_condition))
     }
@@ -544,8 +499,7 @@ impl IniScriptParser {
     fn parse_actions(&mut self, context: &mut ParseContext) -> GameLogicResult<Box<ScriptAction>> {
         context.advance(); // Skip the "Actions = " line
 
-        let mut first_action: Option<Box<ScriptAction>> = None;
-        let mut last_action: Option<Box<ScriptAction>> = None;
+        let mut actions = Vec::new();
 
         while !context.is_at_end() {
             let line = context
@@ -568,19 +522,10 @@ impl IniScriptParser {
             let action = self.parse_single_action(trimmed)?;
             context.advance();
 
-            if first_action.is_none() {
-                first_action = Some(action.clone());
-            }
-
-            if let Some(mut prev) = last_action {
-                prev.next_action = Some(action.clone());
-                last_action = Some(prev);
-            }
-
-            last_action = Some(action);
+            actions.push(action);
         }
 
-        first_action.ok_or_else(|| context.error("No actions found in Actions block"))
+        link_actions(actions).ok_or_else(|| context.error("No actions found in Actions block"))
     }
 
     /// Parse a single action line
@@ -767,6 +712,15 @@ impl IniScriptParser {
             "NAMED_DESTROYED" => Ok(ConditionType::NamedDestroyed),
             "NAMED_NOT_DESTROYED" => Ok(ConditionType::NamedNotDestroyed),
             "NAMED_INSIDE_AREA" => Ok(ConditionType::NamedInsideArea),
+            "NAMED_OUTSIDE_AREA" => Ok(ConditionType::NamedOutsideArea),
+            "TEAM_INSIDE_AREA_ENTIRELY" => Ok(ConditionType::TeamInsideAreaEntirely),
+            "TEAM_OUTSIDE_AREA_ENTIRELY" => Ok(ConditionType::TeamOutsideAreaEntirely),
+            "TEAM_COMPLETED_SEQUENTIAL_EXECUTION" => {
+                Ok(ConditionType::TeamCompletedSequentialExecution)
+            }
+            "UNIT_COMPLETED_SEQUENTIAL_EXECUTION" => {
+                Ok(ConditionType::UnitCompletedSequentialExecution)
+            }
             _ => {
                 self.warnings
                     .push(format!("Unknown condition type: {}", name));
@@ -822,6 +776,20 @@ impl IniScriptParser {
             "MAP_REVEAL_ALL" => Ok(ScriptActionType::MapRevealAll),
             "MAP_SHROUD_AT_WAYPOINT" => Ok(ScriptActionType::MapShroudAtWaypoint),
             "MAP_SHROUD_ALL" => Ok(ScriptActionType::MapShroudAll),
+            "UNIT_EXECUTE_SEQUENTIAL_SCRIPT" => Ok(ScriptActionType::UnitExecuteSequentialScript),
+            "UNIT_EXECUTE_SEQUENTIAL_SCRIPT_LOOPING" => {
+                Ok(ScriptActionType::UnitExecuteSequentialScriptLooping)
+            }
+            "UNIT_STOP_SEQUENTIAL_SCRIPT" => Ok(ScriptActionType::UnitStopSequentialScript),
+            "TEAM_EXECUTE_SEQUENTIAL_SCRIPT" => Ok(ScriptActionType::TeamExecuteSequentialScript),
+            "TEAM_EXECUTE_SEQUENTIAL_SCRIPT_LOOPING" => {
+                Ok(ScriptActionType::TeamExecuteSequentialScriptLooping)
+            }
+            "TEAM_STOP_SEQUENTIAL_SCRIPT" => Ok(ScriptActionType::TeamStopSequentialScript),
+            "UNIT_GUARD_FOR_FRAMECOUNT" => Ok(ScriptActionType::UnitGuardForFramecount),
+            "UNIT_IDLE_FOR_FRAMECOUNT" => Ok(ScriptActionType::UnitIdleForFramecount),
+            "TEAM_GUARD_FOR_FRAMECOUNT" => Ok(ScriptActionType::TeamGuardForFramecount),
+            "TEAM_IDLE_FOR_FRAMECOUNT" => Ok(ScriptActionType::TeamIdleForFramecount),
             _ => {
                 self.warnings.push(format!("Unknown action type: {}", name));
                 Ok(ScriptActionType::NoOp) // Default to no-op
@@ -897,6 +865,51 @@ impl IniScriptParser {
 
         report
     }
+}
+
+fn link_and_conditions(mut conditions: Vec<Box<Condition>>) -> Option<Box<Condition>> {
+    let mut next = None;
+    while let Some(mut condition) = conditions.pop() {
+        condition.next_and_condition = next;
+        next = Some(condition);
+    }
+    next
+}
+
+fn link_or_conditions(mut conditions: Vec<Box<OrCondition>>) -> Option<Box<OrCondition>> {
+    let mut next = None;
+    while let Some(mut condition) = conditions.pop() {
+        condition.next_or = next;
+        next = Some(condition);
+    }
+    next
+}
+
+fn link_actions(mut actions: Vec<Box<ScriptAction>>) -> Option<Box<ScriptAction>> {
+    let mut next = None;
+    while let Some(mut action) = actions.pop() {
+        action.next_action = next;
+        next = Some(action);
+    }
+    next
+}
+
+fn link_scripts(mut scripts: Vec<Box<Script>>) -> Option<Box<Script>> {
+    let mut next = None;
+    while let Some(mut script) = scripts.pop() {
+        script.next_script = next;
+        next = Some(script);
+    }
+    next
+}
+
+fn link_script_groups(mut groups: Vec<Box<ScriptGroup>>) -> Option<Box<ScriptGroup>> {
+    let mut next = None;
+    while let Some(mut group) = groups.pop() {
+        group.next_group = next;
+        next = Some(group);
+    }
+    next
 }
 
 impl Default for IniScriptParser {
@@ -1003,8 +1016,68 @@ EndScriptList
     }
 
     #[test]
-    fn test_parse_coordinate_parameters() {
+    fn test_parse_preserves_action_and_condition_chains() {
+        let content = r#"
+ScriptList TestScripts
+  ScriptGroup Group1
+    Script Script_Chain
+      Conditions = OR
+        Condition1 = AND
+          TRUE
+          FLAG IntroComplete TRUE
+        EndCondition
+        Condition2 = AND
+          TIMER_EXPIRED 30
+        EndCondition
+      EndConditions
+      Actions = SEQUENTIAL
+        SET_FLAG IntroComplete TRUE
+        TEAM_EXECUTE_SEQUENTIAL_SCRIPT TeamA PatrolScript
+        TEAM_IDLE_FOR_FRAMECOUNT TeamA 15
+      EndActions
+      IsActive = Yes
+    EndScript
+  EndScriptGroup
+EndScriptList
+"#;
+
         let mut parser = IniScriptParser::new();
+        parser.parse(content).unwrap();
+        assert_eq!(parser.get_errors().len(), 0);
+        assert_eq!(parser.get_warnings().len(), 0);
+
+        let script = parser
+            .get_script_list("TestScripts")
+            .and_then(|list| list.get_script_group())
+            .and_then(|group| group.get_script())
+            .unwrap();
+
+        let first_or = script.get_or_condition().unwrap();
+        assert!(first_or.get_next_or_condition().is_some());
+
+        let first_and = first_or.get_first_and_condition().unwrap();
+        assert_eq!(first_and.get_condition_type(), ConditionType::ConditionTrue);
+        assert_eq!(
+            first_and.get_next().unwrap().get_condition_type(),
+            ConditionType::Flag
+        );
+
+        let first_action = script.get_action().unwrap();
+        assert_eq!(first_action.get_action_type(), ScriptActionType::SetFlag);
+        let second_action = first_action.get_next().unwrap();
+        assert_eq!(
+            second_action.get_action_type(),
+            ScriptActionType::TeamExecuteSequentialScript
+        );
+        assert_eq!(
+            second_action.get_next().unwrap().get_action_type(),
+            ScriptActionType::TeamIdleForFramecount
+        );
+    }
+
+    #[test]
+    fn test_parse_coordinate_parameters() {
+        let parser = IniScriptParser::new();
 
         let param = parser.parse_coordinate("X:100 Y:200 Z:0").unwrap();
         let coord = param.get_coord();
@@ -1015,7 +1088,7 @@ EndScriptList
 
     #[test]
     fn test_parse_boolean_parameters() {
-        let mut parser = IniScriptParser::new();
+        let parser = IniScriptParser::new();
 
         let param1 = parser.parse_parameter("TRUE").unwrap();
         assert_eq!(param1.get_int(), 1);
@@ -1026,7 +1099,7 @@ EndScriptList
 
     #[test]
     fn test_parse_string_parameters() {
-        let mut parser = IniScriptParser::new();
+        let parser = IniScriptParser::new();
 
         let param = parser.parse_parameter("\"Hello World\"").unwrap();
         assert_eq!(param.get_string(), "Hello World");
@@ -1034,7 +1107,7 @@ EndScriptList
 
     #[test]
     fn test_parse_numeric_parameters() {
-        let mut parser = IniScriptParser::new();
+        let parser = IniScriptParser::new();
 
         let param1 = parser.parse_parameter("42").unwrap();
         assert_eq!(param1.get_int(), 42);
