@@ -2625,6 +2625,13 @@ impl GameMessageTranslator for CommandTranslator {
                 dispatch_translated_message(&GameMessageType::CreateFormation(Vec::new()));
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaDeploy
+            | GameMessageType::MetaFollow
+            | GameMessageType::MetaChatPlayers
+            | GameMessageType::MetaChatAllies
+            | GameMessageType::MetaChatEveryone => {
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::MouseRightClick(region, _modifiers) => (
                 self.handle_point_click(region, true),
                 GameMessageDisposition::DestroyMessage,
@@ -5051,6 +5058,31 @@ mod tests {
         );
 
         get_command_list().write().unwrap().clear_all_commands();
+    }
+
+    #[test]
+    fn test_unimplemented_cpp_meta_commands_are_consumed_without_commands() {
+        let _guard = test_state_lock();
+
+        for message_type in [
+            GameMessageType::MetaDeploy,
+            GameMessageType::MetaFollow,
+            GameMessageType::MetaChatPlayers,
+            GameMessageType::MetaChatAllies,
+            GameMessageType::MetaChatEveryone,
+        ] {
+            get_command_list().write().unwrap().clear_all_commands();
+            let mut translator = CommandTranslator::new();
+
+            let disposition = translator.translate_game_message(&GameMessage::new(message_type));
+
+            assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+            assert!(get_command_list()
+                .read()
+                .unwrap()
+                .snapshot_messages()
+                .is_empty());
+        }
     }
 
     #[test]
