@@ -226,6 +226,10 @@ use crate::object::update::{
     BeaconClientUpdateModuleData, LaserUpdateModule as LaserClientUpdateModule,
     LaserUpdateModuleData as LaserClientUpdateModuleData, SwayClientUpdateModule,
 };
+use crate::stealth_update::{
+    StealthUpdateModule as CoreStealthUpdateModule,
+    StealthUpdateModuleData as CoreStealthUpdateModuleData,
+};
 
 fn resolve_owner_id(thing: &Arc<dyn ModuleThing>) -> ObjectID {
     thing
@@ -959,6 +963,34 @@ fn grant_stealth_behavior_module_factory(
         behavior,
         &AsciiString::from("GrantStealthBehavior"),
         data_arc,
+    ))
+}
+
+fn stealth_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = CoreStealthUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse StealthUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn stealth_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<CoreStealthUpdateModuleData>("StealthUpdate", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let module_name_key = NameKeyGenerator::name_to_key("StealthUpdate");
+    Box::new(CoreStealthUpdateModule::new(
+        module_name_key,
+        data_arc,
+        object_id,
     ))
 }
 
@@ -3303,6 +3335,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         grant_stealth_behavior_module_factory,
         grant_stealth_behavior_data_factory,
+    )?;
+    register_module_override(
+        "StealthUpdate",
+        ModuleType::Behavior,
+        stealth_update_module_factory,
+        stealth_update_module_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
