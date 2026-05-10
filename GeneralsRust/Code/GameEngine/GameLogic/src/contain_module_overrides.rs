@@ -18,6 +18,9 @@ use crate::modules::ContainModuleInterface;
 use crate::object::behavior::battle_bus_slow_death_behavior::{
     battle_bus_slow_death_data_factory, battle_bus_slow_death_module_factory,
 };
+use crate::object::behavior::demo_trap_update::{
+    demo_trap_update_data_factory, demo_trap_update_module_factory,
+};
 use crate::object::behavior::instant_death_behavior::{
     InstantDeathBehavior, InstantDeathBehaviorModuleData,
 };
@@ -27,8 +30,17 @@ use crate::object::behavior::lifetime_update::{
 use crate::object::behavior::neutron_missile_slow_death_update::{
     neutron_missile_slow_death_data_factory, neutron_missile_slow_death_module_factory,
 };
+use crate::object::behavior::point_defense_laser_update::{
+    point_defense_laser_update_data_factory, point_defense_laser_update_module_factory,
+};
+use crate::object::behavior::radius_decal_update::{
+    radius_decal_update_data_factory, radius_decal_update_module_factory,
+};
 use crate::object::behavior::slow_death_behavior::{
     SlowDeathBehavior, SlowDeathBehaviorModuleData,
+};
+use crate::object::behavior::sticky_bomb_update::{
+    sticky_bomb_update_data_factory, sticky_bomb_update_module_factory,
 };
 use crate::object::behavior::topple_update::{
     topple_update_data_factory, topple_update_module_factory,
@@ -2033,6 +2045,30 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         ocl_update_module_factory,
         ocl_update_data_factory,
+    )?;
+    register_module_override(
+        "RadiusDecalUpdate",
+        ModuleType::Behavior,
+        radius_decal_update_module_factory,
+        radius_decal_update_data_factory,
+    )?;
+    register_module_override(
+        "StickyBombUpdate",
+        ModuleType::Behavior,
+        sticky_bomb_update_module_factory,
+        sticky_bomb_update_data_factory,
+    )?;
+    register_module_override(
+        "DemoTrapUpdate",
+        ModuleType::Behavior,
+        demo_trap_update_module_factory,
+        demo_trap_update_data_factory,
+    )?;
+    register_module_override(
+        "PointDefenseLaserUpdate",
+        ModuleType::Behavior,
+        point_defense_laser_update_module_factory,
+        point_defense_laser_update_data_factory,
     )?;
     register_module_override(
         "OpenContain",

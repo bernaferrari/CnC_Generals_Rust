@@ -21,7 +21,11 @@ use crate::weapon::{with_weapon_store, WeaponBonus, WeaponTemplate};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
+    Thing as ModuleThing,
+};
+use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -581,4 +585,43 @@ impl StickyBombUpdateFactory {
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(StickyBombUpdate::new(thing, module_data)?))
     }
+}
+
+pub fn sticky_bomb_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineModuleData> {
+    let mut data = StickyBombUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse StickyBombUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub fn sticky_bomb_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn EngineModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_any()
+        .downcast_ref::<StickyBombUpdateModuleData>()
+        .expect("StickyBombUpdateModuleData expected");
+    let module_data_arc = Arc::new(typed_data.clone());
+    let owner_id = thing
+        .as_object()
+        .map(ModuleObject::get_object_id)
+        .unwrap_or(crate::common::INVALID_ID);
+    let object =
+        TheGameLogic::find_object_by_id(owner_id).expect("StickyBombUpdate requires object");
+    let behavior = StickyBombUpdate::new(object, module_data_arc.clone())
+        .expect("StickyBombUpdate failed to initialize");
+    let module_name = AsciiString::from("StickyBombUpdate");
+    Box::new(StickyBombUpdateModule::new(
+        behavior,
+        &module_name,
+        module_data_arc,
+    ))
 }
