@@ -645,6 +645,33 @@ impl ProductionUpdateComplete {
         }
     }
 
+    pub fn cancel_upgrade_by_name(
+        &mut self,
+        upgrade_name: &str,
+        refund_credits: &mut dyn FnMut(ObjectID, i32),
+    ) -> Result<(), String> {
+        if self.current_production.as_ref().is_some_and(|prod| {
+            prod.entry.production_type == ProductionType::Upgrade
+                && prod.entry.template_name == upgrade_name
+        }) {
+            return self.cancel_production(0, refund_credits);
+        }
+
+        let Some(index) = self
+            .queue
+            .find_by_template_and_type(ProductionType::Upgrade, upgrade_name)
+        else {
+            return Err("Upgrade not in queue".to_string());
+        };
+        let visual_index = if self.current_production.is_some() {
+            index + 1
+        } else {
+            index
+        };
+
+        self.cancel_production(visual_index, refund_credits)
+    }
+
     /// Cancel and refund all production
     /// Matches C++ cancelAndRefundAllProduction lines 1119-1141
     pub fn cancel_and_refund_all_production(

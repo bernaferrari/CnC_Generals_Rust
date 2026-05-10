@@ -3623,6 +3623,63 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_cancel_upgrade_command(
+        &self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        use crate::commands::command::CommandArgumentType;
+
+        let upgrade_key = match command.command.get_argument(0) {
+            Some(CommandArgumentType::Integer(value)) => *value as u32,
+            _ => {
+                return CommandExecutionResult::Failed(AsciiString::from(
+                    "CancelUpgrade missing upgrade key",
+                ))
+            }
+        };
+
+        let upgrade = match THE_UPGRADE_CENTER
+            .read()
+            .ok()
+            .and_then(|center| center.find_upgrade_by_key(upgrade_key))
+        {
+            Some(upgrade) => upgrade,
+            None => return CommandExecutionResult::Success,
+        };
+
+        let selection_manager = get_selection_manager();
+        let selected = selection_manager
+            .read()
+            .ok()
+            .and_then(|manager| {
+                manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+            })
+            .unwrap_or_default();
+        let Some(producer_id) = selected.first().copied() else {
+            return CommandExecutionResult::Success;
+        };
+
+        let Some(producer) = OBJECT_REGISTRY.get_object(producer_id) else {
+            return CommandExecutionResult::Success;
+        };
+        let Ok(guard) = producer.read() else {
+            return CommandExecutionResult::Success;
+        };
+        if guard.is_destroyed() {
+            return CommandExecutionResult::Success;
+        }
+        if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+            return CommandExecutionResult::Success;
+        }
+
+        let _ = guard.cancel_upgrade(&upgrade);
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_queue_unit_create_command(
         &self,
         command: &QueuedCommand,
@@ -4138,6 +4195,7 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::EnableRetaliationMode => self.execute_enable_retaliation(command, context),
             CommandType::PurchaseScience => self.execute_purchase_science(command, context),
             CommandType::QueueUpgrade => self.execute_queue_upgrade_command(command, context),
+            CommandType::CancelUpgrade => self.execute_cancel_upgrade_command(command, context),
             CommandType::QueueUnitCreate => {
                 self.execute_queue_unit_create_command(command, context)
             }
@@ -4223,6 +4281,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::EnableRetaliationMode
                 | CommandType::PurchaseScience
                 | CommandType::QueueUpgrade
+                | CommandType::CancelUpgrade
                 | CommandType::QueueUnitCreate
                 | CommandType::CreateFormation
                 | CommandType::SelfDestruct
@@ -4536,6 +4595,13 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::QueueUpgrade));
+    }
+
+    #[test]
+    fn default_handler_accepts_cancel_upgrade_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::CancelUpgrade));
     }
 
     #[test]

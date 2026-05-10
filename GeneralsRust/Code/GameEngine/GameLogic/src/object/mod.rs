@@ -427,6 +427,29 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
         }
     }
 
+    fn cancel_upgrade(self, upgrade_name: &str) -> bool {
+        match self {
+            Self::Complete(module) => {
+                let mut refund = |player_id: ObjectID, credits: i32| {
+                    if credits <= 0 {
+                        return;
+                    }
+                    if let Ok(list) = player_list().read() {
+                        if let Some(player_arc) = list.get_player(player_id as i32) {
+                            if let Ok(mut player) = player_arc.write() {
+                                player.get_money_mut().add_money(credits);
+                            }
+                        }
+                    }
+                };
+                module
+                    .behavior_mut()
+                    .cancel_upgrade_by_name(upgrade_name, &mut refund)
+                    .is_ok()
+            }
+        }
+    }
+
     fn set_enabled(self, enabled: bool) {
         match self {
             Self::Complete(module) => {
@@ -555,6 +578,30 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     )
                     .is_ok()
             }
+        }
+    }
+
+    fn cancel_upgrade(self, upgrade_name: &str) -> bool {
+        match self {
+            Self::Legacy(module) => module.cancel_upgrade(upgrade_name).is_some(),
+            Self::Complete(module) => {
+                let mut refund = |player_id: ObjectID, credits: i32| {
+                    if credits <= 0 {
+                        return;
+                    }
+                    if let Ok(list) = player_list().read() {
+                        if let Some(player_arc) = list.get_player(player_id as i32) {
+                            if let Ok(mut player) = player_arc.write() {
+                                player.get_money_mut().add_money(credits);
+                            }
+                        }
+                    }
+                };
+                module
+                    .cancel_upgrade_by_name(upgrade_name, &mut refund)
+                    .is_ok()
+            }
+            Self::Core(module) => module.cancel_upgrade_by_name(upgrade_name).is_ok(),
         }
     }
 
@@ -9376,12 +9423,54 @@ impl Object {
         false
     }
 
+    fn cancel_upgrade_via_production(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
+        let upgrade_name = upgrade.get_name().to_string();
+
+        for entry in &self.modules {
+            let canceled = entry.with_module(|module| {
+                module_production_queue_kind(module).and_then(|kind| {
+                    if kind.cancel_upgrade(&upgrade_name) {
+                        Some(())
+                    } else {
+                        None
+                    }
+                })
+            });
+
+            if canceled.is_some() {
+                return true;
+            }
+        }
+
+        for behavior in &self.behaviors {
+            let Ok(mut behavior_guard) = behavior.lock() else {
+                continue;
+            };
+
+            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+                return kind.cancel_upgrade(&upgrade_name);
+            }
+
+            if let Some(prod) = behavior_guard.get_production_update_interface() {
+                if prod.cancel_production(0).is_ok() {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     pub fn queue_upgrade(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
         self.queue_upgrade_via_production(upgrade)
     }
 
     pub fn queue_unit(&self, template: &Arc<dyn crate::common::ThingTemplate>) -> bool {
         self.queue_unit_via_production(template)
+    }
+
+    pub fn cancel_upgrade(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
+        self.cancel_upgrade_via_production(upgrade)
     }
 
     fn is_valid_command_target(
