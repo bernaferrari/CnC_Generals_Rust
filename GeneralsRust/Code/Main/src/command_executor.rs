@@ -755,6 +755,7 @@ impl<'a> CommandExecutor<'a> {
                     player.resources.supplies += refund;
                 }
             }
+            self.game_logic.cancel_all_production(object_id);
             self.game_logic.destroy_object(object_id);
             // Radar/EVA feedback for selling a structure.
             let msg = localization::localize("hud.sell.complete", "Structure sold");
