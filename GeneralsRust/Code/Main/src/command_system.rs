@@ -1943,6 +1943,75 @@ mod tests {
     }
 
     #[test]
+    fn queue_upgrade_identity_matches_ini_name_variants() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let system = CommandSystem::new();
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 5000;
+        game_logic.add_player(player);
+
+        let mut template = ThingTemplate::new("TestUnit");
+        template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic.add_object(Object::new(template, ObjectId(251), Team::USA));
+
+        let queue_command = GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: "Upgrade_AmericaSupplyLines".to_string(),
+            },
+            player_id: 0,
+            command_id: 30,
+            timestamp: SystemTime::now(),
+            selected_units: vec![ObjectId(251)],
+            modifier_keys: ModifierKeys::default(),
+        };
+        assert_eq!(
+            system.execute_command(&queue_command, &mut game_logic),
+            CommandResult::Success
+        );
+
+        let variant_command = GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: "upgradeamericasupplylines".to_string(),
+            },
+            player_id: 0,
+            command_id: 31,
+            timestamp: SystemTime::now(),
+            selected_units: vec![ObjectId(251)],
+            modifier_keys: ModifierKeys::default(),
+        };
+        assert_eq!(
+            system.execute_command(&variant_command, &mut game_logic),
+            CommandResult::InvalidCommand,
+            "same upgrade should not be charged twice when naming style differs"
+        );
+
+        let cancel_variant = GameCommand {
+            command_type: CommandType::CancelUpgrade {
+                upgrade_name: "UPGRADE_AMERICA_SUPPLY_LINES".to_string(),
+            },
+            player_id: 0,
+            command_id: 32,
+            timestamp: SystemTime::now(),
+            selected_units: vec![ObjectId(251)],
+            modifier_keys: ModifierKeys::default(),
+        };
+        assert_eq!(
+            system.execute_command(&cancel_variant, &mut game_logic),
+            CommandResult::Success,
+            "cancel should find the queued upgrade by normalized INI identity"
+        );
+
+        let player = game_logic.get_player(0).expect("player should exist");
+        assert_eq!(player.resources.supplies, 5000);
+        assert!(player.queued_upgrades.is_empty());
+    }
+
+    #[test]
     fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
         use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
