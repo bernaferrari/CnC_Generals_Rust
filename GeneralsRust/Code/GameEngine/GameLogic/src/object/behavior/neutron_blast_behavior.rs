@@ -23,6 +23,7 @@ use crate::object::draw::TerrainDecalType;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -46,6 +47,44 @@ impl Default for NeutronBlastBehaviorModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(NeutronBlastBehaviorModuleData, base);
+
+impl NeutronBlastBehaviorModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, NEUTRON_BLAST_BEHAVIOR_FIELDS)
+    }
+}
+
+fn first_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+const NEUTRON_BLAST_BEHAVIOR_FIELDS: &[FieldParse<NeutronBlastBehaviorModuleData>] = &[
+    FieldParse {
+        token: "BlastRadius",
+        parse: |_, data, tokens| {
+            data.blast_radius = INI::parse_real(first_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "AffectAirborne",
+        parse: |_, data, tokens| {
+            data.is_affect_airborne = INI::parse_bool(first_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "AffectAllies",
+        parse: |_, data, tokens| {
+            data.affect_allies = INI::parse_bool(first_value(tokens)?)?;
+            Ok(())
+        },
+    },
+];
 
 pub struct NeutronBlastBehavior {
     object: Weak<RwLock<GameObject>>,

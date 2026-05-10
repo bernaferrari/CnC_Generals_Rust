@@ -499,6 +499,20 @@ impl BehaviorModuleInterface for BunkerBusterBehavior {
     }
 }
 
+impl Snapshotable for BunkerBusterBehavior {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.crc(xfer).map_err(|err| err.to_string())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.xfer(xfer).map_err(|err| err.to_string())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.load_post_process().map_err(|err| err.to_string())
+    }
+}
+
 /// Factory for creating bunker buster behaviors
 pub struct BunkerBusterBehaviorFactory;
 
