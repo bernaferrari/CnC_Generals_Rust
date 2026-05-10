@@ -20,6 +20,7 @@ use crate::object::behavior::dynamic_geometry_info_update::{
     DynamicGeometryInfoUpdateModuleData,
 };
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::mem::size_of;
 use std::sync::{Arc, RwLock, Weak};
@@ -56,6 +57,142 @@ impl Default for FirestormDynamicGeometryInfoUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(FirestormDynamicGeometryInfoUpdateModuleData, base);
+
+impl FirestormDynamicGeometryInfoUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        self.base.parse_from_ini(ini)?;
+        ini.init_from_ini_with_fields(self, FIRESTORM_DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS)
+    }
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+const FIRESTORM_DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS: &[FieldParse<
+    FirestormDynamicGeometryInfoUpdateModuleData,
+>] = &[
+    FieldParse {
+        token: "DelayBetweenDamageFrames",
+        parse: |_, data, tokens| {
+            data.delay_between_damage_frames =
+                INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DamageAmount",
+        parse: |_, data, tokens| {
+            data.damage_amount = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "MaxHeightForDamage",
+        parse: |_, data, tokens| {
+            data.max_height_for_damage = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "FXList",
+        parse: |_, data, tokens| {
+            data.fx_list = Some(required_value(tokens)?.to_string());
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ParticleOffsetZ",
+        parse: |_, data, tokens| {
+            data.particle_offset_z = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ScorchSize",
+        parse: |_, data, tokens| {
+            data.scorch_size = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ParticleSystem1",
+        parse: |_, data, tokens| parse_particle_system(data, 0, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem2",
+        parse: |_, data, tokens| parse_particle_system(data, 1, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem3",
+        parse: |_, data, tokens| parse_particle_system(data, 2, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem4",
+        parse: |_, data, tokens| parse_particle_system(data, 3, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem5",
+        parse: |_, data, tokens| parse_particle_system(data, 4, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem6",
+        parse: |_, data, tokens| parse_particle_system(data, 5, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem7",
+        parse: |_, data, tokens| parse_particle_system(data, 6, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem8",
+        parse: |_, data, tokens| parse_particle_system(data, 7, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem9",
+        parse: |_, data, tokens| parse_particle_system(data, 8, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem10",
+        parse: |_, data, tokens| parse_particle_system(data, 9, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem11",
+        parse: |_, data, tokens| parse_particle_system(data, 10, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem12",
+        parse: |_, data, tokens| parse_particle_system(data, 11, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem13",
+        parse: |_, data, tokens| parse_particle_system(data, 12, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem14",
+        parse: |_, data, tokens| parse_particle_system(data, 13, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem15",
+        parse: |_, data, tokens| parse_particle_system(data, 14, tokens),
+    },
+    FieldParse {
+        token: "ParticleSystem16",
+        parse: |_, data, tokens| parse_particle_system(data, 15, tokens),
+    },
+];
+
+fn parse_particle_system(
+    data: &mut FirestormDynamicGeometryInfoUpdateModuleData,
+    index: usize,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.particle_systems[index] = Some(required_value(tokens)?.to_string());
+    Ok(())
+}
 
 /// FirestormDynamicGeometryInfoUpdate - firestorm effects during geometry transition
 pub struct FirestormDynamicGeometryInfoUpdate {
