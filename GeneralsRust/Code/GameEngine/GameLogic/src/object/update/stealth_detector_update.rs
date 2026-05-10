@@ -705,7 +705,7 @@ fn parse_detection_rate(
         .iter()
         .find(|t| **t != "=")
         .ok_or(INIError::InvalidData)?;
-    data.update_rate = INI::parse_unsigned_int(value)?;
+    data.update_rate = INI::parse_duration_unsigned_int(value)?;
     Ok(())
 }
 
@@ -820,6 +820,26 @@ fn parse_ir_particle_bone(
     Ok(())
 }
 
+fn parse_extra_required_kindof(
+    _ini: &mut INI,
+    data: &mut StealthDetectorUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.extra_detect_kindof =
+        crate::object::behavior::auto_heal_behavior::parse_kind_of_mask(tokens);
+    Ok(())
+}
+
+fn parse_extra_forbidden_kindof(
+    _ini: &mut INI,
+    data: &mut StealthDetectorUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.extra_detect_kindof_not =
+        crate::object::behavior::auto_heal_behavior::parse_kind_of_mask(tokens);
+    Ok(())
+}
+
 fn parse_can_detect_while_garrisoned(
     _ini: &mut INI,
     data: &mut StealthDetectorUpdateModuleData,
@@ -888,6 +908,14 @@ const STEALTH_DETECTOR_UPDATE_FIELDS: &[FieldParse<StealthDetectorUpdateModuleDa
         parse: parse_ir_particle_bone,
     },
     FieldParse {
+        token: "ExtraRequiredKindOf",
+        parse: parse_extra_required_kindof,
+    },
+    FieldParse {
+        token: "ExtraForbiddenKindOf",
+        parse: parse_extra_forbidden_kindof,
+    },
+    FieldParse {
         token: "CanDetectWhileGarrisoned",
         parse: parse_can_detect_while_garrisoned,
     },
@@ -939,5 +967,31 @@ mod tests {
         };
         assert_eq!(data.detection_range, 300.0);
         assert_eq!(data.update_rate, 10);
+    }
+
+    #[test]
+    fn test_detector_parses_kindof_filters() {
+        let mut data = StealthDetectorUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        parse_extra_required_kindof(&mut ini, &mut data, &["=", "INFANTRY", "VEHICLE"])
+            .expect("required kindof mask should parse");
+        parse_extra_forbidden_kindof(&mut ini, &mut data, &["=", "MINE"])
+            .expect("forbidden kindof mask should parse");
+
+        assert_ne!(data.extra_detect_kindof, 0);
+        assert_ne!(data.extra_detect_kindof_not, 0);
+        assert!(mask_contains_kind(
+            data.extra_detect_kindof,
+            KindOf::Infantry
+        ));
+        assert!(mask_contains_kind(
+            data.extra_detect_kindof,
+            KindOf::Vehicle
+        ));
+        assert!(mask_contains_kind(
+            data.extra_detect_kindof_not,
+            KindOf::Mine
+        ));
     }
 }
