@@ -57,6 +57,9 @@ use crate::object::behavior::fire_weapon_when_damaged_behavior_new::{
 use crate::object::behavior::fire_weapon_when_dead_behavior_new::{
     FireWeaponWhenDeadBehavior, FireWeaponWhenDeadBehaviorModuleData,
 };
+use crate::object::behavior::firestorm_dynamic_geometry_info_update::{
+    FirestormDynamicGeometryInfoUpdate, FirestormDynamicGeometryInfoUpdateModuleData,
+};
 use crate::object::behavior::float_update::{FloatUpdate, FloatUpdateModuleData};
 use crate::object::behavior::generate_minefield_behavior::{
     GenerateMinefieldBehavior, GenerateMinefieldBehaviorModuleData,
@@ -403,6 +406,13 @@ active_behavior_factories!(
     FireWeaponUpdateModuleData,
     FireWeaponUpdate,
     "FireWeaponUpdate"
+);
+active_behavior_factories!(
+    firestorm_dynamic_geometry_info_update_data_factory,
+    firestorm_dynamic_geometry_info_update_module_factory,
+    FirestormDynamicGeometryInfoUpdateModuleData,
+    FirestormDynamicGeometryInfoUpdate,
+    "FirestormDynamicGeometryInfoUpdate"
 );
 active_behavior_factories!(
     float_update_data_factory,
@@ -2585,6 +2595,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         fire_weapon_update_module_factory,
         fire_weapon_update_data_factory,
+    )?;
+    register_module_override(
+        "FirestormDynamicGeometryInfoUpdate",
+        ModuleType::Behavior,
+        firestorm_dynamic_geometry_info_update_module_factory,
+        firestorm_dynamic_geometry_info_update_data_factory,
     )?;
     register_module_override(
         "FloatUpdate",
