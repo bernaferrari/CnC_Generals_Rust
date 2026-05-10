@@ -2621,6 +2621,10 @@ impl GameMessageTranslator for CommandTranslator {
                 dispatch_translated_message(&GameMessageType::DoScatter);
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaCreateFormation => {
+                dispatch_translated_message(&GameMessageType::CreateFormation(Vec::new()));
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::MouseRightClick(region, _modifiers) => (
                 self.handle_point_click(region, true),
                 GameMessageDisposition::DestroyMessage,
@@ -4069,6 +4073,9 @@ fn dispatch_translated_message(message: &GameMessageType) {
         MetaScatter => {
             enqueue(DoScatter);
         }
+        MetaCreateFormation => {
+            enqueue(CreateFormation(Vec::new()));
+        }
         _ => {
             if let Some(visual) = hint_visual_for_message(message) {
                 apply_hint_visual(message, &visual);
@@ -5022,6 +5029,26 @@ mod tests {
         let messages = get_command_list().read().unwrap().snapshot_messages();
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].get_type(), &GameMessageType::DoScatter);
+
+        get_command_list().write().unwrap().clear_all_commands();
+    }
+
+    #[test]
+    fn test_meta_create_formation_enqueues_create_formation_command() {
+        let _guard = test_state_lock();
+        get_command_list().write().unwrap().clear_all_commands();
+
+        let mut translator = CommandTranslator::new();
+        let disposition = translator
+            .translate_game_message(&GameMessage::new(GameMessageType::MetaCreateFormation));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        let messages = get_command_list().read().unwrap().snapshot_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(
+            messages[0].get_type(),
+            &GameMessageType::CreateFormation(Vec::new())
+        );
 
         get_command_list().write().unwrap().clear_all_commands();
     }
