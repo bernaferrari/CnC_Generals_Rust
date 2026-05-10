@@ -11,6 +11,7 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -52,6 +53,86 @@ impl Default for DynamicGeometryInfoUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(DynamicGeometryInfoUpdateModuleData, base);
+
+impl DynamicGeometryInfoUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS)
+    }
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+const DYNAMIC_GEOMETRY_INFO_UPDATE_FIELDS: &[FieldParse<DynamicGeometryInfoUpdateModuleData>] = &[
+    FieldParse {
+        token: "InitialDelay",
+        parse: |_, data, tokens| {
+            data.initial_delay = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "InitialHeight",
+        parse: |_, data, tokens| {
+            data.initial_height = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "InitialMajorRadius",
+        parse: |_, data, tokens| {
+            data.initial_major_radius = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "InitialMinorRadius",
+        parse: |_, data, tokens| {
+            data.initial_minor_radius = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "FinalHeight",
+        parse: |_, data, tokens| {
+            data.final_height = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "FinalMajorRadius",
+        parse: |_, data, tokens| {
+            data.final_major_radius = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "FinalMinorRadius",
+        parse: |_, data, tokens| {
+            data.final_minor_radius = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "TransitionTime",
+        parse: |_, data, tokens| {
+            data.transition_time = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ReverseAtTransitionTime",
+        parse: |_, data, tokens| {
+            data.reverse_at_transition_time = INI::parse_bool(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+];
 
 /// Shared logic for dynamic geometry transitions
 pub struct DynamicGeometryInfoUpdateLogic {
