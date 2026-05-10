@@ -61,22 +61,30 @@ impl RebuildHoleBehaviorModuleData {
     }
 }
 
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
 fn parse_ascii_string_field(
     setter: &mut dyn FnMut(AsciiString),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     setter(AsciiString::from(&INI::parse_ascii_string(token)?));
     Ok(())
 }
 
 fn parse_duration_real_frames(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     Ok(INI::parse_duration_real(token)? as UnsignedInt)
 }
 
 fn parse_percent_to_real(tokens: &[&str]) -> Result<Real, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     INI::parse_percent_to_real(token)
 }
 
