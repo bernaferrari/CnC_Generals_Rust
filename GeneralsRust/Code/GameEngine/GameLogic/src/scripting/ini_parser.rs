@@ -691,8 +691,8 @@ impl IniScriptParser {
     /// Parse condition type from name
     fn parse_condition_type(&mut self, name: &str) -> GameLogicResult<ConditionType> {
         match name.to_uppercase().as_str() {
-            "FALSE" => Ok(ConditionType::ConditionFalse),
-            "TRUE" => Ok(ConditionType::ConditionTrue),
+            "FALSE" | "CONDITION_FALSE" => Ok(ConditionType::ConditionFalse),
+            "TRUE" | "CONDITION_TRUE" => Ok(ConditionType::ConditionTrue),
             "COUNTER" => Ok(ConditionType::Counter),
             "FLAG" => Ok(ConditionType::Flag),
             "TIMER_EXPIRED" => Ok(ConditionType::TimerExpired),
@@ -705,22 +705,139 @@ impl IniScriptParser {
             }
             "PLAYER_HAS_BUILDINGS" => Ok(ConditionType::PlayerHasObjectComparison),
             "PLAYER_HAS_UNITS" => Ok(ConditionType::PlayerHasObjectComparison),
+            "PLAYER_HAS_CREDITS" => Ok(ConditionType::PlayerHasCredits),
+            "PLAYER_HAS_N_OR_FEWER_BUILDINGS" => Ok(ConditionType::PlayerHasNOrFewerBuildings),
+            "PLAYER_HAS_N_OR_FEWER_FACTION_BUILDINGS" => {
+                Ok(ConditionType::PlayerHasNOrFewerFactionBuildings)
+            }
+            "PLAYER_HAS_POWER" => Ok(ConditionType::PlayerHasPower),
+            "PLAYER_HAS_NO_POWER" => Ok(ConditionType::PlayerHasNoPower),
+            "PLAYER_POWER_COMPARE_PERCENT" => Ok(ConditionType::PlayerPowerComparePercent),
+            "PLAYER_EXCESS_POWER_COMPARE_VALUE" => Ok(ConditionType::PlayerExcessPowerCompareValue),
+            "PLAYER_ACQUIRED_SCIENCE" => Ok(ConditionType::PlayerAcquiredScience),
+            "PLAYER_HAS_SCIENCEPURCHASEPOINTS" => Ok(ConditionType::PlayerHasSciencepurchasepoints),
+            "PLAYER_CAN_PURCHASE_SCIENCE" => Ok(ConditionType::PlayerCanPurchaseScience),
+            "PLAYER_TRIGGERED_SPECIAL_POWER" => Ok(ConditionType::PlayerTriggeredSpecialPower),
+            "PLAYER_COMPLETED_SPECIAL_POWER" => Ok(ConditionType::PlayerCompletedSpecialPower),
+            "PLAYER_MIDWAY_SPECIAL_POWER" => Ok(ConditionType::PlayerMidwaySpecialPower),
+            "PLAYER_TRIGGERED_SPECIAL_POWER_FROM_NAMED" => {
+                Ok(ConditionType::PlayerTriggeredSpecialPowerFromNamed)
+            }
+            "PLAYER_COMPLETED_SPECIAL_POWER_FROM_NAMED" => {
+                Ok(ConditionType::PlayerCompletedSpecialPowerFromNamed)
+            }
+            "PLAYER_MIDWAY_SPECIAL_POWER_FROM_NAMED" => {
+                Ok(ConditionType::PlayerMidwaySpecialPowerFromNamed)
+            }
+            "PLAYER_BUILT_UPGRADE" => Ok(ConditionType::PlayerBuiltUpgrade),
+            "PLAYER_BUILT_UPGRADE_FROM_NAMED" => Ok(ConditionType::PlayerBuiltUpgradeFromNamed),
+            "PLAYER_DESTROYED_N_BUILDINGS_PLAYER" => {
+                Ok(ConditionType::PlayerDestroyedNBuildingsPlayer)
+            }
+            "PLAYER_HAS_COMPARISON_UNIT_TYPE_IN_TRIGGER_AREA" => {
+                Ok(ConditionType::PlayerHasComparisonUnitTypeInTriggerArea)
+            }
+            "PLAYER_HAS_COMPARISON_UNIT_KIND_IN_TRIGGER_AREA" => {
+                Ok(ConditionType::PlayerHasComparisonUnitKindInTriggerArea)
+            }
+            "PLAYER_LOST_OBJECT_TYPE" => Ok(ConditionType::PlayerLostObjectType),
             "TEAM_INSIDE_AREA_PARTIALLY" => Ok(ConditionType::TeamInsideAreaPartially),
             "TEAM_DESTROYED" => Ok(ConditionType::TeamDestroyed),
             "CAMERA_MOVEMENT_FINISHED" => Ok(ConditionType::CameraMovementFinished),
             "TEAM_HAS_UNITS" => Ok(ConditionType::TeamHasUnits),
+            "TEAM_STATE_IS" => Ok(ConditionType::TeamStateIs),
+            "TEAM_STATE_IS_NOT" => Ok(ConditionType::TeamStateIsNot),
+            "TEAM_ATTACKED_BY_OBJECTTYPE" => Ok(ConditionType::TeamAttackedByObjecttype),
+            "TEAM_ATTACKED_BY_PLAYER" => Ok(ConditionType::TeamAttackedByPlayer),
+            "TEAM_CREATED" => Ok(ConditionType::TeamCreated),
+            "TEAM_DISCOVERED" => Ok(ConditionType::TeamDiscovered),
+            "TEAM_OWNED_BY_PLAYER" => Ok(ConditionType::TeamOwnedByPlayer),
+            "TEAM_ENTERED_AREA_ENTIRELY" => Ok(ConditionType::TeamEnteredAreaEntirely),
+            "TEAM_ENTERED_AREA_PARTIALLY" => Ok(ConditionType::TeamEnteredAreaPartially),
+            "TEAM_EXITED_AREA_ENTIRELY" => Ok(ConditionType::TeamExitedAreaEntirely),
+            "TEAM_EXITED_AREA_PARTIALLY" => Ok(ConditionType::TeamExitedAreaPartially),
+            "TEAM_REACHED_WAYPOINTS_END" => Ok(ConditionType::TeamReachedWaypointsEnd),
+            "TEAM_ALL_HAS_OBJECT_STATUS" => Ok(ConditionType::TeamAllHasObjectStatus),
+            "TEAM_SOME_HAVE_OBJECT_STATUS" => Ok(ConditionType::TeamSomeHaveObjectStatus),
             "NAMED_DESTROYED" => Ok(ConditionType::NamedDestroyed),
             "NAMED_NOT_DESTROYED" => Ok(ConditionType::NamedNotDestroyed),
             "NAMED_INSIDE_AREA" => Ok(ConditionType::NamedInsideArea),
             "NAMED_OUTSIDE_AREA" => Ok(ConditionType::NamedOutsideArea),
+            "NAMED_ATTACKED_BY_OBJECTTYPE" => Ok(ConditionType::NamedAttackedByObjecttype),
+            "NAMED_ATTACKED_BY_PLAYER" => Ok(ConditionType::NamedAttackedByPlayer),
+            "NAMED_CREATED" => Ok(ConditionType::NamedCreated),
+            "NAMED_DISCOVERED" => Ok(ConditionType::NamedDiscovered),
+            "NAMED_OWNED_BY_PLAYER" => Ok(ConditionType::NamedOwnedByPlayer),
+            "NAMED_REACHED_WAYPOINTS_END" => Ok(ConditionType::NamedReachedWaypointsEnd),
+            "NAMED_SELECTED" => Ok(ConditionType::NamedSelected),
+            "NAMED_ENTERED_AREA" => Ok(ConditionType::NamedEnteredArea),
+            "NAMED_EXITED_AREA" => Ok(ConditionType::NamedExitedArea),
+            "NAMED_DYING" => Ok(ConditionType::NamedDying),
+            "NAMED_TOTALLY_DEAD" => Ok(ConditionType::NamedTotallyDead),
+            "NAMED_BUILDING_IS_EMPTY" => Ok(ConditionType::NamedBuildingIsEmpty),
+            "NAMED_HAS_FREE_CONTAINER_SLOTS" => Ok(ConditionType::NamedHasFreeContainerSlots),
             "TEAM_INSIDE_AREA_ENTIRELY" => Ok(ConditionType::TeamInsideAreaEntirely),
             "TEAM_OUTSIDE_AREA_ENTIRELY" => Ok(ConditionType::TeamOutsideAreaEntirely),
+            "BUILT_BY_PLAYER" => Ok(ConditionType::BuiltByPlayer),
+            "BUILDING_ENTERED_BY_PLAYER" => Ok(ConditionType::BuildingEnteredByPlayer),
+            "HAS_FINISHED_VIDEO" => Ok(ConditionType::HasFinishedVideo),
+            "HAS_FINISHED_SPEECH" => Ok(ConditionType::HasFinishedSpeech),
+            "HAS_FINISHED_AUDIO" => Ok(ConditionType::HasFinishedAudio),
+            "UNIT_HEALTH" => Ok(ConditionType::UnitHealth),
+            "UNIT_HAS_OBJECT_STATUS" => Ok(ConditionType::UnitHasObjectStatus),
+            "UNIT_EMPTIED" => Ok(ConditionType::UnitEmptied),
+            "ENEMY_SIGHTED" => Ok(ConditionType::EnemySighted),
+            "TYPE_SIGHTED" => Ok(ConditionType::TypeSighted),
+            "BRIDGE_REPAIRED" => Ok(ConditionType::BridgeRepaired),
+            "BRIDGE_BROKEN" => Ok(ConditionType::BridgeBroken),
+            "MISSION_ATTEMPTS" => Ok(ConditionType::MissionAttempts),
+            "MULTIPLAYER_ALLIED_VICTORY" => Ok(ConditionType::MultiplayerAlliedVictory),
+            "MULTIPLAYER_ALLIED_DEFEAT" => Ok(ConditionType::MultiplayerAlliedDefeat),
+            "MULTIPLAYER_PLAYER_DEFEAT" => Ok(ConditionType::MultiplayerPlayerDefeat),
             "TEAM_COMPLETED_SEQUENTIAL_EXECUTION" => {
                 Ok(ConditionType::TeamCompletedSequentialExecution)
             }
             "UNIT_COMPLETED_SEQUENTIAL_EXECUTION" => {
                 Ok(ConditionType::UnitCompletedSequentialExecution)
             }
+            "SKIRMISH_SPECIAL_POWER_READY" => Ok(ConditionType::SkirmishSpecialPowerReady),
+            "SKIRMISH_VALUE_IN_AREA" => Ok(ConditionType::SkirmishValueInArea),
+            "SKIRMISH_PLAYER_FACTION" => Ok(ConditionType::SkirmishPlayerFaction),
+            "SKIRMISH_SUPPLIES_VALUE_WITHIN_DISTANCE" => {
+                Ok(ConditionType::SkirmishSuppliesValueWithinDistance)
+            }
+            "SKIRMISH_TECH_BUILDING_WITHIN_DISTANCE" => {
+                Ok(ConditionType::SkirmishTechBuildingWithinDistance)
+            }
+            "SKIRMISH_COMMAND_BUTTON_READY_ALL" => Ok(ConditionType::SkirmishCommandButtonReadyAll),
+            "SKIRMISH_COMMAND_BUTTON_READY_PARTIAL" => {
+                Ok(ConditionType::SkirmishCommandButtonReadyPartial)
+            }
+            "SKIRMISH_UNOWNED_FACTION_UNIT_EXISTS" => {
+                Ok(ConditionType::SkirmishUnownedFactionUnitExists)
+            }
+            "SKIRMISH_PLAYER_HAS_PREREQUISITE_TO_BUILD" => {
+                Ok(ConditionType::SkirmishPlayerHasPrerequisiteToBuild)
+            }
+            "SKIRMISH_PLAYER_HAS_COMPARISON_GARRISONED" => {
+                Ok(ConditionType::SkirmishPlayerHasComparisonGarrisoned)
+            }
+            "SKIRMISH_PLAYER_HAS_COMPARISON_CAPTURED_UNITS" => {
+                Ok(ConditionType::SkirmishPlayerHasComparisonCapturedUnits)
+            }
+            "SKIRMISH_NAMED_AREA_EXIST" => Ok(ConditionType::SkirmishNamedAreaExist),
+            "SKIRMISH_PLAYER_HAS_UNITS_IN_AREA" => Ok(ConditionType::SkirmishPlayerHasUnitsInArea),
+            "SKIRMISH_PLAYER_HAS_BEEN_ATTACKED_BY_PLAYER" => {
+                Ok(ConditionType::SkirmishPlayerHasBeenAttackedByPlayer)
+            }
+            "SKIRMISH_PLAYER_IS_OUTSIDE_AREA" => Ok(ConditionType::SkirmishPlayerIsOutsideArea),
+            "SKIRMISH_PLAYER_HAS_DISCOVERED_PLAYER" => {
+                Ok(ConditionType::SkirmishPlayerHasDiscoveredPlayer)
+            }
+            "MUSIC_TRACK_HAS_COMPLETED" => Ok(ConditionType::MusicTrackHasCompleted),
+            "SUPPLY_SOURCE_SAFE" => Ok(ConditionType::SupplySourceSafe),
+            "SUPPLY_SOURCE_ATTACKED" => Ok(ConditionType::SupplySourceAttacked),
+            "START_POSITION_IS" => Ok(ConditionType::StartPositionIs),
             _ => {
                 self.warnings
                     .push(format!("Unknown condition type: {}", name));
@@ -1414,6 +1531,95 @@ EndScriptList
                 ScriptActionType::WaterChangeHeight,
                 ScriptActionType::ShowWeather,
                 ScriptActionType::SetInfantryLightingOverride,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_maps_cxx_mission_and_skirmish_condition_names() {
+        let content = r#"
+ScriptList TestScripts
+  ScriptGroup Group1
+    Script Script_CxxConditionNames
+      Conditions = OR
+        Condition1 = AND
+          CONDITION_FALSE
+          TEAM_STATE_IS TeamA Attacking
+          TEAM_ATTACKED_BY_PLAYER TeamA Player_China
+          NAMED_ATTACKED_BY_OBJECTTYPE Hero Tank
+          NAMED_CREATED Hero
+          NAMED_DYING Hero
+          PLAYER_HAS_CREDITS Player_China 5000
+          PLAYER_HAS_POWER Player_China
+          PLAYER_TRIGGERED_SPECIAL_POWER Player_China Artillery
+          PLAYER_HAS_COMPARISON_UNIT_TYPE_IN_TRIGGER_AREA Player_China Soldier >= 3 AreaA
+          BUILDING_ENTERED_BY_PLAYER Bunker Player_China
+          HAS_FINISHED_VIDEO IntroMovie
+          UNIT_HEALTH Hero <= 50
+          UNIT_HAS_OBJECT_STATUS Hero STATUS_UNDER_CONSTRUCTION
+          BRIDGE_BROKEN BridgeA
+          MISSION_ATTEMPTS >= 2
+          SKIRMISH_SPECIAL_POWER_READY Player_China Artillery
+          SKIRMISH_PLAYER_FACTION Player_China China
+          SKIRMISH_COMMAND_BUTTON_READY_ALL TeamA CommandButton
+          MUSIC_TRACK_HAS_COMPLETED MusicTrack
+          SUPPLY_SOURCE_SAFE SupplyDock
+          START_POSITION_IS Player_China 1
+        EndCondition
+      EndConditions
+      Actions = SEQUENTIAL
+        NO_OP
+      EndActions
+      IsActive = Yes
+    EndScript
+  EndScriptGroup
+EndScriptList
+"#;
+
+        let mut parser = IniScriptParser::new();
+        parser.parse(content).unwrap();
+        assert_eq!(parser.get_errors().len(), 0);
+        assert_eq!(parser.get_warnings().len(), 0);
+
+        let script = parser
+            .get_script_list("TestScripts")
+            .and_then(|list| list.get_script_group())
+            .and_then(|group| group.get_script())
+            .unwrap();
+
+        let first_or = script.get_or_condition().unwrap();
+        let mut actual = Vec::new();
+        let mut current = first_or.get_first_and_condition();
+        while let Some(condition) = current {
+            actual.push(condition.get_condition_type());
+            current = condition.get_next();
+        }
+
+        assert_eq!(
+            actual,
+            vec![
+                ConditionType::ConditionFalse,
+                ConditionType::TeamStateIs,
+                ConditionType::TeamAttackedByPlayer,
+                ConditionType::NamedAttackedByObjecttype,
+                ConditionType::NamedCreated,
+                ConditionType::NamedDying,
+                ConditionType::PlayerHasCredits,
+                ConditionType::PlayerHasPower,
+                ConditionType::PlayerTriggeredSpecialPower,
+                ConditionType::PlayerHasComparisonUnitTypeInTriggerArea,
+                ConditionType::BuildingEnteredByPlayer,
+                ConditionType::HasFinishedVideo,
+                ConditionType::UnitHealth,
+                ConditionType::UnitHasObjectStatus,
+                ConditionType::BridgeBroken,
+                ConditionType::MissionAttempts,
+                ConditionType::SkirmishSpecialPowerReady,
+                ConditionType::SkirmishPlayerFaction,
+                ConditionType::SkirmishCommandButtonReadyAll,
+                ConditionType::MusicTrackHasCompleted,
+                ConditionType::SupplySourceSafe,
+                ConditionType::StartPositionIs,
             ]
         );
     }
