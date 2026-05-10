@@ -15,6 +15,9 @@ use log::warn;
 
 use crate::common::{AsciiString, ObjectID, TheGameLogic, INVALID_ID};
 use crate::modules::ContainModuleInterface;
+use crate::object::behavior::instant_death_behavior::{
+    InstantDeathBehavior, InstantDeathBehaviorModuleData,
+};
 use crate::object::behavior::slow_death_behavior::{
     SlowDeathBehavior, SlowDeathBehaviorModuleData,
 };
@@ -545,6 +548,14 @@ fn parse_slow_death_behavior_data(
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
 
+fn parse_instant_death_behavior_data(
+    ini: &mut INI,
+    data: &mut InstantDeathBehaviorModuleData,
+) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
 macro_rules! body_factories {
     (
         $data_factory:ident,
@@ -867,6 +878,14 @@ die_factories!(
     "DamDie",
     DamDie,
     parse_dam_die_data
+);
+die_factories!(
+    instant_death_behavior_module_data_factory,
+    instant_death_behavior_module_factory,
+    InstantDeathBehaviorModuleData,
+    "InstantDeathBehavior",
+    InstantDeathBehavior,
+    parse_instant_death_behavior_data
 );
 
 fn slow_death_behavior_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
@@ -1956,6 +1975,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         slow_death_behavior_module_factory,
         slow_death_behavior_module_data_factory,
+    )?;
+    register_module_override(
+        "InstantDeathBehavior",
+        ModuleType::Behavior,
+        instant_death_behavior_module_factory,
+        instant_death_behavior_module_data_factory,
     )?;
     register_module_override(
         "OpenContain",

@@ -94,6 +94,7 @@ pub mod deletion_update;
 pub mod height_die_update;
 pub mod helicopter_slow_death_behavior;
 pub mod helicopter_slow_death_update;
+pub mod instant_death_behavior;
 pub mod lifetime_update;
 pub mod neutron_blast_behavior;
 pub mod neutron_missile_slow_death_update;
