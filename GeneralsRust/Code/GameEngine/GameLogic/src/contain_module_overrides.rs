@@ -70,6 +70,7 @@ use crate::object::behavior::dumb_projectile_behavior::{
 use crate::object::behavior::dynamic_shroud_clearing_range_update::{
     DynamicShroudClearingRangeUpdate, DynamicShroudClearingRangeUpdateModuleData,
 };
+use crate::object::behavior::emp_update::{EMPUpdate, EMPUpdateModule, EMPUpdateModuleData};
 use crate::object::behavior::enemy_near_update::{EnemyNearUpdate, EnemyNearUpdateModuleData};
 use crate::object::behavior::fire_ocl_after_weapon_cooldown_update::{
     FireOCLAfterWeaponCooldownUpdate, FireOCLAfterWeaponCooldownUpdateModuleData,
@@ -1022,6 +1023,37 @@ fn transition_damage_fx_module_factory(
     Box::new(TransitionDamageFXModule::new(
         behavior,
         &AsciiString::from("TransitionDamageFX"),
+        data_arc,
+    ))
+}
+
+fn emp_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = EMPUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse EMPUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn emp_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let owner_id = resolve_owner_id(&thing);
+    let owner =
+        TheGameLogic::find_object_by_id(owner_id).expect("EMPUpdate requires a valid object owner");
+    let data_arc = cloned_module_data::<EMPUpdateModuleData>("EMPUpdate", &module_data);
+    let behavior =
+        EMPUpdate::new_with_data(owner, data_arc.clone()).expect("EMPUpdate failed to initialize");
+    Box::new(EMPUpdateModule::new(
+        behavior,
+        &AsciiString::from("EMPUpdate"),
         data_arc,
     ))
 }
@@ -3379,6 +3411,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         transition_damage_fx_module_factory,
         transition_damage_fx_module_data_factory,
+    )?;
+    register_module_override(
+        "EMPUpdate",
+        ModuleType::Behavior,
+        emp_update_module_factory,
+        emp_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
