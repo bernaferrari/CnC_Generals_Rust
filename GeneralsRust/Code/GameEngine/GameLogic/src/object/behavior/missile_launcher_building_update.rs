@@ -20,6 +20,7 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -72,6 +73,95 @@ impl Default for MissileLauncherBuildingUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(MissileLauncherBuildingUpdateModuleData, base);
+
+impl MissileLauncherBuildingUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, MISSILE_LAUNCHER_BUILDING_UPDATE_FIELDS)
+    }
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+const MISSILE_LAUNCHER_BUILDING_UPDATE_FIELDS: &[FieldParse<
+    MissileLauncherBuildingUpdateModuleData,
+>] = &[
+    FieldParse {
+        token: "SpecialPowerTemplate",
+        parse: |_, data, tokens| {
+            data.special_power_template_name = required_value(tokens)?.to_string();
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoorOpenTime",
+        parse: |_, data, tokens| {
+            data.door_open_time = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoorWaitOpenTime",
+        parse: |_, data, tokens| {
+            data.door_wait_open_time = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoorCloseTime",
+        parse: |_, data, tokens| {
+            data.door_closing_time = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoorOpeningFX",
+        parse: |_, data, tokens| {
+            data.opening_fx = Some(required_value(tokens)?.to_string());
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoorOpenFX",
+        parse: |_, data, tokens| {
+            data.open_fx = Some(required_value(tokens)?.to_string());
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoorWaitingToCloseFX",
+        parse: |_, data, tokens| {
+            data.waiting_to_close_fx = Some(required_value(tokens)?.to_string());
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoorClosingFX",
+        parse: |_, data, tokens| {
+            data.closing_fx = Some(required_value(tokens)?.to_string());
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoorClosedFX",
+        parse: |_, data, tokens| {
+            data.closed_fx = Some(required_value(tokens)?.to_string());
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoorOpenIdleAudio",
+        parse: |_, data, tokens| {
+            data.open_idle_audio = Some(required_value(tokens)?.to_string());
+            Ok(())
+        },
+    },
+];
 
 /// MissileLauncherBuildingUpdate - manages building doors for special powers
 pub struct MissileLauncherBuildingUpdate {
