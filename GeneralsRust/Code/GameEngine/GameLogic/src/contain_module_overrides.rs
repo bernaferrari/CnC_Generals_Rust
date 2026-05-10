@@ -29,6 +29,9 @@ use crate::object::behavior::auto_deposit_update::{
 use crate::object::behavior::auto_find_healing_update::{
     AutoFindHealingUpdate, AutoFindHealingUpdateModuleData,
 };
+use crate::object::behavior::auto_heal_behavior::{
+    AutoHealBehavior, AutoHealBehaviorModule, AutoHealBehaviorModuleData,
+};
 use crate::object::behavior::base_regenerate_update::{
     BaseRegenerateUpdate, BaseRegenerateUpdateModuleData,
 };
@@ -653,6 +656,34 @@ fn overcharge_behavior_module_factory(
     Box::new(OverchargeBehaviorModule::new(
         behavior,
         &"OverchargeBehavior".to_string(),
+        data_arc,
+    ))
+}
+
+fn auto_heal_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = AutoHealBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse AutoHealBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn auto_heal_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<AutoHealBehaviorModuleData>("AutoHealBehavior", &module_data);
+    let behavior = AutoHealBehavior::from_module_thing(thing, data_arc.clone());
+    Box::new(AutoHealBehaviorModule::new(
+        behavior,
+        &AsciiString::from("AutoHealBehavior"),
         data_arc,
     ))
 }
@@ -2944,6 +2975,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         overcharge_behavior_module_factory,
         overcharge_behavior_data_factory,
+    )?;
+    register_module_override(
+        "AutoHealBehavior",
+        ModuleType::Behavior,
+        auto_heal_behavior_module_factory,
+        auto_heal_behavior_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
