@@ -6,6 +6,7 @@ use crate::modules::FlammableUpdateExt;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::ObjectArcExt;
 use crate::prelude::*;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -69,6 +70,75 @@ impl Snapshotable for FireSpreadUpdateModuleData {
         Ok(())
     }
 }
+
+impl FireSpreadUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, FIRE_SPREAD_UPDATE_FIELDS)
+    }
+}
+
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_ocl_embers(
+    _ini: &mut INI,
+    data: &mut FireSpreadUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.ocl_embers = Some(name_key_generate(first_value_token(tokens)?) as ObjectCreationListId);
+    Ok(())
+}
+
+fn parse_min_spread_delay(
+    _ini: &mut INI,
+    data: &mut FireSpreadUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.min_spread_try_delay = INI::parse_duration_unsigned_int(first_value_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_max_spread_delay(
+    _ini: &mut INI,
+    data: &mut FireSpreadUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.max_spread_try_delay = INI::parse_duration_unsigned_int(first_value_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_spread_try_range(
+    _ini: &mut INI,
+    data: &mut FireSpreadUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.spread_try_range = INI::parse_real(first_value_token(tokens)?)?;
+    Ok(())
+}
+
+const FIRE_SPREAD_UPDATE_FIELDS: &[FieldParse<FireSpreadUpdateModuleData>] = &[
+    FieldParse {
+        token: "OCLEmbers",
+        parse: parse_ocl_embers,
+    },
+    FieldParse {
+        token: "MinSpreadDelay",
+        parse: parse_min_spread_delay,
+    },
+    FieldParse {
+        token: "MaxSpreadDelay",
+        parse: parse_max_spread_delay,
+    },
+    FieldParse {
+        token: "SpreadTryRange",
+        parse: parse_spread_try_range,
+    },
+];
 
 /// FireSpreadUpdate - Spreads fire from burning objects to nearby flammable objects
 /// Matches C++ FireSpreadUpdate.cpp:80-156
