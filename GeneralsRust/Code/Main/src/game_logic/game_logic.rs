@@ -4636,13 +4636,19 @@ impl GameLogic {
                         continue;
                     }
 
-                    let did_capture = if let Some(target) = self.objects.get_mut(&capture_target_id)
+                    let did_capture = if self
+                        .objects
+                        .get(&capture_target_id)
+                        .map(|target| {
+                            target.is_alive()
+                                && target.is_kind_of(KindOf::Structure)
+                                && !target.status.under_construction
+                                && target.team != team
+                        })
+                        .unwrap_or(false)
                     {
-                        if target.is_alive()
-                            && target.is_kind_of(KindOf::Structure)
-                            && !target.status.under_construction
-                            && target.team != team
-                        {
+                        self.cancel_all_production(capture_target_id);
+                        if let Some(target) = self.objects.get_mut(&capture_target_id) {
                             target.set_team(team);
                             target.health.heal(target.max_health);
                             true
@@ -10999,6 +11005,82 @@ mod tests {
             .expect("captor should exist");
         assert_eq!(captor.ai_state, AIState::Idle);
         assert!(captor.target.is_none());
+    }
+
+    #[test]
+    fn capturing_structure_refunds_old_owner_queued_production() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_barracks_template(&mut game_logic);
+
+        game_logic
+            .get_player_mut(0)
+            .expect("USA player should exist")
+            .unlocked_sciences
+            .insert("Upgrade_AmericaRangerCaptureBuilding".to_string());
+
+        let captor_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(3.0, 0.0, 0.0))
+            .expect("captor should be created");
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks should be created");
+
+        assert!(game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
+        assert_eq!(
+            game_logic
+                .get_player(2)
+                .expect("GLA player should exist")
+                .resources
+                .supplies,
+            99_900,
+            "queued production should charge the old owner before capture"
+        );
+
+        {
+            let captor = game_logic
+                .find_object_mut(captor_id)
+                .expect("captor should exist");
+            captor.target = Some(barracks_id);
+            captor.ai_state = AIState::Capturing;
+        }
+
+        game_logic.update_ai(&[captor_id, barracks_id], 1.0 / 60.0);
+
+        let barracks = game_logic
+            .find_object(barracks_id)
+            .expect("captured barracks should still exist");
+        assert_eq!(barracks.team, Team::USA);
+        assert_eq!(
+            barracks
+                .building_data
+                .as_ref()
+                .expect("barracks should have building data")
+                .production_queue
+                .len(),
+            0,
+            "capture should clear old owner's queued production"
+        );
+        assert_eq!(
+            game_logic
+                .get_player(2)
+                .expect("GLA player should exist")
+                .resources
+                .supplies,
+            100_000,
+            "capture should refund queued production to the old owner"
+        );
+        assert_eq!(
+            game_logic
+                .get_player(0)
+                .expect("USA player should exist")
+                .resources
+                .supplies,
+            100_000,
+            "new owner should not receive the old owner's production refund"
+        );
     }
 
     #[test]
