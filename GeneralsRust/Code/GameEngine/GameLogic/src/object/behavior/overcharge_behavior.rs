@@ -80,12 +80,20 @@ impl Snapshotable for OverchargeBehaviorModuleData {
 
 crate::impl_legacy_module_data_with_key_field!(OverchargeBehaviorModuleData, module_tag_name_key);
 
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
 fn parse_percent_field(
     _ini: &mut INI,
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     setter(INI::parse_percent_to_real(token)?);
     Ok(())
 }
