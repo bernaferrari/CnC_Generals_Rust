@@ -444,6 +444,16 @@ impl ProductionUpdateBehavior {
         cancelled
     }
 
+    pub fn cancel_one_unit_of_type(&mut self, unit_type: &str) -> Option<ProductionEntry> {
+        let index = self.production_queue.iter().position(|production| {
+            production.get_production_type() == ProductionType::Unit
+                && production.get_object_template() == Some(unit_type)
+        })?;
+        let production = self.production_queue.remove(index)?;
+        self.remove_from_production_queue_internal();
+        Some(production)
+    }
+
     /// Cancel and refund all production
     /// Matches C++ cancelAndRefundAllProduction (lines 1119-1141)
     pub fn cancel_and_refund_all_production(&mut self) -> Vec<ProductionEntry> {
