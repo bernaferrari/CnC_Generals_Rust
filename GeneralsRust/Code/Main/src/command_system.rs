@@ -2146,6 +2146,113 @@ mod tests {
     }
 
     #[test]
+    fn cancel_construction_refunds_full_build_cost() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let system = CommandSystem::new();
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 0;
+        game_logic.add_player(player);
+
+        let mut barracks = ThingTemplate::new("TestBarracks");
+        barracks
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1_000.0)
+            .set_cost(1_000, -1);
+        game_logic
+            .templates
+            .insert("TestBarracks".to_string(), barracks);
+
+        let barracks_id = game_logic
+            .create_object_under_construction("TestBarracks", Team::USA, Vec3::ZERO)
+            .expect("under-construction barracks should be created");
+
+        let cancel_command = GameCommand {
+            command_type: CommandType::DozerCancelConstruct {
+                object_id: barracks_id,
+            },
+            player_id: 0,
+            command_id: 60,
+            timestamp: SystemTime::now(),
+            selected_units: vec![],
+            modifier_keys: ModifierKeys::default(),
+        };
+
+        assert_eq!(
+            system.execute_command(&cancel_command, &mut game_logic),
+            CommandResult::Success
+        );
+        game_logic.update();
+
+        assert!(
+            game_logic.get_object(barracks_id).is_none(),
+            "cancelled construction should be destroyed"
+        );
+        assert_eq!(
+            game_logic.get_player(0).unwrap().resources.supplies,
+            1_000,
+            "C++ dozer cancel refunds the full build cost"
+        );
+    }
+
+    #[test]
+    fn cancel_construction_rejects_enemy_structure() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let system = CommandSystem::new();
+        let mut game_logic = GameLogic::new();
+        let mut usa = Player::new(0, Team::USA, "USA", true);
+        usa.resources.supplies = 0;
+        game_logic.add_player(usa);
+        let mut gla = Player::new(2, Team::GLA, "GLA", false);
+        gla.resources.supplies = 0;
+        game_logic.add_player(gla);
+
+        let mut barracks = ThingTemplate::new("TestBarracks");
+        barracks
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1_000.0)
+            .set_cost(1_000, -1);
+        game_logic
+            .templates
+            .insert("TestBarracks".to_string(), barracks);
+
+        let barracks_id = game_logic
+            .create_object_under_construction("TestBarracks", Team::USA, Vec3::ZERO)
+            .expect("under-construction barracks should be created");
+
+        let cancel_command = GameCommand {
+            command_type: CommandType::DozerCancelConstruct {
+                object_id: barracks_id,
+            },
+            player_id: 2,
+            command_id: 61,
+            timestamp: SystemTime::now(),
+            selected_units: vec![],
+            modifier_keys: ModifierKeys::default(),
+        };
+
+        assert_eq!(
+            system.execute_command(&cancel_command, &mut game_logic),
+            CommandResult::InvalidTarget
+        );
+        game_logic.update();
+
+        assert!(
+            game_logic.get_object(barracks_id).is_some(),
+            "enemy cancel command must not destroy the target"
+        );
+        assert_eq!(
+            game_logic.get_player(2).unwrap().resources.supplies,
+            0,
+            "enemy cancel command must not refund the issuing player"
+        );
+    }
+
+    #[test]
     fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
         use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
