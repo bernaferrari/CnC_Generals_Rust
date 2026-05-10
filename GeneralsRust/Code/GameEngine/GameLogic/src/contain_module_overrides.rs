@@ -13,8 +13,11 @@ use game_engine::common::thing::module_factory::{
 };
 use log::warn;
 
-use crate::common::{ObjectID, TheGameLogic, INVALID_ID};
+use crate::common::{AsciiString, ObjectID, TheGameLogic, INVALID_ID};
 use crate::modules::ContainModuleInterface;
+use crate::object::behavior::slow_death_behavior::{
+    SlowDeathBehavior, SlowDeathBehaviorModuleData,
+};
 use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
 use crate::object::body::body_module::{BodyModuleData, BodyModuleInterface};
 use crate::object::body::highlander_body::HighlanderBody;
@@ -31,6 +34,13 @@ use crate::object::contain::{
     ParachuteContainModuleData, RailedTransportContain, RailedTransportContainModuleData,
     RiderChangeContain, RiderChangeContainModuleData, TransportContain, TransportContainModuleData,
     TunnelContain, TunnelContainModuleData,
+};
+use crate::object::die::{
+    CreateCrateDie, CreateCrateDieModuleData, CreateObjectDie, CreateObjectDieModuleData, CrushDie,
+    CrushDieModuleData, DamDie, DamDieModuleData, DestroyDie, DieModuleData, DieModuleInterface,
+    DieModuleWrapper, EjectPilotDie, EjectPilotDieModuleData, FXListDie, FXListDieModuleData,
+    KeepObjectDie, RebuildHoleExposeDie, RebuildHoleExposeDieModuleData, SpecialPowerCompletionDie,
+    SpecialPowerCompletionDieModuleData, UpgradeDie, UpgradeDieModuleData,
 };
 use crate::object::draw::*;
 use crate::object::special_powers::*;
@@ -527,6 +537,14 @@ fn parse_undead_body_data(ini: &mut INI, data: &mut UndeadBodyModuleData) -> Res
         .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
 }
 
+fn parse_slow_death_behavior_data(
+    ini: &mut INI,
+    data: &mut SlowDeathBehaviorModuleData,
+) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
 macro_rules! body_factories {
     (
         $data_factory:ident,
@@ -630,6 +648,260 @@ body_factories!(
     undead_body_instance,
     Some(parse_undead_body_data)
 );
+
+fn parse_die_data(ini: &mut INI, data: &mut DieModuleData) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_upgrade_die_data(ini: &mut INI, data: &mut UpgradeDieModuleData) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_create_object_die_data(
+    ini: &mut INI,
+    data: &mut CreateObjectDieModuleData,
+) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_create_crate_die_data(
+    ini: &mut INI,
+    data: &mut CreateCrateDieModuleData,
+) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_fx_list_die_data(ini: &mut INI, data: &mut FXListDieModuleData) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_crush_die_data(ini: &mut INI, data: &mut CrushDieModuleData) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_eject_pilot_die_data(
+    ini: &mut INI,
+    data: &mut EjectPilotDieModuleData,
+) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_rebuild_hole_expose_die_data(
+    ini: &mut INI,
+    data: &mut RebuildHoleExposeDieModuleData,
+) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_special_power_completion_die_data(
+    ini: &mut INI,
+    data: &mut SpecialPowerCompletionDieModuleData,
+) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_dam_die_data(ini: &mut INI, data: &mut DamDieModuleData) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn build_die_module<T>(
+    module_name: &str,
+    thing: Arc<dyn ModuleThing>,
+    data: T,
+    create_die: fn(Arc<RwLock<crate::object::Object>>, Arc<T>) -> Box<dyn DieModuleInterface>,
+) -> Box<dyn Module>
+where
+    T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id).unwrap_or_else(|| {
+        panic!("{module_name} requires owning object {object_id}");
+    });
+    let typed_data = Arc::new(data);
+    let module_data: Arc<dyn ModuleData> = typed_data.clone();
+    let die_module = create_die(Arc::clone(&object), typed_data);
+    Box::new(DieModuleWrapper::new(
+        &AsciiString::from(module_name),
+        module_data,
+        object,
+        die_module,
+    ))
+}
+
+macro_rules! die_factories {
+    (
+        $data_factory:ident,
+        $module_factory:ident,
+        $data_ty:ty,
+        $module_name:literal,
+        $die_ty:ty,
+        $parse_data:expr
+    ) => {
+        fn $data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            let mut data = <$data_ty>::default();
+            if let Some(ini) = ini {
+                if let Err(err) = $parse_data(ini, &mut data) {
+                    warn!("Failed to parse {} module data: {}", $module_name, err);
+                }
+            }
+            Box::new(data)
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let typed_data = module_data
+                .as_ref()
+                .as_any()
+                .downcast_ref::<$data_ty>()
+                .cloned()
+                .unwrap_or_else(|| {
+                    warn!(concat!(
+                        $module_name,
+                        " module data expected; using defaults"
+                    ));
+                    <$data_ty>::default()
+                });
+            build_die_module($module_name, thing, typed_data, |object, data| {
+                Box::new(<$die_ty>::new(object, data))
+            })
+        }
+    };
+}
+
+die_factories!(
+    destroy_die_module_data_factory,
+    destroy_die_module_factory,
+    DieModuleData,
+    "DestroyDie",
+    DestroyDie,
+    parse_die_data
+);
+die_factories!(
+    keep_object_die_module_data_factory,
+    keep_object_die_module_factory,
+    DieModuleData,
+    "KeepObjectDie",
+    KeepObjectDie,
+    parse_die_data
+);
+die_factories!(
+    upgrade_die_module_data_factory,
+    upgrade_die_module_factory,
+    UpgradeDieModuleData,
+    "UpgradeDie",
+    UpgradeDie,
+    parse_upgrade_die_data
+);
+die_factories!(
+    create_object_die_module_data_factory,
+    create_object_die_module_factory,
+    CreateObjectDieModuleData,
+    "CreateObjectDie",
+    CreateObjectDie,
+    parse_create_object_die_data
+);
+die_factories!(
+    create_crate_die_module_data_factory,
+    create_crate_die_module_factory,
+    CreateCrateDieModuleData,
+    "CreateCrateDie",
+    CreateCrateDie,
+    parse_create_crate_die_data
+);
+die_factories!(
+    fx_list_die_module_data_factory,
+    fx_list_die_module_factory,
+    FXListDieModuleData,
+    "FXListDie",
+    FXListDie,
+    parse_fx_list_die_data
+);
+die_factories!(
+    crush_die_module_data_factory,
+    crush_die_module_factory,
+    CrushDieModuleData,
+    "CrushDie",
+    CrushDie,
+    parse_crush_die_data
+);
+die_factories!(
+    eject_pilot_die_module_data_factory,
+    eject_pilot_die_module_factory,
+    EjectPilotDieModuleData,
+    "EjectPilotDie",
+    EjectPilotDie,
+    parse_eject_pilot_die_data
+);
+die_factories!(
+    rebuild_hole_expose_die_module_data_factory,
+    rebuild_hole_expose_die_module_factory,
+    RebuildHoleExposeDieModuleData,
+    "RebuildHoleExposeDie",
+    RebuildHoleExposeDie,
+    parse_rebuild_hole_expose_die_data
+);
+die_factories!(
+    special_power_completion_die_module_data_factory,
+    special_power_completion_die_module_factory,
+    SpecialPowerCompletionDieModuleData,
+    "SpecialPowerCompletionDie",
+    SpecialPowerCompletionDie,
+    parse_special_power_completion_die_data
+);
+die_factories!(
+    dam_die_module_data_factory,
+    dam_die_module_factory,
+    DamDieModuleData,
+    "DamDie",
+    DamDie,
+    parse_dam_die_data
+);
+
+fn slow_death_behavior_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SlowDeathBehaviorModuleData::new();
+    if let Some(ini) = ini {
+        if let Err(err) = parse_slow_death_behavior_data(ini, &mut data) {
+            warn!("Failed to parse SlowDeathBehavior module data: {}", err);
+        }
+    }
+    Box::new(data)
+}
+
+fn slow_death_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_ref()
+        .as_any()
+        .downcast_ref::<SlowDeathBehaviorModuleData>()
+        .cloned()
+        .unwrap_or_else(|| {
+            warn!("SlowDeathBehavior module data expected; using defaults");
+            SlowDeathBehaviorModuleData::new()
+        });
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id).unwrap_or_else(|| {
+        panic!("SlowDeathBehavior requires owning object {object_id}");
+    });
+    let data: Arc<dyn crate::common::ModuleData> = Arc::new(typed_data);
+    Box::new(
+        SlowDeathBehavior::new(object, data)
+            .expect("SlowDeathBehavior failed to initialize from module data"),
+    )
+}
 
 fn open_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = OpenContainModuleData::default();
@@ -1612,6 +1884,78 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         undead_body_module_factory,
         undead_body_module_data_factory,
+    )?;
+    register_module_override(
+        "DestroyDie",
+        ModuleType::Behavior,
+        destroy_die_module_factory,
+        destroy_die_module_data_factory,
+    )?;
+    register_module_override(
+        "KeepObjectDie",
+        ModuleType::Behavior,
+        keep_object_die_module_factory,
+        keep_object_die_module_data_factory,
+    )?;
+    register_module_override(
+        "UpgradeDie",
+        ModuleType::Behavior,
+        upgrade_die_module_factory,
+        upgrade_die_module_data_factory,
+    )?;
+    register_module_override(
+        "CreateObjectDie",
+        ModuleType::Behavior,
+        create_object_die_module_factory,
+        create_object_die_module_data_factory,
+    )?;
+    register_module_override(
+        "CreateCrateDie",
+        ModuleType::Behavior,
+        create_crate_die_module_factory,
+        create_crate_die_module_data_factory,
+    )?;
+    register_module_override(
+        "FXListDie",
+        ModuleType::Behavior,
+        fx_list_die_module_factory,
+        fx_list_die_module_data_factory,
+    )?;
+    register_module_override(
+        "CrushDie",
+        ModuleType::Behavior,
+        crush_die_module_factory,
+        crush_die_module_data_factory,
+    )?;
+    register_module_override(
+        "EjectPilotDie",
+        ModuleType::Behavior,
+        eject_pilot_die_module_factory,
+        eject_pilot_die_module_data_factory,
+    )?;
+    register_module_override(
+        "RebuildHoleExposeDie",
+        ModuleType::Behavior,
+        rebuild_hole_expose_die_module_factory,
+        rebuild_hole_expose_die_module_data_factory,
+    )?;
+    register_module_override(
+        "SpecialPowerCompletionDie",
+        ModuleType::Behavior,
+        special_power_completion_die_module_factory,
+        special_power_completion_die_module_data_factory,
+    )?;
+    register_module_override(
+        "DamDie",
+        ModuleType::Behavior,
+        dam_die_module_factory,
+        dam_die_module_data_factory,
+    )?;
+    register_module_override(
+        "SlowDeathBehavior",
+        ModuleType::Behavior,
+        slow_death_behavior_module_factory,
+        slow_death_behavior_module_data_factory,
     )?;
     register_module_override(
         "OpenContain",
