@@ -31,10 +31,43 @@
 //! ```
 
 use super::*;
+use std::sync::{OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 /// Callback function type for button events
 pub type ButtonCallback = Box<dyn Fn(GadgetId) + Send + Sync>;
+pub type ButtonAudioHook = Box<dyn FnMut(&str) + Send + Sync>;
+
+static BUTTON_AUDIO: OnceLock<RwLock<Option<ButtonAudioHook>>> = OnceLock::new();
+
+/// Register button audio dispatch.
+///
+/// C++ push buttons call `TheAudio->addAudioEvent()` on accepted mouse-down
+/// events. The hook keeps that behavior injectable for the Rust client.
+pub fn register_button_audio_hook(hook: ButtonAudioHook) {
+    BUTTON_AUDIO
+        .get_or_init(|| RwLock::new(None))
+        .write()
+        .unwrap_or_else(|err| err.into_inner())
+        .replace(hook);
+}
+
+#[cfg(test)]
+fn clear_button_audio_hook() {
+    if let Some(hook) = BUTTON_AUDIO.get() {
+        hook.write().unwrap_or_else(|err| err.into_inner()).take();
+    }
+}
+
+fn with_button_audio<F: FnOnce(&mut ButtonAudioHook)>(f: F) {
+    let Some(hook) = BUTTON_AUDIO.get() else {
+        return;
+    };
+    let mut guard = hook.write().unwrap_or_else(|err| err.into_inner());
+    if let Some(hook) = guard.as_mut() {
+        f(hook);
+    }
+}
 
 /// Clock display mode for progress indicators
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -338,6 +371,16 @@ impl PushButton {
         self.mouse_inside
     }
 
+    fn play_click_sound(&self) {
+        let event_name = self
+            .style
+            .alt_sound
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .unwrap_or("GUIClick");
+        with_button_audio(|hook| hook(event_name));
+    }
+
     /// Handle mouse button press
     fn handle_mouse_press(&mut self, button: MouseButton) -> Vec<GadgetMessage> {
         if !self.enabled {
@@ -347,11 +390,10 @@ impl PushButton {
         let mut messages = Vec::new();
         self.mouse_pressed = true;
 
-        // Play click sound (would be handled by audio system)
-        // This is a placeholder for actual audio integration
-
         match button {
             MouseButton::Left => {
+                self.play_click_sound();
+
                 if self.is_checkbox {
                     // Toggle checkbox state
                     self.is_checked = !self.is_checked;
@@ -381,6 +423,8 @@ impl PushButton {
                     self.mouse_pressed = false;
                     return Vec::new();
                 }
+
+                self.play_click_sound();
 
                 if self.is_checkbox {
                     // Right-click also toggles for checkboxes
@@ -849,6 +893,15 @@ impl PushButtonBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    fn audio_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static TEST_AUDIO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        TEST_AUDIO_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+    }
 
     #[test]
     fn test_button_creation() {
@@ -989,5 +1042,79 @@ mod tests {
             [GadgetMessage::RightClicked { gadget_id: 1 }]
         ));
         assert_eq!(button.state(), GadgetState::Hovered);
+    }
+
+    #[test]
+    fn test_left_click_plays_default_gui_click_sound() {
+        let _guard = audio_test_guard();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = Arc::clone(&events);
+        register_button_audio_hook(Box::new(move |event| {
+            captured_events
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .push(event.to_string());
+        }));
+
+        let mut button = PushButton::new(1, 0, 0, 100, 30);
+        button.handle_input(&InputEvent::MouseDown {
+            x: 50,
+            y: 15,
+            button: MouseButton::Left,
+        });
+
+        let played = events.lock().unwrap_or_else(|err| err.into_inner()).clone();
+        assert_eq!(played, vec!["GUIClick"]);
+        clear_button_audio_hook();
+    }
+
+    #[test]
+    fn test_click_uses_alt_sound_when_present() {
+        let _guard = audio_test_guard();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = Arc::clone(&events);
+        register_button_audio_hook(Box::new(move |event| {
+            captured_events
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .push(event.to_string());
+        }));
+
+        let mut button = PushButton::new(1, 0, 0, 100, 30).with_alt_sound("GUICommandBarClick");
+        button.handle_input(&InputEvent::MouseDown {
+            x: 50,
+            y: 15,
+            button: MouseButton::Left,
+        });
+
+        let played = events.lock().unwrap_or_else(|err| err.into_inner()).clone();
+        assert_eq!(played, vec!["GUICommandBarClick"]);
+        clear_button_audio_hook();
+    }
+
+    #[test]
+    fn test_ignored_right_click_does_not_play_audio() {
+        let _guard = audio_test_guard();
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let captured_events = Arc::clone(&events);
+        register_button_audio_hook(Box::new(move |event| {
+            captured_events
+                .lock()
+                .unwrap_or_else(|err| err.into_inner())
+                .push(event.to_string());
+        }));
+
+        let mut button = PushButton::new(1, 0, 0, 100, 30);
+        button.handle_input(&InputEvent::MouseDown {
+            x: 50,
+            y: 15,
+            button: MouseButton::Right,
+        });
+
+        assert!(events
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .is_empty());
+        clear_button_audio_hook();
     }
 }
