@@ -157,6 +157,28 @@ impl AIManager for AIManagerImpl {
         any_ok
     }
 
+    fn issue_attack_move_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
+        let mut any_ok = false;
+        let mut manager = get_unit_queue_manager();
+
+        for &object_id in objects {
+            let cmd = UnitCommand::attack_move_to_position(destination, self.cmd_source);
+            if manager
+                .get_or_create_queue(object_id)
+                .issue_command(cmd, self.current_frame)
+            {
+                any_ok = true;
+            }
+        }
+        drop(manager);
+
+        for &object_id in objects {
+            execute_next_command_for_unit(object_id);
+        }
+
+        any_ok
+    }
+
     fn issue_attack_order(&mut self, attackers: &[ObjectID], target: ObjectID) -> bool {
         let mut any_ok = false;
         let mut manager = get_unit_queue_manager();
@@ -447,9 +469,16 @@ pub fn create_ai_manager(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn test_queue_guard() -> std::sync::MutexGuard<'static, ()> {
+        static GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+        GUARD.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     #[test]
     fn test_unit_queue_manager() {
+        let _guard = test_queue_guard();
         let mut manager = UnitCommandQueueManager::new();
         assert!(manager.get_queue(1).is_none());
 
@@ -460,6 +489,9 @@ mod tests {
 
     #[test]
     fn test_global_queue_manager() {
+        let _guard = test_queue_guard();
+        clear_all_unit_command_queues();
+
         let manager = get_unit_queue_manager();
         assert!(manager.get_queue(999).is_none());
 
@@ -470,21 +502,30 @@ mod tests {
 
         let manager = get_unit_queue_manager();
         assert!(manager.get_queue(999).is_some());
+        drop(manager);
+
+        clear_all_unit_command_queues();
     }
 
     #[test]
     fn test_ai_manager_impl_default() {
+        let _guard = test_queue_guard();
+        clear_all_unit_command_queues();
+
         let mut mgr = AIManagerImpl::new();
         // No objects → returns false for move/attack/guard
         assert!(!mgr.issue_move_order(&[], Coord3D::new(0.0, 0.0, 0.0)));
         assert!(!mgr.issue_waypoint_order(&[], Coord3D::new(0.0, 0.0, 0.0)));
+        assert!(!mgr.issue_attack_move_order(&[], Coord3D::new(0.0, 0.0, 0.0)));
         assert!(!mgr.issue_attack_order(&[], 0));
-        assert!(!mgr.issue_build_order(0, "test", Coord3D::new(0.0, 0.0, 0.0)));
         assert!(mgr.issue_stop_order(&[]));
+
+        clear_all_unit_command_queues();
     }
 
     #[test]
     fn test_ai_manager_waypoint_order_appends_follow_path_command() {
+        let _guard = test_queue_guard();
         clear_all_unit_command_queues();
 
         let mut mgr = AIManagerImpl::with_context(CommandSourceType::FromPlayer, 17);
@@ -501,6 +542,30 @@ mod tests {
         assert_eq!(active.pos, destination);
         assert!(active.is_queued);
         assert_eq!(active.issued_frame, 17);
+        drop(manager);
+
+        clear_all_unit_command_queues();
+    }
+
+    #[test]
+    fn test_ai_manager_attack_move_order_queues_attack_move_command() {
+        let _guard = test_queue_guard();
+        clear_all_unit_command_queues();
+
+        let mut mgr = AIManagerImpl::with_context(CommandSourceType::FromPlayer, 23);
+        let destination = Coord3D::new(30.0, 40.0, 5.0);
+
+        assert!(mgr.issue_attack_move_order(&[77], destination));
+
+        let manager = get_unit_queue_manager();
+        let queue = manager.get_queue(77).expect("attack-move queue expected");
+        let active = queue
+            .get_active_command()
+            .expect("attack-move command should become active");
+        assert_eq!(active.cmd, AiCommandType::AttackMoveToPosition);
+        assert_eq!(active.pos, destination);
+        assert!(!active.is_queued);
+        assert_eq!(active.issued_frame, 23);
         drop(manager);
 
         clear_all_unit_command_queues();

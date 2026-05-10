@@ -296,6 +296,64 @@ impl AIManager for AIManagerBridge {
         any_success
     }
 
+    fn issue_attack_move_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
+        let targets: Vec<(ObjectID, Arc<RwLock<crate::object::Object>>)> = {
+            let Ok(factory) = self.object_factory.read() else {
+                warn!("AIManagerBridge::issue_attack_move_order: failed to lock object factory");
+                return false;
+            };
+            objects
+                .iter()
+                .filter_map(|object_id| {
+                    factory
+                        .get_object(*object_id)
+                        .map(|instance| (*object_id, instance.get_base_object()))
+                })
+                .collect()
+        };
+
+        if targets.is_empty() {
+            trace!("AIManagerBridge::issue_attack_move_order: no controllable objects supplied");
+            return false;
+        }
+
+        let mut any_success = false;
+
+        for (object_id, base) in targets {
+            let ai_handle = match base.read() {
+                Ok(obj_guard) => obj_guard.get_ai(),
+                Err(_) => {
+                    warn!(
+                        "AIManagerBridge::issue_attack_move_order: object {} poisoned read lock",
+                        object_id
+                    );
+                    None
+                }
+            };
+
+            if let Some(ai) = ai_handle {
+                ai.ai_attack_move_to_position(&destination, -1, CommandSourceType::FromPlayer);
+                any_success = true;
+                continue;
+            }
+
+            let controller = self.ensure_basic_controller(object_id, Arc::clone(&base));
+            match controller.lock() {
+                Ok(mut controller) => {
+                    if controller.move_to(&destination) {
+                        any_success = true;
+                    }
+                }
+                Err(_) => warn!(
+                    "AIManagerBridge::issue_attack_move_order: failed to lock basic controller for {}",
+                    object_id
+                ),
+            };
+        }
+
+        any_success
+    }
+
     fn issue_attack_order(&mut self, attackers: &[ObjectID], target: ObjectID) -> bool {
         let (attacker_entries, target_base) = {
             let Ok(factory) = self.object_factory.read() else {
