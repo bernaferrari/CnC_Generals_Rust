@@ -89,6 +89,7 @@ use crate::object::behavior::fire_weapon_when_dead_behavior_new::{
 use crate::object::behavior::firestorm_dynamic_geometry_info_update::{
     FirestormDynamicGeometryInfoUpdate, FirestormDynamicGeometryInfoUpdateModuleData,
 };
+use crate::object::behavior::flammable_update::{FlammableUpdate, FlammableUpdateModuleData};
 use crate::object::behavior::flight_deck_behavior::{
     FlightDeckBehavior, FlightDeckBehaviorModule, FlightDeckBehaviorModuleData,
 };
@@ -2731,6 +2732,13 @@ active_behavior_factories!(
     PhysicsBehaviorUpdate,
     "PhysicsBehavior"
 );
+active_behavior_factories!(
+    flammable_update_data_factory,
+    flammable_update_module_factory,
+    FlammableUpdateModuleData,
+    FlammableUpdate,
+    "FlammableUpdate"
+);
 
 fn special_ability_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = SpecialAbilityUpdateModuleData::default();
@@ -5255,6 +5263,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         physics_behavior_module_factory,
         physics_behavior_data_factory,
+    )?;
+    register_module_override(
+        "FlammableUpdate",
+        ModuleType::Behavior,
+        flammable_update_module_factory,
+        flammable_update_data_factory,
     )?;
     register_module_override(
         "SpecialAbilityUpdate",

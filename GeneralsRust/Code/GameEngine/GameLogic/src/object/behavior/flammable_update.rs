@@ -4,11 +4,12 @@
 //! Author: EA Pacific (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{Bool, ModuleData, Real, UnsignedInt, XferVersion};
+use crate::common::{AsciiString, Bool, ModuleData, Real, UnsignedInt, XferVersion};
 use crate::damage::DamageType;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -36,6 +37,8 @@ pub struct FlammableUpdateModuleData {
     pub flame_damage_limit: Real,
     /// Time before flame damage threshold resets
     pub flame_damage_expiration_delay: UnsignedInt,
+    /// C++ data includes this; audio playback is still handled by the sound runtime layer.
+    pub burning_sound_name: AsciiString,
 }
 
 impl Default for FlammableUpdateModuleData {
@@ -48,11 +51,103 @@ impl Default for FlammableUpdateModuleData {
             aflame_damage_amount: 1.0,
             flame_damage_limit: 20.0,
             flame_damage_expiration_delay: 60, // 2 seconds at 30 FPS
+            burning_sound_name: AsciiString::new(),
         }
     }
 }
 
 crate::impl_behavior_module_data_via_base!(FlammableUpdateModuleData, base);
+
+impl FlammableUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, FLAMMABLE_UPDATE_FIELDS)
+    }
+}
+
+fn parse_duration_field(
+    _ini: &mut INI,
+    setter: &mut dyn FnMut(UnsignedInt),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    setter(INI::parse_duration_unsigned_int(token)?);
+    Ok(())
+}
+
+fn parse_real_field(
+    _ini: &mut INI,
+    setter: &mut dyn FnMut(Real),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    setter(INI::parse_real(token)?);
+    Ok(())
+}
+
+fn parse_int_as_real_field(
+    _ini: &mut INI,
+    setter: &mut dyn FnMut(Real),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    setter(INI::parse_int(token)? as Real);
+    Ok(())
+}
+
+fn parse_ascii_field(
+    _ini: &mut INI,
+    setter: &mut dyn FnMut(AsciiString),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    setter(AsciiString::from(*token));
+    Ok(())
+}
+
+const FLAMMABLE_UPDATE_FIELDS: &[FieldParse<FlammableUpdateModuleData>] = &[
+    FieldParse {
+        token: "BurnedDelay",
+        parse: |ini, data, tokens| {
+            parse_duration_field(ini, &mut |v| data.burned_delay = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "AflameDuration",
+        parse: |ini, data, tokens| {
+            parse_duration_field(ini, &mut |v| data.aflame_duration = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "AflameDamageDelay",
+        parse: |ini, data, tokens| {
+            parse_duration_field(ini, &mut |v| data.aflame_damage_delay = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "AflameDamageAmount",
+        parse: |ini, data, tokens| {
+            parse_int_as_real_field(ini, &mut |v| data.aflame_damage_amount = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "BurningSoundName",
+        parse: |ini, data, tokens| {
+            parse_ascii_field(ini, &mut |v| data.burning_sound_name = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "FlameDamageLimit",
+        parse: |ini, data, tokens| {
+            parse_real_field(ini, &mut |v| data.flame_damage_limit = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "FlameDamageExpiration",
+        parse: |ini, data, tokens| {
+            parse_duration_field(ini, &mut |v| data.flame_damage_expiration_delay = v, tokens)
+        },
+    },
+];
 
 pub struct FlammableUpdate {
     object: Weak<RwLock<GameObject>>,
