@@ -2614,6 +2614,14 @@ impl GameMessageTranslator for CommandTranslator {
                 TheInGameUI::set_prefer_selection_mode(false);
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaBeginPathBuild => {
+                dispatch_translated_message(&GameMessageType::MetaBeginPathBuild);
+                return GameMessageDisposition::DestroyMessage;
+            }
+            GameMessageType::MetaEndPathBuild => {
+                dispatch_translated_message(&GameMessageType::MetaEndPathBuild);
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::MetaStop => {
                 TheInGameUI::issue_stop_command();
                 dispatch_translated_message(&GameMessageType::DoStop);
@@ -3973,6 +3981,8 @@ fn dispatch_translated_message(message: &GameMessageType) {
         | DestroySelectedGroup(_)
         | RemoveFromSelectedGroup(_)
         | SelectedGroupCommand(_)
+        | MetaBeginPathBuild
+        | MetaEndPathBuild
         | DoStop
         | DoScatter => {
             enqueue(message.clone());
@@ -5109,6 +5119,29 @@ mod tests {
             messages[0].get_type(),
             &GameMessageType::CreateFormation(Vec::new())
         );
+
+        get_command_list().write().unwrap().clear_all_commands();
+    }
+
+    #[test]
+    fn test_meta_path_build_commands_are_enqueued() {
+        let _guard = test_state_lock();
+
+        for message_type in [
+            GameMessageType::MetaBeginPathBuild,
+            GameMessageType::MetaEndPathBuild,
+        ] {
+            get_command_list().write().unwrap().clear_all_commands();
+            let mut translator = CommandTranslator::new();
+
+            let disposition =
+                translator.translate_game_message(&GameMessage::new(message_type.clone()));
+
+            assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+            let messages = get_command_list().read().unwrap().snapshot_messages();
+            assert_eq!(messages.len(), 1);
+            assert_eq!(messages[0].get_type(), &message_type);
+        }
 
         get_command_list().write().unwrap().clear_all_commands();
     }
