@@ -323,6 +323,17 @@ impl ProductionUpdate {
         self.cancel_production(index)
     }
 
+    pub fn cancel_unit_by_template_name(&mut self, template_name: &str) -> Result<(), String> {
+        let Some(index) = self
+            .queue
+            .find_by_template_and_type(ProductionType::Unit, template_name)
+        else {
+            return Err("Unit not in queue".to_string());
+        };
+
+        self.cancel_production(index)
+    }
+
     /// Start producing the current queue item
     fn start_production(&mut self) -> Result<(), String> {
         if let Some(_entry) = self.queue.current() {

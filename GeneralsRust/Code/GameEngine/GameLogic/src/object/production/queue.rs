@@ -211,6 +211,15 @@ impl BuildQueue {
         })
     }
 
+    pub fn cancel_by_template_and_type(
+        &mut self,
+        production_type: ProductionType,
+        name: &str,
+    ) -> Option<BuildQueueEntry> {
+        let index = self.find_by_template_and_type(production_type, name)?;
+        self.cancel(index)
+    }
+
     /// Check if the queue contains any entries of the specified production type.
     pub fn has_production_type(&self, production_type: ProductionType) -> bool {
         self.queue
