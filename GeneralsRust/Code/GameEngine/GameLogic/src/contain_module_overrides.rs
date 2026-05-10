@@ -25,6 +25,7 @@ use crate::object::contain::{
     TunnelContain, TunnelContainModuleData,
 };
 use crate::object::draw::*;
+use crate::object::special_powers::*;
 use crate::object::update::{
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
     BeaconClientUpdateModuleData, LaserUpdateModule as LaserClientUpdateModule,
@@ -1205,6 +1206,107 @@ fn animated_particle_sys_bone_client_update_module_factory(
     ))
 }
 
+macro_rules! special_power_factories {
+    (
+        $data_factory:ident,
+        $module_factory:ident,
+        $data_ty:ty,
+        $module_ty:ty,
+        $module_name:literal
+    ) => {
+        fn $data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            let mut data = <$data_ty>::default();
+            if let Some(ini) = ini {
+                if let Err(err) = data.parse_from_ini(ini) {
+                    warn!(
+                        concat!(
+                            "Failed to parse ",
+                            $module_name,
+                            " module data at line {}: {}"
+                        ),
+                        ini.get_line_num(),
+                        err
+                    );
+                }
+            }
+            Box::new(data)
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let typed_data = module_data
+                .as_ref()
+                .as_any()
+                .downcast_ref::<$data_ty>()
+                .cloned()
+                .unwrap_or_else(|| {
+                    warn!(concat!(
+                        $module_name,
+                        " module data expected; using defaults"
+                    ));
+                    <$data_ty>::default()
+                });
+            Box::new(<$module_ty>::new(
+                NameKeyGenerator::name_to_key($module_name),
+                resolve_owner_id(&thing),
+                Arc::new(typed_data),
+            ))
+        }
+    };
+}
+
+special_power_factories!(
+    cash_bounty_power_module_data_factory,
+    cash_bounty_power_module_factory,
+    CashBountyPowerModuleData,
+    CashBountyPower,
+    "CashBountyPower"
+);
+special_power_factories!(
+    cash_hack_special_power_module_data_factory,
+    cash_hack_special_power_module_factory,
+    CashHackSpecialPowerModuleData,
+    CashHackSpecialPower,
+    "CashHackSpecialPower"
+);
+special_power_factories!(
+    cleanup_area_power_module_data_factory,
+    cleanup_area_power_module_factory,
+    CleanupAreaPowerModuleData,
+    CleanupAreaPower,
+    "CleanupAreaPower"
+);
+special_power_factories!(
+    fire_weapon_power_module_data_factory,
+    fire_weapon_power_module_factory,
+    FireWeaponPowerModuleData,
+    FireWeaponPower,
+    "FireWeaponPower"
+);
+special_power_factories!(
+    ocl_special_power_module_data_factory,
+    ocl_special_power_module_factory,
+    OclSpecialPowerModuleData,
+    OclSpecialPower,
+    "OCLSpecialPower"
+);
+special_power_factories!(
+    special_ability_module_data_factory,
+    special_ability_module_factory,
+    SpecialAbilityModuleData,
+    SpecialAbility,
+    "SpecialAbility"
+);
+special_power_factories!(
+    spy_vision_special_power_module_data_factory,
+    spy_vision_special_power_module_factory,
+    SpyVisionSpecialPowerModuleData,
+    SpyVisionSpecialPower,
+    "SpyVisionSpecialPower"
+);
+
 fn install_contain_overrides() -> Result<(), String> {
     register_module_override(
         "OpenContain",
@@ -1415,6 +1517,48 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::ClientUpdate,
         animated_particle_sys_bone_client_update_module_factory,
         base_client_update_module_data_factory,
+    )?;
+    register_module_override(
+        "CashBountyPower",
+        ModuleType::Behavior,
+        cash_bounty_power_module_factory,
+        cash_bounty_power_module_data_factory,
+    )?;
+    register_module_override(
+        "CashHackSpecialPower",
+        ModuleType::Behavior,
+        cash_hack_special_power_module_factory,
+        cash_hack_special_power_module_data_factory,
+    )?;
+    register_module_override(
+        "CleanupAreaPower",
+        ModuleType::Behavior,
+        cleanup_area_power_module_factory,
+        cleanup_area_power_module_data_factory,
+    )?;
+    register_module_override(
+        "FireWeaponPower",
+        ModuleType::Behavior,
+        fire_weapon_power_module_factory,
+        fire_weapon_power_module_data_factory,
+    )?;
+    register_module_override(
+        "OCLSpecialPower",
+        ModuleType::Behavior,
+        ocl_special_power_module_factory,
+        ocl_special_power_module_data_factory,
+    )?;
+    register_module_override(
+        "SpecialAbility",
+        ModuleType::Behavior,
+        special_ability_module_factory,
+        special_ability_module_data_factory,
+    )?;
+    register_module_override(
+        "SpyVisionSpecialPower",
+        ModuleType::Behavior,
+        spy_vision_special_power_module_factory,
+        spy_vision_special_power_module_data_factory,
     )?;
     Ok(())
 }

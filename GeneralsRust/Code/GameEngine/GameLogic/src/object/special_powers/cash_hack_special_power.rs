@@ -18,6 +18,7 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use log::warn;
 
 use crate::common::science::ScienceType;
 use crate::common::{Coord3D, Int, ObjectID, Real};
@@ -144,10 +145,7 @@ impl CashHackSpecialPower {
 
     /// Execute cash hack at a location - returns immediately.
     /// Matches C++ CashHackSpecialPower::doSpecialPowerAtLocation() which only allows at objects.
-    pub fn do_special_power_at_location(
-        &self,
-        _loc: &Coord3D,
-    ) -> Result<(), String> {
+    pub fn do_special_power_at_location(&self, _loc: &Coord3D) -> Result<(), String> {
         // C++: "only allowed at objects" - returns immediately
         Ok(())
     }
@@ -225,7 +223,9 @@ impl CashHackSpecialPower {
 
         // Withdraw from victim
         if let Ok(mut victim_player_guard) = victim_player.write() {
-            let _ = victim_player_guard.get_money_mut().subtract_money(cash as i32);
+            let _ = victim_player_guard
+                .get_money_mut()
+                .subtract_money(cash as i32);
         }
 
         // Deposit to self
@@ -241,11 +241,18 @@ impl CashHackSpecialPower {
         {
             let mut gain_pos = self_pos;
             gain_pos.z += 20.0; // C++: pos.z += 20.0f
-            TheInGameUI::add_floating_text(
+            if let Err(err) = TheInGameUI::add_floating_text(
                 &format!("+${}", cash),
                 &gain_pos,
-                crate::common::Color { r: 0, g: 255, b: 0, a: 255 }, // green
-            );
+                crate::common::Color {
+                    r: 0,
+                    g: 255,
+                    b: 0,
+                    a: 255,
+                }, // green
+            ) {
+                warn!("Failed to add cash hack gain floating text: {err}");
+            }
         }
 
         // Display floating text: cash lost (red) over the target
@@ -253,11 +260,18 @@ impl CashHackSpecialPower {
         {
             let mut loss_pos = victim_pos;
             loss_pos.z += 30.0; // C++: pos.z += 30.0f
-            TheInGameUI::add_floating_text(
+            if let Err(err) = TheInGameUI::add_floating_text(
                 &format!("-${}", cash),
                 &loss_pos,
-                crate::common::Color { r: 255, g: 0, b: 0, a: 255 }, // red
-            );
+                crate::common::Color {
+                    r: 255,
+                    g: 0,
+                    b: 0,
+                    a: 255,
+                }, // red
+            ) {
+                warn!("Failed to add cash hack loss floating text: {err}");
+            }
         }
 
         Ok(())
@@ -321,9 +335,8 @@ fn parse_special_power_template_field(
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template = Some(
-        crate::object::special_power_template::find_or_create_special_power_template(&name),
-    );
+    data.base.special_power_template =
+        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
     Ok(())
 }
 
@@ -332,7 +345,10 @@ fn parse_money_amount(
     data: &mut CashHackSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.default_amount_to_steal = INI::parse_int(token)?;
     Ok(())
 }
