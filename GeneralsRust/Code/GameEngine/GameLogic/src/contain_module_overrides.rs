@@ -88,6 +88,9 @@ use crate::object::behavior::float_update::{FloatUpdate, FloatUpdateModuleData};
 use crate::object::behavior::generate_minefield_behavior::{
     GenerateMinefieldBehavior, GenerateMinefieldBehaviorModuleData,
 };
+use crate::object::behavior::grant_stealth_behavior::{
+    GrantStealthBehavior, GrantStealthBehaviorModule, GrantStealthBehaviorModuleData,
+};
 use crate::object::behavior::height_die_update::{HeightDieUpdate, HeightDieUpdateModuleData};
 use crate::object::behavior::hijacker_update::{HijackerUpdate, HijackerUpdateModuleData};
 use crate::object::behavior::horde_update::{HordeUpdate, HordeUpdateModuleData};
@@ -923,6 +926,38 @@ fn structure_topple_update_module_factory(
     Box::new(StructureToppleUpdateModule::new(
         behavior,
         &AsciiString::from("StructureToppleUpdate"),
+        data_arc,
+    ))
+}
+
+fn grant_stealth_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = GrantStealthBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse GrantStealthBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn grant_stealth_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let owner_id = resolve_owner_id(&thing);
+    let owner = TheGameLogic::find_object_by_id(owner_id)
+        .expect("GrantStealthBehavior requires a valid object owner");
+    let data_arc =
+        cloned_module_data::<GrantStealthBehaviorModuleData>("GrantStealthBehavior", &module_data);
+    let behavior = GrantStealthBehavior::new_with_data(owner, data_arc.clone())
+        .expect("GrantStealthBehavior requires a valid object owner");
+    Box::new(GrantStealthBehaviorModule::new(
+        behavior,
+        &AsciiString::from("GrantStealthBehavior"),
         data_arc,
     ))
 }
@@ -3262,6 +3297,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         structure_topple_update_module_factory,
         structure_topple_update_data_factory,
+    )?;
+    register_module_override(
+        "GrantStealthBehavior",
+        ModuleType::Behavior,
+        grant_stealth_behavior_module_factory,
+        grant_stealth_behavior_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
