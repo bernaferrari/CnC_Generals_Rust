@@ -95,6 +95,9 @@ use crate::object::behavior::neutron_blast_behavior::{
 use crate::object::behavior::neutron_missile_slow_death_update::{
     neutron_missile_slow_death_data_factory, neutron_missile_slow_death_module_factory,
 };
+use crate::object::behavior::overcharge_behavior::{
+    OverchargeBehavior, OverchargeBehaviorModule, OverchargeBehaviorModuleData,
+};
 use crate::object::behavior::parking_place_behavior::{
     ParkingPlaceBehavior, ParkingPlaceBehaviorModuleData,
 };
@@ -622,6 +625,34 @@ fn rebuild_hole_behavior_module_factory(
     Box::new(RebuildHoleBehaviorModule::new(
         behavior,
         &AsciiString::from("RebuildHoleBehavior"),
+        data_arc,
+    ))
+}
+
+fn overcharge_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = OverchargeBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse OverchargeBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn overcharge_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<OverchargeBehaviorModuleData>("OverchargeBehavior", &module_data);
+    let behavior = OverchargeBehavior::from_module_thing(thing, data_arc.clone());
+    Box::new(OverchargeBehaviorModule::new(
+        behavior,
+        &"OverchargeBehavior".to_string(),
         data_arc,
     ))
 }
@@ -2907,6 +2938,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         rebuild_hole_behavior_module_factory,
         rebuild_hole_behavior_data_factory,
+    )?;
+    register_module_override(
+        "OverchargeBehavior",
+        ModuleType::Behavior,
+        overcharge_behavior_module_factory,
+        overcharge_behavior_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
