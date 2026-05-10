@@ -41,6 +41,9 @@ use crate::object::behavior::battle_bus_slow_death_behavior::{
 use crate::object::behavior::battle_plan_update::{
     BattlePlanUpdate, BattlePlanUpdateModule, BattlePlanUpdateModuleData,
 };
+use crate::object::behavior::bridge_behavior::{
+    BridgeBehavior, BridgeBehaviorModule, BridgeBehaviorModuleData,
+};
 use crate::object::behavior::bunker_buster_behavior::{
     BunkerBusterBehavior, BunkerBusterBehaviorModuleData,
 };
@@ -752,6 +755,34 @@ fn dumb_projectile_behavior_module_factory(
     Box::new(DumbProjectileBehaviorModule::new(
         behavior,
         &AsciiString::from("DumbProjectileBehavior"),
+        data_arc,
+    ))
+}
+
+fn bridge_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = BridgeBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse BridgeBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn bridge_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<BridgeBehaviorModuleData>("BridgeBehavior", &module_data);
+    let behavior = BridgeBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("BridgeBehavior requires a valid object owner");
+    Box::new(BridgeBehaviorModule::new(
+        behavior,
+        &AsciiString::from("BridgeBehavior"),
         data_arc,
     ))
 }
@@ -3061,6 +3092,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         dumb_projectile_behavior_module_factory,
         dumb_projectile_behavior_data_factory,
+    )?;
+    register_module_override(
+        "BridgeBehavior",
+        ModuleType::Behavior,
+        bridge_behavior_module_factory,
+        bridge_behavior_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
