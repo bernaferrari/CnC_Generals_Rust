@@ -2259,10 +2259,8 @@ impl CommandTranslator {
             }
 
             let Some(object_id) = picked_object else {
-                if !allow_add && !self.current_selection.is_empty() {
-                    self.current_selection.clear();
-                    return vec![GameMessageType::CreateSelectedGroup(true, Vec::new())];
-                }
+                // C++ SelectionXlat leaves blank point clicks in the stream so CommandXlat can
+                // issue the terrain/context command for the current selection.
                 return Vec::new();
             };
 
@@ -4465,7 +4463,8 @@ mod tests {
         static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         TEST_STATE_LOCK
             .get_or_init(|| Mutex::new(()))
-            .lock().unwrap_or_else(|e| e.into_inner())
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     #[test]
@@ -4510,6 +4509,26 @@ mod tests {
         let group_msg = GameMessage::new(GameMessageType::MetaCreateTeam(1));
         let result = translator.translate_game_message(&group_msg);
         assert_eq!(result, GameMessageDisposition::KeepMessage);
+    }
+
+    #[test]
+    fn test_blank_left_selection_region_preserves_selection_for_command_xlat() {
+        let _guard = test_state_lock();
+        let mut translator = CommandTranslator::new();
+        translator.current_selection.insert(7);
+
+        let messages = translator.handle_selection_region(
+            &IRegion2D {
+                x: 20,
+                y: 30,
+                width: 0,
+                height: 0,
+            },
+            KeyModifiers::empty(),
+        );
+
+        assert!(messages.is_empty());
+        assert!(translator.current_selection.contains(&7));
     }
 
     #[test]
