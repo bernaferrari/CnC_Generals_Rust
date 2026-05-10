@@ -741,6 +741,12 @@ impl IniScriptParser {
                 Ok(ConditionType::PlayerHasComparisonUnitKindInTriggerArea)
             }
             "PLAYER_LOST_OBJECT_TYPE" => Ok(ConditionType::PlayerLostObjectType),
+            "OBSOLETE_SCRIPT_1" | "OBSOLETE_SCRIPT1" => Ok(ConditionType::ObsoleteScript1),
+            "OBSOLETE_SCRIPT_2" | "OBSOLETE_SCRIPT2" => Ok(ConditionType::ObsoleteScript2),
+            "DEFUNCT_PLAYER_SELECTED_GENERAL" => Ok(ConditionType::DefunctPlayerSelectedGeneral),
+            "DEFUNCT_PLAYER_SELECTED_GENERAL_FROM_NAMED" => {
+                Ok(ConditionType::DefunctPlayerSelectedGeneralFromNamed)
+            }
             "TEAM_INSIDE_AREA_PARTIALLY" => Ok(ConditionType::TeamInsideAreaPartially),
             "TEAM_DESTROYED" => Ok(ConditionType::TeamDestroyed),
             "CAMERA_MOVEMENT_FINISHED" => Ok(ConditionType::CameraMovementFinished),
@@ -1856,6 +1862,10 @@ ScriptList TestScripts
           UNIT_HAS_OBJECT_STATUS Hero STATUS_UNDER_CONSTRUCTION
           BRIDGE_BROKEN BridgeA
           MISSION_ATTEMPTS >= 2
+          OBSOLETE_SCRIPT_1
+          OBSOLETE_SCRIPT_2
+          DEFUNCT_PLAYER_SELECTED_GENERAL
+          DEFUNCT_PLAYER_SELECTED_GENERAL_FROM_NAMED Hero
           SKIRMISH_SPECIAL_POWER_READY Player_China Artillery
           SKIRMISH_PLAYER_FACTION Player_China China
           SKIRMISH_COMMAND_BUTTON_READY_ALL TeamA CommandButton
@@ -1911,6 +1921,10 @@ EndScriptList
                 ConditionType::UnitHasObjectStatus,
                 ConditionType::BridgeBroken,
                 ConditionType::MissionAttempts,
+                ConditionType::ObsoleteScript1,
+                ConditionType::ObsoleteScript2,
+                ConditionType::DefunctPlayerSelectedGeneral,
+                ConditionType::DefunctPlayerSelectedGeneralFromNamed,
                 ConditionType::SkirmishSpecialPowerReady,
                 ConditionType::SkirmishPlayerFaction,
                 ConditionType::SkirmishCommandButtonReadyAll,
