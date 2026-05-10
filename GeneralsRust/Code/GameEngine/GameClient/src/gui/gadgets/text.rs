@@ -1212,10 +1212,17 @@ impl Gadget for TextEntry {
 
             InputEvent::TextInput { text } => {
                 if self.focused {
+                    let before = self.text.clone();
                     if self.has_selection() {
                         self.delete_selection();
                     }
                     self.insert_text(text);
+                    if self.text != before {
+                        messages.push(GadgetMessage::ValueChanged {
+                            gadget_id: self.id,
+                            value: GadgetValue::String(self.text.clone()),
+                        });
+                    }
                 }
             }
             InputEvent::FocusGained => {
@@ -1416,6 +1423,39 @@ mod tests {
 
         entry.insert_text("more");
         assert_eq!(entry.text(), "12345"); // Should not exceed max length
+    }
+
+    #[test]
+    fn test_text_input_emits_value_changed_for_cpp_update_text_parity() {
+        let mut entry = TextEntry::new(1, 0, 0, 100, 30);
+        entry.set_focus(true);
+
+        let messages = entry.handle_input(&InputEvent::TextInput {
+            text: "A".to_string(),
+        });
+
+        assert_eq!(entry.text(), "A");
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 1,
+                value: GadgetValue::String(text)
+            }] if text == "A"
+        ));
+    }
+
+    #[test]
+    fn test_text_input_does_not_emit_value_changed_when_validation_rejects_text() {
+        let mut entry =
+            TextEntry::new(1, 0, 0, 100, 30).with_validation(ValidationMode::NumericOnly);
+        entry.set_focus(true);
+
+        let messages = entry.handle_input(&InputEvent::TextInput {
+            text: "abc".to_string(),
+        });
+
+        assert_eq!(entry.text(), "");
+        assert!(messages.is_empty());
     }
 
     #[test]
