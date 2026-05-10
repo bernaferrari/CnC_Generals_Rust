@@ -89,6 +89,9 @@ use crate::object::behavior::fire_weapon_when_dead_behavior_new::{
 use crate::object::behavior::firestorm_dynamic_geometry_info_update::{
     FirestormDynamicGeometryInfoUpdate, FirestormDynamicGeometryInfoUpdateModuleData,
 };
+use crate::object::behavior::flight_deck_behavior::{
+    FlightDeckBehavior, FlightDeckBehaviorModule, FlightDeckBehaviorModuleData,
+};
 use crate::object::behavior::float_update::{FloatUpdate, FloatUpdateModuleData};
 use crate::object::behavior::generate_minefield_behavior::{
     GenerateMinefieldBehavior, GenerateMinefieldBehaviorModuleData,
@@ -1316,6 +1319,35 @@ fn supply_center_production_exit_update_module_factory(
     Box::new(SupplyCenterProductionExitBehaviorModule::new(
         behavior,
         &AsciiString::from("SupplyCenterProductionExitUpdate"),
+        data_arc,
+    ))
+}
+
+fn flight_deck_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = FlightDeckBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse FlightDeckBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn flight_deck_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<FlightDeckBehaviorModuleData>("FlightDeckBehavior", &module_data);
+    let behavior = FlightDeckBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("FlightDeckBehavior requires an owning object");
+    Box::new(FlightDeckBehaviorModule::new(
+        behavior,
+        &AsciiString::from("FlightDeckBehavior"),
         data_arc,
     ))
 }
@@ -3727,6 +3759,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         supply_center_production_exit_update_module_factory,
         supply_center_production_exit_update_data_factory,
+    )?;
+    register_module_override(
+        "FlightDeckBehavior",
+        ModuleType::Behavior,
+        flight_deck_behavior_module_factory,
+        flight_deck_behavior_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
