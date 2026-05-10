@@ -332,6 +332,13 @@ impl Player {
         completed
     }
 
+    pub fn has_unlocked_upgrade(&self, upgrade_name: &str) -> bool {
+        let expected = normalize_upgrade_name(upgrade_name);
+        self.unlocked_sciences
+            .iter()
+            .any(|unlocked| normalize_upgrade_name(unlocked) == expected)
+    }
+
     pub fn record_unit_destroyed(&mut self) {
         self.statistics.units_destroyed = self.statistics.units_destroyed.saturating_add(1);
     }
@@ -359,6 +366,31 @@ impl Player {
 
     pub fn record_resources_spent(&mut self, amount: u32) {
         self.statistics.resources_spent = self.statistics.resources_spent.saturating_add(amount);
+    }
+}
+
+fn normalize_upgrade_name(name: &str) -> String {
+    name.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
+}
+
+fn capture_upgrade_names_for_team(team: Team) -> &'static [&'static str] {
+    match team {
+        Team::USA => &[
+            "Upgrade_AmericaRangerCaptureBuilding",
+            "Upgrade_InfantryCaptureBuilding",
+        ],
+        Team::China => &[
+            "Upgrade_ChinaRedguardCaptureBuilding",
+            "Upgrade_InfantryCaptureBuilding",
+        ],
+        Team::GLA => &[
+            "Upgrade_GLARebelCaptureBuilding",
+            "Upgrade_InfantryCaptureBuilding",
+        ],
+        Team::Neutral => &[],
     }
 }
 
@@ -4548,7 +4580,11 @@ impl GameLogic {
                     let can_capture_buildings = self
                         .objects
                         .get(&object_id)
-                        .map(|obj| obj.is_kind_of(KindOf::Infantry) || obj.is_hero())
+                        .map(|obj| {
+                            obj.is_hero()
+                                || (obj.is_kind_of(KindOf::Infantry)
+                                    && self.team_has_completed_capture_upgrade(obj.team))
+                        })
                         .unwrap_or(false);
                     if !can_capture_buildings {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
@@ -5553,6 +5589,15 @@ impl GameLogic {
             .iter()
             .find_map(|(id, p)| if p.team == team { Some(*id) } else { None })?;
         self.players.get_mut(&key)
+    }
+
+    pub fn team_has_completed_capture_upgrade(&self, team: Team) -> bool {
+        let Some(player) = self.players.values().find(|player| player.team == team) else {
+            return true;
+        };
+        capture_upgrade_names_for_team(team)
+            .iter()
+            .any(|upgrade| player.has_unlocked_upgrade(upgrade))
     }
 
     pub fn local_player_id(&self) -> Option<u32> {
@@ -10821,6 +10866,63 @@ mod tests {
         let captor = game_logic
             .find_object(captor_id)
             .expect("captor should exist");
+        assert_eq!(captor.ai_state, AIState::Capturing);
+        assert_eq!(captor.target, Some(building_id));
+    }
+
+    #[test]
+    fn infantry_capture_requires_completed_capture_upgrade_when_player_exists() {
+        let mut game_logic = GameLogic::new();
+        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
+        ensure_test_infantry_template(&mut game_logic);
+        ensure_test_structure_template(&mut game_logic);
+
+        let captor_id = game_logic
+            .create_object("TestInfantry", Team::USA, Vec3::new(12.0, 0.0, 0.0))
+            .expect("captor should be created");
+        let building_id = game_logic
+            .create_object("TestBuilding", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("building should be created");
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::CaptureBuilding {
+                target_id: building_id,
+            },
+            player_id: 0,
+            command_id: 1,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![captor_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let captor = game_logic
+            .find_object(captor_id)
+            .expect("captor should exist");
+        assert_ne!(captor.ai_state, AIState::Capturing);
+        assert_ne!(captor.target, Some(building_id));
+
+        game_logic
+            .get_player_mut(0)
+            .expect("USA player should exist")
+            .unlocked_sciences
+            .insert("Upgrade_AmericaRangerCaptureBuilding".to_string());
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::CaptureBuilding {
+                target_id: building_id,
+            },
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![captor_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let captor = game_logic
+            .find_object(captor_id)
+            .expect("captor should exist after upgraded command");
         assert_eq!(captor.ai_state, AIState::Capturing);
         assert_eq!(captor.target, Some(building_id));
     }

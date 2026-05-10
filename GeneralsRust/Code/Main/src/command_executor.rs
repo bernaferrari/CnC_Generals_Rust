@@ -1583,10 +1583,15 @@ impl<'a> CommandExecutor<'a> {
                 .game_logic
                 .get_object(unit_id)
                 .map(|unit| {
+                    let capture_ability = unit.is_hero()
+                        || (unit.is_kind_of(KindOf::Infantry)
+                            && self
+                                .game_logic
+                                .team_has_completed_capture_upgrade(unit.team));
                     unit.is_alive()
                         && unit.can_move()
                         && unit.team != target_team
-                        && (unit.is_kind_of(KindOf::Infantry) || unit.is_hero())
+                        && capture_ability
                 })
                 .unwrap_or(false);
             if !can_capture {
