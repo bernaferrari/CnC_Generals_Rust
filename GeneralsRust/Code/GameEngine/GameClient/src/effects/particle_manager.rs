@@ -551,6 +551,7 @@ pub struct ParticleSystemManager {
     min_dynamic_particle_skip_priority: ParticlePriorityType,
     particle_skip_mask: u32,
     particle_generation_count: u32,
+    preloaded_texture_assets: Vec<String>,
 }
 
 impl ParticleSystemManager {
@@ -576,6 +577,7 @@ impl ParticleSystemManager {
             min_dynamic_particle_skip_priority: ParticlePriorityType::Critical,
             particle_skip_mask: 0,
             particle_generation_count: 0,
+            preloaded_texture_assets: Vec::new(),
         }
     }
 
@@ -612,12 +614,21 @@ impl ParticleSystemManager {
     /// Preload particle texture assets for all templates.
     /// (matches C++ ParticleSystemManager::preloadAssets, ParticleSys.cpp:3204)
     pub fn preload_assets(&mut self) {
+        self.preloaded_texture_assets.clear();
+
         for tmplate in self.templates.values() {
-            if tmplate.info().particle_type_name.is_empty() {
+            let info = tmplate.info();
+            if info.particle_type != ParticleType::Particle || info.particle_type_name.is_empty() {
                 continue;
             }
-            // TODO: wire TheDisplay->preloadTextureAssets(tmplate->m_particleTypeName)
+            self.preloaded_texture_assets
+                .push(info.particle_type_name.clone());
         }
+    }
+
+    /// Texture asset names requested by the last preload pass.
+    pub fn preloaded_texture_assets(&self) -> &[String] {
+        &self.preloaded_texture_assets
     }
 
     /// Create a new template
@@ -1479,5 +1490,37 @@ mod tests {
         let found = manager.find_template("TestExplosion");
         assert!(found.is_some());
         assert_eq!(found.unwrap().name(), "TestExplosion");
+    }
+
+    #[test]
+    fn preload_assets_matches_cpp_particle_texture_filter() {
+        let mut manager = ParticleSystemManager::new();
+
+        let mut particle = ParticleSystemTemplate::new("TextureParticle".to_string());
+        particle.info_mut().particle_type = ParticleType::Particle;
+        particle.info_mut().particle_type_name = "EXSmokePuff.tga".to_string();
+        manager
+            .templates
+            .insert(particle.name().to_string(), Arc::new(particle));
+
+        let mut drawable = ParticleSystemTemplate::new("DrawableParticle".to_string());
+        drawable.info_mut().particle_type = ParticleType::Drawable;
+        drawable.info_mut().particle_type_name = "EXExplosionDrawable".to_string();
+        manager
+            .templates
+            .insert(drawable.name().to_string(), Arc::new(drawable));
+
+        let mut unnamed = ParticleSystemTemplate::new("UnnamedParticle".to_string());
+        unnamed.info_mut().particle_type = ParticleType::Particle;
+        manager
+            .templates
+            .insert(unnamed.name().to_string(), Arc::new(unnamed));
+
+        manager.preload_assets();
+
+        assert_eq!(
+            manager.preloaded_texture_assets(),
+            &["EXSmokePuff.tga".to_string()]
+        );
     }
 }
