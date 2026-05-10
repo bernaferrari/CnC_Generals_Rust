@@ -213,6 +213,12 @@ use crate::object::body::immortal_body::ImmortalBody;
 use crate::object::body::inactive_body::InactiveBody;
 use crate::object::body::structure_body::{StructureBody, StructureBodyModuleData};
 use crate::object::body::undead_body::{UndeadBody, UndeadBodyModuleData};
+use crate::object::collide::fire_weapon_collide::{FireWeaponCollide, FireWeaponCollideModuleData};
+use crate::object::collide::squish_collide::{SquishCollide, SquishCollideModuleData};
+use crate::object::collide::{
+    CollideModule as CollideModuleTrait, CollisionError, Coord3D as CollisionCoord3D, GameObject,
+    COLLISION_MANAGER,
+};
 use crate::object::contain::{
     CaveContain, CaveContainModuleData, GarrisonContain, GarrisonContainModuleData, HealContain,
     HealContainModuleData, HelixContain, HelixContainModuleData, InternetHackContain,
@@ -1702,6 +1708,304 @@ upgrade_factories!(
     WeaponSetUpgrade,
     "WeaponSetUpgrade"
 );
+
+#[derive(Clone)]
+struct SharedCollideModule<T> {
+    inner: Arc<Mutex<T>>,
+}
+
+impl<T> SharedCollideModule<T> {
+    fn new(inner: Arc<Mutex<T>>) -> Self {
+        Self { inner }
+    }
+
+    fn lock_inner(&self) -> Result<std::sync::MutexGuard<'_, T>, CollisionError> {
+        self.inner.lock().map_err(|_| {
+            CollisionError::InvalidObject("SharedCollideModule lock poisoned".to_string())
+        })
+    }
+}
+
+impl<T> CollideModuleTrait for SharedCollideModule<T>
+where
+    T: CollideModuleTrait + Send + Sync + 'static,
+{
+    fn on_collide(
+        &mut self,
+        other: Option<&dyn GameObject>,
+        loc: &CollisionCoord3D,
+        normal: &CollisionCoord3D,
+    ) -> Result<(), CollisionError> {
+        let mut inner = self.lock_inner()?;
+        inner.on_collide(other, loc, normal)
+    }
+
+    fn would_like_to_collide_with(&self, other: &dyn GameObject) -> bool {
+        self.lock_inner()
+            .map(|inner| inner.would_like_to_collide_with(other))
+            .unwrap_or(false)
+    }
+
+    fn is_hijacked_vehicle_crate_collide(&self) -> bool {
+        self.lock_inner()
+            .map(|inner| inner.is_hijacked_vehicle_crate_collide())
+            .unwrap_or(false)
+    }
+
+    fn is_sabotage_building_crate_collide(&self) -> bool {
+        self.lock_inner()
+            .map(|inner| inner.is_sabotage_building_crate_collide())
+            .unwrap_or(false)
+    }
+
+    fn is_car_bomb_crate_collide(&self) -> bool {
+        self.lock_inner()
+            .map(|inner| inner.is_car_bomb_crate_collide())
+            .unwrap_or(false)
+    }
+
+    fn is_railroad(&self) -> bool {
+        self.lock_inner()
+            .map(|inner| inner.is_railroad())
+            .unwrap_or(false)
+    }
+
+    fn is_salvage_crate_collide(&self) -> bool {
+        self.lock_inner()
+            .map(|inner| inner.is_salvage_crate_collide())
+            .unwrap_or(false)
+    }
+}
+
+impl ModuleData for FireWeaponCollideModuleData {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        crate::common::LegacyModuleData::set_module_tag_name_key(self, key);
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        crate::common::LegacyModuleData::get_module_tag_name_key(self)
+    }
+}
+
+impl ModuleData for SquishCollideModuleData {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        crate::common::LegacyModuleData::set_module_tag_name_key(self, key);
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        crate::common::LegacyModuleData::get_module_tag_name_key(self)
+    }
+}
+
+struct FireWeaponCollideModule {
+    module_name_key: NameKeyType,
+    data: Arc<FireWeaponCollideModuleData>,
+    collide: Arc<Mutex<FireWeaponCollide>>,
+    object_id: ObjectID,
+}
+
+impl FireWeaponCollideModule {
+    fn new(
+        module_name_key: NameKeyType,
+        data: Arc<FireWeaponCollideModuleData>,
+        collide: FireWeaponCollide,
+        object_id: ObjectID,
+    ) -> Self {
+        Self {
+            module_name_key,
+            data,
+            collide: Arc::new(Mutex::new(collide)),
+            object_id,
+        }
+    }
+
+    fn register_collide_module(&self) -> Result<(), CollisionError> {
+        COLLISION_MANAGER.register_collide_module(
+            self.object_id,
+            Box::new(SharedCollideModule::new(Arc::clone(&self.collide))),
+        )
+    }
+}
+
+impl Module for FireWeaponCollideModule {
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn ModuleData {
+        self.data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        if let Err(err) = self.register_collide_module() {
+            warn!(
+                "Failed to register FireWeaponCollide module for object {}: {}",
+                self.object_id, err
+            );
+        }
+    }
+
+    fn on_delete(&mut self) {
+        let _ = COLLISION_MANAGER.unregister_object(self.object_id);
+    }
+}
+
+impl Snapshotable for FireWeaponCollideModule {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let collide = self
+            .collide
+            .lock()
+            .map_err(|_| "FireWeaponCollide lock poisoned".to_string())?;
+        collide.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut collide = self
+            .collide
+            .lock()
+            .map_err(|_| "FireWeaponCollide lock poisoned".to_string())?;
+        collide.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        let mut collide = self
+            .collide
+            .lock()
+            .map_err(|_| "FireWeaponCollide lock poisoned".to_string())?;
+        collide.load_post_process()
+    }
+}
+
+fn fire_weapon_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = FireWeaponCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse FireWeaponCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn fire_weapon_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<FireWeaponCollideModuleData>("FireWeaponCollide", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let collide = FireWeaponCollide::new(object_id, Arc::clone(&data_arc))
+        .expect("FireWeaponCollide requires a valid collide weapon template");
+    let module_name_key = NameKeyGenerator::name_to_key("FireWeaponCollide");
+    Box::new(FireWeaponCollideModule::new(
+        module_name_key,
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
+
+struct SquishCollideModule {
+    module_name_key: NameKeyType,
+    data: Arc<SquishCollideModuleData>,
+    collide: Arc<Mutex<SquishCollide>>,
+    object_id: ObjectID,
+}
+
+impl SquishCollideModule {
+    fn new(
+        module_name_key: NameKeyType,
+        data: Arc<SquishCollideModuleData>,
+        collide: SquishCollide,
+        object_id: ObjectID,
+    ) -> Self {
+        Self {
+            module_name_key,
+            data,
+            collide: Arc::new(Mutex::new(collide)),
+            object_id,
+        }
+    }
+}
+
+impl Module for SquishCollideModule {
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn ModuleData {
+        self.data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        if let Err(err) = COLLISION_MANAGER.register_collide_module(
+            self.object_id,
+            Box::new(SharedCollideModule::new(Arc::clone(&self.collide))),
+        ) {
+            warn!(
+                "Failed to register SquishCollide module for object {}: {}",
+                self.object_id, err
+            );
+        }
+    }
+
+    fn on_delete(&mut self) {
+        let _ = COLLISION_MANAGER.unregister_object(self.object_id);
+    }
+}
+
+impl Snapshotable for SquishCollideModule {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+fn squish_collide_data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    Box::new(SquishCollideModuleData::default())
+}
+
+fn squish_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<SquishCollideModuleData>("SquishCollide", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let collide = SquishCollide::new(object_id, Arc::clone(&data_arc));
+    let module_name_key = NameKeyGenerator::name_to_key("SquishCollide");
+    Box::new(SquishCollideModule::new(
+        module_name_key,
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 
 active_behavior_factories!(
     bunker_buster_behavior_data_factory,
@@ -4302,6 +4606,18 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         weapon_set_upgrade_module_factory,
         weapon_set_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "FireWeaponCollide",
+        ModuleType::Behavior,
+        fire_weapon_collide_module_factory,
+        fire_weapon_collide_data_factory,
+    )?;
+    register_module_override(
+        "SquishCollide",
+        ModuleType::Behavior,
+        squish_collide_module_factory,
+        squish_collide_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
