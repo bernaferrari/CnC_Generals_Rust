@@ -43,6 +43,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
 use crate::system::beacon_manager::get_beacon_manager;
+use crate::upgrade::center::THE_UPGRADE_CENTER;
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType, NO_MAX_SHOTS_LIMIT};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data as get_engine_global_data;
@@ -3563,6 +3564,65 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_queue_upgrade_command(
+        &self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        use crate::commands::command::CommandArgumentType;
+
+        let upgrade_key = match (
+            command.command.get_argument(1),
+            command.command.get_argument(0),
+        ) {
+            (Some(CommandArgumentType::Integer(value)), _) => *value as u32,
+            (_, Some(CommandArgumentType::Integer(value))) => *value as u32,
+            _ => {
+                return CommandExecutionResult::Failed(AsciiString::from(
+                    "QueueUpgrade missing upgrade key",
+                ))
+            }
+        };
+
+        let upgrade = match THE_UPGRADE_CENTER
+            .read()
+            .ok()
+            .and_then(|center| center.find_upgrade_by_key(upgrade_key))
+        {
+            Some(upgrade) => upgrade,
+            None => return CommandExecutionResult::Success,
+        };
+
+        let selection_manager = get_selection_manager();
+        let selected = selection_manager
+            .read()
+            .ok()
+            .and_then(|manager| {
+                manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+            })
+            .unwrap_or_default();
+
+        for object_id in selected {
+            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(guard) = obj.read() else {
+                continue;
+            };
+            if guard.is_destroyed() {
+                continue;
+            }
+            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+                continue;
+            }
+            let _ = guard.queue_upgrade(&upgrade);
+        }
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_weapon_target_command(
         &self,
         command: &QueuedCommand,
@@ -4023,6 +4083,7 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::SnipeVehicle => self.execute_snipe_vehicle(command, context),
             CommandType::EnableRetaliationMode => self.execute_enable_retaliation(command, context),
             CommandType::PurchaseScience => self.execute_purchase_science(command, context),
+            CommandType::QueueUpgrade => self.execute_queue_upgrade_command(command, context),
             CommandType::CreateFormation => self.execute_create_formation(command, context),
             CommandType::SelfDestruct => self.execute_self_destruct(command, context),
             CommandType::PlaceBeacon => self.execute_place_beacon(command, context),
@@ -4104,6 +4165,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::SnipeVehicle
                 | CommandType::EnableRetaliationMode
                 | CommandType::PurchaseScience
+                | CommandType::QueueUpgrade
                 | CommandType::CreateFormation
                 | CommandType::SelfDestruct
                 | CommandType::PlaceBeacon
@@ -4409,6 +4471,13 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::Exit));
+    }
+
+    #[test]
+    fn default_handler_accepts_queue_upgrade_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::QueueUpgrade));
     }
 
     #[test]
