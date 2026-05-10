@@ -44,6 +44,12 @@ use crate::object::behavior::battle_plan_update::{
 use crate::object::behavior::bridge_behavior::{
     BridgeBehavior, BridgeBehaviorModule, BridgeBehaviorModuleData,
 };
+use crate::object::behavior::bridge_scaffold_behavior::{
+    BridgeScaffoldBehavior, BridgeScaffoldBehaviorModule, BridgeScaffoldBehaviorModuleData,
+};
+use crate::object::behavior::bridge_tower_behavior::{
+    BridgeTowerBehavior, BridgeTowerBehaviorModule, BridgeTowerBehaviorModuleData,
+};
 use crate::object::behavior::bunker_buster_behavior::{
     BunkerBusterBehavior, BunkerBusterBehaviorModuleData,
 };
@@ -783,6 +789,66 @@ fn bridge_behavior_module_factory(
     Box::new(BridgeBehaviorModule::new(
         behavior,
         &AsciiString::from("BridgeBehavior"),
+        data_arc,
+    ))
+}
+
+fn bridge_scaffold_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = BridgeScaffoldBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse BridgeScaffoldBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn bridge_scaffold_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<BridgeScaffoldBehaviorModuleData>(
+        "BridgeScaffoldBehavior",
+        &module_data,
+    );
+    let behavior = BridgeScaffoldBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("BridgeScaffoldBehavior requires a valid object owner");
+    Box::new(BridgeScaffoldBehaviorModule::new(
+        behavior,
+        &AsciiString::from("BridgeScaffoldBehavior"),
+        data_arc,
+    ))
+}
+
+fn bridge_tower_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = BridgeTowerBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse BridgeTowerBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn bridge_tower_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<BridgeTowerBehaviorModuleData>("BridgeTowerBehavior", &module_data);
+    let behavior = BridgeTowerBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("BridgeTowerBehavior requires a valid object owner");
+    Box::new(BridgeTowerBehaviorModule::new(
+        behavior,
+        &AsciiString::from("BridgeTowerBehavior"),
         data_arc,
     ))
 }
@@ -3098,6 +3164,18 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         bridge_behavior_module_factory,
         bridge_behavior_data_factory,
+    )?;
+    register_module_override(
+        "BridgeScaffoldBehavior",
+        ModuleType::Behavior,
+        bridge_scaffold_behavior_module_factory,
+        bridge_scaffold_behavior_data_factory,
+    )?;
+    register_module_override(
+        "BridgeTowerBehavior",
+        ModuleType::Behavior,
+        bridge_tower_behavior_module_factory,
+        bridge_tower_behavior_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
