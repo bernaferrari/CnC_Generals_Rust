@@ -1,6 +1,9 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 
+/// C++ ProductionUpdateModuleData default MaxQueueEntries.
+pub const DEFAULT_PRODUCTION_QUEUE_LIMIT: usize = 9;
+
 /// Building-specific data and behaviors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildingData {
@@ -122,7 +125,9 @@ impl BuildingData {
     }
 
     pub fn add_to_queue(&mut self, template_name: String, template: &ThingTemplate) -> bool {
-        if self.can_produce(template) && self.production_queue.len() < 10 {
+        if self.can_produce(template)
+            && self.production_queue.len() < DEFAULT_PRODUCTION_QUEUE_LIMIT
+        {
             let item = ProductionItem {
                 template_name,
                 progress: 0.0,
