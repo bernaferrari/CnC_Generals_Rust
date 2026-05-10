@@ -102,6 +102,7 @@ pub struct PushButton {
     // Event handling
     callback: Option<ButtonCallback>,
     right_click_callback: Option<ButtonCallback>,
+    accepts_right_click: bool,
 
     // State tracking
     mouse_inside: bool,
@@ -135,6 +136,7 @@ impl PushButton {
 
             callback: None,
             right_click_callback: None,
+            accepts_right_click: false,
 
             mouse_inside: false,
             mouse_pressed: false,
@@ -219,12 +221,24 @@ impl PushButton {
     /// Set right-click callback
     pub fn with_right_click_callback(mut self, callback: ButtonCallback) -> Self {
         self.right_click_callback = Some(callback);
+        self.accepts_right_click = true;
         self
     }
 
     /// Set right-click callback (mutable)
     pub fn set_right_click_callback(&mut self, callback: ButtonCallback) {
         self.right_click_callback = Some(callback);
+        self.accepts_right_click = true;
+    }
+
+    /// Set whether right-click input is accepted.
+    pub fn set_accepts_right_click(&mut self, accepts: bool) {
+        self.accepts_right_click = accepts;
+    }
+
+    /// Check if this button accepts right-click input.
+    pub fn accepts_right_click(&self) -> bool {
+        self.accepts_right_click
     }
 
     /// Configure border display
@@ -363,6 +377,11 @@ impl PushButton {
             }
 
             MouseButton::Right => {
+                if !self.accepts_right_click {
+                    self.mouse_pressed = false;
+                    return Vec::new();
+                }
+
                 if self.is_checkbox {
                     // Right-click also toggles for checkboxes
                     self.is_checked = !self.is_checked;
@@ -422,6 +441,10 @@ impl PushButton {
             }
 
             MouseButton::Right => {
+                if !self.accepts_right_click {
+                    return Vec::new();
+                }
+
                 if !self.is_checkbox {
                     self.state = if self.mouse_inside {
                         GadgetState::Hovered
@@ -709,6 +732,7 @@ pub struct PushButtonBuilder {
     initially_checked: bool,
     callback: Option<ButtonCallback>,
     right_click_callback: Option<ButtonCallback>,
+    accepts_right_click: bool,
     style: ButtonStyle,
     user_data: Option<String>,
     triggers_on_mouse_down: bool,
@@ -724,6 +748,7 @@ impl PushButtonBuilder {
             initially_checked: false,
             callback: None,
             right_click_callback: None,
+            accepts_right_click: false,
             style: ButtonStyle::default(),
             user_data: None,
             triggers_on_mouse_down: false,
@@ -749,6 +774,12 @@ impl PushButtonBuilder {
 
     pub fn right_click_callback(mut self, callback: ButtonCallback) -> Self {
         self.right_click_callback = Some(callback);
+        self.accepts_right_click = true;
+        self
+    }
+
+    pub fn accepts_right_click(mut self, accepts: bool) -> Self {
+        self.accepts_right_click = accepts;
         self
     }
 
@@ -806,6 +837,7 @@ impl PushButtonBuilder {
         button.is_checked = self.initially_checked;
         button.callback = self.callback;
         button.right_click_callback = self.right_click_callback;
+        button.accepts_right_click = self.accepts_right_click;
         button.style = self.style;
         button.user_data = self.user_data;
         button.triggers_on_mouse_down = self.triggers_on_mouse_down;
@@ -910,5 +942,52 @@ mod tests {
         assert_eq!(button.state(), GadgetState::Normal);
         assert!(!button.is_mouse_inside());
         assert_eq!(messages.len(), 1);
+    }
+
+    #[test]
+    fn test_right_click_ignored_by_default() {
+        let mut button = PushButton::new(1, 0, 0, 100, 30);
+        button.handle_input(&InputEvent::MouseEnter { x: 50, y: 15 });
+
+        let down = button.handle_input(&InputEvent::MouseDown {
+            x: 50,
+            y: 15,
+            button: MouseButton::Right,
+        });
+        let up = button.handle_input(&InputEvent::MouseUp {
+            x: 50,
+            y: 15,
+            button: MouseButton::Right,
+        });
+
+        assert!(down.is_empty());
+        assert!(up.is_empty());
+        assert_eq!(button.state(), GadgetState::Hovered);
+    }
+
+    #[test]
+    fn test_right_click_enabled_matches_cpp_status_opt_in() {
+        let mut button = PushButtonBuilder::new(1, 0, 0, 100, 30)
+            .accepts_right_click(true)
+            .build();
+        button.handle_input(&InputEvent::MouseEnter { x: 50, y: 15 });
+
+        let down = button.handle_input(&InputEvent::MouseDown {
+            x: 50,
+            y: 15,
+            button: MouseButton::Right,
+        });
+        let up = button.handle_input(&InputEvent::MouseUp {
+            x: 50,
+            y: 15,
+            button: MouseButton::Right,
+        });
+
+        assert!(down.is_empty());
+        assert!(matches!(
+            up.as_slice(),
+            [GadgetMessage::RightClicked { gadget_id: 1 }]
+        ));
+        assert_eq!(button.state(), GadgetState::Hovered);
     }
 }
