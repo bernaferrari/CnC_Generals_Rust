@@ -263,9 +263,10 @@ impl InputManager {
                 };
                 self.add_event(input_event);
 
-                // Clear input state when losing focus to prevent stuck keys
+                // Clear input state when losing focus to prevent stuck commands.
                 if !focused {
-                    self.keyboard.reset_stats();
+                    self.keyboard.state_mut().reset();
+                    self.mouse.state_mut().reset();
                 }
             }
 
@@ -599,7 +600,9 @@ mod tests {
         let action_triggered_clone = action_triggered.clone();
 
         manager.register_action_callback("test_action", move || {
-            *action_triggered_clone.lock().unwrap_or_else(|e| e.into_inner()) = true;
+            *action_triggered_clone
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = true;
         });
 
         // Trigger action manually
@@ -635,6 +638,31 @@ mod tests {
         });
         manager.clear_events();
         assert_eq!(manager.event_queue_size(), 0);
+    }
+
+    #[test]
+    fn test_focus_loss_clears_held_keyboard_and_mouse_state() {
+        let mut manager = InputManager::new();
+        let now = Instant::now();
+
+        manager
+            .keyboard_mut()
+            .state_mut()
+            .update_key(KeyCode::LeftCtrl, true, now);
+        manager
+            .mouse_mut()
+            .handle_mouse_button(MouseButton::Left, true, now);
+
+        assert!(manager.is_key_down(KeyCode::LeftCtrl));
+        assert!(manager.is_mouse_button_down(MouseButton::Left));
+
+        manager.handle_window_event(&WindowEvent::Focused(false));
+
+        assert!(!manager.has_window_focus());
+        assert!(!manager.is_key_down(KeyCode::LeftCtrl));
+        assert!(!manager.is_mouse_button_down(MouseButton::Left));
+        assert!(manager.keyboard().state().pressed_keys().is_empty());
+        assert!(manager.mouse().state().pressed_buttons().is_empty());
     }
 
     #[test]
