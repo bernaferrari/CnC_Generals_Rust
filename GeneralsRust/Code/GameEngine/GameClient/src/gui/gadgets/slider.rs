@@ -498,36 +498,40 @@ impl SliderBase {
         let step = self.config.step_size.unwrap_or(1).max(1);
         let large_step = self.config.page_size;
 
-        let new_value = match key {
-            KeyCode::Left | KeyCode::Down => {
-                // Decrease value
-                match self.orientation {
-                    SliderOrientation::Horizontal => self.current_value - step,
-                    SliderOrientation::Vertical => self.current_value + step, // Vertical is inverted
-                }
+        let new_value = match (self.orientation, key) {
+            (SliderOrientation::Horizontal, KeyCode::Right) => self.current_value - (step * 2),
+            (SliderOrientation::Horizontal, KeyCode::Left) => self.current_value + (step * 2),
+            (SliderOrientation::Horizontal, KeyCode::Up | KeyCode::Down | KeyCode::Tab) => {
+                return Vec::new();
             }
-            KeyCode::Right | KeyCode::Up => {
-                // Increase value
-                match self.orientation {
-                    SliderOrientation::Horizontal => self.current_value + step,
-                    SliderOrientation::Vertical => self.current_value - step, // Vertical is inverted
-                }
+            (SliderOrientation::Vertical, KeyCode::Up) => self.current_value + (step * 2),
+            (SliderOrientation::Vertical, KeyCode::Down) => self.current_value - (step * 2),
+            (SliderOrientation::Vertical, KeyCode::Left | KeyCode::Right | KeyCode::Tab) => {
+                return Vec::new();
             }
-            KeyCode::PageUp => match self.orientation {
+            (_, KeyCode::PageUp) => match self.orientation {
                 SliderOrientation::Horizontal => self.current_value + large_step,
                 SliderOrientation::Vertical => self.current_value - large_step,
             },
-            KeyCode::PageDown => match self.orientation {
+            (_, KeyCode::PageDown) => match self.orientation {
                 SliderOrientation::Horizontal => self.current_value - large_step,
                 SliderOrientation::Vertical => self.current_value + large_step,
             },
-            KeyCode::Home => self.config.min_value,
-            KeyCode::End => self.config.max_value,
+            (_, KeyCode::Home) => self.config.min_value,
+            (_, KeyCode::End) => self.config.max_value,
             _ => return Vec::new(),
         };
 
+        let old_value = self.current_value;
         self.set_value(new_value);
-        Vec::new()
+        if self.current_value == old_value {
+            vec![GadgetMessage::Custom {
+                gadget_id: self.id,
+                data: "key_handled".to_string(),
+            }]
+        } else {
+            Vec::new()
+        }
     }
 
     /// Update animation and smooth scrolling
@@ -1137,6 +1141,76 @@ mod tests {
         assert_eq!(slider.value(), 128);
         assert_eq!(slider.range(), (0, 255));
         assert_eq!(slider.base.orientation, SliderOrientation::Vertical);
+    }
+
+    #[test]
+    fn test_horizontal_slider_keyboard_matches_cpp_axis() {
+        let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20)
+            .with_range(0, 10)
+            .with_value(5)
+            .with_step_size(1);
+        slider.set_focus(true);
+
+        let messages = slider.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Right,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(slider.value(), 3);
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 1,
+                value: GadgetValue::Integer(3)
+            }]
+        ));
+
+        let messages = slider.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Left,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(slider.value(), 5);
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 1,
+                value: GadgetValue::Integer(5)
+            }]
+        ));
+    }
+
+    #[test]
+    fn test_vertical_slider_keyboard_matches_cpp_axis() {
+        let mut slider = VerticalSlider::new(1, 0, 0, 20, 100)
+            .with_range(0, 10)
+            .with_value(5)
+            .with_step_size(1);
+        slider.set_focus(true);
+
+        let messages = slider.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Up,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(slider.value(), 7);
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 1,
+                value: GadgetValue::Integer(7)
+            }]
+        ));
+
+        let messages = slider.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(slider.value(), 5);
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 1,
+                value: GadgetValue::Integer(5)
+            }]
+        ));
     }
 
     #[test]
