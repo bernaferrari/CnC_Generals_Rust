@@ -174,7 +174,8 @@ fn parse_victim_kind_of(
     data: &mut EMPUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.victim_kind_of = parse_kind_of_mask(tokens);
+    let filtered: Vec<&str> = tokens.iter().copied().filter(|t| *t != "=").collect();
+    data.victim_kind_of = parse_kind_of_mask(&filtered);
     Ok(())
 }
 
@@ -183,7 +184,8 @@ fn parse_victim_kind_of_not(
     data: &mut EMPUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.victim_kind_of_not = parse_kind_of_mask(tokens);
+    let filtered: Vec<&str> = tokens.iter().copied().filter(|t| *t != "=").collect();
+    data.victim_kind_of_not = parse_kind_of_mask(&filtered);
     Ok(())
 }
 
@@ -284,30 +286,36 @@ impl EMPUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<EMPUpdateModuleData>()
+            .downcast_ref::<EMPUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
+        Self::new_with_data(object, Arc::new(specific_data.clone()))
+    }
+
+    pub fn new_with_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: Arc<EMPUpdateModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let now = TheGameLogic::get_frame();
-        let die_frame = now.saturating_add(specific_data.life_frames);
-        let tint_env_play_frame = now.saturating_add(specific_data.start_fade_frame);
+        let die_frame = now.saturating_add(module_data.life_frames);
+        let tint_env_play_frame = now.saturating_add(module_data.start_fade_frame);
         let tint_env_fade_frames = die_frame.saturating_sub(tint_env_play_frame);
-        let target_scale = GameLogicRandomValueReal(
-            specific_data.target_scale_min,
-            specific_data.target_scale_max,
-        );
+        let target_scale =
+            GameLogicRandomValueReal(module_data.target_scale_min, module_data.target_scale_max);
 
         if let Ok(mut guard) = object.write() {
             let _ = guard.set_orientation(GameLogicRandomValueReal(-PI, PI));
         }
 
+        let current_scale = module_data.start_scale;
         Ok(Self {
             object: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             die_frame,
             tint_env_fade_frames,
             tint_env_play_frame,
             target_scale,
-            current_scale: specific_data.start_scale,
+            current_scale,
         })
     }
 
