@@ -19,6 +19,7 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -56,6 +57,101 @@ impl Default for HeightDieUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(HeightDieUpdateModuleData, base);
+
+impl HeightDieUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, HEIGHT_DIE_UPDATE_FIELDS)
+    }
+}
+
+fn first_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_target_height(
+    _ini: &mut INI,
+    data: &mut HeightDieUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.target_height_above_terrain = INI::parse_real(first_value(tokens)?)?;
+    Ok(())
+}
+
+fn parse_target_height_includes_structures(
+    _ini: &mut INI,
+    data: &mut HeightDieUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.target_height_includes_structures = INI::parse_bool(first_value(tokens)?)?;
+    Ok(())
+}
+
+fn parse_only_when_moving_down(
+    _ini: &mut INI,
+    data: &mut HeightDieUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.only_when_moving_down = INI::parse_bool(first_value(tokens)?)?;
+    Ok(())
+}
+
+fn parse_destroy_attached_particles_at_height(
+    _ini: &mut INI,
+    data: &mut HeightDieUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.destroy_attached_particles_at_height = INI::parse_real(first_value(tokens)?)?;
+    Ok(())
+}
+
+fn parse_snap_to_ground_on_death(
+    _ini: &mut INI,
+    data: &mut HeightDieUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.snap_to_ground_on_death = INI::parse_bool(first_value(tokens)?)?;
+    Ok(())
+}
+
+fn parse_initial_delay(
+    _ini: &mut INI,
+    data: &mut HeightDieUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.initial_delay = INI::parse_duration_unsigned_int(first_value(tokens)?)?;
+    Ok(())
+}
+
+const HEIGHT_DIE_UPDATE_FIELDS: &[FieldParse<HeightDieUpdateModuleData>] = &[
+    FieldParse {
+        token: "TargetHeight",
+        parse: parse_target_height,
+    },
+    FieldParse {
+        token: "TargetHeightIncludesStructures",
+        parse: parse_target_height_includes_structures,
+    },
+    FieldParse {
+        token: "OnlyWhenMovingDown",
+        parse: parse_only_when_moving_down,
+    },
+    FieldParse {
+        token: "DestroyAttachedParticlesAtHeight",
+        parse: parse_destroy_attached_particles_at_height,
+    },
+    FieldParse {
+        token: "SnapToGroundOnDeath",
+        parse: parse_snap_to_ground_on_death,
+    },
+    FieldParse {
+        token: "InitialDelay",
+        parse: parse_initial_delay,
+    },
+];
 
 /// HeightDieUpdate - kills the object when it falls below a threshold height above terrain.
 /// Matches C++ HeightDieUpdate::update() at HeightDieUpdate.cpp:92-246
