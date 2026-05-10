@@ -45,6 +45,8 @@ use crate::object::drawable::DrawableArcExt;
 use crate::object::{Object, ObjectArcExt, ObjectStatusTypes};
 use crate::weapon::{WeaponStore, WeaponTemplate};
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
 
 // Constants
 const BEGIN_MIDPOINT_RATIO: Real = 0.35;
@@ -98,6 +100,32 @@ pub struct SlowDeathBehaviorModuleData {
 }
 
 impl ModuleData for SlowDeathBehaviorModuleData {}
+
+impl Snapshotable for SlowDeathBehaviorModuleData {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl EngineModuleData for SlowDeathBehaviorModuleData {
+    fn set_module_tag_name_key(&mut self, _key: NameKeyType) {}
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        0
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
 
 impl SlowDeathBehaviorModuleData {
     // Effect mask flags
@@ -495,7 +523,7 @@ impl SlowDeathBehavior {
         }
 
         Ok(Self {
-            object: None, // Will be set after creation
+            object: Some(_thing),
             module_data: Arc::new(data),
             next_call_frame_and_phase: 0,
             flags: 0,
@@ -1058,6 +1086,20 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
 // Thread safety
 unsafe impl Send for SlowDeathBehavior {}
 unsafe impl Sync for SlowDeathBehavior {}
+
+impl Module for SlowDeathBehavior {
+    fn get_module_name_key(&self) -> NameKeyType {
+        NameKeyGenerator::name_to_key("SlowDeathBehavior")
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        EngineModuleData::get_module_tag_name_key(self.module_data.as_ref())
+    }
+
+    fn get_module_data(&self) -> &dyn EngineModuleData {
+        self.module_data.as_ref()
+    }
+}
 
 impl Snapshotable for SlowDeathBehavior {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
