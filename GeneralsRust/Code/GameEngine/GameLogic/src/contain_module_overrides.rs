@@ -300,6 +300,9 @@ use crate::object::update::command_button_hunt_update::{
 use crate::object::update::fire_spread_update::{
     FireSpreadUpdate, FireSpreadUpdateModule, FireSpreadUpdateModuleData,
 };
+use crate::object::update::missile_ai_update::{
+    MissileAIUpdateBehavior, MissileAIUpdateModuleData,
+};
 use crate::object::update::neutron_missile_update::{
     neutron_missile_update_data_factory, neutron_missile_update_module_factory,
 };
@@ -2696,6 +2699,36 @@ active_behavior_factories!(
     "WeaponBonusUpdate"
 );
 
+impl Snapshotable for MissileAIUpdateBehavior {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+fn missile_ai_update_data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    Box::new(MissileAIUpdateModuleData::default())
+}
+
+fn missile_ai_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    active_behavior_module::<MissileAIUpdateBehavior, MissileAIUpdateModuleData>(
+        thing,
+        module_data,
+        "MissileAIUpdate",
+        MissileAIUpdateBehavior::new,
+    )
+}
+
 #[derive(Debug, Clone)]
 pub struct ContainModuleDataAdapter<T: Clone + Send + Sync + std::fmt::Debug + 'static> {
     base: BaseModuleData,
@@ -4954,6 +4987,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         dozer_ai_update_module_factory,
         dozer_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "MissileAIUpdate",
+        ModuleType::Behavior,
+        missile_ai_update_module_factory,
+        missile_ai_update_data_factory,
     )?;
     register_module_override(
         "ArmorUpgrade",
