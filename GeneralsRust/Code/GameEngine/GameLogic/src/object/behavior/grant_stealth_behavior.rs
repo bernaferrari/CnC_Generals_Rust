@@ -15,9 +15,10 @@ use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData};
 use log::warn;
-use std::any::Any;
 use std::sync::{Arc, RwLock, Weak};
 
 const INVALID_PARTICLE_SYSTEM_ID: ParticleSystemID = 0;
@@ -49,19 +50,7 @@ impl Default for GrantStealthBehaviorModuleData {
     }
 }
 
-impl crate::common::LegacyModuleData for GrantStealthBehaviorModuleData {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
-        self.module_tag_name_key = key;
-    }
-
-    fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_tag_name_key
-    }
-}
+crate::impl_legacy_module_data_with_key_field!(GrantStealthBehaviorModuleData, module_tag_name_key);
 
 impl Snapshotable for GrantStealthBehaviorModuleData {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -78,7 +67,17 @@ impl Snapshotable for GrantStealthBehaviorModuleData {
 }
 
 fn first_value_token<'a>(tokens: &'a [&'a str]) -> Option<&'a str> {
-    tokens.iter().copied().find(|token| !token.is_empty())
+    tokens
+        .iter()
+        .copied()
+        .find(|token| !token.is_empty() && *token != "=")
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> impl Iterator<Item = &'a str> + 'a {
+    tokens
+        .iter()
+        .copied()
+        .filter(|token| !token.is_empty() && *token != "=")
 }
 
 fn parse_real_field(
@@ -119,7 +118,8 @@ fn parse_kind_of_field(
     data: &mut GrantStealthBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.kind_of = parse_kind_of_mask(tokens);
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.kind_of = parse_kind_of_mask(&values);
     Ok(())
 }
 
@@ -190,13 +190,21 @@ impl GrantStealthBehavior {
                 .ok_or("Invalid module data type for GrantStealthBehavior")?;
             data_ref.clone()
         };
+        Self::new_with_data(object, Arc::new(specific_data))
+    }
+
+    pub fn new_with_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: Arc<GrantStealthBehaviorModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut behavior = Self {
             object: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
-            current_scan_radius: specific_data.start_radius,
+            current_scan_radius: 0.0,
         };
+        behavior.current_scan_radius = behavior.module_data.start_radius;
 
         if let Some(radius_tmpl) = &behavior.module_data.radius_particle_system_tmpl {
             if let Some(manager) = TheParticleSystemManager::get() {
@@ -457,6 +465,67 @@ impl BehaviorModuleInterface for GrantStealthBehavior {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+}
+
+pub struct GrantStealthBehaviorModule {
+    behavior: GrantStealthBehavior,
+    module_name_key: NameKeyType,
+    module_data: Arc<GrantStealthBehaviorModuleData>,
+}
+
+impl GrantStealthBehaviorModule {
+    pub fn new(
+        behavior: GrantStealthBehavior,
+        module_name: &AsciiString,
+        module_data: Arc<GrantStealthBehaviorModuleData>,
+    ) -> Self {
+        let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        Self {
+            behavior,
+            module_name_key,
+            module_data,
+        }
+    }
+
+    pub fn behavior(&self) -> &GrantStealthBehavior {
+        &self.behavior
+    }
+
+    pub fn behavior_mut(&mut self) -> &mut GrantStealthBehavior {
+        &mut self.behavior
+    }
+}
+
+impl Snapshotable for GrantStealthBehaviorModule {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.behavior.load_post_process()
+    }
+}
+
+impl Module for GrantStealthBehaviorModule {
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn EngineModuleData {
+        self.module_data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {}
+
+    fn on_delete(&mut self) {}
 }
 
 // Factory for creating GrantStealthBehavior instances
