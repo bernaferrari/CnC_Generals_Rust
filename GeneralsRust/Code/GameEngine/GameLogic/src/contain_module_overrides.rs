@@ -21,6 +21,9 @@ use crate::object::behavior::battle_bus_slow_death_behavior::{
 use crate::object::behavior::instant_death_behavior::{
     InstantDeathBehavior, InstantDeathBehaviorModuleData,
 };
+use crate::object::behavior::lifetime_update::{
+    lifetime_update_data_factory, lifetime_update_module_factory,
+};
 use crate::object::behavior::neutron_missile_slow_death_update::{
     neutron_missile_slow_death_data_factory, neutron_missile_slow_death_module_factory,
 };
@@ -59,6 +62,7 @@ use crate::object::special_powers::*;
 use crate::object::update::neutron_missile_update::{
     neutron_missile_update_data_factory, neutron_missile_update_module_factory,
 };
+use crate::object::update::ocl_update::{ocl_update_data_factory, ocl_update_module_factory};
 use crate::object::update::{
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
     BeaconClientUpdateModuleData, LaserUpdateModule as LaserClientUpdateModule,
@@ -2017,6 +2021,18 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         topple_update_module_factory,
         topple_update_data_factory,
+    )?;
+    register_module_override(
+        "LifetimeUpdate",
+        ModuleType::Behavior,
+        lifetime_update_module_factory,
+        lifetime_update_data_factory,
+    )?;
+    register_module_override(
+        "OCLUpdate",
+        ModuleType::Behavior,
+        ocl_update_module_factory,
+        ocl_update_data_factory,
     )?;
     register_module_override(
         "OpenContain",
