@@ -2941,6 +2941,111 @@ impl SelectionTranslator {
         }
     }
 
+    fn selected_local_template_names(&self) -> Vec<String> {
+        let mut templates = Vec::new();
+        for &object_id in &self.selected_objects {
+            let Some(object) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(guard) = object.read() else {
+                continue;
+            };
+            if !guard.is_locally_controlled() {
+                continue;
+            }
+
+            let template = guard.get_template_name().to_string();
+            if !templates.contains(&template) {
+                templates.push(template);
+            }
+        }
+        templates
+    }
+
+    fn matching_selection_screen_region() -> Option<IRegion2D> {
+        with_tactical_view_ref(|view| {
+            let top_left = view.screen_to_world(&IPoint2::new(0, 0)).ok()?;
+            let bottom_right = view
+                .screen_to_world(&IPoint2::new(view.width(), view.height()))
+                .ok()?;
+            Some(IRegion2D {
+                x: top_left.x.min(bottom_right.x).floor() as i32,
+                y: top_left.y.min(bottom_right.y).floor() as i32,
+                width: (top_left.x.max(bottom_right.x).ceil()
+                    - top_left.x.min(bottom_right.x).floor()) as i32,
+                height: (top_left.y.max(bottom_right.y).ceil()
+                    - top_left.y.min(bottom_right.y).floor()) as i32,
+            })
+        })
+    }
+
+    fn collect_matching_selection(&self, region: Option<&IRegion2D>) -> Vec<ObjectID> {
+        let templates = self.selected_local_template_names();
+        if templates.is_empty() {
+            return Vec::new();
+        }
+
+        let mut matching = Vec::new();
+        for object in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(guard) = object.read() else {
+                continue;
+            };
+
+            if !guard.is_selectable() || !guard.is_locally_controlled() {
+                continue;
+            }
+
+            if let Some(region) = region {
+                let position = guard.get_position();
+                let min_x = region.x.min(region.x + region.width) as f32;
+                let max_x = region.x.max(region.x + region.width) as f32;
+                let min_y = region.y.min(region.y + region.height) as f32;
+                let max_y = region.y.max(region.y + region.height) as f32;
+                if position.x < min_x
+                    || position.x > max_x
+                    || position.y < min_y
+                    || position.y > max_y
+                {
+                    continue;
+                }
+            }
+
+            if templates
+                .iter()
+                .any(|template| template == guard.get_template_name())
+            {
+                matching.push(guard.get_id());
+            }
+        }
+
+        matching.sort_unstable();
+        matching.dedup();
+        matching
+    }
+
+    fn handle_select_matching_units(&mut self) -> Vec<GameMessageType> {
+        if self.selected_local_template_names().is_empty() {
+            return Vec::new();
+        }
+
+        let screen_region = Self::matching_selection_screen_region();
+        let mut matching = screen_region
+            .as_ref()
+            .map(|region| self.collect_matching_selection(Some(region)))
+            .unwrap_or_default();
+
+        if matching.is_empty() {
+            matching = self.collect_matching_selection(None);
+        }
+
+        if matching.is_empty() {
+            return Vec::new();
+        }
+
+        self.selected_objects.extend(matching.iter().copied());
+        vec![GameMessageType::CreateSelectedGroupNoSound(false, matching)]
+    }
+
     fn handle_select_all(&mut self, aircraft_only: bool) -> Vec<GameMessageType> {
         let mut selected = Vec::new();
         for object in OBJECT_REGISTRY.get_all_objects() {
@@ -3979,6 +4084,7 @@ impl GameMessageTranslator for SelectionTranslator {
             }
             GameMessageType::MetaSelectAll => self.handle_select_all(false),
             GameMessageType::MetaSelectAllAircraft => self.handle_select_all(true),
+            GameMessageType::MetaSelectMatchingUnits => self.handle_select_matching_units(),
             GameMessageType::MetaSelectNextUnit => self.handle_cycle_selection(
                 SelectionCycleFilter::Unit,
                 SelectionCycleDirection::Backward,
@@ -4807,11 +4913,27 @@ mod tests {
         team: Arc<RwLock<Team>>,
         build_cost: i32,
     ) -> Arc<RwLock<gamelogic::object::Object>> {
-        let template: Arc<dyn ThingTemplate> = Arc::new(TestThingTemplate::new_with_cost(
-            &format!("Object{id}"),
-            kinds,
-            build_cost,
-        ));
+        register_test_object_with_name_and_cost(id, &format!("Object{id}"), kinds, team, build_cost)
+    }
+
+    fn register_test_object_with_name(
+        id: ObjectID,
+        name: &str,
+        kinds: Vec<KindOf>,
+        team: Arc<RwLock<Team>>,
+    ) -> Arc<RwLock<gamelogic::object::Object>> {
+        register_test_object_with_name_and_cost(id, name, kinds, team, 0)
+    }
+
+    fn register_test_object_with_name_and_cost(
+        id: ObjectID,
+        name: &str,
+        kinds: Vec<KindOf>,
+        team: Arc<RwLock<Team>>,
+        build_cost: i32,
+    ) -> Arc<RwLock<gamelogic::object::Object>> {
+        let template: Arc<dyn ThingTemplate> =
+            Arc::new(TestThingTemplate::new_with_cost(name, kinds, build_cost));
         let object = Arc::new(RwLock::new(gamelogic::object::Object::new_raw(
             template,
             id,
@@ -5633,6 +5755,89 @@ mod tests {
 
         assert_eq!(disposition, GameMessageDisposition::KeepMessage);
         assert_eq!(translator.selected_objects, HashSet::from([402]));
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_select_matching_units_uses_selected_local_templates() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let team = setup_local_player_team();
+
+        let selected = register_test_object_with_name(
+            451,
+            "TankTemplate",
+            vec![KindOf::Unit, KindOf::Vehicle, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        let matching = register_test_object_with_name(
+            452,
+            "TankTemplate",
+            vec![KindOf::Unit, KindOf::Vehicle, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        let different = register_test_object_with_name(
+            453,
+            "DozerTemplate",
+            vec![KindOf::Unit, KindOf::Vehicle, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        set_test_object_position(&selected, 10.0, 10.0, 0.0);
+        set_test_object_position(&matching, 20.0, 20.0, 0.0);
+        set_test_object_position(&different, 25.0, 25.0, 0.0);
+
+        let mut translator = SelectionTranslator::new();
+        translator.selected_objects.insert(451);
+
+        assert_eq!(
+            translator.collect_matching_selection(Some(&IRegion2D {
+                x: 0,
+                y: 0,
+                width: 40,
+                height: 40,
+            })),
+            vec![451, 452]
+        );
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_select_matching_units_falls_back_to_map_and_adds_selection() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let team = setup_local_player_team();
+
+        let selected = register_test_object_with_name(
+            461,
+            "RifleTemplate",
+            vec![KindOf::Unit, KindOf::Infantry, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        let matching = register_test_object_with_name(
+            462,
+            "RifleTemplate",
+            vec![KindOf::Unit, KindOf::Infantry, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        set_test_object_position(&selected, 5000.0, 5000.0, 0.0);
+        set_test_object_position(&matching, 5050.0, 5050.0, 0.0);
+
+        with_tactical_view(|view| {
+            view.set_width(1);
+            view.set_height(1);
+            view.set_position(&Point3::new(0.0, 0.0, 0.0));
+        });
+
+        let mut translator = SelectionTranslator::new();
+        translator.selected_objects.insert(461);
+
+        let disposition = translator
+            .translate_game_message(&GameMessage::new(GameMessageType::MetaSelectMatchingUnits));
+
+        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+        assert_eq!(translator.selected_objects, HashSet::from([461, 462]));
 
         OBJECT_REGISTRY.clear();
     }
