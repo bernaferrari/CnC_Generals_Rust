@@ -6,6 +6,7 @@ use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -25,6 +26,32 @@ impl Default for AnimationSteeringUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(AnimationSteeringUpdateModuleData, base);
+
+impl AnimationSteeringUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, ANIMATION_STEERING_UPDATE_FIELDS)
+    }
+}
+
+fn parse_min_transition_time(
+    _ini: &mut INI,
+    data: &mut AnimationSteeringUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.transition_frames = INI::parse_duration_unsigned_int(token)?;
+    Ok(())
+}
+
+const ANIMATION_STEERING_UPDATE_FIELDS: &[FieldParse<AnimationSteeringUpdateModuleData>] =
+    &[FieldParse {
+        token: "MinTransitionTime",
+        parse: parse_min_transition_time,
+    }];
 
 pub struct AnimationSteeringUpdate {
     object: Weak<RwLock<GameObject>>,
