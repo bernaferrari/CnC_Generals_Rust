@@ -76,6 +76,10 @@ use crate::object::behavior::leaflet_drop_behavior::{
 use crate::object::behavior::lifetime_update::{
     lifetime_update_data_factory, lifetime_update_module_factory,
 };
+use crate::object::behavior::missile_launcher_building_update::{
+    MissileLauncherBuildingUpdate, MissileLauncherBuildingUpdateModule,
+    MissileLauncherBuildingUpdateModuleData,
+};
 use crate::object::behavior::neutron_blast_behavior::{
     NeutronBlastBehavior, NeutronBlastBehaviorModuleData,
 };
@@ -463,6 +467,43 @@ active_behavior_factories!(
     LeafletDropBehavior,
     "LeafletDropBehavior"
 );
+
+fn missile_launcher_building_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = MissileLauncherBuildingUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse MissileLauncherBuildingUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn missile_launcher_building_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_any()
+        .downcast_ref::<MissileLauncherBuildingUpdateModuleData>()
+        .expect("MissileLauncherBuildingUpdateModuleData expected");
+    let data_arc = Arc::new(typed_data.clone());
+    let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
+    let owner_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(owner_id)
+        .expect("MissileLauncherBuildingUpdate requires a valid object");
+    let behavior = MissileLauncherBuildingUpdate::new(object, engine_data)
+        .expect("MissileLauncherBuildingUpdate failed to initialize");
+    Box::new(MissileLauncherBuildingUpdateModule::new(
+        behavior,
+        &AsciiString::from("MissileLauncherBuildingUpdate"),
+        data_arc,
+    ))
+}
+
 active_behavior_factories!(
     parking_place_behavior_data_factory,
     parking_place_behavior_module_factory,
@@ -2643,6 +2684,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         leaflet_drop_behavior_module_factory,
         leaflet_drop_behavior_data_factory,
+    )?;
+    register_module_override(
+        "MissileLauncherBuildingUpdate",
+        ModuleType::Behavior,
+        missile_launcher_building_update_module_factory,
+        missile_launcher_building_update_data_factory,
     )?;
     register_module_override(
         "ParkingPlaceBehavior",
