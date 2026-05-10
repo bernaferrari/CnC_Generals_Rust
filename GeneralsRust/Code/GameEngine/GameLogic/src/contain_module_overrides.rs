@@ -171,6 +171,9 @@ use crate::object::behavior::spawn_point_production_exit_behavior::{
     SpawnPointProductionExitBehavior, SpawnPointProductionExitBehaviorModule,
     SpawnPointProductionExitModuleData,
 };
+use crate::object::behavior::special_ability_update::{
+    SpecialAbilityUpdate, SpecialAbilityUpdateModule, SpecialAbilityUpdateModuleData,
+};
 use crate::object::behavior::spectre_gunship_deployment_update::{
     SpectreGunshipDeploymentUpdate, SpectreGunshipDeploymentUpdateModuleData,
 };
@@ -2729,6 +2732,39 @@ active_behavior_factories!(
     "PhysicsBehavior"
 );
 
+fn special_ability_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SpecialAbilityUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SpecialAbilityUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn special_ability_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<SpecialAbilityUpdateModuleData>("SpecialAbilityUpdate", &module_data);
+    let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
+    let owner_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(owner_id)
+        .expect("SpecialAbilityUpdate requires a valid object");
+    let behavior = SpecialAbilityUpdate::new(Arc::downgrade(&object), engine_data);
+    let module_name = AsciiString::from("SpecialAbilityUpdate");
+    Box::new(SpecialAbilityUpdateModule::new(
+        behavior,
+        &module_name,
+        data_arc,
+    ))
+}
+
 impl Snapshotable for MissileAIUpdateBehavior {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
@@ -5219,6 +5255,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         physics_behavior_module_factory,
         physics_behavior_data_factory,
+    )?;
+    register_module_override(
+        "SpecialAbilityUpdate",
+        ModuleType::Behavior,
+        special_ability_update_module_factory,
+        special_ability_update_data_factory,
     )?;
     register_module_override(
         "RailroadBehavior",
