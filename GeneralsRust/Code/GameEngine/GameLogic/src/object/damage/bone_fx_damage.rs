@@ -1,12 +1,19 @@
 //! BoneFXDamage - damage hook for BoneFXUpdate transitions.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use crate::common::{BodyDamageType, ObjectID};
+use crate::common::xfer::XferExt;
+use crate::common::{AsciiString, BodyDamageType, ObjectID};
 use crate::damage::DamageInfo;
-use crate::modules::DamageModuleInterface;
+use crate::modules::{BehaviorModuleInterface, DamageModuleInterface};
+use crate::object::damage::DamageModuleData;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::update::bone_fx_update::{BoneFXUpdate, BoneFXUpdateModule};
+use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType as EngineNameKeyType,
+};
 
 /// Damage module that delegates body damage state changes to BoneFXUpdate.
 #[derive(Debug)]
@@ -81,5 +88,101 @@ impl DamageModuleInterface for BoneFXDamage {
             Ok(())
         })
         .map_err(|err| err.into())
+    }
+}
+
+impl BehaviorModuleInterface for BoneFXDamage {
+    fn get_module_name(&self) -> &str {
+        "BoneFXDamage"
+    }
+
+    fn get_damage(&mut self) -> Option<&mut dyn DamageModuleInterface> {
+        Some(self)
+    }
+
+    fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        BoneFXDamage::on_object_created(self).map_err(|err| err.into())
+    }
+}
+
+impl Snapshotable for BoneFXDamage {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: u32 = 1;
+        if xfer.is_loading() {
+            let version = xfer.xfer_version_read();
+            if version > CURRENT_VERSION {
+                return Err(format!(
+                    "BoneFXDamage version {} > current version {}",
+                    version, CURRENT_VERSION
+                ));
+            }
+        } else {
+            xfer.xfer_version_write(CURRENT_VERSION);
+        }
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+pub struct BoneFXDamageModule {
+    behavior: BoneFXDamage,
+    module_name_key: EngineNameKeyType,
+    module_data: Arc<DamageModuleData>,
+}
+
+impl BoneFXDamageModule {
+    pub fn new(
+        behavior: BoneFXDamage,
+        module_name: &AsciiString,
+        module_data: Arc<DamageModuleData>,
+    ) -> Self {
+        Self {
+            behavior,
+            module_name_key: NameKeyGenerator::name_to_key(module_name.as_str()),
+            module_data,
+        }
+    }
+
+    pub fn behavior_mut(&mut self) -> &mut BoneFXDamage {
+        &mut self.behavior
+    }
+}
+
+impl Snapshotable for BoneFXDamageModule {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.behavior.load_post_process()
+    }
+}
+
+impl Module for BoneFXDamageModule {
+    fn get_module_name_key(&self) -> EngineNameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> EngineNameKeyType {
+        self.module_data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn EngineModuleData {
+        self.module_data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        let _ = self.behavior.on_object_created();
     }
 }
