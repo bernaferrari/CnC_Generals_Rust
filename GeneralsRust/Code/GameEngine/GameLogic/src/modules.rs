@@ -1938,12 +1938,16 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     fn ai_move_to_position(
         &self,
         pos: &Coord3D,
-        _add_waypoint: bool,
+        add_waypoint: bool,
         cmd_source: CommandSourceType,
     ) {
         if let Ok(mut guard) = self.try_lock() {
             let mut params = crate::ai::AiCommandParams::new(
-                crate::ai::AiCommandType::MoveToPosition,
+                if add_waypoint {
+                    crate::ai::AiCommandType::FollowPathAppend
+                } else {
+                    crate::ai::AiCommandType::MoveToPosition
+                },
                 cmd_source,
             );
             params.pos = *pos;

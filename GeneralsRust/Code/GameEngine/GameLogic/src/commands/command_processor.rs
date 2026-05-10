@@ -449,6 +449,9 @@ pub trait PlayerManager: Send + Sync {
 /// Trait for AI management interface
 pub trait AIManager: Send + Sync {
     fn issue_move_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool;
+    fn issue_waypoint_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
+        self.issue_move_order(objects, destination)
+    }
     fn issue_attack_order(&mut self, attackers: &[ObjectID], target: ObjectID) -> bool;
     fn issue_build_order(&mut self, builder: ObjectID, template: &str, position: Coord3D) -> bool;
     fn issue_stop_order(&mut self, objects: &[ObjectID]) -> bool;
@@ -596,7 +599,13 @@ impl DefaultCommandHandler {
         // Issue move order to AI system
         if let Some(ai_manager) = &context.ai_manager {
             if let Ok(mut ai) = ai_manager.write() {
-                if ai.issue_move_order(&object_ids, position) {
+                let accepted = if command.command.get_type() == CommandType::AddWaypoint {
+                    ai.issue_waypoint_order(&object_ids, position)
+                } else {
+                    ai.issue_move_order(&object_ids, position)
+                };
+
+                if accepted {
                     CommandExecutionResult::Success
                 } else {
                     CommandExecutionResult::Failed(AsciiString::from(
@@ -3385,6 +3394,7 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::DoMoveTo
             | CommandType::DoAttackMoveTo
             | CommandType::DoForceMoveTo
+            | CommandType::AddWaypoint
             | CommandType::DoSalvage => self.execute_move_command(command, context),
             CommandType::DoAttackObject | CommandType::DoForceAttackObject => {
                 self.execute_attack_command(command, context)
