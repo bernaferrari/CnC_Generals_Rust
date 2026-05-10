@@ -25,6 +25,11 @@ use crate::object::contain::{
     TunnelContain, TunnelContainModuleData,
 };
 use crate::object::draw::*;
+use crate::object::update::{
+    AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
+    BeaconClientUpdateModuleData, LaserUpdateModule as LaserClientUpdateModule,
+    LaserUpdateModuleData as LaserClientUpdateModuleData, SwayClientUpdateModule,
+};
 
 fn resolve_owner_id(thing: &Arc<dyn ModuleThing>) -> ObjectID {
     thing
@@ -1104,6 +1109,102 @@ owner_bound_draw_factory!(
     "W3DDebrisDraw"
 );
 
+fn laser_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = LaserClientUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse LaserUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn laser_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_ref()
+        .as_any()
+        .downcast_ref::<LaserClientUpdateModuleData>()
+        .cloned()
+        .unwrap_or_else(|| {
+            warn!("LaserUpdate module data expected; using defaults");
+            LaserClientUpdateModuleData::default()
+        });
+    let module_data = Arc::new(typed_data);
+    Box::new(LaserClientUpdateModule::new(
+        NameKeyGenerator::name_to_key("LaserUpdate"),
+        module_data,
+        Some(resolve_owner_id(&thing)),
+    ))
+}
+
+fn beacon_client_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = BeaconClientUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse BeaconClientUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn beacon_client_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_ref()
+        .as_any()
+        .downcast_ref::<BeaconClientUpdateModuleData>()
+        .cloned()
+        .unwrap_or_else(|| {
+            warn!("BeaconClientUpdate module data expected; using defaults");
+            BeaconClientUpdateModuleData::default()
+        });
+    let module_data = Arc::new(typed_data);
+    Box::new(BeaconClientUpdateModule::new(
+        NameKeyGenerator::name_to_key("BeaconClientUpdate"),
+        module_data,
+        resolve_owner_id(&thing),
+    ))
+}
+
+fn base_client_update_module_data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    Box::new(BaseModuleData::new())
+}
+
+fn sway_client_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    Box::new(SwayClientUpdateModule::new(
+        NameKeyGenerator::name_to_key("SwayClientUpdate"),
+        module_data,
+        resolve_owner_id(&thing),
+    ))
+}
+
+fn animated_particle_sys_bone_client_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    Box::new(AnimatedParticleSysBoneClientUpdateModule::new(
+        NameKeyGenerator::name_to_key("AnimatedParticleSysBoneClientUpdate"),
+        module_data,
+        resolve_owner_id(&thing),
+    ))
+}
+
 fn install_contain_overrides() -> Result<(), String> {
     register_module_override(
         "OpenContain",
@@ -1290,6 +1391,30 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Draw,
         w3d_debris_draw_module_factory,
         w3d_debris_draw_module_data_factory,
+    )?;
+    register_module_override(
+        "LaserUpdate",
+        ModuleType::ClientUpdate,
+        laser_update_module_factory,
+        laser_update_module_data_factory,
+    )?;
+    register_module_override(
+        "BeaconClientUpdate",
+        ModuleType::ClientUpdate,
+        beacon_client_update_module_factory,
+        beacon_client_update_module_data_factory,
+    )?;
+    register_module_override(
+        "SwayClientUpdate",
+        ModuleType::ClientUpdate,
+        sway_client_update_module_factory,
+        base_client_update_module_data_factory,
+    )?;
+    register_module_override(
+        "AnimatedParticleSysBoneClientUpdate",
+        ModuleType::ClientUpdate,
+        animated_particle_sys_bone_client_update_module_factory,
+        base_client_update_module_data_factory,
     )?;
     Ok(())
 }
