@@ -3609,7 +3609,7 @@ impl GameLogic {
 
         // Second pass: Handle production buildings
         for &object_id in object_ids {
-            let (team, spawn_origin, is_production_building) = match self.objects.get(&object_id) {
+            let (team, is_production_building) = match self.objects.get(&object_id) {
                 Some(obj)
                     if obj.is_kind_of(KindOf::Structure)
                         && obj.is_constructed()
@@ -3618,7 +3618,7 @@ impl GameLogic {
                     let is_production_building = obj.template_name.contains("Barracks")
                         || obj.template_name.contains("WarFactory")
                         || obj.template_name.contains("ArmsDealer");
-                    (obj.team, obj.get_position(), is_production_building)
+                    (obj.team, is_production_building)
                 }
                 _ => continue,
             };
@@ -3652,35 +3652,7 @@ impl GameLogic {
                     unit_to_produce
                 );
 
-                // Mirror production parity: charge cost before spawning.
-                let Some(build_cost) = self.templates.get(&unit_to_produce).map(|t| t.build_cost)
-                else {
-                    continue;
-                };
-
-                let can_pay = self
-                    .get_player_mut(pid)
-                    .map(|player| player.spend_resources(&build_cost))
-                    .unwrap_or(false);
-                if !can_pay {
-                    continue;
-                }
-
-                // Actually create the unit near the building.
-                let spawn_pos = spawn_origin + Vec3::new(20.0, 0.0, 20.0);
-                if self
-                    .create_object(&unit_to_produce, team, spawn_pos)
-                    .is_none()
-                {
-                    // Refund if the spawn failed after charging resources.
-                    if let Some(player) = self.get_player_mut(pid) {
-                        player.resources.supplies = player
-                            .resources
-                            .supplies
-                            .saturating_add(build_cost.supplies);
-                        player.power_available -= build_cost.power;
-                    }
-                }
+                self.enqueue_production(object_id, unit_to_produce);
             }
         }
 
@@ -12233,6 +12205,65 @@ mod tests {
             250,
             "resources should remain unchanged when production cannot be afforded"
         );
+    }
+
+    #[test]
+    fn ai_production_queues_units_instead_of_spawning_immediately() {
+        let mut game_logic = GameLogic::new();
+
+        let mut war_factory = ThingTemplate::new("WarFactory");
+        war_factory
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(1500.0)
+            .set_cost(1000, -2);
+        game_logic
+            .templates
+            .insert("WarFactory".to_string(), war_factory);
+
+        let mut humvee = ThingTemplate::new("USA_Humvee");
+        humvee
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(250.0)
+            .set_cost(500, 0);
+        game_logic
+            .templates
+            .insert("USA_Humvee".to_string(), humvee);
+
+        let mut player = Player::new(0, Team::USA, "AI", false);
+        player.resources.supplies = 1_000;
+        game_logic.add_player(player);
+
+        let factory_id = game_logic
+            .create_object("WarFactory", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("war factory should be created");
+
+        game_logic.frame = 600; // AI production pulse
+        game_logic.update_ai(&[factory_id], 1.0 / 60.0);
+
+        assert_eq!(
+            game_logic.objects.len(),
+            1,
+            "AI production should queue first instead of instantly spawning a unit"
+        );
+        assert_eq!(
+            game_logic
+                .get_player(0)
+                .expect("player should exist")
+                .resources
+                .supplies,
+            500,
+            "queued AI production should charge exactly once"
+        );
+        let queue = &game_logic
+            .find_object(factory_id)
+            .and_then(|factory| factory.building_data.as_ref())
+            .expect("factory should have building data")
+            .production_queue;
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].template_name, "USA_Humvee");
     }
 
     #[test]
