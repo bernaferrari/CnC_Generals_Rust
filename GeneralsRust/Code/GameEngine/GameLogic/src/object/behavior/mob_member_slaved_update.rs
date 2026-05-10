@@ -61,12 +61,20 @@ impl MobMemberSlavedUpdateModuleData {
     }
 }
 
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
 fn parse_must_catch_up_radius(
     _ini: &mut INI,
     data: &mut MobMemberSlavedUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     data.must_catch_up_radius = INI::parse_int(token)?;
     Ok(())
 }
@@ -76,7 +84,7 @@ fn parse_catch_up_crisis_bail_time(
     data: &mut MobMemberSlavedUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     data.catch_up_crisis_bail_time = INI::parse_unsigned_int(token)?;
     Ok(())
 }
@@ -86,7 +94,7 @@ fn parse_no_need_to_catch_up_radius(
     data: &mut MobMemberSlavedUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     data.no_need_to_catch_up_radius = INI::parse_int(token)?;
     Ok(())
 }
@@ -96,7 +104,7 @@ fn parse_squirrelliness(
     data: &mut MobMemberSlavedUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     data.squirrelliness_ratio = INI::parse_real(token)?;
     Ok(())
 }
