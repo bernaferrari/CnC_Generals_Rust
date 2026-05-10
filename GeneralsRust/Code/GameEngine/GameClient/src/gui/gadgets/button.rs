@@ -670,10 +670,38 @@ impl Gadget for PushButton {
                 if self.focused {
                     match key {
                         KeyCode::Enter | KeyCode::Space => {
-                            // Simulate click
-                            let mut messages = self.handle_mouse_press(MouseButton::Left);
-                            messages.extend(self.handle_mouse_release(MouseButton::Left));
-                            messages
+                            if self.is_checkbox {
+                                self.handle_mouse_press(MouseButton::Left)
+                            } else {
+                                self.mouse_pressed = true;
+                                self.state = GadgetState::Pressed;
+                                Vec::new()
+                            }
+                        }
+                        _ => Vec::new(),
+                    }
+                } else {
+                    Vec::new()
+                }
+            }
+
+            InputEvent::KeyUp { key, .. } => {
+                if self.focused {
+                    match key {
+                        KeyCode::Enter | KeyCode::Space if !self.is_checkbox => {
+                            let was_pressed = self.mouse_pressed;
+                            self.mouse_pressed = false;
+                            self.state = GadgetState::Focused;
+                            if was_pressed {
+                                let mut messages =
+                                    vec![GadgetMessage::Clicked { gadget_id: self.id }];
+                                if let Some(ref callback) = self.callback {
+                                    callback(self.id);
+                                }
+                                messages
+                            } else {
+                                Vec::new()
+                            }
                         }
                         _ => Vec::new(),
                     }
@@ -1042,6 +1070,52 @@ mod tests {
             [GadgetMessage::RightClicked { gadget_id: 1 }]
         ));
         assert_eq!(button.state(), GadgetState::Hovered);
+    }
+
+    #[test]
+    fn test_keyboard_activation_matches_cpp_key_up_for_normal_button() {
+        let mut button = PushButton::new(1, 0, 0, 100, 30);
+        button.set_focus(true);
+
+        let down = button.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Enter,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(down.is_empty());
+        assert_eq!(button.state(), GadgetState::Pressed);
+
+        let up = button.handle_input(&InputEvent::KeyUp {
+            key: KeyCode::Enter,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            up.as_slice(),
+            [GadgetMessage::Clicked { gadget_id: 1 }]
+        ));
+        assert_eq!(button.state(), GadgetState::Focused);
+    }
+
+    #[test]
+    fn test_keyboard_activation_matches_cpp_key_down_for_check_like_button() {
+        let mut button = PushButton::new(1, 0, 0, 100, 30).as_checkbox(false);
+        button.set_focus(true);
+
+        let down = button.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Space,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(button.is_checked());
+        assert!(matches!(
+            down.as_slice(),
+            [GadgetMessage::Clicked { gadget_id: 1 }]
+        ));
+
+        let up = button.handle_input(&InputEvent::KeyUp {
+            key: KeyCode::Space,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(up.is_empty());
+        assert!(button.is_checked());
     }
 
     #[test]
