@@ -19,7 +19,7 @@ use super::player_state::get_local_player_id;
 use super::selection_xlat::SelectionTranslator as SelectionTranslatorXlat;
 use super::window_xlat::WindowTranslator;
 use crate::core::game_client::CommandEvaluateType as ClientCommandEvaluateType;
-use crate::display::view::{with_tactical_view_ref, IPoint2};
+use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
 use crate::drawable::Drawable;
 use crate::gui::{toggle_control_bar, toggle_diplomacy, toggle_quit_menu};
 use crate::helpers::{PendingCommand, TheInGameUI};
@@ -2756,6 +2756,28 @@ impl SelectionTranslator {
             vec![]
         }
     }
+
+    fn handle_control_group_view(&self, group: u8) {
+        let Some(object_id) = self
+            .control_groups
+            .get(&group)
+            .and_then(|objects| objects.last())
+            .copied()
+        else {
+            return;
+        };
+
+        let Some(position) = OBJECT_REGISTRY
+            .get_object(object_id)
+            .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
+        else {
+            return;
+        };
+
+        with_tactical_view(|view| {
+            view.look_at(&Point3::new(position.x, position.y, position.z));
+        });
+    }
 }
 
 fn collect_selectable_objects(
@@ -3751,6 +3773,10 @@ impl GameMessageTranslator for SelectionTranslator {
             GameMessageType::MetaCreateTeam(group) => self.handle_control_group_create(*group),
             GameMessageType::MetaSelectTeam(group) => self.handle_control_group_select(*group),
             GameMessageType::MetaAddTeam(group) => self.handle_control_group_add(*group),
+            GameMessageType::MetaViewTeam(group) => {
+                self.handle_control_group_view(*group);
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::CreateSelectedGroup(create_new, objects) => {
                 if *create_new {
                     self.selected_objects.clear();
@@ -5124,6 +5150,65 @@ mod tests {
 
         assert_eq!(translator.selected_objects.len(), 2);
         assert_eq!(translator.last_selected_group, Some(1));
+    }
+
+    #[test]
+    fn test_live_selection_view_team_centers_on_last_object_without_selecting() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+
+        let template: Arc<dyn gamelogic::thing_template::ThingTemplate> = Arc::new(
+            gamelogic::thing_template::DefaultThingTemplate::new("ControlGroupUnit".to_string()),
+        );
+        let first = Arc::new(RwLock::new(gamelogic::object::Object::new_raw(
+            Arc::clone(&template),
+            200,
+            LogicObjectStatusMaskType::none(),
+            None,
+        )));
+        let second = Arc::new(RwLock::new(gamelogic::object::Object::new_raw(
+            template,
+            201,
+            LogicObjectStatusMaskType::none(),
+            None,
+        )));
+        {
+            let mut first_guard = first.write().unwrap();
+            first_guard
+                .set_position(&LogicCoord3D::new(100.0, 200.0, 0.0))
+                .unwrap();
+        }
+        {
+            let mut second_guard = second.write().unwrap();
+            second_guard
+                .set_position(&LogicCoord3D::new(320.0, 460.0, 0.0))
+                .unwrap();
+        }
+        OBJECT_REGISTRY.register_object(200, &first);
+        OBJECT_REGISTRY.register_object(201, &second);
+
+        with_tactical_view(|view| {
+            view.set_width(120);
+            view.set_height(90);
+            view.set_position(&Point3::new(0.0, 0.0, 0.0));
+        });
+
+        let mut translator = SelectionTranslator::new();
+        translator.control_groups.insert(3, vec![200, 201]);
+        translator.selected_objects.insert(999);
+
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaViewTeam(3)));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        assert_eq!(translator.selected_objects, HashSet::from([999]));
+        assert_eq!(translator.last_selected_group, None);
+        with_tactical_view_ref(|view| {
+            assert_eq!(view.position().x, 260.0);
+            assert_eq!(view.position().y, 415.0);
+        });
+
+        OBJECT_REGISTRY.clear();
     }
 
     #[test]
