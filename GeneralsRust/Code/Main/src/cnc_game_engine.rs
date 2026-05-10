@@ -7067,12 +7067,12 @@ impl CnCGameEngine {
 
                 if mx < EDGE_SCROLL_SIZE {
                     edge_dx = -1.0;
-                } else if mx > win_w - EDGE_SCROLL_SIZE {
+                } else if mx >= win_w - EDGE_SCROLL_SIZE {
                     edge_dx = 1.0;
                 }
                 if my < EDGE_SCROLL_SIZE {
                     edge_dy = -1.0;
-                } else if my > win_h - EDGE_SCROLL_SIZE {
+                } else if my >= win_h - EDGE_SCROLL_SIZE {
                     edge_dy = 1.0;
                 }
 
