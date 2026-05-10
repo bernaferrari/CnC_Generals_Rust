@@ -338,6 +338,17 @@ impl Player {
             .any(|unlocked| normalize_upgrade_name(unlocked) == expected)
     }
 
+    pub fn has_unlocked_science(&self, science_name: &str) -> bool {
+        self.has_unlocked_upgrade(science_name)
+    }
+
+    pub fn unlock_science(&mut self, science_name: &str) -> bool {
+        if self.has_unlocked_science(science_name) {
+            return false;
+        }
+        self.unlocked_sciences.insert(science_name.to_string())
+    }
+
     pub fn has_queued_upgrade(&self, upgrade_name: &str) -> bool {
         self.find_queued_upgrade_name(upgrade_name).is_some()
     }
