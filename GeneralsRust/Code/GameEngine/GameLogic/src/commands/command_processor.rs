@@ -1124,6 +1124,37 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_set_rally_point(
+        &mut self,
+        command: &QueuedCommand,
+        _context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        let object_id = command.command.get_argument(0).and_then(|arg| match arg {
+            crate::commands::command::CommandArgumentType::ObjectID(id) => Some(*id),
+            _ => None,
+        });
+        let destination = command.command.get_argument(1).and_then(|arg| match arg {
+            crate::commands::command::CommandArgumentType::Location(pos) => Some(*pos),
+            _ => None,
+        });
+
+        let (Some(object_id), Some(destination)) = (object_id, destination) else {
+            return CommandExecutionResult::Failed(AsciiString::from(
+                "SetRallyPoint missing object or destination",
+            ));
+        };
+
+        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            return CommandExecutionResult::Success;
+        };
+        let Ok(mut object_guard) = object_arc.write() else {
+            return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
+        };
+
+        let _ = object_guard.set_rally_point(&destination);
+        CommandExecutionResult::Success
+    }
+
     /// Execute stop command
     fn execute_stop_command(
         &mut self,
@@ -3546,6 +3577,7 @@ impl CommandHandler for DefaultCommandHandler {
                 self.execute_build_command(command, context)
             }
             CommandType::Sell => self.execute_sell_command(command, context),
+            CommandType::SetRallyPoint => self.execute_set_rally_point(command, context),
             CommandType::DoStop => self.execute_stop_command(command, context),
             CommandType::DoScatter => self.execute_scatter_command(command, context),
             CommandType::DoSpecialPower
@@ -3644,6 +3676,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::DozerConstruct
                 | CommandType::DozerConstructLine
                 | CommandType::Sell
+                | CommandType::SetRallyPoint
                 | CommandType::DoStop
                 | CommandType::DoScatter
                 | CommandType::DoSpecialPower
@@ -3926,6 +3959,13 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::Sell));
+    }
+
+    #[test]
+    fn default_handler_accepts_set_rally_point_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::SetRallyPoint));
     }
 
     #[test]
