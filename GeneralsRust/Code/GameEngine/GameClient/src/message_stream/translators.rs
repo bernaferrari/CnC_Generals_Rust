@@ -2778,6 +2778,44 @@ impl SelectionTranslator {
             view.look_at(&Point3::new(position.x, position.y, position.z));
         });
     }
+
+    fn handle_select_all(&mut self, aircraft_only: bool) -> Vec<GameMessageType> {
+        let mut selected = Vec::new();
+        for object in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(guard) = object.read() else {
+                continue;
+            };
+
+            if !guard.is_mobile()
+                || !guard.is_locally_controlled()
+                || guard.is_contained()
+                || guard.is_effectively_dead()
+                || !guard.is_mass_selectable()
+                || guard.is_any_kind_of(&[
+                    KindOf::Dozer,
+                    KindOf::Harvester,
+                    KindOf::IgnoresSelectAll,
+                ])
+            {
+                continue;
+            }
+
+            if aircraft_only {
+                if !guard.is_kind_of(KindOf::Aircraft) {
+                    continue;
+                }
+            } else if guard.is_kind_of(KindOf::Structure) || guard.is_kind_of(KindOf::Building) {
+                continue;
+            }
+
+            selected.push(guard.get_id());
+        }
+
+        selected.sort_unstable();
+        self.selected_objects.clear();
+        self.selected_objects.extend(selected.iter().copied());
+        vec![GameMessageType::CreateSelectedGroup(true, selected)]
+    }
 }
 
 fn collect_selectable_objects(
@@ -3777,6 +3815,8 @@ impl GameMessageTranslator for SelectionTranslator {
                 self.handle_control_group_view(*group);
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaSelectAll => self.handle_select_all(false),
+            GameMessageType::MetaSelectAllAircraft => self.handle_select_all(true),
             GameMessageType::CreateSelectedGroup(create_new, objects) => {
                 if *create_new {
                     self.selected_objects.clear();
@@ -4492,6 +4532,10 @@ impl Default for TranslatorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gamelogic::common::{AsciiString, GeometryInfo, Real};
+    use gamelogic::player::{player_list, Player};
+    use gamelogic::team::Team;
+    use gamelogic::thing_template::ThingTemplate;
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     fn test_state_lock() -> MutexGuard<'static, ()> {
@@ -4500,6 +4544,78 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+    }
+
+    #[derive(Debug)]
+    struct TestThingTemplate {
+        name: AsciiString,
+        geometry: GeometryInfo,
+        kinds: Vec<KindOf>,
+    }
+
+    impl TestThingTemplate {
+        fn new(name: &str, kinds: Vec<KindOf>) -> Self {
+            Self {
+                name: AsciiString::from(name),
+                geometry: GeometryInfo::default(),
+                kinds,
+            }
+        }
+    }
+
+    impl ThingTemplate for TestThingTemplate {
+        fn get_name(&self) -> &AsciiString {
+            &self.name
+        }
+
+        fn get_template_geometry_info(&self) -> GeometryInfo {
+            self.geometry.clone()
+        }
+
+        fn calc_vision_range(&self) -> Real {
+            100.0
+        }
+
+        fn calc_shroud_clearing_range(&self) -> Real {
+            100.0
+        }
+
+        fn is_kind_of(&self, kind: KindOf) -> bool {
+            self.kinds.contains(&kind)
+        }
+    }
+
+    fn setup_local_player_team() -> Arc<RwLock<Team>> {
+        crate::message_stream::player_state::set_local_player_id(0);
+        {
+            let list = player_list();
+            let mut guard = list.write().unwrap();
+            guard.clear();
+            guard.add_player(Arc::new(RwLock::new(Player::new(0))));
+            guard.set_local_player_index(0);
+        }
+
+        let team = Arc::new(RwLock::new(Team::new(AsciiString::from("teamLocal"), 1)));
+        team.write().unwrap().set_controlling_player_id(Some(0));
+        team
+    }
+
+    fn register_test_object(
+        id: ObjectID,
+        kinds: Vec<KindOf>,
+        team: Arc<RwLock<Team>>,
+    ) -> Arc<RwLock<gamelogic::object::Object>> {
+        let template: Arc<dyn ThingTemplate> =
+            Arc::new(TestThingTemplate::new(&format!("Object{id}"), kinds));
+        let object = Arc::new(RwLock::new(gamelogic::object::Object::new_raw(
+            template,
+            id,
+            LogicObjectStatusMaskType::none(),
+            Some(team),
+        )));
+        object.write().unwrap().set_selectable(true);
+        OBJECT_REGISTRY.register_object(id, &object);
+        object
     }
 
     #[test]
@@ -5207,6 +5323,100 @@ mod tests {
             assert_eq!(view.position().x, 260.0);
             assert_eq!(view.position().y, 415.0);
         });
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_select_all_filters_cpp_disqualified_units() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let team = setup_local_player_team();
+
+        let _unit = register_test_object(
+            301,
+            vec![KindOf::Unit, KindOf::Vehicle, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        let _dozer = register_test_object(
+            302,
+            vec![
+                KindOf::Unit,
+                KindOf::Vehicle,
+                KindOf::Selectable,
+                KindOf::Dozer,
+            ],
+            Arc::clone(&team),
+        );
+        let _structure = register_test_object(
+            303,
+            vec![
+                KindOf::Structure,
+                KindOf::Building,
+                KindOf::Selectable,
+                KindOf::Immobile,
+            ],
+            Arc::clone(&team),
+        );
+        let _ignored_aircraft = register_test_object(
+            304,
+            vec![
+                KindOf::Unit,
+                KindOf::Aircraft,
+                KindOf::Selectable,
+                KindOf::IgnoresSelectAll,
+            ],
+            Arc::clone(&team),
+        );
+
+        let mut translator = SelectionTranslator::new();
+        translator.selected_objects.insert(302);
+        translator.selected_objects.insert(303);
+
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaSelectAll));
+
+        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+        assert_eq!(translator.selected_objects, HashSet::from([301]));
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_select_all_aircraft_requires_aircraft_and_filters_disqualified_units() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let team = setup_local_player_team();
+
+        let _ground_unit = register_test_object(
+            401,
+            vec![KindOf::Unit, KindOf::Vehicle, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        let _aircraft = register_test_object(
+            402,
+            vec![KindOf::Unit, KindOf::Aircraft, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        let _harvester_aircraft = register_test_object(
+            403,
+            vec![
+                KindOf::Unit,
+                KindOf::Aircraft,
+                KindOf::Selectable,
+                KindOf::Harvester,
+            ],
+            Arc::clone(&team),
+        );
+
+        let mut translator = SelectionTranslator::new();
+        translator.selected_objects.insert(401);
+
+        let disposition = translator
+            .translate_game_message(&GameMessage::new(GameMessageType::MetaSelectAllAircraft));
+
+        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+        assert_eq!(translator.selected_objects, HashSet::from([402]));
 
         OBJECT_REGISTRY.clear();
     }
