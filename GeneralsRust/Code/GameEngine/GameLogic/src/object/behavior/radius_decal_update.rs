@@ -7,7 +7,7 @@
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Coord3D, CoordOrigin, ModuleData, ObjectStatusTypes, RadiusDecal,
-    RadiusDecalTemplate, Real, UnsignedInt, XferVersion,
+    RadiusDecalTemplate, Real, UnsignedInt, XferVersion, INVALID_ID,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{
@@ -19,7 +19,10 @@ use crate::object::Object as GameObject;
 use crate::player::ThePlayerList;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
+    Thing as ModuleThing,
+};
 use std::sync::{Arc, RwLock, Weak};
 
 fn decal_is_empty(decal: &RadiusDecal) -> bool {
@@ -310,4 +313,35 @@ impl RadiusDecalUpdateFactory {
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(RadiusDecalUpdate::new(thing, module_data)?))
     }
+}
+
+pub fn radius_decal_update_data_factory(
+    _ini: Option<&mut game_engine::common::ini::INI>,
+) -> Box<dyn EngineModuleData> {
+    Box::new(RadiusDecalUpdateModuleData::default())
+}
+
+pub fn radius_decal_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn EngineModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_any()
+        .downcast_ref::<RadiusDecalUpdateModuleData>()
+        .expect("RadiusDecalUpdateModuleData expected");
+    let module_data_arc = Arc::new(typed_data.clone());
+    let owner_id = thing
+        .as_object()
+        .map(ModuleObject::get_object_id)
+        .unwrap_or(INVALID_ID);
+    let object =
+        TheGameLogic::find_object_by_id(owner_id).expect("RadiusDecalUpdate requires object");
+    let behavior = RadiusDecalUpdate::new(object, module_data_arc.clone())
+        .expect("RadiusDecalUpdate failed to initialize");
+    let module_name = AsciiString::from("RadiusDecalUpdate");
+    Box::new(RadiusDecalUpdateModule::new(
+        behavior,
+        &module_name,
+        module_data_arc,
+    ))
 }

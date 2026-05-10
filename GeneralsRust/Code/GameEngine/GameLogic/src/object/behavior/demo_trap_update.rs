@@ -7,7 +7,7 @@
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, Coord3D, KindOfMask, ModuleData, ObjectID, ObjectStatusTypes, Real,
-    UnsignedInt,
+    TheGameLogic, UnsignedInt, INVALID_ID,
 };
 use crate::helpers::ThePartitionManager;
 use crate::modules::{
@@ -25,7 +25,11 @@ use crate::weapon::{
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
+    Thing as ModuleThing,
+};
+use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -542,4 +546,42 @@ impl DemoTrapUpdateFactory {
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(DemoTrapUpdate::new(thing, module_data)?))
     }
+}
+
+pub fn demo_trap_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineModuleData> {
+    let mut data = DemoTrapUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse DemoTrapUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub fn demo_trap_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn EngineModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_any()
+        .downcast_ref::<DemoTrapUpdateModuleData>()
+        .expect("DemoTrapUpdateModuleData expected");
+    let module_data_arc = Arc::new(typed_data.clone());
+    let owner_id = thing
+        .as_object()
+        .map(ModuleObject::get_object_id)
+        .unwrap_or(INVALID_ID);
+    let object = TheGameLogic::find_object_by_id(owner_id).expect("DemoTrapUpdate requires object");
+    let behavior = DemoTrapUpdate::new(object, module_data_arc.clone())
+        .expect("DemoTrapUpdate failed to initialize");
+    let module_name = AsciiString::from("DemoTrapUpdate");
+    Box::new(DemoTrapUpdateModule::new(
+        behavior,
+        &module_name,
+        module_data_arc,
+    ))
 }
