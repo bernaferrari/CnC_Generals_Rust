@@ -101,6 +101,10 @@ use crate::object::behavior::grant_stealth_behavior::{
     GrantStealthBehavior, GrantStealthBehaviorModule, GrantStealthBehaviorModuleData,
 };
 use crate::object::behavior::height_die_update::{HeightDieUpdate, HeightDieUpdateModuleData};
+use crate::object::behavior::helicopter_slow_death_behavior::{
+    HelicopterSlowDeathBehavior, HelicopterSlowDeathBehaviorModule,
+    HelicopterSlowDeathBehaviorModuleData,
+};
 use crate::object::behavior::hijacker_update::{HijackerUpdate, HijackerUpdateModuleData};
 use crate::object::behavior::horde_update::{HordeUpdate, HordeUpdateModuleData};
 use crate::object::behavior::instant_death_behavior::{
@@ -3846,6 +3850,31 @@ fn slow_death_behavior_module_factory(
     )
 }
 
+fn helicopter_slow_death_data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    Box::new(HelicopterSlowDeathBehaviorModuleData::default())
+}
+
+fn helicopter_slow_death_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<HelicopterSlowDeathBehaviorModuleData>(
+        "HelicopterSlowDeathBehavior",
+        &module_data,
+    );
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id).unwrap_or_else(|| {
+        panic!("HelicopterSlowDeathBehavior requires owning object {object_id}")
+    });
+    let behavior = HelicopterSlowDeathBehavior::new(object, Arc::clone(&data_arc));
+    let module_name = AsciiString::from("HelicopterSlowDeathBehavior");
+    Box::new(HelicopterSlowDeathBehaviorModule::new(
+        behavior,
+        &module_name,
+        data_arc,
+    ))
+}
+
 fn open_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = OpenContainModuleData::default();
     if let Some(ini) = ini {
@@ -4920,6 +4949,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         dam_die_module_factory,
         dam_die_module_data_factory,
+    )?;
+    register_module_override(
+        "HelicopterSlowDeathBehavior",
+        ModuleType::Behavior,
+        helicopter_slow_death_module_factory,
+        helicopter_slow_death_data_factory,
     )?;
     register_module_override(
         "SlowDeathBehavior",

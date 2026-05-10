@@ -5,14 +5,23 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    Bool, Coord3D, Int, ModuleData, Real, UnsignedInt, LOGICFRAMES_PER_SECOND,
-    MODELCONDITION_SPECIAL_DAMAGED,
+    AsciiString, Bool, Coord3D, Int, ModuleData, ObjectID, Real, UnsignedInt,
+    LOGICFRAMES_PER_SECOND, MODELCONDITION_SPECIAL_DAMAGED,
 };
-use crate::helpers::TheTerrainLogic;
-use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
+use crate::damage::DamageInfo;
+use crate::helpers::{TheGameLogic, TheTerrainLogic};
+use crate::modules::{
+    BehaviorModuleInterface, DieModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface,
+    UpdateSleepTime,
+};
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::Object as GameObject;
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::{
+    Module as EngineModule, ModuleData as EngineModuleData, NameKeyType,
+};
+use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -87,25 +96,20 @@ impl HelicopterSlowDeathBehavior {
     /// Matches C++ HelicopterSlowDeathBehavior constructor at line 136
     pub fn new(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-        .downcast_ref::<HelicopterSlowDeathBehaviorModuleData>()
-            .ok_or("Invalid module data")?;
-
+        module_data: Arc<HelicopterSlowDeathBehaviorModuleData>,
+    ) -> Self {
         // Get current frame from game logic (matches C++ line 145-146)
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
+        let current_frame = TheGameLogic::get_frame();
 
         // Calculate random blade fly off delay (matches C++ lines 185-186)
         let blade_delay = crate::helpers::get_game_logic_random_value_real(
-            specific_data.min_blade_fly_off_delay,
-            specific_data.max_blade_fly_off_delay,
+            module_data.min_blade_fly_off_delay,
+            module_data.max_blade_fly_off_delay,
         );
 
-        Ok(Self {
+        Self {
             object: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             orbit_direction: 1,             // C++ line 140: ORBIT_DIRECTION_LEFT
             forward_angle: 0.0,             // C++ line 141
             forward_speed: 0.0,             // C++ line 142, set in beginSlowDeath
@@ -115,7 +119,7 @@ impl HelicopterSlowDeathBehavior {
             blade_fly_off_frame: current_frame + blade_delay as UnsignedInt, // C++ line 146
             hit_ground_frame: 0,            // C++ line 147
             active: false,
-        })
+        }
     }
 
     /// Begin the slow death sequence
@@ -308,6 +312,45 @@ impl BehaviorModuleInterface for HelicopterSlowDeathBehavior {
     }
 }
 
+impl SlowDeathBehaviorInterface for HelicopterSlowDeathBehavior {
+    fn is_slow_death_active(&self) -> bool {
+        self.active
+    }
+
+    fn begin_slow_death(
+        &mut self,
+        _damage_info: &DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.begin_slow_death();
+        Ok(())
+    }
+
+    fn get_probability_modifier(&self, _damage_info: &DamageInfo) -> Int {
+        1
+    }
+
+    fn is_die_applicable(&self, _damage_info: &DamageInfo) -> bool {
+        true
+    }
+
+    fn get_slow_death_phase(&self) -> u32 {
+        if self.hit_ground_frame == 0 {
+            0
+        } else {
+            2
+        }
+    }
+}
+
+impl DieModuleInterface for HelicopterSlowDeathBehavior {
+    fn on_die(
+        &mut self,
+        damage: &DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        SlowDeathBehaviorInterface::begin_slow_death(self, damage)
+    }
+}
+
 impl Snapshotable for HelicopterSlowDeathBehavior {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
@@ -355,15 +398,89 @@ impl Snapshotable for HelicopterSlowDeathBehavior {
     }
 }
 
+pub struct HelicopterSlowDeathBehaviorModule {
+    behavior: HelicopterSlowDeathBehavior,
+    module_name_key: NameKeyType,
+    module_data: Arc<HelicopterSlowDeathBehaviorModuleData>,
+}
+
+impl HelicopterSlowDeathBehaviorModule {
+    pub fn new(
+        behavior: HelicopterSlowDeathBehavior,
+        module_name: &AsciiString,
+        module_data: Arc<HelicopterSlowDeathBehaviorModuleData>,
+    ) -> Self {
+        Self {
+            behavior,
+            module_name_key: NameKeyGenerator::name_to_key(module_name.as_str()),
+            module_data,
+        }
+    }
+}
+
+impl Snapshotable for HelicopterSlowDeathBehaviorModule {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.behavior.load_post_process()
+    }
+}
+
+impl EngineModule for HelicopterSlowDeathBehaviorModule {
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn EngineModuleData {
+        self.module_data.as_ref()
+    }
+}
+
+impl BehaviorModuleInterface for HelicopterSlowDeathBehaviorModule {
+    fn get_module_name(&self) -> &'static str {
+        "HelicopterSlowDeathBehavior"
+    }
+
+    fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
+        self.behavior.get_update()
+    }
+
+    fn get_die(&mut self) -> Option<&mut dyn DieModuleInterface> {
+        Some(&mut self.behavior)
+    }
+
+    fn get_slow_death_behavior_interface(&mut self) -> Option<&mut dyn SlowDeathBehaviorInterface> {
+        Some(&mut self.behavior)
+    }
+}
+
 pub struct HelicopterSlowDeathBehaviorFactory;
 impl HelicopterSlowDeathBehaviorFactory {
     pub fn create_behavior(
         thing: Arc<RwLock<GameObject>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
+        let typed = module_data
+            .as_ref()
+            .downcast_ref::<HelicopterSlowDeathBehaviorModuleData>()
+            .cloned()
+            .unwrap_or_else(|| {
+                warn!("HelicopterSlowDeathBehavior legacy factory data expected; using defaults");
+                HelicopterSlowDeathBehaviorModuleData::default()
+            });
         Ok(Box::new(HelicopterSlowDeathBehavior::new(
             thing,
-            module_data,
-        )?))
+            Arc::new(typed),
+        )))
     }
 }
