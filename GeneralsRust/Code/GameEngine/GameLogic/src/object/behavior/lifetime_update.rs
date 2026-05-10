@@ -4,14 +4,18 @@
 //! Author: Colin Day, December 2001 (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{AsciiString, ModuleData, UnsignedInt, XferVersion};
+use crate::common::{AsciiString, ModuleData, TheGameLogic, UnsignedInt, XferVersion, INVALID_ID};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
+    Thing as ModuleThing,
+};
+use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
@@ -264,4 +268,43 @@ impl LifetimeUpdateFactory {
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(LifetimeUpdate::new(thing, module_data)?))
     }
+}
+
+pub fn lifetime_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineModuleData> {
+    let mut data = LifetimeUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse LifetimeUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub fn lifetime_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn EngineModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_any()
+        .downcast_ref::<LifetimeUpdateModuleData>()
+        .expect("LifetimeUpdateModuleData expected");
+    let module_data_arc = Arc::new(typed_data.clone());
+    let owner_id = thing
+        .as_object()
+        .map(ModuleObject::get_object_id)
+        .unwrap_or(INVALID_ID);
+    let object =
+        TheGameLogic::find_object_by_id(owner_id).expect("LifetimeUpdate requires a valid object");
+    let behavior = LifetimeUpdate::new(object, module_data_arc.clone())
+        .expect("Failed to create LifetimeUpdate");
+    let module_name = AsciiString::from("LifetimeUpdate");
+    Box::new(LifetimeUpdateModule::new(
+        behavior,
+        &module_name,
+        module_data_arc,
+    ))
 }

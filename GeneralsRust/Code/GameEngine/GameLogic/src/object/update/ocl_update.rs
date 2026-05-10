@@ -15,8 +15,12 @@ use crate::object::Object;
 use crate::object_creation_list::live_creation_context;
 use crate::player::PlayerArcExt;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData, NameKeyType, Object as ModuleObject, Thing as ModuleThing,
+};
+use log::warn;
 use std::any::Any;
 use std::sync::Arc;
 
@@ -556,6 +560,41 @@ impl Module for OCLUpdateModule {
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
     }
+}
+
+pub fn ocl_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = OCLUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse OCLUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub fn ocl_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_any()
+        .downcast_ref::<OCLUpdateModuleData>()
+        .expect("OCLUpdateModuleData expected");
+    let module_data_arc = Arc::new(typed_data.clone());
+    let owner_id = thing
+        .as_object()
+        .map(ModuleObject::get_object_id)
+        .unwrap_or(crate::common::INVALID_ID);
+    let module_name_key = NameKeyGenerator::name_to_key("OCLUpdate");
+    Box::new(OCLUpdateModule::new(
+        module_name_key,
+        module_data_arc,
+        owner_id,
+    ))
 }
 
 #[cfg(test)]
