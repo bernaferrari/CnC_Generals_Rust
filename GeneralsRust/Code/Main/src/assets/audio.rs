@@ -858,56 +858,28 @@ impl AudioManager {
         archive_system: &mut ArchiveFileSystem,
         faction: &str,
     ) -> Result<()> {
-        let track_candidates = match faction.to_lowercase().as_str() {
-            "usa" => vec![
-                "usa_10.mp3",
-                "usa_11.mp3",
-                "USA01.mp3", // Fallback
-            ],
-            "china" => vec![
-                "chi_10.mp3",
-                "chi_11.mp3",
-                "c_chix01.mp3",
-                "China01.mp3", // Fallback
-            ],
-            "gla" => vec![
-                "gla_10.mp3",
-                "gla_11.mp3",
-                "GLA01.mp3", // Fallback
-            ],
-            _ => vec![
-                "usa_10.mp3",  // Default to USA music
-                "Music01.mp3", // Ultimate fallback
-            ],
+        let Some(track_candidates) = faction_music_candidates(faction) else {
+            return Err(anyhow!("Unknown faction music set: {faction}"));
         };
 
         // Try each track until we find one that exists
-        for track_name in &track_candidates {
+        for track_name in track_candidates {
             if let Some(resolved) = resolve_archive_audio_path(archive_system, track_name) {
                 info!("Playing faction music for {}: {}", faction, resolved);
                 return self.play_background_music(archive_system, &resolved).await;
             }
         }
 
-        // If no faction music found, try a generic track
-        warn!(
-            "No faction music found for {}, trying fallback tracks",
-            faction
-        );
-        let fallback_tracks = vec![
-            "Data/Audio/Tracks/USA_10.mp3",
-            "Data/Audio/Tracks/CHI_10.mp3",
-            "Data/Audio/Tracks/GLA_10.mp3",
-            "Music01.mp3",
-        ];
+        Err(anyhow!("No {faction} music tracks found in archives"))
+    }
+}
 
-        for track_name in &fallback_tracks {
-            if let Some(resolved) = resolve_archive_audio_path(archive_system, track_name) {
-                return self.play_background_music(archive_system, &resolved).await;
-            }
-        }
-
-        Err(anyhow!("No music tracks found in archives"))
+fn faction_music_candidates(faction: &str) -> Option<&'static [&'static str]> {
+    match faction.to_lowercase().as_str() {
+        "usa" => Some(&["usa_10.mp3", "usa_11.mp3", "USA01.mp3"]),
+        "china" => Some(&["chi_10.mp3", "chi_11.mp3", "c_chix01.mp3", "China01.mp3"]),
+        "gla" => Some(&["gla_10.mp3", "gla_11.mp3", "GLA01.mp3"]),
+        _ => None,
     }
 }
 
@@ -1016,4 +988,31 @@ pub fn get_available_sound_effects(archive_system: &ArchiveFileSystem) -> Vec<St
 
     sounds.sort();
     sounds
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn faction_music_candidates_do_not_cross_fallback_to_other_factions() {
+        let usa = faction_music_candidates("USA").expect("usa candidates");
+        assert!(usa.iter().all(|track| {
+            let lower = track.to_ascii_lowercase();
+            lower.starts_with("usa") || lower.starts_with("c_usa")
+        }));
+
+        let china = faction_music_candidates("china").expect("china candidates");
+        assert!(china.iter().all(|track| {
+            let lower = track.to_ascii_lowercase();
+            lower.starts_with("chi") || lower.starts_with("c_chi") || lower.starts_with("china")
+        }));
+
+        let gla = faction_music_candidates("gla").expect("gla candidates");
+        assert!(gla
+            .iter()
+            .all(|track| track.to_ascii_lowercase().starts_with("gla")));
+
+        assert!(faction_music_candidates("unknown").is_none());
+    }
 }
