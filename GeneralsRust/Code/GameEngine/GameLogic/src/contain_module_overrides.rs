@@ -110,6 +110,9 @@ use crate::object::behavior::horde_update::{HordeUpdate, HordeUpdateModuleData};
 use crate::object::behavior::instant_death_behavior::{
     InstantDeathBehavior, InstantDeathBehaviorModuleData,
 };
+use crate::object::behavior::jet_slow_death_behavior::{
+    JetSlowDeathBehavior, JetSlowDeathBehaviorModule, JetSlowDeathBehaviorModuleData,
+};
 use crate::object::behavior::leaflet_drop_behavior::{
     LeafletDropBehavior, LeafletDropBehaviorModuleData,
 };
@@ -3910,6 +3913,38 @@ fn poisoned_behavior_module_factory(
     ))
 }
 
+fn jet_slow_death_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = JetSlowDeathBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse JetSlowDeathBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn jet_slow_death_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<JetSlowDeathBehaviorModuleData>("JetSlowDeathBehavior", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .unwrap_or_else(|| panic!("JetSlowDeathBehavior requires owning object {object_id}"));
+    let behavior = JetSlowDeathBehavior::new(object, Arc::clone(&data_arc));
+    let module_name = AsciiString::from("JetSlowDeathBehavior");
+    Box::new(JetSlowDeathBehaviorModule::new(
+        behavior,
+        &module_name,
+        data_arc,
+    ))
+}
+
 fn open_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = OpenContainModuleData::default();
     if let Some(ini) = ini {
@@ -5002,6 +5037,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         poisoned_behavior_module_factory,
         poisoned_behavior_data_factory,
+    )?;
+    register_module_override(
+        "JetSlowDeathBehavior",
+        ModuleType::Behavior,
+        jet_slow_death_behavior_module_factory,
+        jet_slow_death_behavior_data_factory,
     )?;
     register_module_override(
         "InstantDeathBehavior",
