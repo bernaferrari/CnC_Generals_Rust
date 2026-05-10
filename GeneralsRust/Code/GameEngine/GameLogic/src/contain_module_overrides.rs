@@ -47,14 +47,21 @@ use crate::object::behavior::fire_ocl_after_weapon_cooldown_update::{
 use crate::object::behavior::float_update::{FloatUpdate, FloatUpdateModuleData};
 use crate::object::behavior::height_die_update::{HeightDieUpdate, HeightDieUpdateModuleData};
 use crate::object::behavior::hijacker_update::{HijackerUpdate, HijackerUpdateModuleData};
+use crate::object::behavior::horde_update::{HordeUpdate, HordeUpdateModuleData};
 use crate::object::behavior::instant_death_behavior::{
     InstantDeathBehavior, InstantDeathBehaviorModuleData,
+};
+use crate::object::behavior::leaflet_drop_behavior::{
+    LeafletDropBehavior, LeafletDropBehaviorModuleData,
 };
 use crate::object::behavior::lifetime_update::{
     lifetime_update_data_factory, lifetime_update_module_factory,
 };
 use crate::object::behavior::neutron_missile_slow_death_update::{
     neutron_missile_slow_death_data_factory, neutron_missile_slow_death_module_factory,
+};
+use crate::object::behavior::parking_place_behavior::{
+    ParkingPlaceBehavior, ParkingPlaceBehaviorModuleData,
 };
 use crate::object::behavior::pilot_find_vehicle_update::{
     PilotFindVehicleUpdate, PilotFindVehicleUpdateModuleData,
@@ -64,6 +71,9 @@ use crate::object::behavior::point_defense_laser_update::{
 };
 use crate::object::behavior::projectile_stream_update::{
     projectile_stream_update_data_factory, projectile_stream_update_module_factory,
+};
+use crate::object::behavior::propaganda_tower_behavior::{
+    PropagandaTowerBehavior, PropagandaTowerBehaviorModuleData,
 };
 use crate::object::behavior::radar_update::{RadarUpdate, RadarUpdateModuleData};
 use crate::object::behavior::radius_decal_update::{
@@ -75,8 +85,14 @@ use crate::object::behavior::slow_death_behavior::{
 use crate::object::behavior::smart_bomb_target_homing_update::{
     smart_bomb_target_homing_update_data_factory, smart_bomb_target_homing_update_module_factory,
 };
+use crate::object::behavior::stealth_detector_update::{
+    StealthDetectorUpdate, StealthDetectorUpdateModuleData,
+};
 use crate::object::behavior::sticky_bomb_update::{
     sticky_bomb_update_data_factory, sticky_bomb_update_module_factory,
+};
+use crate::object::behavior::tech_building_behavior::{
+    TechBuildingBehavior, TechBuildingBehaviorModuleData,
 };
 use crate::object::behavior::tensile_formation_update::{
     tensile_formation_update_data_factory, tensile_formation_update_module_factory,
@@ -346,6 +362,27 @@ active_behavior_factories!(
     "HijackerUpdate"
 );
 active_behavior_factories!(
+    horde_update_data_factory,
+    horde_update_module_factory,
+    HordeUpdateModuleData,
+    HordeUpdate,
+    "HordeUpdate"
+);
+active_behavior_factories!(
+    leaflet_drop_behavior_data_factory,
+    leaflet_drop_behavior_module_factory,
+    LeafletDropBehaviorModuleData,
+    LeafletDropBehavior,
+    "LeafletDropBehavior"
+);
+active_behavior_factories!(
+    parking_place_behavior_data_factory,
+    parking_place_behavior_module_factory,
+    ParkingPlaceBehaviorModuleData,
+    ParkingPlaceBehavior,
+    "ParkingPlaceBehavior"
+);
+active_behavior_factories!(
     pilot_find_vehicle_update_data_factory,
     pilot_find_vehicle_update_module_factory,
     PilotFindVehicleUpdateModuleData,
@@ -353,11 +390,32 @@ active_behavior_factories!(
     "PilotFindVehicleUpdate"
 );
 active_behavior_factories!(
+    propaganda_tower_behavior_data_factory,
+    propaganda_tower_behavior_module_factory,
+    PropagandaTowerBehaviorModuleData,
+    PropagandaTowerBehavior,
+    "PropagandaTowerBehavior"
+);
+active_behavior_factories!(
     radar_update_data_factory,
     radar_update_module_factory,
     RadarUpdateModuleData,
     RadarUpdate,
     "RadarUpdate"
+);
+active_behavior_factories!(
+    stealth_detector_update_data_factory,
+    stealth_detector_update_module_factory,
+    StealthDetectorUpdateModuleData,
+    StealthDetectorUpdate,
+    "StealthDetectorUpdate"
+);
+active_behavior_factories!(
+    tech_building_behavior_data_factory,
+    tech_building_behavior_module_factory,
+    TechBuildingBehaviorModuleData,
+    TechBuildingBehavior,
+    "TechBuildingBehavior"
 );
 active_behavior_factories!(
     wave_guide_update_data_factory,
@@ -2411,16 +2469,52 @@ fn install_contain_overrides() -> Result<(), String> {
         hijacker_update_data_factory,
     )?;
     register_module_override(
+        "HordeUpdate",
+        ModuleType::Behavior,
+        horde_update_module_factory,
+        horde_update_data_factory,
+    )?;
+    register_module_override(
+        "LeafletDropBehavior",
+        ModuleType::Behavior,
+        leaflet_drop_behavior_module_factory,
+        leaflet_drop_behavior_data_factory,
+    )?;
+    register_module_override(
+        "ParkingPlaceBehavior",
+        ModuleType::Behavior,
+        parking_place_behavior_module_factory,
+        parking_place_behavior_data_factory,
+    )?;
+    register_module_override(
         "PilotFindVehicleUpdate",
         ModuleType::Behavior,
         pilot_find_vehicle_update_module_factory,
         pilot_find_vehicle_update_data_factory,
     )?;
     register_module_override(
+        "PropagandaTowerBehavior",
+        ModuleType::Behavior,
+        propaganda_tower_behavior_module_factory,
+        propaganda_tower_behavior_data_factory,
+    )?;
+    register_module_override(
         "RadarUpdate",
         ModuleType::Behavior,
         radar_update_module_factory,
         radar_update_data_factory,
+    )?;
+    register_module_override(
+        "StealthDetectorUpdate",
+        ModuleType::Behavior,
+        stealth_detector_update_module_factory,
+        stealth_detector_update_data_factory,
+    )?;
+    register_module_override(
+        "TechBuildingBehavior",
+        ModuleType::Behavior,
+        tech_building_behavior_module_factory,
+        tech_building_behavior_data_factory,
     )?;
     register_module_override(
         "WaveGuideUpdate",
