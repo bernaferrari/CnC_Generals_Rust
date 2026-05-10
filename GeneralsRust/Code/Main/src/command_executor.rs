@@ -746,7 +746,7 @@ impl<'a> CommandExecutor<'a> {
     fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> CommandResult {
         let player_team = self.player_team(player_id);
         if let Some(obj) = self.game_logic.get_object(object_id) {
-            if obj.team != player_team {
+            if obj.team != player_team || !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
                 return CommandResult::InvalidTarget;
             }
             let refund = ((obj.thing.template.build_cost.supplies as f32) * 0.5).max(0.0) as u32;
