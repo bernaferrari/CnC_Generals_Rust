@@ -209,6 +209,9 @@ use crate::object::die::{
 };
 use crate::object::draw::*;
 use crate::object::special_powers::*;
+use crate::object::update::bone_fx_update::{
+    BoneFXUpdate, BoneFXUpdateModule, BoneFXUpdateModuleData,
+};
 use crate::object::update::command_button_hunt_update::{
     CommandButtonHuntUpdate, CommandButtonHuntUpdateModule, CommandButtonHuntUpdateModuleData,
 };
@@ -1054,6 +1057,34 @@ fn emp_update_module_factory(
     Box::new(EMPUpdateModule::new(
         behavior,
         &AsciiString::from("EMPUpdate"),
+        data_arc,
+    ))
+}
+
+fn bone_fx_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = BoneFXUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse BoneFXUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn bone_fx_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let owner_id = resolve_owner_id(&thing);
+    let data_arc = cloned_module_data::<BoneFXUpdateModuleData>("BoneFXUpdate", &module_data);
+    let behavior = BoneFXUpdate::new(owner_id, data_arc.clone());
+    Box::new(BoneFXUpdateModule::new(
+        behavior,
+        &AsciiString::from("BoneFXUpdate"),
         data_arc,
     ))
 }
@@ -3417,6 +3448,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         emp_update_module_factory,
         emp_update_data_factory,
+    )?;
+    register_module_override(
+        "BoneFXUpdate",
+        ModuleType::Behavior,
+        bone_fx_update_module_factory,
+        bone_fx_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
