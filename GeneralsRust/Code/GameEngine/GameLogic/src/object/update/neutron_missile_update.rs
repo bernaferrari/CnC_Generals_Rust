@@ -9,7 +9,12 @@ use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
+    Thing as ModuleThing,
+};
+use log::warn;
+use std::sync::Arc;
 
 const STRAIGHT_DOWN_SLOW_FACTOR: f32 = 0.5;
 
@@ -1040,6 +1045,40 @@ impl Module for NeutronMissileUpdate {
     fn get_module_data(&self) -> &dyn EngineModuleData {
         &self.module_data
     }
+}
+
+pub fn neutron_missile_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineModuleData> {
+    let mut data = NeutronMissileUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse NeutronMissileUpdate data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub fn neutron_missile_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn EngineModuleData>,
+) -> Box<dyn Module> {
+    let typed = module_data
+        .as_any()
+        .downcast_ref::<NeutronMissileUpdateModuleData>()
+        .expect("NeutronMissileUpdateModuleData expected");
+    let object_id = thing
+        .as_object()
+        .map(ModuleObject::get_object_id)
+        .unwrap_or(INVALID_OBJECT_ID);
+
+    Box::new(NeutronMissileUpdate::new(
+        object_id,
+        typed.clone(),
+        &AsciiString::from("NeutronMissileUpdate"),
+    ))
 }
 
 fn calc_transform(obj: &Object, pos: &Coord3D, max_turn_rate: f32) -> Matrix3D {
