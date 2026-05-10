@@ -53,6 +53,9 @@ use crate::object::die::{
 };
 use crate::object::draw::*;
 use crate::object::special_powers::*;
+use crate::object::update::neutron_missile_update::{
+    neutron_missile_update_data_factory, neutron_missile_update_module_factory,
+};
 use crate::object::update::{
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
     BeaconClientUpdateModuleData, LaserUpdateModule as LaserClientUpdateModule,
@@ -1999,6 +2002,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         neutron_missile_slow_death_module_factory,
         neutron_missile_slow_death_data_factory,
+    )?;
+    register_module_override(
+        "NeutronMissileUpdate",
+        ModuleType::Behavior,
+        neutron_missile_update_module_factory,
+        neutron_missile_update_data_factory,
     )?;
     register_module_override(
         "OpenContain",
