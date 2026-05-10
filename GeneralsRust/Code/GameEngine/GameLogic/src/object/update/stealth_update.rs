@@ -1216,12 +1216,45 @@ fn parse_stealth_delay(
     data: &mut StealthUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens
-        .iter()
-        .find(|t| **t != "=")
-        .ok_or(INIError::InvalidData)?;
-    data.stealth_delay = INI::parse_unsigned_int(value)?;
+    data.stealth_delay = parse_duration_value(tokens)?;
     Ok(())
+}
+
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_duration_value(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
+    INI::parse_duration_unsigned_int(first_value_token(tokens)?)
+}
+
+fn parse_real_value(tokens: &[&str]) -> Result<Real, INIError> {
+    INI::parse_real(first_value_token(tokens)?)
+}
+
+fn parse_percent_value(tokens: &[&str]) -> Result<Real, INIError> {
+    INI::parse_percent_to_real(first_value_token(tokens)?)
+}
+
+fn parse_bool_value(tokens: &[&str]) -> Result<Bool, INIError> {
+    INI::parse_bool(first_value_token(tokens)?)
+}
+
+fn parse_string_value(tokens: &[&str]) -> Option<String> {
+    let values = tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect::<Vec<_>>();
+    if values.is_empty() {
+        None
+    } else {
+        Some(values.join(" "))
+    }
 }
 
 fn parse_move_threshold_speed(
@@ -1229,11 +1262,7 @@ fn parse_move_threshold_speed(
     data: &mut StealthUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens
-        .iter()
-        .find(|t| **t != "=")
-        .ok_or(INIError::InvalidData)?;
-    data.stealth_speed = INI::parse_real(value)?;
+    data.stealth_speed = parse_real_value(tokens)?;
     Ok(())
 }
 
@@ -1263,6 +1292,183 @@ fn parse_stealth_forbidden_conditions(
     Ok(())
 }
 
+fn parse_hint_detectable_conditions(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.hint_detectable_states =
+        ObjectStatusMaskType::parse_tokens(tokens.iter().copied().filter(|token| *token != "="))
+            .map_err(|_| INIError::InvalidData)?;
+    Ok(())
+}
+
+fn parse_required_status(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.required_status =
+        ObjectStatusMaskType::parse_tokens(tokens.iter().copied().filter(|token| *token != "="))
+            .map_err(|_| INIError::InvalidData)?;
+    Ok(())
+}
+
+fn parse_forbidden_status(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.forbidden_status =
+        ObjectStatusMaskType::parse_tokens(tokens.iter().copied().filter(|token| *token != "="))
+            .map_err(|_| INIError::InvalidData)?;
+    Ok(())
+}
+
+fn parse_friendly_opacity_min(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.friendly_opacity_min = parse_percent_value(tokens)?;
+    Ok(())
+}
+
+fn parse_friendly_opacity_max(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.friendly_opacity_max = parse_percent_value(tokens)?;
+    Ok(())
+}
+
+fn parse_pulse_frequency(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.pulse_frames = parse_duration_value(tokens)?;
+    Ok(())
+}
+
+fn parse_disguises_as_team(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.team_disguised = parse_bool_value(tokens)?;
+    Ok(())
+}
+
+fn parse_reveal_distance_from_target(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.reveal_distance_from_target = parse_real_value(tokens)?;
+    Ok(())
+}
+
+fn parse_order_idle_enemies_to_attack(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.order_idle_enemies_to_attack_upon_reveal = parse_bool_value(tokens)?;
+    Ok(())
+}
+
+fn parse_disguise_fx(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.disguise_fx = parse_string_value(tokens);
+    Ok(())
+}
+
+fn parse_disguise_reveal_fx(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.disguise_reveal_fx = parse_string_value(tokens);
+    Ok(())
+}
+
+fn parse_disguise_transition_time(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.disguise_transition_frames = parse_duration_value(tokens)?;
+    Ok(())
+}
+
+fn parse_disguise_reveal_transition_time(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.disguise_reveal_transition_frames = parse_duration_value(tokens)?;
+    Ok(())
+}
+
+fn parse_innate_stealth(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.innate_stealth = parse_bool_value(tokens)?;
+    Ok(())
+}
+
+fn parse_use_rider_stealth(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.use_rider_stealth = parse_bool_value(tokens)?;
+    Ok(())
+}
+
+fn parse_enemy_detection_eva_event(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.enemy_detection_eva_event = parse_string_value(tokens);
+    Ok(())
+}
+
+fn parse_own_detection_eva_event(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.own_detection_eva_event = parse_string_value(tokens);
+    Ok(())
+}
+
+fn parse_black_market_check_delay(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.black_market_check_frames = parse_duration_value(tokens)?;
+    Ok(())
+}
+
+fn parse_granted_by_special_power(
+    _ini: &mut INI,
+    data: &mut StealthUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.granted_by_special_power = parse_bool_value(tokens)?;
+    Ok(())
+}
+
 const STEALTH_UPDATE_MODULE_FIELDS: &[FieldParse<StealthUpdateModuleData>] = &[
     FieldParse {
         token: "StealthDelay",
@@ -1276,7 +1482,82 @@ const STEALTH_UPDATE_MODULE_FIELDS: &[FieldParse<StealthUpdateModuleData>] = &[
         token: "StealthForbiddenConditions",
         parse: parse_stealth_forbidden_conditions,
     },
-    // Add remaining fields as needed
+    FieldParse {
+        token: "HintDetectableConditions",
+        parse: parse_hint_detectable_conditions,
+    },
+    FieldParse {
+        token: "RequiredStatus",
+        parse: parse_required_status,
+    },
+    FieldParse {
+        token: "ForbiddenStatus",
+        parse: parse_forbidden_status,
+    },
+    FieldParse {
+        token: "FriendlyOpacityMin",
+        parse: parse_friendly_opacity_min,
+    },
+    FieldParse {
+        token: "FriendlyOpacityMax",
+        parse: parse_friendly_opacity_max,
+    },
+    FieldParse {
+        token: "PulseFrequency",
+        parse: parse_pulse_frequency,
+    },
+    FieldParse {
+        token: "DisguisesAsTeam",
+        parse: parse_disguises_as_team,
+    },
+    FieldParse {
+        token: "RevealDistanceFromTarget",
+        parse: parse_reveal_distance_from_target,
+    },
+    FieldParse {
+        token: "OrderIdleEnemiesToAttackMeUponReveal",
+        parse: parse_order_idle_enemies_to_attack,
+    },
+    FieldParse {
+        token: "DisguiseFX",
+        parse: parse_disguise_fx,
+    },
+    FieldParse {
+        token: "DisguiseRevealFX",
+        parse: parse_disguise_reveal_fx,
+    },
+    FieldParse {
+        token: "DisguiseTransitionTime",
+        parse: parse_disguise_transition_time,
+    },
+    FieldParse {
+        token: "DisguiseRevealTransitionTime",
+        parse: parse_disguise_reveal_transition_time,
+    },
+    FieldParse {
+        token: "InnateStealth",
+        parse: parse_innate_stealth,
+    },
+    FieldParse {
+        token: "UseRiderStealth",
+        parse: parse_use_rider_stealth,
+    },
+    FieldParse {
+        token: "EnemyDetectionEvaEvent",
+        parse: parse_enemy_detection_eva_event,
+    },
+    FieldParse {
+        token: "OwnDetectionEvaEvent",
+        parse: parse_own_detection_eva_event,
+    },
+    FieldParse {
+        token: "BlackMarketCheckDelay",
+        parse: parse_black_market_check_delay,
+    },
+    FieldParse {
+        token: "GrantedBySpecialPower",
+        parse: parse_granted_by_special_power,
+    },
 ];
 
 #[cfg(test)]
@@ -1312,5 +1593,42 @@ mod tests {
         assert!(controller.pulse_phase >= 0.0);
         assert!(controller.pulse_phase <= PI);
         assert_eq!(controller.disguise_as_player_index, -1);
+    }
+
+    #[test]
+    fn test_stealth_update_parses_cpp_scalar_fields() {
+        let mut data = StealthUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        parse_stealth_delay(&mut ini, &mut data, &["=", "2s"]).unwrap();
+        parse_friendly_opacity_min(&mut ini, &mut data, &["=", "25%"]).unwrap();
+        parse_friendly_opacity_max(&mut ini, &mut data, &["=", "75%"]).unwrap();
+        parse_pulse_frequency(&mut ini, &mut data, &["=", "1s"]).unwrap();
+        parse_disguises_as_team(&mut ini, &mut data, &["=", "Yes"]).unwrap();
+        parse_reveal_distance_from_target(&mut ini, &mut data, &["=", "40.5"]).unwrap();
+        parse_order_idle_enemies_to_attack(&mut ini, &mut data, &["=", "true"]).unwrap();
+        parse_disguise_fx(&mut ini, &mut data, &["=", "FX_Disguise", "Start"]).unwrap();
+        parse_disguise_reveal_transition_time(&mut ini, &mut data, &["=", "3s"]).unwrap();
+        parse_use_rider_stealth(&mut ini, &mut data, &["=", "true"]).unwrap();
+        parse_enemy_detection_eva_event(&mut ini, &mut data, &["=", "Enemy", "Detected"]).unwrap();
+        parse_black_market_check_delay(&mut ini, &mut data, &["=", "4s"]).unwrap();
+        parse_granted_by_special_power(&mut ini, &mut data, &["=", "true"]).unwrap();
+
+        assert_eq!(data.stealth_delay, 60);
+        assert_eq!(data.friendly_opacity_min, 0.25);
+        assert_eq!(data.friendly_opacity_max, 0.75);
+        assert_eq!(data.pulse_frames, 30);
+        assert!(data.team_disguised);
+        assert_eq!(data.reveal_distance_from_target, 40.5);
+        assert!(data.order_idle_enemies_to_attack_upon_reveal);
+        assert_eq!(data.disguise_fx.as_deref(), Some("FX_Disguise Start"));
+        assert_eq!(data.disguise_reveal_transition_frames, 90);
+        assert!(data.use_rider_stealth);
+        assert_eq!(
+            data.enemy_detection_eva_event.as_deref(),
+            Some("Enemy Detected")
+        );
+        assert_eq!(data.black_market_check_frames, 120);
+        assert!(data.granted_by_special_power);
     }
 }
