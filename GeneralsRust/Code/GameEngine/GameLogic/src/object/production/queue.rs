@@ -200,6 +200,17 @@ impl BuildQueue {
             .any(|entry| entry.production_type == production_type && entry.template_name == name)
     }
 
+    /// Find the queue index for an entry matching the production type and template name.
+    pub fn find_by_template_and_type(
+        &self,
+        production_type: ProductionType,
+        name: &str,
+    ) -> Option<usize> {
+        self.queue.iter().position(|entry| {
+            entry.production_type == production_type && entry.template_name == name
+        })
+    }
+
     /// Check if the queue contains any entries of the specified production type.
     pub fn has_production_type(&self, production_type: ProductionType) -> bool {
         self.queue
