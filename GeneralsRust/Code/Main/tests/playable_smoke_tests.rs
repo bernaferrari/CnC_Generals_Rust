@@ -415,6 +415,32 @@ fn mini_skirmish_playable_flow_smoke() {
     );
 
     game_logic.queue_command(command(
+        7,
+        0,
+        CommandType::Sell {
+            object_id: ranger_id,
+        },
+        Vec::new(),
+    ));
+    game_logic.process_commands();
+    assert_eq!(
+        game_logic
+            .get_player(0)
+            .expect("USA player should exist after rejected unit sell")
+            .resources
+            .supplies,
+        after_ranger_supplies,
+        "sell should not refund non-structure objects"
+    );
+    assert!(
+        game_logic
+            .get_object(ranger_id)
+            .expect("ranger should still exist after rejected sell")
+            .is_alive(),
+        "sell should not destroy non-structure objects"
+    );
+
+    game_logic.queue_command(command(
         3,
         0,
         CommandType::Gather {
