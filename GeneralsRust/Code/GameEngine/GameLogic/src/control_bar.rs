@@ -41,16 +41,13 @@ impl ControlBarBridge {
         let mut command_sets = HashMap::new();
         if let Some(manager) = get_command_set_manager() {
             for (name, set) in manager.iter_resolved_sets() {
-                let mut command_set = CommandSet {
-                    name: name.clone(),
-                    buttons: vec![None; MAX_COMMANDS_PER_SET],
-                };
+                let mut command_set = CommandSet::new(name.clone());
 
                 for index in 0..MAX_COMMANDS_PER_SET {
                     if let Some(button_name) = set.get_button_at_position(index) {
                         if let Some(id) = name_to_id.get(button_name) {
                             if let Some(button) = buttons_by_id.get(id) {
-                                command_set.buttons[index] = Some(button.clone());
+                                command_set.set_command_button(index, Some(button.clone()));
                             }
                         }
                     }

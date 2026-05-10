@@ -95,8 +95,7 @@ pub struct CommandButton {
     required_sciences: Vec<ScienceType>,
 }
 
-/// Command set - collection of command buttons
-/// Stub implementation for compilation
+/// Command set - collection of command buttons.
 #[derive(Debug, Clone)]
 pub struct CommandSet {
     pub name: String,
@@ -104,14 +103,27 @@ pub struct CommandSet {
 }
 
 impl CommandSet {
-    /// Get command button at index
-    /// Stub implementation for compilation
-    pub fn get_command_button(&self, index: usize) -> Option<&CommandButton> {
-        if index < self.buttons.len() {
-            self.buttons[index].as_ref()
-        } else {
-            None
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            buttons: vec![None; MAX_COMMANDS_PER_SET],
         }
+    }
+
+    pub fn set_command_button(&mut self, index: usize, button: Option<CommandButton>) -> bool {
+        if index >= MAX_COMMANDS_PER_SET {
+            return false;
+        }
+        self.buttons[index] = button;
+        true
+    }
+
+    /// Get command button at index
+    pub fn get_command_button(&self, index: usize) -> Option<&CommandButton> {
+        if index >= MAX_COMMANDS_PER_SET {
+            return None;
+        }
+        self.buttons.get(index).and_then(Option::as_ref)
     }
 }
 
@@ -493,6 +505,34 @@ mod tests {
         let obj = Object::new_test(700, 100.0);
 
         assert!(!button.is_ready(&obj));
+    }
+
+    #[test]
+    fn command_set_enforces_cpp_slot_count() {
+        let mut set = CommandSet::new("TestCommandSet".to_string());
+        let button = CommandButton::new(3, "Command_Test".to_string(), String::new(), 0);
+
+        assert_eq!(set.buttons.len(), MAX_COMMANDS_PER_SET);
+        assert!(set.set_command_button(MAX_COMMANDS_PER_SET - 1, Some(button)));
+        assert!(set.get_command_button(MAX_COMMANDS_PER_SET - 1).is_some());
+        assert!(!set.set_command_button(
+            MAX_COMMANDS_PER_SET,
+            Some(CommandButton::new(
+                4,
+                "Command_OutOfRange".to_string(),
+                String::new(),
+                0,
+            )),
+        ));
+        assert!(set.get_command_button(MAX_COMMANDS_PER_SET).is_none());
+
+        set.buttons.push(Some(CommandButton::new(
+            5,
+            "Command_ExtraSlot".to_string(),
+            String::new(),
+            0,
+        )));
+        assert!(set.get_command_button(MAX_COMMANDS_PER_SET).is_none());
     }
 }
 
