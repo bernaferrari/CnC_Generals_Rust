@@ -213,6 +213,39 @@ use crate::object::body::immortal_body::ImmortalBody;
 use crate::object::body::inactive_body::InactiveBody;
 use crate::object::body::structure_body::{StructureBody, StructureBodyModuleData};
 use crate::object::body::undead_body::{UndeadBody, UndeadBodyModuleData};
+use crate::object::collide::crate_collide::convert_to_car_bomb_crate_collide::{
+    ConvertToCarBombCrateCollide, ConvertToCarBombCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::convert_to_hijacked_vehicle_crate_collide::{
+    ConvertToHijackedVehicleCrateCollide, ConvertToHijackedVehicleCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::sabotage_command_center_crate_collide::{
+    SabotageCommandCenterCrateCollide, SabotageCommandCenterCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::sabotage_fake_building_crate_collide::{
+    SabotageFakeBuildingCrateCollide, SabotageFakeBuildingCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::sabotage_internet_center_crate_collide::{
+    SabotageInternetCenterCrateCollide, SabotageInternetCenterCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::sabotage_military_factory_crate_collide::{
+    SabotageMilitaryFactoryCrateCollide, SabotageMilitaryFactoryCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::sabotage_power_plant_crate_collide::{
+    SabotagePowerPlantCrateCollide, SabotagePowerPlantCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::sabotage_superweapon_crate_collide::{
+    SabotageSuperweaponCrateCollide, SabotageSuperweaponCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::sabotage_supply_center_crate_collide::{
+    SabotageSupplyCenterCrateCollide, SabotageSupplyCenterCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::unit_crate_collide::{
+    UnitCrateCollide, UnitCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::veterancy_crate_collide::{
+    VeterancyCrateCollide, VeterancyCrateCollideModuleData,
+};
 use crate::object::collide::fire_weapon_collide::{FireWeaponCollide, FireWeaponCollideModuleData};
 use crate::object::collide::squish_collide::{SquishCollide, SquishCollideModuleData};
 use crate::object::collide::{
@@ -1959,6 +1992,274 @@ impl ModuleData for SquishCollideModuleData {
         crate::common::LegacyModuleData::get_module_tag_name_key(self)
     }
 }
+
+#[derive(Debug, Clone)]
+struct CrateCollideDataAdapter<T: Clone + Send + Sync + std::fmt::Debug + 'static> {
+    base: BaseModuleData,
+    data: T,
+}
+
+impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> CrateCollideDataAdapter<T> {
+    fn new(data: T) -> Self {
+        Self {
+            base: BaseModuleData::new(),
+            data,
+        }
+    }
+}
+
+impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> ModuleData for CrateCollideDataAdapter<T> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        self.base.set_module_tag_name_key(key);
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.base.get_module_tag_name_key()
+    }
+}
+
+impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> Snapshotable
+    for CrateCollideDataAdapter<T>
+{
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+struct LegacyCrateCollideModule<T, TData>
+where
+    T: CollideModuleTrait + Snapshotable + Send + Sync + 'static,
+    TData: Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    module_name_key: NameKeyType,
+    data: Arc<CrateCollideDataAdapter<TData>>,
+    collide: Arc<Mutex<T>>,
+    object_id: ObjectID,
+}
+
+impl<T, TData> LegacyCrateCollideModule<T, TData>
+where
+    T: CollideModuleTrait + Snapshotable + Send + Sync + 'static,
+    TData: Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    fn new(
+        module_name: &str,
+        data: Arc<CrateCollideDataAdapter<TData>>,
+        collide: T,
+        object_id: ObjectID,
+    ) -> Self {
+        Self {
+            module_name_key: NameKeyGenerator::name_to_key(module_name),
+            data,
+            collide: Arc::new(Mutex::new(collide)),
+            object_id,
+        }
+    }
+}
+
+impl<T, TData> Module for LegacyCrateCollideModule<T, TData>
+where
+    T: CollideModuleTrait + Snapshotable + Send + Sync + 'static,
+    TData: Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn ModuleData {
+        self.data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        if let Err(err) = COLLISION_MANAGER.register_collide_module(
+            self.object_id,
+            Box::new(SharedCollideModule::new(Arc::clone(&self.collide))),
+        ) {
+            warn!(
+                "Failed to register crate collide module for object {}: {}",
+                self.object_id, err
+            );
+        }
+    }
+
+    fn on_delete(&mut self) {
+        let _ = COLLISION_MANAGER.unregister_object(self.object_id);
+    }
+}
+
+impl<T, TData> Snapshotable for LegacyCrateCollideModule<T, TData>
+where
+    T: CollideModuleTrait + Snapshotable + Send + Sync + 'static,
+    TData: Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let collide = self
+            .collide
+            .lock()
+            .map_err(|_| "crate collide lock poisoned".to_string())?;
+        collide.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut collide = self
+            .collide
+            .lock()
+            .map_err(|_| "crate collide lock poisoned".to_string())?;
+        collide.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        let mut collide = self
+            .collide
+            .lock()
+            .map_err(|_| "crate collide lock poisoned".to_string())?;
+        collide.load_post_process()
+    }
+}
+
+macro_rules! legacy_object_crate_collide_factories {
+    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
+        fn $data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            Box::new(CrateCollideDataAdapter::new(<$data_ty>::default()))
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let data_arc =
+                cloned_module_data::<CrateCollideDataAdapter<$data_ty>>($module_name, &module_data);
+            let object_id = resolve_owner_id(&thing);
+            let object = TheGameLogic::find_object_by_id(object_id)
+                .unwrap_or_else(|| panic!("{} requires a valid object", $module_name));
+            let collide = <$module_ty>::new(object, data_arc.data.clone());
+            Box::new(LegacyCrateCollideModule::new(
+                $module_name,
+                data_arc,
+                collide,
+                object_id,
+            ))
+        }
+    };
+}
+
+macro_rules! object_id_crate_collide_factories {
+    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
+        fn $data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            Box::new(CrateCollideDataAdapter::new(<$data_ty>::default()))
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let data_arc =
+                cloned_module_data::<CrateCollideDataAdapter<$data_ty>>($module_name, &module_data);
+            let object_id = resolve_owner_id(&thing);
+            let collide = <$module_ty>::new(object_id, data_arc.data.clone());
+            Box::new(LegacyCrateCollideModule::new(
+                $module_name,
+                data_arc,
+                collide,
+                object_id,
+            ))
+        }
+    };
+}
+
+legacy_object_crate_collide_factories!(
+    convert_to_car_bomb_crate_collide_data_factory,
+    convert_to_car_bomb_crate_collide_module_factory,
+    ConvertToCarBombCrateCollideModuleData,
+    ConvertToCarBombCrateCollide,
+    "ConvertToCarBombCrateCollide"
+);
+legacy_object_crate_collide_factories!(
+    convert_to_hijacked_vehicle_crate_collide_data_factory,
+    convert_to_hijacked_vehicle_crate_collide_module_factory,
+    ConvertToHijackedVehicleCrateCollideModuleData,
+    ConvertToHijackedVehicleCrateCollide,
+    "ConvertToHijackedVehicleCrateCollide"
+);
+legacy_object_crate_collide_factories!(
+    sabotage_command_center_crate_collide_data_factory,
+    sabotage_command_center_crate_collide_module_factory,
+    SabotageCommandCenterCrateCollideModuleData,
+    SabotageCommandCenterCrateCollide,
+    "SabotageCommandCenterCrateCollide"
+);
+legacy_object_crate_collide_factories!(
+    sabotage_fake_building_crate_collide_data_factory,
+    sabotage_fake_building_crate_collide_module_factory,
+    SabotageFakeBuildingCrateCollideModuleData,
+    SabotageFakeBuildingCrateCollide,
+    "SabotageFakeBuildingCrateCollide"
+);
+legacy_object_crate_collide_factories!(
+    sabotage_internet_center_crate_collide_data_factory,
+    sabotage_internet_center_crate_collide_module_factory,
+    SabotageInternetCenterCrateCollideModuleData,
+    SabotageInternetCenterCrateCollide,
+    "SabotageInternetCenterCrateCollide"
+);
+legacy_object_crate_collide_factories!(
+    sabotage_military_factory_crate_collide_data_factory,
+    sabotage_military_factory_crate_collide_module_factory,
+    SabotageMilitaryFactoryCrateCollideModuleData,
+    SabotageMilitaryFactoryCrateCollide,
+    "SabotageMilitaryFactoryCrateCollide"
+);
+legacy_object_crate_collide_factories!(
+    sabotage_power_plant_crate_collide_data_factory,
+    sabotage_power_plant_crate_collide_module_factory,
+    SabotagePowerPlantCrateCollideModuleData,
+    SabotagePowerPlantCrateCollide,
+    "SabotagePowerPlantCrateCollide"
+);
+legacy_object_crate_collide_factories!(
+    sabotage_superweapon_crate_collide_data_factory,
+    sabotage_superweapon_crate_collide_module_factory,
+    SabotageSuperweaponCrateCollideModuleData,
+    SabotageSuperweaponCrateCollide,
+    "SabotageSuperweaponCrateCollide"
+);
+legacy_object_crate_collide_factories!(
+    sabotage_supply_center_crate_collide_data_factory,
+    sabotage_supply_center_crate_collide_module_factory,
+    SabotageSupplyCenterCrateCollideModuleData,
+    SabotageSupplyCenterCrateCollide,
+    "SabotageSupplyCenterCrateCollide"
+);
+object_id_crate_collide_factories!(
+    unit_crate_collide_data_factory,
+    unit_crate_collide_module_factory,
+    UnitCrateCollideModuleData,
+    UnitCrateCollide,
+    "UnitCrateCollide"
+);
+object_id_crate_collide_factories!(
+    veterancy_crate_collide_data_factory,
+    veterancy_crate_collide_module_factory,
+    VeterancyCrateCollideModuleData,
+    VeterancyCrateCollide,
+    "VeterancyCrateCollide"
+);
 
 struct FireWeaponCollideModule {
     module_name_key: NameKeyType,
@@ -4815,6 +5116,72 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         veterancy_gain_create_module_factory,
         veterancy_gain_create_data_factory,
+    )?;
+    register_module_override(
+        "ConvertToCarBombCrateCollide",
+        ModuleType::Behavior,
+        convert_to_car_bomb_crate_collide_module_factory,
+        convert_to_car_bomb_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "ConvertToHijackedVehicleCrateCollide",
+        ModuleType::Behavior,
+        convert_to_hijacked_vehicle_crate_collide_module_factory,
+        convert_to_hijacked_vehicle_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "SabotageCommandCenterCrateCollide",
+        ModuleType::Behavior,
+        sabotage_command_center_crate_collide_module_factory,
+        sabotage_command_center_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "SabotageFakeBuildingCrateCollide",
+        ModuleType::Behavior,
+        sabotage_fake_building_crate_collide_module_factory,
+        sabotage_fake_building_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "SabotageInternetCenterCrateCollide",
+        ModuleType::Behavior,
+        sabotage_internet_center_crate_collide_module_factory,
+        sabotage_internet_center_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "SabotageMilitaryFactoryCrateCollide",
+        ModuleType::Behavior,
+        sabotage_military_factory_crate_collide_module_factory,
+        sabotage_military_factory_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "SabotagePowerPlantCrateCollide",
+        ModuleType::Behavior,
+        sabotage_power_plant_crate_collide_module_factory,
+        sabotage_power_plant_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "SabotageSuperweaponCrateCollide",
+        ModuleType::Behavior,
+        sabotage_superweapon_crate_collide_module_factory,
+        sabotage_superweapon_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "SabotageSupplyCenterCrateCollide",
+        ModuleType::Behavior,
+        sabotage_supply_center_crate_collide_module_factory,
+        sabotage_supply_center_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "UnitCrateCollide",
+        ModuleType::Behavior,
+        unit_crate_collide_module_factory,
+        unit_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "VeterancyCrateCollide",
+        ModuleType::Behavior,
+        veterancy_crate_collide_module_factory,
+        veterancy_crate_collide_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
