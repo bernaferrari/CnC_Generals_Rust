@@ -3476,7 +3476,12 @@ impl DefaultCommandHandler {
             }
         };
 
-        let max_shots_to_fire = match command.command.get_argument(2) {
+        let max_shots_to_fire_arg = if cmd_type == CommandType::DoWeapon {
+            1
+        } else {
+            2
+        };
+        let max_shots_to_fire = match command.command.get_argument(max_shots_to_fire_arg) {
             Some(CommandArgumentType::Integer(value)) => *value,
             _ => NO_MAX_SHOTS_LIMIT,
         };
@@ -3544,11 +3549,18 @@ impl DefaultCommandHandler {
             let Some(ai) = guard.get_ai_update_interface() else {
                 continue;
             };
+            let own_position = if cmd_type == CommandType::DoWeapon {
+                Some(*guard.get_position())
+            } else {
+                None
+            };
             drop(guard);
 
             if let Some(target) = &target_arc {
                 ai.ai_attack_object(target, max_shots_to_fire, CommandSourceType::FromPlayer);
             } else if let Some(position) = target_position {
+                ai.ai_attack_position(&position, max_shots_to_fire, CommandSourceType::FromPlayer);
+            } else if let Some(position) = own_position {
                 ai.ai_attack_position(&position, max_shots_to_fire, CommandSourceType::FromPlayer);
             }
         }
@@ -3859,9 +3871,9 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject => {
                 self.execute_combat_drop_command(command, context)
             }
-            CommandType::DoWeaponAtLocation | CommandType::DoWeaponAtObject => {
-                self.execute_weapon_target_command(command, context)
-            }
+            CommandType::DoWeapon
+            | CommandType::DoWeaponAtLocation
+            | CommandType::DoWeaponAtObject => self.execute_weapon_target_command(command, context),
             CommandType::DoGuardPosition => self.execute_guard_position(command, context),
             CommandType::DoGuardObject => self.execute_guard_object(command, context),
             CommandType::DoCheer => self.execute_cheer(command),
@@ -3963,6 +3975,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::InternetHack
                 | CommandType::CombatDropAtLocation
                 | CommandType::CombatDropAtObject
+                | CommandType::DoWeapon
                 | CommandType::DoWeaponAtLocation
                 | CommandType::DoWeaponAtObject
                 | CommandType::DoGuardPosition
@@ -4275,6 +4288,7 @@ mod tests {
     fn default_handler_accepts_targeted_weapon_commands() {
         let handler = DefaultCommandHandler::new();
 
+        assert!(handler.can_handle(CommandType::DoWeapon));
         assert!(handler.can_handle(CommandType::DoWeaponAtLocation));
         assert!(handler.can_handle(CommandType::DoWeaponAtObject));
     }
