@@ -312,6 +312,17 @@ impl ProductionUpdate {
         }
     }
 
+    pub fn cancel_upgrade_by_name(&mut self, upgrade_name: &str) -> Result<(), String> {
+        let Some(index) = self
+            .queue
+            .find_by_template_and_type(ProductionType::Upgrade, upgrade_name)
+        else {
+            return Err("Upgrade not in queue".to_string());
+        };
+
+        self.cancel_production(index)
+    }
+
     /// Start producing the current queue item
     fn start_production(&mut self) -> Result<(), String> {
         if let Some(_entry) = self.queue.current() {
