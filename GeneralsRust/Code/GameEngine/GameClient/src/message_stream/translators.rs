@@ -2181,10 +2181,19 @@ impl CommandTranslator {
                 // directly issue command messages; context commands are generated on click events.
                 self.right_click_lift = Some(position.clone());
                 self.right_click_up_time = time;
+                let had_pending_place_source =
+                    TheInGameUI::get_pending_place_source_object_id() != 0;
                 // C++ parity (CommandXlat.cpp MSG_RAW_MOUSE_RIGHT_BUTTON_UP):
                 // right-click click gesture cancels pending build-placement mode.
                 if self.right_click_is_click_gesture() {
                     TheInGameUI::place_build_available(None, None);
+                    if TheInGameUI::get_pending_command().is_none()
+                        && (!is_alternate_mouse_enabled() || had_pending_place_source)
+                        && !self.current_selection.is_empty()
+                    {
+                        self.current_selection.clear();
+                        return vec![GameMessageType::CreateSelectedGroup(true, Vec::new())];
+                    }
                 }
                 vec![]
             }
@@ -5439,6 +5448,48 @@ mod tests {
         );
         assert_eq!(TheInGameUI::get_pending_place_source_object_id(), 0);
         assert!(TheInGameUI::get_pending_place_template().is_none());
+    }
+
+    #[test]
+    fn test_raw_right_button_up_regular_mouse_deselects_current_selection() {
+        let _guard = test_state_lock();
+        game_engine::common::ini::ini_game_data::init_global_data();
+        let previous_alt_mouse = get_global_data()
+            .map(|data| data.read().use_alternate_mouse)
+            .unwrap_or(false);
+        if let Some(data) = get_global_data() {
+            data.write().use_alternate_mouse = false;
+        }
+
+        let mut translator = CommandTranslator::new();
+        translator.current_selection.insert(42);
+        TheInGameUI::clear_pending_command();
+        TheInGameUI::place_build_available(None, None);
+
+        let down = GameMessage::new(GameMessageType::RawMouseRightButtonDown(
+            ICoord2D::new(10, 20),
+            0,
+            100,
+        ));
+        let up = GameMessage::new(GameMessageType::RawMouseRightButtonUp(
+            ICoord2D::new(10, 20),
+            0,
+            120,
+        ));
+
+        assert_eq!(
+            translator.translate_game_message(&down),
+            GameMessageDisposition::KeepMessage
+        );
+        assert_eq!(
+            translator.translate_game_message(&up),
+            GameMessageDisposition::KeepMessage
+        );
+        assert!(translator.current_selection.is_empty());
+
+        if let Some(data) = get_global_data() {
+            data.write().use_alternate_mouse = previous_alt_mouse;
+        }
     }
 
     #[test]
