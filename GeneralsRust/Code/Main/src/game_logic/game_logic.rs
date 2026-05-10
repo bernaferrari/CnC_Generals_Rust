@@ -9565,6 +9565,38 @@ impl GameLogic {
         false
     }
 
+    /// Cancel every queued production item on a producer and refund the owner.
+    pub fn cancel_all_production(&mut self, producer_id: ObjectId) -> bool {
+        let Some(team) = self.objects.get(&producer_id).map(|p| p.team) else {
+            return false;
+        };
+        if !self.players.values().any(|player| player.team == team) {
+            return false;
+        }
+
+        let mut refund = Resources::default();
+        let mut cancelled_any = false;
+        if let Some(producer) = self.objects.get_mut(&producer_id) {
+            if let Some(building) = producer.building_data.as_mut() {
+                for item in building.production_queue.drain(..) {
+                    refund.supplies = refund.supplies.saturating_add(item.cost.supplies);
+                    refund.power += item.cost.power;
+                    cancelled_any = true;
+                }
+            }
+        }
+
+        if cancelled_any {
+            if let Some(player) = self.get_player_mut_by_team(team) {
+                player.resources.supplies =
+                    player.resources.supplies.saturating_add(refund.supplies);
+                player.power_available -= refund.power;
+            }
+        }
+
+        cancelled_any
+    }
+
     pub fn queue_radar_message<S: Into<String>>(&mut self, message: S) {
         self.queue_radar_message_at(message, Vec3::ZERO, radar_notifications::RadarKind::Generic);
     }
