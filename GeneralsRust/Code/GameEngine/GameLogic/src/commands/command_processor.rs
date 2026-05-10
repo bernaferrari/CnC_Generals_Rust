@@ -1059,6 +1059,71 @@ impl DefaultCommandHandler {
         }
     }
 
+    fn execute_sell_command(
+        &mut self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        use game_engine::common::system::build_assistant;
+
+        let mut object_ids = Vec::new();
+        for i in 0..command.command.get_argument_count() {
+            if let Some(crate::commands::command::CommandArgumentType::ObjectID(id)) =
+                command.command.get_argument(i as Int)
+            {
+                object_ids.push(*id);
+            }
+        }
+
+        if object_ids.is_empty() {
+            let selection_manager = get_selection_manager();
+            object_ids = match selection_manager.read() {
+                Ok(manager) => manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+                    .unwrap_or_default(),
+                Err(_) => Vec::new(),
+            };
+        }
+
+        let Some(mut assistant) = build_assistant::get_build_assistant() else {
+            return CommandExecutionResult::Failed(AsciiString::from(
+                "Build assistant unavailable",
+            ));
+        };
+        let current_frame = TheGameLogic::get_frame();
+
+        for object_id in object_ids {
+            let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
+            };
+
+            let owner = object_guard
+                .get_controlling_player_id()
+                .map(|id| id as Int)
+                .unwrap_or(-1);
+            if owner != -1 && owner != context.player_id {
+                continue;
+            }
+
+            let sell_object = build_assistant::Object {
+                id: object_guard.get_id(),
+                position: build_assistant::Coord3D {
+                    x: object_guard.get_position().x,
+                    y: object_guard.get_position().y,
+                    z: object_guard.get_position().z,
+                },
+                orientation: object_guard.get_orientation(),
+            };
+            assistant.sell_object(&sell_object, current_frame);
+        }
+
+        CommandExecutionResult::Success
+    }
+
     /// Execute stop command
     fn execute_stop_command(
         &mut self,
@@ -3480,6 +3545,7 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::DozerConstruct | CommandType::DozerConstructLine => {
                 self.execute_build_command(command, context)
             }
+            CommandType::Sell => self.execute_sell_command(command, context),
             CommandType::DoStop => self.execute_stop_command(command, context),
             CommandType::DoScatter => self.execute_scatter_command(command, context),
             CommandType::DoSpecialPower
@@ -3577,6 +3643,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::ResumeConstruction
                 | CommandType::DozerConstruct
                 | CommandType::DozerConstructLine
+                | CommandType::Sell
                 | CommandType::DoStop
                 | CommandType::DoScatter
                 | CommandType::DoSpecialPower
@@ -3852,6 +3919,13 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::PurchaseScience));
+    }
+
+    #[test]
+    fn default_handler_accepts_sell_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::Sell));
     }
 
     #[test]
