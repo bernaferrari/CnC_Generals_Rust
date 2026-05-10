@@ -445,7 +445,7 @@ pub struct SpawnBehavior {
 
 impl SpawnBehavior {
     pub fn new(
-        _thing: Arc<RwLock<Object>>,
+        object: Arc<RwLock<Object>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = {
@@ -456,6 +456,13 @@ impl SpawnBehavior {
             data_ref.clone()
         };
 
+        Self::new_with_data(object, Arc::new(data))
+    }
+
+    pub fn new_with_data(
+        object: Arc<RwLock<Object>>,
+        data: Arc<SpawnBehaviorModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         if data.spawn_template_name_data.is_empty() {
             return Err("SpawnBehavior requires at least one spawn template".into());
         }
@@ -473,8 +480,8 @@ impl SpawnBehavior {
         };
 
         Ok(Self {
-            object: None, // Will be set after creation
-            module_data: Arc::new(data.clone()),
+            object: Some(object),
+            module_data: data.clone(),
             spawn_template: Some(spawn_template),
             template_name_iterator: 0,
             one_shot_countdown,

@@ -149,6 +149,9 @@ use crate::object::behavior::slow_death_behavior::{
 use crate::object::behavior::smart_bomb_target_homing_update::{
     smart_bomb_target_homing_update_data_factory, smart_bomb_target_homing_update_module_factory,
 };
+use crate::object::behavior::spawn_behavior::{
+    SpawnBehavior, SpawnBehaviorModule, SpawnBehaviorModuleData,
+};
 use crate::object::behavior::spectre_gunship_deployment_update::{
     SpectreGunshipDeploymentUpdate, SpectreGunshipDeploymentUpdateModuleData,
 };
@@ -1105,6 +1108,37 @@ fn bone_fx_damage_module_factory(
     Box::new(BoneFXDamageModule::new(
         behavior,
         &AsciiString::from("BoneFXDamage"),
+        data_arc,
+    ))
+}
+
+fn spawn_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SpawnBehaviorModuleData::new();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SpawnBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn spawn_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let owner_id = resolve_owner_id(&thing);
+    let owner =
+        TheGameLogic::find_object_by_id(owner_id).expect("SpawnBehavior requires a valid object");
+    let data_arc = cloned_module_data::<SpawnBehaviorModuleData>("SpawnBehavior", &module_data);
+    let behavior = SpawnBehavior::new_with_data(owner, data_arc.clone())
+        .expect("SpawnBehavior failed to initialize");
+    Box::new(SpawnBehaviorModule::new(
+        behavior,
+        &AsciiString::from("SpawnBehavior"),
         data_arc,
     ))
 }
@@ -3480,6 +3514,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         bone_fx_damage_module_factory,
         bone_fx_damage_data_factory,
+    )?;
+    register_module_override(
+        "SpawnBehavior",
+        ModuleType::Behavior,
+        spawn_behavior_module_factory,
+        spawn_behavior_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
