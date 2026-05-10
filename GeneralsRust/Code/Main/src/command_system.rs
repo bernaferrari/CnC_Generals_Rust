@@ -2005,4 +2005,63 @@ mod tests {
             "cancelling a non-queued upgrade should not issue another refund"
         );
     }
+
+    #[test]
+    fn queued_upgrade_completes_during_simulation_update() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let system = CommandSystem::new();
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 3000;
+        game_logic.add_player(player);
+
+        let mut template = ThingTemplate::new("TestUnit");
+        template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        let unit = Object::new(template, ObjectId(401), Team::USA);
+        game_logic.add_object(unit);
+
+        let command = GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: "Upgrade_AmericaSupplyLines".to_string(),
+            },
+            player_id: 0,
+            command_id: 20,
+            timestamp: SystemTime::now(),
+            selected_units: vec![ObjectId(401)],
+            modifier_keys: ModifierKeys::default(),
+        };
+        assert_eq!(
+            system.execute_command(&command, &mut game_logic),
+            CommandResult::Success
+        );
+
+        let player_after_queue = game_logic.get_player(0).expect("player should exist");
+        assert!(player_after_queue
+            .queued_upgrades
+            .contains("Upgrade_AmericaSupplyLines"));
+        assert!(!player_after_queue
+            .unlocked_sciences
+            .contains("Upgrade_AmericaSupplyLines"));
+
+        game_logic.update();
+
+        let player_after_update = game_logic
+            .get_player(0)
+            .expect("player should exist after update");
+        assert!(!player_after_update
+            .queued_upgrades
+            .contains("Upgrade_AmericaSupplyLines"));
+        assert!(player_after_update
+            .unlocked_sciences
+            .contains("Upgrade_AmericaSupplyLines"));
+        assert_eq!(
+            system.execute_command(&command, &mut game_logic),
+            CommandResult::InvalidCommand,
+            "completed upgrades should not be queued or charged again"
+        );
+    }
 }

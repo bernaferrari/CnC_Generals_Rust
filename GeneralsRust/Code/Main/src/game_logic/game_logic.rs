@@ -322,6 +322,16 @@ impl Player {
         true
     }
 
+    /// Complete all queued player upgrades into the unlocked upgrade/science set.
+    pub fn complete_queued_upgrades(&mut self) -> Vec<String> {
+        let mut completed: Vec<String> = self.queued_upgrades.drain().collect();
+        completed.sort();
+        for upgrade in &completed {
+            self.unlocked_sciences.insert(upgrade.clone());
+        }
+        completed
+    }
+
     pub fn record_unit_destroyed(&mut self) {
         self.statistics.units_destroyed = self.statistics.units_destroyed.saturating_add(1);
     }
@@ -3009,6 +3019,7 @@ impl GameLogic {
         // Production queues update after AI so build orders issued by AI this
         // frame can be immediately reflected.
         self.update_production(dt);
+        self.update_player_upgrades();
         if let Some(mut build_assistant) = get_build_assistant() {
             build_assistant.update(self.frame);
         }
@@ -5044,6 +5055,12 @@ impl GameLogic {
                     attacker.stop_attack();
                 }
             }
+        }
+    }
+
+    fn update_player_upgrades(&mut self) {
+        for player in self.players.values_mut() {
+            player.complete_queued_upgrades();
         }
     }
 
