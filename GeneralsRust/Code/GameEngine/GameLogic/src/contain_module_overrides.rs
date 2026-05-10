@@ -146,6 +146,9 @@ use crate::object::behavior::pilot_find_vehicle_update::{
 use crate::object::behavior::point_defense_laser_update::{
     point_defense_laser_update_data_factory, point_defense_laser_update_module_factory,
 };
+use crate::object::behavior::poisoned_behavior::{
+    PoisonedBehavior, PoisonedBehaviorModule, PoisonedBehaviorModuleData,
+};
 use crate::object::behavior::power_plant_update::{PowerPlantUpdate, PowerPlantUpdateModuleData};
 use crate::object::behavior::projectile_stream_update::{
     projectile_stream_update_data_factory, projectile_stream_update_module_factory,
@@ -3875,6 +3878,38 @@ fn helicopter_slow_death_module_factory(
     ))
 }
 
+fn poisoned_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = PoisonedBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse PoisonedBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn poisoned_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<PoisonedBehaviorModuleData>("PoisonedBehavior", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .unwrap_or_else(|| panic!("PoisonedBehavior requires owning object {object_id}"));
+    let behavior = PoisonedBehavior::new(object, Arc::clone(&data_arc));
+    let module_name = AsciiString::from("PoisonedBehavior");
+    Box::new(PoisonedBehaviorModule::new(
+        behavior,
+        &module_name,
+        data_arc,
+    ))
+}
+
 fn open_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = OpenContainModuleData::default();
     if let Some(ini) = ini {
@@ -4961,6 +4996,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         slow_death_behavior_module_factory,
         slow_death_behavior_module_data_factory,
+    )?;
+    register_module_override(
+        "PoisonedBehavior",
+        ModuleType::Behavior,
+        poisoned_behavior_module_factory,
+        poisoned_behavior_data_factory,
     )?;
     register_module_override(
         "InstantDeathBehavior",
