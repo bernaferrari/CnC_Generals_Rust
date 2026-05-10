@@ -14,7 +14,7 @@ use game_engine::common::thing::module_factory::{
 use log::warn;
 
 use crate::common::{
-    AsciiString, ModuleData as LegacyModuleData, ObjectID, TheGameLogic, INVALID_ID,
+    AsciiString, Coord3D, ModuleData as LegacyModuleData, ObjectID, TheGameLogic, INVALID_ID,
 };
 use crate::modules::{BehaviorModuleInterface, ContainModuleInterface};
 use crate::object::behavior::animation_steering_update::{
@@ -192,6 +192,9 @@ use crate::object::behavior::supply_center_production_exit_behavior::{
     SupplyCenterProductionExitBehavior, SupplyCenterProductionExitBehaviorModule,
     SupplyCenterProductionExitModuleData,
 };
+use crate::object::behavior::supply_warehouse_crippling_behavior::{
+    SupplyWarehouseCripplingBehavior, SupplyWarehouseCripplingBehaviorModuleData,
+};
 use crate::object::behavior::tech_building_behavior::{
     TechBuildingBehavior, TechBuildingBehaviorModuleData,
 };
@@ -279,7 +282,18 @@ use crate::object::die::{
     SpecialPowerCompletionDieModuleData, UpgradeDie, UpgradeDieModuleData,
 };
 use crate::object::draw::*;
+use crate::object::production::production_update_complete::ProductionUpdateCompleteModule;
+use crate::object::production::{
+    ProductionUpdateModuleData, RailedTransportDockUpdate, RailedTransportDockUpdateData,
+    RailedTransportDockUpdateModule, RepairDockUpdate, RepairDockUpdateData,
+    RepairDockUpdateModule, SupplyCenterDockUpdate, SupplyCenterDockUpdateData,
+    SupplyCenterDockUpdateModule, SupplyWarehouseDockUpdate, SupplyWarehouseDockUpdateData,
+    SupplyWarehouseDockUpdateModule,
+};
 use crate::object::special_powers::*;
+use crate::object::update::ai_update::railroad_guide_ai_update::{
+    RailroadBehaviorModule, RailroadBehaviorModuleData,
+};
 use crate::object::update::ai_update::{
     AssaultTransportAIUpdateModule, AssaultTransportAIUpdateModuleData, ChinookAIUpdateModule,
     ChinookAIUpdateModuleData, DeliverPayloadAIUpdateModule, DeliverPayloadAIUpdateModuleData,
@@ -341,6 +355,14 @@ fn resolve_owner_id(thing: &Arc<dyn ModuleThing>) -> ObjectID {
         .as_object()
         .map(ModuleObjectTrait::get_object_id)
         .unwrap_or(INVALID_ID)
+}
+
+fn resolve_owner_info(thing: &Arc<dyn ModuleThing>) -> (ObjectID, Coord3D) {
+    let owner_id = resolve_owner_id(thing);
+    let position = TheGameLogic::find_object_by_id(owner_id)
+        .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
+        .unwrap_or_default();
+    (owner_id, position)
 }
 
 fn resolve_drawable_id(thing: &Arc<dyn ModuleThing>) -> u32 {
@@ -2729,6 +2751,196 @@ fn missile_ai_update_module_factory(
     )
 }
 
+fn railroad_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = RailroadBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse RailroadBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn railroad_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<RailroadBehaviorModuleData>("RailroadBehavior", &module_data);
+    let owner_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(owner_id)
+        .expect("RailroadBehavior requires a valid object");
+    let module_name_key = NameKeyGenerator::name_to_key("RailroadBehavior");
+    Box::new(
+        RailroadBehaviorModule::new(module_name_key, data_arc, object)
+            .expect("RailroadBehavior init failed"),
+    )
+}
+
+fn production_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = ProductionUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse ProductionUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn production_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<ProductionUpdateModuleData>("ProductionUpdate", &module_data);
+    let module_name = AsciiString::from("ProductionUpdate");
+    let owner_id = resolve_owner_id(&thing);
+    Box::new(ProductionUpdateCompleteModule::new(
+        &module_name,
+        data_arc,
+        owner_id,
+    ))
+}
+
+fn repair_dock_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = RepairDockUpdateData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse RepairDockUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn repair_dock_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<RepairDockUpdateData>("RepairDockUpdate", &module_data);
+    let (owner_id, owner_pos) = resolve_owner_info(&thing);
+    let behavior = RepairDockUpdate::new((*data_arc).clone(), owner_id, &owner_pos);
+    let module_name = AsciiString::from("RepairDockUpdate");
+    Box::new(RepairDockUpdateModule::new(
+        behavior,
+        &module_name,
+        data_arc,
+    ))
+}
+
+fn railed_transport_dock_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = RailedTransportDockUpdateData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse RailedTransportDockUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn railed_transport_dock_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<RailedTransportDockUpdateData>(
+        "RailedTransportDockUpdate",
+        &module_data,
+    );
+    let (owner_id, owner_pos) = resolve_owner_info(&thing);
+    let behavior = RailedTransportDockUpdate::new((*data_arc).clone(), owner_id, &owner_pos);
+    let module_name = AsciiString::from("RailedTransportDockUpdate");
+    Box::new(RailedTransportDockUpdateModule::new(
+        behavior,
+        &module_name,
+        data_arc,
+    ))
+}
+
+fn supply_center_dock_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SupplyCenterDockUpdateData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SupplyCenterDockUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn supply_center_dock_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<SupplyCenterDockUpdateData>("SupplyCenterDockUpdate", &module_data);
+    let (owner_id, owner_pos) = resolve_owner_info(&thing);
+    let behavior = SupplyCenterDockUpdate::new((*data_arc).clone(), owner_id, &owner_pos);
+    let module_name = AsciiString::from("SupplyCenterDockUpdate");
+    Box::new(SupplyCenterDockUpdateModule::new(
+        behavior,
+        &module_name,
+        data_arc,
+    ))
+}
+
+fn supply_warehouse_dock_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SupplyWarehouseDockUpdateData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SupplyWarehouseDockUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn supply_warehouse_dock_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<SupplyWarehouseDockUpdateData>(
+        "SupplyWarehouseDockUpdate",
+        &module_data,
+    );
+    let (owner_id, owner_pos) = resolve_owner_info(&thing);
+    let behavior = SupplyWarehouseDockUpdate::new((*data_arc).clone(), owner_id, &owner_pos);
+    let module_name = AsciiString::from("SupplyWarehouseDockUpdate");
+    Box::new(SupplyWarehouseDockUpdateModule::new(
+        behavior,
+        &module_name,
+        data_arc,
+    ))
+}
+
+active_behavior_factories!(
+    supply_warehouse_crippling_behavior_data_factory,
+    supply_warehouse_crippling_behavior_module_factory,
+    SupplyWarehouseCripplingBehaviorModuleData,
+    SupplyWarehouseCripplingBehavior,
+    "SupplyWarehouseCripplingBehavior"
+);
+
 #[derive(Debug, Clone)]
 pub struct ContainModuleDataAdapter<T: Clone + Send + Sync + std::fmt::Debug + 'static> {
     base: BaseModuleData,
@@ -4993,6 +5205,48 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         missile_ai_update_module_factory,
         missile_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "RailroadBehavior",
+        ModuleType::Behavior,
+        railroad_behavior_module_factory,
+        railroad_behavior_data_factory,
+    )?;
+    register_module_override(
+        "ProductionUpdate",
+        ModuleType::Behavior,
+        production_update_module_factory,
+        production_update_data_factory,
+    )?;
+    register_module_override(
+        "RepairDockUpdate",
+        ModuleType::Behavior,
+        repair_dock_update_module_factory,
+        repair_dock_update_data_factory,
+    )?;
+    register_module_override(
+        "RailedTransportDockUpdate",
+        ModuleType::Behavior,
+        railed_transport_dock_update_module_factory,
+        railed_transport_dock_update_data_factory,
+    )?;
+    register_module_override(
+        "SupplyCenterDockUpdate",
+        ModuleType::Behavior,
+        supply_center_dock_update_module_factory,
+        supply_center_dock_update_data_factory,
+    )?;
+    register_module_override(
+        "SupplyWarehouseDockUpdate",
+        ModuleType::Behavior,
+        supply_warehouse_dock_update_module_factory,
+        supply_warehouse_dock_update_data_factory,
+    )?;
+    register_module_override(
+        "SupplyWarehouseCripplingBehavior",
+        ModuleType::Behavior,
+        supply_warehouse_crippling_behavior_module_factory,
+        supply_warehouse_crippling_behavior_data_factory,
     )?;
     register_module_override(
         "ArmorUpgrade",
