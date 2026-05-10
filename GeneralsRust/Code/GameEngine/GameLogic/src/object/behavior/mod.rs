@@ -238,7 +238,8 @@ pub use generate_minefield_behavior::{
     GenerateMinefieldBehaviorModuleData,
 };
 pub use minefield_behavior::{
-    MinefieldBehavior, MinefieldBehaviorFactory, MinefieldBehaviorModuleData,
+    MinefieldBehavior, MinefieldBehaviorFactory, MinefieldBehaviorModule,
+    MinefieldBehaviorModuleData,
 };
 
 // Special Ability module exports

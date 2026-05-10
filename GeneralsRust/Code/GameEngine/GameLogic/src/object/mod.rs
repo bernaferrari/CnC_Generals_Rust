@@ -1064,6 +1064,7 @@ fn module_upgrade_kind(module: &mut dyn Module) -> Option<UpgradeModuleKindMut<'
 enum DieModuleKindMut<'a> {
     Wrapper(&'a mut DieModuleWrapper),
     LegacyBox(&'a mut Box<dyn DieModuleInterface>),
+    Minefield(&'a mut crate::object::behavior::minefield_behavior::MinefieldBehaviorModule),
 }
 
 impl<'a> DieModuleKindMut<'a> {
@@ -1071,6 +1072,7 @@ impl<'a> DieModuleKindMut<'a> {
         match self {
             Self::Wrapper(module) => module,
             Self::LegacyBox(module) => module.as_mut(),
+            Self::Minefield(module) => module.behavior_mut(),
         }
     }
 }
@@ -1081,8 +1083,18 @@ fn module_die_kind(module: &mut dyn Module) -> Option<DieModuleKindMut<'_>> {
             .downcast_mut::<DieModuleWrapper>()
             .map(|m| DieModuleKindMut::Wrapper(m));
     }
-    if let Some(module) = (module as &mut dyn Any).downcast_mut::<Box<dyn DieModuleInterface>>() {
-        return Some(DieModuleKindMut::LegacyBox(module));
+    if module
+        .as_any()
+        .is::<crate::object::behavior::minefield_behavior::MinefieldBehaviorModule>()
+    {
+        return (module as &mut dyn Any)
+            .downcast_mut::<crate::object::behavior::minefield_behavior::MinefieldBehaviorModule>()
+            .map(DieModuleKindMut::Minefield);
+    }
+    if module.as_any().is::<Box<dyn DieModuleInterface>>() {
+        return (module as &mut dyn Any)
+            .downcast_mut::<Box<dyn DieModuleInterface>>()
+            .map(DieModuleKindMut::LegacyBox);
     }
 
     None
@@ -1517,6 +1529,7 @@ impl ModuleUpdateProxy {
         update_via_behavior!(
             crate::object::behavior::generate_minefield_behavior::GenerateMinefieldBehaviorModule
         );
+        update_via_behavior!(crate::object::behavior::minefield_behavior::MinefieldBehaviorModule);
         update_via_behavior!(
             crate::object::behavior::special_ability_update::SpecialAbilityUpdateModule
         );

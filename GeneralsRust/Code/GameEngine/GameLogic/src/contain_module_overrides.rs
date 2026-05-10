@@ -119,6 +119,9 @@ use crate::object::behavior::leaflet_drop_behavior::{
 use crate::object::behavior::lifetime_update::{
     lifetime_update_data_factory, lifetime_update_module_factory,
 };
+use crate::object::behavior::minefield_behavior::{
+    MinefieldBehavior, MinefieldBehaviorModule, MinefieldBehaviorModuleData,
+};
 use crate::object::behavior::missile_launcher_building_update::{
     MissileLauncherBuildingUpdate, MissileLauncherBuildingUpdateModule,
     MissileLauncherBuildingUpdateModuleData,
@@ -2607,6 +2610,39 @@ active_behavior_factories!(
     GenerateMinefieldBehavior,
     "GenerateMinefieldBehavior"
 );
+fn minefield_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = MinefieldBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse MinefieldBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn minefield_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<MinefieldBehaviorModuleData>("MinefieldBehavior", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .unwrap_or_else(|| panic!("MinefieldBehavior requires owning object {object_id}"));
+    let behavior = MinefieldBehavior::new(object, Arc::clone(&data_arc))
+        .expect("MinefieldBehavior failed to initialize");
+    let module_name = AsciiString::from("MinefieldBehavior");
+    Box::new(MinefieldBehaviorModule::new(
+        behavior,
+        &module_name,
+        data_arc,
+    ))
+}
+
 active_behavior_factories!(
     height_die_update_data_factory,
     height_die_update_module_factory,
@@ -5793,6 +5829,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         generate_minefield_behavior_module_factory,
         generate_minefield_behavior_data_factory,
+    )?;
+    register_module_override(
+        "MinefieldBehavior",
+        ModuleType::Behavior,
+        minefield_behavior_module_factory,
+        minefield_behavior_data_factory,
     )?;
     register_module_override(
         "HeightDieUpdate",
