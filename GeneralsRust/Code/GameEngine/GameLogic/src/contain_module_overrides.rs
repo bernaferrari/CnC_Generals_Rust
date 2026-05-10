@@ -33,14 +33,23 @@ use crate::object::behavior::neutron_missile_slow_death_update::{
 use crate::object::behavior::point_defense_laser_update::{
     point_defense_laser_update_data_factory, point_defense_laser_update_module_factory,
 };
+use crate::object::behavior::projectile_stream_update::{
+    projectile_stream_update_data_factory, projectile_stream_update_module_factory,
+};
 use crate::object::behavior::radius_decal_update::{
     radius_decal_update_data_factory, radius_decal_update_module_factory,
 };
 use crate::object::behavior::slow_death_behavior::{
     SlowDeathBehavior, SlowDeathBehaviorModuleData,
 };
+use crate::object::behavior::smart_bomb_target_homing_update::{
+    smart_bomb_target_homing_update_data_factory, smart_bomb_target_homing_update_module_factory,
+};
 use crate::object::behavior::sticky_bomb_update::{
     sticky_bomb_update_data_factory, sticky_bomb_update_module_factory,
+};
+use crate::object::behavior::tensile_formation_update::{
+    tensile_formation_update_data_factory, tensile_formation_update_module_factory,
 };
 use crate::object::behavior::topple_update::{
     topple_update_data_factory, topple_update_module_factory,
@@ -2069,6 +2078,24 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         point_defense_laser_update_module_factory,
         point_defense_laser_update_data_factory,
+    )?;
+    register_module_override(
+        "ProjectileStreamUpdate",
+        ModuleType::Behavior,
+        projectile_stream_update_module_factory,
+        projectile_stream_update_data_factory,
+    )?;
+    register_module_override(
+        "SmartBombTargetHomingUpdate",
+        ModuleType::Behavior,
+        smart_bomb_target_homing_update_module_factory,
+        smart_bomb_target_homing_update_data_factory,
+    )?;
+    register_module_override(
+        "TensileFormationUpdate",
+        ModuleType::Behavior,
+        tensile_formation_update_module_factory,
+        tensile_formation_update_data_factory,
     )?;
     register_module_override(
         "OpenContain",
