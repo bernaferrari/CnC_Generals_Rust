@@ -3502,6 +3502,67 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_exit_command(
+        &self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        let Some(object_wanting_to_exit) = self.extract_object_ids(command).first().copied() else {
+            return CommandExecutionResult::Failed(AsciiString::from("Exit missing object"));
+        };
+
+        let selection_manager = get_selection_manager();
+        let selected = selection_manager
+            .read()
+            .ok()
+            .and_then(|manager| {
+                manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+            })
+            .unwrap_or_default();
+        let Some(object_containing_exiter) = selected.first().copied() else {
+            return CommandExecutionResult::Success;
+        };
+
+        let Some(exiter) = OBJECT_REGISTRY.get_object(object_wanting_to_exit) else {
+            return CommandExecutionResult::Success;
+        };
+        if OBJECT_REGISTRY
+            .get_object(object_containing_exiter)
+            .is_none()
+        {
+            return CommandExecutionResult::Success;
+        }
+
+        let Ok(mut guard) = exiter.write() else {
+            return CommandExecutionResult::Success;
+        };
+        if guard.is_destroyed() {
+            return CommandExecutionResult::Success;
+        }
+        if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+            return CommandExecutionResult::Success;
+        }
+
+        guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
+        let Some(ai) = guard.get_ai_update_interface() else {
+            return CommandExecutionResult::Success;
+        };
+        drop(guard);
+
+        if let Ok(mut ai_guard) = ai.lock() {
+            let mut params = crate::ai::AiCommandParams::new(
+                crate::ai::AiCommandType::Exit,
+                CommandSourceType::FromPlayer,
+            );
+            params.obj = Some(object_containing_exiter);
+            let _ = ai_guard.execute_command(&params);
+        }
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_weapon_target_command(
         &self,
         command: &QueuedCommand,
@@ -3912,6 +3973,7 @@ impl CommandHandler for DefaultCommandHandler {
                 self.execute_special_power(command, context)
             }
             CommandType::Evacuate => self.execute_evacuate_command(context),
+            CommandType::Exit => self.execute_exit_command(command, context),
             CommandType::ExecuteRailedTransport => self.execute_selected_ai_command(
                 context,
                 crate::ai::AiCommandType::ExecuteRailedTransport,
@@ -4021,6 +4083,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::DoSpecialPowerAtObject
                 | CommandType::DoSpecialPowerOverrideDestination
                 | CommandType::Evacuate
+                | CommandType::Exit
                 | CommandType::ExecuteRailedTransport
                 | CommandType::InternetHack
                 | CommandType::CombatDropAtLocation
@@ -4339,6 +4402,13 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::ExecuteRailedTransport));
+    }
+
+    #[test]
+    fn default_handler_accepts_exit_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::Exit));
     }
 
     #[test]
