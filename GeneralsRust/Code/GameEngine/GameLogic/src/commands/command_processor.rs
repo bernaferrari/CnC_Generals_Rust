@@ -43,7 +43,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
 use crate::system::beacon_manager::get_beacon_manager;
-use crate::weapon::{WeaponLockType, WeaponSlotType};
+use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data as get_engine_global_data;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
@@ -1152,6 +1152,45 @@ impl DefaultCommandHandler {
         };
 
         let _ = object_guard.set_rally_point(&destination);
+        CommandExecutionResult::Success
+    }
+
+    fn execute_set_mine_clearing_detail(
+        &mut self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        let mut object_ids = Vec::new();
+        for i in 0..command.command.get_argument_count() {
+            if let Some(crate::commands::command::CommandArgumentType::ObjectID(id)) =
+                command.command.get_argument(i as Int)
+            {
+                object_ids.push(*id);
+            }
+        }
+
+        if object_ids.is_empty() {
+            let selection_manager = get_selection_manager();
+            object_ids = match selection_manager.read() {
+                Ok(manager) => manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+                    .unwrap_or_default(),
+                Err(_) => Vec::new(),
+            };
+        }
+
+        for object_id in object_ids {
+            let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+                continue;
+            };
+            let Ok(mut object_guard) = object_arc.write() else {
+                return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
+            };
+
+            object_guard.set_weapon_set_flag(WeaponSetType::MineClearingDetail);
+        }
+
         CommandExecutionResult::Success
     }
 
@@ -3578,6 +3617,9 @@ impl CommandHandler for DefaultCommandHandler {
             }
             CommandType::Sell => self.execute_sell_command(command, context),
             CommandType::SetRallyPoint => self.execute_set_rally_point(command, context),
+            CommandType::SetMineClearingDetail => {
+                self.execute_set_mine_clearing_detail(command, context)
+            }
             CommandType::DoStop => self.execute_stop_command(command, context),
             CommandType::DoScatter => self.execute_scatter_command(command, context),
             CommandType::DoSpecialPower
@@ -3677,6 +3719,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::DozerConstructLine
                 | CommandType::Sell
                 | CommandType::SetRallyPoint
+                | CommandType::SetMineClearingDetail
                 | CommandType::DoStop
                 | CommandType::DoScatter
                 | CommandType::DoSpecialPower
@@ -3966,6 +4009,13 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::SetRallyPoint));
+    }
+
+    #[test]
+    fn default_handler_accepts_mine_clearing_detail_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::SetMineClearingDetail));
     }
 
     #[test]
