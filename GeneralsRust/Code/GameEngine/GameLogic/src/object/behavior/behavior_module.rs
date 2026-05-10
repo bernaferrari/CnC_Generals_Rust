@@ -50,6 +50,8 @@ pub(crate) fn xfer_update_module_base_state(
 }
 
 pub trait SpyVisionUpdate: Send + Sync {
+    fn activate_spy_vision(&mut self, _duration: UnsignedInt) {}
+
     fn set_disabled_until_frame(
         &mut self,
         _frame: UnsignedInt,
