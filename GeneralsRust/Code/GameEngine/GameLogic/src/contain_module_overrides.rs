@@ -42,6 +42,9 @@ use crate::object::behavior::bunker_buster_behavior::{
     BunkerBusterBehavior, BunkerBusterBehaviorModuleData,
 };
 use crate::object::behavior::checkpoint_update::{CheckpointUpdate, CheckpointUpdateModuleData};
+use crate::object::behavior::cleanup_hazard_update::{
+    CleanupHazardUpdate, CleanupHazardUpdateModule, CleanupHazardUpdateModuleData,
+};
 use crate::object::behavior::deletion_update::{DeletionUpdate, DeletionUpdateModuleData};
 use crate::object::behavior::demo_trap_update::{
     demo_trap_update_data_factory, demo_trap_update_module_factory,
@@ -390,6 +393,39 @@ fn battle_plan_update_module_factory(
     Box::new(BattlePlanUpdateModule::new(
         behavior,
         &AsciiString::from("BattlePlanUpdate"),
+        data_arc,
+    ))
+}
+
+fn cleanup_hazard_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = CleanupHazardUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse CleanupHazardUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn cleanup_hazard_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<CleanupHazardUpdateModuleData>("CleanupHazardUpdate", &module_data);
+    let engine_data: Arc<dyn crate::common::ModuleData> = data_arc.clone();
+    let owner_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(owner_id)
+        .expect("CleanupHazardUpdate requires a valid object");
+    let behavior = CleanupHazardUpdate::new(object, engine_data)
+        .expect("CleanupHazardUpdate failed to initialize");
+    Box::new(CleanupHazardUpdateModule::new(
+        behavior,
+        &AsciiString::from("CleanupHazardUpdate"),
         data_arc,
     ))
 }
@@ -2633,6 +2669,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         battle_plan_update_module_factory,
         battle_plan_update_data_factory,
+    )?;
+    register_module_override(
+        "CleanupHazardUpdate",
+        ModuleType::Behavior,
+        cleanup_hazard_update_module_factory,
+        cleanup_hazard_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
