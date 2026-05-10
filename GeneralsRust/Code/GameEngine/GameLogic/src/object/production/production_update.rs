@@ -271,8 +271,8 @@ impl ProductionUpdate {
     /// Matches C++ ProductionUpdate::cancelUnitCreate lines 443-472
     pub fn cancel_production(&mut self, index: usize) -> Result<(), String> {
         if let Some(entry) = self.queue.cancel(index) {
-            // Calculate refund (matches C++ line 458)
-            let refund = entry.calculate_refund();
+            // C++ refunds the full calcCostToBuild for the canceled production entry.
+            let refund = entry.cost;
 
             // Return money to player (matches C++ lines 456-458)
             if refund > 0 {
@@ -859,5 +859,49 @@ mod tests {
         assert!(production
             .enqueue_production("Tank3".to_string(), ProductionType::Unit, 1000, 300, 1,)
             .is_err());
+    }
+
+    #[test]
+    fn cancel_production_refunds_full_cost_after_progress() {
+        use crate::economy::{EconomyManager, ResourceType};
+        use std::collections::HashMap;
+
+        let economy = Arc::new(Mutex::new(EconomyManager::new()));
+        {
+            let mut economy_guard = economy.lock().expect("economy lock should be available");
+            let mut resources = HashMap::new();
+            resources.insert(ResourceType::Money, 2_000);
+            economy_guard
+                .initialize_player_economy(1, resources)
+                .expect("player economy should initialize");
+        }
+
+        let mut production = ProductionUpdate::new(ProductionUpdateData::default(), 1);
+        production.set_economy_manager(economy.clone());
+        production
+            .enqueue_production("Tank".to_string(), ProductionType::Unit, 1_000, 100, 1)
+            .expect("production should enqueue");
+        production
+            .queue
+            .current_mut()
+            .expect("queued production should exist")
+            .time_spent = 75;
+
+        production
+            .cancel_production(0)
+            .expect("production cancel should succeed");
+
+        let money = economy
+            .lock()
+            .expect("economy lock should be available")
+            .get_player_resources(1)
+            .expect("player resources should exist")
+            .get(&ResourceType::Money)
+            .copied()
+            .unwrap_or_default();
+        assert_eq!(
+            money, 2_000,
+            "C++ ProductionUpdate::cancelUnitCreate refunds full queued cost"
+        );
     }
 }
