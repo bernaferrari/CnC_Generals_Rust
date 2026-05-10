@@ -271,6 +271,19 @@ use crate::object::update::{
     BeaconClientUpdateModuleData, LaserUpdateModule as LaserClientUpdateModule,
     LaserUpdateModuleData as LaserClientUpdateModuleData, SwayClientUpdateModule,
 };
+use crate::object::upgrade::{
+    ArmorUpgrade, ArmorUpgradeModuleData, CommandSetUpgrade, CommandSetUpgradeModuleData,
+    CostModifierUpgrade, CostModifierUpgradeModuleData, ExperienceScalarUpgrade,
+    ExperienceScalarUpgradeModuleData, GrantScienceUpgrade, GrantScienceUpgradeModuleData,
+    LocomotorSetUpgrade, LocomotorSetUpgradeModuleData, MaxHealthUpgrade,
+    MaxHealthUpgradeModuleData, ModelConditionUpgrade, ModelConditionUpgradeModuleData,
+    ObjectCreationUpgrade, ObjectCreationUpgradeModuleData, PassengersFireUpgrade,
+    PassengersFireUpgradeModuleData, PowerPlantUpgrade, PowerPlantUpgradeModuleData, RadarUpgrade,
+    RadarUpgradeModuleData, ReplaceObjectUpgrade, ReplaceObjectUpgradeModuleData, StealthUpgrade,
+    StealthUpgradeModuleData, SubObjectsUpgrade, SubObjectsUpgradeModuleData,
+    UnpauseSpecialPowerUpgrade, UnpauseSpecialPowerUpgradeModuleData, WeaponBonusUpgrade,
+    WeaponBonusUpgradeModuleData, WeaponSetUpgrade, WeaponSetUpgradeModuleData,
+};
 use crate::stealth_update::{
     StealthUpdateModule as CoreStealthUpdateModule,
     StealthUpdateModuleData as CoreStealthUpdateModuleData,
@@ -1514,6 +1527,180 @@ ai_update_factories!(
     DozerAIUpdateModuleData,
     DozerAIUpdateModule,
     "DozerAIUpdate"
+);
+
+macro_rules! upgrade_factories {
+    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
+        fn $data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            let mut data = <$data_ty>::default();
+            if let Some(ini) = ini {
+                if let Err(err) = data.parse_from_ini(ini) {
+                    warn!(
+                        "Failed to parse {} module data at line {}: {}",
+                        $module_name,
+                        ini.get_line_num(),
+                        err
+                    );
+                }
+            }
+            Box::new(data)
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
+            let module_name_key = NameKeyGenerator::name_to_key($module_name);
+            let owner_id = resolve_owner_id(&thing);
+            Box::new(<$module_ty>::new(module_name_key, data_arc, owner_id))
+        }
+    };
+}
+
+macro_rules! empty_upgrade_factories {
+    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
+        fn $data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            Box::new(<$data_ty>::default())
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
+            let module_name_key = NameKeyGenerator::name_to_key($module_name);
+            let owner_id = resolve_owner_id(&thing);
+            Box::new(<$module_ty>::new(module_name_key, data_arc, owner_id))
+        }
+    };
+}
+
+upgrade_factories!(
+    armor_upgrade_data_factory,
+    armor_upgrade_module_factory,
+    ArmorUpgradeModuleData,
+    ArmorUpgrade,
+    "ArmorUpgrade"
+);
+upgrade_factories!(
+    command_set_upgrade_data_factory,
+    command_set_upgrade_module_factory,
+    CommandSetUpgradeModuleData,
+    CommandSetUpgrade,
+    "CommandSetUpgrade"
+);
+upgrade_factories!(
+    cost_modifier_upgrade_data_factory,
+    cost_modifier_upgrade_module_factory,
+    CostModifierUpgradeModuleData,
+    CostModifierUpgrade,
+    "CostModifierUpgrade"
+);
+upgrade_factories!(
+    experience_scalar_upgrade_data_factory,
+    experience_scalar_upgrade_module_factory,
+    ExperienceScalarUpgradeModuleData,
+    ExperienceScalarUpgrade,
+    "ExperienceScalarUpgrade"
+);
+upgrade_factories!(
+    grant_science_upgrade_data_factory,
+    grant_science_upgrade_module_factory,
+    GrantScienceUpgradeModuleData,
+    GrantScienceUpgrade,
+    "GrantScienceUpgrade"
+);
+upgrade_factories!(
+    locomotor_set_upgrade_data_factory,
+    locomotor_set_upgrade_module_factory,
+    LocomotorSetUpgradeModuleData,
+    LocomotorSetUpgrade,
+    "LocomotorSetUpgrade"
+);
+upgrade_factories!(
+    max_health_upgrade_data_factory,
+    max_health_upgrade_module_factory,
+    MaxHealthUpgradeModuleData,
+    MaxHealthUpgrade,
+    "MaxHealthUpgrade"
+);
+upgrade_factories!(
+    model_condition_upgrade_data_factory,
+    model_condition_upgrade_module_factory,
+    ModelConditionUpgradeModuleData,
+    ModelConditionUpgrade,
+    "ModelConditionUpgrade"
+);
+upgrade_factories!(
+    object_creation_upgrade_data_factory,
+    object_creation_upgrade_module_factory,
+    ObjectCreationUpgradeModuleData,
+    ObjectCreationUpgrade,
+    "ObjectCreationUpgrade"
+);
+upgrade_factories!(
+    passengers_fire_upgrade_data_factory,
+    passengers_fire_upgrade_module_factory,
+    PassengersFireUpgradeModuleData,
+    PassengersFireUpgrade,
+    "PassengersFireUpgrade"
+);
+upgrade_factories!(
+    power_plant_upgrade_data_factory,
+    power_plant_upgrade_module_factory,
+    PowerPlantUpgradeModuleData,
+    PowerPlantUpgrade,
+    "PowerPlantUpgrade"
+);
+upgrade_factories!(
+    radar_upgrade_data_factory,
+    radar_upgrade_module_factory,
+    RadarUpgradeModuleData,
+    RadarUpgrade,
+    "RadarUpgrade"
+);
+upgrade_factories!(
+    replace_object_upgrade_data_factory,
+    replace_object_upgrade_module_factory,
+    ReplaceObjectUpgradeModuleData,
+    ReplaceObjectUpgrade,
+    "ReplaceObjectUpgrade"
+);
+empty_upgrade_factories!(
+    stealth_upgrade_data_factory,
+    stealth_upgrade_module_factory,
+    StealthUpgradeModuleData,
+    StealthUpgrade,
+    "StealthUpgrade"
+);
+upgrade_factories!(
+    subobjects_upgrade_data_factory,
+    subobjects_upgrade_module_factory,
+    SubObjectsUpgradeModuleData,
+    SubObjectsUpgrade,
+    "SubObjectsUpgrade"
+);
+upgrade_factories!(
+    unpause_special_power_upgrade_data_factory,
+    unpause_special_power_upgrade_module_factory,
+    UnpauseSpecialPowerUpgradeModuleData,
+    UnpauseSpecialPowerUpgrade,
+    "UnpauseSpecialPowerUpgrade"
+);
+upgrade_factories!(
+    weapon_bonus_upgrade_data_factory,
+    weapon_bonus_upgrade_module_factory,
+    WeaponBonusUpgradeModuleData,
+    WeaponBonusUpgrade,
+    "WeaponBonusUpgrade"
+);
+upgrade_factories!(
+    weapon_set_upgrade_data_factory,
+    weapon_set_upgrade_module_factory,
+    WeaponSetUpgradeModuleData,
+    WeaponSetUpgrade,
+    "WeaponSetUpgrade"
 );
 
 active_behavior_factories!(
@@ -4007,6 +4194,114 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         dozer_ai_update_module_factory,
         dozer_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "ArmorUpgrade",
+        ModuleType::Behavior,
+        armor_upgrade_module_factory,
+        armor_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "CommandSetUpgrade",
+        ModuleType::Behavior,
+        command_set_upgrade_module_factory,
+        command_set_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "CostModifierUpgrade",
+        ModuleType::Behavior,
+        cost_modifier_upgrade_module_factory,
+        cost_modifier_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "ExperienceScalarUpgrade",
+        ModuleType::Behavior,
+        experience_scalar_upgrade_module_factory,
+        experience_scalar_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "GrantScienceUpgrade",
+        ModuleType::Behavior,
+        grant_science_upgrade_module_factory,
+        grant_science_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "LocomotorSetUpgrade",
+        ModuleType::Behavior,
+        locomotor_set_upgrade_module_factory,
+        locomotor_set_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "MaxHealthUpgrade",
+        ModuleType::Behavior,
+        max_health_upgrade_module_factory,
+        max_health_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "ModelConditionUpgrade",
+        ModuleType::Behavior,
+        model_condition_upgrade_module_factory,
+        model_condition_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "ObjectCreationUpgrade",
+        ModuleType::Behavior,
+        object_creation_upgrade_module_factory,
+        object_creation_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "PassengersFireUpgrade",
+        ModuleType::Behavior,
+        passengers_fire_upgrade_module_factory,
+        passengers_fire_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "PowerPlantUpgrade",
+        ModuleType::Behavior,
+        power_plant_upgrade_module_factory,
+        power_plant_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "RadarUpgrade",
+        ModuleType::Behavior,
+        radar_upgrade_module_factory,
+        radar_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "ReplaceObjectUpgrade",
+        ModuleType::Behavior,
+        replace_object_upgrade_module_factory,
+        replace_object_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "StealthUpgrade",
+        ModuleType::Behavior,
+        stealth_upgrade_module_factory,
+        stealth_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "SubObjectsUpgrade",
+        ModuleType::Behavior,
+        subobjects_upgrade_module_factory,
+        subobjects_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "UnpauseSpecialPowerUpgrade",
+        ModuleType::Behavior,
+        unpause_special_power_upgrade_module_factory,
+        unpause_special_power_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "WeaponBonusUpgrade",
+        ModuleType::Behavior,
+        weapon_bonus_upgrade_module_factory,
+        weapon_bonus_upgrade_data_factory,
+    )?;
+    register_module_override(
+        "WeaponSetUpgrade",
+        ModuleType::Behavior,
+        weapon_set_upgrade_module_factory,
+        weapon_set_upgrade_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
