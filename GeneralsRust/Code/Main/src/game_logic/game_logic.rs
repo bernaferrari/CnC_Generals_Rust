@@ -9536,7 +9536,7 @@ impl GameLogic {
             let team = producer.team;
             // Validate the producer can build this template before charging resources.
             if let Some(building) = &producer.building_data {
-                if !building.can_produce(&template) {
+                if !building.can_produce(&template) || building.production_queue.len() >= 10 {
                     return false;
                 }
             } else {
@@ -12223,6 +12223,60 @@ mod tests {
                 .supplies,
             250,
             "resources should remain unchanged when production cannot be afforded"
+        );
+    }
+
+    #[test]
+    fn enqueue_production_full_queue_does_not_charge_resources() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks should be created");
+
+        for _ in 0..10 {
+            assert!(game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
+        }
+
+        let charged_supplies = game_logic
+            .get_player(0)
+            .expect("player should exist")
+            .resources
+            .supplies;
+        assert_eq!(charged_supplies, 99_000);
+        assert_eq!(
+            game_logic
+                .find_object(barracks_id)
+                .and_then(|building| building.building_data.as_ref())
+                .expect("barracks should have building data")
+                .production_queue
+                .len(),
+            10
+        );
+
+        assert!(!game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
+
+        assert_eq!(
+            game_logic
+                .get_player(0)
+                .expect("player should exist")
+                .resources
+                .supplies,
+            charged_supplies,
+            "full production queues must not charge resources"
+        );
+        assert_eq!(
+            game_logic
+                .find_object(barracks_id)
+                .and_then(|building| building.building_data.as_ref())
+                .expect("barracks should have building data")
+                .production_queue
+                .len(),
+            10,
+            "full production queues should not accept an extra item"
         );
     }
 
