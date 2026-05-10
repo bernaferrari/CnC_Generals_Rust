@@ -945,16 +945,164 @@ impl IniScriptParser {
                 Ok(ScriptActionType::CreateUnnamedOnTeamAtWaypoint)
             }
             "CREATE_REINFORCEMENT_TEAM" => Ok(ScriptActionType::CreateReinforcementTeam),
+            "BUILD_TEAM" => Ok(ScriptActionType::BuildTeam),
+            "RECRUIT_TEAM" => Ok(ScriptActionType::RecruitTeam),
+            "DAMAGE_MEMBERS_OF_TEAM" => Ok(ScriptActionType::DamageMembersOfTeam),
+            "MOVE_TEAM_TO" => Ok(ScriptActionType::MoveTeamTo),
             "TEAM_ATTACK_TEAM" => Ok(ScriptActionType::TeamAttackTeam),
+            "TEAM_ATTACK_AREA" => Ok(ScriptActionType::TeamAttackArea),
+            "TEAM_HUNT" => Ok(ScriptActionType::TeamHunt),
+            "TEAM_GUARD" => Ok(ScriptActionType::TeamGuard),
+            "TEAM_SET_STATE" => Ok(ScriptActionType::TeamSetState),
+            "TEAM_SET_ATTITUDE" => Ok(ScriptActionType::TeamSetAttitude),
+            "TEAM_APPLY_ATTACK_PRIORITY_SET" => Ok(ScriptActionType::TeamApplyAttackPrioritySet),
             "TEAM_FOLLOW_WAYPOINTS" => Ok(ScriptActionType::TeamFollowWaypoints),
+            "TEAM_FOLLOW_WAYPOINTS_EXACT" => Ok(ScriptActionType::TeamFollowWaypointsExact),
+            "TEAM_WANDER" => Ok(ScriptActionType::TeamWander),
+            "TEAM_WANDER_IN_PLACE" => Ok(ScriptActionType::TeamWanderInPlace),
+            "TEAM_PANIC" => Ok(ScriptActionType::TeamPanic),
+            "TEAM_STOP" => Ok(ScriptActionType::TeamStop),
+            "TEAM_STOP_AND_DISBAND" => Ok(ScriptActionType::TeamStopAndDisband),
+            "TEAM_AVAILABLE_FOR_RECRUITMENT" => Ok(ScriptActionType::TeamAvailableForRecruitment),
+            "TEAM_COLLECT_NEARBY_FOR_TEAM" => Ok(ScriptActionType::TeamCollectNearbyForTeam),
+            "TEAM_MERGE_INTO_TEAM" => Ok(ScriptActionType::TeamMergeIntoTeam),
+            "TEAM_FLASH" => Ok(ScriptActionType::TeamFlash),
+            "TEAM_FLASH_WHITE" => Ok(ScriptActionType::TeamFlashWhite),
+            "TEAM_TRANSFER_TO_PLAYER" => Ok(ScriptActionType::TeamTransferToPlayer),
+            "TEAM_SET_OVERRIDE_RELATION_TO_TEAM" => {
+                Ok(ScriptActionType::TeamSetOverrideRelationToTeam)
+            }
+            "TEAM_REMOVE_OVERRIDE_RELATION_TO_TEAM" => {
+                Ok(ScriptActionType::TeamRemoveOverrideRelationToTeam)
+            }
+            "TEAM_REMOVE_ALL_OVERRIDE_RELATIONS" => {
+                Ok(ScriptActionType::TeamRemoveAllOverrideRelations)
+            }
+            "TEAM_SET_OVERRIDE_RELATION_TO_PLAYER" => {
+                Ok(ScriptActionType::TeamSetOverrideRelationToPlayer)
+            }
+            "TEAM_REMOVE_OVERRIDE_RELATION_TO_PLAYER" => {
+                Ok(ScriptActionType::TeamRemoveOverrideRelationToPlayer)
+            }
+            "TEAM_LOAD_TRANSPORTS" => Ok(ScriptActionType::TeamLoadTransports),
+            "TEAM_ENTER_NAMED" => Ok(ScriptActionType::TeamEnterNamed),
+            "TEAM_EXIT_ALL" => Ok(ScriptActionType::TeamExitAll),
+            "TEAM_GARRISON_SPECIFIC_BUILDING" => Ok(ScriptActionType::TeamGarrisonSpecificBuilding),
+            "TEAM_GARRISON_NEAREST_BUILDING" => Ok(ScriptActionType::TeamGarrisonNearestBuilding),
+            "TEAM_EXIT_ALL_BUILDINGS" => Ok(ScriptActionType::TeamExitAllBuildings),
+            "TEAM_GUARD_POSITION" => Ok(ScriptActionType::TeamGuardPosition),
+            "TEAM_GUARD_OBJECT" => Ok(ScriptActionType::TeamGuardObject),
+            "TEAM_GUARD_AREA" => Ok(ScriptActionType::TeamGuardArea),
+            "TEAM_GUARD_SUPPLY_CENTER" => Ok(ScriptActionType::TeamGuardSupplyCenter),
+            "TEAM_GUARD_IN_TUNNEL_NETWORK" => Ok(ScriptActionType::TeamGuardInTunnelNetwork),
+            "TEAM_INCREASE_PRIORITY" => Ok(ScriptActionType::TeamIncreasePriority),
+            "TEAM_DECREASE_PRIORITY" => Ok(ScriptActionType::TeamDecreasePriority),
+            "TEAM_SET_EMOTICON" => Ok(ScriptActionType::TeamSetEmoticon),
+            "TEAM_SET_STEALTH_ENABLED" => Ok(ScriptActionType::TeamSetStealthEnabled),
+            "TEAM_SET_REPULSOR" => Ok(ScriptActionType::TeamSetRepulsor),
+            "TEAM_CREATE_RADAR_EVENT" => Ok(ScriptActionType::TeamCreateRadarEvent),
+            "TEAM_DELETE_LIVING" => Ok(ScriptActionType::TeamDeleteLiving),
+            "TEAM_AFFECT_OBJECT_PANEL_FLAGS" => Ok(ScriptActionType::TeamAffectObjectPanelFlags),
+            "TEAM_SET_UNMANNED_STATUS" => Ok(ScriptActionType::TeamSetUnmannedStatus),
+            "TEAM_SET_BOOBYTRAPPED" => Ok(ScriptActionType::TeamSetBoobytrapped),
             "MOVE_NAMED_UNIT_TO" => Ok(ScriptActionType::MoveNamedUnitTo),
             "NAMED_ATTACK_NAMED" => Ok(ScriptActionType::NamedAttackNamed),
             "TEAM_ATTACK_NAMED" => Ok(ScriptActionType::TeamAttackNamed),
             "NAMED_ATTACK_TEAM" => Ok(ScriptActionType::NamedAttackTeam),
+            "NAMED_ATTACK_AREA" => Ok(ScriptActionType::NamedAttackArea),
+            "NAMED_HUNT" => Ok(ScriptActionType::NamedHunt),
+            "NAMED_GUARD" => Ok(ScriptActionType::NamedGuard),
+            "NAMED_STOP" => Ok(ScriptActionType::NamedStop),
+            "NAMED_DAMAGE" => Ok(ScriptActionType::NamedDamage),
+            "NAMED_KILL" => Ok(ScriptActionType::NamedKill),
+            "NAMED_SET_ATTITUDE" => Ok(ScriptActionType::NamedSetAttitude),
+            "NAMED_APPLY_ATTACK_PRIORITY_SET" => Ok(ScriptActionType::NamedApplyAttackPrioritySet),
+            "NAMED_ENTER_NAMED" => Ok(ScriptActionType::NamedEnterNamed),
+            "NAMED_EXIT_ALL" => Ok(ScriptActionType::NamedExitAll),
+            "NAMED_FOLLOW_WAYPOINTS" => Ok(ScriptActionType::NamedFollowWaypoints),
+            "NAMED_FOLLOW_WAYPOINTS_EXACT" => Ok(ScriptActionType::NamedFollowWaypointsExact),
+            "NAMED_GARRISON_SPECIFIC_BUILDING" => {
+                Ok(ScriptActionType::NamedGarrisonSpecificBuilding)
+            }
+            "NAMED_GARRISON_NEAREST_BUILDING" => Ok(ScriptActionType::NamedGarrisonNearestBuilding),
+            "NAMED_EXIT_BUILDING" => Ok(ScriptActionType::NamedExitBuilding),
+            "NAMED_TRANSFER_OWNERSHIP_PLAYER" => Ok(ScriptActionType::NamedTransferOwnershipPlayer),
+            "NAMED_FLASH" => Ok(ScriptActionType::NamedFlash),
+            "NAMED_FLASH_WHITE" => Ok(ScriptActionType::NamedFlashWhite),
+            "NAMED_SET_STOPPING_DISTANCE" => Ok(ScriptActionType::NamedSetStoppingDistance),
+            "NAMED_FIRE_WEAPON_FOLLOWING_WAYPOINT_PATH" => {
+                Ok(ScriptActionType::NamedFireWeaponFollowingWaypointPath)
+            }
+            "NAMED_USE_COMMANDBUTTON_ABILITY_ON_NAMED" => {
+                Ok(ScriptActionType::NamedUseCommandbuttonAbilityOnNamed)
+            }
+            "NAMED_USE_COMMANDBUTTON_ABILITY_AT_WAYPOINT" => {
+                Ok(ScriptActionType::NamedUseCommandbuttonAbilityAtWaypoint)
+            }
+            "NAMED_USE_COMMANDBUTTON_ABILITY" => Ok(ScriptActionType::NamedUseCommandbuttonAbility),
+            "NAMED_USE_COMMANDBUTTON_ABILITY_USING_WAYPOINT_PATH" => {
+                Ok(ScriptActionType::NamedUseCommandbuttonAbilityUsingWaypointPath)
+            }
+            "NAMED_RECEIVE_UPGRADE" => Ok(ScriptActionType::NamedReceiveUpgrade),
+            "NAMED_CUSTOM_COLOR" => Ok(ScriptActionType::NamedCustomColor),
+            "NAMED_SET_HELD" => Ok(ScriptActionType::NamedSetHeld),
+            "NAMED_SET_TOPPLE_DIRECTION" => Ok(ScriptActionType::NamedSetToppleDirection),
+            "NAMED_SET_REPULSOR" => Ok(ScriptActionType::NamedSetRepulsor),
+            "NAMED_SET_STEALTH_ENABLED" => Ok(ScriptActionType::NamedSetStealthEnabled),
+            "NAMED_SET_EMOTICON" => Ok(ScriptActionType::NamedSetEmoticon),
+            "NAMED_FACE_NAMED" => Ok(ScriptActionType::NamedFaceNamed),
+            "NAMED_FACE_WAYPOINT" => Ok(ScriptActionType::NamedFaceWaypoint),
+            "NAMED_SET_EVAC_LEFT_OR_RIGHT" => Ok(ScriptActionType::NamedSetEvacLeftOrRight),
+            "NAMED_SET_UNMANNED_STATUS" => Ok(ScriptActionType::NamedSetUnmannedStatus),
+            "NAMED_SET_BOOBYTRAPPED" => Ok(ScriptActionType::NamedSetBoobytrapped),
             "PLAYER_KILL" => Ok(ScriptActionType::PlayerKill),
+            "PLAYER_HUNT" => Ok(ScriptActionType::PlayerHunt),
+            "PLAYER_SET_MONEY" => Ok(ScriptActionType::PlayerSetMoney),
             "PLAYER_GIVE_MONEY" => Ok(ScriptActionType::PlayerGiveMoney),
+            "PLAYER_SELL_EVERYTHING" => Ok(ScriptActionType::PlayerSellEverything),
+            "PLAYER_DISABLE_BASE_CONSTRUCTION" => {
+                Ok(ScriptActionType::PlayerDisableBaseConstruction)
+            }
+            "PLAYER_DISABLE_FACTORIES" => Ok(ScriptActionType::PlayerDisableFactories),
+            "PLAYER_DISABLE_UNIT_CONSTRUCTION" => {
+                Ok(ScriptActionType::PlayerDisableUnitConstruction)
+            }
+            "PLAYER_ENABLE_BASE_CONSTRUCTION" => Ok(ScriptActionType::PlayerEnableBaseConstruction),
+            "PLAYER_ENABLE_FACTORIES" => Ok(ScriptActionType::PlayerEnableFactories),
+            "PLAYER_ENABLE_UNIT_CONSTRUCTION" => Ok(ScriptActionType::PlayerEnableUnitConstruction),
+            "PLAYER_TRANSFER_OWNERSHIP_PLAYER" => {
+                Ok(ScriptActionType::PlayerTransferOwnershipPlayer)
+            }
+            "PLAYER_RELATES_PLAYER" => Ok(ScriptActionType::PlayerRelatesPlayer),
+            "PLAYER_GARRISON_ALL_BUILDINGS" => Ok(ScriptActionType::PlayerGarrisonAllBuildings),
+            "PLAYER_EXIT_ALL_BUILDINGS" => Ok(ScriptActionType::PlayerExitAllBuildings),
+            "PLAYER_SET_OVERRIDE_RELATION_TO_TEAM" => {
+                Ok(ScriptActionType::PlayerSetOverrideRelationToTeam)
+            }
+            "PLAYER_REMOVE_OVERRIDE_RELATION_TO_TEAM" => {
+                Ok(ScriptActionType::PlayerRemoveOverrideRelationToTeam)
+            }
+            "PLAYER_REPAIR_NAMED_STRUCTURE" => Ok(ScriptActionType::PlayerRepairNamedStructure),
+            "PLAYER_CREATE_TEAM_FROM_CAPTURED_UNITS" => {
+                Ok(ScriptActionType::PlayerCreateTeamFromCapturedUnits)
+            }
+            "PLAYER_ADD_SKILLPOINTS" => Ok(ScriptActionType::PlayerAddSkillpoints),
+            "PLAYER_ADD_RANKLEVEL" => Ok(ScriptActionType::PlayerAddRanklevel),
+            "PLAYER_SET_RANKLEVEL" => Ok(ScriptActionType::PlayerSetRanklevel),
+            "PLAYER_SET_RANKLEVELLIMIT" => Ok(ScriptActionType::PlayerSetRanklevellimit),
+            "PLAYER_GRANT_SCIENCE" => Ok(ScriptActionType::PlayerGrantScience),
+            "PLAYER_PURCHASE_SCIENCE" => Ok(ScriptActionType::PlayerPurchaseScience),
+            "PLAYER_SCIENCE_AVAILABILITY" => Ok(ScriptActionType::PlayerScienceAvailability),
+            "PLAYER_SELECT_SKILLSET" => Ok(ScriptActionType::PlayerSelectSkillset),
+            "PLAYER_AFFECT_RECEIVING_EXPERIENCE" => {
+                Ok(ScriptActionType::PlayerAffectReceivingExperience)
+            }
+            "PLAYER_EXCLUDE_FROM_SCORE_SCREEN" => {
+                Ok(ScriptActionType::PlayerExcludeFromScoreScreen)
+            }
             "NAMED_DELETE" => Ok(ScriptActionType::NamedDelete),
             "TEAM_DELETE" => Ok(ScriptActionType::TeamDelete),
+            "TEAM_KILL" => Ok(ScriptActionType::TeamKill),
             "ENABLE_SCRIPT" => Ok(ScriptActionType::EnableScript),
             "DISABLE_SCRIPT" => Ok(ScriptActionType::DisableScript),
             "CALL_SUBROUTINE" => Ok(ScriptActionType::CallSubroutine),
@@ -1620,6 +1768,122 @@ EndScriptList
                 ConditionType::MusicTrackHasCompleted,
                 ConditionType::SupplySourceSafe,
                 ConditionType::StartPositionIs,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_maps_cxx_team_named_and_player_action_names() {
+        let content = r#"
+ScriptList TestScripts
+  ScriptGroup Group1
+    Script Script_CxxTeamNamedPlayerActions
+      Conditions = OR
+        Condition1 = AND
+          TRUE
+        EndCondition
+      EndConditions
+      Actions = SEQUENTIAL
+        BUILD_TEAM TeamA
+        RECRUIT_TEAM TeamA
+        DAMAGE_MEMBERS_OF_TEAM TeamA 25
+        MOVE_TEAM_TO TeamA WP_A
+        TEAM_ATTACK_AREA TeamA AreaA
+        TEAM_HUNT TeamA
+        TEAM_SET_ATTITUDE TeamA Aggressive
+        TEAM_FOLLOW_WAYPOINTS_EXACT TeamA PathA
+        TEAM_WANDER_IN_PLACE TeamA
+        TEAM_STOP_AND_DISBAND TeamA
+        TEAM_SET_OVERRIDE_RELATION_TO_PLAYER TeamA Player_China Enemy
+        TEAM_LOAD_TRANSPORTS TeamA
+        TEAM_GARRISON_NEAREST_BUILDING TeamA
+        TEAM_GUARD_SUPPLY_CENTER TeamA SupplyDock
+        TEAM_SET_STEALTH_ENABLED TeamA TRUE
+        TEAM_SET_BOOBYTRAPPED TeamA TRUE
+        NAMED_ATTACK_AREA Hero AreaA
+        NAMED_HUNT Hero
+        NAMED_SET_ATTITUDE Hero Aggressive
+        NAMED_FOLLOW_WAYPOINTS_EXACT Hero PathA
+        NAMED_GARRISON_NEAREST_BUILDING Hero
+        NAMED_TRANSFER_OWNERSHIP_PLAYER Hero Player_China
+        NAMED_USE_COMMANDBUTTON_ABILITY_ON_NAMED Hero CommandButtonTarget Target
+        NAMED_RECEIVE_UPGRADE Hero UpgradeA
+        NAMED_SET_STEALTH_ENABLED Hero TRUE
+        NAMED_SET_BOOBYTRAPPED Hero TRUE
+        PLAYER_SET_MONEY Player_China 10000
+        PLAYER_SELL_EVERYTHING Player_China
+        PLAYER_DISABLE_BASE_CONSTRUCTION Player_China
+        PLAYER_ENABLE_UNIT_CONSTRUCTION Player_China
+        PLAYER_TRANSFER_OWNERSHIP_PLAYER Player_America Player_China
+        PLAYER_REPAIR_NAMED_STRUCTURE Player_China Bunker
+        PLAYER_CREATE_TEAM_FROM_CAPTURED_UNITS Player_China TeamA
+        PLAYER_GRANT_SCIENCE Player_China ScienceA
+        PLAYER_EXCLUDE_FROM_SCORE_SCREEN Player_China TRUE
+        TEAM_KILL TeamA
+      EndActions
+      IsActive = Yes
+    EndScript
+  EndScriptGroup
+EndScriptList
+"#;
+
+        let mut parser = IniScriptParser::new();
+        parser.parse(content).unwrap();
+        assert_eq!(parser.get_errors().len(), 0);
+        assert_eq!(parser.get_warnings().len(), 0);
+
+        let script = parser
+            .get_script_list("TestScripts")
+            .and_then(|list| list.get_script_group())
+            .and_then(|group| group.get_script())
+            .unwrap();
+
+        let mut actual = Vec::new();
+        let mut current = script.get_action();
+        while let Some(action) = current {
+            actual.push(action.get_action_type());
+            current = action.get_next();
+        }
+
+        assert_eq!(
+            actual,
+            vec![
+                ScriptActionType::BuildTeam,
+                ScriptActionType::RecruitTeam,
+                ScriptActionType::DamageMembersOfTeam,
+                ScriptActionType::MoveTeamTo,
+                ScriptActionType::TeamAttackArea,
+                ScriptActionType::TeamHunt,
+                ScriptActionType::TeamSetAttitude,
+                ScriptActionType::TeamFollowWaypointsExact,
+                ScriptActionType::TeamWanderInPlace,
+                ScriptActionType::TeamStopAndDisband,
+                ScriptActionType::TeamSetOverrideRelationToPlayer,
+                ScriptActionType::TeamLoadTransports,
+                ScriptActionType::TeamGarrisonNearestBuilding,
+                ScriptActionType::TeamGuardSupplyCenter,
+                ScriptActionType::TeamSetStealthEnabled,
+                ScriptActionType::TeamSetBoobytrapped,
+                ScriptActionType::NamedAttackArea,
+                ScriptActionType::NamedHunt,
+                ScriptActionType::NamedSetAttitude,
+                ScriptActionType::NamedFollowWaypointsExact,
+                ScriptActionType::NamedGarrisonNearestBuilding,
+                ScriptActionType::NamedTransferOwnershipPlayer,
+                ScriptActionType::NamedUseCommandbuttonAbilityOnNamed,
+                ScriptActionType::NamedReceiveUpgrade,
+                ScriptActionType::NamedSetStealthEnabled,
+                ScriptActionType::NamedSetBoobytrapped,
+                ScriptActionType::PlayerSetMoney,
+                ScriptActionType::PlayerSellEverything,
+                ScriptActionType::PlayerDisableBaseConstruction,
+                ScriptActionType::PlayerEnableUnitConstruction,
+                ScriptActionType::PlayerTransferOwnershipPlayer,
+                ScriptActionType::PlayerRepairNamedStructure,
+                ScriptActionType::PlayerCreateTeamFromCapturedUnits,
+                ScriptActionType::PlayerGrantScience,
+                ScriptActionType::PlayerExcludeFromScoreScreen,
+                ScriptActionType::TeamKill,
             ]
         );
     }
