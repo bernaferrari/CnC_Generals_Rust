@@ -3734,6 +3734,61 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_cancel_unit_create_command(
+        &self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        use crate::commands::command::CommandArgumentType;
+
+        let production_or_template_id = match command.command.get_argument(0) {
+            Some(CommandArgumentType::Integer(value)) => *value as u32,
+            _ => {
+                return CommandExecutionResult::Failed(AsciiString::from(
+                    "CancelUnitCreate missing production id",
+                ))
+            }
+        };
+
+        let template = TheThingFactory::find_template_by_id(production_or_template_id);
+
+        let selection_manager = get_selection_manager();
+        let selected = selection_manager
+            .read()
+            .ok()
+            .and_then(|manager| {
+                manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+            })
+            .unwrap_or_default();
+        let Some(producer_id) = selected.first().copied() else {
+            return CommandExecutionResult::Success;
+        };
+
+        let Some(producer) = OBJECT_REGISTRY.get_object(producer_id) else {
+            return CommandExecutionResult::Success;
+        };
+        let Ok(guard) = producer.read() else {
+            return CommandExecutionResult::Success;
+        };
+        if guard.is_destroyed() {
+            return CommandExecutionResult::Success;
+        }
+        if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+            return CommandExecutionResult::Success;
+        }
+
+        let canceled = template
+            .as_ref()
+            .is_some_and(|template| guard.cancel_unit_by_template(template));
+        if !canceled {
+            let _ = guard.cancel_unit_by_production_id(production_or_template_id);
+        }
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_weapon_target_command(
         &self,
         command: &QueuedCommand,
@@ -4199,6 +4254,9 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::QueueUnitCreate => {
                 self.execute_queue_unit_create_command(command, context)
             }
+            CommandType::CancelUnitCreate => {
+                self.execute_cancel_unit_create_command(command, context)
+            }
             CommandType::CreateFormation => self.execute_create_formation(command, context),
             CommandType::SelfDestruct => self.execute_self_destruct(command, context),
             CommandType::PlaceBeacon => self.execute_place_beacon(command, context),
@@ -4283,6 +4341,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::QueueUpgrade
                 | CommandType::CancelUpgrade
                 | CommandType::QueueUnitCreate
+                | CommandType::CancelUnitCreate
                 | CommandType::CreateFormation
                 | CommandType::SelfDestruct
                 | CommandType::PlaceBeacon
@@ -4609,6 +4668,13 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::QueueUnitCreate));
+    }
+
+    #[test]
+    fn default_handler_accepts_cancel_unit_create_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::CancelUnitCreate));
     }
 
     #[test]
