@@ -2257,6 +2257,18 @@ pub enum ArmorSetFlag {
 }
 
 impl Object {
+    fn disabled_tint_exceptions() -> DisabledMaskType {
+        let mut exceptions = DisabledMaskType::none();
+        exceptions.set_disabled(DisabledType::Held);
+        exceptions.set_disabled(DisabledType::DisabledScriptDisabled);
+        exceptions.set_disabled(DisabledType::DisabledUnmanned);
+        exceptions
+    }
+
+    fn flags_requiring_disabled_tint(flags: DisabledMaskType) -> DisabledMaskType {
+        flags.difference(Self::disabled_tint_exceptions())
+    }
+
     /// Creates a new Object instance with no predetermined ID.
     pub fn new(
         thing_template: Arc<dyn ThingTemplate>,
@@ -5152,17 +5164,16 @@ impl Object {
                 | DisabledType::DisabledSubdued
                 | DisabledType::DisabledHacked
         ) {
-            // Check if this was the last disabling factor (C++ lines 2213-2233)
-            let still_disabled = matches!(disabled_type, DisabledType::DisabledUnderpowered)
-                && self.is_disabled_by_type(DisabledType::DisabledUnderpowered)
-                || matches!(disabled_type, DisabledType::DisabledEmp)
-                    && self.is_disabled_by_type(DisabledType::DisabledEmp)
-                || matches!(disabled_type, DisabledType::DisabledSubdued)
-                    && self.is_disabled_by_type(DisabledType::DisabledSubdued)
-                || matches!(disabled_type, DisabledType::DisabledHacked)
-                    && self.is_disabled_by_type(DisabledType::DisabledHacked);
+            let any_power_disable_remaining = [
+                DisabledType::DisabledUnderpowered,
+                DisabledType::DisabledEmp,
+                DisabledType::DisabledSubdued,
+                DisabledType::DisabledHacked,
+            ]
+            .into_iter()
+            .any(|other_type| other_type != disabled_type && self.is_disabled_by_type(other_type));
 
-            if !still_disabled {
+            if !any_power_disable_remaining {
                 // Play appropriate audio event for re-enabled object
                 if let Some(audio) = crate::helpers::TheAudio::get() {
                     if let Some(misc_audio) =
@@ -5227,11 +5238,7 @@ impl Object {
         }
 
         // C++ lines 2288-2296: Clear tint status if no longer disabled by non-exception types
-        let exceptions = DisabledMaskType::from_bits_truncate(
-            (1 << (DisabledType::Held as u32))
-                | (1 << (DisabledType::DisabledScriptDisabled as u32)),
-        );
-        let flags_minus_exceptions = self.disabled_mask.difference(exceptions);
+        let flags_minus_exceptions = Self::flags_requiring_disabled_tint(self.disabled_mask);
         if flags_minus_exceptions.is_empty() {
             if let Some(drawable) = &self.drawable {
                 if let Ok(mut draw_guard) = drawable.write() {
@@ -12165,6 +12172,37 @@ mod tests {
         assert_eq!(obj.get_prev_object_id(), None);
         assert!(obj.get_next_object().is_none());
         assert!(obj.get_prev_object().is_none());
+    }
+
+    #[test]
+    fn test_clear_disabled_preserves_other_power_disable_flags() {
+        let mut obj = Object::new_test(404, 100.0);
+
+        obj.set_disabled(DisabledType::DisabledEmp);
+        obj.set_disabled(DisabledType::DisabledHacked);
+
+        assert!(obj.clear_disabled(DisabledType::DisabledEmp));
+        assert!(!obj.is_disabled_by_type(DisabledType::DisabledEmp));
+        assert!(obj.is_disabled_by_type(DisabledType::DisabledHacked));
+        assert!(obj.is_disabled());
+
+        assert!(obj.clear_disabled(DisabledType::DisabledHacked));
+        assert!(!obj.is_disabled());
+    }
+
+    #[test]
+    fn test_disabled_tint_exceptions_match_cpp_clear_disabled() {
+        let mut flags = DisabledMaskType::none();
+        flags.set_disabled(DisabledType::Held);
+        flags.set_disabled(DisabledType::DisabledScriptDisabled);
+        flags.set_disabled(DisabledType::DisabledUnmanned);
+
+        assert!(Object::flags_requiring_disabled_tint(flags).is_empty());
+
+        flags.set_disabled(DisabledType::DisabledEmp);
+        let tint_flags = Object::flags_requiring_disabled_tint(flags);
+        assert!(tint_flags.test(DisabledType::DisabledEmp));
+        assert!(!tint_flags.test(DisabledType::DisabledUnmanned));
     }
 }
 
