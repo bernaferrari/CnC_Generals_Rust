@@ -60,6 +60,10 @@ use crate::object::behavior::cleanup_hazard_update::{
 use crate::object::behavior::countermeasures_behavior::{
     CountermeasuresBehavior, CountermeasuresBehaviorModule, CountermeasuresBehaviorModuleData,
 };
+use crate::object::behavior::default_production_exit_behavior::{
+    DefaultProductionExitBehavior, DefaultProductionExitBehaviorModule,
+    DefaultProductionExitModuleData,
+};
 use crate::object::behavior::deletion_update::{DeletionUpdate, DeletionUpdateModuleData};
 use crate::object::behavior::demo_trap_update::{
     demo_trap_update_data_factory, demo_trap_update_module_factory,
@@ -1177,6 +1181,37 @@ fn particle_uplink_cannon_update_module_factory(
     Box::new(ParticleUplinkCannonUpdateModule::new(
         behavior,
         &AsciiString::from("ParticleUplinkCannonUpdate"),
+        data_arc,
+    ))
+}
+
+fn default_production_exit_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = DefaultProductionExitModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse DefaultProductionExitUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn default_production_exit_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<DefaultProductionExitModuleData>(
+        "DefaultProductionExitUpdate",
+        &module_data,
+    );
+    let behavior = DefaultProductionExitBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("DefaultProductionExitUpdate requires an owning object");
+    Box::new(DefaultProductionExitBehaviorModule::new(
+        behavior,
+        &AsciiString::from("DefaultProductionExitUpdate"),
         data_arc,
     ))
 }
@@ -3564,6 +3599,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         particle_uplink_cannon_update_module_factory,
         particle_uplink_cannon_update_data_factory,
+    )?;
+    register_module_override(
+        "DefaultProductionExitUpdate",
+        ModuleType::Behavior,
+        default_production_exit_update_module_factory,
+        default_production_exit_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
