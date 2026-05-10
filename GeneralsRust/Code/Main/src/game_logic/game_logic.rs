@@ -9560,8 +9560,14 @@ impl GameLogic {
 
     /// Cancel a queued production item by template name (first match).
     pub fn cancel_production(&mut self, producer_id: ObjectId, template_name: String) -> bool {
+        let Some(team) = self.objects.get(&producer_id).map(|p| p.team) else {
+            return false;
+        };
+        if !self.players.values().any(|player| player.team == team) {
+            return false;
+        }
+
         let mut refund: Option<Resources> = None;
-        let team = self.objects.get(&producer_id).map(|p| p.team);
         if let Some(producer) = self.objects.get_mut(&producer_id) {
             if let Some(building) = producer.building_data.as_mut() {
                 if let Some(pos) = building
@@ -9574,7 +9580,7 @@ impl GameLogic {
             }
         }
 
-        if let (Some(cost), Some(team)) = (refund, team) {
+        if let Some(cost) = refund {
             if let Some(player) = self.get_player_mut_by_team(team) {
                 player.resources.supplies += cost.supplies;
                 player.power_available -= cost.power;
@@ -12301,6 +12307,32 @@ mod tests {
                 .len(),
             0,
             "production should not queue for free without player state"
+        );
+    }
+
+    #[test]
+    fn cancel_production_requires_player_money_state_for_refund() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks should be created");
+        assert!(game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
+        game_logic.players.clear();
+
+        assert!(!game_logic.cancel_production(barracks_id, "TestInfantry".to_string()));
+        assert_eq!(
+            game_logic
+                .find_object(barracks_id)
+                .and_then(|building| building.building_data.as_ref())
+                .expect("barracks should have building data")
+                .production_queue
+                .len(),
+            1,
+            "cancelling without player state must not drop queued production"
         );
     }
 
