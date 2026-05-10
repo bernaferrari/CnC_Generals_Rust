@@ -3330,6 +3330,69 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_internet_hack_command(
+        &self,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        // Mirrors MSG_INTERNET_HACK / AIGroup::groupHackInternet for the current selection.
+        let selection_manager = get_selection_manager();
+        let selected = selection_manager
+            .read()
+            .ok()
+            .and_then(|manager| {
+                manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+            })
+            .unwrap_or_default();
+
+        for object_id in &selected {
+            let Some(obj) = OBJECT_REGISTRY.get_object(*object_id) else {
+                continue;
+            };
+            let Ok(mut guard) = obj.write() else {
+                continue;
+            };
+            if guard.is_destroyed() {
+                continue;
+            }
+            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+                continue;
+            }
+            guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
+        }
+
+        for object_id in selected {
+            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(guard) = obj.read() else {
+                continue;
+            };
+            if guard.is_destroyed() {
+                continue;
+            }
+            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+                continue;
+            }
+            let Some(ai) = guard.get_ai_update_interface() else {
+                continue;
+            };
+            drop(guard);
+
+            let ai_lock = ai.lock();
+            if let Ok(mut ai_guard) = ai_lock {
+                let params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::HackInternet,
+                    CommandSourceType::FromPlayer,
+                );
+                let _ = ai_guard.execute_command(&params);
+            }
+        }
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_enable_retaliation(
         &self,
         command: &QueuedCommand,
@@ -3629,6 +3692,7 @@ impl CommandHandler for DefaultCommandHandler {
                 self.execute_special_power(command, context)
             }
             CommandType::Evacuate => self.execute_evacuate_command(context),
+            CommandType::InternetHack => self.execute_internet_hack_command(context),
             CommandType::DoGuardPosition => self.execute_guard_position(command, context),
             CommandType::DoGuardObject => self.execute_guard_object(command, context),
             CommandType::DoCheer => self.execute_cheer(command),
@@ -3727,6 +3791,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::DoSpecialPowerAtObject
                 | CommandType::DoSpecialPowerOverrideDestination
                 | CommandType::Evacuate
+                | CommandType::InternetHack
                 | CommandType::DoGuardPosition
                 | CommandType::DoGuardObject
                 | CommandType::DoCheer
@@ -4016,6 +4081,13 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::SetMineClearingDetail));
+    }
+
+    #[test]
+    fn default_handler_accepts_internet_hack_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::InternetHack));
     }
 
     #[test]
