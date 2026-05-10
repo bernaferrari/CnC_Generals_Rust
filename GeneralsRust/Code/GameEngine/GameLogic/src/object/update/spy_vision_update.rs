@@ -647,7 +647,7 @@ fn parse_self_powered_duration(
         .iter()
         .find(|t| **t != "=")
         .ok_or(INIError::InvalidData)?;
-    data.self_powered_duration = INI::parse_unsigned_int(value)?;
+    data.self_powered_duration = INI::parse_duration_unsigned_int(value)?;
     Ok(())
 }
 
@@ -660,7 +660,7 @@ fn parse_self_powered_interval(
         .iter()
         .find(|t| **t != "=")
         .ok_or(INIError::InvalidData)?;
-    data.self_powered_interval = INI::parse_unsigned_int(value)?;
+    data.self_powered_interval = INI::parse_duration_unsigned_int(value)?;
     Ok(())
 }
 

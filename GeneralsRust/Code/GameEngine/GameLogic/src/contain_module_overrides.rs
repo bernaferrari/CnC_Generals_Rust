@@ -176,6 +176,9 @@ use crate::object::update::neutron_missile_update::{
     neutron_missile_update_data_factory, neutron_missile_update_module_factory,
 };
 use crate::object::update::ocl_update::{ocl_update_data_factory, ocl_update_module_factory};
+use crate::object::update::spy_vision_update::{
+    SpyVisionUpdate, SpyVisionUpdateModule, SpyVisionUpdateModuleData,
+};
 use crate::object::update::{
     AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
     BeaconClientUpdateModuleData, LaserUpdateModule as LaserClientUpdateModule,
@@ -462,6 +465,32 @@ fn command_button_hunt_update_module_factory(
         &AsciiString::from("CommandButtonHuntUpdate"),
         data_arc,
     ))
+}
+
+fn spy_vision_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SpyVisionUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SpyVisionUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn spy_vision_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<SpyVisionUpdateModuleData>("SpyVisionUpdate", &module_data);
+    let owner_id = resolve_owner_id(&thing);
+    let module_name = AsciiString::from("SpyVisionUpdate");
+    let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+    let behavior = SpyVisionUpdate::new(module_name_key, data_arc.clone(), owner_id);
+    Box::new(SpyVisionUpdateModule::new(behavior, &module_name, data_arc))
 }
 
 active_behavior_factories!(
@@ -2715,6 +2744,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         command_button_hunt_update_module_factory,
         command_button_hunt_update_data_factory,
+    )?;
+    register_module_override(
+        "SpyVisionUpdate",
+        ModuleType::Behavior,
+        spy_vision_update_module_factory,
+        spy_vision_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
