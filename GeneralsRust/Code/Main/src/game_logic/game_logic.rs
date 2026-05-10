@@ -9536,7 +9536,9 @@ impl GameLogic {
             let team = producer.team;
             // Validate the producer can build this template before charging resources.
             if let Some(building) = &producer.building_data {
-                if !building.can_produce(&template) || building.production_queue.len() >= 10 {
+                if !building.can_produce(&template)
+                    || building.production_queue.len() >= DEFAULT_PRODUCTION_QUEUE_LIMIT
+                {
                     return false;
                 }
             } else {
@@ -12244,7 +12246,7 @@ mod tests {
             .create_object("TestBarracks", Team::USA, Vec3::new(0.0, 0.0, 0.0))
             .expect("barracks should be created");
 
-        for _ in 0..10 {
+        for _ in 0..DEFAULT_PRODUCTION_QUEUE_LIMIT {
             assert!(game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
         }
 
@@ -12253,7 +12255,10 @@ mod tests {
             .expect("player should exist")
             .resources
             .supplies;
-        assert_eq!(charged_supplies, 99_000);
+        assert_eq!(
+            charged_supplies,
+            100_000 - (DEFAULT_PRODUCTION_QUEUE_LIMIT as u32 * 100)
+        );
         assert_eq!(
             game_logic
                 .find_object(barracks_id)
@@ -12261,7 +12266,7 @@ mod tests {
                 .expect("barracks should have building data")
                 .production_queue
                 .len(),
-            10
+            DEFAULT_PRODUCTION_QUEUE_LIMIT
         );
 
         assert!(!game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
@@ -12282,7 +12287,7 @@ mod tests {
                 .expect("barracks should have building data")
                 .production_queue
                 .len(),
-            10,
+            DEFAULT_PRODUCTION_QUEUE_LIMIT,
             "full production queues should not accept an extra item"
         );
     }
