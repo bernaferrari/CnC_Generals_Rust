@@ -48,6 +48,9 @@ use crate::object::behavior::checkpoint_update::{CheckpointUpdate, CheckpointUpd
 use crate::object::behavior::cleanup_hazard_update::{
     CleanupHazardUpdate, CleanupHazardUpdateModule, CleanupHazardUpdateModuleData,
 };
+use crate::object::behavior::countermeasures_behavior::{
+    CountermeasuresBehavior, CountermeasuresBehaviorModule, CountermeasuresBehaviorModuleData,
+};
 use crate::object::behavior::deletion_update::{DeletionUpdate, DeletionUpdateModuleData};
 use crate::object::behavior::demo_trap_update::{
     demo_trap_update_data_factory, demo_trap_update_module_factory,
@@ -684,6 +687,37 @@ fn auto_heal_behavior_module_factory(
     Box::new(AutoHealBehaviorModule::new(
         behavior,
         &AsciiString::from("AutoHealBehavior"),
+        data_arc,
+    ))
+}
+
+fn countermeasures_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = CountermeasuresBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse CountermeasuresBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn countermeasures_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<CountermeasuresBehaviorModuleData>(
+        "CountermeasuresBehavior",
+        &module_data,
+    );
+    let behavior = CountermeasuresBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("CountermeasuresBehavior requires a valid object owner");
+    Box::new(CountermeasuresBehaviorModule::new(
+        behavior,
+        &AsciiString::from("CountermeasuresBehavior"),
         data_arc,
     ))
 }
@@ -2981,6 +3015,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         auto_heal_behavior_module_factory,
         auto_heal_behavior_data_factory,
+    )?;
+    register_module_override(
+        "CountermeasuresBehavior",
+        ModuleType::Behavior,
+        countermeasures_behavior_module_factory,
+        countermeasures_behavior_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
