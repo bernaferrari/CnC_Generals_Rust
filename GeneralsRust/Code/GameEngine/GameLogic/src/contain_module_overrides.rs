@@ -227,6 +227,9 @@ use crate::object::collide::crate_collide::convert_to_car_bomb_crate_collide::{
 use crate::object::collide::crate_collide::convert_to_hijacked_vehicle_crate_collide::{
     ConvertToHijackedVehicleCrateCollide, ConvertToHijackedVehicleCrateCollideModuleData,
 };
+use crate::object::collide::crate_collide::money_crate_collide::{
+    MoneyCrateCollide, MoneyCrateCollideModuleData,
+};
 use crate::object::collide::crate_collide::sabotage_command_center_crate_collide::{
     SabotageCommandCenterCrateCollide, SabotageCommandCenterCrateCollideModuleData,
 };
@@ -247,6 +250,9 @@ use crate::object::collide::crate_collide::sabotage_superweapon_crate_collide::{
 };
 use crate::object::collide::crate_collide::sabotage_supply_center_crate_collide::{
     SabotageSupplyCenterCrateCollide, SabotageSupplyCenterCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::salvage_crate_collide::{
+    SalvageCrateCollide, SalvageCrateCollideModuleData,
 };
 use crate::object::collide::crate_collide::unit_crate_collide::{
     UnitCrateCollide, UnitCrateCollideModuleData,
@@ -2275,6 +2281,20 @@ legacy_object_crate_collide_factories!(
     SabotageSupplyCenterCrateCollideModuleData,
     SabotageSupplyCenterCrateCollide,
     "SabotageSupplyCenterCrateCollide"
+);
+object_id_crate_collide_factories!(
+    money_crate_collide_data_factory,
+    money_crate_collide_module_factory,
+    MoneyCrateCollideModuleData,
+    MoneyCrateCollide,
+    "MoneyCrateCollide"
+);
+object_id_crate_collide_factories!(
+    salvage_crate_collide_data_factory,
+    salvage_crate_collide_module_factory,
+    SalvageCrateCollideModuleData,
+    SalvageCrateCollide,
+    "SalvageCrateCollide"
 );
 object_id_crate_collide_factories!(
     unit_crate_collide_data_factory,
@@ -5533,6 +5553,18 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         sabotage_supply_center_crate_collide_module_factory,
         sabotage_supply_center_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "MoneyCrateCollide",
+        ModuleType::Behavior,
+        money_crate_collide_module_factory,
+        money_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "SalvageCrateCollide",
+        ModuleType::Behavior,
+        salvage_crate_collide_module_factory,
+        salvage_crate_collide_data_factory,
     )?;
     register_module_override(
         "UnitCrateCollide",
