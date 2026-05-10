@@ -9380,6 +9380,10 @@ impl Object {
         self.queue_upgrade_via_production(upgrade)
     }
 
+    pub fn queue_unit(&self, template: &Arc<dyn crate::common::ThingTemplate>) -> bool {
+        self.queue_unit_via_production(template)
+    }
+
     fn is_valid_command_target(
         &self,
         target: &Object,
