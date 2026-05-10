@@ -35,6 +35,9 @@ use crate::object::behavior::base_regenerate_update::{
 use crate::object::behavior::battle_bus_slow_death_behavior::{
     battle_bus_slow_death_data_factory, battle_bus_slow_death_module_factory,
 };
+use crate::object::behavior::bunker_buster_behavior::{
+    BunkerBusterBehavior, BunkerBusterBehaviorModuleData,
+};
 use crate::object::behavior::checkpoint_update::{CheckpointUpdate, CheckpointUpdateModuleData};
 use crate::object::behavior::deletion_update::{DeletionUpdate, DeletionUpdateModuleData};
 use crate::object::behavior::demo_trap_update::{
@@ -69,6 +72,9 @@ use crate::object::behavior::leaflet_drop_behavior::{
 };
 use crate::object::behavior::lifetime_update::{
     lifetime_update_data_factory, lifetime_update_module_factory,
+};
+use crate::object::behavior::neutron_blast_behavior::{
+    NeutronBlastBehavior, NeutronBlastBehaviorModuleData,
 };
 use crate::object::behavior::neutron_missile_slow_death_update::{
     neutron_missile_slow_death_data_factory, neutron_missile_slow_death_module_factory,
@@ -336,6 +342,13 @@ active_behavior_factories!(
     "BaseRegenerateUpdate"
 );
 active_behavior_factories!(
+    bunker_buster_behavior_data_factory,
+    bunker_buster_behavior_module_factory,
+    BunkerBusterBehaviorModuleData,
+    BunkerBusterBehavior,
+    "BunkerBusterBehavior"
+);
+active_behavior_factories!(
     checkpoint_update_data_factory,
     checkpoint_update_module_factory,
     CheckpointUpdateModuleData,
@@ -425,6 +438,13 @@ active_behavior_factories!(
     HordeUpdateModuleData,
     HordeUpdate,
     "HordeUpdate"
+);
+active_behavior_factories!(
+    neutron_blast_behavior_data_factory,
+    neutron_blast_behavior_module_factory,
+    NeutronBlastBehaviorModuleData,
+    NeutronBlastBehavior,
+    "NeutronBlastBehavior"
 );
 active_behavior_factories!(
     leaflet_drop_behavior_data_factory,
@@ -2513,6 +2533,12 @@ fn install_contain_overrides() -> Result<(), String> {
         base_regenerate_update_data_factory,
     )?;
     register_module_override(
+        "BunkerBusterBehavior",
+        ModuleType::Behavior,
+        bunker_buster_behavior_module_factory,
+        bunker_buster_behavior_data_factory,
+    )?;
+    register_module_override(
         "CheckpointUpdate",
         ModuleType::Behavior,
         checkpoint_update_module_factory,
@@ -2589,6 +2615,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         horde_update_module_factory,
         horde_update_data_factory,
+    )?;
+    register_module_override(
+        "NeutronBlastBehavior",
+        ModuleType::Behavior,
+        neutron_blast_behavior_module_factory,
+        neutron_blast_behavior_data_factory,
     )?;
     register_module_override(
         "LeafletDropBehavior",
