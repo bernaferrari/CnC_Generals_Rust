@@ -602,12 +602,14 @@ impl GadgetManager {
                     }
                 }
 
-                let tab_direction = Self::take_tab_navigation_message(&mut messages);
+                let (tab_direction, key_handled) = Self::take_control_messages(&mut messages);
                 if let Some(direction) = tab_direction.or_else(|| match key {
-                    KeyCode::Tab | KeyCode::Right | KeyCode::Down if messages.is_empty() => {
+                    KeyCode::Tab | KeyCode::Right | KeyCode::Down
+                        if messages.is_empty() && !key_handled =>
+                    {
                         Some(TabDirection::Forward)
                     }
-                    KeyCode::Left | KeyCode::Up if messages.is_empty() => {
+                    KeyCode::Left | KeyCode::Up if messages.is_empty() && !key_handled => {
                         Some(TabDirection::Backward)
                     }
                     _ => None,
@@ -631,8 +633,9 @@ impl GadgetManager {
         messages
     }
 
-    fn take_tab_navigation_message(messages: &mut Vec<GadgetMessage>) -> Option<TabDirection> {
+    fn take_control_messages(messages: &mut Vec<GadgetMessage>) -> (Option<TabDirection>, bool) {
         let mut direction = None;
+        let mut key_handled = false;
         messages.retain(|message| {
             if let GadgetMessage::Custom { data, .. } = message {
                 match data.as_str() {
@@ -644,12 +647,16 @@ impl GadgetManager {
                         direction = Some(TabDirection::Backward);
                         return false;
                     }
+                    "key_handled" => {
+                        key_handled = true;
+                        return false;
+                    }
                     _ => {}
                 }
             }
             true
         });
-        direction
+        (direction, key_handled)
     }
 
     /// Set focus to a specific gadget
@@ -927,5 +934,63 @@ mod tests {
             messages.as_slice(),
             [GadgetMessage::Custom { gadget_id: 10, data } ] if data == "double_click"
         ));
+    }
+
+    #[test]
+    fn test_focused_slider_perpendicular_keys_use_cpp_tab_navigation() {
+        let mut manager = GadgetManager::new();
+        manager.add_gadget(Box::new(
+            HorizontalSlider::new(10, 0, 0, 120, 20)
+                .with_range(0, 10)
+                .with_value(5),
+        ));
+        manager.add_gadget(Box::new(PushButton::new(20, 140, 0, 20, 20)));
+        manager.add_gadget(Box::new(
+            VerticalSlider::new(30, 170, 0, 20, 120)
+                .with_range(0, 10)
+                .with_value(5),
+        ));
+
+        assert!(manager.set_focus(Some(10)));
+        manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(20));
+
+        assert!(manager.set_focus(Some(30)));
+        manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Right,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(10));
+
+        assert!(manager.set_focus(Some(30)));
+        manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Left,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(20));
+    }
+
+    #[test]
+    fn test_focused_slider_boundary_key_does_not_fall_through_to_tab_navigation() {
+        let mut manager = GadgetManager::new();
+        manager.add_gadget(Box::new(
+            HorizontalSlider::new(10, 0, 0, 120, 20)
+                .with_range(0, 10)
+                .with_value(0)
+                .with_step_size(1),
+        ));
+        manager.add_gadget(Box::new(PushButton::new(20, 140, 0, 20, 20)));
+
+        assert!(manager.set_focus(Some(10)));
+        let messages = manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Right,
+            modifiers: KeyModifiers::none(),
+        });
+
+        assert_eq!(manager.focused_gadget, Some(10));
+        assert!(messages.is_empty());
     }
 }
