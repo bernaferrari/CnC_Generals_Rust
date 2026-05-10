@@ -20,6 +20,18 @@ use crate::modules::{BehaviorModuleInterface, ContainModuleInterface};
 use crate::object::behavior::animation_steering_update::{
     AnimationSteeringUpdate, AnimationSteeringUpdateModuleData,
 };
+use crate::object::behavior::assisted_targeting_update::{
+    AssistedTargetingUpdate, AssistedTargetingUpdateModuleData,
+};
+use crate::object::behavior::auto_deposit_update::{
+    AutoDepositUpdate, AutoDepositUpdateModuleData,
+};
+use crate::object::behavior::auto_find_healing_update::{
+    AutoFindHealingUpdate, AutoFindHealingUpdateModuleData,
+};
+use crate::object::behavior::base_regenerate_update::{
+    BaseRegenerateUpdate, BaseRegenerateUpdateModuleData,
+};
 use crate::object::behavior::battle_bus_slow_death_behavior::{
     battle_bus_slow_death_data_factory, battle_bus_slow_death_module_factory,
 };
@@ -28,6 +40,11 @@ use crate::object::behavior::deletion_update::{DeletionUpdate, DeletionUpdateMod
 use crate::object::behavior::demo_trap_update::{
     demo_trap_update_data_factory, demo_trap_update_module_factory,
 };
+use crate::object::behavior::enemy_near_update::{EnemyNearUpdate, EnemyNearUpdateModuleData};
+use crate::object::behavior::fire_ocl_after_weapon_cooldown_update::{
+    FireOCLAfterWeaponCooldownUpdate, FireOCLAfterWeaponCooldownUpdateModuleData,
+};
+use crate::object::behavior::float_update::{FloatUpdate, FloatUpdateModuleData};
 use crate::object::behavior::height_die_update::{HeightDieUpdate, HeightDieUpdateModuleData};
 use crate::object::behavior::hijacker_update::{HijackerUpdate, HijackerUpdateModuleData};
 use crate::object::behavior::instant_death_behavior::{
@@ -48,6 +65,7 @@ use crate::object::behavior::point_defense_laser_update::{
 use crate::object::behavior::projectile_stream_update::{
     projectile_stream_update_data_factory, projectile_stream_update_module_factory,
 };
+use crate::object::behavior::radar_update::{RadarUpdate, RadarUpdateModuleData};
 use crate::object::behavior::radius_decal_update::{
     radius_decal_update_data_factory, radius_decal_update_module_factory,
 };
@@ -66,6 +84,7 @@ use crate::object::behavior::tensile_formation_update::{
 use crate::object::behavior::topple_update::{
     topple_update_data_factory, topple_update_module_factory,
 };
+use crate::object::behavior::wave_guide_update::{WaveGuideUpdate, WaveGuideUpdateModuleData};
 use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
 use crate::object::body::body_module::{BodyModuleData, BodyModuleInterface};
 use crate::object::body::highlander_body::HighlanderBody;
@@ -250,6 +269,34 @@ active_behavior_factories!(
     "AnimationSteeringUpdate"
 );
 active_behavior_factories!(
+    assisted_targeting_update_data_factory,
+    assisted_targeting_update_module_factory,
+    AssistedTargetingUpdateModuleData,
+    AssistedTargetingUpdate,
+    "AssistedTargetingUpdate"
+);
+active_behavior_factories!(
+    auto_deposit_update_data_factory,
+    auto_deposit_update_module_factory,
+    AutoDepositUpdateModuleData,
+    AutoDepositUpdate,
+    "AutoDepositUpdate"
+);
+active_behavior_factories!(
+    auto_find_healing_update_data_factory,
+    auto_find_healing_update_module_factory,
+    AutoFindHealingUpdateModuleData,
+    AutoFindHealingUpdate,
+    "AutoFindHealingUpdate"
+);
+active_behavior_factories!(
+    base_regenerate_update_data_factory,
+    base_regenerate_update_module_factory,
+    BaseRegenerateUpdateModuleData,
+    BaseRegenerateUpdate,
+    "BaseRegenerateUpdate"
+);
+active_behavior_factories!(
     checkpoint_update_data_factory,
     checkpoint_update_module_factory,
     CheckpointUpdateModuleData,
@@ -262,6 +309,27 @@ active_behavior_factories!(
     DeletionUpdateModuleData,
     DeletionUpdate,
     "DeletionUpdate"
+);
+active_behavior_factories!(
+    enemy_near_update_data_factory,
+    enemy_near_update_module_factory,
+    EnemyNearUpdateModuleData,
+    EnemyNearUpdate,
+    "EnemyNearUpdate"
+);
+active_behavior_factories!(
+    fire_ocl_after_weapon_cooldown_update_data_factory,
+    fire_ocl_after_weapon_cooldown_update_module_factory,
+    FireOCLAfterWeaponCooldownUpdateModuleData,
+    FireOCLAfterWeaponCooldownUpdate,
+    "FireOCLAfterWeaponCooldownUpdate"
+);
+active_behavior_factories!(
+    float_update_data_factory,
+    float_update_module_factory,
+    FloatUpdateModuleData,
+    FloatUpdate,
+    "FloatUpdate"
 );
 active_behavior_factories!(
     height_die_update_data_factory,
@@ -283,6 +351,20 @@ active_behavior_factories!(
     PilotFindVehicleUpdateModuleData,
     PilotFindVehicleUpdate,
     "PilotFindVehicleUpdate"
+);
+active_behavior_factories!(
+    radar_update_data_factory,
+    radar_update_module_factory,
+    RadarUpdateModuleData,
+    RadarUpdate,
+    "RadarUpdate"
+);
+active_behavior_factories!(
+    wave_guide_update_data_factory,
+    wave_guide_update_module_factory,
+    WaveGuideUpdateModuleData,
+    WaveGuideUpdate,
+    "WaveGuideUpdate"
 );
 
 #[derive(Debug, Clone)]
@@ -2263,6 +2345,30 @@ fn install_contain_overrides() -> Result<(), String> {
         animation_steering_update_data_factory,
     )?;
     register_module_override(
+        "AssistedTargetingUpdate",
+        ModuleType::Behavior,
+        assisted_targeting_update_module_factory,
+        assisted_targeting_update_data_factory,
+    )?;
+    register_module_override(
+        "AutoDepositUpdate",
+        ModuleType::Behavior,
+        auto_deposit_update_module_factory,
+        auto_deposit_update_data_factory,
+    )?;
+    register_module_override(
+        "AutoFindHealingUpdate",
+        ModuleType::Behavior,
+        auto_find_healing_update_module_factory,
+        auto_find_healing_update_data_factory,
+    )?;
+    register_module_override(
+        "BaseRegenerateUpdate",
+        ModuleType::Behavior,
+        base_regenerate_update_module_factory,
+        base_regenerate_update_data_factory,
+    )?;
+    register_module_override(
         "CheckpointUpdate",
         ModuleType::Behavior,
         checkpoint_update_module_factory,
@@ -2273,6 +2379,24 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         deletion_update_module_factory,
         deletion_update_data_factory,
+    )?;
+    register_module_override(
+        "EnemyNearUpdate",
+        ModuleType::Behavior,
+        enemy_near_update_module_factory,
+        enemy_near_update_data_factory,
+    )?;
+    register_module_override(
+        "FireOCLAfterWeaponCooldownUpdate",
+        ModuleType::Behavior,
+        fire_ocl_after_weapon_cooldown_update_module_factory,
+        fire_ocl_after_weapon_cooldown_update_data_factory,
+    )?;
+    register_module_override(
+        "FloatUpdate",
+        ModuleType::Behavior,
+        float_update_module_factory,
+        float_update_data_factory,
     )?;
     register_module_override(
         "HeightDieUpdate",
@@ -2291,6 +2415,18 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         pilot_find_vehicle_update_module_factory,
         pilot_find_vehicle_update_data_factory,
+    )?;
+    register_module_override(
+        "RadarUpdate",
+        ModuleType::Behavior,
+        radar_update_module_factory,
+        radar_update_data_factory,
+    )?;
+    register_module_override(
+        "WaveGuideUpdate",
+        ModuleType::Behavior,
+        wave_guide_update_module_factory,
+        wave_guide_update_data_factory,
     )?;
     register_module_override(
         "OpenContain",
