@@ -728,6 +728,95 @@ impl DefaultCommandHandler {
         }
     }
 
+    /// Execute force-attack-ground command (matches C++ MSG_DO_FORCE_ATTACK_GROUND)
+    fn execute_force_attack_ground(
+        &mut self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        let mut target_position = None;
+        for i in 0..command.command.get_argument_count() {
+            if let Some(crate::commands::command::CommandArgumentType::Location(pos)) =
+                command.command.get_argument(i as Int)
+            {
+                target_position = Some(*pos);
+                break;
+            }
+        }
+        let position = match target_position {
+            Some(pos) => pos,
+            None => {
+                return CommandExecutionResult::Failed(AsciiString::from(
+                    "No target position for force-attack-ground",
+                ))
+            }
+        };
+
+        let selected = get_selection_manager()
+            .read()
+            .ok()
+            .and_then(|m| {
+                m.get_player_selection_ref(context.player_id)
+                    .map(|s| s.get_selected_objects())
+            })
+            .unwrap_or_default();
+
+        if selected.is_empty() {
+            return CommandExecutionResult::Failed(AsciiString::from(
+                "No selected units for force-attack-ground",
+            ));
+        }
+
+        let mut group = crate::ai::group::AIGroup::new(0);
+        let mut valid_count = 0;
+        for object_id in &selected {
+            let Some(obj) = OBJECT_REGISTRY.get_object(*object_id) else {
+                continue;
+            };
+            let Ok(guard) = obj.read() else {
+                continue;
+            };
+            if guard.is_destroyed()
+                || guard.get_controlling_player_id() != Some(context.player_id as u32)
+            {
+                continue;
+            }
+            drop(guard);
+            if group.add(obj).is_ok() {
+                valid_count += 1;
+            }
+        }
+
+        if valid_count == 0 {
+            return CommandExecutionResult::Failed(AsciiString::from(
+                "No controllable units for force-attack-ground",
+            ));
+        }
+
+        let not_idle = !group.is_idle();
+        if not_idle {
+            group.set_weapon_lock_for_group(
+                WeaponSlotType::Primary,
+                WeaponLockType::LockedTemporarily,
+            );
+            group.group_attack_position(
+                &position,
+                NO_MAX_SHOTS_LIMIT,
+                CommandSourceType::FromPlayer,
+            );
+            group.release_weapon_lock_for_group(WeaponLockType::LockedTemporarily);
+        } else {
+            group.release_weapon_lock_for_group(WeaponLockType::LockedTemporarily);
+            group.group_attack_position(
+                &position,
+                NO_MAX_SHOTS_LIMIT,
+                CommandSourceType::FromPlayer,
+            );
+        }
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_targeted_group_command(
         &mut self,
         command: &QueuedCommand,
@@ -4221,6 +4310,7 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::DoAttackObject | CommandType::DoForceAttackObject => {
                 self.execute_attack_command(command, context)
             }
+            CommandType::DoForceAttackGround => self.execute_force_attack_ground(command, context),
             CommandType::Enter => self.execute_targeted_group_command(
                 command,
                 context,
@@ -4377,6 +4467,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::DoSalvage
                 | CommandType::DoAttackObject
                 | CommandType::DoForceAttackObject
+                | CommandType::DoForceAttackGround
                 | CommandType::Enter
                 | CommandType::DoRepair
                 | CommandType::Dock
@@ -4770,6 +4861,12 @@ mod tests {
         assert!(handler.can_handle(CommandType::DoWeapon));
         assert!(handler.can_handle(CommandType::DoWeaponAtLocation));
         assert!(handler.can_handle(CommandType::DoWeaponAtObject));
+    }
+
+    #[test]
+    fn default_handler_accepts_force_attack_ground_commands() {
+        let handler = DefaultCommandHandler::new();
+        assert!(handler.can_handle(CommandType::DoForceAttackGround));
     }
 
     #[test]
