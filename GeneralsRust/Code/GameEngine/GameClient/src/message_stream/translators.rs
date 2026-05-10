@@ -36,7 +36,7 @@ use gamelogic::common::{
     CommandSourceType, KindOf, ObjectStatusMaskType as LogicObjectStatusMaskType, Relationship,
 };
 use gamelogic::damage::DamageType;
-use gamelogic::helpers::TheTerrainLogic;
+use gamelogic::helpers::{TheGameLogic, TheTerrainLogic};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::special_power_template::{get_special_power_store, SpecialPowerTemplate};
 use gamelogic::path::SURFACE_CLIFF;
@@ -2625,6 +2625,12 @@ impl GameMessageTranslator for CommandTranslator {
                 dispatch_translated_message(&GameMessageType::CreateFormation(Vec::new()));
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaAllCheer => {
+                if TheGameLogic::is_in_multiplayer_game() {
+                    dispatch_translated_message(&GameMessageType::DoCheer);
+                }
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::MetaDeploy
             | GameMessageType::MetaFollow
             | GameMessageType::MetaChatPlayers
@@ -4852,6 +4858,7 @@ mod tests {
     use super::*;
     use gamelogic::common::{AsciiString, GeometryInfo, Real};
     use gamelogic::player::{player_list, Player};
+    use gamelogic::system::game_logic::{get_game_logic, GAME_LAN, GAME_SINGLE_PLAYER};
     use gamelogic::team::Team;
     use gamelogic::thing_template::ThingTemplate;
     use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -5057,6 +5064,43 @@ mod tests {
             &GameMessageType::CreateFormation(Vec::new())
         );
 
+        get_command_list().write().unwrap().clear_all_commands();
+    }
+
+    #[test]
+    fn test_meta_all_cheer_only_enqueues_in_multiplayer() {
+        let _guard = test_state_lock();
+        get_command_list().write().unwrap().clear_all_commands();
+
+        get_game_logic()
+            .lock()
+            .unwrap()
+            .set_game_mode(GAME_SINGLE_PLAYER);
+        let mut translator = CommandTranslator::new();
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaAllCheer));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        assert!(get_command_list()
+            .read()
+            .unwrap()
+            .snapshot_messages()
+            .is_empty());
+
+        get_game_logic().lock().unwrap().set_game_mode(GAME_LAN);
+        let mut translator = CommandTranslator::new();
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaAllCheer));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        let messages = get_command_list().read().unwrap().snapshot_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].get_type(), &GameMessageType::DoCheer);
+
+        get_game_logic()
+            .lock()
+            .unwrap()
+            .set_game_mode(GAME_SINGLE_PLAYER);
         get_command_list().write().unwrap().clear_all_commands();
     }
 
