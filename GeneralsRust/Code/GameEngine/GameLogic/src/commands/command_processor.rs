@@ -43,7 +43,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
 use crate::system::beacon_manager::get_beacon_manager;
-use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
+use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType, NO_MAX_SHOTS_LIMIT};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data as get_engine_global_data;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
@@ -3457,6 +3457,105 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_weapon_target_command(
+        &self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        use crate::commands::command::CommandArgumentType;
+
+        let cmd_type = command.command.get_type();
+        let weapon_slot = match command.command.get_argument(0) {
+            Some(CommandArgumentType::Integer(0)) => WeaponSlotType::Primary,
+            Some(CommandArgumentType::Integer(1)) => WeaponSlotType::Secondary,
+            Some(CommandArgumentType::Integer(2)) => WeaponSlotType::Tertiary,
+            _ => {
+                return CommandExecutionResult::Failed(AsciiString::from(
+                    "Weapon command missing weapon slot",
+                ))
+            }
+        };
+
+        let max_shots_to_fire = match command.command.get_argument(2) {
+            Some(CommandArgumentType::Integer(value)) => *value,
+            _ => NO_MAX_SHOTS_LIMIT,
+        };
+
+        let target_object = if cmd_type == CommandType::DoWeaponAtObject {
+            match command.command.get_argument(1) {
+                Some(CommandArgumentType::ObjectID(id)) => Some(*id),
+                _ => {
+                    return CommandExecutionResult::Failed(AsciiString::from(
+                        "Weapon object command missing target",
+                    ))
+                }
+            }
+        } else {
+            None
+        };
+
+        let target_position = if cmd_type == CommandType::DoWeaponAtLocation {
+            match command.command.get_argument(1) {
+                Some(CommandArgumentType::Location(pos)) => Some(*pos),
+                _ => {
+                    return CommandExecutionResult::Failed(AsciiString::from(
+                        "Weapon location command missing target",
+                    ))
+                }
+            }
+        } else {
+            None
+        };
+
+        let target_arc = match target_object {
+            Some(id) => match TheGameLogic::find_object_by_id(id) {
+                Some(obj) => Some(obj),
+                None => return CommandExecutionResult::Success,
+            },
+            None => None,
+        };
+
+        let selection_manager = get_selection_manager();
+        let selected = selection_manager
+            .read()
+            .ok()
+            .and_then(|manager| {
+                manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+            })
+            .unwrap_or_default();
+
+        for object_id in selected {
+            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(mut guard) = obj.write() else {
+                continue;
+            };
+            if guard.is_destroyed() {
+                continue;
+            }
+            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+                continue;
+            }
+
+            guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily);
+            let Some(ai) = guard.get_ai_update_interface() else {
+                continue;
+            };
+            drop(guard);
+
+            if let Some(target) = &target_arc {
+                ai.ai_attack_object(target, max_shots_to_fire, CommandSourceType::FromPlayer);
+            } else if let Some(position) = target_position {
+                ai.ai_attack_position(&position, max_shots_to_fire, CommandSourceType::FromPlayer);
+            }
+        }
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_enable_retaliation(
         &self,
         command: &QueuedCommand,
@@ -3760,6 +3859,9 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject => {
                 self.execute_combat_drop_command(command, context)
             }
+            CommandType::DoWeaponAtLocation | CommandType::DoWeaponAtObject => {
+                self.execute_weapon_target_command(command, context)
+            }
             CommandType::DoGuardPosition => self.execute_guard_position(command, context),
             CommandType::DoGuardObject => self.execute_guard_object(command, context),
             CommandType::DoCheer => self.execute_cheer(command),
@@ -3861,6 +3963,8 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::InternetHack
                 | CommandType::CombatDropAtLocation
                 | CommandType::CombatDropAtObject
+                | CommandType::DoWeaponAtLocation
+                | CommandType::DoWeaponAtObject
                 | CommandType::DoGuardPosition
                 | CommandType::DoGuardObject
                 | CommandType::DoCheer
@@ -4165,6 +4269,14 @@ mod tests {
 
         assert!(handler.can_handle(CommandType::CombatDropAtLocation));
         assert!(handler.can_handle(CommandType::CombatDropAtObject));
+    }
+
+    #[test]
+    fn default_handler_accepts_targeted_weapon_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::DoWeaponAtLocation));
+        assert!(handler.can_handle(CommandType::DoWeaponAtObject));
     }
 
     #[test]
