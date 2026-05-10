@@ -4735,6 +4735,33 @@ macro_rules! special_power_factories {
     };
 }
 
+fn baikonur_launch_power_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = BaikonurLaunchPowerModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse BaikonurLaunchPower module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn baikonur_launch_power_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<BaikonurLaunchPowerModuleData>("BaikonurLaunchPower", &module_data);
+    Box::new(BaikonurLaunchPower::new(
+        NameKeyGenerator::name_to_key("BaikonurLaunchPower"),
+        resolve_owner_id(&thing),
+        data_arc,
+    ))
+}
+
 special_power_factories!(
     cash_bounty_power_module_data_factory,
     cash_bounty_power_module_factory,
@@ -5961,6 +5988,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::ClientUpdate,
         animated_particle_sys_bone_client_update_module_factory,
         base_client_update_module_data_factory,
+    )?;
+    register_module_override(
+        "BaikonurLaunchPower",
+        ModuleType::Behavior,
+        baikonur_launch_power_module_factory,
+        baikonur_launch_power_module_data_factory,
     )?;
     register_module_override(
         "CashBountyPower",
