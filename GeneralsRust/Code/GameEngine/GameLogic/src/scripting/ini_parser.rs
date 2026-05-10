@@ -733,25 +733,95 @@ impl IniScriptParser {
     fn parse_action_type(&mut self, name: &str) -> GameLogicResult<ScriptActionType> {
         match name.to_uppercase().as_str() {
             "NO_OP" | "NOOP" => Ok(ScriptActionType::NoOp),
+            "DEBUG_STRING" => Ok(ScriptActionType::DebugString),
+            "DEBUG_MESSAGE_BOX" => Ok(ScriptActionType::DebugMessageBox),
+            "DEBUG_CRASH_BOX" => Ok(ScriptActionType::DebugCrashBox),
             "VICTORY" => Ok(ScriptActionType::Victory),
             "DEFEAT" => Ok(ScriptActionType::Defeat),
+            "QUICKVICTORY" | "QUICK_VICTORY" => Ok(ScriptActionType::Quickvictory),
+            "LOCALDEFEAT" | "LOCAL_DEFEAT" => Ok(ScriptActionType::Localdefeat),
             "SET_FLAG" => Ok(ScriptActionType::SetFlag),
             "SET_COUNTER" => Ok(ScriptActionType::SetCounter),
             "INCREMENT_COUNTER" => Ok(ScriptActionType::IncrementCounter),
             "DECREMENT_COUNTER" => Ok(ScriptActionType::DecrementCounter),
             "SET_TIMER" => Ok(ScriptActionType::SetTimer),
             "SET_MILLISECOND_TIMER" => Ok(ScriptActionType::SetMillisecondTimer),
+            "SET_RANDOM_TIMER" => Ok(ScriptActionType::SetRandomTimer),
             "SET_RANDOM_MSEC_TIMER" => Ok(ScriptActionType::SetRandomMsecTimer),
+            "STOP_TIMER" => Ok(ScriptActionType::StopTimer),
+            "RESTART_TIMER" => Ok(ScriptActionType::RestartTimer),
+            "ADD_TO_MSEC_TIMER" => Ok(ScriptActionType::AddToMsecTimer),
+            "SUB_FROM_MSEC_TIMER" => Ok(ScriptActionType::SubFromMsecTimer),
             "DISPLAY_TEXT" => Ok(ScriptActionType::DisplayText),
             "DISPLAY_CINEMATIC_TEXT" => Ok(ScriptActionType::DisplayCinematicText),
+            "DISPLAY_COUNTDOWN_TIMER" => Ok(ScriptActionType::DisplayCountdownTimer),
+            "HIDE_COUNTDOWN_TIMER" => Ok(ScriptActionType::HideCountdownTimer),
+            "ENABLE_COUNTDOWN_TIMER_DISPLAY" => Ok(ScriptActionType::EnableCountdownTimerDisplay),
+            "DISABLE_COUNTDOWN_TIMER_DISPLAY" => Ok(ScriptActionType::DisableCountdownTimerDisplay),
+            "DISPLAY_COUNTER" => Ok(ScriptActionType::DisplayCounter),
+            "HIDE_COUNTER" => Ok(ScriptActionType::HideCounter),
+            "INGAME_POPUP_MESSAGE" => Ok(ScriptActionType::IngamePopupMessage),
             "PLAY_SOUND_EFFECT" => Ok(ScriptActionType::PlaySoundEffect),
             "PLAY_SOUND_EFFECT_AT" => Ok(ScriptActionType::PlaySoundEffectAt),
+            "SOUND_PLAY_NAMED" => Ok(ScriptActionType::SoundPlayNamed),
+            "SPEECH_PLAY" => Ok(ScriptActionType::SpeechPlay),
+            "SUSPEND_BACKGROUND_SOUNDS" => Ok(ScriptActionType::SuspendBackgroundSounds),
+            "RESUME_BACKGROUND_SOUNDS" => Ok(ScriptActionType::ResumeBackgroundSounds),
+            "SOUND_AMBIENT_PAUSE" => Ok(ScriptActionType::SoundAmbientPause),
+            "SOUND_AMBIENT_RESUME" => Ok(ScriptActionType::SoundAmbientResume),
+            "MUSIC_SET_TRACK" => Ok(ScriptActionType::MusicSetTrack),
+            "MUSIC_SET_VOLUME" => Ok(ScriptActionType::MusicSetVolume),
+            "SOUND_DISABLE_TYPE" => Ok(ScriptActionType::SoundDisableType),
+            "SOUND_ENABLE_TYPE" => Ok(ScriptActionType::SoundEnableType),
+            "SOUND_ENABLE_ALL" => Ok(ScriptActionType::SoundEnableAll),
+            "AUDIO_OVERRIDE_VOLUME_TYPE" => Ok(ScriptActionType::AudioOverrideVolumeType),
+            "AUDIO_RESTORE_VOLUME_TYPE" => Ok(ScriptActionType::AudioRestoreVolumeType),
+            "AUDIO_RESTORE_VOLUME_ALL_TYPE" => Ok(ScriptActionType::AudioRestoreVolumeAllType),
+            "SOUND_SET_VOLUME" => Ok(ScriptActionType::SoundSetVolume),
+            "SPEECH_SET_VOLUME" => Ok(ScriptActionType::SpeechSetVolume),
+            "SOUND_REMOVE_ALL_DISABLED" => Ok(ScriptActionType::SoundRemoveAllDisabled),
+            "SOUND_REMOVE_TYPE" => Ok(ScriptActionType::SoundRemoveType),
+            "ENABLE_OBJECT_SOUND" => Ok(ScriptActionType::EnableObjectSound),
+            "DISABLE_OBJECT_SOUND" => Ok(ScriptActionType::DisableObjectSound),
             "MOVE_CAMERA_TO" => Ok(ScriptActionType::MoveCameraTo),
+            "MOVE_CAMERA_TO_SELECTION" => Ok(ScriptActionType::MoveCameraToSelection),
             "MOVE_CAMERA_ALONG_WAYPOINT_PATH" => Ok(ScriptActionType::MoveCameraAlongWaypointPath),
             "CAMERA_LETTERBOX_BEGIN" => Ok(ScriptActionType::CameraLetterboxBegin),
             "CAMERA_LETTERBOX_END" => Ok(ScriptActionType::CameraLetterboxEnd),
             "ROTATE_CAMERA" => Ok(ScriptActionType::RotateCamera),
             "RESET_CAMERA" => Ok(ScriptActionType::ResetCamera),
+            "ZOOM_CAMERA" => Ok(ScriptActionType::ZoomCamera),
+            "PITCH_CAMERA" => Ok(ScriptActionType::PitchCamera),
+            "SETUP_CAMERA" => Ok(ScriptActionType::SetupCamera),
+            "CAMERA_FADE_ADD" => Ok(ScriptActionType::CameraFadeAdd),
+            "CAMERA_FADE_SUBTRACT" => Ok(ScriptActionType::CameraFadeSubtract),
+            "CAMERA_FADE_SATURATE" => Ok(ScriptActionType::CameraFadeSaturate),
+            "CAMERA_FADE_MULTIPLY" => Ok(ScriptActionType::CameraFadeMultiply),
+            "CAMERA_BW_MODE_BEGIN" => Ok(ScriptActionType::CameraBwModeBegin),
+            "CAMERA_BW_MODE_END" => Ok(ScriptActionType::CameraBwModeEnd),
+            "DRAW_SKYBOX_BEGIN" => Ok(ScriptActionType::DrawSkyboxBegin),
+            "DRAW_SKYBOX_END" => Ok(ScriptActionType::DrawSkyboxEnd),
+            "CAMERA_FOLLOW_NAMED" => Ok(ScriptActionType::CameraFollowNamed),
+            "CAMERA_STOP_FOLLOW" => Ok(ScriptActionType::CameraStopFollow),
+            "CAMERA_LOOK_TOWARD_OBJECT" => Ok(ScriptActionType::CameraLookTowardObject),
+            "CAMERA_LOOK_TOWARD_WAYPOINT" => Ok(ScriptActionType::CameraLookTowardWaypoint),
+            "CAMERA_TETHER_NAMED" => Ok(ScriptActionType::CameraTetherNamed),
+            "CAMERA_STOP_TETHER_NAMED" => Ok(ScriptActionType::CameraStopTetherNamed),
+            "CAMERA_SET_DEFAULT" => Ok(ScriptActionType::CameraSetDefault),
+            "CAMERA_MOD_FREEZE_TIME" => Ok(ScriptActionType::CameraModFreezeTime),
+            "CAMERA_MOD_SET_FINAL_ZOOM" => Ok(ScriptActionType::CameraModSetFinalZoom),
+            "CAMERA_MOD_SET_FINAL_PITCH" => Ok(ScriptActionType::CameraModSetFinalPitch),
+            "CAMERA_MOD_FREEZE_ANGLE" => Ok(ScriptActionType::CameraModFreezeAngle),
+            "CAMERA_MOD_SET_FINAL_SPEED_MULTIPLIER" => {
+                Ok(ScriptActionType::CameraModSetFinalSpeedMultiplier)
+            }
+            "CAMERA_MOD_SET_ROLLING_AVERAGE" => Ok(ScriptActionType::CameraModSetRollingAverage),
+            "CAMERA_MOD_FINAL_LOOK_TOWARD" => Ok(ScriptActionType::CameraModFinalLookToward),
+            "CAMERA_MOD_LOOK_TOWARD" => Ok(ScriptActionType::CameraModLookToward),
+            "CAMERA_ENABLE_SLAVE_MODE" => Ok(ScriptActionType::CameraEnableSlaveMode),
+            "CAMERA_DISABLE_SLAVE_MODE" => Ok(ScriptActionType::CameraDisableSlaveMode),
+            "CAMERA_ADD_SHAKER_AT" => Ok(ScriptActionType::CameraAddShakerAt),
+            "SCREEN_SHAKE" => Ok(ScriptActionType::ScreenShake),
             "CREATE_OBJECT" => Ok(ScriptActionType::CreateObject),
             "CREATE_NAMED_ON_TEAM_AT_WAYPOINT" => Ok(ScriptActionType::CreateNamedOnTeamAtWaypoint),
             "CREATE_UNNAMED_ON_TEAM_AT_WAYPOINT" => {
@@ -772,10 +842,49 @@ impl IniScriptParser {
             "DISABLE_SCRIPT" => Ok(ScriptActionType::DisableScript),
             "CALL_SUBROUTINE" => Ok(ScriptActionType::CallSubroutine),
             "MOVIE_PLAY_FULLSCREEN" => Ok(ScriptActionType::MoviePlayFullscreen),
+            "MOVIE_PLAY_RADAR" => Ok(ScriptActionType::MoviePlayRadar),
+            "RADAR_CREATE_EVENT" => Ok(ScriptActionType::RadarCreateEvent),
+            "RADAR_DISABLE" => Ok(ScriptActionType::RadarDisable),
+            "RADAR_ENABLE" => Ok(ScriptActionType::RadarEnable),
+            "RADAR_FORCE_ENABLE" => Ok(ScriptActionType::RadarForceEnable),
+            "RADAR_REVERT_TO_NORMAL" => Ok(ScriptActionType::RadarRevertToNormal),
+            "REFRESH_RADAR" => Ok(ScriptActionType::RefreshRadar),
+            "OBJECT_CREATE_RADAR_EVENT" => Ok(ScriptActionType::ObjectCreateRadarEvent),
             "MAP_REVEAL_AT_WAYPOINT" => Ok(ScriptActionType::MapRevealAtWaypoint),
             "MAP_REVEAL_ALL" => Ok(ScriptActionType::MapRevealAll),
+            "MAP_REVEAL_ALL_PERM" => Ok(ScriptActionType::MapRevealAllPerm),
+            "MAP_REVEAL_ALL_UNDO_PERM" => Ok(ScriptActionType::MapRevealAllUndoPerm),
+            "MAP_REVEAL_PERMANENTLY_AT_WAYPOINT" => {
+                Ok(ScriptActionType::MapRevealPermanentlyAtWaypoint)
+            }
+            "MAP_UNDO_REVEAL_PERMANENTLY_AT_WAYPOINT" => {
+                Ok(ScriptActionType::MapUndoRevealPermanentlyAtWaypoint)
+            }
             "MAP_SHROUD_AT_WAYPOINT" => Ok(ScriptActionType::MapShroudAtWaypoint),
             "MAP_SHROUD_ALL" => Ok(ScriptActionType::MapShroudAll),
+            "MAP_SWITCH_BORDER" => Ok(ScriptActionType::MapSwitchBorder),
+            "DISABLE_BORDER_SHROUD" => Ok(ScriptActionType::DisableBorderShroud),
+            "ENABLE_BORDER_SHROUD" => Ok(ScriptActionType::EnableBorderShroud),
+            "RESIZE_VIEW_GUARDBAND" => Ok(ScriptActionType::ResizeViewGuardband),
+            "CAMEO_FLASH" => Ok(ScriptActionType::CameoFlash),
+            "DISABLE_SPECIAL_POWER_DISPLAY" => Ok(ScriptActionType::DisableSpecialPowerDisplay),
+            "ENABLE_SPECIAL_POWER_DISPLAY" => Ok(ScriptActionType::EnableSpecialPowerDisplay),
+            "OBJECT_FORCE_SELECT" => Ok(ScriptActionType::ObjectForceSelect),
+            "DISABLE_INPUT" => Ok(ScriptActionType::DisableInput),
+            "ENABLE_INPUT" => Ok(ScriptActionType::EnableInput),
+            "FREEZE_TIME" => Ok(ScriptActionType::FreezeTime),
+            "UNFREEZE_TIME" => Ok(ScriptActionType::UnfreezeTime),
+            "SET_VISUAL_SPEED_MULTIPLIER" => Ok(ScriptActionType::SetVisualSpeedMultiplier),
+            "SET_FPS_LIMIT" => Ok(ScriptActionType::SetFpsLimit),
+            "SET_TREE_SWAY" => Ok(ScriptActionType::SetTreeSway),
+            "WATER_CHANGE_HEIGHT" => Ok(ScriptActionType::WaterChangeHeight),
+            "WATER_CHANGE_HEIGHT_OVER_TIME" => Ok(ScriptActionType::WaterChangeHeightOverTime),
+            "SET_CAVE_INDEX" => Ok(ScriptActionType::SetCaveIndex),
+            "SHOW_WEATHER" => Ok(ScriptActionType::ShowWeather),
+            "SET_INFANTRY_LIGHTING_OVERRIDE" => Ok(ScriptActionType::SetInfantryLightingOverride),
+            "RESET_INFANTRY_LIGHTING_OVERRIDE" => {
+                Ok(ScriptActionType::ResetInfantryLightingOverride)
+            }
             "UNIT_EXECUTE_SEQUENTIAL_SCRIPT" => Ok(ScriptActionType::UnitExecuteSequentialScript),
             "UNIT_EXECUTE_SEQUENTIAL_SCRIPT_LOOPING" => {
                 Ok(ScriptActionType::UnitExecuteSequentialScriptLooping)
@@ -1182,6 +1291,130 @@ EndScriptList
         assert_eq!(
             second_action.get_parameter(0).unwrap().get_string(),
             "Incoming transmission"
+        );
+    }
+
+    #[test]
+    fn test_parse_maps_cxx_cinematic_audio_and_map_action_names() {
+        let content = r#"
+ScriptList TestScripts
+  ScriptGroup Group1
+    Script Script_CxxNames
+      Conditions = OR
+        Condition1 = AND
+          TRUE
+        EndCondition
+      EndConditions
+      Actions = SEQUENTIAL
+        DEBUG_STRING "camera"
+        QUICKVICTORY
+        LOCALDEFEAT
+        SET_RANDOM_TIMER TimerA 10 20
+        STOP_TIMER TimerA
+        ADD_TO_MSEC_TIMER TimerA 100
+        DISPLAY_COUNTDOWN_TIMER TimerA
+        SOUND_PLAY_NAMED MissionStart
+        SPEECH_PLAY GeneralSpeech
+        SUSPEND_BACKGROUND_SOUNDS
+        MUSIC_SET_TRACK MusicTrack
+        SOUND_DISABLE_TYPE Sfx
+        AUDIO_OVERRIDE_VOLUME_TYPE Speech 0.5
+        MOVE_CAMERA_TO_SELECTION
+        ZOOM_CAMERA 1.2 30
+        SETUP_CAMERA CameraIntro
+        CAMERA_FADE_ADD 255 255 255 30
+        CAMERA_FOLLOW_NAMED Hero
+        CAMERA_LOOK_TOWARD_WAYPOINT WP_A
+        CAMERA_ENABLE_SLAVE_MODE
+        CAMERA_ADD_SHAKER_AT WP_A 1.0
+        SCREEN_SHAKE 1.0
+        MOVIE_PLAY_RADAR RadarMovie
+        RADAR_CREATE_EVENT WP_A Event
+        RADAR_FORCE_ENABLE
+        OBJECT_CREATE_RADAR_EVENT Hero Event
+        MAP_REVEAL_ALL_PERM
+        MAP_REVEAL_PERMANENTLY_AT_WAYPOINT WP_A 100
+        MAP_SWITCH_BORDER BorderA
+        DISABLE_BORDER_SHROUD
+        RESIZE_VIEW_GUARDBAND 20
+        CAMEO_FLASH ButtonA
+        DISABLE_SPECIAL_POWER_DISPLAY PowerA
+        OBJECT_FORCE_SELECT Hero
+        DISABLE_INPUT
+        FREEZE_TIME
+        SET_VISUAL_SPEED_MULTIPLIER 0.5
+        WATER_CHANGE_HEIGHT WaterA 10
+        SHOW_WEATHER Rain
+        SET_INFANTRY_LIGHTING_OVERRIDE 1.0 1.0 1.0
+      EndActions
+      IsActive = Yes
+    EndScript
+  EndScriptGroup
+EndScriptList
+"#;
+
+        let mut parser = IniScriptParser::new();
+        parser.parse(content).unwrap();
+        assert_eq!(parser.get_errors().len(), 0);
+        assert_eq!(parser.get_warnings().len(), 0);
+
+        let script = parser
+            .get_script_list("TestScripts")
+            .and_then(|list| list.get_script_group())
+            .and_then(|group| group.get_script())
+            .unwrap();
+
+        let mut actual = Vec::new();
+        let mut current = script.get_action();
+        while let Some(action) = current {
+            actual.push(action.get_action_type());
+            current = action.get_next();
+        }
+
+        assert_eq!(
+            actual,
+            vec![
+                ScriptActionType::DebugString,
+                ScriptActionType::Quickvictory,
+                ScriptActionType::Localdefeat,
+                ScriptActionType::SetRandomTimer,
+                ScriptActionType::StopTimer,
+                ScriptActionType::AddToMsecTimer,
+                ScriptActionType::DisplayCountdownTimer,
+                ScriptActionType::SoundPlayNamed,
+                ScriptActionType::SpeechPlay,
+                ScriptActionType::SuspendBackgroundSounds,
+                ScriptActionType::MusicSetTrack,
+                ScriptActionType::SoundDisableType,
+                ScriptActionType::AudioOverrideVolumeType,
+                ScriptActionType::MoveCameraToSelection,
+                ScriptActionType::ZoomCamera,
+                ScriptActionType::SetupCamera,
+                ScriptActionType::CameraFadeAdd,
+                ScriptActionType::CameraFollowNamed,
+                ScriptActionType::CameraLookTowardWaypoint,
+                ScriptActionType::CameraEnableSlaveMode,
+                ScriptActionType::CameraAddShakerAt,
+                ScriptActionType::ScreenShake,
+                ScriptActionType::MoviePlayRadar,
+                ScriptActionType::RadarCreateEvent,
+                ScriptActionType::RadarForceEnable,
+                ScriptActionType::ObjectCreateRadarEvent,
+                ScriptActionType::MapRevealAllPerm,
+                ScriptActionType::MapRevealPermanentlyAtWaypoint,
+                ScriptActionType::MapSwitchBorder,
+                ScriptActionType::DisableBorderShroud,
+                ScriptActionType::ResizeViewGuardband,
+                ScriptActionType::CameoFlash,
+                ScriptActionType::DisableSpecialPowerDisplay,
+                ScriptActionType::ObjectForceSelect,
+                ScriptActionType::DisableInput,
+                ScriptActionType::FreezeTime,
+                ScriptActionType::SetVisualSpeedMultiplier,
+                ScriptActionType::WaterChangeHeight,
+                ScriptActionType::ShowWeather,
+                ScriptActionType::SetInfantryLightingOverride,
+            ]
         );
     }
 
