@@ -13,7 +13,7 @@ use std::time::Instant;
 
 use super::game_message::*;
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
-use crate::display::view::{with_tactical_view_ref, IPoint2, Point3};
+use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
 use crate::helpers::TheInGameUI;
 use crate::input::{KeyCode, KeyModifiers};
 use game_engine::common::ini::ini_game_data::get_global_data;
@@ -926,6 +926,34 @@ impl SelectionTranslator {
         messages
     }
 
+    /// Handle view-only control group hotkeys (Alt+0-9 in retail bindings).
+    /// Matches C++ MSG_META_VIEW_TEAM0-9 by centering the tactical view on the
+    /// last live object in the hotkey squad without changing selection.
+    fn handle_view_control_group(&self, group: u8) {
+        if group >= 10 {
+            return;
+        }
+
+        let Some(object_id) = self.control_groups[group as usize].last().copied() else {
+            return;
+        };
+
+        let Some(drawable) = self
+            .collect_drawables()
+            .into_iter()
+            .find(|d| d.object_id == object_id)
+        else {
+            return;
+        };
+
+        let target = Point3::new(
+            drawable.position.x,
+            drawable.position.y,
+            drawable.position.z,
+        );
+        with_tactical_view(|view| view.look_at(&target));
+    }
+
     /// Build a rectangular region from two points
     /// Matches C++ buildRegion() helper function
     fn build_region(&self, anchor: &ICoord2D, point: &ICoord2D) -> IRegion2D {
@@ -1131,6 +1159,11 @@ impl GameMessageTranslator for SelectionTranslator {
 
             // Control group add (Shift+0-9)
             GameMessageType::MetaAddTeam(group) => self.handle_add_control_group(*group),
+
+            GameMessageType::MetaViewTeam(group) => {
+                self.handle_view_control_group(*group);
+                return GameMessageDisposition::DestroyMessage;
+            }
 
             // Match C++ SelectionXlat MSG_META_OPTIONS behavior:
             // stop left-button selection feedback state, then let CommandXlat process options.
@@ -1529,6 +1562,58 @@ mod tests {
         let second = translator.handle_add_control_group(1);
         assert!(second.is_empty());
         assert_eq!(translator.current_selection.len(), 3);
+    }
+
+    #[test]
+    fn test_view_control_group_centers_on_last_group_object_without_selecting() {
+        let _guard = test_state_lock();
+        let mut translator = SelectionTranslator::new();
+        translator.control_groups[2] = vec![10, 11];
+        translator.current_selection.insert(99);
+        translator.register_drawable(SelectableDrawable {
+            id: 10,
+            object_id: 10,
+            position: Coord3D::new(100.0, 200.0, 0.0),
+            is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: true,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+            status_bits: 0,
+        });
+        translator.register_drawable(SelectableDrawable {
+            id: 11,
+            object_id: 11,
+            position: Coord3D::new(300.0, 420.0, 0.0),
+            is_structure: false,
+            is_garrisonable_building: false,
+            is_crate: false,
+            is_selectable: true,
+            is_dead: false,
+            is_hidden: false,
+            is_local_controlled: true,
+            kind_of_flags: KINDOF_SELECTABLE | KINDOF_INFANTRY,
+            status_bits: 0,
+        });
+
+        with_tactical_view(|view| {
+            view.set_width(100);
+            view.set_height(80);
+            view.set_position(&Point3::new(0.0, 0.0, 0.0));
+        });
+
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaViewTeam(2)));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        assert_eq!(translator.current_selection, HashSet::from([99]));
+        with_tactical_view_ref(|view| {
+            assert_eq!(view.position().x, 250.0);
+            assert_eq!(view.position().y, 380.0);
+        });
     }
 
     #[test]
