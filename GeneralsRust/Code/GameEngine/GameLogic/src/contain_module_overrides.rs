@@ -123,6 +123,10 @@ use crate::object::behavior::overcharge_behavior::{
 use crate::object::behavior::parking_place_behavior::{
     ParkingPlaceBehavior, ParkingPlaceBehaviorModuleData,
 };
+use crate::object::behavior::particle_uplink_cannon_update::{
+    ParticleUplinkCannonUpdate, ParticleUplinkCannonUpdateModule,
+    ParticleUplinkCannonUpdateModuleData,
+};
 use crate::object::behavior::pilot_find_vehicle_update::{
     PilotFindVehicleUpdate, PilotFindVehicleUpdateModuleData,
 };
@@ -1139,6 +1143,40 @@ fn spawn_behavior_module_factory(
     Box::new(SpawnBehaviorModule::new(
         behavior,
         &AsciiString::from("SpawnBehavior"),
+        data_arc,
+    ))
+}
+
+fn particle_uplink_cannon_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = ParticleUplinkCannonUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse ParticleUplinkCannonUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn particle_uplink_cannon_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let owner_id = resolve_owner_id(&thing);
+    let owner = TheGameLogic::find_object_by_id(owner_id)
+        .expect("ParticleUplinkCannonUpdate requires a valid object");
+    let data_arc = cloned_module_data::<ParticleUplinkCannonUpdateModuleData>(
+        "ParticleUplinkCannonUpdate",
+        &module_data,
+    );
+    let behavior = ParticleUplinkCannonUpdate::new_with_data(owner, data_arc.clone())
+        .expect("ParticleUplinkCannonUpdate failed to initialize");
+    Box::new(ParticleUplinkCannonUpdateModule::new(
+        behavior,
+        &AsciiString::from("ParticleUplinkCannonUpdate"),
         data_arc,
     ))
 }
@@ -3520,6 +3558,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         spawn_behavior_module_factory,
         spawn_behavior_data_factory,
+    )?;
+    register_module_override(
+        "ParticleUplinkCannonUpdate",
+        ModuleType::Behavior,
+        particle_uplink_cannon_update_module_factory,
+        particle_uplink_cannon_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
