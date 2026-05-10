@@ -61,12 +61,14 @@
 //! - All multiplayer synchronization is maintained
 
 // Export all public types and functions
+pub mod ai_manager;
 pub mod command;
 pub mod command_processor;
 pub mod command_queue;
 pub mod formation;
 pub mod rts_command;
 pub mod selection;
+pub mod unit_command_queue;
 
 // Re-export commonly used types for convenience
 pub use command::{

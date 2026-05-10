@@ -133,6 +133,30 @@ impl AIManager for AIManagerImpl {
         any_ok
     }
 
+    fn issue_waypoint_order(&mut self, objects: &[ObjectID], destination: Coord3D) -> bool {
+        let mut any_ok = false;
+        let mut manager = get_unit_queue_manager();
+
+        for &object_id in objects {
+            let mut cmd = UnitCommand::new(AiCommandType::FollowPathAppend, self.cmd_source);
+            cmd.pos = destination;
+            cmd.is_queued = true;
+            if manager
+                .get_or_create_queue(object_id)
+                .issue_command(cmd, self.current_frame)
+            {
+                any_ok = true;
+            }
+        }
+        drop(manager);
+
+        for &object_id in objects {
+            execute_next_command_for_unit(object_id);
+        }
+
+        any_ok
+    }
+
     fn issue_attack_order(&mut self, attackers: &[ObjectID], target: ObjectID) -> bool {
         let mut any_ok = false;
         let mut manager = get_unit_queue_manager();
@@ -325,7 +349,7 @@ fn execute_ai_command_on_unit(
 
     let mut params = AiCommandParams::new(ai_cmd, cmd_source);
 
-    if let Ok(mut manager) = UNIT_QUEUE_MANAGER.lock() {
+    if let Ok(manager) = UNIT_QUEUE_MANAGER.lock() {
         if let Some(queue) = manager.get_queue(object_id) {
             if let Some(active) = queue.get_active_command() {
                 params.pos = active.pos;
@@ -453,8 +477,32 @@ mod tests {
         let mut mgr = AIManagerImpl::new();
         // No objects → returns false for move/attack/guard
         assert!(!mgr.issue_move_order(&[], Coord3D::new(0.0, 0.0, 0.0)));
+        assert!(!mgr.issue_waypoint_order(&[], Coord3D::new(0.0, 0.0, 0.0)));
         assert!(!mgr.issue_attack_order(&[], 0));
         assert!(!mgr.issue_build_order(0, "test", Coord3D::new(0.0, 0.0, 0.0)));
         assert!(mgr.issue_stop_order(&[]));
+    }
+
+    #[test]
+    fn test_ai_manager_waypoint_order_appends_follow_path_command() {
+        clear_all_unit_command_queues();
+
+        let mut mgr = AIManagerImpl::with_context(CommandSourceType::FromPlayer, 17);
+        let destination = Coord3D::new(10.0, 20.0, 3.0);
+
+        assert!(mgr.issue_waypoint_order(&[42], destination));
+
+        let manager = get_unit_queue_manager();
+        let queue = manager.get_queue(42).expect("waypoint queue expected");
+        let active = queue
+            .get_active_command()
+            .expect("waypoint command should become active");
+        assert_eq!(active.cmd, AiCommandType::FollowPathAppend);
+        assert_eq!(active.pos, destination);
+        assert!(active.is_queued);
+        assert_eq!(active.issued_frame, 17);
+        drop(manager);
+
+        clear_all_unit_command_queues();
     }
 }
