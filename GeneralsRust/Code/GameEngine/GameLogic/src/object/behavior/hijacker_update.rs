@@ -10,6 +10,7 @@ use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -33,6 +34,51 @@ impl Default for HijackerUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(HijackerUpdateModuleData, base);
+
+impl HijackerUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, HIJACKER_UPDATE_FIELDS)
+    }
+}
+
+fn parse_attach_to_target_bone(
+    _ini: &mut INI,
+    data: &mut HijackerUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.attach_to_bone = token.to_string();
+    Ok(())
+}
+
+fn parse_parachute_name(
+    _ini: &mut INI,
+    data: &mut HijackerUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.parachute_name = token.to_string();
+    Ok(())
+}
+
+const HIJACKER_UPDATE_FIELDS: &[FieldParse<HijackerUpdateModuleData>] = &[
+    FieldParse {
+        token: "AttachToTargetBone",
+        parse: parse_attach_to_target_bone,
+    },
+    FieldParse {
+        token: "ParachuteName",
+        parse: parse_parachute_name,
+    },
+];
 
 pub struct HijackerUpdate {
     object: Weak<RwLock<GameObject>>,

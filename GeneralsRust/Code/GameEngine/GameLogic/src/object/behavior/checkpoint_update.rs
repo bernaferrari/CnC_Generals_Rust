@@ -14,6 +14,7 @@ use crate::modules::{
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -37,6 +38,31 @@ impl Default for CheckpointUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(CheckpointUpdateModuleData, base);
+
+impl CheckpointUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, CHECKPOINT_UPDATE_FIELDS)
+    }
+}
+
+fn parse_scan_delay_time(
+    _ini: &mut INI,
+    data: &mut CheckpointUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.enemy_scan_delay_time = INI::parse_duration_unsigned_int(token)?;
+    Ok(())
+}
+
+const CHECKPOINT_UPDATE_FIELDS: &[FieldParse<CheckpointUpdateModuleData>] = &[FieldParse {
+    token: "ScanDelayTime",
+    parse: parse_scan_delay_time,
+}];
 
 /// CheckpointUpdate module - Opens gates when allies nearby, closes when enemies near
 pub struct CheckpointUpdate {

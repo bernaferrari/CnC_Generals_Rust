@@ -5,6 +5,7 @@ use crate::common::{Bool, ModuleData, UnsignedInt};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock, Weak};
 
@@ -26,6 +27,51 @@ impl Default for DeletionUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(DeletionUpdateModuleData, base);
+
+impl DeletionUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, DELETION_UPDATE_FIELDS)
+    }
+}
+
+fn parse_min_lifetime(
+    _ini: &mut INI,
+    data: &mut DeletionUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.min_lifetime = INI::parse_duration_unsigned_int(token)?;
+    Ok(())
+}
+
+fn parse_max_lifetime(
+    _ini: &mut INI,
+    data: &mut DeletionUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)?;
+    data.max_lifetime = INI::parse_duration_unsigned_int(token)?;
+    Ok(())
+}
+
+const DELETION_UPDATE_FIELDS: &[FieldParse<DeletionUpdateModuleData>] = &[
+    FieldParse {
+        token: "MinLifetime",
+        parse: parse_min_lifetime,
+    },
+    FieldParse {
+        token: "MaxLifetime",
+        parse: parse_max_lifetime,
+    },
+];
 
 #[allow(dead_code)]
 pub struct DeletionUpdate {

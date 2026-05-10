@@ -13,14 +13,23 @@ use game_engine::common::thing::module_factory::{
 };
 use log::warn;
 
-use crate::common::{AsciiString, ObjectID, TheGameLogic, INVALID_ID};
-use crate::modules::ContainModuleInterface;
+use crate::common::{
+    AsciiString, ModuleData as LegacyModuleData, ObjectID, TheGameLogic, INVALID_ID,
+};
+use crate::modules::{BehaviorModuleInterface, ContainModuleInterface};
+use crate::object::behavior::animation_steering_update::{
+    AnimationSteeringUpdate, AnimationSteeringUpdateModuleData,
+};
 use crate::object::behavior::battle_bus_slow_death_behavior::{
     battle_bus_slow_death_data_factory, battle_bus_slow_death_module_factory,
 };
+use crate::object::behavior::checkpoint_update::{CheckpointUpdate, CheckpointUpdateModuleData};
+use crate::object::behavior::deletion_update::{DeletionUpdate, DeletionUpdateModuleData};
 use crate::object::behavior::demo_trap_update::{
     demo_trap_update_data_factory, demo_trap_update_module_factory,
 };
+use crate::object::behavior::height_die_update::{HeightDieUpdate, HeightDieUpdateModuleData};
+use crate::object::behavior::hijacker_update::{HijackerUpdate, HijackerUpdateModuleData};
 use crate::object::behavior::instant_death_behavior::{
     InstantDeathBehavior, InstantDeathBehaviorModuleData,
 };
@@ -29,6 +38,9 @@ use crate::object::behavior::lifetime_update::{
 };
 use crate::object::behavior::neutron_missile_slow_death_update::{
     neutron_missile_slow_death_data_factory, neutron_missile_slow_death_module_factory,
+};
+use crate::object::behavior::pilot_find_vehicle_update::{
+    PilotFindVehicleUpdate, PilotFindVehicleUpdateModuleData,
 };
 use crate::object::behavior::point_defense_laser_update::{
     point_defense_laser_update_data_factory, point_defense_laser_update_module_factory,
@@ -125,6 +137,153 @@ fn attach_body_to_object(object_id: ObjectID, body: Arc<Mutex<dyn BodyModuleInte
         }
     }
 }
+
+#[derive(Debug)]
+struct ActiveBehaviorModule<T: BehaviorModuleInterface + Snapshotable + 'static> {
+    module_name_key: NameKeyType,
+    data: Arc<dyn ModuleData>,
+    behavior: T,
+}
+
+impl<T: BehaviorModuleInterface + Snapshotable + 'static> ActiveBehaviorModule<T> {
+    fn new(module_name: &str, data: Arc<dyn ModuleData>, behavior: T) -> Self {
+        Self {
+            module_name_key: NameKeyGenerator::name_to_key(module_name),
+            data,
+            behavior,
+        }
+    }
+}
+
+impl<T: BehaviorModuleInterface + Snapshotable + 'static> Module for ActiveBehaviorModule<T> {
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.data.get_module_tag_name_key()
+    }
+}
+
+impl<T: BehaviorModuleInterface + Snapshotable + 'static> Snapshotable for ActiveBehaviorModule<T> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.behavior.load_post_process()
+    }
+}
+
+fn active_behavior_module<TBehavior, TData>(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+    module_name: &str,
+    create: fn(
+        Arc<RwLock<crate::object::Object>>,
+        Arc<dyn LegacyModuleData>,
+    ) -> Result<TBehavior, Box<dyn std::error::Error + Send + Sync>>,
+) -> Box<dyn Module>
+where
+    TBehavior: BehaviorModuleInterface + Snapshotable + 'static,
+    TData: ModuleData + LegacyModuleData + Clone + 'static,
+{
+    let typed_data = module_data
+        .as_any()
+        .downcast_ref::<TData>()
+        .unwrap_or_else(|| panic!("{module_name} module data type expected"));
+    let data_arc = Arc::new(typed_data.clone());
+    let engine_data: Arc<dyn ModuleData> = data_arc.clone();
+    let legacy_data: Arc<dyn LegacyModuleData> = data_arc;
+    let owner_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(owner_id)
+        .unwrap_or_else(|| panic!("{module_name} requires a valid object"));
+    let behavior = create(object, legacy_data)
+        .unwrap_or_else(|err| panic!("{module_name} init failed: {err}"));
+    Box::new(ActiveBehaviorModule::new(
+        module_name,
+        engine_data,
+        behavior,
+    ))
+}
+
+macro_rules! active_behavior_factories {
+    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $behavior_ty:ty, $module_name:literal) => {
+        fn $data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            let mut data = <$data_ty>::default();
+            if let Some(ini) = ini {
+                if let Err(err) = data.parse_from_ini(ini) {
+                    warn!(
+                        "Failed to parse {} module data at line {}: {}",
+                        $module_name,
+                        ini.get_line_num(),
+                        err
+                    );
+                }
+            }
+            Box::new(data)
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            active_behavior_module::<$behavior_ty, $data_ty>(
+                thing,
+                module_data,
+                $module_name,
+                <$behavior_ty>::new,
+            )
+        }
+    };
+}
+
+active_behavior_factories!(
+    animation_steering_update_data_factory,
+    animation_steering_update_module_factory,
+    AnimationSteeringUpdateModuleData,
+    AnimationSteeringUpdate,
+    "AnimationSteeringUpdate"
+);
+active_behavior_factories!(
+    checkpoint_update_data_factory,
+    checkpoint_update_module_factory,
+    CheckpointUpdateModuleData,
+    CheckpointUpdate,
+    "CheckpointUpdate"
+);
+active_behavior_factories!(
+    deletion_update_data_factory,
+    deletion_update_module_factory,
+    DeletionUpdateModuleData,
+    DeletionUpdate,
+    "DeletionUpdate"
+);
+active_behavior_factories!(
+    height_die_update_data_factory,
+    height_die_update_module_factory,
+    HeightDieUpdateModuleData,
+    HeightDieUpdate,
+    "HeightDieUpdate"
+);
+active_behavior_factories!(
+    hijacker_update_data_factory,
+    hijacker_update_module_factory,
+    HijackerUpdateModuleData,
+    HijackerUpdate,
+    "HijackerUpdate"
+);
+active_behavior_factories!(
+    pilot_find_vehicle_update_data_factory,
+    pilot_find_vehicle_update_module_factory,
+    PilotFindVehicleUpdateModuleData,
+    PilotFindVehicleUpdate,
+    "PilotFindVehicleUpdate"
+);
 
 #[derive(Debug, Clone)]
 pub struct ContainModuleDataAdapter<T: Clone + Send + Sync + std::fmt::Debug + 'static> {
@@ -2096,6 +2255,42 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         tensile_formation_update_module_factory,
         tensile_formation_update_data_factory,
+    )?;
+    register_module_override(
+        "AnimationSteeringUpdate",
+        ModuleType::Behavior,
+        animation_steering_update_module_factory,
+        animation_steering_update_data_factory,
+    )?;
+    register_module_override(
+        "CheckpointUpdate",
+        ModuleType::Behavior,
+        checkpoint_update_module_factory,
+        checkpoint_update_data_factory,
+    )?;
+    register_module_override(
+        "DeletionUpdate",
+        ModuleType::Behavior,
+        deletion_update_module_factory,
+        deletion_update_data_factory,
+    )?;
+    register_module_override(
+        "HeightDieUpdate",
+        ModuleType::Behavior,
+        height_die_update_module_factory,
+        height_die_update_data_factory,
+    )?;
+    register_module_override(
+        "HijackerUpdate",
+        ModuleType::Behavior,
+        hijacker_update_module_factory,
+        hijacker_update_data_factory,
+    )?;
+    register_module_override(
+        "PilotFindVehicleUpdate",
+        ModuleType::Behavior,
+        pilot_find_vehicle_update_module_factory,
+        pilot_find_vehicle_update_data_factory,
     )?;
     register_module_override(
         "OpenContain",
