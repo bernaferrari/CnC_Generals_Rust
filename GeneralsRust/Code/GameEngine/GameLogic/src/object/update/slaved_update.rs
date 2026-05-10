@@ -105,29 +105,37 @@ impl Snapshotable for SlavedUpdateModuleData {
 
 crate::impl_legacy_module_data_with_key_field!(SlavedUpdateModuleData, module_tag_name_key);
 
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
 fn parse_int_field(tokens: &[&str]) -> Result<Int, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     INI::parse_int(token)
 }
 
 fn parse_real_field(tokens: &[&str]) -> Result<Real, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     INI::parse_real(token)
 }
 
 fn parse_duration_field(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     INI::parse_duration_unsigned_int(token)
 }
 
 fn parse_ascii_field(tokens: &[&str]) -> Result<AsciiString, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     let value = INI::parse_ascii_string(token)?;
     Ok(AsciiString::from(value.as_str()))
 }
 
 fn parse_bool_field(tokens: &[&str]) -> Result<Bool, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens)?;
     INI::parse_bool(token)
 }
 
