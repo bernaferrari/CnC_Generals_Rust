@@ -7089,22 +7089,20 @@ impl CnCGameEngine {
                 if let Some(anchor) = self.rmb_scroll_anchor {
                     let dx = self.mouse_position.0 - anchor.0;
                     let dy = self.mouse_position.1 - anchor.1;
-                    let dist_sq = dx * dx + dy * dy;
-                    if dist_sq > f32::EPSILON {
-                        let size = self.window.inner_size();
-                        let win_w = size.width as f32;
-                        let win_h = size.height as f32;
-                        let max_dist = (win_w * 0.5).min(win_h * 0.5);
-                        let dist = dist_sq.sqrt().min(max_dist);
-                        let norm_dx = dx / dist_sq.sqrt().max(1.0);
-                        let norm_dy = dy / dist_sq.sqrt().max(1.0);
-                        let speed = keyboard_scroll_factor
-                            * dist
-                            * 0.01
-                            * dt.max(0.0)
-                            * logic_frames_per_second;
-                        screen_scroll.x += norm_dx * speed * horizontal_scroll_speed_factor;
-                        screen_scroll.y += norm_dy * speed * vertical_scroll_speed_factor;
+                    let mut offset = Vec2::new(
+                        horizontal_scroll_speed_factor * dx,
+                        vertical_scroll_speed_factor * dy,
+                    );
+
+                    if offset.length_squared() > f32::EPSILON {
+                        let direction = offset.normalize();
+                        offset.x += horizontal_scroll_speed_factor
+                            * direction.x
+                            * keyboard_scroll_factor.powi(2);
+                        offset.y += vertical_scroll_speed_factor
+                            * direction.y
+                            * keyboard_scroll_factor.powi(2);
+                        screen_scroll += offset * dt.max(0.0) * logic_frames_per_second;
                     }
                 }
             }
