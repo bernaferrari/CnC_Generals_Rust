@@ -77,6 +77,7 @@ pub mod laser_update;
 pub mod leaflet_drop_behavior;
 pub mod physics_update;
 pub mod pilot_find_vehicle_update;
+pub mod poisoned_behavior;
 pub mod special_ability_update;
 pub mod special_power_update_module;
 pub mod update_module;
@@ -200,6 +201,7 @@ pub use parking_place_behavior::{
     ParkingPlaceBehavior, ParkingPlaceBehaviorFactory, ParkingPlaceBehaviorModule,
     ParkingPlaceBehaviorModuleData,
 };
+pub use poisoned_behavior::{PoisonedBehavior, PoisonedBehaviorModule, PoisonedBehaviorModuleData};
 pub use power_plant_update::{
     PowerPlantUpdate, PowerPlantUpdateFactory, PowerPlantUpdateModuleData,
 };
