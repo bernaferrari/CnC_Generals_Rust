@@ -900,4 +900,32 @@ mod tests {
         });
         assert_eq!(manager.focused_gadget, Some(20));
     }
+
+    #[test]
+    fn test_focused_listbox_enter_and_space_emit_double_click() {
+        let mut manager = GadgetManager::new();
+        let mut listbox = ListBox::new(10, 0, 0, 120, 80);
+        listbox.add_item_with_id(100, "Alpha");
+        manager.add_gadget(Box::new(listbox));
+
+        assert!(manager.set_focus(Some(10)));
+
+        let messages = manager.handle_input(&InputEvent::KeyUp {
+            key: KeyCode::Enter,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 10, data } ] if data == "double_click"
+        ));
+
+        let messages = manager.handle_input(&InputEvent::KeyUp {
+            key: KeyCode::Space,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 10, data } ] if data == "double_click"
+        ));
+    }
 }
