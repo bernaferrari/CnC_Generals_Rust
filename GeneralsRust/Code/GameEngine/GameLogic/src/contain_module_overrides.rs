@@ -196,6 +196,9 @@ use crate::object::contain::{
     RiderChangeContain, RiderChangeContainModuleData, TransportContain, TransportContainModuleData,
     TunnelContain, TunnelContainModuleData,
 };
+use crate::object::damage::transition_damage_fx::{
+    TransitionDamageFX, TransitionDamageFXModule, TransitionDamageFXModuleData,
+};
 use crate::object::die::{
     CreateCrateDie, CreateCrateDieModuleData, CreateObjectDie, CreateObjectDieModuleData, CrushDie,
     CrushDieModuleData, DamDie, DamDieModuleData, DestroyDie, DieModuleData, DieModuleInterface,
@@ -991,6 +994,35 @@ fn stealth_update_module_factory(
         module_name_key,
         data_arc,
         object_id,
+    ))
+}
+
+fn transition_damage_fx_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = TransitionDamageFXModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse TransitionDamageFX module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn transition_damage_fx_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<TransitionDamageFXModuleData>("TransitionDamageFX", &module_data);
+    let behavior = TransitionDamageFX::from_module_thing(thing, data_arc.clone())
+        .expect("TransitionDamageFX requires a valid object owner");
+    Box::new(TransitionDamageFXModule::new(
+        behavior,
+        &AsciiString::from("TransitionDamageFX"),
+        data_arc,
     ))
 }
 
@@ -3341,6 +3373,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         stealth_update_module_factory,
         stealth_update_module_data_factory,
+    )?;
+    register_module_override(
+        "TransitionDamageFX",
+        ModuleType::Behavior,
+        transition_damage_fx_module_factory,
+        transition_damage_fx_module_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
