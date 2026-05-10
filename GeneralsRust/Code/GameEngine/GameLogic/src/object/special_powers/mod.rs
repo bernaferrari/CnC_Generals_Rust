@@ -17,6 +17,7 @@
 //!   - BaikonurLaunchPower: Baikonur launch special power
 //!   - SpecialAbility: Generic special ability
 
+pub mod baikonur_launch_power;
 pub mod cash_bounty_power;
 pub mod cash_hack_special_power;
 pub mod cleanup_area_power;
@@ -27,6 +28,7 @@ pub mod ocl_special_power;
 pub mod special_ability;
 pub mod spy_vision_special_power;
 
+pub use baikonur_launch_power::{BaikonurLaunchPower, BaikonurLaunchPowerModuleData};
 pub use cash_bounty_power::{CashBountyPower, CashBountyPowerModuleData};
 pub use cash_hack_special_power::{CashHackSpecialPower, CashHackSpecialPowerModuleData};
 pub use cleanup_area_power::{CleanupAreaPower, CleanupAreaPowerModuleData};
