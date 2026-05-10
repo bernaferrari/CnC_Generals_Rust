@@ -1345,7 +1345,11 @@ impl<'a> CommandExecutor<'a> {
             power: 0,
         };
         for &unit_id in units {
-            let team = self.game_logic.get_object(unit_id).map(|o| o.team);
+            let team = self
+                .game_logic
+                .get_object(unit_id)
+                .filter(|source| Self::can_source_queue_upgrade(source))
+                .map(|source| source.team);
             if let Some(team) = team {
                 if !seen_teams.insert(team) {
                     continue;
@@ -1376,7 +1380,11 @@ impl<'a> CommandExecutor<'a> {
             power: 0,
         };
         for &unit_id in units {
-            let team = self.game_logic.get_object(unit_id).map(|o| o.team);
+            let team = self
+                .game_logic
+                .get_object(unit_id)
+                .filter(|source| Self::can_source_queue_upgrade(source))
+                .map(|source| source.team);
             if let Some(team) = team {
                 if !seen_teams.insert(team) {
                     continue;
@@ -1391,6 +1399,10 @@ impl<'a> CommandExecutor<'a> {
         } else {
             CommandResult::InvalidCommand
         }
+    }
+
+    fn can_source_queue_upgrade(source: &crate::game_logic::Object) -> bool {
+        source.building_data.is_some() && source.is_alive() && source.is_constructed()
     }
 
     // === Special Unit Abilities ===
