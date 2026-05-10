@@ -8,7 +8,9 @@ use crate::helpers::{TheAudio, TheGameText, TheInGameUI};
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as BaseCrateCollide, CrateCollideBehavior, CrateCollideModuleData,
 };
-use crate::object::collide::{CollisionError, GameObject};
+use crate::object::collide::{
+    CollideModule, CollisionError, Coord3D as CollisionCoord3D, GameObject,
+};
 use crate::object::{ArmorSetFlag, Object};
 use crate::player::Player;
 use crate::weapon::WeaponSetType;
@@ -343,6 +345,37 @@ impl CrateCollideBehavior for SalvageCrateCollide {
         };
 
         guard.get_template().is_kind_of(KindOf::Salvager)
+    }
+}
+
+impl CollideModule for SalvageCrateCollide {
+    fn on_collide(
+        &mut self,
+        other: Option<&dyn GameObject>,
+        _loc: &CollisionCoord3D,
+        _normal: &CollisionCoord3D,
+    ) -> Result<(), CollisionError> {
+        let Some(other_obj) = other else {
+            return Ok(());
+        };
+
+        if !self.base.is_valid_to_execute(other_obj) {
+            return Ok(());
+        }
+
+        if self.execute_crate_behavior(other_obj)? {
+            self.base.finalize_collection(other_obj)?;
+        }
+
+        Ok(())
+    }
+
+    fn would_like_to_collide_with(&self, other: &dyn GameObject) -> bool {
+        CrateCollideBehavior::is_valid_to_execute(self, other)
+    }
+
+    fn is_salvage_crate_collide(&self) -> bool {
+        true
     }
 }
 
