@@ -175,6 +175,9 @@ use crate::object::special_powers::*;
 use crate::object::update::command_button_hunt_update::{
     CommandButtonHuntUpdate, CommandButtonHuntUpdateModule, CommandButtonHuntUpdateModuleData,
 };
+use crate::object::update::fire_spread_update::{
+    FireSpreadUpdate, FireSpreadUpdateModule, FireSpreadUpdateModuleData,
+};
 use crate::object::update::neutron_missile_update::{
     neutron_missile_update_data_factory, neutron_missile_update_module_factory,
 };
@@ -559,6 +562,35 @@ fn mob_member_slaved_update_module_factory(
     Box::new(MobMemberSlavedUpdateModule::new(
         behavior,
         &AsciiString::from("MobMemberSlavedUpdate"),
+        data_arc,
+    ))
+}
+
+fn fire_spread_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = FireSpreadUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse FireSpreadUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn fire_spread_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<FireSpreadUpdateModuleData>("FireSpreadUpdate", &module_data);
+    let owner_id = resolve_owner_id(&thing);
+    let behavior = FireSpreadUpdate::new(owner_id, (*data_arc).clone());
+    Box::new(FireSpreadUpdateModule::new(
+        behavior,
+        &AsciiString::from("FireSpreadUpdate"),
         data_arc,
     ))
 }
@@ -2832,6 +2864,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         mob_member_slaved_update_module_factory,
         mob_member_slaved_update_data_factory,
+    )?;
+    register_module_override(
+        "FireSpreadUpdate",
+        ModuleType::Behavior,
+        fire_spread_update_module_factory,
+        fire_spread_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
