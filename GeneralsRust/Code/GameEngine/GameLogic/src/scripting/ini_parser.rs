@@ -705,6 +705,7 @@ impl IniScriptParser {
             }
             "PLAYER_HAS_BUILDINGS" => Ok(ConditionType::PlayerHasObjectComparison),
             "PLAYER_HAS_UNITS" => Ok(ConditionType::PlayerHasObjectComparison),
+            "PLAYER_HAS_OBJECT_COMPARISON" => Ok(ConditionType::PlayerHasObjectComparison),
             "PLAYER_HAS_CREDITS" => Ok(ConditionType::PlayerHasCredits),
             "PLAYER_HAS_N_OR_FEWER_BUILDINGS" => Ok(ConditionType::PlayerHasNOrFewerBuildings),
             "PLAYER_HAS_N_OR_FEWER_FACTION_BUILDINGS" => {
@@ -1855,6 +1856,7 @@ ScriptList TestScripts
           PLAYER_HAS_CREDITS Player_China 5000
           PLAYER_HAS_POWER Player_China
           PLAYER_TRIGGERED_SPECIAL_POWER Player_China Artillery
+          PLAYER_HAS_OBJECT_COMPARISON Player_China >= 3 Soldier
           PLAYER_HAS_COMPARISON_UNIT_TYPE_IN_TRIGGER_AREA Player_China Soldier >= 3 AreaA
           BUILDING_ENTERED_BY_PLAYER Bunker Player_China
           HAS_FINISHED_VIDEO IntroMovie
@@ -1914,6 +1916,7 @@ EndScriptList
                 ConditionType::PlayerHasCredits,
                 ConditionType::PlayerHasPower,
                 ConditionType::PlayerTriggeredSpecialPower,
+                ConditionType::PlayerHasObjectComparison,
                 ConditionType::PlayerHasComparisonUnitTypeInTriggerArea,
                 ConditionType::BuildingEnteredByPlayer,
                 ConditionType::HasFinishedVideo,
