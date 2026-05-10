@@ -169,6 +169,9 @@ use crate::object::die::{
 };
 use crate::object::draw::*;
 use crate::object::special_powers::*;
+use crate::object::update::command_button_hunt_update::{
+    CommandButtonHuntUpdate, CommandButtonHuntUpdateModule, CommandButtonHuntUpdateModuleData,
+};
 use crate::object::update::neutron_missile_update::{
     neutron_missile_update_data_factory, neutron_missile_update_module_factory,
 };
@@ -426,6 +429,37 @@ fn cleanup_hazard_update_module_factory(
     Box::new(CleanupHazardUpdateModule::new(
         behavior,
         &AsciiString::from("CleanupHazardUpdate"),
+        data_arc,
+    ))
+}
+
+fn command_button_hunt_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = CommandButtonHuntUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse CommandButtonHuntUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn command_button_hunt_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<CommandButtonHuntUpdateModuleData>(
+        "CommandButtonHuntUpdate",
+        &module_data,
+    );
+    let owner_id = resolve_owner_id(&thing);
+    let behavior = CommandButtonHuntUpdate::new(owner_id, data_arc.clone());
+    Box::new(CommandButtonHuntUpdateModule::new(
+        behavior,
+        &AsciiString::from("CommandButtonHuntUpdate"),
         data_arc,
     ))
 }
@@ -2675,6 +2709,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         cleanup_hazard_update_module_factory,
         cleanup_hazard_update_data_factory,
+    )?;
+    register_module_override(
+        "CommandButtonHuntUpdate",
+        ModuleType::Behavior,
+        command_button_hunt_update_module_factory,
+        command_button_hunt_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
