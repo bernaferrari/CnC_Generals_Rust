@@ -2612,6 +2612,15 @@ impl GameMessageTranslator for CommandTranslator {
                 TheInGameUI::set_prefer_selection_mode(false);
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaStop => {
+                TheInGameUI::issue_stop_command();
+                dispatch_translated_message(&GameMessageType::DoStop);
+                return GameMessageDisposition::DestroyMessage;
+            }
+            GameMessageType::MetaScatter => {
+                dispatch_translated_message(&GameMessageType::DoScatter);
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::MouseRightClick(region, _modifiers) => (
                 self.handle_point_click(region, true),
                 GameMessageDisposition::DestroyMessage,
@@ -3906,7 +3915,9 @@ fn dispatch_translated_message(message: &GameMessageType) {
         | CreateSelectedGroupNoSound(_, _)
         | DestroySelectedGroup(_)
         | RemoveFromSelectedGroup(_)
-        | SelectedGroupCommand(_) => {
+        | SelectedGroupCommand(_)
+        | DoStop
+        | DoScatter => {
             enqueue(message.clone());
         }
         AreaSelection(region) => {
@@ -4053,6 +4064,10 @@ fn dispatch_translated_message(message: &GameMessageType) {
         }
         MetaStop => {
             TheInGameUI::issue_stop_command();
+            enqueue(DoStop);
+        }
+        MetaScatter => {
+            enqueue(DoScatter);
         }
         _ => {
             if let Some(visual) = hint_visual_for_message(message) {
@@ -4975,6 +4990,40 @@ mod tests {
         let key_msg = GameMessage::new(GameMessageType::RawKeyDown(0x53)); // 'S' key
         let result = translator.translate_game_message(&key_msg);
         assert_eq!(result, GameMessageDisposition::KeepMessage);
+    }
+
+    #[test]
+    fn test_meta_stop_enqueues_do_stop_command() {
+        let _guard = test_state_lock();
+        get_command_list().write().unwrap().clear_all_commands();
+
+        let mut translator = CommandTranslator::new();
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaStop));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        let messages = get_command_list().read().unwrap().snapshot_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].get_type(), &GameMessageType::DoStop);
+
+        get_command_list().write().unwrap().clear_all_commands();
+    }
+
+    #[test]
+    fn test_meta_scatter_enqueues_do_scatter_command() {
+        let _guard = test_state_lock();
+        get_command_list().write().unwrap().clear_all_commands();
+
+        let mut translator = CommandTranslator::new();
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaScatter));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        let messages = get_command_list().read().unwrap().snapshot_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].get_type(), &GameMessageType::DoScatter);
+
+        get_command_list().write().unwrap().clear_all_commands();
     }
 
     #[test]
