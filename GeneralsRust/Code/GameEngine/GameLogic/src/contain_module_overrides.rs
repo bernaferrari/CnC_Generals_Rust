@@ -236,6 +236,7 @@ use crate::object::die::{
 };
 use crate::object::draw::*;
 use crate::object::special_powers::*;
+use crate::object::update::ai_update_interface::{AIUpdateInterfaceModule, AIUpdateModuleData};
 use crate::object::update::bone_fx_update::{
     BoneFXUpdate, BoneFXUpdateModule, BoneFXUpdateModuleData,
 };
@@ -1350,6 +1351,29 @@ fn flight_deck_behavior_module_factory(
         &AsciiString::from("FlightDeckBehavior"),
         data_arc,
     ))
+}
+
+fn ai_update_interface_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = AIUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse AIUpdateInterface module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn ai_update_interface_module_factory(
+    _thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<AIUpdateModuleData>("AIUpdateInterface", &module_data);
+    let module_name_key = NameKeyGenerator::name_to_key("AIUpdateInterface");
+    Box::new(AIUpdateInterfaceModule::new(module_name_key, data_arc))
 }
 
 active_behavior_factories!(
@@ -3765,6 +3789,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         flight_deck_behavior_module_factory,
         flight_deck_behavior_data_factory,
+    )?;
+    register_module_override(
+        "AIUpdateInterface",
+        ModuleType::Behavior,
+        ai_update_interface_module_factory,
+        ai_update_interface_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
