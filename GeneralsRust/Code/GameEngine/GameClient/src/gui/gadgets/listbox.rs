@@ -675,6 +675,20 @@ impl ListBox {
 
         messages
     }
+
+    fn handle_keyboard_activate(&self) -> Vec<GadgetMessage> {
+        if self.audio_feedback {
+            if let Some(audio) = TheAudio::get() {
+                let event = AudioEventRts::new("GUIComboBoxClick");
+                audio.add_audio_event(&event);
+            }
+        }
+
+        vec![GadgetMessage::Custom {
+            gadget_id: self.id,
+            data: "double_click".to_string(),
+        }]
+    }
 }
 
 impl Gadget for ListBox {
@@ -881,6 +895,15 @@ impl Gadget for ListBox {
                     _ => {}
                 }
                 Vec::new()
+            }
+            InputEvent::KeyUp { key, .. } => {
+                if !self.focused {
+                    return Vec::new();
+                }
+                match key {
+                    KeyCode::Enter | KeyCode::Space => self.handle_keyboard_activate(),
+                    _ => Vec::new(),
+                }
             }
             InputEvent::FocusGained => {
                 self.set_focus(true);
