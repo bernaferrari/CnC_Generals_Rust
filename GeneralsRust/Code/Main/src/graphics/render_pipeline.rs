@@ -290,6 +290,24 @@ enum RenderModelLoadResult {
 }
 
 impl RenderPipeline {
+    fn missing_model_debug_cubes_enabled_from(value: Option<&std::ffi::OsStr>) -> bool {
+        value
+            .and_then(|value| value.to_str())
+            .map(|value| {
+                matches!(
+                    value.to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false)
+    }
+
+    fn missing_model_debug_cubes_enabled() -> bool {
+        Self::missing_model_debug_cubes_enabled_from(
+            std::env::var_os("GENERALS_RENDER_MISSING_MODEL_CUBES").as_deref(),
+        )
+    }
+
     fn should_prewarm_startup_map_template(
         asset_manager: &crate::assets::AssetManager,
         template: &str,
@@ -1401,30 +1419,31 @@ impl RenderPipeline {
                         continue; // Skip the fallback path
                     }
 
-                    // --- Fallback cube for models with zero meshes ---
-                    if let Some(fallback_model) =
-                        graphics_system.get_model_or_fallback("__fallback_cube__")
-                    {
-                        if !fallback_model.meshes.is_empty() {
-                            let visibility = visibilities
-                                .get(&object_id)
-                                .copied()
-                                .unwrap_or_else(ObjectVisibility::default);
+                    if Self::missing_model_debug_cubes_enabled() {
+                        if let Some(fallback_model) =
+                            graphics_system.get_model_or_fallback("__fallback_cube__")
+                        {
+                            if !fallback_model.meshes.is_empty() {
+                                let visibility = visibilities
+                                    .get(&object_id)
+                                    .copied()
+                                    .unwrap_or_else(ObjectVisibility::default);
 
-                            let fallback_mesh = &fallback_model.meshes[0];
-                            let mut render_item = RenderItem::new(
-                                object_id,
-                                "__fallback_cube__".to_string(),
-                                0,
-                                world_position,
-                                world_matrix,
-                                &fallback_mesh.material,
-                                RenderPass::ForwardOpaque,
-                            );
-                            render_item.distance = world_position.distance(camera_position);
-                            render_item.set_fow_visibility(visibility);
+                                let fallback_mesh = &fallback_model.meshes[0];
+                                let mut render_item = RenderItem::new(
+                                    object_id,
+                                    "__fallback_cube__".to_string(),
+                                    0,
+                                    world_position,
+                                    world_matrix,
+                                    &fallback_mesh.material,
+                                    RenderPass::ForwardOpaque,
+                                );
+                                render_item.distance = world_position.distance(camera_position);
+                                render_item.set_fow_visibility(visibility);
 
-                            self.render_items.push(render_item);
+                                self.render_items.push(render_item);
+                            }
                         }
                     }
                 }
@@ -1452,31 +1471,31 @@ impl RenderPipeline {
                     }
                     model_missing += 1;
 
-                    // Emit a fallback cube render item so the object is still visible
-                    // on screen even though its W3D model could not be loaded.
-                    if let Some(fallback_model) =
-                        graphics_system.get_model_or_fallback("__fallback_cube__")
-                    {
-                        if !fallback_model.meshes.is_empty() {
-                            let visibility = visibilities
-                                .get(&object_id)
-                                .copied()
-                                .unwrap_or_else(ObjectVisibility::default);
+                    if Self::missing_model_debug_cubes_enabled() {
+                        if let Some(fallback_model) =
+                            graphics_system.get_model_or_fallback("__fallback_cube__")
+                        {
+                            if !fallback_model.meshes.is_empty() {
+                                let visibility = visibilities
+                                    .get(&object_id)
+                                    .copied()
+                                    .unwrap_or_else(ObjectVisibility::default);
 
-                            let fallback_mesh = &fallback_model.meshes[0];
-                            let mut render_item = RenderItem::new(
-                                object_id,
-                                "__fallback_cube__".to_string(),
-                                0,
-                                world_position,
-                                world_matrix,
-                                &fallback_mesh.material,
-                                RenderPass::ForwardOpaque,
-                            );
-                            render_item.distance = world_position.distance(camera_position);
-                            render_item.set_fow_visibility(visibility);
+                                let fallback_mesh = &fallback_model.meshes[0];
+                                let mut render_item = RenderItem::new(
+                                    object_id,
+                                    "__fallback_cube__".to_string(),
+                                    0,
+                                    world_position,
+                                    world_matrix,
+                                    &fallback_mesh.material,
+                                    RenderPass::ForwardOpaque,
+                                );
+                                render_item.distance = world_position.distance(camera_position);
+                                render_item.set_fow_visibility(visibility);
 
-                            self.render_items.push(render_item);
+                                self.render_items.push(render_item);
+                            }
                         }
                     }
                 }
@@ -1781,23 +1800,25 @@ impl RenderPipeline {
             match load_result {
                 RenderModelLoadResult::Ready(w3d_model) => {
                     if w3d_model.meshes.is_empty() {
-                        if let Some(fallback_model) =
-                            graphics_system.get_model_or_fallback("__fallback_cube__")
-                        {
-                            if !fallback_model.meshes.is_empty() {
-                                let mut item = RenderItem::new(
-                                    object_id,
-                                    "__fallback_cube__".to_string(),
-                                    0,
-                                    world_position,
-                                    world_matrix,
-                                    &fallback_model.meshes[0].material,
-                                    render_pass,
-                                );
-                                item.distance = world_position.distance(camera_position);
-                                item.set_fow_visibility(fow_vis);
-                                self.render_items.push(item);
-                                bridge_items_added += 1;
+                        if Self::missing_model_debug_cubes_enabled() {
+                            if let Some(fallback_model) =
+                                graphics_system.get_model_or_fallback("__fallback_cube__")
+                            {
+                                if !fallback_model.meshes.is_empty() {
+                                    let mut item = RenderItem::new(
+                                        object_id,
+                                        "__fallback_cube__".to_string(),
+                                        0,
+                                        world_position,
+                                        world_matrix,
+                                        &fallback_model.meshes[0].material,
+                                        render_pass,
+                                    );
+                                    item.distance = world_position.distance(camera_position);
+                                    item.set_fow_visibility(fow_vis);
+                                    self.render_items.push(item);
+                                    bridge_items_added += 1;
+                                }
                             }
                         }
                     } else {
@@ -1839,23 +1860,25 @@ impl RenderPipeline {
                     }
                 }
                 RenderModelLoadResult::SkippedByBudget | RenderModelLoadResult::Failed => {
-                    if let Some(fallback_model) =
-                        graphics_system.get_model_or_fallback("__fallback_cube__")
-                    {
-                        if !fallback_model.meshes.is_empty() {
-                            let mut item = RenderItem::new(
-                                object_id,
-                                "__fallback_cube__".to_string(),
-                                0,
-                                world_position,
-                                world_matrix,
-                                &fallback_model.meshes[0].material,
-                                render_pass,
-                            );
-                            item.distance = world_position.distance(camera_position);
-                            item.set_fow_visibility(fow_vis);
-                            self.render_items.push(item);
-                            bridge_items_added += 1;
+                    if Self::missing_model_debug_cubes_enabled() {
+                        if let Some(fallback_model) =
+                            graphics_system.get_model_or_fallback("__fallback_cube__")
+                        {
+                            if !fallback_model.meshes.is_empty() {
+                                let mut item = RenderItem::new(
+                                    object_id,
+                                    "__fallback_cube__".to_string(),
+                                    0,
+                                    world_position,
+                                    world_matrix,
+                                    &fallback_model.meshes[0].material,
+                                    render_pass,
+                                );
+                                item.distance = world_position.distance(camera_position);
+                                item.set_fow_visibility(fow_vis);
+                                self.render_items.push(item);
+                                bridge_items_added += 1;
+                            }
                         }
                     }
                 }
@@ -3905,6 +3928,22 @@ mod tests {
             RenderPipeline::render_pass_for_material(&material),
             RenderPass::ForwardTransparent
         );
+    }
+
+    #[test]
+    fn missing_model_debug_cubes_are_opt_in() {
+        assert!(!RenderPipeline::missing_model_debug_cubes_enabled_from(
+            None
+        ));
+        assert!(!RenderPipeline::missing_model_debug_cubes_enabled_from(
+            Some(std::ffi::OsStr::new("0"))
+        ));
+        assert!(RenderPipeline::missing_model_debug_cubes_enabled_from(
+            Some(std::ffi::OsStr::new("1"))
+        ));
+        assert!(RenderPipeline::missing_model_debug_cubes_enabled_from(
+            Some(std::ffi::OsStr::new("TRUE"))
+        ));
     }
 
     #[test]
