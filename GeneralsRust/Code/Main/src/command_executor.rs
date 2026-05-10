@@ -1870,10 +1870,16 @@ impl<'a> CommandExecutor<'a> {
     // === Validation Helpers ===
 
     fn validate_player_ownership(&self, command: &GameCommand) -> bool {
+        let player_team = self
+            .game_logic
+            .get_player(command.player_id)
+            .map(|player| player.team)
+            .unwrap_or_else(|| Team::from_player_id(command.player_id));
+
         // Check if player owns all selected units
         for &unit_id in &command.selected_units {
             if let Some(unit) = self.game_logic.get_object(unit_id) {
-                if unit.team != Team::from_player_id(command.player_id) {
+                if unit.team != player_team {
                     warn!(
                         "Player {} doesn't own unit {}",
                         command.player_id, unit_id.0

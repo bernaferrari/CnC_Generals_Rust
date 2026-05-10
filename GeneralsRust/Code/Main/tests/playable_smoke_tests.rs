@@ -129,10 +129,151 @@ fn smoke_save_info(filename: &str) -> SaveGameInfo {
     }
 }
 
+fn opposing_team(team: Team) -> Team {
+    match team {
+        Team::USA => Team::China,
+        Team::China => Team::GLA,
+        Team::GLA => Team::USA,
+        Team::Neutral => Team::USA,
+    }
+}
+
+fn run_basic_faction_flow(human_team: Team) {
+    let enemy_team = opposing_team(human_team);
+    let mut game_logic = GameLogic::new();
+    game_logic.start_new_game(GameMode::Skirmish);
+    game_logic.clear_all_players();
+    install_smoke_templates(&mut game_logic);
+    game_logic.add_player(Player::new(0, human_team, human_team.get_name(), true));
+    game_logic.add_player(Player::new(1, enemy_team, enemy_team.get_name(), false));
+
+    let _command_center = game_logic
+        .create_object("SmokeCommandCenter", human_team, Vec3::ZERO)
+        .expect("human command center should spawn");
+    let _power_plant = game_logic
+        .create_object("SmokePowerPlant", human_team, Vec3::new(-24.0, 0.0, 0.0))
+        .expect("human power plant should spawn");
+    let dozer = game_logic
+        .create_object("SmokeDozer", human_team, Vec3::new(12.0, 0.0, 0.0))
+        .expect("human dozer should spawn");
+    let enemy_command_center = game_logic
+        .create_object("SmokeCommandCenter", enemy_team, Vec3::new(80.0, 0.0, 0.0))
+        .expect("enemy command center should spawn");
+
+    game_logic.queue_command(command(
+        10,
+        0,
+        CommandType::DozerConstruct {
+            template_name: "SmokeBarracks".to_string(),
+            location: Vec3::new(20.0, 0.0, 0.0),
+        },
+        vec![dozer],
+    ));
+    assert!(
+        run_until(&mut game_logic, 90, |game_logic| game_logic
+            .get_objects()
+            .values()
+            .any(|object| object.template_name == "SmokeBarracks"
+                && object.team == human_team
+                && object.is_constructed())),
+        "{} barracks should finish construction",
+        human_team.get_name()
+    );
+
+    let barracks_id = game_logic
+        .get_objects()
+        .values()
+        .find(|object| {
+            object.template_name == "SmokeBarracks"
+                && object.team == human_team
+                && object.is_constructed()
+        })
+        .map(|object| object.id)
+        .expect("dozer construct command should create a faction-owned barracks");
+
+    game_logic.queue_command(command(
+        11,
+        0,
+        CommandType::QueueUnitCreate {
+            template_name: "SmokeRanger".to_string(),
+            quantity: 1,
+        },
+        vec![barracks_id],
+    ));
+    assert!(
+        run_until(&mut game_logic, 90, |game_logic| game_logic
+            .get_objects()
+            .values()
+            .any(
+                |object| object.template_name == "SmokeRanger" && object.team == human_team
+            )),
+        "{} infantry should finish production",
+        human_team.get_name()
+    );
+
+    let ranger_id = game_logic
+        .get_objects()
+        .values()
+        .find(|object| object.template_name == "SmokeRanger" && object.team == human_team)
+        .map(|object| object.id)
+        .expect("barracks production should spawn faction-owned infantry");
+    {
+        let ranger = game_logic
+            .get_object_mut(ranger_id)
+            .expect("infantry should exist before attack");
+        ranger.weapon = Some(Weapon {
+            damage: 60.0,
+            range: 200.0,
+            reload_time: 0.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        });
+    }
+
+    let enemy_health_before = game_logic
+        .get_object(enemy_command_center)
+        .expect("enemy command center should exist")
+        .health
+        .current;
+    game_logic.queue_command(command(
+        12,
+        0,
+        CommandType::AttackObject {
+            target_id: enemy_command_center,
+        },
+        vec![ranger_id],
+    ));
+    run_frames(&mut game_logic, 2);
+    let enemy_health_after = game_logic
+        .get_object(enemy_command_center)
+        .expect("enemy command center should still exist")
+        .health
+        .current;
+    assert!(
+        enemy_health_after < enemy_health_before,
+        "{} infantry should damage the enemy command center",
+        human_team.get_name()
+    );
+
+    game_logic
+        .get_object_mut(enemy_command_center)
+        .expect("enemy command center should exist before defeat")
+        .status
+        .destroyed = true;
+    let victory = game_logic.evaluate_victory_condition();
+    assert_eq!(
+        victory,
+        Some(VictoryCondition::Winner(0)),
+        "{} should win after eliminating the enemy command center",
+        human_team.get_name()
+    );
+}
+
 #[test]
 fn mini_skirmish_playable_flow_smoke() {
     let mut game_logic = GameLogic::new();
     game_logic.start_new_game(GameMode::Skirmish);
+    game_logic.clear_all_players();
     install_smoke_templates(&mut game_logic);
     game_logic.add_player(Player::new(0, Team::USA, "USA", true));
     game_logic.add_player(Player::new(1, Team::China, "China", false));
@@ -350,4 +491,11 @@ fn mini_skirmish_playable_flow_smoke() {
         .iter()
         .any(|result| result.player_id == 0
             && result.outcome == generals_main::game_logic::PlayerOutcome::Won));
+}
+
+#[test]
+fn retail_factions_build_train_attack_smoke() {
+    for human_team in [Team::USA, Team::China, Team::GLA] {
+        run_basic_faction_flow(human_team);
+    }
 }
