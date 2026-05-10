@@ -55,6 +55,9 @@ use crate::object::behavior::deletion_update::{DeletionUpdate, DeletionUpdateMod
 use crate::object::behavior::demo_trap_update::{
     demo_trap_update_data_factory, demo_trap_update_module_factory,
 };
+use crate::object::behavior::dumb_projectile_behavior::{
+    DumbProjectileBehavior, DumbProjectileBehaviorModule, DumbProjectileBehaviorModuleData,
+};
 use crate::object::behavior::dynamic_shroud_clearing_range_update::{
     DynamicShroudClearingRangeUpdate, DynamicShroudClearingRangeUpdateModuleData,
 };
@@ -718,6 +721,37 @@ fn countermeasures_behavior_module_factory(
     Box::new(CountermeasuresBehaviorModule::new(
         behavior,
         &AsciiString::from("CountermeasuresBehavior"),
+        data_arc,
+    ))
+}
+
+fn dumb_projectile_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = DumbProjectileBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse DumbProjectileBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn dumb_projectile_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<DumbProjectileBehaviorModuleData>(
+        "DumbProjectileBehavior",
+        &module_data,
+    );
+    let behavior = DumbProjectileBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("DumbProjectileBehavior requires a valid object owner");
+    Box::new(DumbProjectileBehaviorModule::new(
+        behavior,
+        &AsciiString::from("DumbProjectileBehavior"),
         data_arc,
     ))
 }
@@ -3021,6 +3055,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         countermeasures_behavior_module_factory,
         countermeasures_behavior_data_factory,
+    )?;
+    register_module_override(
+        "DumbProjectileBehavior",
+        ModuleType::Behavior,
+        dumb_projectile_behavior_module_factory,
+        dumb_projectile_behavior_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
