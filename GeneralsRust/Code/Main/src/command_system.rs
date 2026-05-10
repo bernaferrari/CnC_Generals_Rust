@@ -2012,6 +2012,55 @@ mod tests {
     }
 
     #[test]
+    fn purchase_science_identity_matches_command_name_variants() {
+        use crate::game_logic::{Player, Team};
+
+        let system = CommandSystem::new();
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 3000;
+        game_logic.add_player(player);
+
+        let purchase_command = GameCommand {
+            command_type: CommandType::PurchaseScience {
+                science_name: "A10Strike1".to_string(),
+            },
+            player_id: 0,
+            command_id: 40,
+            timestamp: SystemTime::now(),
+            selected_units: Vec::new(),
+            modifier_keys: ModifierKeys::default(),
+        };
+        assert_eq!(
+            system.execute_command(&purchase_command, &mut game_logic),
+            CommandResult::Success
+        );
+
+        let variant_command = GameCommand {
+            command_type: CommandType::PurchaseScience {
+                science_name: "a10_strike_1".to_string(),
+            },
+            player_id: 0,
+            command_id: 41,
+            timestamp: SystemTime::now(),
+            selected_units: Vec::new(),
+            modifier_keys: ModifierKeys::default(),
+        };
+        assert_eq!(
+            system.execute_command(&variant_command, &mut game_logic),
+            CommandResult::InvalidCommand,
+            "same science should not be charged twice when naming style differs"
+        );
+
+        let player = game_logic.get_player(0).expect("player should exist");
+        assert_eq!(
+            player.resources.supplies, 1500,
+            "duplicate science variant should not spend supplies"
+        );
+        assert!(player.has_unlocked_science("a10_strike_1"));
+    }
+
+    #[test]
     fn cancel_upgrade_refunds_only_when_upgrade_is_queued() {
         use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 

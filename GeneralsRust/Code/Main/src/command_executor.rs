@@ -1304,7 +1304,7 @@ impl<'a> CommandExecutor<'a> {
         }
 
         if let Some(player) = self.game_logic.get_player_mut(player_id) {
-            if player.unlocked_sciences.contains(science_name) {
+            if player.has_unlocked_science(science_name) {
                 return CommandResult::InvalidCommand;
             }
 
@@ -1317,7 +1317,7 @@ impl<'a> CommandExecutor<'a> {
             }
 
             debug!("Player {} purchasing science: {}", player_id, science_name);
-            player.unlocked_sciences.insert(science_name.to_string());
+            player.unlock_science(science_name);
             return CommandResult::Success;
         }
         CommandResult::InvalidCommand
