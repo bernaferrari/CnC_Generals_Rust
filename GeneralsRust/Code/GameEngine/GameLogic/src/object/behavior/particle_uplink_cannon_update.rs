@@ -22,12 +22,15 @@ use crate::modules::{
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::special_power_module::SpecialPowerCommandOptions;
 use crate::object::special_power_module::Waypoint;
-use crate::object::special_power_template::SpecialPowerTemplate;
+use crate::object::special_power_template::{
+    find_or_create_special_power_template, SpecialPowerTemplate,
+};
 use crate::object::DrawableArcExt;
 use crate::object::{Object as GameObject, ObjectId};
 use crate::player::ThePlayerList;
 use crate::system::shroud_manager::get_shroud_manager;
 use crate::weapon::{DamageType, DeathType};
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -183,6 +186,426 @@ impl Default for ParticleUplinkCannonUpdateModuleData {
     }
 }
 
+impl ParticleUplinkCannonUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, PARTICLE_UPLINK_CANNON_UPDATE_FIELDS)
+    }
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    tokens.first().copied().ok_or(INIError::InvalidData)
+}
+
+fn parse_ascii_string(tokens: &[&str]) -> Result<AsciiString, INIError> {
+    Ok(AsciiString::from(required_value(tokens)?))
+}
+
+fn parse_duration_frames(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
+    INI::parse_duration_unsigned_int(required_value(tokens)?)
+}
+
+fn parse_real_value(tokens: &[&str]) -> Result<Real, INIError> {
+    INI::parse_real(required_value(tokens)?)
+}
+
+fn parse_unsigned_value(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
+    INI::parse_unsigned_int(required_value(tokens)?)
+}
+
+fn parse_special_power_template_field(
+    _ini: &mut INI,
+    data: &mut ParticleUplinkCannonUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let name = parse_ascii_string(tokens)?;
+    data.special_power_template = Some(find_or_create_special_power_template(&name));
+    Ok(())
+}
+
+fn parse_damage_type_field(
+    _ini: &mut INI,
+    data: &mut ParticleUplinkCannonUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.damage_type = parse_damage_type_token(required_value(tokens)?)?;
+    Ok(())
+}
+
+fn parse_damage_type_token(token: &str) -> Result<DamageType, INIError> {
+    match token.to_ascii_uppercase().as_str() {
+        "EXPLOSION" => Ok(DamageType::Explosion),
+        "CRUSH" => Ok(DamageType::Crush),
+        "ARMOR_PIERCING" => Ok(DamageType::ArmorPiercing),
+        "SMALL_ARMS" => Ok(DamageType::SmallArms),
+        "GATTLING" => Ok(DamageType::Gattling),
+        "RADIATION" => Ok(DamageType::Radiation),
+        "FLAME" => Ok(DamageType::Flame),
+        "LASER" => Ok(DamageType::Laser),
+        "SNIPER" => Ok(DamageType::Sniper),
+        "POISON" => Ok(DamageType::Poison),
+        "HEALING" => Ok(DamageType::Healing),
+        "UNRESISTABLE" => Ok(DamageType::Unresistable),
+        "WATER" => Ok(DamageType::Water),
+        "DEPLOY" => Ok(DamageType::Deploy),
+        "SURRENDER" => Ok(DamageType::Surrender),
+        "HACK" => Ok(DamageType::Hack),
+        "KILL_PILOT" => Ok(DamageType::KillPilot),
+        "PENALTY" => Ok(DamageType::Penalty),
+        "FALLING" => Ok(DamageType::Falling),
+        "MELEE" => Ok(DamageType::Melee),
+        "DISARM" => Ok(DamageType::Disarm),
+        "HAZARD_CLEANUP" => Ok(DamageType::HazardCleanup),
+        "PARTICLE_BEAM" => Ok(DamageType::ParticleBeam),
+        "TOPPLING" => Ok(DamageType::Toppling),
+        "INFANTRY_MISSILE" => Ok(DamageType::InfantryMissile),
+        "AURORA_BOMB" => Ok(DamageType::AuroraBomb),
+        "LAND_MINE" => Ok(DamageType::LandMine),
+        "JET_MISSILES" => Ok(DamageType::JetMissiles),
+        "STEALTHJET_MISSILES" => Ok(DamageType::StealthJetMissiles),
+        "MOLOTOV_COCKTAIL" => Ok(DamageType::MolotovCocktail),
+        "COMANCHE_VULCAN" => Ok(DamageType::ComancheVulcan),
+        "SUBDUAL_MISSILE" => Ok(DamageType::SubdualMissile),
+        "SUBDUAL_VEHICLE" => Ok(DamageType::SubdualVehicle),
+        "SUBDUAL_BUILDING" => Ok(DamageType::SubdualBuilding),
+        "SUBDUAL_UNRESISTABLE" => Ok(DamageType::SubdualUnresistable),
+        "MICROWAVE" => Ok(DamageType::Microwave),
+        "KILL_GARRISONED" => Ok(DamageType::KillGarrisoned),
+        "STATUS" => Ok(DamageType::Status),
+        _ => Err(INIError::InvalidData),
+    }
+}
+
+fn parse_death_type_token(token: &str) -> Result<DeathType, INIError> {
+    match token.to_ascii_uppercase().as_str() {
+        "NORMAL" => Ok(DeathType::Normal),
+        "NONE" => Ok(DeathType::None),
+        "CRUSHED" => Ok(DeathType::Crushed),
+        "BURNED" => Ok(DeathType::Burned),
+        "EXPLODED" => Ok(DeathType::Exploded),
+        "POISONED" => Ok(DeathType::Poisoned),
+        "TOPPLED" => Ok(DeathType::Toppled),
+        "FLOODED" => Ok(DeathType::Flooded),
+        "SUICIDED" => Ok(DeathType::Suicided),
+        "LASERED" => Ok(DeathType::Lasered),
+        "DETONATED" => Ok(DeathType::Detonated),
+        "SPLATTED" => Ok(DeathType::Splatted),
+        "POISONED_BETA" => Ok(DeathType::PoisonedBeta),
+        "EXTRA_2" | "EXTRA2" => Ok(DeathType::Extra2),
+        "EXTRA_3" | "EXTRA3" => Ok(DeathType::Extra3),
+        "EXTRA_4" | "EXTRA4" => Ok(DeathType::Extra4),
+        "EXTRA_5" | "EXTRA5" => Ok(DeathType::Extra5),
+        "EXTRA_6" | "EXTRA6" => Ok(DeathType::Extra6),
+        "EXTRA_7" | "EXTRA7" => Ok(DeathType::Extra7),
+        "EXTRA_8" | "EXTRA8" => Ok(DeathType::Extra8),
+        "POISONED_GAMMA" => Ok(DeathType::PoisonedGamma),
+        _ => Err(INIError::InvalidData),
+    }
+}
+
+fn parse_death_type_field(
+    _ini: &mut INI,
+    data: &mut ParticleUplinkCannonUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.death_type = parse_death_type_token(required_value(tokens)?)?;
+    Ok(())
+}
+
+const PARTICLE_UPLINK_CANNON_UPDATE_FIELDS: &[FieldParse<ParticleUplinkCannonUpdateModuleData>] = &[
+    FieldParse {
+        token: "SpecialPowerTemplate",
+        parse: parse_special_power_template_field,
+    },
+    FieldParse {
+        token: "BeginChargeTime",
+        parse: |_, data, tokens| {
+            data.begin_charge_frames = parse_duration_frames(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "RaiseAntennaTime",
+        parse: |_, data, tokens| {
+            data.raise_antenna_frames = parse_duration_frames(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ReadyDelayTime",
+        parse: |_, data, tokens| {
+            data.ready_delay_frames = parse_duration_frames(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "WidthGrowTime",
+        parse: |_, data, tokens| {
+            data.width_grow_frames = parse_duration_frames(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "BeamTravelTime",
+        parse: |_, data, tokens| {
+            data.beam_travel_frames = parse_duration_frames(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "TotalFiringTime",
+        parse: |_, data, tokens| {
+            data.total_firing_frames = parse_duration_frames(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "RevealRange",
+        parse: |_, data, tokens| {
+            data.reveal_range = parse_real_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "OuterEffectBoneName",
+        parse: |_, data, tokens| {
+            data.outer_effect_base_bone_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "OuterEffectNumBones",
+        parse: |_, data, tokens| {
+            data.outer_effect_num_bones = parse_unsigned_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "OuterNodesLightFlareParticleSystem",
+        parse: |_, data, tokens| {
+            data.outer_nodes_light_flare_particle_system_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "OuterNodesMediumFlareParticleSystem",
+        parse: |_, data, tokens| {
+            data.outer_nodes_medium_flare_particle_system_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "OuterNodesIntenseFlareParticleSystem",
+        parse: |_, data, tokens| {
+            data.outer_nodes_intense_flare_particle_system_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ConnectorBoneName",
+        parse: |_, data, tokens| {
+            data.connector_bone_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ConnectorMediumLaserName",
+        parse: |_, data, tokens| {
+            data.connector_medium_laser_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ConnectorIntenseLaserName",
+        parse: |_, data, tokens| {
+            data.connector_intense_laser_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ConnectorMediumFlare",
+        parse: |_, data, tokens| {
+            data.connector_medium_flare_particle_system_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ConnectorIntenseFlare",
+        parse: |_, data, tokens| {
+            data.connector_intense_flare_particle_system_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "FireBoneName",
+        parse: |_, data, tokens| {
+            data.fire_bone_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "LaserBaseLightFlareParticleSystemName",
+        parse: |_, data, tokens| {
+            data.laser_base_light_flare_particle_system_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "LaserBaseMediumFlareParticleSystemName",
+        parse: |_, data, tokens| {
+            data.laser_base_medium_flare_particle_system_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "LaserBaseIntenseFlareParticleSystemName",
+        parse: |_, data, tokens| {
+            data.laser_base_intense_flare_particle_system_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ParticleBeamLaserName",
+        parse: |_, data, tokens| {
+            data.particle_beam_laser_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "SwathOfDeathDistance",
+        parse: |_, data, tokens| {
+            data.swath_of_death_distance = parse_real_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "SwathOfDeathAmplitude",
+        parse: |_, data, tokens| {
+            data.swath_of_death_amplitude = parse_real_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "TotalScorchMarks",
+        parse: |_, data, tokens| {
+            data.total_scorch_marks = parse_unsigned_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ScorchMarkScalar",
+        parse: |_, data, tokens| {
+            data.scorch_mark_scalar = parse_real_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "BeamLaunchFX",
+        parse: |_, data, tokens| {
+            data.beam_launch_fx_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DelayBetweenLaunchFX",
+        parse: |_, data, tokens| {
+            data.frames_between_launch_fx_refresh = parse_duration_frames(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "GroundHitFX",
+        parse: |_, data, tokens| {
+            data.ground_hit_fx_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DamagePerSecond",
+        parse: |_, data, tokens| {
+            data.damage_per_second = parse_real_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "TotalDamagePulses",
+        parse: |_, data, tokens| {
+            data.total_damage_pulses = parse_unsigned_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DamageType",
+        parse: parse_damage_type_field,
+    },
+    FieldParse {
+        token: "DeathType",
+        parse: parse_death_type_field,
+    },
+    FieldParse {
+        token: "DamageRadiusScalar",
+        parse: |_, data, tokens| {
+            data.damage_radius_scalar = parse_real_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "PoweringUpSoundLoop",
+        parse: |_, data, tokens| {
+            data.powerup_sound_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "UnpackToIdleSoundLoop",
+        parse: |_, data, tokens| {
+            data.unpack_to_ready_sound_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "FiringToPackSoundLoop",
+        parse: |_, data, tokens| {
+            data.firing_to_idle_sound_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "GroundAnnihilationSoundLoop",
+        parse: |_, data, tokens| {
+            data.annihilation_sound_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DamagePulseRemnantObjectName",
+        parse: |_, data, tokens| {
+            data.damage_pulse_remnant_object_name = parse_ascii_string(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ManualDrivingSpeed",
+        parse: |_, data, tokens| {
+            data.manual_driving_speed = parse_real_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ManualFastDrivingSpeed",
+        parse: |_, data, tokens| {
+            data.manual_fast_driving_speed = parse_real_value(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "DoubleClickToFastDriveDelay",
+        parse: |_, data, tokens| {
+            data.double_click_to_fast_drive_delay = parse_duration_frames(tokens)?;
+            Ok(())
+        },
+    },
+];
+
 crate::impl_behavior_module_data_via_base!(ParticleUplinkCannonUpdateModuleData, base);
 
 pub struct ParticleUplinkCannonUpdate {
@@ -248,15 +671,23 @@ impl ParticleUplinkCannonUpdate {
         let specific_data = module_data
             .as_ref()
             .downcast_ref::<ParticleUplinkCannonUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+            .ok_or("Invalid module data")?
+            .clone();
 
+        Self::new_with_data(object, Arc::new(specific_data))
+    }
+
+    pub fn new_with_data(
+        object: Arc<RwLock<GameObject>>,
+        specific_data: Arc<ParticleUplinkCannonUpdateModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let obj_guard = object.read().unwrap();
         let position = obj_guard.get_position();
         let outer_count = specific_data.outer_effect_num_bones as usize;
 
         Ok(Self {
             object: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
+            module_data: specific_data.clone(),
             next_call_frame_and_phase: 0,
             status: PUCStatus::Idle,
             laser_status: LaserStatus::None,
