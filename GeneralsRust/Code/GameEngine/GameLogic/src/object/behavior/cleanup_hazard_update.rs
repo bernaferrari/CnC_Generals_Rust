@@ -18,6 +18,7 @@ use crate::modules::{
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::{Object as GameObject, OBJECT_REGISTRY};
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType, WeaponTemplate};
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -44,6 +45,53 @@ impl Default for CleanupHazardUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(CleanupHazardUpdateModuleData, base);
+
+impl CleanupHazardUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, CLEANUP_HAZARD_UPDATE_FIELDS)
+    }
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_weapon_slot(token: &str) -> Result<WeaponSlotType, INIError> {
+    match token.to_ascii_uppercase().as_str() {
+        "PRIMARY_WEAPON" | "PRIMARY" => Ok(WeaponSlotType::Primary),
+        "SECONDARY_WEAPON" | "SECONDARY" => Ok(WeaponSlotType::Secondary),
+        "TERTIARY_WEAPON" | "TERTIARY" => Ok(WeaponSlotType::Tertiary),
+        _ => Err(INIError::InvalidData),
+    }
+}
+
+const CLEANUP_HAZARD_UPDATE_FIELDS: &[FieldParse<CleanupHazardUpdateModuleData>] = &[
+    FieldParse {
+        token: "WeaponSlot",
+        parse: |_, data, tokens| {
+            data.weapon_slot = parse_weapon_slot(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ScanRate",
+        parse: |_, data, tokens| {
+            data.scan_frames = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ScanRange",
+        parse: |_, data, tokens| {
+            data.scan_range = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+];
 
 pub struct CleanupHazardUpdate {
     object: Weak<RwLock<GameObject>>,
