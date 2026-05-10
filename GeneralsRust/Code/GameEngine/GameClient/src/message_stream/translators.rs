@@ -2631,6 +2631,23 @@ impl GameMessageTranslator for CommandTranslator {
                 }
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaToggleFastForwardReplay => {
+                if TheGameLogic::is_in_replay_game() {
+                    if let Some(global_data) = get_global_data() {
+                        let enabled = {
+                            let mut guard = global_data.write();
+                            guard.tivo_fast_mode = !guard.tivo_fast_mode;
+                            guard.tivo_fast_mode
+                        };
+                        TheInGameUI::message(if enabled {
+                            "m_TiVOFastMode: ON"
+                        } else {
+                            "m_TiVOFastMode: OFF"
+                        });
+                    }
+                }
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::MetaDeploy
             | GameMessageType::MetaFollow
             | GameMessageType::MetaChatPlayers
@@ -4858,7 +4875,9 @@ mod tests {
     use super::*;
     use gamelogic::common::{AsciiString, GeometryInfo, Real};
     use gamelogic::player::{player_list, Player};
-    use gamelogic::system::game_logic::{get_game_logic, GAME_LAN, GAME_SINGLE_PLAYER};
+    use gamelogic::system::game_logic::{
+        get_game_logic, GAME_LAN, GAME_REPLAY, GAME_SINGLE_PLAYER,
+    };
     use gamelogic::team::Team;
     use gamelogic::thing_template::ThingTemplate;
     use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -5102,6 +5121,46 @@ mod tests {
             .unwrap()
             .set_game_mode(GAME_SINGLE_PLAYER);
         get_command_list().write().unwrap().clear_all_commands();
+    }
+
+    #[test]
+    fn test_meta_toggle_fast_forward_replay_only_toggles_in_replay() {
+        let _guard = test_state_lock();
+        game_engine::common::ini::ini_game_data::init_global_data();
+        let global_data = get_global_data().expect("global data initialized");
+        global_data.write().tivo_fast_mode = false;
+
+        get_game_logic()
+            .lock()
+            .unwrap()
+            .set_game_mode(GAME_SINGLE_PLAYER);
+        let mut translator = CommandTranslator::new();
+        let disposition = translator.translate_game_message(&GameMessage::new(
+            GameMessageType::MetaToggleFastForwardReplay,
+        ));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        assert!(!global_data.read().tivo_fast_mode);
+
+        get_game_logic().lock().unwrap().set_game_mode(GAME_REPLAY);
+        let mut translator = CommandTranslator::new();
+        let disposition = translator.translate_game_message(&GameMessage::new(
+            GameMessageType::MetaToggleFastForwardReplay,
+        ));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        assert!(global_data.read().tivo_fast_mode);
+
+        let mut translator = CommandTranslator::new();
+        translator.translate_game_message(&GameMessage::new(
+            GameMessageType::MetaToggleFastForwardReplay,
+        ));
+        assert!(!global_data.read().tivo_fast_mode);
+
+        get_game_logic()
+            .lock()
+            .unwrap()
+            .set_game_mode(GAME_SINGLE_PLAYER);
     }
 
     #[test]
