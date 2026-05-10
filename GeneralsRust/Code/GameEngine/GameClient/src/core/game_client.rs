@@ -71,6 +71,7 @@ use crate::effects::{DecalManager, DecalSettings, EffectsConfig};
 use crate::fx_list::{init_fx_list_store, register_decal_manager, register_fx_audio};
 use crate::game_text::GameText;
 use crate::gui::campaign_manager::get_campaign_manager;
+use crate::gui::gadgets::register_button_audio_hook;
 use crate::gui::ime_manager::get_ime_manager;
 use crate::gui::{
     get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager, UIRenderer, WindowStatus,
@@ -2875,6 +2876,12 @@ impl GameClient {
             register_fx_audio(Box::new(move |event, position| {
                 if let Ok(mut guard) = hook_audio.lock() {
                     let _ = guard.play_event(event, position);
+                }
+            }));
+            let button_audio = Arc::clone(&audio_arc);
+            register_button_audio_hook(Box::new(move |event| {
+                if let Ok(mut guard) = button_audio.lock() {
+                    let _ = guard.play_event(event, None);
                 }
             }));
             self.subsystem_manager.audio = Some(audio_arc);
