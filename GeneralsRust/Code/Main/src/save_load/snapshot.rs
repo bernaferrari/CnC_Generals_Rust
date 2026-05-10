@@ -71,8 +71,9 @@ pub struct ObjectSnapshot {
 }
 
 /// Object status snapshot
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectStatusSnapshot {
+    pub ai_state: AIState,
     pub destroyed: bool,
     pub under_construction: bool,
     pub selected: bool,
@@ -86,6 +87,33 @@ pub struct ObjectStatusSnapshot {
     pub poisoned: bool,
     pub radar_jammed: bool,
     pub disabled_underpowered: bool,
+    pub special_power_ready: bool,
+    pub special_power_cooldown: f32,
+    pub special_power_cooldown_remaining: f32,
+}
+
+impl Default for ObjectStatusSnapshot {
+    fn default() -> Self {
+        Self {
+            ai_state: AIState::Idle,
+            destroyed: false,
+            under_construction: false,
+            selected: false,
+            moving: false,
+            attacking: false,
+            airborne_target: false,
+            stealthed: false,
+            garrisoned: false,
+            being_repaired: false,
+            on_fire: false,
+            poisoned: false,
+            radar_jammed: false,
+            disabled_underpowered: false,
+            special_power_ready: true,
+            special_power_cooldown: 0.0,
+            special_power_cooldown_remaining: 0.0,
+        }
+    }
 }
 
 /// Module state snapshot (generic module data)
@@ -1134,6 +1162,8 @@ impl XferData for Weapon {
 impl XferData for ObjectStatusSnapshot {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
         xfer.xfer_marker_label("ObjectStatusSnapshot")?;
+        xfer.xfer_marker_label("AIState")?;
+        self.ai_state.xfer(xfer)?;
         xfer.xfer_marker_label("Destroyed")?;
         xfer.xfer_bool(&mut self.destroyed)?;
         xfer.xfer_marker_label("UnderConstruction")?;
@@ -1160,6 +1190,69 @@ impl XferData for ObjectStatusSnapshot {
         xfer.xfer_bool(&mut self.radar_jammed)?;
         xfer.xfer_marker_label("DisabledUnderpowered")?;
         xfer.xfer_bool(&mut self.disabled_underpowered)?;
+        xfer.xfer_marker_label("SpecialPowerReady")?;
+        xfer.xfer_bool(&mut self.special_power_ready)?;
+        xfer.xfer_marker_label("SpecialPowerCooldown")?;
+        xfer.xfer_f32(&mut self.special_power_cooldown)?;
+        xfer.xfer_marker_label("SpecialPowerCooldownRemaining")?;
+        xfer.xfer_f32(&mut self.special_power_cooldown_remaining)?;
+        Ok(())
+    }
+}
+
+impl XferData for AIState {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> SaveLoadResult<()> {
+        let mut value = match self {
+            AIState::Idle => 0,
+            AIState::Moving => 1,
+            AIState::Attacking => 2,
+            AIState::AttackMoving => 3,
+            AIState::AttackingGround => 4,
+            AIState::Gathering => 5,
+            AIState::ReturningResources => 6,
+            AIState::Constructing => 7,
+            AIState::Repairing => 8,
+            AIState::GuardingArea => 9,
+            AIState::GuardingObject => 10,
+            AIState::Patrolling => 11,
+            AIState::Docked => 12,
+            AIState::Garrisoned => 13,
+            AIState::SpecialAbility => 14,
+            AIState::SeekingRepair => 15,
+            AIState::SeekingHealing => 16,
+            AIState::Entering => 17,
+            AIState::Docking => 18,
+            AIState::Capturing => 19,
+        };
+        xfer.xfer_u32(&mut value)?;
+        *self = match value {
+            0 => AIState::Idle,
+            1 => AIState::Moving,
+            2 => AIState::Attacking,
+            3 => AIState::AttackMoving,
+            4 => AIState::AttackingGround,
+            5 => AIState::Gathering,
+            6 => AIState::ReturningResources,
+            7 => AIState::Constructing,
+            8 => AIState::Repairing,
+            9 => AIState::GuardingArea,
+            10 => AIState::GuardingObject,
+            11 => AIState::Patrolling,
+            12 => AIState::Docked,
+            13 => AIState::Garrisoned,
+            14 => AIState::SpecialAbility,
+            15 => AIState::SeekingRepair,
+            16 => AIState::SeekingHealing,
+            17 => AIState::Entering,
+            18 => AIState::Docking,
+            19 => AIState::Capturing,
+            other => {
+                return Err(SaveLoadError::Corrupted(format!(
+                    "Invalid AIState value in object snapshot: {}",
+                    other
+                )));
+            }
+        };
         Ok(())
     }
 }
@@ -2411,6 +2504,7 @@ impl SnapshotBuilder {
 
     fn snapshot_object_status(&self, object: &Object) -> ObjectStatusSnapshot {
         ObjectStatusSnapshot {
+            ai_state: object.ai_state.clone(),
             destroyed: object.status.destroyed,
             under_construction: object.status.under_construction,
             selected: object.selected,
@@ -2424,6 +2518,9 @@ impl SnapshotBuilder {
             poisoned: false,
             radar_jammed: false,
             disabled_underpowered: object.status.disabled_underpowered,
+            special_power_ready: object.special_power_ready,
+            special_power_cooldown: object.special_power_cooldown,
+            special_power_cooldown_remaining: object.special_power_cooldown_remaining,
         }
     }
 
@@ -2999,17 +3096,20 @@ impl SnapshotBuilder {
 
         object.ai_state = if status.destroyed {
             AIState::Idle
-        } else if status.garrisoned {
+        } else if status.ai_state == AIState::Idle && status.garrisoned {
             AIState::Garrisoned
-        } else if status.being_repaired {
+        } else if status.ai_state == AIState::Idle && status.being_repaired {
             AIState::SeekingRepair
-        } else if status.attacking {
+        } else if status.ai_state == AIState::Idle && status.attacking {
             AIState::Attacking
-        } else if status.moving {
+        } else if status.ai_state == AIState::Idle && status.moving {
             AIState::Moving
         } else {
-            AIState::Idle
+            status.ai_state.clone()
         };
+        object.special_power_ready = status.special_power_ready;
+        object.special_power_cooldown = status.special_power_cooldown;
+        object.special_power_cooldown_remaining = status.special_power_cooldown_remaining;
 
         // Not represented in `ObjectStatus` in `Code/Main/src/game_logic/mod.rs`.
         let _ = status.on_fire;

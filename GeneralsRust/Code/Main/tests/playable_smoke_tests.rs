@@ -293,7 +293,12 @@ fn mini_skirmish_playable_flow_smoke() {
             .supplies,
         after_ranger_supplies
     );
-    assert!(loaded_game_logic.get_object(command_center).is_some());
+    let loaded_command_center = loaded_game_logic
+        .get_object(command_center)
+        .expect("loaded command center should exist");
+    assert_eq!(loaded_command_center.ai_state, AIState::SpecialAbility);
+    assert!(!loaded_command_center.special_power_ready);
+    assert!(loaded_command_center.special_power_cooldown_remaining > 0.0);
     assert_eq!(
         loaded_game_logic
             .get_object(dozer)
