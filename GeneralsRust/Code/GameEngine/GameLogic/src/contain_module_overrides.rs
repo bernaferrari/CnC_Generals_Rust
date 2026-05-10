@@ -197,9 +197,11 @@ use crate::object::contain::{
     RiderChangeContain, RiderChangeContainModuleData, TransportContain, TransportContainModuleData,
     TunnelContain, TunnelContainModuleData,
 };
+use crate::object::damage::bone_fx_damage::{BoneFXDamage, BoneFXDamageModule};
 use crate::object::damage::transition_damage_fx::{
     TransitionDamageFX, TransitionDamageFXModule, TransitionDamageFXModuleData,
 };
+use crate::object::damage::DamageModuleData;
 use crate::object::die::{
     CreateCrateDie, CreateCrateDieModuleData, CreateObjectDie, CreateObjectDieModuleData, CrushDie,
     CrushDieModuleData, DamDie, DamDieModuleData, DestroyDie, DieModuleData, DieModuleInterface,
@@ -1085,6 +1087,24 @@ fn bone_fx_update_module_factory(
     Box::new(BoneFXUpdateModule::new(
         behavior,
         &AsciiString::from("BoneFXUpdate"),
+        data_arc,
+    ))
+}
+
+fn bone_fx_damage_data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    Box::new(DamageModuleData::default())
+}
+
+fn bone_fx_damage_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let owner_id = resolve_owner_id(&thing);
+    let data_arc = cloned_module_data::<DamageModuleData>("BoneFXDamage", &module_data);
+    let behavior = BoneFXDamage::new(owner_id);
+    Box::new(BoneFXDamageModule::new(
+        behavior,
+        &AsciiString::from("BoneFXDamage"),
         data_arc,
     ))
 }
@@ -3454,6 +3474,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         bone_fx_update_module_factory,
         bone_fx_update_data_factory,
+    )?;
+    register_module_override(
+        "BoneFXDamage",
+        ModuleType::Behavior,
+        bone_fx_damage_module_factory,
+        bone_fx_damage_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
