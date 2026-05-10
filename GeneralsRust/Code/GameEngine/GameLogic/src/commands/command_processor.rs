@@ -3538,6 +3538,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::GetHealed
                 | CommandType::ResumeConstruction
                 | CommandType::DozerConstruct
+                | CommandType::DozerConstructLine
                 | CommandType::DoStop
                 | CommandType::DoScatter
                 | CommandType::DoSpecialPower
@@ -3798,6 +3799,14 @@ fn override_destination_fallthrough_target_id(command: &QueuedCommand) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_handler_accepts_build_line_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::DozerConstruct));
+        assert!(handler.can_handle(CommandType::DozerConstructLine));
+    }
 
     #[test]
     fn override_destination_fallthrough_target_uses_location_x_bits() {
