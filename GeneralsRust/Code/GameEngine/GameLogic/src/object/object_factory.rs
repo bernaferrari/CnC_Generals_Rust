@@ -12,7 +12,6 @@ use crate::common::{DefaultThingTemplate, ThingTemplate};
 use crate::error::GameLogicError as GameError;
 use crate::helpers::{get_game_logic_random_value, TheGameLogic, TheThingFactory};
 use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
-use crate::object::projectile::{Projectile, ProjectileExt};
 use crate::object::simple_object::{SimpleObject, SimpleObjectExt};
 use crate::object::structure::{Structure, StructureExt};
 use crate::object::unit::{Unit, UnitAIUpdate, UnitExt};
@@ -50,7 +49,6 @@ use log::warn;
 pub enum GameObjectInstance {
     Unit(Arc<RwLock<Unit>>),
     Structure(Arc<RwLock<Structure>>),
-    Projectile(Arc<RwLock<Projectile>>),
     SimpleObject(Arc<RwLock<SimpleObject>>),
     BaseObject(Arc<RwLock<Object>>),
 }
@@ -64,10 +62,6 @@ impl GameObjectInstance {
                 .unwrap_or_else(|poison| poison.into_inner())
                 .base_object(),
             GameObjectInstance::Structure(structure) => structure
-                .read()
-                .unwrap_or_else(|poison| poison.into_inner())
-                .base_object(),
-            GameObjectInstance::Projectile(projectile) => projectile
                 .read()
                 .unwrap_or_else(|poison| poison.into_inner())
                 .base_object(),
@@ -103,14 +97,6 @@ impl GameObjectInstance {
                     structure_guard.update(delta_time)?;
                 }
             }
-            GameObjectInstance::Projectile(projectile) => {
-                if let Ok(mut projectile_guard) = projectile.write() {
-                    // Projectile update returns false if it should be destroyed
-                    if !projectile_guard.update(delta_time)? {
-                        return Err("Projectile should be destroyed".into());
-                    }
-                }
-            }
             GameObjectInstance::SimpleObject(simple_object) => {
                 if let Ok(mut simple_object_guard) = simple_object.write() {
                     simple_object_guard.update(delta_time)?;
@@ -134,7 +120,10 @@ impl GameObjectInstance {
     }
 
     pub fn is_projectile(&self) -> bool {
-        matches!(self, GameObjectInstance::Projectile(_))
+        self.get_base_object()
+            .read()
+            .map(|object| object.is_kind_of(KindOf::Projectile))
+            .unwrap_or(false)
     }
 
     pub fn is_simple_object(&self) -> bool {
@@ -701,12 +690,7 @@ impl ObjectFactory {
 
             ObjectType::BaseObject => GameObjectInstance::BaseObject(base_object.clone()),
 
-            ObjectType::Projectile => {
-                return Err(
-                    "Cannot create Projectile via create_object - use create_projectile instead"
-                        .into(),
-                );
-            }
+            ObjectType::Projectile => GameObjectInstance::BaseObject(base_object.clone()),
         };
 
         // Create drawable if needed
@@ -723,118 +707,6 @@ impl ObjectFactory {
 
         // Update pool statistics
         self.update_pool_stats(&object_type);
-
-        Ok(object_id)
-    }
-
-    /// Create projectile from weapon fire
-    pub fn create_projectile(
-        &mut self,
-        weapon_template: Arc<WeaponTemplate>,
-        source_object_id: ObjectID,
-        source_position: Coord3D,
-        target_position: Coord3D,
-        target_object_id: Option<ObjectID>,
-    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
-        // Create base object for projectile
-        let projectile_template = TheThingFactory::find_template(&weapon_template.projectile_name)
-            .ok_or_else(|| {
-                Box::<dyn std::error::Error + Send + Sync>::from(GameError::Configuration(format!(
-                    "Projectile template '{}' not found",
-                    weapon_template.projectile_name
-                )))
-            })?;
-        let status_mask = projectile_template.get_initial_object_status();
-        // Allocate object ID
-        let object_id = self.allocate_object_id();
-
-        let base_object =
-            Object::new_with_id(projectile_template.clone(), object_id, status_mask, None)?;
-
-        let mut owning_player = None;
-        let mut projectile_team = None;
-        if let Some(source_obj) = TheGameLogic::find_object_by_id(source_object_id) {
-            if let Ok(source_guard) = source_obj.read() {
-                owning_player = source_guard.get_controlling_player();
-                if let Some(player_arc) = &owning_player {
-                    if let Ok(player_guard) = player_arc.read() {
-                        projectile_team = player_guard.get_default_team();
-                    }
-                }
-                if projectile_team.is_none() {
-                    projectile_team = source_guard.get_team();
-                }
-            }
-        }
-
-        // Set object ID and position
-        {
-            let mut obj_guard = base_object.write().map_err(|_| {
-                Box::<dyn std::error::Error + Send + Sync>::from("Base object lock poisoned")
-            })?;
-            obj_guard.set_position(&source_position)?;
-            if let Some(team) = projectile_team.as_ref().map(Arc::clone) {
-                obj_guard.set_team(Some(team))?;
-            }
-            if let Some(source_obj) = TheGameLogic::find_object_by_id(source_object_id) {
-                if let Ok(source_guard) = source_obj.read() {
-                    obj_guard.set_producer(Some(&source_guard));
-                }
-            }
-        }
-
-        // Create projectile
-        let projectile = Projectile::new(
-            base_object.clone(),
-            weapon_template,
-            source_object_id,
-            source_position,
-            target_position,
-            target_object_id,
-        )?;
-
-        let projectile_arc = Arc::new(RwLock::new(projectile));
-        if let Ok(mut proj_guard) = projectile_arc.write() {
-            proj_guard.set_source_team(projectile_team);
-        }
-        let base_object = {
-            let guard =
-                projectile_arc
-                    .read()
-                    .map_err(|_| -> Box<dyn std::error::Error + Send + Sync> {
-                        "Projectile lock poisoned".into()
-                    })?;
-            guard.base_object()
-        };
-
-        TheGameLogic::register_object(base_object.clone())
-            .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
-
-        let game_object = GameObjectInstance::Projectile(projectile_arc);
-
-        // Launch the projectile
-        if let GameObjectInstance::Projectile(proj) = &game_object {
-            if let Ok(mut proj_guard) = proj.write() {
-                proj_guard.launch()?;
-            }
-        }
-
-        if let Some(player_arc) = owning_player {
-            if let Ok(player_guard) = player_arc.read() {
-                if player_guard.get_num_battle_plans_active() > 0 {
-                    if let Ok(mut obj_guard) = base_object.write() {
-                        player_guard.apply_battle_plan_bonuses_for_object(&mut obj_guard);
-                    }
-                }
-            }
-        }
-
-        // Register the object
-        self.object_registry.insert(object_id, game_object);
-        self.total_objects_created += 1;
-
-        // Update pool statistics
-        self.update_pool_stats(&ObjectType::Projectile);
 
         Ok(object_id)
     }
@@ -912,14 +784,21 @@ impl ObjectFactory {
                     GameObjectInstance::Structure(_) => {
                         self.update_pool_stats_destroyed(&ObjectType::Structure);
                     }
-                    GameObjectInstance::Projectile(_) => {
-                        self.update_pool_stats_destroyed(&ObjectType::Projectile);
-                    }
                     GameObjectInstance::SimpleObject(_) => {
                         self.update_pool_stats_destroyed(&ObjectType::SimpleObject);
                     }
-                    GameObjectInstance::BaseObject(_) => {
-                        self.update_pool_stats_destroyed(&ObjectType::BaseObject);
+                    GameObjectInstance::BaseObject(object) => {
+                        let object_type = object
+                            .read()
+                            .map(|object| {
+                                if object.is_kind_of(KindOf::Projectile) {
+                                    ObjectType::Projectile
+                                } else {
+                                    ObjectType::BaseObject
+                                }
+                            })
+                            .unwrap_or(ObjectType::BaseObject);
+                        self.update_pool_stats_destroyed(&object_type);
                     }
                 }
 
