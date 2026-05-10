@@ -169,9 +169,13 @@ impl BuildingData {
     }
 
     pub fn get_production_progress(&self) -> Option<f32> {
-        self.production_queue
-            .first()
-            .map(|item| item.progress / item.total_time)
+        self.production_queue.first().map(|item| {
+            if item.total_time <= 0.0 {
+                1.0
+            } else {
+                (item.progress / item.total_time).clamp(0.0, 1.0)
+            }
+        })
     }
 
     pub fn can_garrison(&self) -> bool {
@@ -577,5 +581,40 @@ impl BuildingBehavior {
     pub fn has_sufficient_power(team: Team, objects: &HashMap<ObjectId, Object>) -> bool {
         let (produced, consumed) = Self::calculate_power_for_team(team, objects);
         produced >= consumed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn production_progress_is_clamped_to_valid_percent() {
+        let mut building = BuildingData::new(BuildingType::Barracks);
+        building.production_queue.push(ProductionItem {
+            template_name: "TestInfantry".to_string(),
+            progress: 12.0,
+            total_time: 10.0,
+            cost: Resources::default(),
+        });
+
+        assert_eq!(building.get_production_progress(), Some(1.0));
+
+        building.production_queue[0].progress = -1.0;
+
+        assert_eq!(building.get_production_progress(), Some(0.0));
+    }
+
+    #[test]
+    fn zero_time_production_progress_reports_complete() {
+        let mut building = BuildingData::new(BuildingType::Barracks);
+        building.production_queue.push(ProductionItem {
+            template_name: "TestInfantry".to_string(),
+            progress: 0.0,
+            total_time: 0.0,
+            cost: Resources::default(),
+        });
+
+        assert_eq!(building.get_production_progress(), Some(1.0));
     }
 }
