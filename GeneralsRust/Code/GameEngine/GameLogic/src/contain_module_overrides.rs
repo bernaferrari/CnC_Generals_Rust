@@ -15,6 +15,14 @@ use log::warn;
 
 use crate::common::{ObjectID, TheGameLogic, INVALID_ID};
 use crate::modules::ContainModuleInterface;
+use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
+use crate::object::body::body_module::{BodyModuleData, BodyModuleInterface};
+use crate::object::body::highlander_body::HighlanderBody;
+use crate::object::body::hive_structure_body::{HiveStructureBody, HiveStructureBodyModuleData};
+use crate::object::body::immortal_body::ImmortalBody;
+use crate::object::body::inactive_body::InactiveBody;
+use crate::object::body::structure_body::{StructureBody, StructureBodyModuleData};
+use crate::object::body::undead_body::{UndeadBody, UndeadBodyModuleData};
 use crate::object::contain::{
     CaveContain, CaveContainModuleData, GarrisonContain, GarrisonContainModuleData, HealContain,
     HealContainModuleData, HelixContain, HelixContainModuleData, InternetHackContain,
@@ -56,6 +64,14 @@ fn attach_contain_to_object(object_id: ObjectID, contain: Arc<Mutex<dyn ContainM
     if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
         if let Ok(mut guard) = object.write() {
             guard.set_contain(Some(contain));
+        }
+    }
+}
+
+fn attach_body_to_object(object_id: ObjectID, body: Arc<Mutex<dyn BodyModuleInterface>>) {
+    if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
+        if let Ok(mut guard) = object.write() {
+            guard.set_body_module(Some(body));
         }
     }
 }
@@ -287,6 +303,74 @@ impl<'a> ContainModuleDataKind<'a> {
     }
 }
 
+struct BodyBindingModule<T>
+where
+    T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    module_name_key: NameKeyType,
+    owner_id: ObjectID,
+    data: Arc<T>,
+    create_body: fn(T, ObjectID) -> Arc<Mutex<dyn BodyModuleInterface>>,
+}
+
+impl<T> BodyBindingModule<T>
+where
+    T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    fn new(
+        module_name: &str,
+        owner_id: ObjectID,
+        data: Arc<T>,
+        create_body: fn(T, ObjectID) -> Arc<Mutex<dyn BodyModuleInterface>>,
+    ) -> Self {
+        Self {
+            module_name_key: NameKeyGenerator::name_to_key(module_name),
+            owner_id,
+            data,
+            create_body,
+        }
+    }
+}
+
+impl<T> Module for BodyBindingModule<T>
+where
+    T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn ModuleData {
+        self.data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        let body = (self.create_body)((*self.data).clone(), self.owner_id);
+        attach_body_to_object(self.owner_id, body);
+    }
+}
+
+impl<T> Snapshotable for BodyBindingModule<T>
+where
+    T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
+{
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 #[derive(Debug)]
 struct ContainBindingModule {
     module_name_key: NameKeyType,
@@ -367,6 +451,185 @@ fn build_contain_module(
         owner_id,
     ))
 }
+
+fn inactive_body_instance(
+    data: BodyModuleData,
+    owner_id: ObjectID,
+) -> Arc<Mutex<dyn BodyModuleInterface>> {
+    Arc::new(Mutex::new(InactiveBody::new_with_owner(data, owner_id)))
+}
+
+fn active_body_instance(
+    data: ActiveBodyModuleData,
+    owner_id: ObjectID,
+) -> Arc<Mutex<dyn BodyModuleInterface>> {
+    Arc::new(Mutex::new(ActiveBody::new_with_owner(data, owner_id)))
+}
+
+fn structure_body_instance(
+    data: StructureBodyModuleData,
+    owner_id: ObjectID,
+) -> Arc<Mutex<dyn BodyModuleInterface>> {
+    Arc::new(Mutex::new(StructureBody::new(data, owner_id)))
+}
+
+fn highlander_body_instance(
+    data: ActiveBodyModuleData,
+    owner_id: ObjectID,
+) -> Arc<Mutex<dyn BodyModuleInterface>> {
+    Arc::new(Mutex::new(HighlanderBody::new(data, owner_id)))
+}
+
+fn immortal_body_instance(
+    data: ActiveBodyModuleData,
+    owner_id: ObjectID,
+) -> Arc<Mutex<dyn BodyModuleInterface>> {
+    Arc::new(Mutex::new(ImmortalBody::new(data, owner_id)))
+}
+
+fn hive_structure_body_instance(
+    data: HiveStructureBodyModuleData,
+    owner_id: ObjectID,
+) -> Arc<Mutex<dyn BodyModuleInterface>> {
+    Arc::new(Mutex::new(HiveStructureBody::new(data, owner_id)))
+}
+
+fn undead_body_instance(
+    data: UndeadBodyModuleData,
+    owner_id: ObjectID,
+) -> Arc<Mutex<dyn BodyModuleInterface>> {
+    Arc::new(Mutex::new(UndeadBody::new(data, owner_id)))
+}
+
+fn parse_active_body_data(ini: &mut INI, data: &mut ActiveBodyModuleData) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_structure_body_data(
+    ini: &mut INI,
+    data: &mut StructureBodyModuleData,
+) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_hive_structure_body_data(
+    ini: &mut INI,
+    data: &mut HiveStructureBodyModuleData,
+) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+fn parse_undead_body_data(ini: &mut INI, data: &mut UndeadBodyModuleData) -> Result<(), String> {
+    data.parse_from_ini(ini)
+        .map_err(|err| format!("{} at line {}", err, ini.get_line_num()))
+}
+
+macro_rules! body_factories {
+    (
+        $data_factory:ident,
+        $module_factory:ident,
+        $data_ty:ty,
+        $module_name:literal,
+        $body_ctor:expr,
+        $parse_data:expr
+    ) => {
+        fn $data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            let mut data = <$data_ty>::default();
+            if let Some(ini) = ini {
+                if let Some(parse_data) = $parse_data {
+                    if let Err(err) = parse_data(ini, &mut data) {
+                        warn!("Failed to parse {} module data: {}", $module_name, err);
+                    }
+                }
+            }
+            Box::new(data)
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let typed_data = module_data
+                .as_ref()
+                .as_any()
+                .downcast_ref::<$data_ty>()
+                .cloned()
+                .unwrap_or_else(|| {
+                    warn!(concat!(
+                        $module_name,
+                        " module data expected; using defaults"
+                    ));
+                    <$data_ty>::default()
+                });
+            Box::new(BodyBindingModule::new(
+                $module_name,
+                resolve_owner_id(&thing),
+                Arc::new(typed_data),
+                $body_ctor,
+            ))
+        }
+    };
+}
+
+body_factories!(
+    inactive_body_module_data_factory,
+    inactive_body_module_factory,
+    BodyModuleData,
+    "InactiveBody",
+    inactive_body_instance,
+    None::<fn(&mut INI, &mut BodyModuleData) -> Result<(), String>>
+);
+body_factories!(
+    active_body_module_data_factory,
+    active_body_module_factory,
+    ActiveBodyModuleData,
+    "ActiveBody",
+    active_body_instance,
+    Some(parse_active_body_data)
+);
+body_factories!(
+    structure_body_module_data_factory,
+    structure_body_module_factory,
+    StructureBodyModuleData,
+    "StructureBody",
+    structure_body_instance,
+    Some(parse_structure_body_data)
+);
+body_factories!(
+    highlander_body_module_data_factory,
+    highlander_body_module_factory,
+    ActiveBodyModuleData,
+    "HighlanderBody",
+    highlander_body_instance,
+    Some(parse_active_body_data)
+);
+body_factories!(
+    immortal_body_module_data_factory,
+    immortal_body_module_factory,
+    ActiveBodyModuleData,
+    "ImmortalBody",
+    immortal_body_instance,
+    Some(parse_active_body_data)
+);
+body_factories!(
+    hive_structure_body_module_data_factory,
+    hive_structure_body_module_factory,
+    HiveStructureBodyModuleData,
+    "HiveStructureBody",
+    hive_structure_body_instance,
+    Some(parse_hive_structure_body_data)
+);
+body_factories!(
+    undead_body_module_data_factory,
+    undead_body_module_factory,
+    UndeadBodyModuleData,
+    "UndeadBody",
+    undead_body_instance,
+    Some(parse_undead_body_data)
+);
 
 fn open_contain_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = OpenContainModuleData::default();
@@ -1308,6 +1571,48 @@ special_power_factories!(
 );
 
 fn install_contain_overrides() -> Result<(), String> {
+    register_module_override(
+        "InactiveBody",
+        ModuleType::Behavior,
+        inactive_body_module_factory,
+        inactive_body_module_data_factory,
+    )?;
+    register_module_override(
+        "ActiveBody",
+        ModuleType::Behavior,
+        active_body_module_factory,
+        active_body_module_data_factory,
+    )?;
+    register_module_override(
+        "StructureBody",
+        ModuleType::Behavior,
+        structure_body_module_factory,
+        structure_body_module_data_factory,
+    )?;
+    register_module_override(
+        "HighlanderBody",
+        ModuleType::Behavior,
+        highlander_body_module_factory,
+        highlander_body_module_data_factory,
+    )?;
+    register_module_override(
+        "ImmortalBody",
+        ModuleType::Behavior,
+        immortal_body_module_factory,
+        immortal_body_module_data_factory,
+    )?;
+    register_module_override(
+        "HiveStructureBody",
+        ModuleType::Behavior,
+        hive_structure_body_module_factory,
+        hive_structure_body_module_data_factory,
+    )?;
+    register_module_override(
+        "UndeadBody",
+        ModuleType::Behavior,
+        undead_body_module_factory,
+        undead_body_module_data_factory,
+    )?;
     register_module_override(
         "OpenContain",
         ModuleType::Behavior,
