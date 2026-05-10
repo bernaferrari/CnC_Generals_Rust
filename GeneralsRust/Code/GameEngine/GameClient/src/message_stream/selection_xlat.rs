@@ -736,6 +736,10 @@ impl SelectionTranslator {
             return messages;
         }
 
+        if TheInGameUI::is_in_force_attack_mode() {
+            return messages;
+        }
+
         // Double-click selects all units of same type
         // Matches C++ SelectionXlat.cpp:458-520
 
@@ -1169,7 +1173,8 @@ mod tests {
     fn test_state_lock() -> MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
-            .lock().unwrap_or_else(|e| e.into_inner())
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
     }
 
     #[test]
@@ -1443,6 +1448,30 @@ mod tests {
         TheInGameUI::set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(
             false,
         );
+    }
+
+    #[test]
+    fn test_double_click_selection_keeps_message_during_force_attack() {
+        let _guard = test_state_lock();
+        let mut translator = SelectionTranslator::new();
+        translator.current_selection.insert(44);
+        TheInGameUI::set_force_attack_mode(true);
+
+        let disposition = translator.translate_game_message(&GameMessage::new(
+            GameMessageType::MouseLeftDoubleClick(
+                IRegion2D {
+                    x: 20,
+                    y: 30,
+                    width: 0,
+                    height: 0,
+                },
+                0,
+            ),
+        ));
+
+        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+        assert!(translator.current_selection.contains(&44));
+        TheInGameUI::set_force_attack_mode(false);
     }
 
     #[test]
