@@ -134,6 +134,7 @@ use crate::object::behavior::particle_uplink_cannon_update::{
     ParticleUplinkCannonUpdate, ParticleUplinkCannonUpdateModule,
     ParticleUplinkCannonUpdateModuleData,
 };
+use crate::object::behavior::physics_update::{PhysicsBehaviorModuleData, PhysicsBehaviorUpdate};
 use crate::object::behavior::pilot_find_vehicle_update::{
     PilotFindVehicleUpdate, PilotFindVehicleUpdateModuleData,
 };
@@ -2720,6 +2721,13 @@ active_behavior_factories!(
     WeaponBonusUpdate,
     "WeaponBonusUpdate"
 );
+active_behavior_factories!(
+    physics_behavior_data_factory,
+    physics_behavior_module_factory,
+    PhysicsBehaviorModuleData,
+    PhysicsBehaviorUpdate,
+    "PhysicsBehavior"
+);
 
 impl Snapshotable for MissileAIUpdateBehavior {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -5205,6 +5213,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         missile_ai_update_module_factory,
         missile_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "PhysicsBehavior",
+        ModuleType::Behavior,
+        physics_behavior_module_factory,
+        physics_behavior_data_factory,
     )?;
     register_module_override(
         "RailroadBehavior",
