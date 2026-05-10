@@ -222,6 +222,8 @@ fn convert_game_message(message: &GameMessage) -> Option<Command> {
         }
         DoStop => Some(basic_command(CommandType::DoStop, player)),
         DoScatter => Some(basic_command(CommandType::DoScatter, player)),
+        MetaBeginPathBuild => Some(basic_command(CommandType::MetaBeginPathBuild, player)),
+        MetaEndPathBuild => Some(basic_command(CommandType::MetaEndPathBuild, player)),
         AreaSelection(region) => {
             let mut command = Command::new(CommandType::AreaSelection);
             command.set_player_index(player);
