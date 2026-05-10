@@ -5808,6 +5808,8 @@ impl GameLogic {
             self.pending_special_abilities
                 .retain(|_, ability| ability.target_id() != event.id);
 
+            self.cancel_all_production(event.id);
+
             if let Some(obj) = self.objects.remove(&event.id) {
                 // Phase 1: Destroy the corresponding GameEngine ObjectFactory object.
                 if let Some(engine_id) = obj.engine_object_id {
@@ -12483,6 +12485,56 @@ mod tests {
                 .len(),
             1,
             "cancelling without player state must not drop queued production"
+        );
+    }
+
+    #[test]
+    fn destroying_producer_refunds_queued_production_to_owner() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_player_for_team(&mut game_logic, Team::USA);
+        ensure_test_player_for_team(&mut game_logic, Team::GLA);
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks should be created");
+
+        assert!(game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
+        assert_eq!(
+            game_logic
+                .get_player(0)
+                .expect("USA player should exist")
+                .resources
+                .supplies,
+            99_900,
+            "queued production should charge the owner before destruction"
+        );
+
+        game_logic.mark_object_for_destruction(barracks_id, Some(Team::GLA));
+        game_logic.update();
+
+        assert!(
+            game_logic.find_object(barracks_id).is_none(),
+            "destroyed producer should be removed"
+        );
+        assert_eq!(
+            game_logic
+                .get_player(0)
+                .expect("USA player should exist")
+                .resources
+                .supplies,
+            100_000,
+            "producer death should refund queued production to the owner"
+        );
+        assert_eq!(
+            game_logic
+                .get_player(2)
+                .expect("GLA player should exist")
+                .resources
+                .supplies,
+            100_000,
+            "killer should not receive the destroyed producer's queue refund"
         );
     }
 
