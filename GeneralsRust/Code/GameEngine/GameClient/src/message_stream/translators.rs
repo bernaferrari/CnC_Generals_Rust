@@ -2834,6 +2834,12 @@ impl SelectionTranslator {
         self.selected_objects.clear();
         self.selected_objects.insert(object_id);
 
+        Self::look_at_object(object_id);
+
+        vec![GameMessageType::CreateSelectedGroup(true, vec![object_id])]
+    }
+
+    fn look_at_object(object_id: ObjectID) {
         if let Some(position) = OBJECT_REGISTRY
             .get_object(object_id)
             .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
@@ -2842,8 +2848,6 @@ impl SelectionTranslator {
                 view.look_at(&Point3::new(position.x, position.y, position.z));
             });
         }
-
-        vec![GameMessageType::CreateSelectedGroup(true, vec![object_id])]
     }
 
     fn handle_cycle_selection(
@@ -2874,6 +2878,67 @@ impl SelectionTranslator {
         };
 
         self.select_single_object(candidates[selected_index])
+    }
+
+    fn handle_select_hero(&mut self) -> Vec<GameMessageType> {
+        let mut heroes: Vec<ObjectID> = OBJECT_REGISTRY
+            .get_all_objects()
+            .into_iter()
+            .filter_map(|object| {
+                let guard = object.read().ok()?;
+                if !guard.is_locally_controlled() || !guard.is_kind_of(KindOf::Hero) {
+                    return None;
+                }
+                Some(guard.get_contained_by().unwrap_or_else(|| guard.get_id()))
+            })
+            .collect();
+
+        heroes.sort_unstable();
+        heroes.dedup();
+
+        if let Some(hero_or_container) = heroes.first().copied() {
+            self.select_single_object(hero_or_container)
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn handle_view_command_center(&self) {
+        let mut command_center: Option<ObjectID> = None;
+        let mut fallback: Option<(i32, ObjectID)> = None;
+
+        for object in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(guard) = object.read() else {
+                continue;
+            };
+
+            if !guard.is_locally_controlled() {
+                continue;
+            }
+
+            if guard.is_kind_of(KindOf::CommandCenter) {
+                command_center = Some(match command_center {
+                    Some(current) => current.min(guard.get_id()),
+                    None => guard.get_id(),
+                });
+                continue;
+            }
+
+            if guard.is_kind_of(KindOf::Structure) {
+                let candidate = (guard.get_build_cost(), guard.get_id());
+                fallback = Some(match fallback {
+                    Some(current) if current.0 > candidate.0 => current,
+                    Some(current) if current.0 == candidate.0 => {
+                        (current.0, current.1.min(candidate.1))
+                    }
+                    _ => candidate,
+                });
+            }
+        }
+
+        if let Some(object_id) = command_center.or_else(|| fallback.map(|(_, id)| id)) {
+            Self::look_at_object(object_id);
+        }
     }
 
     fn handle_select_all(&mut self, aircraft_only: bool) -> Vec<GameMessageType> {
@@ -3930,6 +3995,11 @@ impl GameMessageTranslator for SelectionTranslator {
                 SelectionCycleFilter::Worker,
                 SelectionCycleDirection::Forward,
             ),
+            GameMessageType::MetaSelectHero => self.handle_select_hero(),
+            GameMessageType::MetaViewCommandCenter => {
+                self.handle_view_command_center();
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::CreateSelectedGroup(create_new, objects) => {
                 if *create_new {
                     self.selected_objects.clear();
@@ -4664,14 +4734,20 @@ mod tests {
         name: AsciiString,
         geometry: GeometryInfo,
         kinds: Vec<KindOf>,
+        build_cost: i32,
     }
 
     impl TestThingTemplate {
         fn new(name: &str, kinds: Vec<KindOf>) -> Self {
+            Self::new_with_cost(name, kinds, 0)
+        }
+
+        fn new_with_cost(name: &str, kinds: Vec<KindOf>, build_cost: i32) -> Self {
             Self {
                 name: AsciiString::from(name),
                 geometry: GeometryInfo::default(),
                 kinds,
+                build_cost,
             }
         }
     }
@@ -4696,6 +4772,10 @@ mod tests {
         fn is_kind_of(&self, kind: KindOf) -> bool {
             self.kinds.contains(&kind)
         }
+
+        fn get_build_cost(&self) -> i32 {
+            self.build_cost
+        }
     }
 
     fn setup_local_player_team() -> Arc<RwLock<Team>> {
@@ -4718,8 +4798,20 @@ mod tests {
         kinds: Vec<KindOf>,
         team: Arc<RwLock<Team>>,
     ) -> Arc<RwLock<gamelogic::object::Object>> {
-        let template: Arc<dyn ThingTemplate> =
-            Arc::new(TestThingTemplate::new(&format!("Object{id}"), kinds));
+        register_test_object_with_cost(id, kinds, team, 0)
+    }
+
+    fn register_test_object_with_cost(
+        id: ObjectID,
+        kinds: Vec<KindOf>,
+        team: Arc<RwLock<Team>>,
+        build_cost: i32,
+    ) -> Arc<RwLock<gamelogic::object::Object>> {
+        let template: Arc<dyn ThingTemplate> = Arc::new(TestThingTemplate::new_with_cost(
+            &format!("Object{id}"),
+            kinds,
+            build_cost,
+        ));
         let object = Arc::new(RwLock::new(gamelogic::object::Object::new_raw(
             template,
             id,
@@ -5632,6 +5724,85 @@ mod tests {
         translator.translate_game_message(&GameMessage::new(GameMessageType::MetaSelectNextWorker));
 
         assert_eq!(translator.selected_objects, HashSet::from([602]));
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_select_hero_selects_local_hero_and_recenters_view() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let team = setup_local_player_team();
+
+        let hero = register_test_object(
+            701,
+            vec![
+                KindOf::Unit,
+                KindOf::Infantry,
+                KindOf::Selectable,
+                KindOf::Hero,
+            ],
+            Arc::clone(&team),
+        );
+        let _regular_unit = register_test_object(
+            702,
+            vec![KindOf::Unit, KindOf::Vehicle, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        set_test_object_position(&hero, 700.0, 740.0, 12.0);
+        with_tactical_view(|view| view.set_position(&Point3::new(0.0, 0.0, 0.0)));
+
+        let mut translator = SelectionTranslator::new();
+        let disposition =
+            translator.translate_game_message(&GameMessage::new(GameMessageType::MetaSelectHero));
+
+        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+        assert_eq!(translator.selected_objects, HashSet::from([701]));
+        with_tactical_view_ref(|view| {
+            assert_eq!(view.position().x, 700.0 - view.width() as f32 * 0.5);
+            assert_eq!(view.position().y, 740.0 - view.height() as f32 * 0.5);
+        });
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_view_command_center_prefers_command_center_over_costly_structure() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let team = setup_local_player_team();
+
+        let _expensive_structure = register_test_object_with_cost(
+            801,
+            vec![KindOf::Structure, KindOf::Building, KindOf::Selectable],
+            Arc::clone(&team),
+            5000,
+        );
+        let command_center = register_test_object_with_cost(
+            802,
+            vec![
+                KindOf::Structure,
+                KindOf::Building,
+                KindOf::CommandCenter,
+                KindOf::Selectable,
+            ],
+            Arc::clone(&team),
+            1000,
+        );
+        set_test_object_position(&command_center, 900.0, 960.0, 0.0);
+        with_tactical_view(|view| view.set_position(&Point3::new(0.0, 0.0, 0.0)));
+
+        let mut translator = SelectionTranslator::new();
+        translator.selected_objects.insert(801);
+        let disposition = translator
+            .translate_game_message(&GameMessage::new(GameMessageType::MetaViewCommandCenter));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        assert_eq!(translator.selected_objects, HashSet::from([801]));
+        with_tactical_view_ref(|view| {
+            assert_eq!(view.position().x, 900.0 - view.width() as f32 * 0.5);
+            assert_eq!(view.position().y, 960.0 - view.height() as f32 * 0.5);
+        });
 
         OBJECT_REGISTRY.clear();
     }
