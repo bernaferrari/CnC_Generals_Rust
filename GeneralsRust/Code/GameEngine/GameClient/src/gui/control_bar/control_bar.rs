@@ -480,6 +480,34 @@ impl ControlBar {
         None
     }
 
+    fn map_logic_production_type(
+        production_type: gamelogic::object::production::queue::ProductionType,
+    ) -> ProductionType {
+        match production_type {
+            gamelogic::object::production::queue::ProductionType::Unit => ProductionType::Unit,
+            gamelogic::object::production::queue::ProductionType::Upgrade => {
+                ProductionType::Upgrade
+            }
+            gamelogic::object::production::queue::ProductionType::SpecialPower => {
+                ProductionType::SpecialPower
+            }
+        }
+    }
+
+    fn map_logic_queue_type(
+        production_type: gamelogic::object::production::queue::ProductionType,
+    ) -> QueueProductionType {
+        match production_type {
+            gamelogic::object::production::queue::ProductionType::Unit => QueueProductionType::Unit,
+            gamelogic::object::production::queue::ProductionType::Upgrade => {
+                QueueProductionType::Upgrade
+            }
+            gamelogic::object::production::queue::ProductionType::SpecialPower => {
+                QueueProductionType::Invalid
+            }
+        }
+    }
+
     fn get_object_has_production(obj_id: u32) -> bool {
         let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
             return false;
@@ -497,14 +525,49 @@ impl ControlBar {
         false
     }
 
-    fn set_object_production_paused(_obj_id: u32, _paused: bool) {
-        // Placeholder: production pause requires mutable access to behavior modules
-        // which will be wired when ProductionUpdateInterface is fully ported
+    fn set_object_production_paused(obj_id: u32, paused: bool) {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return;
+        };
+
+        for module in obj.get_behavior_modules() {
+            let Ok(mut guard) = module.lock() else {
+                continue;
+            };
+            let Some(production) = guard.get_production_update_interface() else {
+                continue;
+            };
+            if paused {
+                production.pause_production();
+            } else {
+                production.resume_production();
+            }
+            break;
+        }
     }
 
-    fn cancel_production_by_id(_obj_id: u32, _production_id: u32) {
-        // Placeholder: cancel production requires mutable access to behavior modules
-        // which will be wired when ProductionUpdateInterface is fully ported
+    fn cancel_production_by_id(obj_id: u32, production_id: u32) {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            return;
+        };
+        let Ok(obj) = obj_arc.read() else {
+            return;
+        };
+        let queue_index = production_id as usize;
+
+        for module in obj.get_behavior_modules() {
+            let Ok(mut guard) = module.lock() else {
+                continue;
+            };
+            let Some(production) = guard.get_production_update_interface() else {
+                continue;
+            };
+            let _ = production.cancel_production(queue_index);
+            break;
+        }
     }
 
     fn update_context_command(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -776,19 +839,27 @@ impl ControlBar {
             if let Ok(mut guard) = module.lock() {
                 if let Some(pu) = guard.get_production_update_interface() {
                     found_pu = true;
-                    let progress = pu.get_production_progress();
-                    if progress > 0.0 {
+                    for entry in pu.get_queue_entries() {
+                        let mut cost = HashMap::new();
+                        cost.insert("Supplies".to_string(), entry.cost);
+                        let progress = entry.progress().clamp(0.0, 1.0);
                         context.construction_queue.push(ProductionItem {
-                            template_name: format!("production_{}", producer_id),
-                            production_type: ProductionType::Unit,
+                            template_name: entry.template_name.clone(),
+                            production_type: Self::map_logic_production_type(entry.production_type),
                             progress,
-                            cost: HashMap::new(),
-                            build_time: 1.0,
+                            cost,
+                            build_time: entry.build_time as f32,
                         });
                         self.build_queue_data.push(BuildQueueEntry {
-                            production_type: QueueProductionType::Unit,
-                            production_id: producer_id,
-                            upgrade_name: String::new(),
+                            production_type: Self::map_logic_queue_type(entry.production_type),
+                            production_id: entry.queue_index as u32,
+                            upgrade_name: if entry.production_type
+                                == gamelogic::object::production::queue::ProductionType::Upgrade
+                            {
+                                entry.template_name
+                            } else {
+                                String::new()
+                            },
                         });
                     }
                     break;
