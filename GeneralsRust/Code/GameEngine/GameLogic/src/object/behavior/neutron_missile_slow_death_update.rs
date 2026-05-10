@@ -5,7 +5,9 @@ use crate::common::{Bool, Coord3D, KindOf, ModuleData, Real, UnsignedByte, Unsig
 use crate::damage::DamageInfo;
 use crate::damage::{DamageType, DeathType};
 use crate::effects::FXList;
-use crate::helpers::{TheGameClient, TheGameLogic, ThePartitionManager, TheTerrainLogic};
+use crate::helpers::{
+    TheFXListStore, TheGameClient, TheGameLogic, ThePartitionManager, TheTerrainLogic,
+};
 use crate::modules::{
     BehaviorModuleInterface, SlowDeathBehaviorInterface, UpdateModuleInterface, UpdateSleepTime,
 };
@@ -16,7 +18,14 @@ use crate::object::behavior::topple_update::{
 };
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
+use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::{
+    Module as EngineModule, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
+    Thing as ModuleThing,
+};
+use log::warn;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 const MAX_NEUTRON_BLASTS: usize = 9;
@@ -74,6 +83,255 @@ impl Default for NeutronMissileSlowDeathUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(NeutronMissileSlowDeathUpdateModuleData, base);
+
+impl NeutronMissileSlowDeathUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, NEUTRON_MISSILE_SLOW_DEATH_FIELDS)
+    }
+}
+
+fn parse_real_token(tokens: &[&str]) -> Result<Real, INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    INI::parse_real(token)
+}
+
+fn parse_duration_real_token(tokens: &[&str]) -> Result<Real, INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    INI::parse_duration_real(token)
+}
+
+fn parse_fx_list(
+    _ini: &mut INI,
+    data: &mut NeutronMissileSlowDeathUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    if token.eq_ignore_ascii_case("NONE") {
+        data.fx_list = None;
+    } else {
+        data.fx_list = TheFXListStore::find_fx_list(token);
+    }
+    Ok(())
+}
+
+fn parse_blast_field(
+    data: &mut NeutronMissileSlowDeathUpdateModuleData,
+    index: usize,
+    tokens: &[&str],
+    setter: impl FnOnce(&mut BlastInfo, &[&str]) -> Result<(), INIError>,
+) -> Result<(), INIError> {
+    let blast = data
+        .blast_info
+        .get_mut(index)
+        .ok_or(INIError::InvalidData)?;
+    setter(blast, tokens)
+}
+
+macro_rules! blast_field {
+    ($index:expr, $token:literal, enabled) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                parse_blast_field(data, $index, tokens, |blast, tokens| {
+                    let token = tokens.first().ok_or(INIError::InvalidData)?;
+                    blast.enabled = INI::parse_bool(token)?;
+                    Ok(())
+                })
+            },
+        }
+    };
+    ($index:expr, $token:literal, delay) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                parse_blast_field(data, $index, tokens, |blast, tokens| {
+                    blast.delay = parse_duration_real_token(tokens)?;
+                    Ok(())
+                })
+            },
+        }
+    };
+    ($index:expr, $token:literal, scorch_delay) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                parse_blast_field(data, $index, tokens, |blast, tokens| {
+                    blast.scorch_delay = parse_duration_real_token(tokens)?;
+                    Ok(())
+                })
+            },
+        }
+    };
+    ($index:expr, $token:literal, inner_radius) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                parse_blast_field(data, $index, tokens, |blast, tokens| {
+                    blast.inner_radius = parse_real_token(tokens)?;
+                    Ok(())
+                })
+            },
+        }
+    };
+    ($index:expr, $token:literal, outer_radius) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                parse_blast_field(data, $index, tokens, |blast, tokens| {
+                    blast.outer_radius = parse_real_token(tokens)?;
+                    Ok(())
+                })
+            },
+        }
+    };
+    ($index:expr, $token:literal, max_damage) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                parse_blast_field(data, $index, tokens, |blast, tokens| {
+                    blast.max_damage = parse_real_token(tokens)?;
+                    Ok(())
+                })
+            },
+        }
+    };
+    ($index:expr, $token:literal, min_damage) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                parse_blast_field(data, $index, tokens, |blast, tokens| {
+                    blast.min_damage = parse_real_token(tokens)?;
+                    Ok(())
+                })
+            },
+        }
+    };
+    ($index:expr, $token:literal, topple_speed) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                parse_blast_field(data, $index, tokens, |blast, tokens| {
+                    blast.topple_speed = parse_real_token(tokens)?;
+                    Ok(())
+                })
+            },
+        }
+    };
+    ($index:expr, $token:literal, push_force) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                parse_blast_field(data, $index, tokens, |blast, tokens| {
+                    blast.push_force_mag = parse_real_token(tokens)?;
+                    Ok(())
+                })
+            },
+        }
+    };
+}
+
+const NEUTRON_MISSILE_SLOW_DEATH_FIELDS: &[FieldParse<NeutronMissileSlowDeathUpdateModuleData>] = &[
+    FieldParse {
+        token: "ProbabilityModifier",
+        parse: |_, data, tokens| {
+            let token = tokens.first().ok_or(INIError::InvalidData)?;
+            data.probability_modifier = INI::parse_int(token)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "ScorchMarkSize",
+        parse: |_, data, tokens| {
+            data.scorch_size = parse_real_token(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "FXList",
+        parse: parse_fx_list,
+    },
+    blast_field!(0, "Blast1Enabled", enabled),
+    blast_field!(0, "Blast1Delay", delay),
+    blast_field!(0, "Blast1ScorchDelay", scorch_delay),
+    blast_field!(0, "Blast1InnerRadius", inner_radius),
+    blast_field!(0, "Blast1OuterRadius", outer_radius),
+    blast_field!(0, "Blast1MaxDamage", max_damage),
+    blast_field!(0, "Blast1MinDamage", min_damage),
+    blast_field!(0, "Blast1ToppleSpeed", topple_speed),
+    blast_field!(0, "Blast1PushForce", push_force),
+    blast_field!(1, "Blast2Enabled", enabled),
+    blast_field!(1, "Blast2Delay", delay),
+    blast_field!(1, "Blast2ScorchDelay", scorch_delay),
+    blast_field!(1, "Blast2InnerRadius", inner_radius),
+    blast_field!(1, "Blast2OuterRadius", outer_radius),
+    blast_field!(1, "Blast2MaxDamage", max_damage),
+    blast_field!(1, "Blast2MinDamage", min_damage),
+    blast_field!(1, "Blast2ToppleSpeed", topple_speed),
+    blast_field!(1, "Blast2PushForce", push_force),
+    blast_field!(2, "Blast3Enabled", enabled),
+    blast_field!(2, "Blast3Delay", delay),
+    blast_field!(2, "Blast3ScorchDelay", scorch_delay),
+    blast_field!(2, "Blast3InnerRadius", inner_radius),
+    blast_field!(2, "Blast3OuterRadius", outer_radius),
+    blast_field!(2, "Blast3MaxDamage", max_damage),
+    blast_field!(2, "Blast3MinDamage", min_damage),
+    blast_field!(2, "Blast3ToppleSpeed", topple_speed),
+    blast_field!(2, "Blast3PushForce", push_force),
+    blast_field!(3, "Blast4Enabled", enabled),
+    blast_field!(3, "Blast4Delay", delay),
+    blast_field!(3, "Blast4ScorchDelay", scorch_delay),
+    blast_field!(3, "Blast4InnerRadius", inner_radius),
+    blast_field!(3, "Blast4OuterRadius", outer_radius),
+    blast_field!(3, "Blast4MaxDamage", max_damage),
+    blast_field!(3, "Blast4MinDamage", min_damage),
+    blast_field!(3, "Blast4ToppleSpeed", topple_speed),
+    blast_field!(3, "Blast4PushForce", push_force),
+    blast_field!(4, "Blast5Enabled", enabled),
+    blast_field!(4, "Blast5Delay", delay),
+    blast_field!(4, "Blast5ScorchDelay", scorch_delay),
+    blast_field!(4, "Blast5InnerRadius", inner_radius),
+    blast_field!(4, "Blast5OuterRadius", outer_radius),
+    blast_field!(4, "Blast5MaxDamage", max_damage),
+    blast_field!(4, "Blast5MinDamage", min_damage),
+    blast_field!(4, "Blast5ToppleSpeed", topple_speed),
+    blast_field!(4, "Blast5PushForce", push_force),
+    blast_field!(5, "Blast6Enabled", enabled),
+    blast_field!(5, "Blast6Delay", delay),
+    blast_field!(5, "Blast6ScorchDelay", scorch_delay),
+    blast_field!(5, "Blast6InnerRadius", inner_radius),
+    blast_field!(5, "Blast6OuterRadius", outer_radius),
+    blast_field!(5, "Blast6MaxDamage", max_damage),
+    blast_field!(5, "Blast6MinDamage", min_damage),
+    blast_field!(5, "Blast6ToppleSpeed", topple_speed),
+    blast_field!(5, "Blast6PushForce", push_force),
+    blast_field!(6, "Blast7Enabled", enabled),
+    blast_field!(6, "Blast7Delay", delay),
+    blast_field!(6, "Blast7ScorchDelay", scorch_delay),
+    blast_field!(6, "Blast7InnerRadius", inner_radius),
+    blast_field!(6, "Blast7OuterRadius", outer_radius),
+    blast_field!(6, "Blast7MaxDamage", max_damage),
+    blast_field!(6, "Blast7MinDamage", min_damage),
+    blast_field!(6, "Blast7ToppleSpeed", topple_speed),
+    blast_field!(6, "Blast7PushForce", push_force),
+    blast_field!(7, "Blast8Enabled", enabled),
+    blast_field!(7, "Blast8Delay", delay),
+    blast_field!(7, "Blast8ScorchDelay", scorch_delay),
+    blast_field!(7, "Blast8InnerRadius", inner_radius),
+    blast_field!(7, "Blast8OuterRadius", outer_radius),
+    blast_field!(7, "Blast8MaxDamage", max_damage),
+    blast_field!(7, "Blast8MinDamage", min_damage),
+    blast_field!(7, "Blast8ToppleSpeed", topple_speed),
+    blast_field!(7, "Blast8PushForce", push_force),
+    blast_field!(8, "Blast9Enabled", enabled),
+    blast_field!(8, "Blast9Delay", delay),
+    blast_field!(8, "Blast9ScorchDelay", scorch_delay),
+    blast_field!(8, "Blast9InnerRadius", inner_radius),
+    blast_field!(8, "Blast9OuterRadius", outer_radius),
+    blast_field!(8, "Blast9MaxDamage", max_damage),
+    blast_field!(8, "Blast9MinDamage", min_damage),
+    blast_field!(8, "Blast9ToppleSpeed", topple_speed),
+    blast_field!(8, "Blast9PushForce", push_force),
+];
 
 pub struct NeutronMissileSlowDeathUpdate {
     object: Weak<RwLock<GameObject>>,
@@ -438,4 +696,93 @@ impl NeutronMissileSlowDeathUpdateFactory {
             module_data,
         )?))
     }
+}
+
+pub struct NeutronMissileSlowDeathUpdateModule {
+    module_name_key: NameKeyType,
+    module_data: Arc<NeutronMissileSlowDeathUpdateModuleData>,
+    behavior: NeutronMissileSlowDeathUpdate,
+}
+
+impl NeutronMissileSlowDeathUpdateModule {
+    fn new(
+        module_name: &str,
+        module_data: Arc<NeutronMissileSlowDeathUpdateModuleData>,
+        behavior: NeutronMissileSlowDeathUpdate,
+    ) -> Self {
+        Self {
+            module_name_key: NameKeyGenerator::name_to_key(module_name),
+            module_data,
+            behavior,
+        }
+    }
+}
+
+impl Snapshotable for NeutronMissileSlowDeathUpdateModule {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.behavior.load_post_process()
+    }
+}
+
+impl EngineModule for NeutronMissileSlowDeathUpdateModule {
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn EngineModuleData {
+        self.module_data.as_ref()
+    }
+}
+
+pub fn neutron_missile_slow_death_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineModuleData> {
+    let mut data = NeutronMissileSlowDeathUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse NeutronMissileSlowDeathBehavior data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub fn neutron_missile_slow_death_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn EngineModuleData>,
+) -> Box<dyn EngineModule> {
+    let typed = module_data
+        .as_any()
+        .downcast_ref::<NeutronMissileSlowDeathUpdateModuleData>()
+        .expect("NeutronMissileSlowDeathUpdateModuleData expected");
+
+    let object_id = thing
+        .as_object()
+        .map(ModuleObject::get_object_id)
+        .unwrap_or(crate::common::INVALID_ID);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .expect("NeutronMissileSlowDeathBehavior requires an owning object");
+    let shared_data = Arc::new(typed.clone());
+    let behavior =
+        NeutronMissileSlowDeathUpdate::new(object, Arc::clone(&shared_data) as Arc<dyn ModuleData>)
+            .expect("NeutronMissileSlowDeathBehavior failed to initialize");
+
+    Box::new(NeutronMissileSlowDeathUpdateModule::new(
+        "NeutronMissileSlowDeathBehavior",
+        shared_data,
+        behavior,
+    ))
 }
