@@ -5,8 +5,10 @@ use generals_main::game_logic::{
     AIState, GameLogic, GameMode, KindOf, ObjectId, Player, Team, ThingTemplate, VictoryCondition,
     Weapon,
 };
+use generals_main::save_load::{GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo};
 use glam::Vec3;
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tempfile::TempDir;
 
 fn command(
     command_id: u32,
@@ -109,6 +111,22 @@ where
         game_logic.update();
     }
     condition(game_logic)
+}
+
+fn smoke_save_info(filename: &str) -> SaveGameInfo {
+    SaveGameInfo {
+        filename: filename.to_string(),
+        display_name: "Playable Smoke Save".to_string(),
+        description: "Mini skirmish smoke test round trip".to_string(),
+        map_name: "SmokeTestMap".to_string(),
+        campaign_side: None,
+        mission_number: None,
+        save_date: SystemTime::now(),
+        game_version: env!("CARGO_PKG_VERSION").to_string(),
+        play_time: Duration::from_secs(12),
+        difficulty: GameDifficulty::Medium,
+        save_type: SaveFileType::Normal,
+    }
 }
 
 #[test]
@@ -250,6 +268,46 @@ fn mini_skirmish_playable_flow_smoke() {
             ..Weapon::default()
         });
     }
+
+    let save_dir = TempDir::new().expect("smoke save temp dir should be created");
+    let mut save_manager = SaveFileManager::with_save_directory(save_dir.path());
+    save_manager
+        .init()
+        .expect("smoke save manager should initialize");
+    let save_info = smoke_save_info("mini_skirmish_smoke");
+    save_manager
+        .save_game("mini_skirmish_smoke", &game_logic, &save_info)
+        .expect("mini skirmish should save");
+
+    let mut loaded_game_logic = GameLogic::new();
+    install_smoke_templates(&mut loaded_game_logic);
+    let loaded_info = save_manager
+        .load_game("mini_skirmish_smoke", &mut loaded_game_logic)
+        .expect("mini skirmish should load");
+    assert_eq!(loaded_info.display_name, save_info.display_name);
+    assert_eq!(
+        loaded_game_logic
+            .get_player(0)
+            .expect("loaded USA player should exist")
+            .resources
+            .supplies,
+        after_ranger_supplies
+    );
+    assert!(loaded_game_logic.get_object(command_center).is_some());
+    assert_eq!(
+        loaded_game_logic
+            .get_object(dozer)
+            .expect("loaded dozer should exist")
+            .target,
+        Some(supply_dock)
+    );
+    assert!(loaded_game_logic
+        .get_object(ranger_id)
+        .expect("loaded ranger should exist")
+        .weapon
+        .is_some());
+
+    let mut game_logic = loaded_game_logic;
     let enemy_health_before = game_logic
         .get_object(enemy_command_center)
         .expect("enemy command center should exist")

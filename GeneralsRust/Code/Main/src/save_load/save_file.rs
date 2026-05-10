@@ -92,6 +92,11 @@ pub struct SaveFileManager {
 impl SaveFileManager {
     pub fn new() -> Self {
         let save_dir = SaveLoadManager::default_save_directory();
+        Self::with_save_directory(save_dir)
+    }
+
+    pub fn with_save_directory(save_directory: impl Into<PathBuf>) -> Self {
+        let save_dir = save_directory.into();
         let mut temp_dir = save_dir.clone();
         temp_dir.push("temp");
 
