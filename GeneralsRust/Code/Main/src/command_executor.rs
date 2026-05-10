@@ -756,7 +756,9 @@ impl<'a> CommandExecutor<'a> {
             if obj.team != player_team || !obj.is_alive() || !obj.is_kind_of(KindOf::Structure) {
                 return CommandResult::InvalidTarget;
             }
-            let refund = ((obj.thing.template.build_cost.supplies as f32) * 0.5).max(0.0) as u32;
+            let sell_percentage = game_engine::common::global_data::read().sell_percentage;
+            let refund =
+                ((obj.thing.template.build_cost.supplies as f32) * sell_percentage).max(0.0) as u32;
             if refund > 0 {
                 if let Some(player) = self.game_logic.get_player_mut(player_id) {
                     player.resources.supplies += refund;
