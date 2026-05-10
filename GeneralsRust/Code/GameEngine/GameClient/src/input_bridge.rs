@@ -516,8 +516,12 @@ impl GameInputHandler {
             return;
         }
 
+        // C++ SelectionXlat ignores double-click selection while force-attack is active.
+        let force_attack_active =
+            modifiers.contains(KeyModifiers::CTRL) || self.cursor_mode == CursorMode::ForceAttack;
+
         // Double-click: select all units of the same type on screen.
-        if click_count >= 2 {
+        if click_count >= 2 && !force_attack_active {
             if let Some(clicked_id) = self.context.pick_object_at(x, y) {
                 commands.push(GameCommand {
                     command_type: CommandType::MetaSelectMatchingUnits,
@@ -1008,6 +1012,39 @@ mod tests {
 
         assert_eq!(cmds.len(), 1);
         assert_eq!(cmds[0].command_type, CommandType::DoAttackObject);
+    }
+
+    #[test]
+    fn test_ctrl_left_double_click_does_not_select_matching_units() {
+        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::new()));
+
+        let event = InputEvent::MouseButtonPressed {
+            button: MouseButton::Left,
+            x: 100.0,
+            y: 200.0,
+            click_count: 2,
+            timestamp: Instant::now(),
+        };
+        let cmds = handler.process_input_event(&event, KeyModifiers::CTRL);
+
+        assert!(cmds.is_empty());
+    }
+
+    #[test]
+    fn test_force_attack_left_double_click_does_not_select_matching_units() {
+        let mut handler = GameInputHandler::with_context(0, Box::new(TestContext::new()));
+        handler.cursor_mode = CursorMode::ForceAttack;
+
+        let event = InputEvent::MouseButtonPressed {
+            button: MouseButton::Left,
+            x: 100.0,
+            y: 200.0,
+            click_count: 2,
+            timestamp: Instant::now(),
+        };
+        let cmds = handler.process_input_event(&event, KeyModifiers::empty());
+
+        assert!(cmds.is_empty());
     }
 
     #[test]
