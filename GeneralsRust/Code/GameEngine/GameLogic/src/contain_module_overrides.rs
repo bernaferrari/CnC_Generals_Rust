@@ -144,6 +144,9 @@ use crate::object::behavior::projectile_stream_update::{
 use crate::object::behavior::propaganda_tower_behavior::{
     PropagandaTowerBehavior, PropagandaTowerBehaviorModuleData,
 };
+use crate::object::behavior::queue_production_exit_behavior::{
+    QueueProductionExitBehavior, QueueProductionExitBehaviorModule, QueueProductionExitModuleData,
+};
 use crate::object::behavior::radar_update::{RadarUpdate, RadarUpdateModuleData};
 use crate::object::behavior::radius_decal_update::{
     radius_decal_update_data_factory, radius_decal_update_module_factory,
@@ -1212,6 +1215,37 @@ fn default_production_exit_update_module_factory(
     Box::new(DefaultProductionExitBehaviorModule::new(
         behavior,
         &AsciiString::from("DefaultProductionExitUpdate"),
+        data_arc,
+    ))
+}
+
+fn queue_production_exit_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = QueueProductionExitModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse QueueProductionExitUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn queue_production_exit_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<QueueProductionExitModuleData>(
+        "QueueProductionExitUpdate",
+        &module_data,
+    );
+    let behavior = QueueProductionExitBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("QueueProductionExitUpdate requires an owning object");
+    Box::new(QueueProductionExitBehaviorModule::new(
+        behavior,
+        &AsciiString::from("QueueProductionExitUpdate"),
         data_arc,
     ))
 }
@@ -3605,6 +3639,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         default_production_exit_update_module_factory,
         default_production_exit_update_data_factory,
+    )?;
+    register_module_override(
+        "QueueProductionExitUpdate",
+        ModuleType::Behavior,
+        queue_production_exit_update_module_factory,
+        queue_production_exit_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
