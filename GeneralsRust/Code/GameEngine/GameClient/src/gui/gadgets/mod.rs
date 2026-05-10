@@ -593,9 +593,17 @@ impl GadgetManager {
             }
 
             InputEvent::KeyDown {
-                key: KeyCode::Tab, ..
+                key: KeyCode::Tab | KeyCode::Right | KeyCode::Down,
+                ..
             } => {
                 self.handle_tab_navigation(TabDirection::Forward);
+            }
+
+            InputEvent::KeyDown {
+                key: KeyCode::Left | KeyCode::Up,
+                ..
+            } => {
+                self.handle_tab_navigation(TabDirection::Backward);
             }
 
             _ => {
@@ -640,12 +648,13 @@ impl GadgetManager {
 
     /// Handle tab navigation between focusable gadgets
     pub fn handle_tab_navigation(&mut self, direction: TabDirection) {
-        let focusable_ids: Vec<GadgetId> = self
+        let mut focusable_ids: Vec<GadgetId> = self
             .gadgets
             .iter()
             .filter(|(_, g)| g.can_focus() && g.is_visible() && g.is_enabled())
             .map(|(id, _)| *id)
             .collect();
+        focusable_ids.sort_unstable();
 
         if focusable_ids.is_empty() {
             return;
@@ -762,5 +771,45 @@ mod tests {
         let id2 = manager.generate_id();
         assert_ne!(id1, id2);
         assert!(id2 > id1);
+    }
+
+    #[test]
+    fn test_keyboard_navigation_matches_push_button_arrow_parity() {
+        let mut manager = GadgetManager::new();
+        manager.add_gadget(Box::new(PushButton::new(10, 0, 0, 20, 20)));
+        manager.add_gadget(Box::new(PushButton::new(20, 30, 0, 20, 20)));
+        manager.add_gadget(Box::new(PushButton::new(30, 60, 0, 20, 20)));
+
+        assert!(manager.set_focus(Some(10)));
+
+        manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Right,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(20));
+
+        manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(30));
+
+        manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Left,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(20));
+
+        manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Up,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(10));
+
+        manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Tab,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(20));
     }
 }
