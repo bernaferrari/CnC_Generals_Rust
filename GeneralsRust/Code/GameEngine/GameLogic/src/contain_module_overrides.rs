@@ -163,6 +163,10 @@ use crate::object::behavior::smart_bomb_target_homing_update::{
 use crate::object::behavior::spawn_behavior::{
     SpawnBehavior, SpawnBehaviorModule, SpawnBehaviorModuleData,
 };
+use crate::object::behavior::spawn_point_production_exit_behavior::{
+    SpawnPointProductionExitBehavior, SpawnPointProductionExitBehaviorModule,
+    SpawnPointProductionExitModuleData,
+};
 use crate::object::behavior::spectre_gunship_deployment_update::{
     SpectreGunshipDeploymentUpdate, SpectreGunshipDeploymentUpdateModuleData,
 };
@@ -180,6 +184,10 @@ use crate::object::behavior::structure_collapse_update::{
 };
 use crate::object::behavior::structure_topple_update::{
     StructureToppleUpdate, StructureToppleUpdateModule, StructureToppleUpdateModuleData,
+};
+use crate::object::behavior::supply_center_production_exit_behavior::{
+    SupplyCenterProductionExitBehavior, SupplyCenterProductionExitBehaviorModule,
+    SupplyCenterProductionExitModuleData,
 };
 use crate::object::behavior::tech_building_behavior::{
     TechBuildingBehavior, TechBuildingBehaviorModuleData,
@@ -1246,6 +1254,68 @@ fn queue_production_exit_update_module_factory(
     Box::new(QueueProductionExitBehaviorModule::new(
         behavior,
         &AsciiString::from("QueueProductionExitUpdate"),
+        data_arc,
+    ))
+}
+
+fn spawn_point_production_exit_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SpawnPointProductionExitModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SpawnPointProductionExitUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn spawn_point_production_exit_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<SpawnPointProductionExitModuleData>(
+        "SpawnPointProductionExitUpdate",
+        &module_data,
+    );
+    let behavior = SpawnPointProductionExitBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("SpawnPointProductionExitUpdate requires an owning object");
+    Box::new(SpawnPointProductionExitBehaviorModule::new(
+        behavior,
+        &AsciiString::from("SpawnPointProductionExitUpdate"),
+        data_arc,
+    ))
+}
+
+fn supply_center_production_exit_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SupplyCenterProductionExitModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SupplyCenterProductionExitUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn supply_center_production_exit_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<SupplyCenterProductionExitModuleData>(
+        "SupplyCenterProductionExitUpdate",
+        &module_data,
+    );
+    let behavior = SupplyCenterProductionExitBehavior::from_module_thing(thing, data_arc.clone())
+        .expect("SupplyCenterProductionExitUpdate requires an owning object");
+    Box::new(SupplyCenterProductionExitBehaviorModule::new(
+        behavior,
+        &AsciiString::from("SupplyCenterProductionExitUpdate"),
         data_arc,
     ))
 }
@@ -3645,6 +3715,18 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         queue_production_exit_update_module_factory,
         queue_production_exit_update_data_factory,
+    )?;
+    register_module_override(
+        "SpawnPointProductionExitUpdate",
+        ModuleType::Behavior,
+        spawn_point_production_exit_update_module_factory,
+        spawn_point_production_exit_update_data_factory,
+    )?;
+    register_module_override(
+        "SupplyCenterProductionExitUpdate",
+        ModuleType::Behavior,
+        supply_center_production_exit_update_module_factory,
+        supply_center_production_exit_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
