@@ -26,6 +26,7 @@ use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::KeyModifiers;
 use crate::system::beacon_display;
 use crate::system::GameMessageResult;
+use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::attack::{AbleToAttackType, CanAttackResult};
@@ -2648,6 +2649,15 @@ impl GameMessageTranslator for CommandTranslator {
                 }
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaDemoInstantQuit => {
+                if TheGameLogic::is_in_game() {
+                    let _ = TheGameLogic::clear_game_data();
+                }
+                if let Some(engine) = get_game_engine() {
+                    engine.lock().set_quitting(true);
+                }
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::MetaDeploy
             | GameMessageType::MetaFollow
             | GameMessageType::MetaChatPlayers
@@ -4873,10 +4883,11 @@ impl Default for TranslatorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::game_engine::init_game_engine;
     use gamelogic::common::{AsciiString, GeometryInfo, Real};
     use gamelogic::player::{player_list, Player};
     use gamelogic::system::game_logic::{
-        get_game_logic, GAME_LAN, GAME_REPLAY, GAME_SINGLE_PLAYER,
+        get_game_logic, GAME_LAN, GAME_NONE, GAME_REPLAY, GAME_SINGLE_PLAYER,
     };
     use gamelogic::team::Team;
     use gamelogic::thing_template::ThingTemplate;
@@ -5157,6 +5168,31 @@ mod tests {
         ));
         assert!(!global_data.read().tivo_fast_mode);
 
+        get_game_logic()
+            .lock()
+            .unwrap()
+            .set_game_mode(GAME_SINGLE_PLAYER);
+    }
+
+    #[test]
+    fn test_meta_demo_instant_quit_sets_engine_quitting_and_clears_game() {
+        let _guard = test_state_lock();
+        let engine = init_game_engine();
+        engine.lock().set_quitting(false);
+        get_game_logic()
+            .lock()
+            .unwrap()
+            .set_game_mode(GAME_SINGLE_PLAYER);
+
+        let mut translator = CommandTranslator::new();
+        let disposition = translator
+            .translate_game_message(&GameMessage::new(GameMessageType::MetaDemoInstantQuit));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        assert!(engine.lock().get_quitting());
+        assert_eq!(get_game_logic().lock().unwrap().get_game_mode(), GAME_NONE);
+
+        engine.lock().set_quitting(false);
         get_game_logic()
             .lock()
             .unwrap()
