@@ -28,6 +28,7 @@ use crate::system::beacon_display;
 use crate::system::GameMessageResult;
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_game_data::get_global_data;
+use game_engine::common::system::radar::get_radar_system;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::attack::{AbleToAttackType, CanAttackResult};
 use gamelogic::commands::command::CommandType;
@@ -2626,6 +2627,18 @@ impl GameMessageTranslator for CommandTranslator {
                 dispatch_translated_message(&GameMessageType::CreateFormation(Vec::new()));
                 return GameMessageDisposition::DestroyMessage;
             }
+            GameMessageType::MetaViewLastRadarEvent => {
+                if let Some(position) = get_radar_system()
+                    .read()
+                    .ok()
+                    .and_then(|radar| radar.get_last_event_loc())
+                {
+                    with_tactical_view(|view| {
+                        view.look_at(&Point3::new(position.x, position.y, position.z));
+                    });
+                }
+                return GameMessageDisposition::DestroyMessage;
+            }
             GameMessageType::MetaAllCheer => {
                 if TheGameLogic::is_in_multiplayer_game() {
                     dispatch_translated_message(&GameMessageType::DoCheer);
@@ -4884,6 +4897,9 @@ impl Default for TranslatorFactory {
 mod tests {
     use super::*;
     use game_engine::common::game_engine::init_game_engine;
+    use game_engine::common::system::radar::{
+        get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
+    };
     use gamelogic::common::{AsciiString, GeometryInfo, Real};
     use gamelogic::player::{player_list, Player};
     use gamelogic::system::game_logic::{
@@ -5095,6 +5111,34 @@ mod tests {
         );
 
         get_command_list().write().unwrap().clear_all_commands();
+    }
+
+    #[test]
+    fn test_meta_view_last_radar_event_centers_tactical_view() {
+        let _guard = test_state_lock();
+        let radar = get_radar_system();
+        radar.write().unwrap().reset();
+        let event_pos = RadarCoord3D::new(420.0, 315.0, 7.0);
+        radar
+            .write()
+            .unwrap()
+            .create_event(&event_pos, RadarEventType::Information, 1.0);
+
+        with_tactical_view(|view| {
+            view.set_position(&Point3::new(0.0, 0.0, 0.0));
+        });
+
+        let mut translator = CommandTranslator::new();
+        let disposition = translator
+            .translate_game_message(&GameMessage::new(GameMessageType::MetaViewLastRadarEvent));
+
+        assert_eq!(disposition, GameMessageDisposition::DestroyMessage);
+        with_tactical_view_ref(|view| {
+            assert!((view.position().x - (event_pos.x - view.width() as f32 * 0.5)).abs() < 0.001);
+            assert!((view.position().y - (event_pos.y - view.height() as f32 * 0.5)).abs() < 0.001);
+        });
+
+        radar.write().unwrap().reset();
     }
 
     #[test]
