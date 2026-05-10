@@ -21,6 +21,9 @@ use crate::object::behavior::battle_bus_slow_death_behavior::{
 use crate::object::behavior::instant_death_behavior::{
     InstantDeathBehavior, InstantDeathBehaviorModuleData,
 };
+use crate::object::behavior::neutron_missile_slow_death_update::{
+    neutron_missile_slow_death_data_factory, neutron_missile_slow_death_module_factory,
+};
 use crate::object::behavior::slow_death_behavior::{
     SlowDeathBehavior, SlowDeathBehaviorModuleData,
 };
@@ -1990,6 +1993,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         battle_bus_slow_death_module_factory,
         battle_bus_slow_death_data_factory,
+    )?;
+    register_module_override(
+        "NeutronMissileSlowDeathBehavior",
+        ModuleType::Behavior,
+        neutron_missile_slow_death_module_factory,
+        neutron_missile_slow_death_data_factory,
     )?;
     register_module_override(
         "OpenContain",
