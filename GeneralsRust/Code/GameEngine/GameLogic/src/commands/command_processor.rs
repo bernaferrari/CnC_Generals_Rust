@@ -3393,6 +3393,70 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_combat_drop_command(
+        &self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        let mut target_object = None;
+        let mut target_position = self.extract_command_location(command);
+
+        if command.command.get_type() == CommandType::CombatDropAtObject {
+            target_object = self.extract_object_ids(command).first().copied();
+            if let Some(target_id) = target_object {
+                target_position = TheGameLogic::find_object_by_id(target_id)
+                    .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()));
+            }
+        }
+
+        let Some(position) = target_position else {
+            return CommandExecutionResult::Failed(AsciiString::from("CombatDrop missing target"));
+        };
+
+        let selection_manager = get_selection_manager();
+        let selected = selection_manager
+            .read()
+            .ok()
+            .and_then(|manager| {
+                manager
+                    .get_player_selection_ref(context.player_id)
+                    .map(|selection| selection.get_selected_objects())
+            })
+            .unwrap_or_default();
+
+        for object_id in selected {
+            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(guard) = obj.read() else {
+                continue;
+            };
+            if guard.is_destroyed() {
+                continue;
+            }
+            if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+                continue;
+            }
+            let Some(ai) = guard.get_ai_update_interface() else {
+                continue;
+            };
+            drop(guard);
+
+            let ai_lock = ai.lock();
+            if let Ok(mut ai_guard) = ai_lock {
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::CombatDrop,
+                    CommandSourceType::FromPlayer,
+                );
+                params.obj = target_object;
+                params.pos = position;
+                let _ = ai_guard.execute_command(&params);
+            }
+        }
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_enable_retaliation(
         &self,
         command: &QueuedCommand,
@@ -3693,6 +3757,9 @@ impl CommandHandler for DefaultCommandHandler {
             }
             CommandType::Evacuate => self.execute_evacuate_command(context),
             CommandType::InternetHack => self.execute_internet_hack_command(context),
+            CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject => {
+                self.execute_combat_drop_command(command, context)
+            }
             CommandType::DoGuardPosition => self.execute_guard_position(command, context),
             CommandType::DoGuardObject => self.execute_guard_object(command, context),
             CommandType::DoCheer => self.execute_cheer(command),
@@ -3792,6 +3859,8 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::DoSpecialPowerOverrideDestination
                 | CommandType::Evacuate
                 | CommandType::InternetHack
+                | CommandType::CombatDropAtLocation
+                | CommandType::CombatDropAtObject
                 | CommandType::DoGuardPosition
                 | CommandType::DoGuardObject
                 | CommandType::DoCheer
@@ -4088,6 +4157,14 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::InternetHack));
+    }
+
+    #[test]
+    fn default_handler_accepts_combat_drop_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::CombatDropAtLocation));
+        assert!(handler.can_handle(CommandType::CombatDropAtObject));
     }
 
     #[test]
