@@ -1158,7 +1158,23 @@ impl ProductionUpdateInterface for ProductionUpdateComplete {
     }
 
     fn get_queue_entries(&self) -> Vec<BuildQueueEntry> {
-        self.queue.entries().iter().cloned().collect()
+        let mut entries = Vec::with_capacity(self.get_queue_size());
+
+        if let Some(current) = &self.current_production {
+            let mut entry = current.entry.clone();
+            entry.queue_index = 0;
+            entries.push(entry);
+        }
+
+        let index_offset = entries.len();
+        entries.extend(self.queue.entries().iter().cloned().enumerate().map(
+            |(index, mut entry)| {
+                entry.queue_index = index + index_offset;
+                entry
+            },
+        ));
+
+        entries
     }
 
     fn get_production_progress(&self) -> f32 {
@@ -1365,7 +1381,6 @@ impl ProductionUpdateCompleteModule {
 }
 
 impl Module for ProductionUpdateCompleteModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
@@ -1400,5 +1415,31 @@ impl Snapshotable for ProductionUpdateCompleteModule {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         self.behavior.load_post_process()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn queue_entries_include_current_production_first() {
+        let mut production =
+            ProductionUpdateComplete::new(ProductionUpdateModuleData::default(), 42);
+
+        production
+            .queue_create_unit("TestInfantry".to_string(), ProductionType::Unit, 100, 30, 0)
+            .expect("first item should queue");
+        production
+            .queue_create_unit("TestTank".to_string(), ProductionType::Unit, 700, 90, 0)
+            .expect("second item should queue");
+
+        let entries = ProductionUpdateInterface::get_queue_entries(&production);
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].template_name, "TestInfantry");
+        assert_eq!(entries[0].queue_index, 0);
+        assert_eq!(entries[1].template_name, "TestTank");
+        assert_eq!(entries[1].queue_index, 1);
     }
 }
