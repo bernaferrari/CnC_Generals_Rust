@@ -503,6 +503,8 @@ impl AiStateMachine {
             | AiStateType::GetRepaired
             | AiStateType::HackInternet => Ok(StateReturnType::Continue),
             AiStateType::ExitInstantly => self.update_exit_instantly_state(state),
+            AiStateType::MoveAwayFromRepulsors => self.update_move_away_from_repulsors(state),
+            AiStateType::RappelInto => self.update_rappel_into_state(state),
             // Add other states as needed
             _ => {
                 log::warn!("Unimplemented AI state: {:?}", state.state_type);
@@ -2118,6 +2120,47 @@ impl AiStateMachine {
         // 4. Ignore combat and other stimuli
 
         Ok(StateReturnType::Continue)
+    }
+
+    /// Move away from repulsor objects (matches C++ AIMoveAwayFromRepulsorsState).
+    /// Inherits move-to behavior; clears MODELCONDITION_PANICKING on exit.
+    fn update_move_away_from_repulsors(
+        &self,
+        state: &mut AiStateData,
+    ) -> Result<StateReturnType, AiError> {
+        let result = self.update_move_to_state(state);
+        if matches!(
+            result,
+            Ok(StateReturnType::StateComplete) | Ok(StateReturnType::StateFailed)
+        ) {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(self.owner_id) {
+                if let Ok(mut guard) = obj.write() {
+                    guard
+                        .clear_model_condition_state(crate::common::ModelConditionFlags::PANICKING);
+                }
+            }
+        }
+        result
+    }
+
+    /// Rappel into building (matches C++ AIRappelState).
+    /// Transitions infantry from airborne to garrisoned by moving them to the target position.
+    fn update_rappel_into_state(
+        &self,
+        state: &mut AiStateData,
+    ) -> Result<StateReturnType, AiError> {
+        // If goal building is destroyed, complete the state.
+        if let Some(goal_id) = state.goal_object {
+            if let Some(obj) = OBJECT_REGISTRY.get_object(goal_id) {
+                if let Ok(guard) = obj.read() {
+                    if guard.is_effectively_dead() {
+                        return Ok(StateReturnType::StateFailed);
+                    }
+                }
+            }
+        }
+        // Delegate to move-to for the actual movement.
+        self.update_move_to_state(state)
     }
 
     // State configuration methods
