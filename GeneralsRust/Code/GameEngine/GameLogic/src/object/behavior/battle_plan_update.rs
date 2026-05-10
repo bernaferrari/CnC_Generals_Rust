@@ -13,11 +13,14 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::body::body_module::MaxHealthChangeType;
-use crate::object::special_power_template::SpecialPowerTemplate;
+use crate::object::special_power_template::{
+    find_or_create_special_power_template, SpecialPowerTemplate,
+};
 use crate::object::Object as GameObject;
 use crate::player::{BattlePlanType, PlayerArcExt};
 use crate::waypoint::Waypoint;
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
@@ -123,6 +126,201 @@ impl Default for BattlePlanUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(BattlePlanUpdateModuleData, base);
+
+impl BattlePlanUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, BATTLE_PLAN_UPDATE_FIELDS)
+    }
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<KindOfMask, INIError> {
+    let mut mask = 0;
+    for token in tokens.iter().copied().filter(|token| *token != "=") {
+        for name in token.split(['|', '+', ',']) {
+            let name = name.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let kind = kindof_from_name(name).ok_or(INIError::InvalidData)?;
+            mask |= kindof_bit(kind).ok_or(INIError::InvalidData)?;
+        }
+    }
+    Ok(mask)
+}
+
+fn parse_max_health_change_type(token: &str) -> Result<MaxHealthChangeType, INIError> {
+    match token.to_ascii_uppercase().as_str() {
+        "SAME_CURRENTHEALTH" => Ok(MaxHealthChangeType::SameCurrentHealth),
+        "PRESERVE_RATIO" => Ok(MaxHealthChangeType::PreserveRatio),
+        "ADD_CURRENT_HEALTH_TOO" => Ok(MaxHealthChangeType::AddCurrentHealthToo),
+        "FULLY_HEAL" => Ok(MaxHealthChangeType::FullyHeal),
+        _ => Err(INIError::InvalidData),
+    }
+}
+
+macro_rules! string_field {
+    ($token:literal, $field:ident) => {
+        FieldParse {
+            token: $token,
+            parse: |_, data, tokens| {
+                data.$field = required_value(tokens)?.to_string();
+                Ok(())
+            },
+        }
+    };
+}
+
+const BATTLE_PLAN_UPDATE_FIELDS: &[FieldParse<BattlePlanUpdateModuleData>] = &[
+    FieldParse {
+        token: "SpecialPowerTemplate",
+        parse: |_, data, tokens| {
+            let name = AsciiString::from(required_value(tokens)?);
+            data.special_power_template =
+                Some(find_or_create_special_power_template(&name).get_id());
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "BombardmentPlanAnimationTime",
+        parse: |_, data, tokens| {
+            data.bombardment_plan_animation_frames =
+                INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "HoldTheLinePlanAnimationTime",
+        parse: |_, data, tokens| {
+            data.hold_the_line_plan_animation_frames =
+                INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "SearchAndDestroyPlanAnimationTime",
+        parse: |_, data, tokens| {
+            data.search_and_destroy_plan_animation_frames =
+                INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "TransitionIdleTime",
+        parse: |_, data, tokens| {
+            data.transition_idle_frames =
+                INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    string_field!("BombardmentPlanUnpackSoundName", bombardment_unpack_name),
+    string_field!("BombardmentPlanPackSoundName", bombardment_pack_name),
+    string_field!("BombardmentMessageLabel", bombardment_message_label),
+    string_field!("BombardmentAnnouncementName", bombardment_announcement_name),
+    string_field!(
+        "SearchAndDestroyPlanUnpackSoundName",
+        search_and_destroy_unpack_name
+    ),
+    string_field!(
+        "SearchAndDestroyPlanIdleLoopSoundName",
+        search_and_destroy_idle_name
+    ),
+    string_field!(
+        "SearchAndDestroyPlanPackSoundName",
+        search_and_destroy_pack_name
+    ),
+    string_field!(
+        "SearchAndDestroyMessageLabel",
+        search_and_destroy_message_label
+    ),
+    string_field!(
+        "SearchAndDestroyAnnouncementName",
+        search_and_destroy_announcement_name
+    ),
+    string_field!("HoldTheLinePlanUnpackSoundName", hold_the_line_unpack_name),
+    string_field!("HoldTheLinePlanPackSoundName", hold_the_line_pack_name),
+    string_field!("HoldTheLineMessageLabel", hold_the_line_message_label),
+    string_field!(
+        "HoldTheLineAnnouncementName",
+        hold_the_line_announcement_name
+    ),
+    FieldParse {
+        token: "ValidMemberKindOf",
+        parse: |_, data, tokens| {
+            data.valid_member_kind_of = parse_kind_of_mask(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "InvalidMemberKindOf",
+        parse: |_, data, tokens| {
+            data.invalid_member_kind_of = parse_kind_of_mask(tokens)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "BattlePlanChangeParalyzeTime",
+        parse: |_, data, tokens| {
+            data.battle_plan_paralyze_frames =
+                INI::parse_duration_unsigned_int(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "HoldTheLinePlanArmorDamageScalar",
+        parse: |_, data, tokens| {
+            data.hold_the_line_armor_damage_scalar = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "SearchAndDestroyPlanSightRangeScalar",
+        parse: |_, data, tokens| {
+            data.search_and_destroy_sight_range_scalar = INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "StrategyCenterSearchAndDestroySightRangeScalar",
+        parse: |_, data, tokens| {
+            data.strategy_center_search_and_destroy_sight_range_scalar =
+                INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "StrategyCenterSearchAndDestroyDetectsStealth",
+        parse: |_, data, tokens| {
+            data.strategy_center_search_and_destroy_detects_stealth =
+                INI::parse_bool(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "StrategyCenterHoldTheLineMaxHealthScalar",
+        parse: |_, data, tokens| {
+            data.strategy_center_hold_the_line_max_health_scalar =
+                INI::parse_real(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "StrategyCenterHoldTheLineMaxHealthChangeType",
+        parse: |_, data, tokens| {
+            data.strategy_center_hold_the_line_max_health_change_type =
+                parse_max_health_change_type(required_value(tokens)?)?;
+            Ok(())
+        },
+    },
+    string_field!("VisionObjectName", vision_object_name),
+];
 
 pub struct BattlePlanUpdate {
     object: Weak<RwLock<GameObject>>,
