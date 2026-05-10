@@ -210,12 +210,7 @@ impl LookAtTranslator {
 
     /// Handle raw key down/up event
     /// Matches key handling from C++ LookAtTranslator::translateGameMessage() from LookAtXlat.cpp
-    pub fn handle_key_event(
-        &mut self,
-        key: u8,
-        state: u8,
-        is_selecting: bool,
-    ) {
+    pub fn handle_key_event(&mut self, key: u8, state: u8, is_selecting: bool) {
         let is_pressed = (state & KEY_STATE_UP) == 0;
 
         // Update scroll direction state
@@ -245,12 +240,7 @@ impl LookAtTranslator {
 
     /// Handle mouse right button down
     /// Matches C++ MSG_RAW_MOUSE_RIGHT_BUTTON_DOWN from LookAtXlat.cpp
-    pub fn handle_rmb_down(
-        &mut self,
-        pixel: ICoord2D,
-        is_selecting: bool,
-        current_frame: u32,
-    ) {
+    pub fn handle_rmb_down(&mut self, pixel: ICoord2D, is_selecting: bool, current_frame: u32) {
         self.last_mouse_move_frame = current_frame;
         self.anchor = pixel;
         self.current_pos = pixel;
@@ -324,6 +314,7 @@ impl LookAtTranslator {
         // If input disabled, stop all scrolling
         if !input_enabled {
             if self.is_scrolling {
+                self.stop_scrolling();
                 result.stop_scrolling = true;
             }
             return result;
@@ -342,8 +333,10 @@ impl LookAtTranslator {
                 && pixel.x < display_width as i32 - EDGE_SCROLL_SIZE;
 
             if self.is_scrolling && self.scroll_type == ScrollType::ScreenEdge && inside_safe_zone {
+                self.stop_scrolling();
                 result.stop_scrolling = true;
             } else if !self.is_scrolling && at_edge {
+                self.set_scrolling(ScrollType::ScreenEdge, MouseCursor::Arrow);
                 result.start_edge_scrolling = true;
             }
         }
@@ -415,8 +408,8 @@ impl LookAtTranslator {
 
                 offset.x = self.horizontal_scroll_speed_factor
                     * (self.current_pos.x - self.anchor.x) as f32;
-                offset.y = self.vertical_scroll_speed_factor
-                    * (self.current_pos.y - self.anchor.y) as f32;
+                offset.y =
+                    self.vertical_scroll_speed_factor * (self.current_pos.y - self.anchor.y) as f32;
 
                 // Add minimum scroll based on normalized direction
                 let mut vec = Coord2D::new(offset.x, offset.y);
@@ -424,9 +417,8 @@ impl LookAtTranslator {
                 offset.x += self.horizontal_scroll_speed_factor
                     * vec.x
                     * self.keyboard_scroll_factor.powi(2);
-                offset.y += self.vertical_scroll_speed_factor
-                    * vec.y
-                    * self.keyboard_scroll_factor.powi(2);
+                offset.y +=
+                    self.vertical_scroll_speed_factor * vec.y * self.keyboard_scroll_factor.powi(2);
             }
             ScrollType::Key => {
                 if self.scroll_dir[Direction::Up as usize] {
@@ -672,6 +664,36 @@ mod tests {
         let edge_pos = ICoord2D::new(1, 300);
         let result = translator.handle_mouse_move(edge_pos, 0, 800, 600, true);
         assert!(result.start_edge_scrolling);
+        assert!(translator.is_scrolling());
+
+        let offset = translator.calculate_scroll_offset(800, 600, false);
+        assert!(offset.x < 0.0);
+        assert_eq!(offset.y, 0.0);
+    }
+
+    #[test]
+    fn test_edge_scrolling_stops_inside_safe_zone() {
+        let mut translator = LookAtTranslator::new();
+        translator.set_global_data(1.0, 1.0, 1.0, false, false);
+
+        let edge_pos = ICoord2D::new(1, 300);
+        translator.handle_mouse_move(edge_pos, 0, 800, 600, true);
+        assert!(translator.is_scrolling());
+
+        let result = translator.handle_mouse_move(ICoord2D::new(4, 300), 1, 800, 600, true);
+        assert!(result.stop_scrolling);
+        assert!(!translator.is_scrolling());
+    }
+
+    #[test]
+    fn test_input_disabled_stops_scroll_state() {
+        let mut translator = LookAtTranslator::new();
+        translator.handle_rmb_down(ICoord2D::new(100, 100), false, 0);
+        assert!(translator.is_scrolling());
+
+        let result = translator.handle_mouse_move(ICoord2D::new(120, 100), 1, 800, 600, false);
+        assert!(result.stop_scrolling);
+        assert!(!translator.is_scrolling());
     }
 
     #[test]
