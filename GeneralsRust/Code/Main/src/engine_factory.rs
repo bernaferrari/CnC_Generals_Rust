@@ -1365,6 +1365,12 @@ impl EngineFactoryRegistry {
         self.factories.push(factory);
     }
 
+    fn has_factory_named(&self, name: &str) -> bool {
+        self.factories
+            .iter()
+            .any(|factory| factory.get_name() == name)
+    }
+
     /// Get the best available factory for the current platform
     pub fn get_best_factory(&self) -> Option<&dyn GameEngineFactory> {
         self.factories
@@ -1415,8 +1421,11 @@ pub fn initialize_engine_factories() -> EngineFactoryRegistry {
         registry.register_factory(Box::new(CrossPlatformGameEngineFactory::new()));
     }
 
-    // Always register cross-platform factory as fallback
-    registry.register_factory(Box::new(CrossPlatformGameEngineFactory::new()));
+    // Register cross-platform as the final fallback only when a platform block
+    // did not already choose it as the real startup factory.
+    if !registry.has_factory_named(CrossPlatformGameEngineFactory::NAME) {
+        registry.register_factory(Box::new(CrossPlatformGameEngineFactory::new()));
+    }
 
     info!(
         "Engine factory system initialized with {} factories",
@@ -1429,6 +1438,8 @@ pub fn initialize_engine_factories() -> EngineFactoryRegistry {
 pub struct CrossPlatformGameEngineFactory;
 
 impl CrossPlatformGameEngineFactory {
+    const NAME: &'static str = "CrossPlatformGameEngineFactory";
+
     pub fn new() -> Self {
         Self
     }
@@ -1440,7 +1451,7 @@ impl GameEngineFactory for CrossPlatformGameEngineFactory {
     }
 
     fn get_name(&self) -> &str {
-        "CrossPlatformGameEngineFactory"
+        Self::NAME
     }
 
     fn is_supported(&self) -> bool {
@@ -1746,5 +1757,20 @@ mod tests {
     fn test_engine_creation() {
         let registry = initialize_engine_factories();
         let _engine = registry.create_game_engine().unwrap();
+    }
+
+    #[test]
+    fn startup_factory_registry_does_not_duplicate_cross_platform_fallback() {
+        let registry = initialize_engine_factories();
+        let cross_platform_count = registry
+            .factories
+            .iter()
+            .filter(|factory| factory.get_name() == CrossPlatformGameEngineFactory::NAME)
+            .count();
+
+        assert_eq!(
+            cross_platform_count, 1,
+            "startup should not register a duplicate fallback client factory"
+        );
     }
 }
