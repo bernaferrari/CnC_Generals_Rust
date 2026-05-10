@@ -3152,10 +3152,13 @@ impl Weapon {
         }
 
         // Check line of sight (if weapon requires it)
-        // This is a simplified check - full implementation would raycast through terrain
         if self.template.must_travel_pfx || !self.template.capable_of_following_waypoint {
-            // These weapons require line-of-sight
-            if !self.check_line_of_sight(&source_pos, &target_position) {
+            let clear_line_of_sight = if let Some(target_id) = target_obj_id {
+                self.is_clear_firing_line_of_sight_terrain(source_obj_id, target_id)
+            } else {
+                self.is_clear_firing_line_of_sight_terrain_pos(source_obj_id, &target_position)
+            };
+            if !clear_line_of_sight {
                 return Err(WeaponError::TargetObstructed);
             }
         }
@@ -3996,6 +3999,7 @@ impl Weapon {
     /// - Checks height differences are within weapon capability
     /// - Basic terrain height validation
     /// - Full raycast through obstacles would be next enhancement
+    #[cfg(test)]
     fn check_line_of_sight(&self, from: &Coord3D, to: &Coord3D) -> bool {
         let terrain = crate::terrain::get_terrain_logic();
         let Ok(guard) = terrain.read() else {
