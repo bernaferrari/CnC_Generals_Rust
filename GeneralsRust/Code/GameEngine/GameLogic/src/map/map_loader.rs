@@ -416,11 +416,18 @@ fn extract_lighting(_data: &MapData) -> LightingSettings {
 
 fn extract_player_starts(data: &MapData) -> Vec<PlayerStartInfo> {
     let mut players = Vec::new();
+    let mut next_fallback_slot = 0usize;
 
-    for (i, waypoint) in data.waypoints.iter().enumerate() {
+    for waypoint in &data.waypoints {
         let name_lower = waypoint.name.to_lowercase();
-        if name_lower.contains("start") {
-            let slot = i;
+        if name_lower.contains("start")
+            && (name_lower.contains("player") || name_lower.contains("plyr"))
+        {
+            let slot = parse_player_start_slot_from_lower(&name_lower).unwrap_or_else(|| {
+                let slot = next_fallback_slot;
+                next_fallback_slot += 1;
+                slot
+            });
             players.push(PlayerStartInfo {
                 slot,
                 faction: String::new(),
@@ -433,6 +440,8 @@ fn extract_player_starts(data: &MapData) -> Vec<PlayerStartInfo> {
             });
         }
     }
+
+    players.sort_by_key(|player| player.slot);
 
     // Ensure at least one player entry
     if players.is_empty() {
@@ -449,6 +458,22 @@ fn extract_player_starts(data: &MapData) -> Vec<PlayerStartInfo> {
     }
 
     players
+}
+
+fn parse_player_start_slot_from_lower(lower: &str) -> Option<usize> {
+    let mut digits = String::new();
+    for ch in lower.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+        } else if !digits.is_empty() {
+            break;
+        }
+    }
+
+    digits
+        .parse::<usize>()
+        .ok()
+        .and_then(|slot| slot.checked_sub(1))
 }
 
 fn extract_camera_path(data: &MapData) -> CameraPath {
@@ -589,6 +614,62 @@ mod tests {
         let players = extract_player_starts(&data);
         assert_eq!(players.len(), 2);
         assert_eq!(players[0].owner, "Plyr1");
+        assert_eq!(players[1].owner, "Plyr2");
+    }
+
+    #[test]
+    fn test_extract_player_starts_uses_start_name_slot_not_waypoint_order() {
+        let data = MapData {
+            width: 100,
+            height: 100,
+            heightmap: vec![0u8; 100 * 100],
+            water_height: None,
+            bridges: Vec::new(),
+            texture_tiles: Vec::new(),
+            boundaries: Vec::new(),
+            border_size: 10,
+            polygon_triggers: Vec::new(),
+            waypoints: vec![
+                MapWaypoint {
+                    id: 99,
+                    name: "CameraStart".to_string(),
+                    location: MapCoord3D::new(50.0, 60.0, 0.0),
+                    path_label1: String::new(),
+                    path_label2: String::new(),
+                    path_label3: String::new(),
+                    bi_directional: false,
+                },
+                MapWaypoint {
+                    id: 2,
+                    name: "Player_2_Start".to_string(),
+                    location: MapCoord3D::new(500.0, 600.0, 0.0),
+                    path_label1: String::new(),
+                    path_label2: String::new(),
+                    path_label3: String::new(),
+                    bi_directional: false,
+                },
+                MapWaypoint {
+                    id: 1,
+                    name: "Player_1_Start".to_string(),
+                    location: MapCoord3D::new(100.0, 200.0, 0.0),
+                    path_label1: String::new(),
+                    path_label2: String::new(),
+                    path_label3: String::new(),
+                    bi_directional: false,
+                },
+            ],
+            waypoint_links: Vec::new(),
+        };
+
+        let players = extract_player_starts(&data);
+        assert_eq!(players.len(), 2);
+        assert_eq!(players[0].slot, 0);
+        assert_eq!(players[0].owner, "Plyr1");
+        assert_eq!(
+            players[0].start_position,
+            Some(MapCoord3D::new(100.0, 200.0, 0.0))
+        );
+        assert_eq!(players[1].slot, 1);
         assert_eq!(players[1].owner, "Plyr2");
     }
 
