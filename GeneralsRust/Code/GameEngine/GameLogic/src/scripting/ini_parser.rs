@@ -907,9 +907,11 @@ impl IniScriptParser {
             "CAMERA_LETTERBOX_END" => Ok(ScriptActionType::CameraLetterboxEnd),
             "ROTATE_CAMERA" => Ok(ScriptActionType::RotateCamera),
             "RESET_CAMERA" => Ok(ScriptActionType::ResetCamera),
+            "CAMERA_MOVE_HOME" => Ok(ScriptActionType::CameraMoveHome),
             "ZOOM_CAMERA" => Ok(ScriptActionType::ZoomCamera),
             "PITCH_CAMERA" => Ok(ScriptActionType::PitchCamera),
             "SETUP_CAMERA" => Ok(ScriptActionType::SetupCamera),
+            "OVERSIZE_TERRAIN" => Ok(ScriptActionType::OversizeTerrain),
             "CAMERA_FADE_ADD" => Ok(ScriptActionType::CameraFadeAdd),
             "CAMERA_FADE_SUBTRACT" => Ok(ScriptActionType::CameraFadeSubtract),
             "CAMERA_FADE_SATURATE" => Ok(ScriptActionType::CameraFadeSaturate),
@@ -918,6 +920,11 @@ impl IniScriptParser {
             "CAMERA_BW_MODE_END" => Ok(ScriptActionType::CameraBwModeEnd),
             "DRAW_SKYBOX_BEGIN" => Ok(ScriptActionType::DrawSkyboxBegin),
             "DRAW_SKYBOX_END" => Ok(ScriptActionType::DrawSkyboxEnd),
+            "CAMERA_MOTION_BLUR" => Ok(ScriptActionType::CameraMotionBlur),
+            "CAMERA_MOTION_BLUR_JUMP" => Ok(ScriptActionType::CameraMotionBlurJump),
+            "CAMERA_MOTION_BLUR_FOLLOW" => Ok(ScriptActionType::CameraMotionBlurFollow),
+            "CAMERA_MOTION_BLUR_END_FOLLOW" => Ok(ScriptActionType::CameraMotionBlurEndFollow),
+            "CAMERA_SET_AUDIBLE_DISTANCE" => Ok(ScriptActionType::CameraSetAudibleDistance),
             "CAMERA_FOLLOW_NAMED" => Ok(ScriptActionType::CameraFollowNamed),
             "CAMERA_STOP_FOLLOW" => Ok(ScriptActionType::CameraStopFollow),
             "CAMERA_LOOK_TOWARD_OBJECT" => Ok(ScriptActionType::CameraLookTowardObject),
@@ -1000,11 +1007,54 @@ impl IniScriptParser {
             "TEAM_SET_EMOTICON" => Ok(ScriptActionType::TeamSetEmoticon),
             "TEAM_SET_STEALTH_ENABLED" => Ok(ScriptActionType::TeamSetStealthEnabled),
             "TEAM_SET_REPULSOR" => Ok(ScriptActionType::TeamSetRepulsor),
+            "TEAM_FACE_NAMED" => Ok(ScriptActionType::TeamFaceNamed),
+            "TEAM_FACE_WAYPOINT" => Ok(ScriptActionType::TeamFaceWaypoint),
             "TEAM_CREATE_RADAR_EVENT" => Ok(ScriptActionType::TeamCreateRadarEvent),
             "TEAM_DELETE_LIVING" => Ok(ScriptActionType::TeamDeleteLiving),
             "TEAM_AFFECT_OBJECT_PANEL_FLAGS" => Ok(ScriptActionType::TeamAffectObjectPanelFlags),
             "TEAM_SET_UNMANNED_STATUS" => Ok(ScriptActionType::TeamSetUnmannedStatus),
             "TEAM_SET_BOOBYTRAPPED" => Ok(ScriptActionType::TeamSetBoobytrapped),
+            "TEAM_HUNT_WITH_COMMAND_BUTTON" => Ok(ScriptActionType::TeamHuntWithCommandButton),
+            "TEAM_MOVE_TOWARDS_NEAREST_OBJECT_TYPE" => {
+                Ok(ScriptActionType::TeamMoveTowardsNearestObjectType)
+            }
+            "TEAM_USE_COMMANDBUTTON_ABILITY_ON_NAMED" => {
+                Ok(ScriptActionType::TeamUseCommandbuttonAbilityOnNamed)
+            }
+            "TEAM_USE_COMMANDBUTTON_ABILITY_AT_WAYPOINT" => {
+                Ok(ScriptActionType::TeamUseCommandbuttonAbilityAtWaypoint)
+            }
+            "TEAM_USE_COMMANDBUTTON_ABILITY" => Ok(ScriptActionType::TeamUseCommandbuttonAbility),
+            "TEAM_WAIT_FOR_NOT_CONTAINED_ALL" => Ok(ScriptActionType::TeamWaitForNotContainedAll),
+            "TEAM_WAIT_FOR_NOT_CONTAINED_PARTIAL" => {
+                Ok(ScriptActionType::TeamWaitForNotContainedPartial)
+            }
+            "TEAM_SPIN_FOR_FRAMECOUNT" => Ok(ScriptActionType::TeamSpinForFramecount),
+            "TEAM_ALL_USE_COMMANDBUTTON_ON_NAMED" => {
+                Ok(ScriptActionType::TeamAllUseCommandbuttonOnNamed)
+            }
+            "TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_ENEMY_UNIT" => {
+                Ok(ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyUnit)
+            }
+            "TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_GARRISONED_BUILDING" => {
+                Ok(ScriptActionType::TeamAllUseCommandbuttonOnNearestGarrisonedBuilding)
+            }
+            "TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_KINDOF" => {
+                Ok(ScriptActionType::TeamAllUseCommandbuttonOnNearestKindof)
+            }
+            "TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_ENEMY_BUILDING" => {
+                Ok(ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuilding)
+            }
+            "TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_ENEMY_BUILDING_CLASS" => {
+                Ok(ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuildingClass)
+            }
+            "TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_OBJECTTYPE" => {
+                Ok(ScriptActionType::TeamAllUseCommandbuttonOnNearestObjecttype)
+            }
+            "TEAM_PARTIAL_USE_COMMANDBUTTON" => Ok(ScriptActionType::TeamPartialUseCommandbutton),
+            "TEAM_CAPTURE_NEAREST_UNOWNED_FACTION_UNIT" => {
+                Ok(ScriptActionType::TeamCaptureNearestUnownedFactionUnit)
+            }
             "MOVE_NAMED_UNIT_TO" => Ok(ScriptActionType::MoveNamedUnitTo),
             "NAMED_ATTACK_NAMED" => Ok(ScriptActionType::NamedAttackNamed),
             "TEAM_ATTACK_NAMED" => Ok(ScriptActionType::TeamAttackNamed),
@@ -1030,6 +1080,30 @@ impl IniScriptParser {
             "NAMED_FLASH" => Ok(ScriptActionType::NamedFlash),
             "NAMED_FLASH_WHITE" => Ok(ScriptActionType::NamedFlashWhite),
             "NAMED_SET_STOPPING_DISTANCE" => Ok(ScriptActionType::NamedSetStoppingDistance),
+            "NAMED_HIDE_SPECIAL_POWER_DISPLAY" => {
+                Ok(ScriptActionType::NamedHideSpecialPowerDisplay)
+            }
+            "NAMED_SHOW_SPECIAL_POWER_DISPLAY" => {
+                Ok(ScriptActionType::NamedShowSpecialPowerDisplay)
+            }
+            "NAMED_STOP_SPECIAL_POWER_COUNTDOWN" => {
+                Ok(ScriptActionType::NamedStopSpecialPowerCountdown)
+            }
+            "NAMED_START_SPECIAL_POWER_COUNTDOWN" => {
+                Ok(ScriptActionType::NamedStartSpecialPowerCountdown)
+            }
+            "NAMED_SET_SPECIAL_POWER_COUNTDOWN" => {
+                Ok(ScriptActionType::NamedSetSpecialPowerCountdown)
+            }
+            "NAMED_ADD_SPECIAL_POWER_COUNTDOWN" => {
+                Ok(ScriptActionType::NamedAddSpecialPowerCountdown)
+            }
+            "NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT" => {
+                Ok(ScriptActionType::NamedFireSpecialPowerAtWaypoint)
+            }
+            "NAMED_FIRE_SPECIAL_POWER_AT_NAMED" => {
+                Ok(ScriptActionType::NamedFireSpecialPowerAtNamed)
+            }
             "NAMED_FIRE_WEAPON_FOLLOWING_WAYPOINT_PATH" => {
                 Ok(ScriptActionType::NamedFireWeaponFollowingWaypointPath)
             }
@@ -1055,6 +1129,15 @@ impl IniScriptParser {
             "NAMED_SET_EVAC_LEFT_OR_RIGHT" => Ok(ScriptActionType::NamedSetEvacLeftOrRight),
             "NAMED_SET_UNMANNED_STATUS" => Ok(ScriptActionType::NamedSetUnmannedStatus),
             "NAMED_SET_BOOBYTRAPPED" => Ok(ScriptActionType::NamedSetBoobytrapped),
+            "SET_STOPPING_DISTANCE" => Ok(ScriptActionType::SetStoppingDistance),
+            "UNIT_DESTROY_ALL_CONTAINED" => Ok(ScriptActionType::UnitDestroyAllContained),
+            "UNIT_MOVE_TOWARDS_NEAREST_OBJECT_TYPE" => {
+                Ok(ScriptActionType::UnitMoveTowardsNearestObjectType)
+            }
+            "UNIT_AFFECT_OBJECT_PANEL_FLAGS" => Ok(ScriptActionType::UnitAffectObjectPanelFlags),
+            "UNIT_SPAWN_NAMED_LOCATION_ORIENTATION" => {
+                Ok(ScriptActionType::UnitSpawnNamedLocationOrientation)
+            }
             "PLAYER_KILL" => Ok(ScriptActionType::PlayerKill),
             "PLAYER_HUNT" => Ok(ScriptActionType::PlayerHunt),
             "PLAYER_SET_MONEY" => Ok(ScriptActionType::PlayerSetMoney),
@@ -1139,6 +1222,7 @@ impl IniScriptParser {
             "ENABLE_INPUT" => Ok(ScriptActionType::EnableInput),
             "FREEZE_TIME" => Ok(ScriptActionType::FreezeTime),
             "UNFREEZE_TIME" => Ok(ScriptActionType::UnfreezeTime),
+            "SHOW_MILITARY_CAPTION" => Ok(ScriptActionType::ShowMilitaryCaption),
             "SET_VISUAL_SPEED_MULTIPLIER" => Ok(ScriptActionType::SetVisualSpeedMultiplier),
             "SET_FPS_LIMIT" => Ok(ScriptActionType::SetFpsLimit),
             "SET_TREE_SWAY" => Ok(ScriptActionType::SetTreeSway),
@@ -1150,6 +1234,71 @@ impl IniScriptParser {
             "RESET_INFANTRY_LIGHTING_OVERRIDE" => {
                 Ok(ScriptActionType::ResetInfantryLightingOverride)
             }
+            "SET_BASE_CONSTRUCTION_SPEED" => Ok(ScriptActionType::SetBaseConstructionSpeed),
+            "TECHTREE_MODIFY_BUILDABILITY_OBJECT" => {
+                Ok(ScriptActionType::TechtreeModifyBuildabilityObject)
+            }
+            "WAREHOUSE_SET_VALUE" => Ok(ScriptActionType::WarehouseSetValue),
+            "COMMAND_BAR_REMOVE_BUTTON_OBJECTTYPE" | "COMMANDBAR_REMOVE_BUTTON_OBJECTTYPE" => {
+                Ok(ScriptActionType::CommandbarRemoveButtonObjecttype)
+            }
+            "COMMAND_BAR_ADD_BUTTON_OBJECTTYPE_SLOT" | "COMMANDBAR_ADD_BUTTON_OBJECTTYPE_SLOT" => {
+                Ok(ScriptActionType::CommandbarAddButtonObjecttypeSlot)
+            }
+            "SET_ATTACK_PRIORITY_THING" => Ok(ScriptActionType::SetAttackPriorityThing),
+            "SET_ATTACK_PRIORITY_KIND_OF" => Ok(ScriptActionType::SetAttackPriorityKindOf),
+            "SET_DEFAULT_ATTACK_PRIORITY" => Ok(ScriptActionType::SetDefaultAttackPriority),
+            "OBJECTLIST_ADDOBJECTTYPE" => Ok(ScriptActionType::ObjectlistAddobjecttype),
+            "OBJECTLIST_REMOVEOBJECTTYPE" => Ok(ScriptActionType::ObjectlistRemoveobjecttype),
+            "OBJECT_ALLOW_BONUSES" => Ok(ScriptActionType::ObjectAllowBonuses),
+            "DELETE_ALL_UNMANNED" => Ok(ScriptActionType::DeleteAllUnmanned),
+            "CHOOSE_VICTIM_ALWAYS_USES_NORMAL" => {
+                Ok(ScriptActionType::ChooseVictimAlwaysUsesNormal)
+            }
+            "SCRIPTING_OVERRIDE_HULK_LIFETIME" => {
+                Ok(ScriptActionType::ScriptingOverrideHulkLifetime)
+            }
+            "SKIRMISH_BUILD_BUILDING" => Ok(ScriptActionType::SkirmishBuildBuilding),
+            "SKIRMISH_FOLLOW_APPROACH_PATH" => Ok(ScriptActionType::SkirmishFollowApproachPath),
+            "SKIRMISH_MOVE_TO_APPROACH_PATH" => Ok(ScriptActionType::SkirmishMoveToApproachPath),
+            "SKIRMISH_BUILD_BASE_DEFENSE_FRONT" => {
+                Ok(ScriptActionType::SkirmishBuildBaseDefenseFront)
+            }
+            "SKIRMISH_BUILD_BASE_DEFENSE_FLANK" => {
+                Ok(ScriptActionType::SkirmishBuildBaseDefenseFlank)
+            }
+            "SKIRMISH_BUILD_STRUCTURE_FRONT" => Ok(ScriptActionType::SkirmishBuildStructureFront),
+            "SKIRMISH_BUILD_STRUCTURE_FLANK" => Ok(ScriptActionType::SkirmishBuildStructureFlank),
+            "SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST" => {
+                Ok(ScriptActionType::SkirmishFireSpecialPowerAtMostCost)
+            }
+            "SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE" => {
+                Ok(ScriptActionType::SkirmishAttackNearestGroupWithValue)
+            }
+            "SKIRMISH_PERFORM_COMMANDBUTTON_ON_MOST_VALUABLE_OBJECT" => {
+                Ok(ScriptActionType::SkirmishPerformCommandbuttonOnMostValuableObject)
+            }
+            "SKIRMISH_WAIT_FOR_COMMANDBUTTON_AVAILABLE_ALL" => {
+                Ok(ScriptActionType::SkirmishWaitForCommandbuttonAvailableAll)
+            }
+            "SKIRMISH_WAIT_FOR_COMMANDBUTTON_AVAILABLE_PARTIAL" => {
+                Ok(ScriptActionType::SkirmishWaitForCommandbuttonAvailablePartial)
+            }
+            "AI_PLAYER_BUILD_SUPPLY_CENTER" => Ok(ScriptActionType::AiPlayerBuildSupplyCenter),
+            "AI_PLAYER_BUILD_UPGRADE" => Ok(ScriptActionType::AiPlayerBuildUpgrade),
+            "AI_PLAYER_BUILD_TYPE_NEAREST_TEAM" => {
+                Ok(ScriptActionType::AiPlayerBuildTypeNearestTeam)
+            }
+            "IDLE_ALL_UNITS" => Ok(ScriptActionType::IdleAllUnits),
+            "RESUME_SUPPLY_TRUCKING" => Ok(ScriptActionType::ResumeSupplyTrucking),
+            "EVA_SET_ENABLED_DISABLED" => Ok(ScriptActionType::EvaSetEnabledDisabled),
+            "OPTIONS_SET_OCCLUSION_MODE" => Ok(ScriptActionType::OptionsSetOcclusionMode),
+            "OPTIONS_SET_DRAWICON_UI_MODE" => Ok(ScriptActionType::OptionsSetDrawiconUiMode),
+            "OPTIONS_SET_PARTICLE_CAP_MODE" => Ok(ScriptActionType::OptionsSetParticleCapMode),
+            "EXIT_SPECIFIC_BUILDING" => Ok(ScriptActionType::ExitSpecificBuilding),
+            "ENABLE_SCORING" => Ok(ScriptActionType::EnableScoring),
+            "DISABLE_SCORING" => Ok(ScriptActionType::DisableScoring),
+            "SET_TRAIN_HELD" => Ok(ScriptActionType::SetTrainHeld),
             "UNIT_EXECUTE_SEQUENTIAL_SCRIPT" => Ok(ScriptActionType::UnitExecuteSequentialScript),
             "UNIT_EXECUTE_SEQUENTIAL_SCRIPT_LOOPING" => {
                 Ok(ScriptActionType::UnitExecuteSequentialScriptLooping)
@@ -1884,6 +2033,208 @@ EndScriptList
                 ScriptActionType::PlayerGrantScience,
                 ScriptActionType::PlayerExcludeFromScoreScreen,
                 ScriptActionType::TeamKill,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_maps_cxx_remaining_executor_action_names() {
+        let content = r#"
+ScriptList TestScripts
+  ScriptGroup Group1
+    Script Script_CxxExecutorMappedActions
+      Conditions = OR
+        Condition1 = AND
+          TRUE
+        EndCondition
+      EndConditions
+      Actions = SEQUENTIAL
+        CAMERA_MOVE_HOME
+        OVERSIZE_TERRAIN 1.5
+        CAMERA_MOTION_BLUR 0.5
+        CAMERA_MOTION_BLUR_JUMP 0.75
+        CAMERA_MOTION_BLUR_FOLLOW Hero
+        CAMERA_MOTION_BLUR_END_FOLLOW
+        CAMERA_SET_AUDIBLE_DISTANCE 400
+        NAMED_HIDE_SPECIAL_POWER_DISPLAY Hero
+        NAMED_SHOW_SPECIAL_POWER_DISPLAY Hero
+        NAMED_STOP_SPECIAL_POWER_COUNTDOWN Hero PowerA
+        NAMED_START_SPECIAL_POWER_COUNTDOWN Hero PowerA 20
+        NAMED_SET_SPECIAL_POWER_COUNTDOWN Hero PowerA 10
+        NAMED_ADD_SPECIAL_POWER_COUNTDOWN Hero PowerA 5
+        NAMED_FIRE_SPECIAL_POWER_AT_WAYPOINT Hero PowerA WP_A
+        NAMED_FIRE_SPECIAL_POWER_AT_NAMED Hero PowerA Target
+        SET_STOPPING_DISTANCE 25
+        UNIT_DESTROY_ALL_CONTAINED Hero
+        UNIT_MOVE_TOWARDS_NEAREST_OBJECT_TYPE Hero AmericaTank 50
+        TEAM_MOVE_TOWARDS_NEAREST_OBJECT_TYPE TeamA AmericaTank 50
+        UNIT_AFFECT_OBJECT_PANEL_FLAGS Hero Selectable 1
+        UNIT_SPAWN_NAMED_LOCATION_ORIENTATION Hero AmericaTank TeamA 0,0,0 90
+        TEAM_FACE_NAMED TeamA Target
+        TEAM_FACE_WAYPOINT TeamA WP_A
+        TEAM_HUNT_WITH_COMMAND_BUTTON TeamA CommandButtonAttack
+        TEAM_USE_COMMANDBUTTON_ABILITY_ON_NAMED TeamA CommandButtonTarget Target
+        TEAM_USE_COMMANDBUTTON_ABILITY_AT_WAYPOINT TeamA CommandButtonTarget WP_A
+        TEAM_USE_COMMANDBUTTON_ABILITY TeamA CommandButtonTarget
+        TEAM_WAIT_FOR_NOT_CONTAINED_ALL TeamA
+        TEAM_WAIT_FOR_NOT_CONTAINED_PARTIAL TeamA 50
+        TEAM_SPIN_FOR_FRAMECOUNT TeamA 30
+        TEAM_ALL_USE_COMMANDBUTTON_ON_NAMED TeamA CommandButtonTarget Target
+        TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_ENEMY_UNIT TeamA CommandButtonTarget
+        TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_GARRISONED_BUILDING TeamA CommandButtonTarget
+        TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_KINDOF TeamA CommandButtonTarget INFANTRY
+        TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_ENEMY_BUILDING TeamA CommandButtonTarget
+        TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_ENEMY_BUILDING_CLASS TeamA CommandButtonTarget BaseDefense
+        TEAM_ALL_USE_COMMANDBUTTON_ON_NEAREST_OBJECTTYPE TeamA CommandButtonTarget AmericaTank
+        TEAM_PARTIAL_USE_COMMANDBUTTON 0.5 TeamA CommandButtonTarget
+        TEAM_CAPTURE_NEAREST_UNOWNED_FACTION_UNIT TeamA
+        SHOW_MILITARY_CAPTION CaptionName 3
+        SET_BASE_CONSTRUCTION_SPEED Player_China 1.25
+        TECHTREE_MODIFY_BUILDABILITY_OBJECT AmericaTank No
+        WAREHOUSE_SET_VALUE Warehouse 1000
+        COMMANDBAR_REMOVE_BUTTON_OBJECTTYPE AmericaTank CommandButtonAttack
+        COMMANDBAR_ADD_BUTTON_OBJECTTYPE_SLOT AmericaTank CommandButtonAttack 1
+        SET_ATTACK_PRIORITY_THING AmericaTank PriorityA
+        SET_ATTACK_PRIORITY_KIND_OF INFANTRY PriorityA
+        SET_DEFAULT_ATTACK_PRIORITY PriorityA
+        OBJECTLIST_ADDOBJECTTYPE ListA AmericaTank
+        OBJECTLIST_REMOVEOBJECTTYPE ListA AmericaTank
+        OBJECT_ALLOW_BONUSES TRUE
+        DELETE_ALL_UNMANNED
+        CHOOSE_VICTIM_ALWAYS_USES_NORMAL TRUE
+        SCRIPTING_OVERRIDE_HULK_LIFETIME 10
+        SKIRMISH_BUILD_BUILDING TeamA AmericaBarracks
+        SKIRMISH_FOLLOW_APPROACH_PATH TeamA
+        SKIRMISH_MOVE_TO_APPROACH_PATH TeamA
+        SKIRMISH_BUILD_BASE_DEFENSE_FRONT Player_China
+        SKIRMISH_BUILD_BASE_DEFENSE_FLANK Player_China
+        SKIRMISH_BUILD_STRUCTURE_FRONT Player_China AmericaBarracks
+        SKIRMISH_BUILD_STRUCTURE_FLANK Player_China AmericaBarracks
+        SKIRMISH_FIRE_SPECIAL_POWER_AT_MOST_COST Player_China PowerA
+        SKIRMISH_ATTACK_NEAREST_GROUP_WITH_VALUE TeamA 10 50
+        SKIRMISH_PERFORM_COMMANDBUTTON_ON_MOST_VALUABLE_OBJECT TeamA CommandButtonTarget 100 1
+        SKIRMISH_WAIT_FOR_COMMANDBUTTON_AVAILABLE_ALL TeamA CommandButtonTarget
+        SKIRMISH_WAIT_FOR_COMMANDBUTTON_AVAILABLE_PARTIAL TeamA CommandButtonTarget
+        AI_PLAYER_BUILD_SUPPLY_CENTER Player_China
+        AI_PLAYER_BUILD_UPGRADE Player_China UpgradeA
+        AI_PLAYER_BUILD_TYPE_NEAREST_TEAM Player_China AmericaTank TeamA
+        IDLE_ALL_UNITS Player_China
+        RESUME_SUPPLY_TRUCKING Player_China
+        EVA_SET_ENABLED_DISABLED TRUE
+        OPTIONS_SET_OCCLUSION_MODE 1
+        OPTIONS_SET_DRAWICON_UI_MODE 1
+        OPTIONS_SET_PARTICLE_CAP_MODE 1
+        EXIT_SPECIFIC_BUILDING Bunker
+        ENABLE_SCORING
+        DISABLE_SCORING
+        SET_TRAIN_HELD Train TRUE
+      EndActions
+      IsActive = Yes
+    EndScript
+  EndScriptGroup
+EndScriptList
+"#;
+
+        let mut parser = IniScriptParser::new();
+        parser.parse(content).unwrap();
+        assert_eq!(parser.get_errors().len(), 0);
+        assert_eq!(parser.get_warnings().len(), 0);
+
+        let script = parser
+            .get_script_list("TestScripts")
+            .and_then(|list| list.get_script_group())
+            .and_then(|group| group.get_script())
+            .unwrap();
+
+        let mut actual = Vec::new();
+        let mut current = script.get_action();
+        while let Some(action) = current {
+            actual.push(action.get_action_type());
+            current = action.get_next();
+        }
+
+        assert_eq!(
+            actual,
+            vec![
+                ScriptActionType::CameraMoveHome,
+                ScriptActionType::OversizeTerrain,
+                ScriptActionType::CameraMotionBlur,
+                ScriptActionType::CameraMotionBlurJump,
+                ScriptActionType::CameraMotionBlurFollow,
+                ScriptActionType::CameraMotionBlurEndFollow,
+                ScriptActionType::CameraSetAudibleDistance,
+                ScriptActionType::NamedHideSpecialPowerDisplay,
+                ScriptActionType::NamedShowSpecialPowerDisplay,
+                ScriptActionType::NamedStopSpecialPowerCountdown,
+                ScriptActionType::NamedStartSpecialPowerCountdown,
+                ScriptActionType::NamedSetSpecialPowerCountdown,
+                ScriptActionType::NamedAddSpecialPowerCountdown,
+                ScriptActionType::NamedFireSpecialPowerAtWaypoint,
+                ScriptActionType::NamedFireSpecialPowerAtNamed,
+                ScriptActionType::SetStoppingDistance,
+                ScriptActionType::UnitDestroyAllContained,
+                ScriptActionType::UnitMoveTowardsNearestObjectType,
+                ScriptActionType::TeamMoveTowardsNearestObjectType,
+                ScriptActionType::UnitAffectObjectPanelFlags,
+                ScriptActionType::UnitSpawnNamedLocationOrientation,
+                ScriptActionType::TeamFaceNamed,
+                ScriptActionType::TeamFaceWaypoint,
+                ScriptActionType::TeamHuntWithCommandButton,
+                ScriptActionType::TeamUseCommandbuttonAbilityOnNamed,
+                ScriptActionType::TeamUseCommandbuttonAbilityAtWaypoint,
+                ScriptActionType::TeamUseCommandbuttonAbility,
+                ScriptActionType::TeamWaitForNotContainedAll,
+                ScriptActionType::TeamWaitForNotContainedPartial,
+                ScriptActionType::TeamSpinForFramecount,
+                ScriptActionType::TeamAllUseCommandbuttonOnNamed,
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyUnit,
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestGarrisonedBuilding,
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestKindof,
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuilding,
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestEnemyBuildingClass,
+                ScriptActionType::TeamAllUseCommandbuttonOnNearestObjecttype,
+                ScriptActionType::TeamPartialUseCommandbutton,
+                ScriptActionType::TeamCaptureNearestUnownedFactionUnit,
+                ScriptActionType::ShowMilitaryCaption,
+                ScriptActionType::SetBaseConstructionSpeed,
+                ScriptActionType::TechtreeModifyBuildabilityObject,
+                ScriptActionType::WarehouseSetValue,
+                ScriptActionType::CommandbarRemoveButtonObjecttype,
+                ScriptActionType::CommandbarAddButtonObjecttypeSlot,
+                ScriptActionType::SetAttackPriorityThing,
+                ScriptActionType::SetAttackPriorityKindOf,
+                ScriptActionType::SetDefaultAttackPriority,
+                ScriptActionType::ObjectlistAddobjecttype,
+                ScriptActionType::ObjectlistRemoveobjecttype,
+                ScriptActionType::ObjectAllowBonuses,
+                ScriptActionType::DeleteAllUnmanned,
+                ScriptActionType::ChooseVictimAlwaysUsesNormal,
+                ScriptActionType::ScriptingOverrideHulkLifetime,
+                ScriptActionType::SkirmishBuildBuilding,
+                ScriptActionType::SkirmishFollowApproachPath,
+                ScriptActionType::SkirmishMoveToApproachPath,
+                ScriptActionType::SkirmishBuildBaseDefenseFront,
+                ScriptActionType::SkirmishBuildBaseDefenseFlank,
+                ScriptActionType::SkirmishBuildStructureFront,
+                ScriptActionType::SkirmishBuildStructureFlank,
+                ScriptActionType::SkirmishFireSpecialPowerAtMostCost,
+                ScriptActionType::SkirmishAttackNearestGroupWithValue,
+                ScriptActionType::SkirmishPerformCommandbuttonOnMostValuableObject,
+                ScriptActionType::SkirmishWaitForCommandbuttonAvailableAll,
+                ScriptActionType::SkirmishWaitForCommandbuttonAvailablePartial,
+                ScriptActionType::AiPlayerBuildSupplyCenter,
+                ScriptActionType::AiPlayerBuildUpgrade,
+                ScriptActionType::AiPlayerBuildTypeNearestTeam,
+                ScriptActionType::IdleAllUnits,
+                ScriptActionType::ResumeSupplyTrucking,
+                ScriptActionType::EvaSetEnabledDisabled,
+                ScriptActionType::OptionsSetOcclusionMode,
+                ScriptActionType::OptionsSetDrawiconUiMode,
+                ScriptActionType::OptionsSetParticleCapMode,
+                ScriptActionType::ExitSpecificBuilding,
+                ScriptActionType::EnableScoring,
+                ScriptActionType::DisableScoring,
+                ScriptActionType::SetTrainHeld,
             ]
         );
     }
