@@ -47,6 +47,7 @@ use crate::weapon::{WeaponLockType, WeaponSlotType};
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data as get_engine_global_data;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
+use game_engine::common::rts::{ScienceType, SCIENCE_INVALID};
 use game_engine::common::system::radar::{
     get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
 };
@@ -3228,6 +3229,42 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_purchase_science(
+        &self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        let science = command.command.get_argument(0).and_then(|arg| match arg {
+            crate::commands::command::CommandArgumentType::Integer(value) => {
+                Some(*value as ScienceType)
+            }
+            _ => None,
+        });
+        let Some(science) = science else {
+            return CommandExecutionResult::Failed(AsciiString::from(
+                "PurchaseScience missing science",
+            ));
+        };
+
+        if science == SCIENCE_INVALID {
+            return CommandExecutionResult::Success;
+        }
+
+        let list_lock = crate::player::player_list();
+        let Ok(list) = list_lock.read() else {
+            return CommandExecutionResult::Failed(AsciiString::from("Player list unavailable"));
+        };
+        let Some(player) = list.get_player(context.player_id) else {
+            return CommandExecutionResult::Success;
+        };
+        let Ok(mut guard) = player.write() else {
+            return CommandExecutionResult::Failed(AsciiString::from("Failed to lock player"));
+        };
+
+        let _ = guard.attempt_to_purchase_science(science);
+        CommandExecutionResult::Success
+    }
+
     fn execute_create_formation(
         &self,
         _command: &QueuedCommand,
@@ -3489,6 +3526,7 @@ impl CommandHandler for DefaultCommandHandler {
             ),
             CommandType::SnipeVehicle => self.execute_snipe_vehicle(command, context),
             CommandType::EnableRetaliationMode => self.execute_enable_retaliation(command, context),
+            CommandType::PurchaseScience => self.execute_purchase_science(command, context),
             CommandType::CreateFormation => self.execute_create_formation(command, context),
             CommandType::SelfDestruct => self.execute_self_destruct(command, context),
             CommandType::PlaceBeacon => self.execute_place_beacon(command, context),
@@ -3558,6 +3596,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::DisableBuildingHack
                 | CommandType::SnipeVehicle
                 | CommandType::EnableRetaliationMode
+                | CommandType::PurchaseScience
                 | CommandType::CreateFormation
                 | CommandType::SelfDestruct
                 | CommandType::PlaceBeacon
@@ -3806,6 +3845,13 @@ mod tests {
 
         assert!(handler.can_handle(CommandType::DozerConstruct));
         assert!(handler.can_handle(CommandType::DozerConstructLine));
+    }
+
+    #[test]
+    fn default_handler_accepts_purchase_science_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::PurchaseScience));
     }
 
     #[test]
