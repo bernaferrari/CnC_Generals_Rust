@@ -40,11 +40,24 @@ use crate::object::behavior::deletion_update::{DeletionUpdate, DeletionUpdateMod
 use crate::object::behavior::demo_trap_update::{
     demo_trap_update_data_factory, demo_trap_update_module_factory,
 };
+use crate::object::behavior::dynamic_shroud_clearing_range_update::{
+    DynamicShroudClearingRangeUpdate, DynamicShroudClearingRangeUpdateModuleData,
+};
 use crate::object::behavior::enemy_near_update::{EnemyNearUpdate, EnemyNearUpdateModuleData};
 use crate::object::behavior::fire_ocl_after_weapon_cooldown_update::{
     FireOCLAfterWeaponCooldownUpdate, FireOCLAfterWeaponCooldownUpdateModuleData,
 };
+use crate::object::behavior::fire_weapon_update::{FireWeaponUpdate, FireWeaponUpdateModuleData};
+use crate::object::behavior::fire_weapon_when_damaged_behavior_new::{
+    FireWeaponWhenDamagedBehavior, FireWeaponWhenDamagedBehaviorModuleData,
+};
+use crate::object::behavior::fire_weapon_when_dead_behavior_new::{
+    FireWeaponWhenDeadBehavior, FireWeaponWhenDeadBehaviorModuleData,
+};
 use crate::object::behavior::float_update::{FloatUpdate, FloatUpdateModuleData};
+use crate::object::behavior::generate_minefield_behavior::{
+    GenerateMinefieldBehavior, GenerateMinefieldBehaviorModuleData,
+};
 use crate::object::behavior::height_die_update::{HeightDieUpdate, HeightDieUpdateModuleData};
 use crate::object::behavior::hijacker_update::{HijackerUpdate, HijackerUpdateModuleData};
 use crate::object::behavior::horde_update::{HordeUpdate, HordeUpdateModuleData};
@@ -69,6 +82,7 @@ use crate::object::behavior::pilot_find_vehicle_update::{
 use crate::object::behavior::point_defense_laser_update::{
     point_defense_laser_update_data_factory, point_defense_laser_update_module_factory,
 };
+use crate::object::behavior::power_plant_update::{PowerPlantUpdate, PowerPlantUpdateModuleData};
 use crate::object::behavior::projectile_stream_update::{
     projectile_stream_update_data_factory, projectile_stream_update_module_factory,
 };
@@ -84,6 +98,12 @@ use crate::object::behavior::slow_death_behavior::{
 };
 use crate::object::behavior::smart_bomb_target_homing_update::{
     smart_bomb_target_homing_update_data_factory, smart_bomb_target_homing_update_module_factory,
+};
+use crate::object::behavior::spectre_gunship_deployment_update::{
+    SpectreGunshipDeploymentUpdate, SpectreGunshipDeploymentUpdateModuleData,
+};
+use crate::object::behavior::spectre_gunship_update::{
+    SpectreGunshipUpdate, SpectreGunshipUpdateModuleData,
 };
 use crate::object::behavior::stealth_detector_update::{
     StealthDetectorUpdate, StealthDetectorUpdateModuleData,
@@ -101,6 +121,9 @@ use crate::object::behavior::topple_update::{
     topple_update_data_factory, topple_update_module_factory,
 };
 use crate::object::behavior::wave_guide_update::{WaveGuideUpdate, WaveGuideUpdateModuleData};
+use crate::object::behavior::weapon_bonus_update::{
+    WeaponBonusUpdate, WeaponBonusUpdateModuleData,
+};
 use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
 use crate::object::body::body_module::{BodyModuleData, BodyModuleInterface};
 use crate::object::body::highlander_body::HighlanderBody;
@@ -327,6 +350,13 @@ active_behavior_factories!(
     "DeletionUpdate"
 );
 active_behavior_factories!(
+    dynamic_shroud_clearing_range_update_data_factory,
+    dynamic_shroud_clearing_range_update_module_factory,
+    DynamicShroudClearingRangeUpdateModuleData,
+    DynamicShroudClearingRangeUpdate,
+    "DynamicShroudClearingRangeUpdate"
+);
+active_behavior_factories!(
     enemy_near_update_data_factory,
     enemy_near_update_module_factory,
     EnemyNearUpdateModuleData,
@@ -341,11 +371,39 @@ active_behavior_factories!(
     "FireOCLAfterWeaponCooldownUpdate"
 );
 active_behavior_factories!(
+    fire_weapon_when_damaged_behavior_data_factory,
+    fire_weapon_when_damaged_behavior_module_factory,
+    FireWeaponWhenDamagedBehaviorModuleData,
+    FireWeaponWhenDamagedBehavior,
+    "FireWeaponWhenDamagedBehavior"
+);
+active_behavior_factories!(
+    fire_weapon_when_dead_behavior_data_factory,
+    fire_weapon_when_dead_behavior_module_factory,
+    FireWeaponWhenDeadBehaviorModuleData,
+    FireWeaponWhenDeadBehavior,
+    "FireWeaponWhenDeadBehavior"
+);
+active_behavior_factories!(
+    fire_weapon_update_data_factory,
+    fire_weapon_update_module_factory,
+    FireWeaponUpdateModuleData,
+    FireWeaponUpdate,
+    "FireWeaponUpdate"
+);
+active_behavior_factories!(
     float_update_data_factory,
     float_update_module_factory,
     FloatUpdateModuleData,
     FloatUpdate,
     "FloatUpdate"
+);
+active_behavior_factories!(
+    generate_minefield_behavior_data_factory,
+    generate_minefield_behavior_module_factory,
+    GenerateMinefieldBehaviorModuleData,
+    GenerateMinefieldBehavior,
+    "GenerateMinefieldBehavior"
 );
 active_behavior_factories!(
     height_die_update_data_factory,
@@ -390,6 +448,13 @@ active_behavior_factories!(
     "PilotFindVehicleUpdate"
 );
 active_behavior_factories!(
+    power_plant_update_data_factory,
+    power_plant_update_module_factory,
+    PowerPlantUpdateModuleData,
+    PowerPlantUpdate,
+    "PowerPlantUpdate"
+);
+active_behavior_factories!(
     propaganda_tower_behavior_data_factory,
     propaganda_tower_behavior_module_factory,
     PropagandaTowerBehaviorModuleData,
@@ -402,6 +467,20 @@ active_behavior_factories!(
     RadarUpdateModuleData,
     RadarUpdate,
     "RadarUpdate"
+);
+active_behavior_factories!(
+    spectre_gunship_deployment_update_data_factory,
+    spectre_gunship_deployment_update_module_factory,
+    SpectreGunshipDeploymentUpdateModuleData,
+    SpectreGunshipDeploymentUpdate,
+    "SpectreGunshipDeploymentUpdate"
+);
+active_behavior_factories!(
+    spectre_gunship_update_data_factory,
+    spectre_gunship_update_module_factory,
+    SpectreGunshipUpdateModuleData,
+    SpectreGunshipUpdate,
+    "SpectreGunshipUpdate"
 );
 active_behavior_factories!(
     stealth_detector_update_data_factory,
@@ -423,6 +502,13 @@ active_behavior_factories!(
     WaveGuideUpdateModuleData,
     WaveGuideUpdate,
     "WaveGuideUpdate"
+);
+active_behavior_factories!(
+    weapon_bonus_update_data_factory,
+    weapon_bonus_update_module_factory,
+    WeaponBonusUpdateModuleData,
+    WeaponBonusUpdate,
+    "WeaponBonusUpdate"
 );
 
 #[derive(Debug, Clone)]
@@ -2439,6 +2525,12 @@ fn install_contain_overrides() -> Result<(), String> {
         deletion_update_data_factory,
     )?;
     register_module_override(
+        "DynamicShroudClearingRangeUpdate",
+        ModuleType::Behavior,
+        dynamic_shroud_clearing_range_update_module_factory,
+        dynamic_shroud_clearing_range_update_data_factory,
+    )?;
+    register_module_override(
         "EnemyNearUpdate",
         ModuleType::Behavior,
         enemy_near_update_module_factory,
@@ -2451,10 +2543,34 @@ fn install_contain_overrides() -> Result<(), String> {
         fire_ocl_after_weapon_cooldown_update_data_factory,
     )?;
     register_module_override(
+        "FireWeaponWhenDamagedBehavior",
+        ModuleType::Behavior,
+        fire_weapon_when_damaged_behavior_module_factory,
+        fire_weapon_when_damaged_behavior_data_factory,
+    )?;
+    register_module_override(
+        "FireWeaponWhenDeadBehavior",
+        ModuleType::Behavior,
+        fire_weapon_when_dead_behavior_module_factory,
+        fire_weapon_when_dead_behavior_data_factory,
+    )?;
+    register_module_override(
+        "FireWeaponUpdate",
+        ModuleType::Behavior,
+        fire_weapon_update_module_factory,
+        fire_weapon_update_data_factory,
+    )?;
+    register_module_override(
         "FloatUpdate",
         ModuleType::Behavior,
         float_update_module_factory,
         float_update_data_factory,
+    )?;
+    register_module_override(
+        "GenerateMinefieldBehavior",
+        ModuleType::Behavior,
+        generate_minefield_behavior_module_factory,
+        generate_minefield_behavior_data_factory,
     )?;
     register_module_override(
         "HeightDieUpdate",
@@ -2493,6 +2609,12 @@ fn install_contain_overrides() -> Result<(), String> {
         pilot_find_vehicle_update_data_factory,
     )?;
     register_module_override(
+        "PowerPlantUpdate",
+        ModuleType::Behavior,
+        power_plant_update_module_factory,
+        power_plant_update_data_factory,
+    )?;
+    register_module_override(
         "PropagandaTowerBehavior",
         ModuleType::Behavior,
         propaganda_tower_behavior_module_factory,
@@ -2503,6 +2625,18 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         radar_update_module_factory,
         radar_update_data_factory,
+    )?;
+    register_module_override(
+        "SpectreGunshipDeploymentUpdate",
+        ModuleType::Behavior,
+        spectre_gunship_deployment_update_module_factory,
+        spectre_gunship_deployment_update_data_factory,
+    )?;
+    register_module_override(
+        "SpectreGunshipUpdate",
+        ModuleType::Behavior,
+        spectre_gunship_update_module_factory,
+        spectre_gunship_update_data_factory,
     )?;
     register_module_override(
         "StealthDetectorUpdate",
@@ -2521,6 +2655,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         wave_guide_update_module_factory,
         wave_guide_update_data_factory,
+    )?;
+    register_module_override(
+        "WeaponBonusUpdate",
+        ModuleType::Behavior,
+        weapon_bonus_update_module_factory,
+        weapon_bonus_update_data_factory,
     )?;
     register_module_override(
         "OpenContain",

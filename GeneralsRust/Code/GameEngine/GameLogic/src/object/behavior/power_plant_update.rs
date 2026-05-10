@@ -41,6 +41,22 @@ impl Default for PowerPlantUpdateModuleData {
     }
 }
 
+impl PowerPlantUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, POWER_PLANT_UPDATE_FIELDS)
+    }
+}
+
+const POWER_PLANT_UPDATE_FIELDS: &[FieldParse<PowerPlantUpdateModuleData>] = &[FieldParse {
+    token: "RodsExtendTime",
+    parse: |_, data, tokens| {
+        let value = tokens.iter().copied().find(|token| *token != "=");
+        data.rods_extend_time =
+            INI::parse_duration_unsigned_int(value.ok_or(INIError::InvalidData)?)?;
+        Ok(())
+    },
+}];
+
 crate::impl_legacy_module_data_with_key_field!(PowerPlantUpdateModuleData, module_tag_name_key);
 
 impl Snapshotable for PowerPlantUpdateModuleData {
