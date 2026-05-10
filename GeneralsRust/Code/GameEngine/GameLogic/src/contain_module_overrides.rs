@@ -236,6 +236,16 @@ use crate::object::die::{
 };
 use crate::object::draw::*;
 use crate::object::special_powers::*;
+use crate::object::update::ai_update::{
+    AssaultTransportAIUpdateModule, AssaultTransportAIUpdateModuleData, ChinookAIUpdateModule,
+    ChinookAIUpdateModuleData, DeliverPayloadAIUpdateModule, DeliverPayloadAIUpdateModuleData,
+    DeployStyleAIUpdateModule, DeployStyleAIUpdateModuleData, DozerAIUpdateModule,
+    DozerAIUpdateModuleData, HackInternetAIUpdateModule, HackInternetAIUpdateModuleData,
+    JetAIUpdateModule, JetAIUpdateModuleData, RailedTransportAIUpdateModule,
+    RailedTransportAIUpdateModuleData, SupplyTruckAIUpdateModule, SupplyTruckAIUpdateModuleData,
+    TransportAIUpdateModule, TransportAIUpdateModuleData, WanderAIUpdateModule,
+    WanderAIUpdateModuleData, WorkerAIUpdateModule, WorkerAIUpdateModuleData,
+};
 use crate::object::update::ai_update_interface::{AIUpdateInterfaceModule, AIUpdateModuleData};
 use crate::object::update::bone_fx_update::{
     BoneFXUpdate, BoneFXUpdateModule, BoneFXUpdateModuleData,
@@ -1375,6 +1385,136 @@ fn ai_update_interface_module_factory(
     let module_name_key = NameKeyGenerator::name_to_key("AIUpdateInterface");
     Box::new(AIUpdateInterfaceModule::new(module_name_key, data_arc))
 }
+
+macro_rules! ai_update_factories {
+    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
+        fn $data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            let mut data = <$data_ty>::default();
+            if let Some(ini) = ini {
+                if let Err(err) = data.parse_from_ini(ini) {
+                    warn!(
+                        "Failed to parse {} module data at line {}: {}",
+                        $module_name,
+                        ini.get_line_num(),
+                        err
+                    );
+                }
+            }
+            Box::new(data)
+        }
+
+        fn $module_factory(
+            _thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
+            let module_name_key = NameKeyGenerator::name_to_key($module_name);
+            Box::new(<$module_ty>::new(module_name_key, data_arc))
+        }
+    };
+}
+
+macro_rules! empty_ai_update_factories {
+    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
+        fn $data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            Box::new(<$data_ty>::default())
+        }
+
+        fn $module_factory(
+            _thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
+            let module_name_key = NameKeyGenerator::name_to_key($module_name);
+            Box::new(<$module_ty>::new(module_name_key, data_arc))
+        }
+    };
+}
+
+empty_ai_update_factories!(
+    transport_ai_update_data_factory,
+    transport_ai_update_module_factory,
+    TransportAIUpdateModuleData,
+    TransportAIUpdateModule,
+    "TransportAIUpdate"
+);
+ai_update_factories!(
+    deploy_style_ai_update_data_factory,
+    deploy_style_ai_update_module_factory,
+    DeployStyleAIUpdateModuleData,
+    DeployStyleAIUpdateModule,
+    "DeployStyleAIUpdate"
+);
+empty_ai_update_factories!(
+    wander_ai_update_data_factory,
+    wander_ai_update_module_factory,
+    WanderAIUpdateModuleData,
+    WanderAIUpdateModule,
+    "WanderAIUpdate"
+);
+ai_update_factories!(
+    jet_ai_update_data_factory,
+    jet_ai_update_module_factory,
+    JetAIUpdateModuleData,
+    JetAIUpdateModule,
+    "JetAIUpdate"
+);
+ai_update_factories!(
+    railed_transport_ai_update_data_factory,
+    railed_transport_ai_update_module_factory,
+    RailedTransportAIUpdateModuleData,
+    RailedTransportAIUpdateModule,
+    "RailedTransportAIUpdate"
+);
+ai_update_factories!(
+    assault_transport_ai_update_data_factory,
+    assault_transport_ai_update_module_factory,
+    AssaultTransportAIUpdateModuleData,
+    AssaultTransportAIUpdateModule,
+    "AssaultTransportAIUpdate"
+);
+ai_update_factories!(
+    deliver_payload_ai_update_data_factory,
+    deliver_payload_ai_update_module_factory,
+    DeliverPayloadAIUpdateModuleData,
+    DeliverPayloadAIUpdateModule,
+    "DeliverPayloadAIUpdate"
+);
+ai_update_factories!(
+    hack_internet_ai_update_data_factory,
+    hack_internet_ai_update_module_factory,
+    HackInternetAIUpdateModuleData,
+    HackInternetAIUpdateModule,
+    "HackInternetAIUpdate"
+);
+ai_update_factories!(
+    supply_truck_ai_update_data_factory,
+    supply_truck_ai_update_module_factory,
+    SupplyTruckAIUpdateModuleData,
+    SupplyTruckAIUpdateModule,
+    "SupplyTruckAIUpdate"
+);
+ai_update_factories!(
+    chinook_ai_update_data_factory,
+    chinook_ai_update_module_factory,
+    ChinookAIUpdateModuleData,
+    ChinookAIUpdateModule,
+    "ChinookAIUpdate"
+);
+ai_update_factories!(
+    worker_ai_update_data_factory,
+    worker_ai_update_module_factory,
+    WorkerAIUpdateModuleData,
+    WorkerAIUpdateModule,
+    "WorkerAIUpdate"
+);
+ai_update_factories!(
+    dozer_ai_update_data_factory,
+    dozer_ai_update_module_factory,
+    DozerAIUpdateModuleData,
+    DozerAIUpdateModule,
+    "DozerAIUpdate"
+);
 
 active_behavior_factories!(
     bunker_buster_behavior_data_factory,
@@ -3795,6 +3935,78 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         ai_update_interface_module_factory,
         ai_update_interface_data_factory,
+    )?;
+    register_module_override(
+        "TransportAIUpdate",
+        ModuleType::Behavior,
+        transport_ai_update_module_factory,
+        transport_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "DeployStyleAIUpdate",
+        ModuleType::Behavior,
+        deploy_style_ai_update_module_factory,
+        deploy_style_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "WanderAIUpdate",
+        ModuleType::Behavior,
+        wander_ai_update_module_factory,
+        wander_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "JetAIUpdate",
+        ModuleType::Behavior,
+        jet_ai_update_module_factory,
+        jet_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "RailedTransportAIUpdate",
+        ModuleType::Behavior,
+        railed_transport_ai_update_module_factory,
+        railed_transport_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "AssaultTransportAIUpdate",
+        ModuleType::Behavior,
+        assault_transport_ai_update_module_factory,
+        assault_transport_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "DeliverPayloadAIUpdate",
+        ModuleType::Behavior,
+        deliver_payload_ai_update_module_factory,
+        deliver_payload_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "HackInternetAIUpdate",
+        ModuleType::Behavior,
+        hack_internet_ai_update_module_factory,
+        hack_internet_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "SupplyTruckAIUpdate",
+        ModuleType::Behavior,
+        supply_truck_ai_update_module_factory,
+        supply_truck_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "ChinookAIUpdate",
+        ModuleType::Behavior,
+        chinook_ai_update_module_factory,
+        chinook_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "WorkerAIUpdate",
+        ModuleType::Behavior,
+        worker_ai_update_module_factory,
+        worker_ai_update_data_factory,
+    )?;
+    register_module_override(
+        "DozerAIUpdate",
+        ModuleType::Behavior,
+        dozer_ai_update_module_factory,
+        dozer_ai_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
