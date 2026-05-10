@@ -1918,16 +1918,16 @@ mod tests {
         player.resources.supplies = 5000;
         game_logic.add_player(player);
 
-        let mut template = ThingTemplate::new("TestUnit");
+        let mut template = ThingTemplate::new("AmericaSupplyCenter");
         template
-            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
 
-        let unit_a = Object::new(template.clone(), ObjectId(201), Team::USA);
-        let unit_b = Object::new(template, ObjectId(202), Team::USA);
-        game_logic.add_object(unit_a);
-        game_logic.add_object(unit_b);
+        let producer_a = Object::new(template.clone(), ObjectId(201), Team::USA);
+        let producer_b = Object::new(template, ObjectId(202), Team::USA);
+        game_logic.add_object(producer_a);
+        game_logic.add_object(producer_b);
 
         let queue_command = GameCommand {
             command_type: CommandType::QueueUpgrade {
@@ -1966,9 +1966,9 @@ mod tests {
         player.resources.supplies = 5000;
         game_logic.add_player(player);
 
-        let mut template = ThingTemplate::new("TestUnit");
+        let mut template = ThingTemplate::new("AmericaSupplyCenter");
         template
-            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
         game_logic.add_object(Object::new(template, ObjectId(251), Team::USA));
@@ -2334,13 +2334,13 @@ mod tests {
         player.resources.supplies = 3000;
         game_logic.add_player(player);
 
-        let mut template = ThingTemplate::new("TestUnit");
+        let mut template = ThingTemplate::new("AmericaSupplyCenter");
         template
-            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
-        let unit = Object::new(template, ObjectId(301), Team::USA);
-        game_logic.add_object(unit);
+        let producer = Object::new(template, ObjectId(301), Team::USA);
+        game_logic.add_object(producer);
 
         let queue_command = GameCommand {
             command_type: CommandType::QueueUpgrade {
@@ -2389,6 +2389,46 @@ mod tests {
     }
 
     #[test]
+    fn queue_upgrade_requires_constructed_building_source() {
+        use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
+
+        let system = CommandSystem::new();
+        let mut game_logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "USA", true);
+        player.resources.supplies = 3000;
+        game_logic.add_player(player);
+
+        let mut unit_template = ThingTemplate::new("TestUnit");
+        unit_template
+            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Selectable)
+            .set_health(100.0);
+        game_logic.add_object(Object::new(unit_template, ObjectId(351), Team::USA));
+
+        let command = GameCommand {
+            command_type: CommandType::QueueUpgrade {
+                upgrade_name: "Upgrade_AmericaSupplyLines".to_string(),
+            },
+            player_id: 0,
+            command_id: 12,
+            timestamp: SystemTime::now(),
+            selected_units: vec![ObjectId(351)],
+            modifier_keys: ModifierKeys::default(),
+        };
+
+        assert_eq!(
+            system.execute_command(&command, &mut game_logic),
+            CommandResult::InvalidCommand
+        );
+        let player_after = game_logic.get_player(0).expect("player should exist");
+        assert_eq!(
+            player_after.resources.supplies, 3000,
+            "non-producing units must not charge upgrade resources"
+        );
+        assert!(player_after.queued_upgrades.is_empty());
+    }
+
+    #[test]
     fn queued_upgrade_completes_during_simulation_update() {
         use crate::game_logic::{KindOf, Player, Team, ThingTemplate};
 
@@ -2398,13 +2438,13 @@ mod tests {
         player.resources.supplies = 3000;
         game_logic.add_player(player);
 
-        let mut template = ThingTemplate::new("TestUnit");
+        let mut template = ThingTemplate::new("AmericaSupplyCenter");
         template
-            .add_kind_of(KindOf::Vehicle)
+            .add_kind_of(KindOf::Structure)
             .add_kind_of(KindOf::Selectable)
             .set_health(100.0);
-        let unit = Object::new(template, ObjectId(401), Team::USA);
-        game_logic.add_object(unit);
+        let producer = Object::new(template, ObjectId(401), Team::USA);
+        game_logic.add_object(producer);
 
         let command = GameCommand {
             command_type: CommandType::QueueUpgrade {
