@@ -228,6 +228,11 @@ use crate::object::contain::{
     RiderChangeContain, RiderChangeContainModuleData, TransportContain, TransportContainModuleData,
     TunnelContain, TunnelContainModuleData,
 };
+use crate::object::create::{
+    CreateModuleData, GrantUpgradeCreate, GrantUpgradeCreateModuleData, LockWeaponCreate,
+    LockWeaponCreateModuleData, PreorderCreate, SpecialPowerCreate, SupplyCenterCreate,
+    SupplyWarehouseCreate, VeterancyGainCreate, VeterancyGainCreateModuleData,
+};
 use crate::object::damage::bone_fx_damage::{BoneFXDamage, BoneFXDamageModule};
 use crate::object::damage::transition_damage_fx::{
     TransitionDamageFX, TransitionDamageFXModule, TransitionDamageFXModuleData,
@@ -412,6 +417,156 @@ where
             .clone(),
     )
 }
+
+#[derive(Debug)]
+struct ActiveCreateModule<T: CreateInterface + Snapshotable + Send + Sync + 'static> {
+    module_name_key: NameKeyType,
+    data: Arc<dyn ModuleData>,
+    create: T,
+}
+
+impl<T: CreateInterface + Snapshotable + Send + Sync + 'static> ActiveCreateModule<T> {
+    fn new(module_name: &str, data: Arc<dyn ModuleData>, create: T) -> Self {
+        Self {
+            module_name_key: NameKeyGenerator::name_to_key(module_name),
+            data,
+            create,
+        }
+    }
+}
+
+impl<T: CreateInterface + Snapshotable + Send + Sync + 'static> Module for ActiveCreateModule<T> {
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn ModuleData {
+        self.data.as_ref()
+    }
+
+    fn get_create_interface(&self) -> Option<&dyn CreateInterface> {
+        Some(&self.create)
+    }
+}
+
+impl<T: CreateInterface + Snapshotable + Send + Sync + 'static> Snapshotable
+    for ActiveCreateModule<T>
+{
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.create.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.create.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.create.load_post_process()
+    }
+}
+
+macro_rules! parsed_create_factories {
+    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
+        fn $data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            let mut data = <$data_ty>::default();
+            if let Some(ini) = ini {
+                if let Err(err) = data.parse_from_ini(ini) {
+                    warn!(
+                        "Failed to parse {} module data at line {}: {}",
+                        $module_name,
+                        ini.get_line_num(),
+                        err
+                    );
+                }
+            }
+            Box::new(data)
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let data_arc = cloned_module_data::<$data_ty>($module_name, &module_data);
+            let engine_data: Arc<dyn ModuleData> = data_arc.clone();
+            Box::new(ActiveCreateModule::new(
+                $module_name,
+                engine_data,
+                <$module_ty>::new(thing, data_arc),
+            ))
+        }
+    };
+}
+
+macro_rules! empty_create_factories {
+    ($data_factory:ident, $module_factory:ident, $module_ty:ty, $module_name:literal) => {
+        fn $data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            Box::new(CreateModuleData::default())
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let data_arc = cloned_module_data::<CreateModuleData>($module_name, &module_data);
+            let engine_data: Arc<dyn ModuleData> = data_arc;
+            Box::new(ActiveCreateModule::new(
+                $module_name,
+                engine_data,
+                <$module_ty>::new(thing),
+            ))
+        }
+    };
+}
+
+parsed_create_factories!(
+    grant_upgrade_create_data_factory,
+    grant_upgrade_create_module_factory,
+    GrantUpgradeCreateModuleData,
+    GrantUpgradeCreate,
+    "GrantUpgradeCreate"
+);
+parsed_create_factories!(
+    lock_weapon_create_data_factory,
+    lock_weapon_create_module_factory,
+    LockWeaponCreateModuleData,
+    LockWeaponCreate,
+    "LockWeaponCreate"
+);
+empty_create_factories!(
+    preorder_create_data_factory,
+    preorder_create_module_factory,
+    PreorderCreate,
+    "PreorderCreate"
+);
+empty_create_factories!(
+    special_power_create_data_factory,
+    special_power_create_module_factory,
+    SpecialPowerCreate,
+    "SpecialPowerCreate"
+);
+empty_create_factories!(
+    supply_center_create_data_factory,
+    supply_center_create_module_factory,
+    SupplyCenterCreate,
+    "SupplyCenterCreate"
+);
+empty_create_factories!(
+    supply_warehouse_create_data_factory,
+    supply_warehouse_create_module_factory,
+    SupplyWarehouseCreate,
+    "SupplyWarehouseCreate"
+);
+parsed_create_factories!(
+    veterancy_gain_create_data_factory,
+    veterancy_gain_create_module_factory,
+    VeterancyGainCreateModuleData,
+    VeterancyGainCreate,
+    "VeterancyGainCreate"
+);
 
 macro_rules! active_behavior_factories {
     ($data_factory:ident, $module_factory:ident, $data_ty:ty, $behavior_ty:ty, $module_name:literal) => {
@@ -4618,6 +4773,48 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         squish_collide_module_factory,
         squish_collide_data_factory,
+    )?;
+    register_module_override(
+        "GrantUpgradeCreate",
+        ModuleType::Behavior,
+        grant_upgrade_create_module_factory,
+        grant_upgrade_create_data_factory,
+    )?;
+    register_module_override(
+        "LockWeaponCreate",
+        ModuleType::Behavior,
+        lock_weapon_create_module_factory,
+        lock_weapon_create_data_factory,
+    )?;
+    register_module_override(
+        "PreorderCreate",
+        ModuleType::Behavior,
+        preorder_create_module_factory,
+        preorder_create_data_factory,
+    )?;
+    register_module_override(
+        "SpecialPowerCreate",
+        ModuleType::Behavior,
+        special_power_create_module_factory,
+        special_power_create_data_factory,
+    )?;
+    register_module_override(
+        "SupplyCenterCreate",
+        ModuleType::Behavior,
+        supply_center_create_module_factory,
+        supply_center_create_data_factory,
+    )?;
+    register_module_override(
+        "SupplyWarehouseCreate",
+        ModuleType::Behavior,
+        supply_warehouse_create_module_factory,
+        supply_warehouse_create_data_factory,
+    )?;
+    register_module_override(
+        "VeterancyGainCreate",
+        ModuleType::Behavior,
+        veterancy_gain_create_module_factory,
+        veterancy_gain_create_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
