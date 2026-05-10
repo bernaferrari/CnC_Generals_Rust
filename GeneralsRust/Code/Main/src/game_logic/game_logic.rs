@@ -300,9 +300,7 @@ impl Player {
 
     /// Queue an upgrade for this player when not already queued/completed and affordable.
     pub fn queue_upgrade(&mut self, upgrade_name: &str, cost: &Resources) -> bool {
-        if self.unlocked_sciences.contains(upgrade_name)
-            || self.queued_upgrades.contains(upgrade_name)
-        {
+        if self.has_unlocked_upgrade(upgrade_name) || self.has_queued_upgrade(upgrade_name) {
             return false;
         }
         if !self.spend_resources(cost) {
@@ -314,9 +312,10 @@ impl Player {
 
     /// Cancel a queued upgrade and refund the requested resources.
     pub fn cancel_queued_upgrade(&mut self, upgrade_name: &str, refund: &Resources) -> bool {
-        if !self.queued_upgrades.remove(upgrade_name) {
+        let Some(queued_name) = self.find_queued_upgrade_name(upgrade_name) else {
             return false;
-        }
+        };
+        self.queued_upgrades.remove(&queued_name);
         self.resources.supplies = self.resources.supplies.saturating_add(refund.supplies);
         self.power_available -= refund.power;
         true
@@ -337,6 +336,18 @@ impl Player {
         self.unlocked_sciences
             .iter()
             .any(|unlocked| normalize_upgrade_name(unlocked) == expected)
+    }
+
+    pub fn has_queued_upgrade(&self, upgrade_name: &str) -> bool {
+        self.find_queued_upgrade_name(upgrade_name).is_some()
+    }
+
+    fn find_queued_upgrade_name(&self, upgrade_name: &str) -> Option<String> {
+        let expected = normalize_upgrade_name(upgrade_name);
+        self.queued_upgrades
+            .iter()
+            .find(|queued| normalize_upgrade_name(queued) == expected)
+            .cloned()
     }
 
     pub fn record_unit_destroyed(&mut self) {
