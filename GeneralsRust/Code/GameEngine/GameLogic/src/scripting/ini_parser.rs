@@ -421,14 +421,14 @@ impl IniScriptParser {
     /// Parse a single condition line
     fn parse_single_condition(&mut self, line: &str) -> GameLogicResult<Box<Condition>> {
         // Parse format: CONDITION_TYPE param1 param2 param3 ...
-        let parts: Vec<&str> = line.split_whitespace().collect();
+        let parts = tokenize_script_line(line)?;
         if parts.is_empty() {
             return Err(GameLogicError::Configuration(format!(
                 "Empty condition line"
             )));
         }
 
-        let condition_name = parts[0];
+        let condition_name = parts[0].as_str();
         let condition_type = self.parse_condition_type(condition_name)?;
 
         let mut condition = Condition::new(condition_type);
@@ -442,11 +442,11 @@ impl IniScriptParser {
         ) {
             if parts.len() >= 4 {
                 // C++ order: player, comparison, count, object_type
-                condition.add_parameter(self.parse_parameter(parts[1])?)?;
+                condition.add_parameter(self.parse_parameter(&parts[1])?)?;
                 // GreaterEqual (matches ScriptConditions.cpp comparison encoding)
                 condition.add_parameter(Parameter::with_int(ParameterType::Int, 3))?;
-                condition.add_parameter(self.parse_parameter(parts[3])?)?;
-                condition.add_parameter(self.parse_parameter(parts[2])?)?;
+                condition.add_parameter(self.parse_parameter(&parts[3])?)?;
+                condition.add_parameter(self.parse_parameter(&parts[2])?)?;
                 return Ok(Box::new(condition));
             }
         }
@@ -472,12 +472,12 @@ impl IniScriptParser {
                 break;
             }
 
-            let token = parts[idx];
+            let token = parts[idx].as_str();
             if is_coord_token(token) {
                 let mut coord_parts = vec![token];
                 idx += 1;
-                while idx < parts.len() && is_coord_token(parts[idx]) {
-                    coord_parts.push(parts[idx]);
+                while idx < parts.len() && is_coord_token(&parts[idx]) {
+                    coord_parts.push(parts[idx].as_str());
                     idx += 1;
                 }
                 let joined = coord_parts.join(" ");
@@ -531,12 +531,12 @@ impl IniScriptParser {
     /// Parse a single action line
     fn parse_single_action(&mut self, line: &str) -> GameLogicResult<Box<ScriptAction>> {
         // Parse format: ACTION_TYPE param1 param2 param3 ...
-        let parts: Vec<&str> = line.split_whitespace().collect();
+        let parts = tokenize_script_line(line)?;
         if parts.is_empty() {
             return Err(GameLogicError::Configuration(format!("Empty action line")));
         }
 
-        let action_name = parts[0];
+        let action_name = parts[0].as_str();
         let action_type = self.parse_action_type(action_name)?;
 
         let mut action = ScriptAction::new(action_type);
@@ -562,12 +562,12 @@ impl IniScriptParser {
                 break;
             }
 
-            let token = parts[idx];
+            let token = parts[idx].as_str();
             if is_coord_token(token) {
                 let mut coord_parts = vec![token];
                 idx += 1;
-                while idx < parts.len() && is_coord_token(parts[idx]) {
-                    coord_parts.push(parts[idx]);
+                while idx < parts.len() && is_coord_token(&parts[idx]) {
+                    coord_parts.push(parts[idx].as_str());
                     idx += 1;
                 }
                 let joined = coord_parts.join(" ");
@@ -912,6 +912,62 @@ fn link_script_groups(mut groups: Vec<Box<ScriptGroup>>) -> Option<Box<ScriptGro
     next
 }
 
+fn tokenize_script_line(line: &str) -> GameLogicResult<Vec<String>> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut quote = None;
+    let mut escape = false;
+
+    for ch in line.chars() {
+        if escape {
+            current.push(ch);
+            escape = false;
+            continue;
+        }
+
+        if ch == '\\' && quote.is_some() {
+            escape = true;
+            continue;
+        }
+
+        if let Some(quote_ch) = quote {
+            if ch == quote_ch {
+                quote = None;
+            } else {
+                current.push(ch);
+            }
+            continue;
+        }
+
+        if ch == '"' || ch == '\'' {
+            quote = Some(ch);
+        } else if ch.is_whitespace() {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(ch);
+        }
+    }
+
+    if quote.is_some() {
+        return Err(GameLogicError::Configuration(format!(
+            "Unterminated quoted script token: {}",
+            line
+        )));
+    }
+
+    if escape {
+        current.push('\\');
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    Ok(tokens)
+}
+
 impl Default for IniScriptParser {
     fn default() -> Self {
         Self::new()
@@ -1072,6 +1128,60 @@ EndScriptList
         assert_eq!(
             second_action.get_next().unwrap().get_action_type(),
             ScriptActionType::TeamIdleForFramecount
+        );
+    }
+
+    #[test]
+    fn test_parse_preserves_quoted_parameters_with_spaces() {
+        let content = r#"
+ScriptList TestScripts
+  ScriptGroup Group1
+    Script Script_Quoted
+      Conditions = OR
+        Condition1 = AND
+          FLAG "Intro Complete" TRUE
+        EndCondition
+      EndConditions
+      Actions = SEQUENTIAL
+        DISPLAY_TEXT "Mission Complete!"
+        DISPLAY_CINEMATIC_TEXT 'Incoming transmission'
+      EndActions
+      IsActive = Yes
+    EndScript
+  EndScriptGroup
+EndScriptList
+"#;
+
+        let mut parser = IniScriptParser::new();
+        parser.parse(content).unwrap();
+        assert_eq!(parser.get_errors().len(), 0);
+        assert_eq!(parser.get_warnings().len(), 0);
+
+        let script = parser
+            .get_script_list("TestScripts")
+            .and_then(|list| list.get_script_group())
+            .and_then(|group| group.get_script())
+            .unwrap();
+
+        let condition = script
+            .get_or_condition()
+            .and_then(|or_condition| or_condition.get_first_and_condition())
+            .unwrap();
+        assert_eq!(
+            condition.get_parameter(0).unwrap().get_string(),
+            "Intro Complete"
+        );
+        assert_eq!(condition.get_parameter(1).unwrap().get_int(), 1);
+
+        let first_action = script.get_action().unwrap();
+        assert_eq!(
+            first_action.get_parameter(0).unwrap().get_string(),
+            "Mission Complete!"
+        );
+        let second_action = first_action.get_next().unwrap();
+        assert_eq!(
+            second_action.get_parameter(0).unwrap().get_string(),
+            "Incoming transmission"
         );
     }
 
