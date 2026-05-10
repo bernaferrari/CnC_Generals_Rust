@@ -117,7 +117,7 @@ impl<'a> CommandExecutor<'a> {
                 end,
             } => self.execute_dozer_line(&command.selected_units, template_name, *start, *end),
             CommandType::DozerCancelConstruct { object_id } => {
-                self.execute_cancel_construction(*object_id)
+                self.execute_cancel_construction(*object_id, command.player_id)
             }
             CommandType::ResumeConstruction { target_id } => {
                 self.execute_resume_construction(&command.selected_units, *target_id)
@@ -707,16 +707,23 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
-    fn execute_cancel_construction(&mut self, object_id: ObjectId) -> CommandResult {
+    fn execute_cancel_construction(
+        &mut self,
+        object_id: ObjectId,
+        player_id: u32,
+    ) -> CommandResult {
+        let player_team = self.player_team(player_id);
         if let Some(obj) = self.game_logic.get_object(object_id) {
+            if obj.team != player_team {
+                return CommandResult::InvalidTarget;
+            }
             if !obj.status.under_construction {
                 return CommandResult::InvalidCommand;
             }
-            // Refund half of build cost on cancel, mirroring sell percentage.
-            let refund = ((obj.thing.template.build_cost.supplies as f32) * 0.5).max(0.0) as u32;
+            let refund = obj.thing.template.build_cost.supplies;
             if refund > 0 {
-                if let Some(player) = self.game_logic.get_player_mut_by_team(obj.team) {
-                    player.resources.supplies += refund;
+                if let Some(player) = self.game_logic.get_player_mut(player_id) {
+                    player.resources.supplies = player.resources.supplies.saturating_add(refund);
                 }
             }
             self.game_logic.destroy_object(object_id);
