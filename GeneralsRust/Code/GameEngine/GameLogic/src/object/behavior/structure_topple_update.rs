@@ -136,8 +136,16 @@ impl StructureToppleUpdateModuleData {
 }
 
 fn parse_duration_frames(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     INI::parse_duration_unsigned_int(token)
+}
+
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Option<&'a str> {
+    tokens.iter().copied().find(|token| *token != "=")
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> impl Iterator<Item = &'a str> + 'a {
+    tokens.iter().copied().filter(|token| *token != "=")
 }
 
 fn parse_min_topple_delay(
@@ -181,7 +189,7 @@ fn parse_structural_integrity(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens.first().ok_or(INIError::InvalidData)?;
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     data.structural_integrity = INI::parse_real(value)?;
     Ok(())
 }
@@ -191,7 +199,7 @@ fn parse_structural_decay(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens.first().ok_or(INIError::InvalidData)?;
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     data.structural_decay = INI::parse_real(value)?;
     Ok(())
 }
@@ -201,12 +209,12 @@ fn parse_damage_fx_types(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
+    if first_value_token(tokens).is_none() {
         return Err(INIError::InvalidData);
     }
 
     let mut flags = crate::damage::DamageTypeFlags::empty();
-    for token in tokens {
+    for token in value_tokens(tokens) {
         for entry in token.split(',').map(str::trim).filter(|t| !t.is_empty()) {
             if entry.eq_ignore_ascii_case("ALL") {
                 flags = crate::damage::DamageTypeFlags::all_flags();
@@ -242,7 +250,7 @@ fn parse_damage_fx_types(
 }
 
 fn parse_fx_list(data_field: &mut Option<Arc<FXList>>, tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     if token.eq_ignore_ascii_case("NONE") {
         *data_field = None;
         return Ok(());
@@ -296,8 +304,8 @@ fn parse_crushing_weapon_name(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.crushing_weapon_name = AsciiString::from(*token);
+    let token = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    data.crushing_weapon_name = AsciiString::from(token);
     Ok(())
 }
 
@@ -315,16 +323,12 @@ fn parse_phase_ocl(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let phase_token = tokens.first().ok_or(INIError::InvalidData)?;
+    let mut values = value_tokens(tokens);
+    let phase_token = values.next().ok_or(INIError::InvalidData)?;
     let Some(phase) = parse_topple_phase(phase_token) else {
         return Err(INIError::InvalidData);
     };
-    for token in tokens
-        .iter()
-        .skip(1)
-        .map(|t| t.trim())
-        .filter(|t| !t.is_empty())
-    {
+    for token in values.map(|t| t.trim()).filter(|t| !t.is_empty()) {
         let ocl = TheObjectCreationListStore::find_object_creation_list(token);
         data.ocls[phase.idx()].push(ocl);
     }
@@ -336,15 +340,15 @@ fn parse_angle_fx(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.len() < 2 {
-        return Err(INIError::InvalidData);
-    }
-    let angle_degrees = INI::parse_real(tokens[0])?;
+    let mut values = value_tokens(tokens);
+    let angle_token = values.next().ok_or(INIError::InvalidData)?;
+    let fx_token = values.next().ok_or(INIError::InvalidData)?;
+    let angle_degrees = INI::parse_real(angle_token)?;
     let angle_radians = angle_degrees * std::f32::consts::PI / 180.0;
-    let fx_list = if tokens[1].eq_ignore_ascii_case("NONE") {
+    let fx_list = if fx_token.eq_ignore_ascii_case("NONE") {
         None
     } else {
-        TheFXListStore::find_fx_list(tokens[1])
+        TheFXListStore::find_fx_list(fx_token)
     };
     data.angle_fx.push(AngleFXInfo {
         angle: angle_radians,
@@ -358,7 +362,8 @@ fn parse_death_types(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.die_mux_data.death_types = parse_death_type_flags_tokens(tokens)?;
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.die_mux_data.death_types = parse_death_type_flags_tokens(&values)?;
     Ok(())
 }
 
@@ -367,7 +372,8 @@ fn parse_veterancy_levels(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.die_mux_data.veterancy_levels = parse_veterancy_level_flags_tokens(tokens)?;
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.die_mux_data.veterancy_levels = parse_veterancy_level_flags_tokens(&values)?;
     Ok(())
 }
 
@@ -376,7 +382,8 @@ fn parse_exempt_status(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.die_mux_data.exempt_status = parse_object_status_mask_tokens(tokens)?;
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.die_mux_data.exempt_status = parse_object_status_mask_tokens(&values)?;
     Ok(())
 }
 
@@ -385,7 +392,8 @@ fn parse_required_status(
     data: &mut StructureToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.die_mux_data.required_status = parse_object_status_mask_tokens(tokens)?;
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.die_mux_data.required_status = parse_object_status_mask_tokens(&values)?;
     Ok(())
 }
 
@@ -485,15 +493,10 @@ pub struct StructureToppleUpdate {
 }
 
 impl StructureToppleUpdate {
-    pub fn new(
+    pub fn new_with_data(
         object: Arc<RwLock<GameObject>>,
-        module_data: Arc<dyn ModuleData>,
+        module_data: Arc<StructureToppleUpdateModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<StructureToppleUpdateModuleData>()
-            .ok_or("Invalid module data")?;
-
         if let Ok(building) = object.read() {
             TheGameLogic::set_wake_frame(building.get_id(), UpdateSleepTime::Forever);
         }
@@ -505,7 +508,7 @@ impl StructureToppleUpdate {
 
         Ok(Self {
             object: Arc::downgrade(&object),
-            module_data: Arc::new(data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             topple_frame: 0,
             topple_direction: Coord2D::ZERO,
@@ -518,6 +521,18 @@ impl StructureToppleUpdate {
             delay_burst_location: Coord3D::ZERO,
             building_height,
         })
+    }
+
+    pub fn new(
+        object: Arc<RwLock<GameObject>>,
+        module_data: Arc<dyn ModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let data = module_data
+            .as_ref()
+            .downcast_ref::<StructureToppleUpdateModuleData>()
+            .ok_or("Invalid module data")?;
+
+        Self::new_with_data(object, Arc::new(data.clone()))
     }
 
     fn build_non_dup_indices(range: usize, count: usize) -> Vec<usize> {
