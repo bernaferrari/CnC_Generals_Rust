@@ -157,6 +157,12 @@ use crate::object::behavior::stealth_detector_update::{
 use crate::object::behavior::sticky_bomb_update::{
     sticky_bomb_update_data_factory, sticky_bomb_update_module_factory,
 };
+use crate::object::behavior::structure_collapse_update::{
+    StructureCollapseUpdate, StructureCollapseUpdateModule, StructureCollapseUpdateModuleData,
+};
+use crate::object::behavior::structure_topple_update::{
+    StructureToppleUpdate, StructureToppleUpdateModule, StructureToppleUpdateModuleData,
+};
 use crate::object::behavior::tech_building_behavior::{
     TechBuildingBehavior, TechBuildingBehaviorModuleData,
 };
@@ -849,6 +855,74 @@ fn bridge_tower_behavior_module_factory(
     Box::new(BridgeTowerBehaviorModule::new(
         behavior,
         &AsciiString::from("BridgeTowerBehavior"),
+        data_arc,
+    ))
+}
+
+fn structure_collapse_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = StructureCollapseUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse StructureCollapseUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn structure_collapse_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let owner_id = resolve_owner_id(&thing);
+    let owner = TheGameLogic::find_object_by_id(owner_id)
+        .expect("StructureCollapseUpdate requires a valid object owner");
+    let data_arc = cloned_module_data::<StructureCollapseUpdateModuleData>(
+        "StructureCollapseUpdate",
+        &module_data,
+    );
+    let behavior = StructureCollapseUpdate::new_with_data(owner, data_arc.clone())
+        .expect("StructureCollapseUpdate requires a valid object owner");
+    Box::new(StructureCollapseUpdateModule::new(
+        behavior,
+        &AsciiString::from("StructureCollapseUpdate"),
+        data_arc,
+    ))
+}
+
+fn structure_topple_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = StructureToppleUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse StructureToppleUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn structure_topple_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let owner_id = resolve_owner_id(&thing);
+    let owner = TheGameLogic::find_object_by_id(owner_id)
+        .expect("StructureToppleUpdate requires a valid object owner");
+    let data_arc = cloned_module_data::<StructureToppleUpdateModuleData>(
+        "StructureToppleUpdate",
+        &module_data,
+    );
+    let behavior = StructureToppleUpdate::new_with_data(owner, data_arc.clone())
+        .expect("StructureToppleUpdate requires a valid object owner");
+    Box::new(StructureToppleUpdateModule::new(
+        behavior,
+        &AsciiString::from("StructureToppleUpdate"),
         data_arc,
     ))
 }
@@ -3176,6 +3250,18 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         bridge_tower_behavior_module_factory,
         bridge_tower_behavior_data_factory,
+    )?;
+    register_module_override(
+        "StructureCollapseUpdate",
+        ModuleType::Behavior,
+        structure_collapse_update_module_factory,
+        structure_collapse_update_data_factory,
+    )?;
+    register_module_override(
+        "StructureToppleUpdate",
+        ModuleType::Behavior,
+        structure_topple_update_module_factory,
+        structure_topple_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",

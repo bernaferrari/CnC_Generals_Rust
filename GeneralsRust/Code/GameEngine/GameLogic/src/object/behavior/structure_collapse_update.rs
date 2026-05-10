@@ -105,8 +105,16 @@ impl StructureCollapseUpdateModuleData {
 }
 
 fn parse_duration_frames(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     INI::parse_duration_unsigned_int(token)
+}
+
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Option<&'a str> {
+    tokens.iter().copied().find(|token| *token != "=")
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> impl Iterator<Item = &'a str> + 'a {
+    tokens.iter().copied().filter(|token| *token != "=")
 }
 
 fn parse_min_collapse_delay(
@@ -150,7 +158,7 @@ fn parse_collapse_damping(
     data: &mut StructureCollapseUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens.first().ok_or(INIError::InvalidData)?;
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     data.collapse_damping = INI::parse_real(value)?;
     Ok(())
 }
@@ -160,7 +168,7 @@ fn parse_max_shudder(
     data: &mut StructureCollapseUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens.first().ok_or(INIError::InvalidData)?;
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     data.max_shudder = INI::parse_real(value)?;
     Ok(())
 }
@@ -170,7 +178,7 @@ fn parse_big_burst_frequency(
     data: &mut StructureCollapseUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = tokens.first().ok_or(INIError::InvalidData)?;
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     data.big_burst_frequency = value.parse().map_err(|_| INIError::InvalidData)?;
     Ok(())
 }
@@ -190,16 +198,12 @@ fn parse_phase_fx(
     data: &mut StructureCollapseUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let phase_token = tokens.first().ok_or(INIError::InvalidData)?;
+    let mut values = value_tokens(tokens);
+    let phase_token = values.next().ok_or(INIError::InvalidData)?;
     let Some(phase) = parse_collapse_phase(phase_token) else {
         return Err(INIError::InvalidData);
     };
-    for name in tokens
-        .iter()
-        .skip(1)
-        .map(|t| t.trim())
-        .filter(|t| !t.is_empty())
-    {
+    for name in values.map(|t| t.trim()).filter(|t| !t.is_empty()) {
         let fx = TheFXListStore::find_fx_list(name);
         data.fxs[phase.idx()].push(fx);
     }
@@ -211,16 +215,12 @@ fn parse_phase_ocl(
     data: &mut StructureCollapseUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let phase_token = tokens.first().ok_or(INIError::InvalidData)?;
+    let mut values = value_tokens(tokens);
+    let phase_token = values.next().ok_or(INIError::InvalidData)?;
     let Some(phase) = parse_collapse_phase(phase_token) else {
         return Err(INIError::InvalidData);
     };
-    for name in tokens
-        .iter()
-        .skip(1)
-        .map(|t| t.trim())
-        .filter(|t| !t.is_empty())
-    {
+    for name in values.map(|t| t.trim()).filter(|t| !t.is_empty()) {
         let ocl = TheObjectCreationListStore::find_object_creation_list(name);
         data.ocls[phase.idx()].push(ocl);
     }
@@ -232,7 +232,8 @@ fn parse_death_types(
     data: &mut StructureCollapseUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.die_mux_data.death_types = parse_death_type_flags_tokens(tokens)?;
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.die_mux_data.death_types = parse_death_type_flags_tokens(&values)?;
     Ok(())
 }
 
@@ -241,7 +242,8 @@ fn parse_veterancy_levels(
     data: &mut StructureCollapseUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.die_mux_data.veterancy_levels = parse_veterancy_level_flags_tokens(tokens)?;
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.die_mux_data.veterancy_levels = parse_veterancy_level_flags_tokens(&values)?;
     Ok(())
 }
 
@@ -250,7 +252,8 @@ fn parse_exempt_status(
     data: &mut StructureCollapseUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.die_mux_data.exempt_status = parse_object_status_mask_tokens(tokens)?;
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.die_mux_data.exempt_status = parse_object_status_mask_tokens(&values)?;
     Ok(())
 }
 
@@ -259,7 +262,8 @@ fn parse_required_status(
     data: &mut StructureCollapseUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.die_mux_data.required_status = parse_object_status_mask_tokens(tokens)?;
+    let values: Vec<_> = value_tokens(tokens).collect();
+    data.die_mux_data.required_status = parse_object_status_mask_tokens(&values)?;
     Ok(())
 }
 
@@ -330,6 +334,26 @@ pub struct StructureCollapseUpdate {
 }
 
 impl StructureCollapseUpdate {
+    pub fn new_with_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: Arc<StructureCollapseUpdateModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        if let Ok(obj) = object.read() {
+            TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
+        }
+
+        Ok(Self {
+            object: Arc::downgrade(&object),
+            module_data,
+            next_call_frame_and_phase: 0,
+            collapse_frame: 0,
+            burst_frame: 0,
+            collapse_state: StructureCollapseStateType::Standing,
+            collapse_velocity: 0.0,
+            current_height: 0.0,
+        })
+    }
+
     pub fn new(
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<dyn ModuleData>,
@@ -339,20 +363,7 @@ impl StructureCollapseUpdate {
             .downcast_ref::<StructureCollapseUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
-        if let Ok(obj) = object.read() {
-            TheGameLogic::set_wake_frame(obj.get_id(), UpdateSleepTime::Forever);
-        }
-
-        Ok(Self {
-            object: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
-            next_call_frame_and_phase: 0,
-            collapse_frame: 0,
-            burst_frame: 0,
-            collapse_state: StructureCollapseStateType::Standing,
-            collapse_velocity: 0.0,
-            current_height: 0.0,
-        })
+        Self::new_with_data(object, Arc::new(specific_data.clone()))
     }
 
     fn build_non_dup_indices(range: usize, count: usize) -> Vec<usize> {
