@@ -227,12 +227,12 @@ impl GraphicsSystem {
 
         let mut loaded_models = HashMap::new();
 
-        // Cache a neutral fallback cube for objects whose W3D assets fail to load.
-        // This keeps broken assets visible without the bright magenta debug look.
+        // Cache a neutral fallback cube for explicit missing-model diagnostics.
+        // The normal render path does not substitute it for missing retail W3D assets.
         {
             let fallback = Self::create_fallback_cube_model();
             loaded_models.insert("__fallback_cube__".to_string(), Arc::new(fallback));
-            info!("GraphicsSystem: neutral fallback cube model cached for missing W3D assets");
+            info!("GraphicsSystem: neutral fallback cube model cached for diagnostics");
         }
 
         info!("GraphicsSystem initialized successfully and ready for first frame");
@@ -509,9 +509,9 @@ impl GraphicsSystem {
         self.draw_calls = 0;
     }
 
-    /// Try to get a cached model by name; if not found, return the fallback cube model.
-    /// This is the preferred accessor for render-item collection so that every game
-    /// object produces at least one visible mesh on screen.
+    /// Try to get a cached model by name; if not found, return the diagnostic
+    /// fallback cube model. Gameplay rendering should only call this from explicit
+    /// debug fallback paths.
     pub fn get_model_or_fallback(&self, model_name: &str) -> Option<Arc<W3DModel>> {
         if let Some(model) = self.loaded_models.get(model_name) {
             return Some(Arc::clone(model));
