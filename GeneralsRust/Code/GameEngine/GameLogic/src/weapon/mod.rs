@@ -43,6 +43,7 @@ mod damage_calculator;
 mod damage_over_time;
 pub mod damage_system;
 mod healing_system;
+#[cfg(test)]
 mod projectile;
 mod projectile_launch_cast;
 mod target_acquisition;
@@ -74,6 +75,7 @@ pub use damage_calculator::{ArmorSet, DamageCalculator, DamageResult};
 pub use damage_over_time::*;
 pub use damage_system::*;
 pub use healing_system::*;
+#[cfg(test)]
 pub use projectile::*;
 pub use target_acquisition::*;
 pub use targeting::*;

@@ -1835,16 +1835,13 @@ impl GameLogic {
         self.process_sleepy_updates(frame);
 
         // -----------------------------------------------------------------------
-        // Phase 6b: Object-level updates (damage types, projectiles, stealth)
+        // Phase 6b: Object-level updates (damage types, projectile objects, stealth)
         // -----------------------------------------------------------------------
         if let Err(e) = self.process_object_updates(FIXED_DELTA_TIME) {
             warn!("Object update phase failed: {}", e);
         }
         if let Err(e) = self.process_stealth_controllers(FIXED_DELTA_TIME) {
             warn!("Stealth update phase failed: {}", e);
-        }
-        if let Err(e) = crate::weapon::update_projectiles(FIXED_DELTA_TIME) {
-            warn!("Projectile update phase failed: {}", e);
         }
         if let Err(e) = crate::weapon::update_dot_effects(frame) {
             warn!("DoT update phase failed: {}", e);

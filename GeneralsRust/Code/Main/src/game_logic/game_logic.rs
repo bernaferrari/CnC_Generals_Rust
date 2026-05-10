@@ -62,7 +62,7 @@ use gamelogic::modules::AIUpdateInterfaceExt;
 use gamelogic::object::object_factory::{get_object_factory, ObjectCreationFlags};
 use gamelogic::team::get_team_factory;
 use gamelogic::update_game_logic;
-use gamelogic::weapon::{update_dot_effects, update_projectiles, with_weapon_store_mut};
+use gamelogic::weapon::{update_dot_effects, with_weapon_store_mut};
 use glam::{Vec2, Vec3};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -2947,11 +2947,8 @@ impl GameLogic {
         self.update_construction(&object_ids, dt);
         self.update_movement(&object_ids, dt);
 
-        // Projectile and DoT updates -- these are part of the object update phase
+        // DoT updates are part of the object update phase
         // in C++ (processed within the normal/sleepy update module loops).
-        if let Err(e) = update_projectiles(dt) {
-            log::warn!("Projectile update failed: {}", e);
-        }
         if let Err(e) = update_dot_effects(self.frame) {
             log::warn!("DoT effects update failed: {}", e);
         }

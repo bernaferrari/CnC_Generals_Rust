@@ -158,16 +158,7 @@ impl ProjectileStreamUpdate {
                     points.push(crate::common::Coord3D::origin());
                 }
             } else {
-                let fallback_pos = crate::weapon::with_projectile_manager(|manager| {
-                    manager
-                        .get_projectile(projectile_id)
-                        .map(|projectile| projectile.physics.position)
-                });
-                if let Some(pos) = fallback_pos {
-                    points.push(pos);
-                } else {
-                    points.push(crate::common::Coord3D::origin());
-                }
+                points.push(crate::common::Coord3D::origin());
             }
 
             point_index = (point_index + 1) % MAX_PROJECTILE_STREAM as i32;
