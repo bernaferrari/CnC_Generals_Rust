@@ -35,6 +35,9 @@ use crate::object::behavior::base_regenerate_update::{
 use crate::object::behavior::battle_bus_slow_death_behavior::{
     battle_bus_slow_death_data_factory, battle_bus_slow_death_module_factory,
 };
+use crate::object::behavior::battle_plan_update::{
+    BattlePlanUpdate, BattlePlanUpdateModule, BattlePlanUpdateModuleData,
+};
 use crate::object::behavior::bunker_buster_behavior::{
     BunkerBusterBehavior, BunkerBusterBehaviorModuleData,
 };
@@ -263,11 +266,7 @@ where
     TBehavior: BehaviorModuleInterface + Snapshotable + 'static,
     TData: ModuleData + LegacyModuleData + Clone + 'static,
 {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<TData>()
-        .unwrap_or_else(|| panic!("{module_name} module data type expected"));
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<TData>(module_name, &module_data);
     let engine_data: Arc<dyn ModuleData> = data_arc.clone();
     let legacy_data: Arc<dyn LegacyModuleData> = data_arc;
     let owner_id = resolve_owner_id(&thing);
@@ -280,6 +279,19 @@ where
         engine_data,
         behavior,
     ))
+}
+
+fn cloned_module_data<TData>(module_name: &str, module_data: &Arc<dyn ModuleData>) -> Arc<TData>
+where
+    TData: ModuleData + Clone + 'static,
+{
+    Arc::new(
+        module_data
+            .as_any()
+            .downcast_ref::<TData>()
+            .unwrap_or_else(|| panic!("{module_name} module data type expected"))
+            .clone(),
+    )
 }
 
 macro_rules! active_behavior_factories {
@@ -348,6 +360,40 @@ active_behavior_factories!(
     BaseRegenerateUpdate,
     "BaseRegenerateUpdate"
 );
+
+fn battle_plan_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = BattlePlanUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse BattlePlanUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn battle_plan_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc =
+        cloned_module_data::<BattlePlanUpdateModuleData>("BattlePlanUpdate", &module_data);
+    let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
+    let owner_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(owner_id)
+        .expect("BattlePlanUpdate requires a valid object");
+    let behavior =
+        BattlePlanUpdate::new(object, engine_data).expect("BattlePlanUpdate failed to initialize");
+    Box::new(BattlePlanUpdateModule::new(
+        behavior,
+        &AsciiString::from("BattlePlanUpdate"),
+        data_arc,
+    ))
+}
+
 active_behavior_factories!(
     bunker_buster_behavior_data_factory,
     bunker_buster_behavior_module_factory,
@@ -486,11 +532,10 @@ fn missile_launcher_building_update_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_any()
-        .downcast_ref::<MissileLauncherBuildingUpdateModuleData>()
-        .expect("MissileLauncherBuildingUpdateModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<MissileLauncherBuildingUpdateModuleData>(
+        "MissileLauncherBuildingUpdate",
+        &module_data,
+    );
     let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
     let owner_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(owner_id)
@@ -2582,6 +2627,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         base_regenerate_update_module_factory,
         base_regenerate_update_data_factory,
+    )?;
+    register_module_override(
+        "BattlePlanUpdate",
+        ModuleType::Behavior,
+        battle_plan_update_module_factory,
+        battle_plan_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
