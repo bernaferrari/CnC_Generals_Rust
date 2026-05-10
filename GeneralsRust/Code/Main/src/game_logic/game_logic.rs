@@ -9542,10 +9542,11 @@ impl GameLogic {
             } else {
                 return false;
             }
-            if let Some(player) = self.get_player_mut_by_team(team) {
-                if !player.spend_resources(&template.build_cost) {
-                    return false;
-                }
+            let Some(player) = self.get_player_mut_by_team(team) else {
+                return false;
+            };
+            if !player.spend_resources(&template.build_cost) {
+                return false;
             }
         }
 
@@ -12277,6 +12278,29 @@ mod tests {
                 .len(),
             10,
             "full production queues should not accept an extra item"
+        );
+    }
+
+    #[test]
+    fn enqueue_production_requires_player_money_state() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_barracks_template(&mut game_logic);
+        ensure_test_infantry_template(&mut game_logic);
+
+        let barracks_id = game_logic
+            .create_object("TestBarracks", Team::USA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("barracks should be created");
+
+        assert!(!game_logic.enqueue_production(barracks_id, "TestInfantry".to_string()));
+        assert_eq!(
+            game_logic
+                .find_object(barracks_id)
+                .and_then(|building| building.building_data.as_ref())
+                .expect("barracks should have building data")
+                .production_queue
+                .len(),
+            0,
+            "production should not queue for free without player state"
         );
     }
 
