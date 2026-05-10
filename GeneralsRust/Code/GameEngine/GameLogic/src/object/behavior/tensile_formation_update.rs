@@ -6,7 +6,7 @@ use crate::common::xfer::XferExt;
 use crate::common::GameLogicRandomValueReal;
 use crate::common::{
     AsciiString, BodyDamageType, Bool, Coord3D, ICoord2D, KindOf, ModuleData, ObjectID, Real,
-    UnsignedInt,
+    UnsignedInt, INVALID_ID,
 };
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic};
 use crate::modules::{
@@ -20,7 +20,11 @@ use crate::path::{grid_to_world, world_to_grid, PathfindLayerEnum, PATHFIND_CELL
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
+    Thing as ModuleThing,
+};
+use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
 const LINK_COUNT: usize = 4;
@@ -584,4 +588,43 @@ impl TensileFormationUpdateFactory {
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(TensileFormationUpdate::new(thing, module_data)?))
     }
+}
+
+pub fn tensile_formation_update_data_factory(ini: Option<&mut INI>) -> Box<dyn EngineModuleData> {
+    let mut data = TensileFormationUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse TensileFormationUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub fn tensile_formation_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn EngineModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_any()
+        .downcast_ref::<TensileFormationUpdateModuleData>()
+        .expect("TensileFormationUpdateModuleData expected");
+    let module_data_arc = Arc::new(typed_data.clone());
+    let owner_id = thing
+        .as_object()
+        .map(ModuleObject::get_object_id)
+        .unwrap_or(INVALID_ID);
+    let object =
+        TheGameLogic::find_object_by_id(owner_id).expect("TensileFormationUpdate requires object");
+    let behavior = TensileFormationUpdate::new(object, module_data_arc.clone())
+        .expect("TensileFormationUpdate failed to initialize");
+    let module_name = AsciiString::from("TensileFormationUpdate");
+    Box::new(TensileFormationUpdateModule::new(
+        behavior,
+        &module_name,
+        module_data_arc,
+    ))
 }

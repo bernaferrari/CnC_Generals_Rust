@@ -6,7 +6,9 @@
 //! Rust conversion: 2025
 
 use crate::common::xfer::XferExt;
-use crate::common::{AsciiString, Coord3D, ModuleData, Real, UnsignedInt};
+use crate::common::{
+    AsciiString, Coord3D, ModuleData, Real, TheGameLogic, UnsignedInt, INVALID_ID,
+};
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
@@ -15,7 +17,11 @@ use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
+    Thing as ModuleThing,
+};
+use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
 /// INI-configurable data for SmartBombTargetHomingUpdate
@@ -269,4 +275,45 @@ impl Module for SmartBombTargetHomingUpdateModule {
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
     }
+}
+
+pub fn smart_bomb_target_homing_update_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn EngineModuleData> {
+    let mut data = SmartBombTargetHomingUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SmartBombTargetHomingUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub fn smart_bomb_target_homing_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn EngineModuleData>,
+) -> Box<dyn Module> {
+    let typed_data = module_data
+        .as_any()
+        .downcast_ref::<SmartBombTargetHomingUpdateModuleData>()
+        .expect("SmartBombTargetHomingUpdateModuleData expected");
+    let module_data_arc = Arc::new(typed_data.clone());
+    let owner_id = thing
+        .as_object()
+        .map(ModuleObject::get_object_id)
+        .unwrap_or(INVALID_ID);
+    let object = TheGameLogic::find_object_by_id(owner_id)
+        .expect("SmartBombTargetHomingUpdate requires object");
+    let behavior = SmartBombTargetHomingUpdate::new(object, module_data_arc.clone())
+        .expect("SmartBombTargetHomingUpdate failed to initialize");
+    let module_name = AsciiString::from("SmartBombTargetHomingUpdate");
+    Box::new(SmartBombTargetHomingUpdateModule::new(
+        behavior,
+        &module_name,
+        module_data_arc,
+    ))
 }
