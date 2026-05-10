@@ -2703,6 +2703,18 @@ pub struct SelectionTranslator {
     last_selected_group: Option<u8>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionCycleFilter {
+    Unit,
+    Worker,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectionCycleDirection {
+    Forward,
+    Backward,
+}
+
 impl SelectionTranslator {
     pub fn new() -> Self {
         Self {
@@ -2777,6 +2789,91 @@ impl SelectionTranslator {
         with_tactical_view(|view| {
             view.look_at(&Point3::new(position.x, position.y, position.z));
         });
+    }
+
+    fn object_matches_cycle_filter(
+        object: &gamelogic::object::Object,
+        filter: SelectionCycleFilter,
+    ) -> bool {
+        if !object.is_locally_controlled() || object.is_contained() {
+            return false;
+        }
+
+        match filter {
+            SelectionCycleFilter::Unit => {
+                object.is_mobile() && !object.is_kind_of(KindOf::NoSelect)
+            }
+            SelectionCycleFilter::Worker => object.is_kind_of(KindOf::Dozer),
+        }
+    }
+
+    fn cycle_candidates(filter: SelectionCycleFilter) -> Vec<ObjectID> {
+        let mut candidates = Vec::new();
+        for object in OBJECT_REGISTRY.get_all_objects() {
+            let Ok(guard) = object.read() else {
+                continue;
+            };
+
+            if Self::object_matches_cycle_filter(&guard, filter) {
+                candidates.push(guard.get_id());
+            }
+        }
+
+        candidates.sort_unstable();
+        candidates
+    }
+
+    fn current_cycle_anchor(&self, candidates: &[ObjectID]) -> Option<usize> {
+        self.selected_objects
+            .iter()
+            .filter_map(|id| candidates.binary_search(id).ok())
+            .min()
+    }
+
+    fn select_single_object(&mut self, object_id: ObjectID) -> Vec<GameMessageType> {
+        self.selected_objects.clear();
+        self.selected_objects.insert(object_id);
+
+        if let Some(position) = OBJECT_REGISTRY
+            .get_object(object_id)
+            .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
+        {
+            with_tactical_view(|view| {
+                view.look_at(&Point3::new(position.x, position.y, position.z));
+            });
+        }
+
+        vec![GameMessageType::CreateSelectedGroup(true, vec![object_id])]
+    }
+
+    fn handle_cycle_selection(
+        &mut self,
+        filter: SelectionCycleFilter,
+        direction: SelectionCycleDirection,
+    ) -> Vec<GameMessageType> {
+        let candidates = Self::cycle_candidates(filter);
+        if candidates.is_empty() {
+            return Vec::new();
+        }
+
+        let selected_index = match self.current_cycle_anchor(&candidates) {
+            Some(index) => match direction {
+                SelectionCycleDirection::Forward => (index + 1) % candidates.len(),
+                SelectionCycleDirection::Backward => {
+                    if index == 0 {
+                        candidates.len() - 1
+                    } else {
+                        index - 1
+                    }
+                }
+            },
+            None => match direction {
+                SelectionCycleDirection::Forward => 0,
+                SelectionCycleDirection::Backward => candidates.len() - 1,
+            },
+        };
+
+        self.select_single_object(candidates[selected_index])
     }
 
     fn handle_select_all(&mut self, aircraft_only: bool) -> Vec<GameMessageType> {
@@ -3817,6 +3914,22 @@ impl GameMessageTranslator for SelectionTranslator {
             }
             GameMessageType::MetaSelectAll => self.handle_select_all(false),
             GameMessageType::MetaSelectAllAircraft => self.handle_select_all(true),
+            GameMessageType::MetaSelectNextUnit => self.handle_cycle_selection(
+                SelectionCycleFilter::Unit,
+                SelectionCycleDirection::Backward,
+            ),
+            GameMessageType::MetaSelectPrevUnit => self.handle_cycle_selection(
+                SelectionCycleFilter::Unit,
+                SelectionCycleDirection::Forward,
+            ),
+            GameMessageType::MetaSelectNextWorker => self.handle_cycle_selection(
+                SelectionCycleFilter::Worker,
+                SelectionCycleDirection::Backward,
+            ),
+            GameMessageType::MetaSelectPrevWorker => self.handle_cycle_selection(
+                SelectionCycleFilter::Worker,
+                SelectionCycleDirection::Forward,
+            ),
             GameMessageType::CreateSelectedGroup(create_new, objects) => {
                 if *create_new {
                     self.selected_objects.clear();
@@ -4618,6 +4731,17 @@ mod tests {
         object
     }
 
+    fn set_test_object_position(
+        object: &Arc<RwLock<gamelogic::object::Object>>,
+        x: Real,
+        y: Real,
+        z: Real,
+    ) {
+        let mut geometry = object.read().unwrap().get_geometry_info().clone();
+        geometry.position = LogicCoord3D::new(x, y, z);
+        object.write().unwrap().set_geometry_info(geometry);
+    }
+
     #[test]
     fn test_command_translator() {
         let _guard = test_state_lock();
@@ -5417,6 +5541,97 @@ mod tests {
 
         assert_eq!(disposition, GameMessageDisposition::KeepMessage);
         assert_eq!(translator.selected_objects, HashSet::from([402]));
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_select_next_prev_unit_cycles_local_mobile_units() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let team = setup_local_player_team();
+
+        let first = register_test_object(
+            501,
+            vec![KindOf::Unit, KindOf::Vehicle, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        let second = register_test_object(
+            502,
+            vec![KindOf::Unit, KindOf::Vehicle, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        let _no_select = register_test_object(
+            503,
+            vec![
+                KindOf::Unit,
+                KindOf::Vehicle,
+                KindOf::Selectable,
+                KindOf::NoSelect,
+            ],
+            Arc::clone(&team),
+        );
+        set_test_object_position(&first, 10.0, 20.0, 5.0);
+        set_test_object_position(&second, 30.0, 40.0, 7.0);
+
+        let mut translator = SelectionTranslator::new();
+        let disposition = translator
+            .translate_game_message(&GameMessage::new(GameMessageType::MetaSelectNextUnit));
+
+        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+        assert_eq!(translator.selected_objects, HashSet::from([502]));
+
+        translator.translate_game_message(&GameMessage::new(GameMessageType::MetaSelectPrevUnit));
+
+        assert_eq!(translator.selected_objects, HashSet::from([501]));
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
+    fn test_select_worker_cycles_only_dozer_objects() {
+        let _guard = test_state_lock();
+        OBJECT_REGISTRY.clear();
+        let team = setup_local_player_team();
+
+        let _unit = register_test_object(
+            601,
+            vec![KindOf::Unit, KindOf::Vehicle, KindOf::Selectable],
+            Arc::clone(&team),
+        );
+        let _worker_a = register_test_object(
+            602,
+            vec![
+                KindOf::Unit,
+                KindOf::Vehicle,
+                KindOf::Selectable,
+                KindOf::Dozer,
+            ],
+            Arc::clone(&team),
+        );
+        let _worker_b = register_test_object(
+            603,
+            vec![
+                KindOf::Unit,
+                KindOf::Vehicle,
+                KindOf::Selectable,
+                KindOf::Dozer,
+            ],
+            Arc::clone(&team),
+        );
+
+        let mut translator = SelectionTranslator::new();
+        translator.selected_objects.insert(602);
+
+        let disposition = translator
+            .translate_game_message(&GameMessage::new(GameMessageType::MetaSelectPrevWorker));
+
+        assert_eq!(disposition, GameMessageDisposition::KeepMessage);
+        assert_eq!(translator.selected_objects, HashSet::from([603]));
+
+        translator.translate_game_message(&GameMessage::new(GameMessageType::MetaSelectNextWorker));
+
+        assert_eq!(translator.selected_objects, HashSet::from([602]));
 
         OBJECT_REGISTRY.clear();
     }
