@@ -518,7 +518,19 @@ impl BehaviorModuleInterface for SpyVisionUpdate {
     }
 }
 
-impl crate::object::behavior::behavior_module::SpyVisionUpdate for SpyVisionUpdate {}
+impl crate::object::behavior::behavior_module::SpyVisionUpdate for SpyVisionUpdate {
+    fn activate_spy_vision(&mut self, duration: UnsignedInt) {
+        SpyVisionUpdate::activate_spy_vision(self, duration);
+    }
+
+    fn set_disabled_until_frame(
+        &mut self,
+        frame: UnsignedInt,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        SpyVisionUpdate::set_disabled_until_frame(self, frame);
+        Ok(())
+    }
+}
 
 // INI Parsing
 fn parse_spy_on_kind_of(

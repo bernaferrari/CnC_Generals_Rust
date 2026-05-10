@@ -24,6 +24,7 @@ pub mod special_power_interface_cast;
 pub mod special_power_module;
 pub mod special_power_template;
 pub mod special_power_types;
+pub mod special_powers;
 pub mod update;
 pub mod upgrade;
 pub mod weapon;
