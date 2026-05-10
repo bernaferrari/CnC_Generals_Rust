@@ -15,6 +15,9 @@ use log::warn;
 
 use crate::common::{AsciiString, ObjectID, TheGameLogic, INVALID_ID};
 use crate::modules::ContainModuleInterface;
+use crate::object::behavior::battle_bus_slow_death_behavior::{
+    battle_bus_slow_death_data_factory, battle_bus_slow_death_module_factory,
+};
 use crate::object::behavior::instant_death_behavior::{
     InstantDeathBehavior, InstantDeathBehaviorModuleData,
 };
@@ -1981,6 +1984,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         instant_death_behavior_module_factory,
         instant_death_behavior_module_data_factory,
+    )?;
+    register_module_override(
+        "BattleBusSlowDeathBehavior",
+        ModuleType::Behavior,
+        battle_bus_slow_death_module_factory,
+        battle_bus_slow_death_data_factory,
     )?;
     register_module_override(
         "OpenContain",
