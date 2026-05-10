@@ -86,6 +86,9 @@ use crate::object::behavior::missile_launcher_building_update::{
     MissileLauncherBuildingUpdate, MissileLauncherBuildingUpdateModule,
     MissileLauncherBuildingUpdateModuleData,
 };
+use crate::object::behavior::mob_member_slaved_update::{
+    MobMemberSlavedUpdate, MobMemberSlavedUpdateModule, MobMemberSlavedUpdateModuleData,
+};
 use crate::object::behavior::neutron_blast_behavior::{
     NeutronBlastBehavior, NeutronBlastBehaviorModuleData,
 };
@@ -521,6 +524,41 @@ fn slaved_update_module_factory(
     Box::new(SlavedUpdateModule::new(
         behavior,
         &AsciiString::from("SlavedUpdate"),
+        data_arc,
+    ))
+}
+
+fn mob_member_slaved_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = MobMemberSlavedUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse MobMemberSlavedUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+fn mob_member_slaved_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<MobMemberSlavedUpdateModuleData>(
+        "MobMemberSlavedUpdate",
+        &module_data,
+    );
+    let owner_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(owner_id)
+        .expect("MobMemberSlavedUpdate requires a valid object");
+    let legacy_data: Arc<dyn LegacyModuleData> = data_arc.clone();
+    let behavior = MobMemberSlavedUpdate::new(object, legacy_data)
+        .expect("MobMemberSlavedUpdate failed to initialize");
+    Box::new(MobMemberSlavedUpdateModule::new(
+        behavior,
+        &AsciiString::from("MobMemberSlavedUpdate"),
         data_arc,
     ))
 }
@@ -2788,6 +2826,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         slaved_update_module_factory,
         slaved_update_data_factory,
+    )?;
+    register_module_override(
+        "MobMemberSlavedUpdate",
+        ModuleType::Behavior,
+        mob_member_slaved_update_module_factory,
+        mob_member_slaved_update_data_factory,
     )?;
     register_module_override(
         "BunkerBusterBehavior",
