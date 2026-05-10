@@ -884,6 +884,15 @@ impl SelectionTranslator {
 
         debug!("Adding control group {} to selection", group);
 
+        let now = Instant::now();
+        if now.duration_since(self.last_group_sel_time).as_millis() < DOUBLE_CLICK_TIME_MS as u128
+            && group as i32 == self.last_group_sel_group
+        {
+            self.last_group_sel_time = now;
+            self.last_group_sel_group = group as i32;
+            return messages;
+        }
+
         // If a structure is selected, clear selection before adding (C++ exploit guard).
         let drawables = self.collect_drawables();
         let has_structure_selected = self.current_selection.iter().any(|id| {
@@ -911,7 +920,7 @@ impl SelectionTranslator {
         }
         messages.push(GameMessageType::AddTeamSlot(group));
 
-        self.last_group_sel_time = Instant::now();
+        self.last_group_sel_time = now;
         self.last_group_sel_group = group as i32;
 
         messages
@@ -1498,6 +1507,28 @@ mod tests {
 
         assert_eq!(translator.current_selection.len(), 3);
         assert_eq!(translator.last_group_sel_group, 1);
+    }
+
+    #[test]
+    fn test_add_control_group_double_tap_does_not_append_again() {
+        let _guard = test_state_lock();
+        let mut translator = SelectionTranslator::new();
+        translator.control_groups[1] = vec![10, 11];
+        translator.current_selection.insert(99);
+
+        let first = translator.handle_add_control_group(1);
+        assert_eq!(translator.current_selection.len(), 3);
+        assert_eq!(
+            first,
+            vec![
+                GameMessageType::CreateSelectedGroup(false, vec![10, 11]),
+                GameMessageType::AddTeamSlot(1)
+            ]
+        );
+
+        let second = translator.handle_add_control_group(1);
+        assert!(second.is_empty());
+        assert_eq!(translator.current_selection.len(), 3);
     }
 
     #[test]
