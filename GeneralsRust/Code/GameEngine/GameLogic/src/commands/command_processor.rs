@@ -3217,8 +3217,36 @@ impl DefaultCommandHandler {
         ))
     }
 
-    /// Cheer simply succeeds; animation/audio handled client-side.
-    fn execute_cheer(&self, _command: &QueuedCommand) -> CommandExecutionResult {
+    /// Cheer: triggers cheering model condition on selected group.
+    /// Matches C++ MSG_DO_CHEER / AIGroup::groupCheer.
+    fn execute_cheer(
+        &self,
+        _command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        let selection_manager = get_selection_manager();
+        let selected = selection_manager
+            .read()
+            .ok()
+            .and_then(|m| {
+                m.get_player_selection_ref(context.player_id)
+                    .map(|s| s.get_selected_objects())
+            })
+            .unwrap_or_default();
+
+        if selected.is_empty() {
+            return CommandExecutionResult::Success;
+        }
+
+        let mut group = crate::ai::group::AIGroup::new(0);
+        for object_id in &selected {
+            let Some(obj) = OBJECT_REGISTRY.get_object(*object_id) else {
+                continue;
+            };
+            let _ = group.add(obj);
+        }
+
+        group.group_cheer(CommandSourceType::FromPlayer);
         CommandExecutionResult::Success
     }
 
@@ -4378,7 +4406,7 @@ impl CommandHandler for DefaultCommandHandler {
             | CommandType::DoWeaponAtObject => self.execute_weapon_target_command(command, context),
             CommandType::DoGuardPosition => self.execute_guard_position(command, context),
             CommandType::DoGuardObject => self.execute_guard_object(command, context),
-            CommandType::DoCheer => self.execute_cheer(command),
+            CommandType::DoCheer => self.execute_cheer(command, context),
             CommandType::ToggleOvercharge => self.execute_overcharge_toggle(command, context),
             CommandType::SwitchWeapons => self.execute_switch_weapons(command, context),
             CommandType::ConvertToCarbomb => self.execute_targeted_group_command(
