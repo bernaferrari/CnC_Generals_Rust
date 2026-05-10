@@ -27,6 +27,9 @@ use crate::object::behavior::neutron_missile_slow_death_update::{
 use crate::object::behavior::slow_death_behavior::{
     SlowDeathBehavior, SlowDeathBehaviorModuleData,
 };
+use crate::object::behavior::topple_update::{
+    topple_update_data_factory, topple_update_module_factory,
+};
 use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
 use crate::object::body::body_module::{BodyModuleData, BodyModuleInterface};
 use crate::object::body::highlander_body::HighlanderBody;
@@ -2008,6 +2011,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         neutron_missile_update_module_factory,
         neutron_missile_update_data_factory,
+    )?;
+    register_module_override(
+        "ToppleUpdate",
+        ModuleType::Behavior,
+        topple_update_module_factory,
+        topple_update_data_factory,
     )?;
     register_module_override(
         "OpenContain",
