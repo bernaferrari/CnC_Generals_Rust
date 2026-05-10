@@ -26,8 +26,8 @@ use crate::action_manager::TheActionManager;
 use crate::commands::get_selection_manager;
 use crate::common::{
     audio::AudioEventRts, AsciiString, Bool, CommandSourceType, Coord3D, DrawableID, EvaEvent,
-    FormationID, ICoord2D, IRegion2D, Int, KindOf, ObjectID, PlayerMaskType, Real, Relationship,
-    UnsignedInt,
+    FormationID, ICoord2D, IRegion2D, Int, KindOf, ObjectID, ObjectStatusTypes, PlayerMaskType,
+    Real, Relationship, UnsignedInt,
 };
 use crate::control_bar;
 use crate::helpers::{
@@ -3789,6 +3789,81 @@ impl DefaultCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_dozer_cancel_construct_command(
+        &self,
+        command: &QueuedCommand,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        use crate::commands::command::CommandArgumentType;
+
+        let target_from_message = match command.command.get_argument(0) {
+            Some(CommandArgumentType::ObjectID(object_id)) => Some(*object_id),
+            Some(CommandArgumentType::Integer(value)) => Some(*value as ObjectID),
+            _ => None,
+        };
+
+        let building_id = if let Some(object_id) = target_from_message {
+            object_id
+        } else {
+            let selection_manager = get_selection_manager();
+            let selected = selection_manager
+                .read()
+                .ok()
+                .and_then(|manager| {
+                    manager
+                        .get_player_selection_ref(context.player_id)
+                        .map(|selection| selection.get_selected_objects())
+                })
+                .unwrap_or_default();
+            let Some(object_id) = selected.first().copied() else {
+                return CommandExecutionResult::Success;
+            };
+            object_id
+        };
+
+        let Some(building) = OBJECT_REGISTRY.get_object(building_id) else {
+            return CommandExecutionResult::Success;
+        };
+        let Ok(mut guard) = building.write() else {
+            return CommandExecutionResult::Success;
+        };
+        if guard.is_destroyed() {
+            return CommandExecutionResult::Success;
+        }
+        if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id) {
+            return CommandExecutionResult::Success;
+        }
+        if !guard.test_status(ObjectStatusTypes::UnderConstruction) {
+            return CommandExecutionResult::Success;
+        }
+
+        if !guard.test_status(ObjectStatusTypes::Reconstructing) {
+            let refund = if let Some(player_arc) = guard.get_controlling_player() {
+                if let Ok(player_guard) = player_arc.read() {
+                    guard
+                        .get_template()
+                        .calc_cost_to_build(Some(&*player_guard))
+                } else {
+                    guard.get_template().calc_cost_to_build(None)
+                }
+            } else {
+                guard.get_template().calc_cost_to_build(None)
+            };
+
+            if refund > 0 {
+                if let Some(player_arc) = guard.get_controlling_player() {
+                    if let Ok(mut player) = player_arc.write() {
+                        player.get_money_mut().add_money(refund);
+                    }
+                }
+            }
+        }
+
+        guard.kill(None, None);
+
+        CommandExecutionResult::Success
+    }
+
     fn execute_weapon_target_command(
         &self,
         command: &QueuedCommand,
@@ -4257,6 +4332,9 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::CancelUnitCreate => {
                 self.execute_cancel_unit_create_command(command, context)
             }
+            CommandType::DozerCancelConstruct => {
+                self.execute_dozer_cancel_construct_command(command, context)
+            }
             CommandType::CreateFormation => self.execute_create_formation(command, context),
             CommandType::SelfDestruct => self.execute_self_destruct(command, context),
             CommandType::PlaceBeacon => self.execute_place_beacon(command, context),
@@ -4342,6 +4420,7 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::CancelUpgrade
                 | CommandType::QueueUnitCreate
                 | CommandType::CancelUnitCreate
+                | CommandType::DozerCancelConstruct
                 | CommandType::CreateFormation
                 | CommandType::SelfDestruct
                 | CommandType::PlaceBeacon
@@ -4675,6 +4754,13 @@ mod tests {
         let handler = DefaultCommandHandler::new();
 
         assert!(handler.can_handle(CommandType::CancelUnitCreate));
+    }
+
+    #[test]
+    fn default_handler_accepts_dozer_cancel_construct_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::DozerCancelConstruct));
     }
 
     #[test]
