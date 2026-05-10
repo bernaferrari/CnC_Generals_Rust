@@ -229,17 +229,28 @@ use crate::object::{
         UpgradeDieModuleData,
     },
     draw::w3d_debris_draw::{W3DDebrisDraw, W3DDebrisDrawModuleData},
+    draw::w3d_default_draw::{W3DDefaultDraw, W3DDefaultDrawModuleData},
+    draw::w3d_dependency_model_draw::{W3DDependencyModelDraw, W3DDependencyModelDrawModuleData},
     draw::w3d_laser_draw::{W3DLaserDraw, W3DLaserDrawModuleData},
     draw::w3d_model_draw::{W3DModelDraw, W3DModelDrawModuleData},
+    draw::w3d_overlord_aircraft_draw::{
+        W3DOverlordAircraftDraw, W3DOverlordAircraftDrawModuleData,
+    },
     draw::w3d_overlord_tank_draw::{W3DOverlordTankDraw, W3DOverlordTankDrawModuleData},
+    draw::w3d_overlord_truck_draw::{W3DOverlordTruckDraw, W3DOverlordTruckDrawModuleData},
+    draw::w3d_police_car_draw::{W3DPoliceCarDraw, W3DPoliceCarDrawModuleData},
     draw::w3d_projectile_draw::{W3DProjectileDraw, W3DProjectileDrawModuleData},
     draw::w3d_projectile_stream_draw::{
         W3DProjectileStreamDraw, W3DProjectileStreamDrawModuleData,
     },
     draw::w3d_rope_draw::{W3DRopeDraw, W3DRopeDrawModuleData},
+    draw::w3d_science_model_draw::{W3DScienceModelDraw, W3DScienceModelDrawModuleData},
+    draw::w3d_supply_draw::{W3DSupplyDraw, W3DSupplyDrawModuleData},
     draw::w3d_tank_draw::{W3DTankDraw, W3DTankDrawModuleData},
+    draw::w3d_tank_truck_draw::{W3DTankTruckDraw, W3DTankTruckDrawModuleData},
     draw::w3d_tracer_draw::{W3DTracerDraw, W3DTracerDrawModuleData},
     draw::w3d_tree_draw::{W3DTreeDraw, W3DTreeDrawModuleData},
+    draw::w3d_truck_draw::{W3DTruckDraw, W3DTruckDrawModuleData},
     production::production_update_complete::{
         ProductionUpdateCompleteModule,
         ProductionUpdateModuleData as ProductionUpdateCompleteModuleData,
@@ -7670,6 +7681,127 @@ fn w3d_model_draw_module_factory(
     Box::new(module)
 }
 
+macro_rules! w3d_owner_bound_draw_factories {
+    (
+        $data_factory:ident,
+        $module_factory:ident,
+        $data_ty:ty,
+        $module_ty:ty,
+        $module_name:literal
+    ) => {
+        fn $data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+            let mut data = <$data_ty>::new();
+            if let Some(ini) = ini {
+                if let Err(err) = data.parse_from_ini(ini) {
+                    warn!(
+                        concat!(
+                            "Failed to parse ",
+                            $module_name,
+                            " module data at line {}: {}"
+                        ),
+                        ini.get_line_num(),
+                        err
+                    );
+                }
+            }
+            Box::new(data)
+        }
+
+        fn $module_factory(
+            thing: Arc<dyn ModuleThing>,
+            module_data: Arc<dyn ModuleData>,
+        ) -> Box<dyn Module> {
+            let data = module_data
+                .as_ref()
+                .downcast_ref::<$data_ty>()
+                .cloned()
+                .unwrap_or_else(|| {
+                    warn!(concat!($module_name, "ModuleData expected; using defaults"));
+                    <$data_ty>::new()
+                });
+
+            let mut module = <$module_ty>::new(data);
+            let (owner_id, _) = resolve_owner_info(&thing);
+            if owner_id != INVALID_ID {
+                module.bind_owner_id(owner_id);
+            }
+            Box::new(module)
+        }
+    };
+}
+
+w3d_owner_bound_draw_factories!(
+    w3d_default_draw_module_data_factory,
+    w3d_default_draw_module_factory,
+    W3DDefaultDrawModuleData,
+    W3DDefaultDraw,
+    "W3DDefaultDraw"
+);
+
+w3d_owner_bound_draw_factories!(
+    w3d_dependency_model_draw_module_data_factory,
+    w3d_dependency_model_draw_module_factory,
+    W3DDependencyModelDrawModuleData,
+    W3DDependencyModelDraw,
+    "W3DDependencyModelDraw"
+);
+
+w3d_owner_bound_draw_factories!(
+    w3d_overlord_aircraft_draw_module_data_factory,
+    w3d_overlord_aircraft_draw_module_factory,
+    W3DOverlordAircraftDrawModuleData,
+    W3DOverlordAircraftDraw,
+    "W3DOverlordAircraftDraw"
+);
+
+w3d_owner_bound_draw_factories!(
+    w3d_overlord_truck_draw_module_data_factory,
+    w3d_overlord_truck_draw_module_factory,
+    W3DOverlordTruckDrawModuleData,
+    W3DOverlordTruckDraw,
+    "W3DOverlordTruckDraw"
+);
+
+w3d_owner_bound_draw_factories!(
+    w3d_police_car_draw_module_data_factory,
+    w3d_police_car_draw_module_factory,
+    W3DPoliceCarDrawModuleData,
+    W3DPoliceCarDraw,
+    "W3DPoliceCarDraw"
+);
+
+w3d_owner_bound_draw_factories!(
+    w3d_science_model_draw_module_data_factory,
+    w3d_science_model_draw_module_factory,
+    W3DScienceModelDrawModuleData,
+    W3DScienceModelDraw,
+    "W3DScienceModelDraw"
+);
+
+w3d_owner_bound_draw_factories!(
+    w3d_supply_draw_module_data_factory,
+    w3d_supply_draw_module_factory,
+    W3DSupplyDrawModuleData,
+    W3DSupplyDraw,
+    "W3DSupplyDraw"
+);
+
+w3d_owner_bound_draw_factories!(
+    w3d_truck_draw_module_data_factory,
+    w3d_truck_draw_module_factory,
+    W3DTruckDrawModuleData,
+    W3DTruckDraw,
+    "W3DTruckDraw"
+);
+
+w3d_owner_bound_draw_factories!(
+    w3d_tank_truck_draw_module_data_factory,
+    w3d_tank_truck_draw_module_factory,
+    W3DTankTruckDrawModuleData,
+    W3DTankTruckDraw,
+    "W3DTankTruckDraw"
+);
+
 fn w3d_tank_draw_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = W3DTankDrawModuleData::new();
     if let Some(ini) = ini {
@@ -8821,6 +8953,39 @@ pub fn install_module_overrides() -> Result<(), String> {
     )?;
 
     register_module_override(
+        "W3DDefaultDraw",
+        ModuleType::Draw,
+        w3d_default_draw_module_factory,
+        module_data_proc_or(
+            "W3DDefaultDraw",
+            ModuleType::Draw,
+            w3d_default_draw_module_data_factory,
+        ),
+    )?;
+
+    register_module_override(
+        "W3DDependencyModelDraw",
+        ModuleType::Draw,
+        w3d_dependency_model_draw_module_factory,
+        module_data_proc_or(
+            "W3DDependencyModelDraw",
+            ModuleType::Draw,
+            w3d_dependency_model_draw_module_data_factory,
+        ),
+    )?;
+
+    register_module_override(
+        "W3DOverlordAircraftDraw",
+        ModuleType::Draw,
+        w3d_overlord_aircraft_draw_module_factory,
+        module_data_proc_or(
+            "W3DOverlordAircraftDraw",
+            ModuleType::Draw,
+            w3d_overlord_aircraft_draw_module_data_factory,
+        ),
+    )?;
+
+    register_module_override(
         "W3DTankDraw",
         ModuleType::Draw,
         w3d_tank_draw_module_factory,
@@ -8839,6 +9004,28 @@ pub fn install_module_overrides() -> Result<(), String> {
             "W3DOverlordTankDraw",
             ModuleType::Draw,
             w3d_overlord_tank_draw_module_data_factory,
+        ),
+    )?;
+
+    register_module_override(
+        "W3DOverlordTruckDraw",
+        ModuleType::Draw,
+        w3d_overlord_truck_draw_module_factory,
+        module_data_proc_or(
+            "W3DOverlordTruckDraw",
+            ModuleType::Draw,
+            w3d_overlord_truck_draw_module_data_factory,
+        ),
+    )?;
+
+    register_module_override(
+        "W3DPoliceCarDraw",
+        ModuleType::Draw,
+        w3d_police_car_draw_module_factory,
+        module_data_proc_or(
+            "W3DPoliceCarDraw",
+            ModuleType::Draw,
+            w3d_police_car_draw_module_data_factory,
         ),
     )?;
 
@@ -8893,6 +9080,50 @@ pub fn install_module_overrides() -> Result<(), String> {
         ModuleType::Draw,
         w3d_debris_draw_module_factory,
         w3d_debris_draw_module_data_factory,
+    )?;
+
+    register_module_override(
+        "W3DScienceModelDraw",
+        ModuleType::Draw,
+        w3d_science_model_draw_module_factory,
+        module_data_proc_or(
+            "W3DScienceModelDraw",
+            ModuleType::Draw,
+            w3d_science_model_draw_module_data_factory,
+        ),
+    )?;
+
+    register_module_override(
+        "W3DSupplyDraw",
+        ModuleType::Draw,
+        w3d_supply_draw_module_factory,
+        module_data_proc_or(
+            "W3DSupplyDraw",
+            ModuleType::Draw,
+            w3d_supply_draw_module_data_factory,
+        ),
+    )?;
+
+    register_module_override(
+        "W3DTruckDraw",
+        ModuleType::Draw,
+        w3d_truck_draw_module_factory,
+        module_data_proc_or(
+            "W3DTruckDraw",
+            ModuleType::Draw,
+            w3d_truck_draw_module_data_factory,
+        ),
+    )?;
+
+    register_module_override(
+        "W3DTankTruckDraw",
+        ModuleType::Draw,
+        w3d_tank_truck_draw_module_factory,
+        module_data_proc_or(
+            "W3DTankTruckDraw",
+            ModuleType::Draw,
+            w3d_tank_truck_draw_module_data_factory,
+        ),
     )?;
 
     register_module_override(
