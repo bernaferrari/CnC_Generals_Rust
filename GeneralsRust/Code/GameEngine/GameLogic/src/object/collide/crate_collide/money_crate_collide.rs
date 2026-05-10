@@ -3,7 +3,7 @@
 //! This crate provides money to the player who collects it. The amount can be
 //! enhanced by certain upgrades that the player has researched.
 
-use super::super::{CollisionError, Coord3D, GameObject};
+use super::super::{CollideModule, CollisionError, Coord3D, GameObject};
 use super::crate_collide::{CrateCollide, CrateCollideBehavior, CrateCollideModuleData};
 use crate::common::*;
 use crate::helpers::{TheAudio, TheGameLogic};
@@ -371,6 +371,33 @@ impl CrateCollideBehavior for MoneyCrateCollide {
     fn is_valid_to_execute(&self, other: &dyn GameObject) -> bool {
         // Use base validation - money collection doesn't require additional restrictions
         self.base_crate.is_valid_to_execute(other)
+    }
+}
+
+impl CollideModule for MoneyCrateCollide {
+    fn on_collide(
+        &mut self,
+        other: Option<&dyn GameObject>,
+        _loc: &Coord3D,
+        _normal: &Coord3D,
+    ) -> Result<(), CollisionError> {
+        let Some(other_obj) = other else {
+            return Ok(());
+        };
+
+        if !self.base_crate.is_valid_to_execute(other_obj) {
+            return Ok(());
+        }
+
+        if self.execute_crate_behavior(other_obj)? {
+            self.base_crate.finalize_collection(other_obj)?;
+        }
+
+        Ok(())
+    }
+
+    fn would_like_to_collide_with(&self, other: &dyn GameObject) -> bool {
+        CrateCollideBehavior::is_valid_to_execute(self, other)
     }
 }
 
