@@ -96,6 +96,7 @@ pub mod height_die_update;
 pub mod helicopter_slow_death_behavior;
 pub mod helicopter_slow_death_update;
 pub mod instant_death_behavior;
+pub mod jet_slow_death_behavior;
 pub mod lifetime_update;
 pub mod neutron_blast_behavior;
 pub mod neutron_missile_slow_death_update;
@@ -306,6 +307,9 @@ pub use helicopter_slow_death_behavior::{
     HelicopterSlowDeathBehaviorModuleData,
 };
 pub use helicopter_slow_death_update::*;
+pub use jet_slow_death_behavior::{
+    JetSlowDeathBehavior, JetSlowDeathBehaviorModule, JetSlowDeathBehaviorModuleData,
+};
 pub use lifetime_update::{LifetimeUpdate, LifetimeUpdateFactory, LifetimeUpdateModuleData};
 pub use neutron_blast_behavior::{
     NeutronBlastBehavior, NeutronBlastBehaviorFactory, NeutronBlastBehaviorModuleData,
