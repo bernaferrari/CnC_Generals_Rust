@@ -388,7 +388,11 @@ impl CommandButton {
         }
 
         if let Some(upgrade) = self.upgrade_template.as_ref() {
-            if source_obj.affected_by_upgrade(upgrade) && !source_obj.has_upgrade(upgrade) {
+            if source_obj.can_produce_upgrade(upgrade)
+                && !has_upgrade_in_production_queue(source_obj)
+                && source_obj.affected_by_upgrade(upgrade)
+                && !source_obj.has_upgrade(upgrade)
+            {
                 return true;
             }
         }
@@ -472,6 +476,24 @@ fn has_upgrade_in_production_queue(obj: &crate::object::Object) -> bool {
     }
 
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::Object;
+    use crate::upgrade::UpgradeTemplate;
+
+    #[test]
+    fn upgrade_button_is_not_ready_without_production_capability() {
+        let mut button = CommandButton::new(7, "Upgrade_Test".to_string(), String::new(), 0);
+        button.upgrade_template = Some(Arc::new(UpgradeTemplate::new(AsciiString::from(
+            "Upgrade_Test",
+        ))));
+        let obj = Object::new_test(700, 100.0);
+
+        assert!(!button.is_ready(&obj));
+    }
 }
 
 pub fn map_gui_command_to_command_type(command: &str) -> crate::commands::command::CommandType {
