@@ -62,7 +62,10 @@ pub mod slider;
 pub mod tabcontrol;
 pub mod text;
 
-pub use button::{ButtonCallback, ButtonStyle, ClockMode, PushButton, PushButtonBuilder};
+pub use button::{
+    register_button_audio_hook, ButtonAudioHook, ButtonCallback, ButtonStyle, ClockMode,
+    PushButton, PushButtonBuilder,
+};
 pub use checkbox::{CheckBox, CheckBoxBuilder, CheckBoxCallback, CheckBoxConfig, CheckBoxStyle};
 pub use combobox::{ComboBox, ComboBoxCallback, ComboBoxItem};
 pub use listbox::{
