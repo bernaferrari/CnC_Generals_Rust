@@ -150,12 +150,15 @@ fn run_basic_faction_flow(human_team: Team) {
     let _command_center = game_logic
         .create_object("SmokeCommandCenter", human_team, Vec3::ZERO)
         .expect("human command center should spawn");
-    let _power_plant = game_logic
+    let power_plant = game_logic
         .create_object("SmokePowerPlant", human_team, Vec3::new(-24.0, 0.0, 0.0))
         .expect("human power plant should spawn");
     let dozer = game_logic
         .create_object("SmokeDozer", human_team, Vec3::new(12.0, 0.0, 0.0))
         .expect("human dozer should spawn");
+    let supply_dock = game_logic
+        .create_object("SmokeSupplyDock", Team::Neutral, Vec3::new(40.0, 0.0, 0.0))
+        .expect("neutral supply dock should spawn");
     let enemy_command_center = game_logic
         .create_object("SmokeCommandCenter", enemy_team, Vec3::new(80.0, 0.0, 0.0))
         .expect("enemy command center should spawn");
@@ -190,6 +193,26 @@ fn run_basic_faction_flow(human_team: Team) {
         })
         .map(|object| object.id)
         .expect("dozer construct command should create a faction-owned barracks");
+
+    game_logic.queue_command(command(
+        13,
+        0,
+        CommandType::Gather {
+            target_id: supply_dock,
+        },
+        vec![dozer],
+    ));
+    game_logic.process_commands();
+    let dozer_state = game_logic
+        .get_object(dozer)
+        .expect("dozer should exist after gather command");
+    assert_eq!(
+        dozer_state.ai_state,
+        AIState::Gathering,
+        "{} worker should accept gather commands from player slot 0",
+        human_team.get_name()
+    );
+    assert_eq!(dozer_state.target, Some(supply_dock));
 
     game_logic.queue_command(command(
         11,
@@ -229,6 +252,31 @@ fn run_basic_faction_flow(human_team: Team) {
             ..Weapon::default()
         });
     }
+
+    let supplies_before_sell = game_logic
+        .get_player(0)
+        .expect("human player should exist before sell")
+        .resources
+        .supplies;
+    game_logic.queue_command(command(
+        14,
+        0,
+        CommandType::Sell {
+            object_id: power_plant,
+        },
+        Vec::new(),
+    ));
+    game_logic.process_commands();
+    let supplies_after_sell = game_logic
+        .get_player(0)
+        .expect("human player should exist after sell")
+        .resources
+        .supplies;
+    assert!(
+        supplies_after_sell >= supplies_before_sell + 400,
+        "{} player in slot 0 should be able to sell owned structures",
+        human_team.get_name()
+    );
 
     let enemy_health_before = game_logic
         .get_object(enemy_command_center)

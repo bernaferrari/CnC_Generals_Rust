@@ -41,6 +41,13 @@ impl<'a> CommandExecutor<'a> {
         }
     }
 
+    fn player_team(&self, player_id: u32) -> Team {
+        self.game_logic
+            .get_player(player_id)
+            .map(|player| player.team)
+            .unwrap_or_else(|| Team::from_player_id(player_id))
+    }
+
     /// Execute a game command and return result
     pub fn execute_command(&mut self, command: GameCommand) -> Result<CommandResult, String> {
         debug!(
@@ -520,6 +527,7 @@ impl<'a> CommandExecutor<'a> {
 
     /// Send worker/harvester units to gather from a resource target.
     fn execute_gather(&mut self, units: &[ObjectId], target_id: ObjectId) -> CommandResult {
+        let player_team = self.player_team(self.current_player_id);
         let (target_pos, target_alive, target_is_resource) =
             match self.game_logic.get_object(target_id) {
                 Some(target) => (
@@ -545,7 +553,7 @@ impl<'a> CommandExecutor<'a> {
                     unit.is_alive()
                         && unit.is_worker()
                         && unit.can_move()
-                        && unit.team == Team::from_player_id(self.current_player_id)
+                        && unit.team == player_team
                 })
                 .unwrap_or(false);
             if !can_gather {
@@ -736,8 +744,9 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_sell(&mut self, object_id: ObjectId, player_id: u32) -> CommandResult {
+        let player_team = self.player_team(player_id);
         if let Some(obj) = self.game_logic.get_object(object_id) {
-            if obj.team != Team::from_player_id(player_id) {
+            if obj.team != player_team {
                 return CommandResult::InvalidTarget;
             }
             let refund = ((obj.thing.template.build_cost.supplies as f32) * 0.5).max(0.0) as u32;
@@ -749,11 +758,8 @@ impl<'a> CommandExecutor<'a> {
             self.game_logic.destroy_object(object_id);
             // Radar/EVA feedback for selling a structure.
             let msg = localization::localize("hud.sell.complete", "Structure sold");
-            if let Some(team) = Some(Team::from_player_id(player_id)) {
-                self.game_logic.queue_radar_message_for_team(team, msg);
-            } else {
-                self.game_logic.queue_radar_message(msg);
-            }
+            self.game_logic
+                .queue_radar_message_for_team(player_team, msg);
             CommandResult::Success
         } else {
             CommandResult::InvalidTarget
@@ -1858,7 +1864,7 @@ impl<'a> CommandExecutor<'a> {
     }
 
     fn execute_view_command_center(&mut self) -> CommandResult {
-        let team = Team::from_player_id(self.current_player_id);
+        let team = self.player_team(self.current_player_id);
         if let Some(position) = self.game_logic.command_center_position(team) {
             self.game_logic.request_camera_focus(position);
             CommandResult::Success
@@ -1870,11 +1876,7 @@ impl<'a> CommandExecutor<'a> {
     // === Validation Helpers ===
 
     fn validate_player_ownership(&self, command: &GameCommand) -> bool {
-        let player_team = self
-            .game_logic
-            .get_player(command.player_id)
-            .map(|player| player.team)
-            .unwrap_or_else(|| Team::from_player_id(command.player_id));
+        let player_team = self.player_team(command.player_id);
 
         // Check if player owns all selected units
         for &unit_id in &command.selected_units {
