@@ -149,21 +149,24 @@ static FX_SHAKE_SYSTEM: OnceLock<RwLock<Option<Arc<Mutex<CameraShakeSystem>>>>> 
 pub fn register_fx_audio(mut hook: AudioHook) {
     FX_AUDIO
         .get_or_init(|| RwLock::new(None))
-        .write().unwrap_or_else(|e| e.into_inner())
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
         .replace(hook);
 }
 
 pub fn register_ray_effect_manager(manager: Arc<Mutex<RayEffectManager>>) {
     FX_RAY_MANAGER
         .get_or_init(|| RwLock::new(None))
-        .write().unwrap_or_else(|e| e.into_inner())
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
         .replace(manager);
 }
 
 pub fn register_decal_manager(manager: Arc<Mutex<DecalManager>>) {
     FX_DECAL_MANAGER
         .get_or_init(|| RwLock::new(None))
-        .write().unwrap_or_else(|e| e.into_inner())
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
         .replace(manager);
 }
 
@@ -175,7 +178,8 @@ pub fn get_decal_manager() -> Option<Arc<Mutex<DecalManager>>> {
 pub fn register_camera_shake_system(system: Arc<Mutex<CameraShakeSystem>>) {
     FX_SHAKE_SYSTEM
         .get_or_init(|| RwLock::new(None))
-        .write().unwrap_or_else(|e| e.into_inner())
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
         .replace(system);
 }
 
@@ -311,13 +315,15 @@ static FX_LIST_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
 pub fn get_fx_list_store() -> std::sync::RwLockReadGuard<'static, FXListStore> {
     FX_LIST_STORE
         .get_or_init(|| RwLock::new(FXListStore::new()))
-        .read().unwrap_or_else(|e| e.into_inner())
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn get_fx_list_store_mut() -> std::sync::RwLockWriteGuard<'static, FXListStore> {
     FX_LIST_STORE
         .get_or_init(|| RwLock::new(FXListStore::new()))
-        .write().unwrap_or_else(|e| e.into_inner())
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn init_fx_list_store() -> Result<(), Box<dyn std::error::Error>> {
@@ -1086,28 +1092,48 @@ struct FXListAtBonePosFXNugget {
     orient_to_bone: bool,
 }
 
+impl FXListAtBonePosFXNugget {
+    const MAX_BONE_POINTS: usize = 40;
+
+    fn bone_query_names(&self) -> Vec<String> {
+        if self.bone_name.is_empty() {
+            return Vec::new();
+        }
+
+        let mut names = Vec::with_capacity(Self::MAX_BONE_POINTS + 1);
+        names.push(self.bone_name.clone());
+        for index in 1..=Self::MAX_BONE_POINTS {
+            names.push(format!("{}{:02}", self.bone_name, index));
+        }
+        names
+    }
+
+    fn execute_fx_at_bone(&self, fx: &FXList, primary: &Object, bone_name: &str) -> bool {
+        let (found, pos, bone_mtx) = primary.get_single_logical_bone_position(bone_name);
+        if !found {
+            return false;
+        }
+
+        let mtx = if self.orient_to_bone {
+            bone_mtx
+        } else {
+            primary.get_transform_matrix()
+        };
+        fx.do_fx_pos(Some(&pos), Some(&mtx), 0.0, None, 0.0);
+        true
+    }
+}
+
 impl FXNugget for FXListAtBonePosFXNugget {
     fn do_fx_pos(
         &self,
-        primary: Option<&Coord3D>,
-        primary_mtx: Option<&Matrix3D>,
-        primary_speed: f32,
-        secondary: Option<&Coord3D>,
-        override_radius: f32,
+        _primary: Option<&Coord3D>,
+        _primary_mtx: Option<&Matrix3D>,
+        _primary_speed: f32,
+        _secondary: Option<&Coord3D>,
+        _override_radius: f32,
     ) {
-        let Some(primary) = primary else {
-            return;
-        };
-        let Some(fx) = get_fx_list_store().find_fx_list(&self.fx_name) else {
-            return;
-        };
-        fx.do_fx_pos(
-            Some(primary),
-            primary_mtx,
-            primary_speed,
-            secondary,
-            override_radius,
-        );
+        log::debug!("FXListAtBonePos requires object form");
     }
 
     fn do_fx_obj(&self, primary: Option<&Object>, _secondary: Option<&Object>) {
@@ -1118,19 +1144,37 @@ impl FXNugget for FXListAtBonePosFXNugget {
             return;
         };
 
-        let mut pos = *primary.get_position();
-        let mut mtx = primary.get_transform_matrix();
-
-        if !self.bone_name.is_empty() {
-            let bones = primary.get_multi_logical_bone_position(&self.bone_name, 1);
-            if let Some(bone_pos) = bones.first() {
-                pos = *bone_pos;
-                if self.orient_to_bone {
-                    mtx = primary.convert_bone_pos_to_world_pos(Some(bone_pos), Some(&mtx));
-                }
-            }
+        for bone_name in self.bone_query_names() {
+            self.execute_fx_at_bone(&fx, primary, &bone_name);
         }
+    }
+}
 
-        fx.do_fx_pos(Some(&pos), Some(&mtx), 0.0, None, 0.0);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fx_list_at_bone_pos_queries_cpp_bone_name_sequence() {
+        let nugget = FXListAtBonePosFXNugget {
+            fx_name: "NestedFX".to_string(),
+            bone_name: "WeaponFireFXBone".to_string(),
+            orient_to_bone: true,
+        };
+
+        let names = nugget.bone_query_names();
+
+        assert_eq!(names.first().map(String::as_str), Some("WeaponFireFXBone"));
+        assert_eq!(names.get(1).map(String::as_str), Some("WeaponFireFXBone01"));
+        assert_eq!(names.get(2).map(String::as_str), Some("WeaponFireFXBone02"));
+        assert_eq!(names.last().map(String::as_str), Some("WeaponFireFXBone40"));
+        assert_eq!(names.len(), FXListAtBonePosFXNugget::MAX_BONE_POINTS + 1);
+    }
+
+    #[test]
+    fn fx_list_at_bone_pos_empty_name_queries_no_bones() {
+        let nugget = FXListAtBonePosFXNugget::default();
+
+        assert!(nugget.bone_query_names().is_empty());
     }
 }
