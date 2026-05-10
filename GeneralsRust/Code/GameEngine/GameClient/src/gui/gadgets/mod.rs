@@ -592,18 +592,28 @@ impl GadgetManager {
                 }
             }
 
-            InputEvent::KeyDown {
-                key: KeyCode::Tab | KeyCode::Right | KeyCode::Down,
-                ..
-            } => {
-                self.handle_tab_navigation(TabDirection::Forward);
-            }
+            InputEvent::KeyDown { key, .. } => {
+                // Send keyboard events to focused gadget
+                if let Some(focused_id) = self.focused_gadget {
+                    if let Some(gadget) = self.gadgets.get_mut(&focused_id) {
+                        if gadget.is_visible() && gadget.is_enabled() {
+                            messages.extend(gadget.handle_input(event));
+                        }
+                    }
+                }
 
-            InputEvent::KeyDown {
-                key: KeyCode::Left | KeyCode::Up,
-                ..
-            } => {
-                self.handle_tab_navigation(TabDirection::Backward);
+                let tab_direction = Self::take_tab_navigation_message(&mut messages);
+                if let Some(direction) = tab_direction.or_else(|| match key {
+                    KeyCode::Tab | KeyCode::Right | KeyCode::Down if messages.is_empty() => {
+                        Some(TabDirection::Forward)
+                    }
+                    KeyCode::Left | KeyCode::Up if messages.is_empty() => {
+                        Some(TabDirection::Backward)
+                    }
+                    _ => None,
+                }) {
+                    self.handle_tab_navigation(direction);
+                }
             }
 
             _ => {
@@ -619,6 +629,27 @@ impl GadgetManager {
         }
 
         messages
+    }
+
+    fn take_tab_navigation_message(messages: &mut Vec<GadgetMessage>) -> Option<TabDirection> {
+        let mut direction = None;
+        messages.retain(|message| {
+            if let GadgetMessage::Custom { data, .. } = message {
+                match data.as_str() {
+                    "tab_next" => {
+                        direction = Some(TabDirection::Forward);
+                        return false;
+                    }
+                    "tab_prev" => {
+                        direction = Some(TabDirection::Backward);
+                        return false;
+                    }
+                    _ => {}
+                }
+            }
+            true
+        });
+        direction
     }
 
     /// Set focus to a specific gadget
@@ -808,6 +839,63 @@ mod tests {
 
         manager.handle_input(&InputEvent::KeyDown {
             key: KeyCode::Tab,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(20));
+    }
+
+    #[test]
+    fn test_focused_listbox_keeps_arrow_selection_before_tab_fallback() {
+        let mut manager = GadgetManager::new();
+        let mut listbox = ListBox::new(10, 0, 0, 120, 80);
+        listbox.add_item_with_id(100, "Alpha");
+        listbox.add_item_with_id(200, "Bravo");
+        manager.add_gadget(Box::new(listbox));
+        manager.add_gadget(Box::new(PushButton::new(20, 140, 0, 20, 20)));
+
+        assert!(manager.set_focus(Some(10)));
+
+        let messages = manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(10));
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 10,
+                value: GadgetValue::Integer(100)
+            }]
+        ));
+
+        let messages = manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(10));
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 10,
+                value: GadgetValue::Integer(200)
+            }]
+        ));
+
+        let messages = manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(manager.focused_gadget, Some(10));
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 10,
+                value: GadgetValue::Integer(200)
+            }]
+        ));
+
+        manager.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Right,
             modifiers: KeyModifiers::none(),
         });
         assert_eq!(manager.focused_gadget, Some(20));
