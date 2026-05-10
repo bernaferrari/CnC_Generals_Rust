@@ -806,31 +806,35 @@ impl Gadget for ListBox {
                         }];
                     }
                     KeyCode::Up => {
+                        if self.items.is_empty() {
+                            return Vec::new();
+                        }
                         let next = self
                             .selected_indices
                             .first()
                             .copied()
                             .unwrap_or(0)
                             .saturating_sub(1);
-                        if self.select_index(next, *modifiers) {
-                            return vec![GadgetMessage::ValueChanged {
-                                gadget_id: self.id,
-                                value: GadgetValue::Integer(self.items[next].id),
-                            }];
-                        }
+                        self.select_index(next, *modifiers);
+                        return vec![GadgetMessage::ValueChanged {
+                            gadget_id: self.id,
+                            value: GadgetValue::Integer(self.items[next].id),
+                        }];
                     }
                     KeyCode::Down => {
+                        if self.items.is_empty() {
+                            return Vec::new();
+                        }
                         let next = self
                             .selected_indices
                             .first()
                             .map(|&i| (i + 1).min(self.items.len().saturating_sub(1)))
                             .unwrap_or(0);
-                        if self.select_index(next, *modifiers) {
-                            return vec![GadgetMessage::ValueChanged {
-                                gadget_id: self.id,
-                                value: GadgetValue::Integer(self.items[next].id),
-                            }];
-                        }
+                        self.select_index(next, *modifiers);
+                        return vec![GadgetMessage::ValueChanged {
+                            gadget_id: self.id,
+                            value: GadgetValue::Integer(self.items[next].id),
+                        }];
                     }
                     KeyCode::Home => {
                         if !self.items.is_empty() && self.select_index(0, *modifiers) {
