@@ -3501,11 +3501,11 @@ impl ScriptEvaluator {
         };
 
         match comparison {
-            0 => Ok(current_credits < target_credits),  // LessThan
-            1 => Ok(current_credits <= target_credits), // LessEqual
+            0 => Ok(target_credits < current_credits),  // LessThan
+            1 => Ok(target_credits <= current_credits), // LessEqual
             2 => Ok(current_credits == target_credits), // Equal
-            3 => Ok(current_credits >= target_credits), // GreaterEqual
-            4 => Ok(current_credits > target_credits),  // Greater
+            3 => Ok(target_credits >= current_credits), // GreaterEqual
+            4 => Ok(target_credits > current_credits),  // Greater
             5 => Ok(current_credits != target_credits), // NotEqual
             _ => Err(GameLogicError::Configuration(format!(
                 "Invalid comparison type: {}",
@@ -4842,6 +4842,41 @@ mod tests {
 
         let result = evaluator.evaluate_condition(&mut condition).unwrap();
         assert!(result);
+    }
+
+    #[tokio::test]
+    async fn player_has_credits_compares_threshold_to_player_money_like_cxx() {
+        initialize_script_engine().unwrap();
+        player_list().write().unwrap().clear();
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        {
+            let mut player_guard = player.write().unwrap();
+            player_guard.set_display_name("CreditsEvaluatorPlayer");
+            player_guard.get_money_mut().set_money(1000);
+        }
+        player_list().write().unwrap().add_player(player);
+
+        let engine = get_script_engine();
+        let evaluator = ScriptEvaluator::new(engine);
+
+        let mut condition = Condition::new(ConditionType::PlayerHasCredits);
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::Int, 500))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::Comparison, 0))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "CreditsEvaluatorPlayer".to_string(),
+            ))
+            .unwrap();
+
+        assert!(
+            evaluator.evaluate_condition(&mut condition).unwrap(),
+            "C++ evaluates threshold < player's credits, not player's credits < threshold"
+        );
     }
 
     #[test]

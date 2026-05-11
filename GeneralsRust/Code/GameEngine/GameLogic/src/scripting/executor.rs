@@ -14433,12 +14433,12 @@ impl ScriptConditionEvaluator {
         };
 
         let result = match comparison {
-            ComparisonType::LessThan => current_credits < target_credits,
-            ComparisonType::LessEqual => current_credits <= target_credits,
-            ComparisonType::Equal => current_credits == target_credits,
-            ComparisonType::GreaterEqual => current_credits >= target_credits,
-            ComparisonType::Greater => current_credits > target_credits,
-            ComparisonType::NotEqual => current_credits != target_credits,
+            ComparisonType::LessThan => target_credits < current_credits,
+            ComparisonType::LessEqual => target_credits <= current_credits,
+            ComparisonType::Equal => target_credits == current_credits,
+            ComparisonType::GreaterEqual => target_credits >= current_credits,
+            ComparisonType::Greater => target_credits > current_credits,
+            ComparisonType::NotEqual => target_credits != current_credits,
         };
 
         Ok(if result {
@@ -20229,6 +20229,41 @@ mod tests {
             evaluator.evaluate_condition(&mut condition).unwrap(),
             ScriptConditionResult::False,
             "C++ evaluateMissionAttempts does not read parameters and always returns false"
+        );
+    }
+
+    #[test]
+    fn condition_player_has_credits_compares_threshold_to_player_money_like_cxx() {
+        player_list().write().unwrap().clear();
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        {
+            let mut player_guard = player.write().unwrap();
+            player_guard.set_display_name("CreditsExecutorPlayer");
+            player_guard.get_money_mut().set_money(1000);
+        }
+        player_list().write().unwrap().add_player(player);
+
+        let mut condition = Condition::new(ConditionType::PlayerHasCredits);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "CreditsExecutorPlayer".to_string(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::Comparison, 0))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::Int, 500))
+            .unwrap();
+
+        let mut evaluator =
+            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+        assert_eq!(
+            evaluator.evaluate_condition(&mut condition).unwrap(),
+            ScriptConditionResult::True,
+            "C++ evaluates threshold < player's credits, not player's credits < threshold"
         );
     }
 }
