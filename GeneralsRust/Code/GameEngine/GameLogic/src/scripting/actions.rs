@@ -18,6 +18,7 @@ use crate::helpers::{TheGameLogic, TheVictoryConditions};
 use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt};
 use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object_manager::{get_object_manager, ObjectCreationFlags};
 use crate::player::{player_list, PlayerIndex, PlayerType};
 use crate::scripting::core::{LOCAL_PLAYER, TEAM_THE_PLAYER, THE_PLAYER, THIS_PLAYER, THIS_TEAM};
@@ -5902,23 +5903,40 @@ impl ScriptAction for GiveSpecialPowerAction {
         let player = get_int_param(parameters, "player")?;
         let power_name = get_string_param(parameters, "power_name")?;
 
+        if player < 0 {
+            return Err(GameLogicError::Configuration(format!(
+                "player must be non-negative, got {player}"
+            )));
+        }
+
         log::info!(
             "Granting special power '{}' to player {}",
             power_name,
             player
         );
 
-        // Integration with special power system:
-        // Special powers: A-10 Strike, Artillery Barrage, etc.
-        // 1. Player *pPlayer = ThePlayerList->getPlayer(player)
-        // 2. SpecialPowerTemplate *powerTemplate = TheSpecialPowerStore->find(power_name)
-        // 3. pPlayer->grantSpecialPower(powerTemplate)
-        // 4. Adds power to player's available powers
-        // 5. UI button appears, power becomes usable
-        // 6. May have cooldown or usage limits
-        // Rust: player.grant_special_power(power_name)
+        let power_template =
+            find_or_create_special_power_template(&AsciiString::from(power_name.as_str()));
+        let player_arc = player_list()
+            .read()
+            .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?
+            .get_player(player as PlayerIndex)
+            .cloned();
 
-        log::debug!("Integration: Special power system grants ability to player");
+        let Some(player_arc) = player_arc else {
+            log::warn!(
+                "Cannot grant special power '{}' to missing player {}",
+                power_name,
+                player
+            );
+            return Ok(ScriptResult::Success(None));
+        };
+
+        let ready_frame = TheGameLogic::get_frame();
+        player_arc
+            .write()
+            .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?
+            .express_special_power_ready_frame(&power_template, ready_frame);
 
         Ok(ScriptResult::Success(None))
     }
@@ -7819,5 +7837,38 @@ mod tests {
             let object = object.read().unwrap();
             assert_eq!(*object.get_position(), *expected_pos);
         }
+    }
+
+    #[tokio::test]
+    async fn give_special_power_initializes_player_ready_timer() {
+        reset_test_players(1);
+        if let Some(mut store) =
+            crate::object::special_power_template::get_special_power_store_mut()
+        {
+            store.reset();
+        }
+
+        let expected_frame = TheGameLogic::get_frame();
+        let mut params = HashMap::new();
+        params.insert("player".to_string(), ScriptValue::Int(0));
+        params.insert(
+            "power_name".to_string(),
+            ScriptValue::String("TestScriptPower".to_string()),
+        );
+
+        GiveSpecialPowerAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        let template = find_or_create_special_power_template(&AsciiString::from("TestScriptPower"));
+        assert_eq!(template.get_name(), "TestScriptPower");
+
+        let list = player_list().read().unwrap();
+        let mut player = list.get_player(0).unwrap().write().unwrap();
+        assert_eq!(
+            player.get_or_start_special_power_ready_frame(&template),
+            expected_frame
+        );
     }
 }
