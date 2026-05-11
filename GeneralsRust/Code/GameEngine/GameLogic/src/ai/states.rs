@@ -37,7 +37,7 @@ use crate::player::PlayerType;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::engine::get_script_engine;
 use crate::state_machine::*;
-use crate::team::{Team, TheTeamFactory};
+use crate::team::{Team, TeamID, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::{Waypoint, WaypointId};
 use crate::weapon::{
@@ -5992,6 +5992,10 @@ pub struct AIAttackObjectState {
     issued_attack: Bool,
     attack_machine: Option<AttackStateMachine>,
     original_victim_pos: Coord3D,
+    /// Team ID of the victim when attack started (C++ m_victimTeam)
+    victim_team: Option<TeamID>,
+    /// Weapon slot that was locked when entering attack state (C++ m_lockedWeaponOnEnter)
+    locked_weapon_on_enter: Option<WeaponSlotType>,
 }
 
 impl AIAttackObjectState {
@@ -6004,6 +6008,8 @@ impl AIAttackObjectState {
             issued_attack: false,
             attack_machine: None,
             original_victim_pos: Coord3D::new(0.0, 0.0, 0.0),
+            victim_team: None,
+            locked_weapon_on_enter: None,
         }
     }
 
@@ -6095,6 +6101,9 @@ impl ClassicState for AIAttackObjectState {
                 }
                 return Ok(StateReturnType::Failure);
             }
+
+            // C++ line 5513: m_victimTeam = victim->getTeam()
+            self.victim_team = target_guard.get_team_id();
         }
 
         // Set original victim pos on AI
@@ -6145,6 +6154,15 @@ impl ClassicState for AIAttackObjectState {
                     );
                 }
             }
+
+            // C++ line 5538: m_lockedWeaponOnEnter = source->isCurWeaponLocked() ? curWeapon : NULL
+            if owner_guard.is_cur_weapon_locked() {
+                if let Some((_weapon, slot)) = owner_guard.get_current_weapon() {
+                    self.locked_weapon_on_enter = Some(slot);
+                }
+            } else {
+                self.locked_weapon_on_enter = None;
+            }
         }
 
         // Create attack machine (C++ lines 5499)
@@ -6176,27 +6194,124 @@ impl ClassicState for AIAttackObjectState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "attack object state missing owner".to_string())?;
+
+        // C++ lines 5565-5570: Out of ammo check every frame
+        {
+            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
+            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+                return Ok(StateReturnType::Failure);
+            }
+        }
+
         let Some(target) = &self.target else {
             return Ok(StateReturnType::Failure);
         };
 
-        if let Ok(target_guard) = target.read() {
+        // C++ lines 5576-5579: Check if victim is dead
+        {
+            let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
             if target_guard.is_effectively_dead() {
-                if let Some(owner) = self.base.get_machine_owner() {
-                    if let Ok(owner_guard) = owner.read() {
-                        if let Some(ai) = owner_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard.notify_victim_is_dead();
-                            }
+                if let Ok(owner_guard) = owner.read() {
+                    if let Some(ai) = owner_guard.get_ai_update_interface() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            ai_guard.notify_victim_is_dead();
                         }
                     }
                 }
                 return Ok(StateReturnType::Success);
             }
+
+            // C++ line 5584: setCurrentVictim every frame
+            let victim_id = target_guard.get_id();
+            if let Ok(owner_guard) = owner.read() {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.set_current_victim(Some(victim_id));
+                    }
+                }
+            }
+
+            // C++ lines 5587-5627: Team change detection
+            let target_team = target_guard.get_team_id();
+            if self.victim_team != target_team {
+                if let Ok(owner_guard) = owner.read() {
+                    let should_stop = {
+                        let owner_rel = owner_guard.relationship_to(&*target_guard);
+                        owner_rel != Relationship::Enemies
+                    };
+
+                    if should_stop {
+                        if let Some(ai) = owner_guard.get_ai_update_interface() {
+                            if let Ok(mut ai_guard) = ai.lock() {
+                                ai_guard.set_goal_object(None::<&Arc<RwLock<Object>>>);
+                                ai_guard.notify_victim_is_dead();
+                            }
+                        }
+                        return Ok(StateReturnType::Failure);
+                    }
+                }
+                self.victim_team = target_team;
+            }
         }
 
+        // C++ lines 5640-5642: Re-evaluate weapon choice every frame
+        {
+            let cmd_source = {
+                let Ok(owner_guard) = owner.read() else {
+                    return Ok(StateReturnType::Failure);
+                };
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        ai_guard.get_last_command_source()
+                    } else {
+                        CommandSourceType::FromAi
+                    }
+                } else {
+                    CommandSourceType::FromAi
+                }
+            };
+
+            let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
+            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
+            let weapon_found = owner_guard.choose_best_weapon_for_target(
+                &*target_guard,
+                WeaponChoiceCriteria::PreferMostDamage,
+                cmd_source,
+            );
+            if !weapon_found {
+                return Ok(StateReturnType::Failure);
+            }
+
+            // C++ lines 5649-5650: Locked weapon check
+            if let Some(locked_slot) = self.locked_weapon_on_enter {
+                if let Some((_weapon, cur_slot)) = owner_guard.get_current_weapon() {
+                    if cur_slot != locked_slot {
+                        return Ok(StateReturnType::Failure);
+                    }
+                }
+            }
+
+            // C++ lines 5653-5654: Shot count check
+            if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
+                if weapon.get_max_shot_count() <= 0 {
+                    return Ok(StateReturnType::Failure);
+                }
+            } else {
+                return Ok(StateReturnType::Failure);
+            }
+        }
+
+        // C++ line 5664: Run attack machine (CONVERT_SLEEP_TO_CONTINUE)
         if let Some(attack_machine) = self.attack_machine.as_mut() {
-            return Ok(attack_machine.update());
+            let result = attack_machine.update();
+            return Ok(match result {
+                StateReturnType::Sleep(_) => StateReturnType::Continue,
+                other => other,
+            });
         }
 
         Ok(StateReturnType::Continue)
