@@ -63,7 +63,6 @@ impl CacheFlags {
         (self.0 & flag.0) != 0
     }
 
-
     fn clear(&mut self, flag: CacheFlags) {
         self.0 &= !flag.0;
     }

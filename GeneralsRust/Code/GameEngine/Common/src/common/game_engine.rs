@@ -126,8 +126,6 @@ pub trait NetworkInterface: Send + Sync {
 
 /// Adapter that wraps the async `game_network` crate behind the legacy synchronous interface.
 
-
-
 /// Graphics mode detection for fallback systems
 #[derive(Debug, Clone, PartialEq)]
 pub enum GraphicsMode {
@@ -1375,7 +1373,6 @@ impl GameEngine {
         info!("Game client system initialized successfully");
         Ok(())
     }
-
 
     fn service_os(&mut self) {
         // Platform-specific OS message handling would go here
