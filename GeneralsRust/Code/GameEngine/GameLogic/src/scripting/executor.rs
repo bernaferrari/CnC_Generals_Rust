@@ -1195,47 +1195,29 @@ impl ScriptActionDispatcher {
             .get_members()
             .to_vec();
 
-        let current_frame = TheGameLogic::get_frame();
-        let obj_mgr = get_object_manager();
-        let obj_mgr_guard = obj_mgr.read().map_err(|_| {
-            ScriptError::ExecutionFailed("Failed to lock object manager".to_string())
-        })?;
-
-        let queue_manager = get_command_queue_manager();
-        let mut queue_guard = queue_manager.lock().map_err(|_| {
-            ScriptError::ExecutionFailed("Failed to lock command queue manager".to_string())
-        })?;
-
         for object_id in members {
-            let Some(obj_arc) = obj_mgr_guard.get_object(object_id) else {
+            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
                 continue;
             };
             let Ok(obj) = obj_arc.read() else {
                 continue;
             };
 
-            let Some(player_id) = obj.get_controlling_player_id().map(|id| id as i32) else {
+            let position = *obj.get_position();
+            let Some(ai_arc) = obj.get_ai_update_interface() else {
                 continue;
             };
+            drop(obj);
 
-            let position = *obj.get_position();
-
-            // Build a guard-position command with explicit GuardMode arg (Normal=0).
-            let mut base_command = Command::new(CommandType::DoGuardPosition);
-            base_command.set_player_index(player_id);
-            base_command.append_location_argument(position);
-            base_command.append_integer_argument(GuardMode::Normal.as_i32());
-            base_command.append_object_id_argument(object_id);
-
-            let queued = QueuedCommand::new(base_command, CommandPriority::High, current_frame);
-            if let Err(e) = queue_guard.queue_player_command(player_id, queued) {
-                log::warn!(
-                    "Failed to queue TeamGuard for object {} (player {}): {}",
-                    object_id,
-                    player_id,
-                    e
+            if let Ok(mut ai) = ai_arc.lock() {
+                let mut params = AiCommandParams::new(
+                    AiCommandType::GuardPosition,
+                    CommandSourceType::FromScript,
                 );
-            }
+                params.pos = position;
+                params.int_value = GuardMode::Normal.as_i32();
+                let _ = ai.execute_command(&params);
+            };
         }
 
         Ok(ScriptActionResult::Success)
@@ -1804,11 +1786,19 @@ impl ScriptActionDispatcher {
                     .ok()
                     .and_then(|obj| obj.get_ai_update_interface());
                 if let Some(ai_arc) = ai_result {
+                    if let Ok(mut obj_guard) = obj_arc.write() {
+                        obj_guard.leave_group();
+                    }
+                    if let Ok(mut ai) = ai_arc.lock() {
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    }
+
                     let mut guard_params = AiCommandParams::new(
                         AiCommandType::GuardPosition,
                         CommandSourceType::FromScript,
                     );
-                    guard_params.pos = position.clone();
+                    guard_params.pos = position;
+                    guard_params.int_value = GuardMode::Normal.as_i32();
                     let _ = ai_arc.lock().ok().map(|mut ai| {
                         let _ = ai.execute_command(&guard_params);
                         log::info!(
@@ -4523,12 +4513,18 @@ impl ScriptActionDispatcher {
         let target_id = tracker.get_object_id(&object_name).ok().flatten();
 
         if let Some(tid) = target_id {
+            if TheGameLogic::find_object_by_id(tid).is_none() {
+                log::warn!("Object '{}' object {} no longer exists", object_name, tid);
+                return Ok(ScriptActionResult::Success);
+            }
+
             let group_arc = self.create_ai_group_from_team(&team_name)?;
             let write_result = group_arc.write();
             if let Ok(mut group) = write_result {
                 let mut params =
                     AiCommandParams::new(AiCommandType::GuardObject, CommandSourceType::FromScript);
                 params.obj = Some(tid);
+                params.int_value = GuardMode::Normal.as_i32();
                 let _ = group.ai_do_command(&params);
             }
         } else {
@@ -19417,6 +19413,238 @@ mod tests {
         let mut dispatcher =
             ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
         dispatcher.do_team_attack_named(&action).unwrap();
+
+        assert!(commands.lock().unwrap().is_empty());
+        assert!(locomotors.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let guard_id = 8500;
+        let guard = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                guard_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test guard instance"),
+        ));
+
+        {
+            let instance = guard.write().unwrap();
+            let mut base = instance.base.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.enter_group(&crate::ai::AIGroup::new(94));
+            assert_eq!(base.get_group_id(), Some(94));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(guard.clone(), Coord3D::new(9.0, 5.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("ExecutorGuard".to_string(), guard_id)
+            .unwrap();
+
+        let mut action = ScriptAction::new(ScriptActionType::NamedGuard);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ExecutorGuard".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_named_guard(&action).unwrap();
+
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::GuardPosition,
+                None,
+                None,
+                GuardMode::Normal.as_i32(),
+                CommandSourceType::FromScript,
+            )]
+        );
+        assert_eq!(
+            guard.read().unwrap().base.read().unwrap().get_group_id(),
+            None
+        );
+    }
+
+    #[test]
+    fn executor_team_guard_dispatches_direct_ai_without_player_owner() {
+        get_object_manager().write().unwrap().reset();
+        get_team_factory().lock().unwrap().reset();
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("ExecutorGuardTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("ExecutorGuardTeam")
+                .expect("guard team should be created");
+        }
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let member_id = 8510;
+        let member = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                member_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test guard team member instance"),
+        ));
+
+        {
+            let instance = member.write().unwrap();
+            instance
+                .base
+                .write()
+                .unwrap()
+                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                    commands: Arc::clone(&commands),
+                    locomotors: Arc::clone(&locomotors),
+                }))));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(member, Coord3D::new(10.0, 10.0, 0.0))
+            .unwrap();
+        get_team_factory()
+            .lock()
+            .unwrap()
+            .find_team("ExecutorGuardTeam")
+            .unwrap()
+            .write()
+            .unwrap()
+            .add_member(member_id);
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamGuard);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "ExecutorGuardTeam".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_team_guard(&action).unwrap();
+
+        assert!(locomotors.lock().unwrap().is_empty());
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::GuardPosition,
+                None,
+                None,
+                GuardMode::Normal.as_i32(),
+                CommandSourceType::FromScript,
+            )]
+        );
+    }
+
+    #[test]
+    fn executor_team_guard_object_ignores_stale_target_tracker_id() {
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+        get_team_factory().lock().unwrap().reset();
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("ExecutorObjectGuardTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("ExecutorObjectGuardTeam")
+                .expect("object guard team should be created");
+        }
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let member_id = 8520;
+        let member = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                member_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test object guard team member instance"),
+        ));
+
+        {
+            let instance = member.write().unwrap();
+            instance
+                .base
+                .write()
+                .unwrap()
+                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                    commands: Arc::clone(&commands),
+                    locomotors: Arc::clone(&locomotors),
+                }))));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(member, Coord3D::new(11.0, 11.0, 0.0))
+            .unwrap();
+        get_team_factory()
+            .lock()
+            .unwrap()
+            .find_team("ExecutorObjectGuardTeam")
+            .unwrap()
+            .write()
+            .unwrap()
+            .add_member(member_id);
+        get_named_object_tracker()
+            .register_named_object("MissingGuardTarget".to_string(), 8521)
+            .unwrap();
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamGuardObject);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "ExecutorObjectGuardTeam".to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "MissingGuardTarget".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_team_guard_object(&action).unwrap();
 
         assert!(commands.lock().unwrap().is_empty());
         assert!(locomotors.lock().unwrap().is_empty());
