@@ -102,6 +102,7 @@ impl ActionRegistry {
 
         // Named unit actions (10 critical actions)
         self.register_action(Box::new(NamedAttackAction));
+        self.register_action(Box::new(NamedAttackAreaAction));
         self.register_action(Box::new(NamedMoveToAction));
         self.register_action(Box::new(NamedGarrisonAction));
         self.register_action(Box::new(NamedFollowWaypointsAction));
@@ -3168,6 +3169,84 @@ impl ScriptAction for NamedAttackAction {
 
     fn required_parameters(&self) -> Vec<String> {
         vec!["attacker_name".to_string(), "target_name".to_string()]
+    }
+
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+}
+
+/// Named unit attacks all enemies in a trigger area
+struct NamedAttackAreaAction;
+
+#[async_trait]
+impl ScriptAction for NamedAttackAreaAction {
+    async fn execute(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<ScriptResult> {
+        let unit_name = get_string_param(parameters, "unit_name")?;
+        let area = get_string_param(parameters, "area")?;
+
+        log::info!("Named unit '{}' attacking area '{}'", unit_name, area);
+
+        let Some(object_id) = resolve_named_object_id(&unit_name) else {
+            log::warn!("NamedAttackAreaAction: unit '{}' not found", unit_name);
+            return Ok(ScriptResult::Success(None));
+        };
+
+        let (center, trigger_id) = if let Ok(terrain_guard) = get_terrain_logic().read() {
+            if let Some(trigger) = terrain_guard.get_trigger_area_by_name(&area) {
+                (trigger.get_center_point(), trigger.get_id())
+            } else {
+                log::warn!("NamedAttackAreaAction: trigger area '{}' not found", area);
+                return Ok(ScriptResult::Success(None));
+            }
+        } else {
+            log::warn!("NamedAttackAreaAction: failed to lock terrain logic");
+            return Ok(ScriptResult::Success(None));
+        };
+
+        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            log::warn!(
+                "NamedAttackAreaAction: unit '{}' (ID {}) not found in registry",
+                unit_name,
+                object_id
+            );
+            return Ok(ScriptResult::Success(None));
+        };
+
+        if let Ok(mut obj_guard) = object_arc.write() {
+            obj_guard.leave_group();
+            if let Some(ai) = obj_guard.get_ai_update_interface() {
+                ai.choose_locomotor_set(LocomotorSetType::Normal);
+                let mut params =
+                    AiCommandParams::new(AiCommandType::AttackArea, CommandSourceType::FromScript);
+                params.pos = center;
+                params.polygon = Some(trigger_id);
+                let _ = ai.lock().ok().map(|mut ai| ai.execute_command(&params));
+            } else {
+                log::warn!(
+                    "NamedAttackAreaAction: unit '{}' has no AI update interface",
+                    unit_name
+                );
+            }
+        }
+
+        Ok(ScriptResult::Success(None))
+    }
+
+    fn name(&self) -> &str {
+        "named_attack_area"
+    }
+
+    fn description(&self) -> &str {
+        "Commands a named unit to attack targets in an area"
+    }
+
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string(), "area".to_string()]
     }
 
     fn optional_parameters(&self) -> Vec<String> {
@@ -7547,6 +7626,10 @@ mod tests {
         get_team_factory().lock().unwrap().reset();
     }
 
+    fn reset_test_named_object_tracker() {
+        get_named_object_tracker().clear().unwrap();
+    }
+
     fn reset_test_terrain() {
         get_terrain_logic().write().unwrap().reset();
     }
@@ -8253,6 +8336,142 @@ mod tests {
                 )]
             );
         }
+    }
+
+    #[tokio::test]
+    async fn named_attack_area_leaves_group_and_dispatches_attack_area() {
+        use crate::common::ICoord3D;
+        use crate::modules::AIUpdateInterface;
+        use crate::polygon_trigger::PolygonTrigger;
+        use std::sync::Mutex;
+
+        #[derive(Debug)]
+        struct RecordingAi {
+            commands: Arc<Mutex<Vec<(AiCommandType, Coord3D, Option<i32>, CommandSourceType)>>>,
+            locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+        }
+
+        impl AIUpdateInterface for RecordingAi {
+            fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                Ok(())
+            }
+
+            fn is_moving(&self) -> bool {
+                false
+            }
+
+            fn is_idle(&self) -> bool {
+                true
+            }
+
+            fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn choose_locomotor_set(
+                &mut self,
+                set: LocomotorSetType,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.locomotors.lock().unwrap().push(set);
+                Ok(())
+            }
+
+            fn execute_command(
+                &mut self,
+                command: &AiCommandParams,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.commands.lock().unwrap().push((
+                    command.cmd,
+                    command.pos,
+                    command.polygon,
+                    command.cmd_source,
+                ));
+                Ok(())
+            }
+        }
+
+        reset_test_object_manager();
+        reset_test_named_object_tracker();
+        reset_test_terrain();
+
+        let trigger_id = 6300;
+        let expected_center = Coord3D::new(60.0, 85.0, 0.0);
+        get_terrain_logic()
+            .write()
+            .unwrap()
+            .add_trigger_area(PolygonTrigger::new(
+                trigger_id,
+                AsciiString::from("NamedAttackZone"),
+                vec![
+                    ICoord3D::new(20, 30, 0),
+                    ICoord3D::new(100, 30, 0),
+                    ICoord3D::new(100, 140, 0),
+                    ICoord3D::new(20, 140, 0),
+                ],
+            ));
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let object_id = 8300;
+        let object = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                object_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test object instance"),
+        ));
+
+        {
+            let instance = object.write().unwrap();
+            let mut base = instance.base.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.enter_group(&crate::ai::AIGroup::new(77));
+            assert_eq!(base.get_group_id(), Some(77));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(object.clone(), Coord3D::new(5.0, 10.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("NamedAttacker".to_string(), object_id)
+            .unwrap();
+
+        let mut params = HashMap::new();
+        params.insert(
+            "unit_name".to_string(),
+            ScriptValue::String("NamedAttacker".to_string()),
+        );
+        params.insert(
+            "area".to_string(),
+            ScriptValue::String("NamedAttackZone".to_string()),
+        );
+
+        NamedAttackAreaAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::AttackArea,
+                expected_center,
+                Some(trigger_id),
+                CommandSourceType::FromScript,
+            )]
+        );
+        assert_eq!(
+            object.read().unwrap().base.read().unwrap().get_group_id(),
+            None
+        );
     }
 
     #[tokio::test]
