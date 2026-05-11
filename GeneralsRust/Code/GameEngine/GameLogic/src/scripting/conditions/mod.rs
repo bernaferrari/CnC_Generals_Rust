@@ -4902,7 +4902,11 @@ impl ScriptCondition for TeamSomeHasObjectStatusCondition {
                     if obj.get_status_bits().intersects(status_mask) {
                         return Ok(true);
                     }
+                } else {
+                    return Ok(false);
                 }
+            } else {
+                return Ok(false);
             }
         }
         Ok(false)
