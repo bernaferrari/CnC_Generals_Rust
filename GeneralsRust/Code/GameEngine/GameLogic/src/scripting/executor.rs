@@ -14875,52 +14875,36 @@ impl ScriptConditionEvaluator {
         })
     }
 
-    /// C++ Reference: ScriptConditions::evaluatePlayerDestroyedNBuildingsPlayer()
-    /// Check if player has destroyed N buildings belonging to another player
+    /// C++ Reference: ScriptConditions::evaluatePlayerDestroyedNOrMoreBuildings()
     fn eval_player_destroyed_n_buildings_player(
         &self,
         condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let player_name = self.get_condition_string_param(condition, 0)?;
-        let comparison = self.get_condition_comparison_param(condition, 1)?;
-        let target_count = self.get_condition_int_param(condition, 2)?;
-        let _target_player = self.get_condition_string_param(condition, 3).ok();
+        let _target_count = self.get_condition_int_param(condition, 1)?;
+        let opponent_name = self.get_condition_string_param(condition, 2)?;
         log::debug!(
-            "Evaluating if player '{}' destroyed {:?} {} buildings",
+            "Evaluating unimplemented C++ destroyed-buildings condition for '{}' against '{}'",
             player_name,
-            comparison,
-            target_count
+            opponent_name
         );
 
-        // Get player's score keeper to check buildings destroyed
-        let buildings_destroyed = if let Ok(players) = player_list().read() {
-            if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = player_arc.read() {
-                    player.get_score_keeper().get_buildings_destroyed()
-                } else {
-                    0
-                }
-            } else {
-                0
-            }
-        } else {
-            0
+        // C++ resolves both players, ignores N, then returns FALSE because this helper
+        // still contains only `@todo CLH implement me!`.
+        let Ok(players) = player_list().read() else {
+            return Ok(ScriptConditionResult::False);
         };
-
-        let result = match comparison {
-            ComparisonType::LessThan => buildings_destroyed < target_count,
-            ComparisonType::LessEqual => buildings_destroyed <= target_count,
-            ComparisonType::Equal => buildings_destroyed == target_count,
-            ComparisonType::GreaterEqual => buildings_destroyed >= target_count,
-            ComparisonType::Greater => buildings_destroyed > target_count,
-            ComparisonType::NotEqual => buildings_destroyed != target_count,
+        let Some(player_arc) = players.find_player_by_name(&player_name) else {
+            return Ok(ScriptConditionResult::False);
         };
+        let Some(opponent_arc) = players.find_player_by_name(&opponent_name) else {
+            return Ok(ScriptConditionResult::False);
+        };
+        if player_arc.read().is_err() || opponent_arc.read().is_err() {
+            return Ok(ScriptConditionResult::False);
+        }
 
-        Ok(if result {
-            ScriptConditionResult::True
-        } else {
-            ScriptConditionResult::False
-        })
+        Ok(ScriptConditionResult::False)
     }
 
     /// C++ Reference: ScriptConditions::evaluatePlayerHasObjectComparison()
@@ -20237,5 +20221,34 @@ mod tests {
             .as_ref()
             .unwrap()
             .has_active_sequential_script_for_team("MissingSequentialTeam"));
+    }
+
+    #[test]
+    fn condition_player_destroyed_n_buildings_player_matches_cxx_todo_false() {
+        let mut condition = Condition::new(ConditionType::PlayerDestroyedNBuildingsPlayer);
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "MissingDestroyedBuildingsPlayer".to_string(),
+            ))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_int(ParameterType::Int, 1))
+            .unwrap();
+        condition
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "MissingDestroyedBuildingsOpponent".to_string(),
+            ))
+            .unwrap();
+
+        let mut evaluator =
+            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+        assert_eq!(
+            evaluator.evaluate_condition(&mut condition).unwrap(),
+            ScriptConditionResult::False,
+            "C++ resolves the side parameters, ignores N, and returns FALSE because the helper is unimplemented"
+        );
     }
 }

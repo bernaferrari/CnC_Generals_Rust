@@ -659,16 +659,25 @@ impl ScriptEvaluator {
                             .to_string(),
                     )
                 })?;
-                let _num_param = condition.get_parameter(1);
-                let _opponent_param = condition.get_parameter(2);
+                let opponent_param = condition.get_parameter(2).ok_or_else(|| {
+                    GameLogicError::Configuration(
+                        "PlayerDestroyedNBuildingsPlayer condition missing opponent parameter"
+                            .to_string(),
+                    )
+                })?;
 
-                // C++ evaluatePlayerDestroyedNOrMoreBuildings has a @todo CLH implement me! and returns FALSE
-                // Implementing a best-effort approximation: count destroyed buildings
-                // TODO: C++ has an unimplemented TODO for this condition
+                // C++ evaluatePlayerDestroyedNOrMoreBuildings resolves both players, ignores N,
+                // then returns FALSE because the condition body is still a TODO.
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
                 let Ok(_player_guard) = player_arc.read() else {
+                    return Ok(false);
+                };
+                let Some(opponent_arc) = self.resolve_player_from_param(opponent_param) else {
+                    return Ok(false);
+                };
+                let Ok(_opponent_guard) = opponent_arc.read() else {
                     return Ok(false);
                 };
                 Ok(false)
@@ -680,10 +689,9 @@ impl ScriptEvaluator {
             ConditionType::UnitCompletedSequentialExecution => Ok(false),
 
             // Team completed sequential script execution
-            ConditionType::TeamCompletedSequentialExecution => {
-                // TODO: C++ sequential script tracking not yet ported
-                Ok(false)
-            }
+            // C++: NO case in switch — falls through to DEBUG_CRASH returning false.
+            // ScriptEngine::hasTeamCompletedSequentialScript() always returns FALSE.
+            ConditionType::TeamCompletedSequentialExecution => Ok(false),
 
             // Player has comparison count of unit type within a trigger area
             ConditionType::PlayerHasComparisonUnitTypeInTriggerArea => {
