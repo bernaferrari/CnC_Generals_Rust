@@ -1354,7 +1354,7 @@ impl Team {
         let current_frame = crate::helpers::TheGameLogic::get_frame() as u32;
         area_tracker
             .get_last_enter_frame(area_name, object_id)
-            .map(|frame| frame == current_frame)
+            .map(|frame| frame == current_frame || frame + 1 == current_frame)
             .unwrap_or(false)
     }
 
@@ -1364,7 +1364,7 @@ impl Team {
         let current_frame = crate::helpers::TheGameLogic::get_frame() as u32;
         area_tracker
             .get_last_exit_frame(area_name, object_id)
-            .map(|frame| frame == current_frame)
+            .map(|frame| frame == current_frame || frame + 1 == current_frame)
             .unwrap_or(false)
     }
 
@@ -3730,5 +3730,58 @@ mod tests {
         assert!(team.is_active());
         team.delete_team(false);
         assert!(team.is_active());
+    }
+
+    #[test]
+    fn team_area_events_remain_visible_on_next_script_frame() {
+        use crate::polygon_trigger::PolygonTrigger;
+        use crate::scripting::engine::{get_area_tracker, get_event_manager};
+        use crate::scripting::events::TriggerArea;
+        use crate::system::game_logic::get_game_logic;
+
+        let area_name = "TeamAreaPreviousFrameParity";
+        let object_id = 0x00FE_DCBA;
+        let tracker = get_area_tracker();
+        let _ = tracker.unregister_area(area_name);
+        tracker
+            .register_area(TriggerArea::new_rectangular(
+                area_name.to_string(),
+                [0.0, 0.0, 0.0],
+                0.0,
+                0.0,
+                10.0,
+                10.0,
+            ))
+            .expect("register test area");
+
+        get_game_logic()
+            .lock()
+            .expect("game logic lock")
+            .set_current_frame(41);
+        tracker
+            .update_object_position_sync(object_id, [5.0, 5.0, 0.0], &get_event_manager())
+            .expect("record enter");
+
+        let trigger = PolygonTrigger::new(1, AsciiString::from(area_name), Vec::new());
+        assert!(Team::object_did_enter(object_id, &trigger));
+
+        get_game_logic()
+            .lock()
+            .expect("game logic lock")
+            .set_current_frame(42);
+        assert!(Team::object_did_enter(object_id, &trigger));
+
+        tracker
+            .update_object_position_sync(object_id, [20.0, 20.0, 0.0], &get_event_manager())
+            .expect("record exit");
+        assert!(Team::object_did_exit(object_id, &trigger));
+
+        get_game_logic()
+            .lock()
+            .expect("game logic lock")
+            .set_current_frame(43);
+        assert!(Team::object_did_exit(object_id, &trigger));
+
+        let _ = tracker.unregister_area(area_name);
     }
 }
