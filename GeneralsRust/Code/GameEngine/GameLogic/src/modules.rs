@@ -1333,6 +1333,8 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn get_current_victim(&self) -> Option<ObjectID> {
         None
     }
+    /// Set current victim target (matching C++ AIUpdateInterface::setCurrentVictim).
+    fn set_current_victim(&mut self, _victim: Option<ObjectID>) {}
     /// Check for crate to pick up (matching C++ AIUpdateInterface::checkForCrateToPickup)
     fn check_for_crate_to_pickup(&self) -> Option<Arc<RwLock<Object>>> {
         None
@@ -1919,6 +1921,7 @@ pub trait AIUpdateInterfaceExt {
     fn get_path_destination(&self) -> Option<Coord3D>;
     fn get_locomotor_distance_to_goal(&self) -> Real;
     fn get_current_victim(&self) -> Option<ObjectID>;
+    fn set_current_victim(&mut self, victim: Option<ObjectID>);
     fn get_cur_locomotor(&self) -> Option<Arc<Mutex<Locomotor>>>;
     fn get_preferred_height(&self) -> Option<Real>;
     fn ai_go_prone(&self, damage_info: &DamageInfo, cmd_source: CommandSourceType);
@@ -2543,6 +2546,12 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
             guard.get_current_victim()
         } else {
             None
+        }
+    }
+
+    fn set_current_victim(&mut self, victim: Option<ObjectID>) {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.set_current_victim(victim);
         }
     }
 

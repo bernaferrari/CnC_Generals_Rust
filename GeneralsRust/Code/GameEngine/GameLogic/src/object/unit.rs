@@ -7193,6 +7193,34 @@ impl AIUpdateInterface for UnitAIUpdate {
         guard.attack_target
     }
 
+    fn set_current_victim(&mut self, victim: Option<ObjectID>) {
+        let unit = match self.unit.upgrade() {
+            Some(u) => u,
+            None => return,
+        };
+        let mut guard = match unit.write() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+
+        if victim.is_none() && guard.attack_target.is_some() {
+            let old_id = guard.attack_target.unwrap();
+            if let Some(old_victim) = crate::helpers::TheGameLogic::find_object_by_id(old_id) {
+                if let Ok(old_guard) = old_victim.read() {
+                    if let Some(ai) = old_guard.get_ai_update_interface() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            if let Ok(self_guard) = unit.read() {
+                                ai_guard.add_targeter(self_guard.get_id(), false);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        guard.attack_target = victim;
+    }
+
     fn check_for_crate_to_pickup(&self) -> Option<Arc<RwLock<Object>>> {
         let crate_id = {
             let Ok(mut guard) = self.crate_created.lock() else {
