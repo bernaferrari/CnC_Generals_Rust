@@ -478,6 +478,10 @@ pub trait AIManager: Send + Sync {
         target: ObjectID,
         guard_mode: crate::ai::GuardMode,
     ) -> bool;
+    /// C++ parity: AIUpdateInterface::queueWaypoint() — queue a waypoint without starting execution
+    fn queue_waypoint_for_object(&mut self, _object_id: ObjectID, _pos: Coord3D) {}
+    /// C++ parity: AIUpdateInterface::executeWaypointQueue() — start executing queued waypoints
+    fn execute_waypoint_queue_for_object(&mut self, _object_id: ObjectID) {}
 }
 
 /// Trait for game object interface
@@ -504,10 +508,17 @@ pub struct PlayerResources {
     pub power_used: Int,
 }
 
+/// C++ parity: MAX_PATH_SUBJECTS from GameLogicDispatch.cpp line 72
+const MAX_PATH_SUBJECTS: usize = 64;
+
 /// Default command handler - implements basic RTS command execution
 pub struct DefaultCommandHandler {
     validator: RtsCommandValidator,
     stats: CommandExecutionStats,
+    /// C++ parity: build-plan state for shift-click waypoint chaining
+    /// (theBuildPlan / thePlanSubject[] from GameLogicDispatch.cpp lines 73-75)
+    build_plan_active: bool,
+    build_plan_subjects: Vec<ObjectID>,
 }
 
 static NEXT_FORMATION_ID: AtomicU32 = AtomicU32::new(1);
@@ -519,6 +530,8 @@ impl DefaultCommandHandler {
         Self {
             validator: RtsCommandValidator::new(),
             stats: CommandExecutionStats::default(),
+            build_plan_active: false,
+            build_plan_subjects: Vec::with_capacity(MAX_PATH_SUBJECTS),
         }
     }
 
@@ -572,6 +585,23 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Failed(AsciiString::from(
                 "No objects specified for movement",
             ));
+        }
+
+        // C++ parity: during build-plan (shift held), queue waypoints instead of executing moves
+        if command.command.get_type() == CommandType::DoMoveTo && self.build_plan_active {
+            if let Some(ai_manager) = &context.ai_manager {
+                if let Ok(mut ai) = ai_manager.write() {
+                    for &obj_id in &object_ids {
+                        if !self.build_plan_subjects.contains(&obj_id)
+                            && self.build_plan_subjects.len() < MAX_PATH_SUBJECTS
+                        {
+                            self.build_plan_subjects.push(obj_id);
+                        }
+                        ai.queue_waypoint_for_object(obj_id, position);
+                    }
+                }
+            }
+            return CommandExecutionResult::Success;
         }
 
         // Validate objects exist and are controllable
@@ -4314,6 +4344,34 @@ impl DefaultCommandHandler {
             Err(err) => CommandExecutionResult::Failed(AsciiString::from(&err)),
         }
     }
+
+    /// C++ parity: MSG_META_BEGIN_PATH_BUILD (GameLogicDispatch.cpp lines 445-457)
+    fn execute_begin_path_build(&mut self) -> CommandExecutionResult {
+        if !self.build_plan_active {
+            self.build_plan_active = true;
+            self.build_plan_subjects.clear();
+        }
+        CommandExecutionResult::Success
+    }
+
+    /// C++ parity: MSG_META_END_PATH_BUILD (GameLogicDispatch.cpp lines 460-477)
+    fn execute_end_path_build(
+        &mut self,
+        context: &mut CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        let subjects = std::mem::take(&mut self.build_plan_subjects);
+
+        for object_id in &subjects {
+            if let Some(ai_manager) = &context.ai_manager {
+                if let Ok(mut ai) = ai_manager.write() {
+                    ai.execute_waypoint_queue_for_object(*object_id);
+                }
+            }
+        }
+
+        self.build_plan_active = false;
+        CommandExecutionResult::Success
+    }
 }
 
 impl CommandHandler for DefaultCommandHandler {
@@ -4458,6 +4516,12 @@ impl CommandHandler for DefaultCommandHandler {
             CommandType::PlaceBeacon => self.execute_place_beacon(command, context),
             CommandType::RemoveBeacon => self.execute_remove_beacon(command, context),
             CommandType::SetBeaconText => self.execute_set_beacon_text(command, context),
+            CommandType::ClearInGamePopupMessage => {
+                TheInGameUI::request_popup_message_clear();
+                CommandExecutionResult::Success
+            }
+            CommandType::MetaBeginPathBuild => self.execute_begin_path_build(),
+            CommandType::MetaEndPathBuild => self.execute_end_path_build(context),
             _ => CommandExecutionResult::Failed(AsciiString::from(&format!(
                 "Unhandled command type: {:?}",
                 command.command.get_type()
@@ -4545,6 +4609,9 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::PlaceBeacon
                 | CommandType::RemoveBeacon
                 | CommandType::SetBeaconText
+                | CommandType::ClearInGamePopupMessage
+                | CommandType::MetaBeginPathBuild
+                | CommandType::MetaEndPathBuild
         )
     }
 
