@@ -505,6 +505,9 @@ impl AiStateMachine {
             AiStateType::ExitInstantly => self.update_exit_instantly_state(state),
             AiStateType::MoveAwayFromRepulsors => self.update_move_away_from_repulsors(state),
             AiStateType::RappelInto => self.update_rappel_into_state(state),
+            AiStateType::PickUpCrate => self.update_pick_up_crate_state(state),
+            // CombatDrop has no dedicated state class in C++ — handled by ChinookAIUpdate.
+            AiStateType::CombatDrop => Ok(StateReturnType::Continue),
             // Add other states as needed
             _ => {
                 log::warn!("Unimplemented AI state: {:?}", state.state_type);
@@ -2161,6 +2164,33 @@ impl AiStateMachine {
         }
         // Delegate to move-to for the actual movement.
         self.update_move_to_state(state)
+    }
+
+    /// Pick up crate (matches C++ AIPickUpCrateState).
+    /// Short delay then move to crate position, inheriting AIInternalMoveToState behavior.
+    fn update_pick_up_crate_state(
+        &self,
+        state: &mut AiStateData,
+    ) -> Result<StateReturnType, AiError> {
+        // If no goal object, fail immediately.
+        if state.goal_object.is_none() {
+            return Ok(StateReturnType::StateFailed);
+        }
+        // Set goal position from crate object if not already set.
+        if state.goal_position.is_none() {
+            if let Some(goal_id) = state.goal_object {
+                if let Some(obj) = OBJECT_REGISTRY.get_object(goal_id) {
+                    if let Ok(guard) = obj.read() {
+                        state.goal_position = Some(*guard.get_position());
+                    }
+                }
+            }
+        }
+        // Delegate to move-to once we have a position.
+        if state.goal_position.is_some() {
+            return self.update_move_to_state(state);
+        }
+        Ok(StateReturnType::StateFailed)
     }
 
     // State configuration methods
