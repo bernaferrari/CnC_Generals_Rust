@@ -1056,15 +1056,28 @@ impl ScriptEvaluator {
                             .to_string(),
                     )
                 })?;
-                let _distance_param = condition.get_parameter(1);
-                let threshold_param = condition.get_parameter(2).ok_or_else(|| {
+                let distance_param = condition.get_parameter(1).ok_or_else(|| {
+                    GameLogicError::Configuration(
+                        "SkirmishSuppliesValueWithinDistance condition missing distance parameter"
+                            .to_string(),
+                    )
+                })?;
+                let trigger_param = condition.get_parameter(2).ok_or_else(|| {
+                    GameLogicError::Configuration(
+                        "SkirmishSuppliesValueWithinDistance condition missing trigger parameter"
+                            .to_string(),
+                    )
+                })?;
+                let threshold_param = condition.get_parameter(3).ok_or_else(|| {
                     GameLogicError::Configuration(
                         "SkirmishSuppliesValueWithinDistance condition missing threshold parameter"
                             .to_string(),
                     )
                 })?;
 
-                let threshold = threshold_param.get_int() as i32;
+                let distance = distance_param.get_real();
+                let area_name = trigger_param.get_string();
+                let threshold = threshold_param.get_real();
 
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
@@ -1073,26 +1086,73 @@ impl ScriptEvaluator {
                     return Ok(false);
                 };
 
-                let mut total_value = 0i32;
-                for obj_arc in player_guard.get_objects() {
+                let Some(trigger) = self.get_trigger_area(area_name) else {
+                    return Ok(false);
+                };
+                let Some(partition) = crate::helpers::ThePartitionManager::get() else {
+                    return Ok(false);
+                };
+
+                let center = trigger.get_center_point();
+                let radius = trigger.get_radius() + distance;
+                let supply_box_value = player_guard.get_supply_box_value() as f32;
+                let mut max_value = 0.0f32;
+
+                for obj_id in partition.get_objects_in_range(&center, radius) {
+                    let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
+                        continue;
+                    };
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
-                    if obj_guard.is_destroyed() {
+                    if obj_guard.is_destroyed() || obj_guard.is_off_map() {
                         continue;
                     }
+                    if !obj_guard.is_kind_of(KindOf::Structure) {
+                        continue;
+                    }
+
+                    let allow_affiliation =
+                        if let Some(owner_id) = obj_guard.get_controlling_player_id() {
+                            if owner_id == player_guard.get_player_index() as u32 {
+                                true
+                            } else if let Some(owner_arc) = player_list()
+                                .read()
+                                .ok()
+                                .and_then(|list| list.get_player(owner_id as i32).cloned())
+                            {
+                                if let Ok(owner_guard) = owner_arc.read() {
+                                    player_guard.get_relationship(&owner_guard)
+                                        == crate::common::Relationship::Neutral
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+                    if !allow_affiliation {
+                        continue;
+                    }
+
                     let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate")
                     else {
                         continue;
                     };
-                    let mut boxes = 0i32;
+                    let mut boxes = None;
                     module.with_module_downcast::<crate::object::production::SupplyWarehouseDockUpdateModule, _, _>(|m| {
-                        boxes = m.behavior().get_boxes_stored();
+                        boxes = Some(m.behavior().get_boxes_stored());
                     });
-                    total_value += boxes * crate::supply_system::BASE_VALUE_PER_SUPPLY_BOX;
+                    let Some(boxes) = boxes else {
+                        continue;
+                    };
+
+                    max_value = max_value.max(supply_box_value * boxes as f32);
                 }
 
-                Ok(total_value >= threshold)
+                Ok(max_value > threshold)
             }
 
             // Skirmish: tech building within distance of a location
