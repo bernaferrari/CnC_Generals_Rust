@@ -1920,7 +1920,7 @@ impl AIIdleState {
                         ai_guard.set_locomotor_goal_none();
 
                         // C++ line 1362: ai->setCurrentVictim(NULL)
-                        // (current_victim is not yet a settable field on AIUpdateInterface)
+                        ai_guard.set_current_victim(None);
                     }
                 }
             }
