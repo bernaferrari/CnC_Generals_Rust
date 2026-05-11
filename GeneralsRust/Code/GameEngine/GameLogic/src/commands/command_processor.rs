@@ -4571,6 +4571,9 @@ impl CommandHandler for DefaultCommandHandler {
                 TheInGameUI::request_popup_message_clear();
                 CommandExecutionResult::Success
             }
+            CommandType::DoAttackSquad | CommandType::SetReplayCamera | CommandType::LogicCrc => {
+                CommandExecutionResult::Success
+            }
             CommandType::MetaBeginPathBuild => self.execute_begin_path_build(),
             CommandType::MetaEndPathBuild => self.execute_end_path_build(context),
             _ => CommandExecutionResult::Failed(AsciiString::from(&format!(
@@ -4661,6 +4664,9 @@ impl CommandHandler for DefaultCommandHandler {
                 | CommandType::RemoveBeacon
                 | CommandType::SetBeaconText
                 | CommandType::ClearInGamePopupMessage
+                | CommandType::DoAttackSquad
+                | CommandType::SetReplayCamera
+                | CommandType::LogicCrc
                 | CommandType::MetaBeginPathBuild
                 | CommandType::MetaEndPathBuild
         )
@@ -5020,6 +5026,15 @@ mod tests {
     fn default_handler_accepts_force_attack_ground_commands() {
         let handler = DefaultCommandHandler::new();
         assert!(handler.can_handle(CommandType::DoForceAttackGround));
+    }
+
+    #[test]
+    fn default_handler_accepts_legacy_replay_and_crc_commands() {
+        let handler = DefaultCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::DoAttackSquad));
+        assert!(handler.can_handle(CommandType::SetReplayCamera));
+        assert!(handler.can_handle(CommandType::LogicCrc));
     }
 
     #[test]
