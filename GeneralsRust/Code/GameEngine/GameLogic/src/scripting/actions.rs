@@ -656,6 +656,32 @@ fn record_script_money_delta(player: &mut crate::player::Player, delta: i64) {
     }
 }
 
+fn with_script_engine_mut<F>(f: F) -> GameLogicResult<()>
+where
+    F: FnOnce(&mut crate::scripting::engine::ScriptEngine) -> GameLogicResult<()>,
+{
+    let engine_lock = get_script_engine();
+    let mut engine_guard = engine_lock
+        .write()
+        .map_err(|_| GameLogicError::Threading("Failed to lock ScriptEngine".to_string()))?;
+    let Some(engine) = engine_guard.as_mut() else {
+        return Ok(());
+    };
+    f(engine)
+}
+
+fn dispatch_named_timer(name: &str, text: &str, countdown: bool) {
+    if let Ok(engine_guard) = get_script_engine().read() {
+        if let Some(ref script_engine) = *engine_guard {
+            if let Some(handler) = script_engine.action_handler() {
+                if let Err(err) = handler.add_named_timer(name, text, countdown) {
+                    log::warn!("Script action handler add_named_timer failed: {}", err);
+                }
+            }
+        }
+    }
+}
+
 /// Set player relation action
 struct SetPlayerRelationAction;
 
@@ -5574,16 +5600,9 @@ impl ScriptAction for StartTimerAction {
 
         log::info!("Starting timer '{}' for {} ms", counter_name, milliseconds);
 
-        // Integration with counter system (from C++):
-        // Counters track game state values and timers
-        // 1. Counter *pCounter = TheScriptEngine->getCounter(counter_name)
-        // 2. pCounter->setValue(milliseconds)
-        // 3. pCounter->setCountdownTimer(true) // Decrements each frame
-        // 4. Scripts check counter reaching 0 to trigger events
-        // 5. UI may display countdown
-        // Rust: counter_system.start_timer(counter_name, milliseconds)
-
-        log::debug!("Integration: Counter system starts countdown timer");
+        with_script_engine_mut(|engine| {
+            engine.set_timer_millisecond_script_seconds(&counter_name, milliseconds as f32 / 1000.0)
+        })?;
 
         Ok(ScriptResult::Success(None))
     }
@@ -5619,14 +5638,7 @@ impl ScriptAction for StopTimerAction {
 
         log::info!("Stopping timer '{}'", counter_name);
 
-        // Integration with counter system (from C++):
-        // 1. Counter *pCounter = TheScriptEngine->getCounter(counter_name)
-        // 2. pCounter->setCountdownTimer(false) // Stops decrement
-        // 3. Counter value frozen at current value
-        // 4. Can be resumed or reset later
-        // Rust: counter_system.stop_timer(counter_name)
-
-        log::debug!("Integration: Counter system pauses countdown timer");
+        with_script_engine_mut(|engine| engine.stop_timer(&counter_name))?;
 
         Ok(ScriptResult::Success(None))
     }
@@ -7129,16 +7141,10 @@ impl ScriptAction for SetTimerAction {
 
         log::info!("Setting timer '{}' to {}", timer_name, value);
 
-        // Matches C++ ScriptActions.cpp:doDisplayCounter line 4020
-        // Implementation:
-        // 1. TheInGameUI->addNamedTimer(timerName, timerText, false)
-        // 2. Timer displays on screen (HUD)
-        // 3. Can be incremented/decremented by script
-        // 4. Used for mission objectives, warnings, etc
-        // false = counter (not countdown)
-        // Rust: ui_manager.set_timer(timer_name, value, TimerType::Counter)
-
-        log::debug!("Integration: UI timer system creates/updates counter");
+        with_script_engine_mut(|engine| {
+            engine.set_counter(&timer_name, clamp_script_money(value))
+        })?;
+        dispatch_named_timer(&timer_name, &timer_name, false);
 
         Ok(ScriptResult::Success(None))
     }
@@ -7179,17 +7185,10 @@ impl ScriptAction for CountdownTimerAction {
             seconds
         );
 
-        // Matches C++ ScriptActions.cpp:doDisplayCountdownTimer line 4036
-        // Implementation:
-        // 1. TheInGameUI->addNamedTimer(timerName, timerText, true)
-        // 2. Countdown timer displays on screen
-        // 3. Automatically decrements each second
-        // 4. Can trigger events when reaches 0
-        // true = countdown timer
-        // Used for mission time limits, reinforcement arrival, etc
-        // Rust: ui_manager.set_timer(timer_name, seconds, TimerType::Countdown)
-
-        log::debug!("Integration: UI timer system starts countdown");
+        with_script_engine_mut(|engine| {
+            engine.set_timer_seconds(&timer_name, seconds.max(0) as f32)
+        })?;
+        dispatch_named_timer(&timer_name, &timer_name, true);
 
         Ok(ScriptResult::Success(None))
     }
@@ -7359,6 +7358,12 @@ mod tests {
         list.add_player(Arc::new(RwLock::new(player)));
     }
 
+    fn reset_test_script_engine() {
+        let engine_lock = get_script_engine();
+        let mut engine = engine_lock.write().unwrap();
+        *engine = Some(crate::scripting::engine::ScriptEngine::new().unwrap());
+    }
+
     #[tokio::test]
     async fn test_action_registry() {
         let registry = ActionRegistry::new();
@@ -7526,5 +7531,90 @@ mod tests {
         let player = list.get_player(0).unwrap().read().unwrap();
         assert_eq!(player.get_money().get_money(), 0);
         assert_eq!(player.get_score_keeper().get_total_money_spent(), 300);
+    }
+
+    #[tokio::test]
+    async fn timer_actions_update_script_engine_counters() {
+        reset_test_script_engine();
+
+        let mut params = HashMap::new();
+        params.insert(
+            "counter_name".to_string(),
+            ScriptValue::String("TimerA".to_string()),
+        );
+        params.insert("milliseconds".to_string(), ScriptValue::Int(1500));
+
+        StartTimerAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        {
+            let engine = get_script_engine();
+            let guard = engine.read().unwrap();
+            let counter = guard
+                .as_ref()
+                .unwrap()
+                .get_counter("TimerA")
+                .expect("timer counter");
+            assert_eq!(counter.value, 45);
+            assert!(counter.is_countdown_timer);
+        }
+
+        params.remove("milliseconds");
+        StopTimerAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        let engine = get_script_engine();
+        let guard = engine.read().unwrap();
+        let counter = guard
+            .as_ref()
+            .unwrap()
+            .get_counter("TimerA")
+            .expect("timer counter");
+        assert_eq!(counter.value, 45);
+        assert!(!counter.is_countdown_timer);
+    }
+
+    #[tokio::test]
+    async fn display_timer_actions_create_counter_state() {
+        reset_test_script_engine();
+
+        let mut params = HashMap::new();
+        params.insert(
+            "timer".to_string(),
+            ScriptValue::String("CounterA".to_string()),
+        );
+        params.insert("value".to_string(), ScriptValue::Int(7));
+
+        SetTimerAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        params.clear();
+        params.insert(
+            "timer".to_string(),
+            ScriptValue::String("CountdownA".to_string()),
+        );
+        params.insert("seconds".to_string(), ScriptValue::Int(3));
+
+        CountdownTimerAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        let engine = get_script_engine();
+        let guard = engine.read().unwrap();
+        let engine = guard.as_ref().unwrap();
+        let counter = engine.get_counter("CounterA").expect("counter");
+        assert_eq!(counter.value, 7);
+        assert!(!counter.is_countdown_timer);
+
+        let countdown = engine.get_counter("CountdownA").expect("countdown");
+        assert_eq!(countdown.value, 90);
+        assert!(countdown.is_countdown_timer);
     }
 }
