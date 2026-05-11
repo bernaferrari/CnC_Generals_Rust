@@ -5145,15 +5145,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        // C++ parity: idle team before queueing sequential script.
-        if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
-            if let Ok(mut group) = group_arc.write() {
-                let params =
-                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
-                let _ = group.ai_do_command(&params);
-            }
-        }
-
         let script_engine_lock = get_script_engine();
         let Ok(mut engine_guard) = script_engine_lock.write() else {
             return Ok(ScriptActionResult::Success);
@@ -5164,6 +5155,15 @@ impl ScriptActionDispatcher {
         let Some(script) = engine.find_script_clone_by_name(&script_name) else {
             return Ok(ScriptActionResult::Success);
         };
+
+        // C++ parity: idle team before queueing sequential script.
+        if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
+            if let Ok(mut group) = group_arc.write() {
+                let params =
+                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+                let _ = group.ai_do_command(&params);
+            }
+        }
 
         let mut seq_script = super::engine::SequentialScript::new();
         seq_script.team_to_exec_on = Some(team_name.clone());
@@ -5193,15 +5193,6 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        // C++ parity: idle team before queueing sequential script.
-        if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
-            if let Ok(mut group) = group_arc.write() {
-                let params =
-                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
-                let _ = group.ai_do_command(&params);
-            }
-        }
-
         let script_engine_lock = get_script_engine();
         let Ok(mut engine_guard) = script_engine_lock.write() else {
             return Ok(ScriptActionResult::Success);
@@ -5212,6 +5203,15 @@ impl ScriptActionDispatcher {
         let Some(script) = engine.find_script_clone_by_name(&script_name) else {
             return Ok(ScriptActionResult::Success);
         };
+
+        // C++ parity: idle team before queueing sequential script.
+        if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
+            if let Ok(mut group) = group_arc.write() {
+                let params =
+                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+                let _ = group.ai_do_command(&params);
+            }
+        }
 
         let mut seq_script = super::engine::SequentialScript::new();
         seq_script.team_to_exec_on = Some(team_name.clone());
@@ -20005,6 +20005,95 @@ mod tests {
                 .unwrap(),
             &default_team
         ));
+    }
+
+    #[test]
+    fn executor_team_execute_sequential_script_requires_script_before_idle() {
+        get_object_manager().write().unwrap().reset();
+        get_team_factory().lock().unwrap().reset();
+
+        let script_engine_lock = get_script_engine();
+        {
+            let mut engine_guard = script_engine_lock.write().unwrap();
+            *engine_guard = Some(ScriptEngine::new().expect("script engine"));
+        }
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("ExecutorSequentialTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("ExecutorSequentialTeam")
+                .expect("team should be created");
+        }
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let member_id = 8540;
+        let member = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                member_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test member instance"),
+        ));
+        {
+            let instance = member.write().unwrap();
+            instance
+                .base
+                .write()
+                .unwrap()
+                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                    commands: Arc::clone(&commands),
+                    locomotors: Arc::clone(&locomotors),
+                }))));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(member, Coord3D::new(16.0, 16.0, 0.0))
+            .unwrap();
+        get_team_factory()
+            .lock()
+            .unwrap()
+            .find_team("ExecutorSequentialTeam")
+            .unwrap()
+            .write()
+            .unwrap()
+            .add_member(member_id);
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamExecuteSequentialScript);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "ExecutorSequentialTeam".to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Script,
+                "MissingSequentialScript".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher
+            .do_team_execute_sequential_script(&action)
+            .unwrap();
+
+        assert!(
+            commands.lock().unwrap().is_empty(),
+            "C++ doTeamStartSequentialScript returns before groupIdle when the script cannot be resolved"
+        );
+        assert!(locomotors.lock().unwrap().is_empty());
     }
 
     #[test]
