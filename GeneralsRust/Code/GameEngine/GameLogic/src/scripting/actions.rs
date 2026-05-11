@@ -10,7 +10,8 @@ use crate::ai::{AiCommandInterface, AiCommandParams, AiCommandType, AiGroup, Gua
 use crate::commands::command::CommandType;
 use crate::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
 use crate::common::{
-    AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, INVALID_OBJECT_ID,
+    AsciiString, CommandSourceType, Coord3D, LocomotorSetType, Real, Relationship,
+    INVALID_OBJECT_ID,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheVictoryConditions};
@@ -679,6 +680,18 @@ fn dispatch_named_timer(name: &str, text: &str, countdown: bool) {
                 }
             }
         }
+    }
+}
+
+fn parse_script_relationship(value: &str) -> GameLogicResult<Relationship> {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "ALLY" | "ALLIES" => Ok(Relationship::Allies),
+        "ENEMY" | "ENEMIES" => Ok(Relationship::Enemies),
+        "NEUTRAL" => Ok(Relationship::Neutral),
+        _ => Err(GameLogicError::Configuration(format!(
+            "Unknown relationship '{}'",
+            value
+        ))),
     }
 }
 
@@ -5820,10 +5833,28 @@ impl ScriptAction for SetTeamAllianceAction {
         // 3. Relationship rel = parseRelation(relation)
         // 4. p1->setRelationship(p2, rel)
         // 5. Affects targeting, fog of war, unit colors
-        // 6. Bidirectional: sets both p1->p2 and p2->p1
-        // Rust: player_manager.set_relation(player1, player2, relation)
+        // 6. Matches C++ updatePlayerRelationTowardPlayer: this is one-way
 
-        log::debug!("Integration: Player relation system sets diplomatic status");
+        if player1 < 0 || player2 < 0 {
+            return Err(GameLogicError::Configuration(
+                "player indices must be non-negative".to_string(),
+            ));
+        }
+        let relationship = parse_script_relationship(&relation)?;
+        let target_player_index = player2 as PlayerIndex;
+        let player_arc = player_list()
+            .read()
+            .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?
+            .get_player(player1 as PlayerIndex)
+            .cloned();
+        let Some(player_arc) = player_arc else {
+            log::warn!("SetTeamAllianceAction: player {} not found", player1);
+            return Ok(ScriptResult::Success(None));
+        };
+        let mut player_guard = player_arc
+            .write()
+            .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
+        player_guard.set_player_relationship_by_index(target_player_index, relationship);
 
         Ok(ScriptResult::Success(None))
     }
@@ -7358,6 +7389,16 @@ mod tests {
         list.add_player(Arc::new(RwLock::new(player)));
     }
 
+    fn reset_test_players(count: PlayerIndex) {
+        let mut list = player_list().write().unwrap();
+        list.clear();
+        for index in 0..count {
+            let mut player = crate::player::Player::new(index);
+            player.set_display_name(format!("Player{index}"));
+            list.add_player(Arc::new(RwLock::new(player)));
+        }
+    }
+
     fn reset_test_script_engine() {
         let engine_lock = get_script_engine();
         let mut engine = engine_lock.write().unwrap();
@@ -7616,5 +7657,29 @@ mod tests {
         let countdown = engine.get_counter("CountdownA").expect("countdown");
         assert_eq!(countdown.value, 90);
         assert!(countdown.is_countdown_timer);
+    }
+
+    #[tokio::test]
+    async fn set_team_alliance_sets_one_way_player_relationship() {
+        reset_test_players(2);
+
+        let mut params = HashMap::new();
+        params.insert("player1".to_string(), ScriptValue::Int(0));
+        params.insert("player2".to_string(), ScriptValue::Int(1));
+        params.insert(
+            "relation".to_string(),
+            ScriptValue::String("enemy".to_string()),
+        );
+
+        SetTeamAllianceAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        let list = player_list().read().unwrap();
+        let player0 = list.get_player(0).unwrap().read().unwrap();
+        let player1 = list.get_player(1).unwrap().read().unwrap();
+        assert_eq!(player0.get_relationship(&player1), Relationship::Enemies);
+        assert_eq!(player1.get_relationship(&player0), Relationship::Neutral);
     }
 }
