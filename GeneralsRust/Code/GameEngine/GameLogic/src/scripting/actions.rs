@@ -103,6 +103,7 @@ impl ActionRegistry {
         // Named unit actions (10 critical actions)
         self.register_action(Box::new(NamedAttackAction));
         self.register_action(Box::new(NamedAttackAreaAction));
+        self.register_action(Box::new(NamedAttackTeamAction));
         self.register_action(Box::new(NamedMoveToAction));
         self.register_action(Box::new(NamedGarrisonAction));
         self.register_action(Box::new(NamedFollowWaypointsAction));
@@ -3169,6 +3170,83 @@ impl ScriptAction for NamedAttackAction {
 
     fn required_parameters(&self) -> Vec<String> {
         vec!["attacker_name".to_string(), "target_name".to_string()]
+    }
+
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+}
+
+/// Named unit attacks a team
+struct NamedAttackTeamAction;
+
+#[async_trait]
+impl ScriptAction for NamedAttackTeamAction {
+    async fn execute(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<ScriptResult> {
+        let unit_name = get_string_param(parameters, "unit_name")?;
+        let team_name = get_string_param(parameters, "team_name")?;
+
+        log::info!("Named unit '{}' attacking team '{}'", unit_name, team_name);
+
+        let Some(object_id) = resolve_named_object_id(&unit_name) else {
+            log::warn!("NamedAttackTeamAction: unit '{}' not found", unit_name);
+            return Ok(ScriptResult::Success(None));
+        };
+
+        let resolved_team = resolve_team_name_token(&team_name);
+        let team_exists = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&resolved_team))
+            .is_some();
+        if !team_exists {
+            log::warn!("NamedAttackTeamAction: team '{}' not found", resolved_team);
+            return Ok(ScriptResult::Success(None));
+        }
+
+        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            log::warn!(
+                "NamedAttackTeamAction: unit '{}' (ID {}) not found in registry",
+                unit_name,
+                object_id
+            );
+            return Ok(ScriptResult::Success(None));
+        };
+
+        if let Ok(mut obj_guard) = object_arc.write() {
+            obj_guard.leave_group();
+            if let Some(ai) = obj_guard.get_ai_update_interface() {
+                ai.choose_locomotor_set(LocomotorSetType::Normal);
+                let mut params =
+                    AiCommandParams::new(AiCommandType::AttackTeam, CommandSourceType::FromScript);
+                params.team = Some(resolved_team);
+                params.int_value = -1; // NO_MAX_SHOTS_LIMIT
+                let _ = ai.lock().ok().map(|mut ai| ai.execute_command(&params));
+            } else {
+                log::warn!(
+                    "NamedAttackTeamAction: unit '{}' has no AI update interface",
+                    unit_name
+                );
+            }
+        }
+
+        Ok(ScriptResult::Success(None))
+    }
+
+    fn name(&self) -> &str {
+        "named_attack_team"
+    }
+
+    fn description(&self) -> &str {
+        "Commands a named unit to attack a team"
+    }
+
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string(), "team_name".to_string()]
     }
 
     fn optional_parameters(&self) -> Vec<String> {
@@ -8465,6 +8543,137 @@ mod tests {
                 AiCommandType::AttackArea,
                 expected_center,
                 Some(trigger_id),
+                CommandSourceType::FromScript,
+            )]
+        );
+        assert_eq!(
+            object.read().unwrap().base.read().unwrap().get_group_id(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn named_attack_team_leaves_group_and_dispatches_attack_team() {
+        use crate::modules::AIUpdateInterface;
+        use std::sync::Mutex;
+
+        #[derive(Debug)]
+        struct RecordingAi {
+            commands: Arc<Mutex<Vec<(AiCommandType, Option<String>, i32, CommandSourceType)>>>,
+            locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+        }
+
+        impl AIUpdateInterface for RecordingAi {
+            fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                Ok(())
+            }
+
+            fn is_moving(&self) -> bool {
+                false
+            }
+
+            fn is_idle(&self) -> bool {
+                true
+            }
+
+            fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn choose_locomotor_set(
+                &mut self,
+                set: LocomotorSetType,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.locomotors.lock().unwrap().push(set);
+                Ok(())
+            }
+
+            fn execute_command(
+                &mut self,
+                command: &AiCommandParams,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.commands.lock().unwrap().push((
+                    command.cmd,
+                    command.team.clone(),
+                    command.int_value,
+                    command.cmd_source,
+                ));
+                Ok(())
+            }
+        }
+
+        reset_test_object_manager();
+        reset_test_named_object_tracker();
+        reset_test_team_factory();
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("TargetTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("TargetTeam")
+                .expect("target team should be created");
+        }
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let object_id = 8400;
+        let object = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                object_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test object instance"),
+        ));
+
+        {
+            let instance = object.write().unwrap();
+            let mut base = instance.base.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.enter_group(&crate::ai::AIGroup::new(88));
+            assert_eq!(base.get_group_id(), Some(88));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(object.clone(), Coord3D::new(8.0, 4.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("NamedTeamAttacker".to_string(), object_id)
+            .unwrap();
+
+        let mut params = HashMap::new();
+        params.insert(
+            "unit_name".to_string(),
+            ScriptValue::String("NamedTeamAttacker".to_string()),
+        );
+        params.insert(
+            "team_name".to_string(),
+            ScriptValue::String("TargetTeam".to_string()),
+        );
+
+        NamedAttackTeamAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::AttackTeam,
+                Some("TargetTeam".to_string()),
+                -1,
                 CommandSourceType::FromScript,
             )]
         );
