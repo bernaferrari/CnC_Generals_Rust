@@ -17535,11 +17535,11 @@ impl ScriptConditionEvaluator {
 
     fn eval_mission_attempts(
         &self,
-        condition: &Condition,
+        _condition: &Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
-        let comparison = self.get_condition_comparison_param(condition, 0)?;
-        let value = self.get_condition_int_param(condition, 1)?;
-        log::debug!("Evaluating mission attempts {:?} {}", comparison, value);
+        // C++ evaluateMissionAttempts has the [SIDE, COMPARISON, INT] template, but the
+        // implementation does not read any parameters and always returns false.
+        log::debug!("Evaluating unimplemented C++ mission-attempts condition");
         Ok(ScriptConditionResult::False)
     }
 
@@ -20249,6 +20249,19 @@ mod tests {
             evaluator.evaluate_condition(&mut condition).unwrap(),
             ScriptConditionResult::False,
             "C++ resolves the side parameters, ignores N, and returns FALSE because the helper is unimplemented"
+        );
+    }
+
+    #[test]
+    fn condition_mission_attempts_ignores_parameters_like_cxx_stub() {
+        let mut condition = Condition::new(ConditionType::MissionAttempts);
+        let mut evaluator =
+            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+
+        assert_eq!(
+            evaluator.evaluate_condition(&mut condition).unwrap(),
+            ScriptConditionResult::False,
+            "C++ evaluateMissionAttempts does not read parameters and always returns false"
         );
     }
 }
