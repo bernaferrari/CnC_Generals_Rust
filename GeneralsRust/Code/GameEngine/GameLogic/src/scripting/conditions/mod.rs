@@ -4154,7 +4154,7 @@ impl ScriptCondition for TeamHasUnitsCondition {
                 let team = team_arc.read().map_err(|e| {
                     GameLogicError::Threading(format!("Failed to read team: {}", e))
                 })?;
-                Ok(team.has_any_objects())
+                Ok(team.has_any_units())
             }
             None => Ok(false),
         }
