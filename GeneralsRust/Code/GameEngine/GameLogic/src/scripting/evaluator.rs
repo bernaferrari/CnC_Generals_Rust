@@ -3992,15 +3992,15 @@ impl ScriptEvaluator {
 
         for team_arc in teams {
             let Ok(team_guard) = team_arc.read() else {
-                continue;
+                return Ok(false);
             };
 
             for &member_id in team_guard.get_members() {
                 let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                    continue;
+                    return Ok(false);
                 };
                 let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
+                    return Ok(false);
                 };
 
                 let has_status = obj_guard.get_status_bits().intersects(status_mask);
