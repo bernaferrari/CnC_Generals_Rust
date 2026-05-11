@@ -508,11 +508,6 @@ impl AiStateMachine {
             AiStateType::PickUpCrate => self.update_pick_up_crate_state(state),
             // CombatDrop has no dedicated state class in C++ — handled by ChinookAIUpdate.
             AiStateType::CombatDrop => Ok(StateReturnType::Continue),
-            // Add other states as needed
-            _ => {
-                log::warn!("Unimplemented AI state: {:?}", state.state_type);
-                Ok(StateReturnType::Continue)
-            }
         }
     }
 
