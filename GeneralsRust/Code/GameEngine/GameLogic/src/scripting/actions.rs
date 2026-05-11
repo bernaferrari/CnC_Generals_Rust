@@ -503,6 +503,32 @@ impl ScriptAction for SetPlayerResourceAction {
 
         log::info!("Setting player {} {} to {}", player, resource_type, amount);
 
+        if is_money_resource(&resource_type) {
+            let player_list_lock = player_list();
+            let list = player_list_lock
+                .read()
+                .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
+            let Some(player_arc) = list.get_player(player as i32) else {
+                return Ok(ScriptResult::Success(None));
+            };
+            let mut player_guard = player_arc
+                .write()
+                .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
+            let current = player_guard.get_money().get_money();
+            let new_amount = clamp_script_money(amount);
+            player_guard.get_money_mut().set_money(new_amount);
+            let diff = new_amount as i64 - current as i64;
+            if diff > 0 {
+                player_guard
+                    .get_score_keeper_mut()
+                    .add_money_earned(diff.min(u32::MAX as i64) as u32);
+            } else if diff < 0 {
+                player_guard
+                    .get_score_keeper_mut()
+                    .add_money_spent(diff.saturating_neg().min(u32::MAX as i64) as u32);
+            }
+        }
+
         Ok(ScriptResult::Success(None))
     }
 
@@ -543,21 +569,34 @@ impl ScriptAction for AddPlayerResourceAction {
 
         log::info!("Adding {} {} to player {}", amount, resource_type, player);
 
-        // Actually add resources to player
-        // Matches C++ Player::Add_Money() or similar resource functions
-        use crate::player::player_list;
-
-        let player_list_lock = player_list();
-        if let Ok(list) = player_list_lock.read() {
-            if let Some(player_arc) = list.get_player(player as i32) {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    // For now, only handle "money" resource type
-                    if resource_type.eq_ignore_ascii_case("money") {
-                        player_guard.get_money_mut().add_money(amount as i32);
-                        log::info!("Added {} money to player {}", amount, player);
-                        return Ok(ScriptResult::Success(None));
-                    }
+        if is_money_resource(&resource_type) {
+            let player_list_lock = player_list();
+            let list = player_list_lock
+                .read()
+                .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?;
+            let Some(player_arc) = list.get_player(player as i32) else {
+                return Ok(ScriptResult::Success(None));
+            };
+            let mut player_guard = player_arc
+                .write()
+                .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
+            let current = player_guard.get_money().get_money();
+            if amount < 0 {
+                let requested = clamp_script_money(amount.saturating_neg());
+                let withdrawn = requested.min(current.max(0));
+                if withdrawn > 0 {
+                    player_guard.get_money_mut().set_money(current - withdrawn);
+                    player_guard
+                        .get_score_keeper_mut()
+                        .add_money_spent(withdrawn as u32);
                 }
+            } else {
+                let deposit_amount = clamp_script_money(amount);
+                let new_amount = current.saturating_add(deposit_amount);
+                player_guard.get_money_mut().set_money(new_amount);
+                player_guard
+                    .get_score_keeper_mut()
+                    .add_money_earned(deposit_amount as u32);
             }
         }
 
@@ -583,6 +622,17 @@ impl ScriptAction for AddPlayerResourceAction {
     fn optional_parameters(&self) -> Vec<String> {
         vec![]
     }
+}
+
+fn is_money_resource(resource_type: &str) -> bool {
+    matches!(
+        resource_type.trim().to_ascii_lowercase().as_str(),
+        "money" | "cash" | "resource" | "resources" | "supply" | "supplies"
+    )
+}
+
+fn clamp_script_money(amount: i64) -> i32 {
+    amount.clamp(0, i32::MAX as i64) as i32
 }
 
 /// Set player relation action
@@ -7301,6 +7351,28 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    fn test_context() -> ScriptContext {
+        ScriptContext {
+            game_time: std::time::Duration::from_secs(0),
+            active_player: Some(0),
+            variables: HashMap::new(),
+            game_state: crate::scripting::GameStateContext {
+                map_name: "Test".to_string(),
+                game_mode: "Test".to_string(),
+                players: vec![],
+                objectives: vec![],
+            },
+        }
+    }
+
+    fn reset_test_player(index: PlayerIndex, money: i32) {
+        let mut list = player_list().write().unwrap();
+        list.clear();
+        let mut player = crate::player::Player::new(index);
+        player.get_money_mut().set_money(money);
+        list.add_player(Arc::new(RwLock::new(player)));
+    }
+
     #[tokio::test]
     async fn test_action_registry() {
         let registry = ActionRegistry::new();
@@ -7369,5 +7441,52 @@ mod tests {
         assert_eq!(get_string_param(&params, "test_string").unwrap(), "hello");
         assert_eq!(get_int_param(&params, "test_int").unwrap(), 42);
         assert_eq!(get_float_param(&params, "test_float").unwrap(), 3.14);
+    }
+
+    #[tokio::test]
+    async fn set_player_resource_sets_money() {
+        reset_test_player(0, 250);
+
+        let action = SetPlayerResourceAction;
+        let mut params = HashMap::new();
+        params.insert("player".to_string(), ScriptValue::Int(0));
+        params.insert(
+            "resource_type".to_string(),
+            ScriptValue::String("cash".to_string()),
+        );
+        params.insert("amount".to_string(), ScriptValue::Int(1200));
+
+        action.execute(&params, &test_context()).await.unwrap();
+
+        let list = player_list().read().unwrap();
+        let player = list.get_player(0).unwrap().read().unwrap();
+        assert_eq!(player.get_money().get_money(), 1200);
+    }
+
+    #[tokio::test]
+    async fn add_player_resource_updates_money_and_ignores_unknown_resources() {
+        reset_test_player(0, 500);
+
+        let action = AddPlayerResourceAction;
+        let mut params = HashMap::new();
+        params.insert("player".to_string(), ScriptValue::Int(0));
+        params.insert(
+            "resource_type".to_string(),
+            ScriptValue::String("supplies".to_string()),
+        );
+        params.insert("amount".to_string(), ScriptValue::Int(300));
+
+        action.execute(&params, &test_context()).await.unwrap();
+
+        params.insert(
+            "resource_type".to_string(),
+            ScriptValue::String("oil".to_string()),
+        );
+        params.insert("amount".to_string(), ScriptValue::Int(999));
+        action.execute(&params, &test_context()).await.unwrap();
+
+        let list = player_list().read().unwrap();
+        let player = list.get_player(0).unwrap().read().unwrap();
+        assert_eq!(player.get_money().get_money(), 800);
     }
 }
