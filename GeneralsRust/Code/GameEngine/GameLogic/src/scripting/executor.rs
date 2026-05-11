@@ -464,7 +464,9 @@ impl ScriptActionDispatcher {
             ScriptActionType::TeamGuardInTunnelNetwork => {
                 self.do_team_guard_in_tunnel_network(action)
             }
-            ScriptActionType::TeamGuardForFramecount => self.do_team_guard_for_framecount(action),
+            // C++ parity: executeAction dispatches TEAM_GUARD_FOR_FRAMECOUNT to
+            // doTeamIdleForFramecount, despite a separate doTeamGuardForFramecount helper.
+            ScriptActionType::TeamGuardForFramecount => self.do_team_idle_for_framecount(action),
             ScriptActionType::TeamIdleForFramecount => self.do_team_idle_for_framecount(action),
             ScriptActionType::TeamSpinForFramecount => self.do_team_spin_for_framecount(action),
             ScriptActionType::TeamIncreasePriority => self.do_team_increase_priority(action),
@@ -19750,7 +19752,7 @@ mod tests {
     }
 
     #[test]
-    fn executor_team_guard_for_framecount_dispatches_guard_not_idle() {
+    fn executor_team_guard_for_framecount_dispatches_idle_like_cxx_switch() {
         get_object_manager().write().unwrap().reset();
         get_team_factory().lock().unwrap().reset();
 
@@ -19826,10 +19828,10 @@ mod tests {
         assert_eq!(
             *commands.lock().unwrap(),
             vec![(
-                AiCommandType::GuardPosition,
+                AiCommandType::Idle,
                 None,
                 None,
-                GuardMode::Normal.as_i32(),
+                0,
                 CommandSourceType::FromScript,
             )]
         );
