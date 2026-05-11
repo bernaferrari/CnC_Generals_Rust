@@ -205,6 +205,7 @@ impl ActionRegistry {
         self.register_action(Box::new(LetterBoxBeginAction));
         self.register_action(Box::new(LetterBoxEndAction));
         self.register_action(Box::new(TeamAttackAction));
+        self.register_action(Box::new(TeamAttackAreaAction));
         self.register_action(Box::new(TeamGuardAreaAction));
         self.register_action(Box::new(TeamFollowAction));
         self.register_action(Box::new(SetTimerAction));
@@ -7057,6 +7058,73 @@ impl ScriptAction for TeamAttackAction {
     }
 }
 
+/// Team Attack Area Action - Matches C++ ScriptActions::doTeamAttackArea (line 1387)
+struct TeamAttackAreaAction;
+
+#[async_trait]
+impl ScriptAction for TeamAttackAreaAction {
+    async fn execute(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<ScriptResult> {
+        let team_name = get_string_param(parameters, "team")?;
+        let area = get_string_param(parameters, "area")?;
+
+        log::info!("Team '{}' attacking area '{}'", team_name, area);
+
+        let resolved_team = resolve_team_name_token(&team_name);
+        let (center, trigger_id) = if let Ok(terrain_guard) = get_terrain_logic().read() {
+            if let Some(trigger) = terrain_guard.get_trigger_area_by_name(&area) {
+                (trigger.get_center_point(), trigger.get_id())
+            } else {
+                log::warn!("TeamAttackAreaAction: trigger area '{}' not found", area);
+                return Ok(ScriptResult::Success(None));
+            }
+        } else {
+            log::warn!("TeamAttackAreaAction: failed to lock terrain logic");
+            return Ok(ScriptResult::Success(None));
+        };
+
+        let group_arc = match create_ai_group_from_team(&resolved_team) {
+            Ok(group) => group,
+            Err(err) => {
+                log::warn!(
+                    "TeamAttackAreaAction: failed to create AI group for team '{}': {}",
+                    resolved_team,
+                    err
+                );
+                return Ok(ScriptResult::Success(None));
+            }
+        };
+        if let Ok(mut group_guard) = group_arc.write() {
+            let mut params =
+                AiCommandParams::new(AiCommandType::AttackArea, CommandSourceType::FromScript);
+            params.pos = center;
+            params.polygon = Some(trigger_id);
+            let _ = group_guard.ai_do_command(&params);
+        }
+
+        Ok(ScriptResult::Success(None))
+    }
+
+    fn name(&self) -> &str {
+        "team_attack_area"
+    }
+
+    fn description(&self) -> &str {
+        "Commands a team to attack targets in an area"
+    }
+
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["team".to_string(), "area".to_string()]
+    }
+
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+}
+
 /// Team Guard Area Action - Matches C++ ScriptActions::doTeamGuardArea (line 1946)
 struct TeamGuardAreaAction;
 
@@ -7477,6 +7545,10 @@ mod tests {
 
     fn reset_test_team_factory() {
         get_team_factory().lock().unwrap().reset();
+    }
+
+    fn reset_test_terrain() {
+        get_terrain_logic().write().unwrap().reset();
     }
 
     fn ensure_test_template(name: &str) {
@@ -8040,6 +8112,143 @@ mod tests {
                     AiCommandType::GuardPosition,
                     *expected_pos,
                     GuardMode::Normal.as_i32(),
+                    CommandSourceType::FromScript,
+                )]
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn team_attack_area_dispatches_attack_area_to_team_members() {
+        use crate::common::ICoord3D;
+        use crate::modules::AIUpdateInterface;
+        use crate::polygon_trigger::PolygonTrigger;
+        use std::sync::Mutex;
+
+        #[derive(Debug)]
+        struct RecordingAi {
+            calls: Arc<Mutex<Vec<(AiCommandType, Coord3D, Option<i32>, CommandSourceType)>>>,
+        }
+
+        impl AIUpdateInterface for RecordingAi {
+            fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                Ok(())
+            }
+
+            fn is_moving(&self) -> bool {
+                false
+            }
+
+            fn is_idle(&self) -> bool {
+                true
+            }
+
+            fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn execute_command(
+                &mut self,
+                command: &AiCommandParams,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.calls.lock().unwrap().push((
+                    command.cmd,
+                    command.pos,
+                    command.polygon,
+                    command.cmd_source,
+                ));
+                Ok(())
+            }
+        }
+
+        reset_test_object_manager();
+        reset_test_team_factory();
+        reset_test_terrain();
+
+        let trigger_id = 6200;
+        let expected_center = Coord3D::new(50.0, 70.0, 0.0);
+        get_terrain_logic()
+            .write()
+            .unwrap()
+            .add_trigger_area(PolygonTrigger::new(
+                trigger_id,
+                AsciiString::from("AttackZone"),
+                vec![
+                    ICoord3D::new(10, 20, 0),
+                    ICoord3D::new(90, 20, 0),
+                    ICoord3D::new(90, 120, 0),
+                    ICoord3D::new(10, 120, 0),
+                ],
+            ));
+
+        let team = {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("AttackAreaTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("AttackAreaTeam")
+                .expect("team should be created")
+        };
+
+        let mut calls = Vec::new();
+        for idx in 0..2 {
+            let object_id = 8200 + idx as u32;
+            let call_log = Arc::new(Mutex::new(Vec::new()));
+            calls.push(Arc::clone(&call_log));
+
+            let object = Arc::new(RwLock::new(
+                crate::object_manager::GameObjectInstance::new(
+                    object_id,
+                    None,
+                    Some(Arc::clone(&team)),
+                    ObjectCreationFlags::new(),
+                )
+                .expect("test object instance"),
+            ));
+            {
+                let instance = object.write().unwrap();
+                instance
+                    .base
+                    .write()
+                    .unwrap()
+                    .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                        calls: call_log,
+                    }))));
+            }
+            get_object_manager()
+                .write()
+                .unwrap()
+                .register_object_instance(object, Coord3D::new(idx as f32, 0.0, 0.0))
+                .unwrap();
+            team.write().unwrap().add_member(object_id);
+        }
+
+        let mut params = HashMap::new();
+        params.insert(
+            "team".to_string(),
+            ScriptValue::String("AttackAreaTeam".to_string()),
+        );
+        params.insert(
+            "area".to_string(),
+            ScriptValue::String("AttackZone".to_string()),
+        );
+
+        TeamAttackAreaAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        for call_log in calls {
+            assert_eq!(
+                *call_log.lock().unwrap(),
+                vec![(
+                    AiCommandType::AttackArea,
+                    expected_center,
+                    Some(trigger_id),
                     CommandSourceType::FromScript,
                 )]
             );
