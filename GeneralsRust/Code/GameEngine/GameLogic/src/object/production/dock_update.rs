@@ -10,7 +10,6 @@ use crate::modules::{BehaviorModule, BehaviorModuleInterface, DockUpdateInterfac
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::{Object, ObjectLockExt};
-use game_engine::common::global_data;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData};
@@ -1284,14 +1283,22 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
             return Ok(false);
         };
 
+        let Some(owner_player) =
+            crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
+                .and_then(|owner| owner.read().ok()?.get_controlling_player())
+        else {
+            return Ok(false);
+        };
+        let supply_box_value = owner_player
+            .read()
+            .map(|player| player.get_supply_box_value())
+            .unwrap_or(0);
+
         let mut value: u32 = 0;
         if let Ok(mut ai_guard) = ai.lock() {
             if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
-                let base_value = global_data::read_safe()
-                    .map(|g| g.base_value_per_supply_box.max(0) as u32)
-                    .unwrap_or(0);
                 while truck.lose_one_box() {
-                    value = value.saturating_add(base_value);
+                    value = value.saturating_add(supply_box_value);
                 }
                 value = value.saturating_add(truck.get_upgraded_supply_boost());
             } else {
@@ -1300,15 +1307,8 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         }
 
         if value > 0 {
-            if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
-            {
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(player) = owner_guard.get_controlling_player() {
-                        if let Ok(mut player_guard) = player.write() {
-                            let _ = player_guard.get_money_mut().deposit(value);
-                        }
-                    }
-                }
+            if let Ok(mut player_guard) = owner_player.write() {
+                let _ = player_guard.get_money_mut().deposit(value);
             }
 
             if self.data.grant_temporary_stealth_frames > 0 {
