@@ -15034,15 +15034,14 @@ impl ScriptConditionEvaluator {
         let team_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if team '{}' has units", team_name);
 
-        // C++: TEAM_HAS_UNITS uses Team::hasAnyUnits(), not raw member count.
-        if let Ok(mut factory) = get_team_factory().lock() {
-            if let Some(team_arc) = factory.find_team(&team_name) {
+        // C++: non-THIS team names scan every instance of the prototype via
+        // TeamPrototype::iterate_TeamInstanceList().
+        if let Ok(factory) = get_team_factory().lock() {
+            for team_arc in factory.find_team_instances(&team_name) {
                 if let Ok(team) = team_arc.read() {
-                    return Ok(if team.has_any_units() {
-                        ScriptConditionResult::True
-                    } else {
-                        ScriptConditionResult::False
-                    });
+                    if team.has_any_units() {
+                        return Ok(ScriptConditionResult::True);
+                    }
                 }
             }
         }

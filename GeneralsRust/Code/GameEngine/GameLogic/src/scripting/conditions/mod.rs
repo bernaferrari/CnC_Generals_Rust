@@ -4146,18 +4146,18 @@ impl ScriptCondition for TeamHasUnitsCondition {
             }
         };
         let factory = get_team_factory();
-        let mut guard = factory.lock().map_err(|e| {
+        let guard = factory.lock().map_err(|e| {
             GameLogicError::Threading(format!("Failed to acquire team factory: {}", e))
         })?;
-        match guard.find_team(&team_name) {
-            Some(team_arc) => {
-                let team = team_arc.read().map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to read team: {}", e))
-                })?;
-                Ok(team.has_any_units())
+        for team_arc in guard.find_team_instances(&team_name) {
+            let team = team_arc
+                .read()
+                .map_err(|e| GameLogicError::Threading(format!("Failed to read team: {}", e)))?;
+            if team.has_any_units() {
+                return Ok(true);
             }
-            None => Ok(false),
         }
+        Ok(false)
     }
 
     fn name(&self) -> &str {
