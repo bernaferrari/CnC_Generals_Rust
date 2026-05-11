@@ -57,6 +57,8 @@ pub enum Prerequisite {
 pub struct PlayerBuildState {
     /// Completed buildings owned by player
     pub buildings: HashSet<String>,
+    /// KindOf flags for completed prerequisite buildings owned by player
+    pub building_kindofs: HashSet<String>,
     /// Completed sciences/techs
     pub sciences: HashSet<String>,
     /// Completed upgrades
@@ -77,6 +79,7 @@ impl Default for PlayerBuildState {
     fn default() -> Self {
         Self {
             buildings: HashSet::new(),
+            building_kindofs: HashSet::new(),
             sciences: HashSet::new(),
             upgrades: HashSet::new(),
             money: 0,
@@ -99,6 +102,23 @@ impl PlayerBuildState {
         self.buildings.insert(building);
     }
 
+    /// Add a completed building and the KindOf flags it contributes to prerequisites.
+    pub fn add_building_with_kindofs<I, S>(&mut self, building: String, kindofs: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.add_building(building);
+        for kindof in kindofs {
+            self.add_building_kindof(kindof.as_ref());
+        }
+    }
+
+    /// Add a KindOf flag contributed by an owned completed prerequisite building.
+    pub fn add_building_kindof(&mut self, kindof: &str) {
+        self.building_kindofs.insert(normalize_kindof_name(kindof));
+    }
+
     /// Add a completed science/tech
     pub fn add_science(&mut self, science: String) {
         self.sciences.insert(science);
@@ -112,6 +132,12 @@ impl PlayerBuildState {
     /// Check if has building
     pub fn has_building(&self, building: &str) -> bool {
         self.buildings.contains(building)
+    }
+
+    /// Check if any completed prerequisite building has the given KindOf flag.
+    pub fn has_building_kindof(&self, kindof: &str) -> bool {
+        self.building_kindofs
+            .contains(&normalize_kindof_name(kindof))
     }
 
     /// Check if has science
@@ -282,11 +308,7 @@ impl PrerequisiteChecker {
             Prerequisite::Building(name) => player_state.has_building(name),
             Prerequisite::Science(name) => player_state.has_science(name),
             Prerequisite::Upgrade(name) => player_state.has_upgrade(name),
-            Prerequisite::KindOf(_kind) => {
-                // For KindOf, we'd need to check if player has any building
-                // matching that kind. For now, simplified.
-                true
-            }
+            Prerequisite::KindOf(kind) => player_state.has_building_kindof(kind),
             Prerequisite::Alternative(options) => {
                 // At least one option must be satisfied
                 options
@@ -306,6 +328,14 @@ impl PrerequisiteChecker {
             Prerequisite::Alternative(_) => CanMakeType::MissingPrerequisite,
         }
     }
+}
+
+fn normalize_kindof_name(kindof: &str) -> String {
+    kindof
+        .trim()
+        .strip_prefix("KINDOF_")
+        .unwrap_or_else(|| kindof.trim())
+        .to_ascii_uppercase()
 }
 
 impl Default for PrerequisiteChecker {
@@ -396,6 +426,40 @@ mod tests {
 
         let result = checker.can_make_unit("Elite", 200, &prereqs, false, &state);
         assert_eq!(result, CanMakeType::Ok);
+    }
+
+    #[test]
+    fn test_kindof_prerequisite_requires_matching_completed_building() {
+        let checker = PrerequisiteChecker::new();
+        let mut state = PlayerBuildState::new();
+        state.money = 2000;
+
+        let prereqs = vec![Prerequisite::KindOf("FS_SUPERWEAPON".to_string())];
+
+        let result = checker.can_make_unit("AnthraxBomb", 1000, &prereqs, false, &state);
+        assert_eq!(result, CanMakeType::MissingPrerequisite);
+
+        state.add_building("GLACommandCenter".to_string());
+        let result = checker.can_make_unit("AnthraxBomb", 1000, &prereqs, false, &state);
+        assert_eq!(result, CanMakeType::MissingPrerequisite);
+
+        state.add_building_kindof("KINDOF_FS_SUPERWEAPON");
+        let result = checker.can_make_unit("AnthraxBomb", 1000, &prereqs, false, &state);
+        assert_eq!(result, CanMakeType::Ok);
+    }
+
+    #[test]
+    fn test_add_building_with_kindofs_normalizes_names() {
+        let mut state = PlayerBuildState::new();
+
+        state.add_building_with_kindofs(
+            "ChinaPropagandaCenter".to_string(),
+            ["structure", "KINDOF_TECH_BUILDING"],
+        );
+
+        assert!(state.has_building("ChinaPropagandaCenter"));
+        assert!(state.has_building_kindof("KINDOF_STRUCTURE"));
+        assert!(state.has_building_kindof("tech_building"));
     }
 
     #[test]
