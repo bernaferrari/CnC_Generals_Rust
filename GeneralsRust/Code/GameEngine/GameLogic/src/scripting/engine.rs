@@ -3218,6 +3218,13 @@ impl ScriptEngine {
             .any(|script| script.object_id == object_id)
     }
 
+    /// Check if a specific team has any active sequential scripts running.
+    pub fn has_active_sequential_script_for_team(&self, team_name: &str) -> bool {
+        self.sequential_scripts
+            .iter()
+            .any(|script| script.team_to_exec_on.as_deref() == Some(team_name))
+    }
+
     /// Remove all sequential scripts bound to a specific team.
     pub fn remove_all_sequential_scripts_for_team(&mut self, team_name: &str) {
         self.sequential_scripts
