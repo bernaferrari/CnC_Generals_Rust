@@ -200,11 +200,17 @@ impl AssetManager {
 
         // Initialize archive system (loads BIG files)
         if let Err(e) = self.archive_system.init().await {
-            warn!("Failed to initialize archive system: {}. Continuing without archives.", e);
+            warn!(
+                "Failed to initialize archive system: {}. Continuing without archives.",
+                e
+            );
         }
 
         if let Err(e) = self.load_manual_archives().await {
-            warn!("Failed to load manual archives: {}. Continuing without them.", e);
+            warn!(
+                "Failed to load manual archives: {}. Continuing without them.",
+                e
+            );
         }
         if let Err(e) = self.run_startup_maintenance() {
             warn!("Startup maintenance failed: {}. Continuing.", e);
@@ -212,7 +218,10 @@ impl AssetManager {
 
         // Initialize texture manager with MAGENTA fallback for missing textures
         if let Err(e) = self.texture_manager.init(device, queue) {
-            warn!("Failed to initialize texture manager: {}. Continuing without GPU textures.", e);
+            warn!(
+                "Failed to initialize texture manager: {}. Continuing without GPU textures.",
+                e
+            );
         }
 
         // Initialize WW3D Asset Manager - Load object definitions from INIZH.big
@@ -1053,7 +1062,12 @@ impl AssetManager {
         let model_key = model_name.to_lowercase();
         self.model_cache
             .get(&model_key)
-            .map(|m| m.animation_names().into_iter().map(|s| s.to_string()).collect())
+            .map(|m| {
+                m.animation_names()
+                    .into_iter()
+                    .map(|s| s.to_string())
+                    .collect()
+            })
             .unwrap_or_default()
     }
 

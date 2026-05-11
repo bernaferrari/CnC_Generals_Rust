@@ -96,10 +96,10 @@ const W3D_NAME_LEN: usize = 16;
 #[derive(Debug, Clone)]
 pub struct W3dPivot {
     pub name: String,
-    pub parent_idx: u32,       // 0xFFFFFFFF = root
+    pub parent_idx: u32, // 0xFFFFFFFF = root
     pub translation: [f32; 3],
     pub euler_angles: [f32; 3],
-    pub rotation: [f32; 4],    // Quaternion [x,y,z,w]
+    pub rotation: [f32; 4], // Quaternion [x,y,z,w]
 }
 
 /// W3D hierarchy data. C++ parity: W3dHierarchyStruct + W3dPivotStruct array
@@ -115,9 +115,9 @@ pub struct W3dHierarchy {
 pub struct W3dAnimChannel {
     pub first_frame: u16,
     pub last_frame: u16,
-    pub vector_len: u16,  // 1 for scalar (X/Y/Z), 4 for quaternion
-    pub flags: u16,       // 0=X, 1=Y, 2=Z, 6=Q
-    pub pivot: u16,       // Bone index
+    pub vector_len: u16, // 1 for scalar (X/Y/Z), 4 for quaternion
+    pub flags: u16,      // 0=X, 1=Y, 2=Z, 6=Q
+    pub pivot: u16,      // Bone index
     pub data: Vec<f32>,
 }
 
@@ -585,7 +585,10 @@ impl W3DModel {
             }
         }
 
-        Some(compute_global_transforms_from_locals(hierarchy, &local_transforms))
+        Some(compute_global_transforms_from_locals(
+            hierarchy,
+            &local_transforms,
+        ))
     }
 }
 
@@ -635,13 +638,13 @@ fn apply_quat_to_transform(m: &mut [f32; 16], qx: f32, qy: f32, qz: f32, qw: f32
     let wy = qw * qy;
     let wz = qw * qz;
     m[0] = 1.0 - 2.0 * (yy + zz); // col0 row0
-    m[1] = 2.0 * (xy + wz);        // col0 row1
-    m[2] = 2.0 * (xz - wy);        // col0 row2
-    m[4] = 2.0 * (xy - wz);        // col1 row0
-    m[5] = 1.0 - 2.0 * (xx + zz);  // col1 row1
-    m[6] = 2.0 * (yz + wx);        // col1 row2
-    m[8] = 2.0 * (xz + wy);        // col2 row0
-    m[9] = 2.0 * (yz - wx);        // col2 row1
+    m[1] = 2.0 * (xy + wz); // col0 row1
+    m[2] = 2.0 * (xz - wy); // col0 row2
+    m[4] = 2.0 * (xy - wz); // col1 row0
+    m[5] = 1.0 - 2.0 * (xx + zz); // col1 row1
+    m[6] = 2.0 * (yz + wx); // col1 row2
+    m[8] = 2.0 * (xz + wy); // col2 row0
+    m[9] = 2.0 * (yz - wx); // col2 row1
     m[10] = 1.0 - 2.0 * (xx + yy); // col2 row2
 }
 
@@ -697,7 +700,7 @@ fn sample_channel(channel: &W3dAnimChannel, frame: f32) -> Vec<f32> {
             + result[1] * result[1]
             + result[2] * result[2]
             + result[3] * result[3])
-        .sqrt();
+            .sqrt();
         if len > 1e-10 {
             for v in result.iter_mut() {
                 *v /= len;
@@ -973,10 +976,7 @@ impl W3DLoader {
                     }
                 }
                 W3D_CHUNK_HIERARCHY => {
-                    debug!(
-                        "Parsing W3D hierarchy chunk, size: {}",
-                        chunk_size
-                    );
+                    debug!("Parsing W3D hierarchy chunk, size: {}", chunk_size);
                     match self.parse_hierarchy_chunk(chunk_data) {
                         Ok(hierarchy) => {
                             debug!(
@@ -1111,17 +1111,16 @@ impl W3DLoader {
                     if mesh.transform != Mat4::IDENTITY {
                         continue;
                     }
-                    if let Some(pivot_idx) = hierarchy
-                        .pivots
-                        .iter()
-                        .position(|p| p.name == mesh.name)
+                    if let Some(pivot_idx) =
+                        hierarchy.pivots.iter().position(|p| p.name == mesh.name)
                     {
                         let global = &globals[pivot_idx];
                         let mat = Mat4::from_cols_array(global);
                         mesh.transform = mat;
                         for vertex in &mut mesh.vertices {
                             // Undo Y-up → Z-up, apply hierarchy, convert Z-up → Y-up
-                            let zup_pos = [vertex.position[0], vertex.position[2], vertex.position[1]];
+                            let zup_pos =
+                                [vertex.position[0], vertex.position[2], vertex.position[1]];
                             let pos = mat.transform_point3(Vec3::from_array(zup_pos));
                             vertex.position = [pos.x, pos.z, pos.y]; // Z-up → Y-up
                             let zup_norm = [vertex.normal[0], vertex.normal[2], vertex.normal[1]];
@@ -1452,10 +1451,7 @@ impl W3DLoader {
                     // version(u32) + name[16] + hierarchy_name[16] + num_frames(u32) + frame_rate(u32)
                     // = 4 + 16 + 16 + 4 + 4 = 44 bytes
                     if chunk_data.len() < 44 {
-                        return Err(anyhow!(
-                            "animation header too small: {}",
-                            chunk_data.len()
-                        ));
+                        return Err(anyhow!("animation header too small: {}", chunk_data.len()));
                     }
                     let mut n = String::new();
                     for i in 4..4 + W3D_NAME_LEN {
@@ -1528,10 +1524,7 @@ impl W3DLoader {
                 }
                 W3D_CHUNK_BIT_CHANNEL => {
                     // Skip bit channels for now — just consume the bytes
-                    debug!(
-                        "Skipping bit channel chunk, size: {}",
-                        chunk_size
-                    );
+                    debug!("Skipping bit channel chunk, size: {}", chunk_size);
                 }
                 _ => {}
             }
@@ -1799,12 +1792,8 @@ impl W3DLoader {
         let pivot = u16::from_le_bytes([chunk_data[4], chunk_data[5]]);
         let vector_len = chunk_data[6] as usize;
         let _flags_raw = chunk_data[7] as u16;
-        let scale = f32::from_le_bytes([
-            chunk_data[8],
-            chunk_data[9],
-            chunk_data[10],
-            chunk_data[11],
-        ]);
+        let scale =
+            f32::from_le_bytes([chunk_data[8], chunk_data[9], chunk_data[10], chunk_data[11]]);
 
         if vector_len == 0 || num_frames == 0 {
             return Vec::new();
@@ -1837,8 +1826,7 @@ impl W3DLoader {
                     nibbles[byte_i * 2] = byte & 0x0F;
                     nibbles[byte_i * 2 + 1] = (byte >> 4) & 0x0F;
                 }
-                let filter =
-                    filter_table.get(filter_idx).copied().unwrap_or(1.0) * scale;
+                let filter = filter_table.get(filter_idx).copied().unwrap_or(1.0) * scale;
                 for fi in 0..16 {
                     let frame = b * 16 + fi;
                     if frame >= num_frames {
@@ -2845,8 +2833,11 @@ impl W3DLoader {
             mesh.material.alpha_test_enabled = alpha_test;
             debug!(
                 "Mesh '{}' blend_mode={:?}, alpha_test={} (src={}, dest={})",
-                mesh.name, mesh.material.blend_mode, mesh.material.alpha_test_enabled,
-                shader.src_blend, shader.dest_blend
+                mesh.name,
+                mesh.material.blend_mode,
+                mesh.material.alpha_test_enabled,
+                shader.src_blend,
+                shader.dest_blend
             );
         }
 

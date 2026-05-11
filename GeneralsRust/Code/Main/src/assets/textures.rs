@@ -638,12 +638,16 @@ impl TextureManager {
         for candidate in candidates {
             let candidate = candidate.as_ref();
             self.prime_raw_texture(archive_system, candidate).await?;
-            if self.get_raw_texture(candidate).is_some() && !self.is_known_missing_texture(candidate) {
+            if self.get_raw_texture(candidate).is_some()
+                && !self.is_known_missing_texture(candidate)
+            {
                 return Ok(candidate.to_string());
             }
         }
 
-        Err(anyhow!("Failed to load required water texture assets from BIG archives"))
+        Err(anyhow!(
+            "Failed to load required water texture assets from BIG archives"
+        ))
     }
 
     fn water_normal_map_candidates() -> Vec<String> {

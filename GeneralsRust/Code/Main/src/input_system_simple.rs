@@ -140,7 +140,10 @@ impl SimpleInputProcessor {
 
     /// Process all queued input events asynchronously
     async fn process_queued_events(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut receiver = self.input_receiver.lock().unwrap_or_else(|e| e.into_inner());
+        let mut receiver = self
+            .input_receiver
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         while let Ok(event) = receiver.try_recv() {
             drop(receiver);
@@ -177,7 +180,10 @@ impl SimpleInputProcessor {
                 }
             }
 
-            receiver = self.input_receiver.lock().unwrap_or_else(|e| e.into_inner());
+            receiver = self
+                .input_receiver
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
         }
 
         Ok(())
@@ -577,13 +583,19 @@ impl SimpleInputProcessor {
     /// Flush all pending input events (useful for frame cleanup or shutdown)
     pub async fn flush_events(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<usize> {
         let mut count = 0;
-        let mut receiver = self.input_receiver.lock().unwrap_or_else(|e| e.into_inner());
+        let mut receiver = self
+            .input_receiver
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         while let Ok(event) = receiver.try_recv() {
             count += 1;
             drop(receiver); // Release lock during event processing
             self.process_single_event(event, game_logic).await?;
-            receiver = self.input_receiver.lock().unwrap_or_else(|e| e.into_inner()); // Re-acquire for next iteration
+            receiver = self
+                .input_receiver
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()); // Re-acquire for next iteration
         }
 
         Ok(count)
