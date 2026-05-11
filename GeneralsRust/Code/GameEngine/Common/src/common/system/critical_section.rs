@@ -147,7 +147,6 @@ impl<T> ReadWriteCriticalSection<T> {
         self.writer_active.load(Ordering::Acquire)
     }
 
-
     fn on_write_exit(&self) {
         self.writer_active.store(false, Ordering::Release);
     }

@@ -364,7 +364,6 @@ pub struct ModuleFactory {
     descriptor_order: [Vec<NameKeyType>; ModuleType::NUM_MODULE_TYPES],
 }
 
-
 /// Template hash size constant
 const TEMPLATE_HASH_SIZE: usize = 4096;
 
