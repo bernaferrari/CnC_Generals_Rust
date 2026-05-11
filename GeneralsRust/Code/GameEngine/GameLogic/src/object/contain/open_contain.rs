@@ -754,10 +754,46 @@ impl OpenContain {
         self.last_load_sound_frame = now;
     }
 
-    /// Handle death event
-    pub fn on_die(&mut self, _damage_info: Option<&DamageInfo>) -> GameResult<()> {
-        // Handle contained units on death
+    /// Handle death event — C++ OpenContain::onDie (lines 833-851)
+    pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        // C++ line 839-843: Apply damage to contained units based on damage percentage
+        if self.module_data.damage_percentage_to_units > 0.0 {
+            if let Some(info) = damage_info {
+                let damage_to_units =
+                    info.input.amount * self.module_data.damage_percentage_to_units;
+
+                for obj in &self.contained_objects {
+                    if let Ok(contained) = obj.read() {
+                        if let Some(ai) = contained.get_ai_update_interface() {
+                            if let Ok(ai_guard) = ai.lock() {
+                                let mut unit_damage = info.clone();
+                                unit_damage.input.amount = damage_to_units;
+                                unit_damage.sync_from_input();
+                                drop(ai_guard);
+                                drop(contained);
+                                if let Ok(mut contained_mut) = obj.write() {
+                                    let _ = contained_mut.attempt_damage(&mut unit_damage);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // C++ line 845: Kill riders who are not free to exit
+        // Default implementation is no-op (C++ OpenContain has empty virtual method)
+        // TransportContain overrides with actual logic
+        self.kill_riders_who_are_not_free_to_exit()?;
+
+        // C++ line 850: Remove all contained units
         self.remove_all_contained(true)?;
+        Ok(())
+    }
+
+    /// Kill riders who are not free to exit — default no-op (C++ OpenContain virtual)
+    /// TransportContain overrides with actual logic.
+    fn kill_riders_who_are_not_free_to_exit(&mut self) -> GameResult<()> {
         Ok(())
     }
 
