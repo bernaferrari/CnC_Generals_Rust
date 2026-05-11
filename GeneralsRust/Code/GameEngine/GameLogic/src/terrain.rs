@@ -3491,9 +3491,9 @@ mod tests {
         let fx = 0.5;
         let fy = 0.5;
         let expected = if fy > fx {
-            (p3 + (1.0 - fy) * (p0 - p3) + fx * (p2 - p3))
+            p3 + (1.0 - fy) * (p0 - p3) + fx * (p2 - p3)
         } else {
-            (p1 + fy * (p2 - p1) + (1.0 - fx) * (p0 - p1))
+            p1 + fy * (p2 - p1) + (1.0 - fx) * (p0 - p1)
         } * MAP_HEIGHT_SCALE;
 
         assert!(
