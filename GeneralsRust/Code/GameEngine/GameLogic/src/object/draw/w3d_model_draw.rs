@@ -1935,7 +1935,6 @@ impl Module for W3DModelDraw {
         self.data.module_tag_name_key
     }
 
-
     fn get_module_data(&self) -> &dyn ModuleData {
         &self.data
     }

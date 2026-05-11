@@ -3379,7 +3379,6 @@ impl ContainBindingModule {
 }
 
 impl Module for ContainBindingModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

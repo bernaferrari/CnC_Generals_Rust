@@ -231,9 +231,7 @@ impl TargetValidator {
 
                 #[allow(unreachable_patterns)]
                 let allowed = match relationship {
-                    Relationship::Allies => {
-                        flags.contains(SpecialPowerFlags::AFFECTS_FRIENDLY)
-                    }
+                    Relationship::Allies => flags.contains(SpecialPowerFlags::AFFECTS_FRIENDLY),
                     Relationship::Enemies => flags.contains(SpecialPowerFlags::AFFECTS_ENEMY),
                     Relationship::Neutral => flags.contains(SpecialPowerFlags::AFFECTS_NEUTRAL),
                     _ => true,

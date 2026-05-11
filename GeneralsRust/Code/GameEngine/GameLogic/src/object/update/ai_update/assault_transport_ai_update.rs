@@ -210,7 +210,6 @@ impl AssaultTransportAIUpdateModule {
 }
 
 impl Module for AssaultTransportAIUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

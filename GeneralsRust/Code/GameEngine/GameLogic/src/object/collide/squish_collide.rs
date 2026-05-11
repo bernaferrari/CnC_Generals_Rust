@@ -153,10 +153,7 @@ impl SquishCollide {
             return false;
         }
 
-        if matches!(
-            target.relationship_with_owner,
-            Relationship::Allies
-        ) {
+        if matches!(target.relationship_with_owner, Relationship::Allies) {
             return false;
         }
 

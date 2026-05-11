@@ -1888,7 +1888,6 @@ impl WeaponTemplate {
     pub fn has_arc_trajectory(&self) -> bool {
         self.projectile_has_behavior("DumbProjectileBehavior")
     }
-
 }
 
 /// Weapon instance with state and ammunition

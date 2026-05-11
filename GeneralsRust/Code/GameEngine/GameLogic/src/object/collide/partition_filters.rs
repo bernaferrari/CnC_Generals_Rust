@@ -1274,9 +1274,7 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPlayerAffiliat
                 let matches = match rel {
                     Relationship::Enemies => self.affiliation & AFFILIATION_ALLOW_ENEMIES != 0,
                     Relationship::Neutral => self.affiliation & AFFILIATION_ALLOW_NEUTRAL != 0,
-                    Relationship::Allies => {
-                        self.affiliation & AFFILIATION_ALLOW_ALLIES != 0
-                    }
+                    Relationship::Allies => self.affiliation & AFFILIATION_ALLOW_ALLIES != 0,
                 };
 
                 if matches {

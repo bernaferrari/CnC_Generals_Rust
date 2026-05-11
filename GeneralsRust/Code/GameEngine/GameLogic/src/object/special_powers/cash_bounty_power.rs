@@ -12,9 +12,7 @@ use std::sync::Arc;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
-use game_engine::common::thing::module::{
-    Module, ModuleData, NameKeyType,
-};
+use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
 use crate::common::science::ScienceType;
 use crate::common::{ObjectID, Real};
@@ -124,7 +122,13 @@ impl CashBountyPower {
         };
 
         // Check if the player has the required science
-        let required_science = self.data.base.special_power_template.as_ref().map(|t| t.get_required_science()).unwrap_or(ScienceType::default());
+        let required_science = self
+            .data
+            .base
+            .special_power_template
+            .as_ref()
+            .map(|t| t.get_required_science())
+            .unwrap_or(ScienceType::default());
         if player_guard.has_science(required_science) {
             let bounty = self.find_bounty();
             drop(player_guard);
@@ -199,7 +203,10 @@ fn parse_bounty(
     data: &mut CashBountyPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     // C++ uses INI::parsePercentToReal which converts percentage (e.g., "20%") to real (0.2)
     data.default_bounty = INI::parse_percent_to_real(token)?;
     Ok(())
@@ -212,9 +219,8 @@ fn parse_special_power_template_field(
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template = Some(
-        crate::object::special_power_template::find_or_create_special_power_template(&name),
-    );
+    data.base.special_power_template =
+        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
     Ok(())
 }
 

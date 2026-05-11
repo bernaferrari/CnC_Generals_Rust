@@ -12,9 +12,7 @@ use std::sync::Arc;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
-use game_engine::common::thing::module::{
-    Module, ModuleData, NameKeyType,
-};
+use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
 use crate::common::{ObjectID, UnsignedInt};
 use crate::helpers::TheGameLogic;
@@ -132,11 +130,10 @@ impl SpyVisionSpecialPower {
                 if let Ok(contain_guard) = contain_arc.lock() {
                     // For every captured unit we get a bonus
                     let contain_count = contain_guard.get_contain_count();
-                    duration = duration
-                        .saturating_add(
-                            contain_count
-                                .saturating_mul(self.data.bonus_duration_per_captured_in_frames),
-                        );
+                    duration = duration.saturating_add(
+                        contain_count
+                            .saturating_mul(self.data.bonus_duration_per_captured_in_frames),
+                    );
 
                     // Cap at the max
                     if self.data.max_duration_in_frames > 0
@@ -239,7 +236,10 @@ fn parse_base_duration(
     data: &mut SpyVisionSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     // C++ uses INI::parseDurationUnsignedInt which converts ms/seconds to frames.
     data.base_duration_in_frames = INI::parse_duration_unsigned_int(token)?;
     Ok(())
@@ -250,7 +250,10 @@ fn parse_bonus_duration_per_captured(
     data: &mut SpyVisionSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.bonus_duration_per_captured_in_frames = INI::parse_duration_unsigned_int(token)?;
     Ok(())
 }
@@ -260,7 +263,10 @@ fn parse_max_duration(
     data: &mut SpyVisionSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.max_duration_in_frames = INI::parse_duration_unsigned_int(token)?;
     Ok(())
 }
@@ -272,9 +278,8 @@ fn parse_special_power_template_field(
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template = Some(
-        crate::object::special_power_template::find_or_create_special_power_template(&name),
-    );
+    data.base.special_power_template =
+        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
     Ok(())
 }
 
@@ -317,12 +322,20 @@ mod tests {
 
         // With 3 captured units: 1000 + 3*500 = 2500 -> capped at 2500
         let duration = base.saturating_add(3u32.saturating_mul(bonus));
-        let capped = if max > 0 && duration > max { max } else { duration };
+        let capped = if max > 0 && duration > max {
+            max
+        } else {
+            duration
+        };
         assert_eq!(capped, 2500);
 
         // With 4 captured units: 1000 + 4*500 = 3000 -> capped at 2500
         let duration = base.saturating_add(4u32.saturating_mul(bonus));
-        let capped = if max > 0 && duration > max { max } else { duration };
+        let capped = if max > 0 && duration > max {
+            max
+        } else {
+            duration
+        };
         assert_eq!(capped, 2500);
     }
 }
