@@ -1106,7 +1106,6 @@ impl MessageSerializer {
 
         Ok(id)
     }
-
 }
 
 /// Batch serialization for multiple messages

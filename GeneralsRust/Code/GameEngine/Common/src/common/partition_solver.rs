@@ -327,7 +327,6 @@ impl GridCell {
         }
     }
 
-
     fn is_empty(&self) -> bool {
         self.objects.is_empty()
     }

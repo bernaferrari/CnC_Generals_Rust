@@ -35,10 +35,10 @@ pub mod audio_event_rts;
 pub mod audio_request;
 pub mod dynamic_audio_event_info;
 pub mod game_audio;
-pub mod gameplay_audio_dispatch;
 pub mod game_music;
 pub mod game_sounds;
 pub mod game_speech;
+pub mod gameplay_audio_dispatch;
 pub mod simple_player;
 pub mod simpleplayer;
 pub mod url_launch;
@@ -68,11 +68,11 @@ pub use game_audio::{
     AudioManager, AudioSettings, MiscAudio, MusicManager, SoundManager, SoundPlaybackHook,
 };
 
+pub use game_music::{create_music_manager, MusicManagerImpl, MusicTrack};
 pub use gameplay_audio_dispatch::{
     dispatch_eva_announcement, dispatch_ui_sound, dispatch_unit_death, dispatch_weapon_fire,
     register_gameplay_audio_dispatch, GameplayAudioDispatch,
 };
-pub use game_music::{create_music_manager, MusicManagerImpl, MusicTrack};
 
 pub use game_sounds::{
     create_sound_manager, register_audio_shroud_resolver, AudioShroudResolver, SoundManagerImpl,

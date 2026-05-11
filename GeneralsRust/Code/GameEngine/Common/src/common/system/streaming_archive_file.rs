@@ -503,5 +503,4 @@ mod tests {
         file.cur_pos = 150;
         assert!(file.eof());
     }
-
 }
