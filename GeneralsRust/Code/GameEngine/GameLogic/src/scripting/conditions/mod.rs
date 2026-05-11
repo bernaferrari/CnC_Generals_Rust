@@ -4560,7 +4560,6 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
 
         let members = team.get_members();
         let mut inside_count = 0u32;
-        let total = members.len() as u32;
 
         for &member_id in members {
             let area_tracker = get_area_tracker();
@@ -4572,14 +4571,14 @@ impl ScriptCondition for TeamInsideAreaPartiallyCondition {
             }
         }
 
-        Ok(inside_count > 0 && inside_count < total)
+        Ok(inside_count > 0)
     }
 
     fn name(&self) -> &str {
         "team_inside_area_partially"
     }
     fn description(&self) -> &str {
-        "Checks if some (but not all) team members are inside an area (C++ TEAM_INSIDE_AREA_PARTIALLY)"
+        "Checks if any team member is inside an area (C++ TEAM_INSIDE_AREA_PARTIALLY)"
     }
     fn required_parameters(&self) -> Vec<String> {
         vec!["team".to_string(), "area_name".to_string()]
