@@ -15,6 +15,7 @@ use crate::scripting::engine::{
 };
 use crate::scripting::events::{EventFilter, GameEventType};
 use crate::team::get_team_factory;
+use crate::terrain::get_terrain_logic;
 use crate::upgrade::center::get_upgrade_center;
 use crate::{GameLogicError, GameLogicResult};
 
@@ -4457,15 +4458,10 @@ impl ScriptCondition for BridgeRepairedCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
+        let terrain = get_terrain_logic()
             .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-        // Bridge is repaired if it's not destroyed and has no damage status
-        Ok(!obj.is_destroyed())
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read terrain: {}", e)))?;
+        Ok(terrain.is_bridge_repaired(object_id))
     }
 
     fn name(&self) -> &str {
@@ -4499,14 +4495,10 @@ impl ScriptCondition for BridgeBrokenCondition {
             Some(id) => id,
             None => return Ok(false),
         };
-        let obj_arc = match OBJECT_REGISTRY.get_object(object_id) {
-            Some(arc) => arc,
-            None => return Ok(false),
-        };
-        let obj = obj_arc
+        let terrain = get_terrain_logic()
             .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read object: {}", e)))?;
-        Ok(obj.is_destroyed())
+            .map_err(|e| GameLogicError::Threading(format!("Failed to read terrain: {}", e)))?;
+        Ok(terrain.is_bridge_broken(object_id))
     }
 
     fn name(&self) -> &str {
@@ -7039,5 +7031,77 @@ mod tests {
         if let Ok(mut manager) = get_object_manager().write() {
             manager.reset();
         }
+    }
+
+    #[tokio::test]
+    async fn bridge_conditions_use_terrain_bridge_damage_state() {
+        use crate::common::{AsciiString, BodyDamageType};
+        use crate::terrain::{get_terrain_logic, BridgeInfo};
+
+        let bridge_name = "RegistryBridgeDamageState";
+        let bridge_id = 0x00B1_D6E0;
+        get_named_object_tracker()
+            .register_named_object(bridge_name.to_string(), bridge_id)
+            .expect("register bridge name");
+
+        {
+            let mut terrain = get_terrain_logic().write().expect("terrain write lock");
+            terrain.reset();
+            let mut info = BridgeInfo::new();
+            info.bridge_object_id = bridge_id;
+            info.cur_damage_state = BodyDamageType::Rubble;
+            info.damage_state_changed = true;
+            terrain.add_bridge_to_logic(info, AsciiString::from("TestBridgeTemplate"));
+        }
+
+        let context = ScriptContext {
+            game_time: Duration::from_secs(0),
+            active_player: None,
+            variables: HashMap::new(),
+            game_state: crate::scripting::GameStateContext {
+                map_name: "Test".to_string(),
+                game_mode: "Test".to_string(),
+                players: vec![],
+                objectives: vec![],
+            },
+        };
+        let mut params = HashMap::new();
+        params.insert(
+            "bridge_name".to_string(),
+            ScriptValue::String(bridge_name.to_string()),
+        );
+
+        assert!(BridgeBrokenCondition
+            .evaluate(&params, &context)
+            .await
+            .expect("broken condition"));
+        assert!(!BridgeRepairedCondition
+            .evaluate(&params, &context)
+            .await
+            .expect("repaired condition"));
+
+        {
+            let mut terrain = get_terrain_logic().write().expect("terrain write lock");
+            terrain.reset();
+            let mut info = BridgeInfo::new();
+            info.bridge_object_id = bridge_id;
+            info.cur_damage_state = BodyDamageType::Damaged;
+            info.damage_state_changed = true;
+            terrain.add_bridge_to_logic(info, AsciiString::from("TestBridgeTemplate"));
+        }
+
+        assert!(!BridgeBrokenCondition
+            .evaluate(&params, &context)
+            .await
+            .expect("broken condition after repair"));
+        assert!(BridgeRepairedCondition
+            .evaluate(&params, &context)
+            .await
+            .expect("repaired condition after repair"));
+
+        get_terrain_logic()
+            .write()
+            .expect("terrain write lock")
+            .reset();
     }
 }
