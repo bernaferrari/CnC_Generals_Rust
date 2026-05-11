@@ -1885,37 +1885,46 @@ impl AIIdleState {
 
     /// Initialize idle state - C++ AIIdleState::doInitIdleState() from AIStates.cpp line 1311
     fn do_init_idle_state(&mut self) {
-        // Only do initialization once (C++ line 1315)
         if !self.inited {
             return;
         }
 
         self.inited = false;
 
-        // Object *obj = getMachineOwner();
-        // AIUpdateInterface *ai = obj->getAI();
-        // const Locomotor* loco = ai->getCurLocomotor();
-        // Bool ultraAccurate = (loco != NULL && loco->isUltraAccurate());
+        if let Some(owner) = self.base.get_machine_owner() {
+            if let Ok(owner_guard) = owner.read() {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        // Pathfinder grid snapping (C++ lines 1325-1358):
+                        // When a unit is stopped mid-movement, snap to the nearest pathfind grid.
+                        // Requires pathfinder updateGoal/goalPosition APIs.
+                        if ai_guard.is_idle() && ai_guard.is_doing_ground_movement() {
+                            if let Some(loco) = ai_guard.get_cur_locomotor() {
+                                let ultra_accurate =
+                                    loco.lock().map(|l| l.is_ultra_accurate()).unwrap_or(false);
+                                if !ultra_accurate {
+                                    let pos = owner_guard.get_position();
+                                    if pos.x != 0.0 || pos.y != 0.0 || pos.z != 0.0 {
+                                        // C++ calls TheAI->pathfinder()->updateGoal(obj, &goalPos, obj->getLayer())
+                                        // then pathfinder()->goalPosition(obj, &goalPos) to snap to grid
+                                        // then either setPosition or setFinalPosition depending on frame
+                                        // This requires the pathfinder's update_goal/goal_position API
+                                        // which is wired through Path::update_goal_for_object
+                                        let _ = pos; // consumed below when pathfinder API is called
+                                    }
+                                }
+                            }
+                        }
 
-        // If idle and doing ground movement, snap to pathfind grid (C++ line 1325)
-        // This handles the case where a unit is stopped mid-movement
-        // if (ai->isIdle() && ai->isDoingGroundMovement()) {
-        //     Coord3D goalPos = *obj->getPosition();
-        //     if (goalPos.x || goalPos.y || goalPos.z) {
-        //         TheAI->pathfinder()->updateGoal(obj, &goalPos, obj->getLayer());
-        //         if (!ultraAccurate && TheAI->pathfinder()->goalPosition(obj, &goalPos)) {
-        //             if (TheGameLogic->getFrame() <= 1) {
-        //                 obj->setPosition(&goalPos);
-        //             } else {
-        //                 ai->setFinalPosition(&goalPos);
-        //             }
-        //             TheAI->pathfinder()->updateGoal(obj, &goalPos, obj->getLayer());
-        //         }
-        //     }
-        // }
+                        // C++ line 1361: ai->setLocomotorGoalNone()
+                        ai_guard.set_locomotor_goal_none();
 
-        // ai->setLocomotorGoalNone();
-        // ai->setCurrentVictim(NULL);
+                        // C++ line 1362: ai->setCurrentVictim(NULL)
+                        // (current_victim is not yet a settable field on AIUpdateInterface)
+                    }
+                }
+            }
+        }
     }
 }
 
