@@ -89,6 +89,21 @@ impl LanguageFilter {
 
         *line = buffer.into_iter().collect();
     }
+
+    #[cfg(any(test, feature = "internal"))]
+    pub fn set_words_for_test<I, S>(&mut self, words: I)
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        self.word_list.clear();
+        for word in words {
+            let cleaned = un_haxor(word.as_ref());
+            if !cleaned.is_empty() {
+                self.word_list.insert(cleaned.to_lowercase());
+            }
+        }
+    }
 }
 
 impl SubsystemInterface for LanguageFilter {
