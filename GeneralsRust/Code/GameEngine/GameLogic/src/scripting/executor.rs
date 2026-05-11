@@ -17832,9 +17832,7 @@ impl ScriptConditionEvaluator {
         let center = trigger.get_center_point();
         let radius = trigger.get_radius() + distance;
 
-        let base_value = global_data::read_safe()
-            .map(|data| data.base_value_per_supply_box.max(1))
-            .unwrap_or(1) as f32;
+        let supply_box_value = player_guard.get_supply_box_value() as f32;
 
         let mut max_value = 0.0;
         if let Some(partition) = crate::helpers::ThePartitionManager::get() {
@@ -17888,7 +17886,7 @@ impl ScriptConditionEvaluator {
                     continue;
                 };
 
-                let value = base_value * boxes as f32;
+                let value = supply_box_value * boxes as f32;
                 if value > max_value {
                     max_value = value;
                 }
