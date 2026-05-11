@@ -3143,13 +3143,22 @@ impl ScriptAction for NamedAttackAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let ai = attacker_arc
-            .read()
-            .ok()
-            .and_then(|obj| obj.get_ai_update_interface());
+        let ai = attacker_arc.write().ok().and_then(|mut obj| {
+            obj.leave_group();
+            obj.get_ai_update_interface()
+        });
 
         if let Some(ai) = ai {
-            ai.ai_attack_object_id(target_id, -1, CommandSourceType::FromScript);
+            if let Ok(mut ai_guard) = ai.lock() {
+                let _ = ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
+                let mut params = AiCommandParams::new(
+                    AiCommandType::ForceAttackObject,
+                    CommandSourceType::FromScript,
+                );
+                params.obj = Some(target_id);
+                params.int_value = -1; // NO_MAX_SHOTS_LIMIT
+                let _ = ai_guard.execute_command(&params);
+            }
         } else {
             log::warn!(
                 "NamedAttackAction: attacker '{}' has no AI update interface",
@@ -8548,6 +8557,141 @@ mod tests {
         );
         assert_eq!(
             object.read().unwrap().base.read().unwrap().get_group_id(),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn named_attack_named_leaves_group_and_dispatches_force_attack() {
+        use crate::modules::AIUpdateInterface;
+        use std::sync::Mutex;
+
+        #[derive(Debug)]
+        struct RecordingAi {
+            commands: Arc<Mutex<Vec<(AiCommandType, Option<u32>, i32, CommandSourceType)>>>,
+            locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+        }
+
+        impl AIUpdateInterface for RecordingAi {
+            fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                Ok(())
+            }
+
+            fn is_moving(&self) -> bool {
+                false
+            }
+
+            fn is_idle(&self) -> bool {
+                true
+            }
+
+            fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn choose_locomotor_set(
+                &mut self,
+                set: LocomotorSetType,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.locomotors.lock().unwrap().push(set);
+                Ok(())
+            }
+
+            fn execute_command(
+                &mut self,
+                command: &AiCommandParams,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.commands.lock().unwrap().push((
+                    command.cmd,
+                    command.obj,
+                    command.int_value,
+                    command.cmd_source,
+                ));
+                Ok(())
+            }
+        }
+
+        reset_test_object_manager();
+        reset_test_named_object_tracker();
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let attacker_id = 8350;
+        let target_id = 8351;
+        let attacker = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                attacker_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test attacker instance"),
+        ));
+        let target = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                target_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test target instance"),
+        ));
+
+        {
+            let instance = attacker.write().unwrap();
+            let mut base = instance.base.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.enter_group(&crate::ai::AIGroup::new(87));
+            assert_eq!(base.get_group_id(), Some(87));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(attacker.clone(), Coord3D::new(10.0, 4.0, 0.0))
+            .unwrap();
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(target, Coord3D::new(18.0, 4.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("NamedAttacker".to_string(), attacker_id)
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("NamedVictim".to_string(), target_id)
+            .unwrap();
+
+        let mut params = HashMap::new();
+        params.insert(
+            "attacker_name".to_string(),
+            ScriptValue::String("NamedAttacker".to_string()),
+        );
+        params.insert(
+            "target_name".to_string(),
+            ScriptValue::String("NamedVictim".to_string()),
+        );
+
+        NamedAttackAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::ForceAttackObject,
+                Some(target_id),
+                -1,
+                CommandSourceType::FromScript,
+            )]
+        );
+        assert_eq!(
+            attacker.read().unwrap().base.read().unwrap().get_group_id(),
             None
         );
     }
