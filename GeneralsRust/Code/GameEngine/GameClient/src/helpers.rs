@@ -1327,6 +1327,8 @@ impl TheInGameUI {
     }
 
     pub fn clear_popup_message_data() {
+        gamelogic::helpers::TheInGameUI::consume_popup_clear_request();
+
         let data = {
             let state_handle = popup_message_state();
             let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
