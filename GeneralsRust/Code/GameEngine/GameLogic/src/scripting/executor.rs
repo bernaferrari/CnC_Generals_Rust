@@ -3874,13 +3874,19 @@ impl ScriptActionDispatcher {
     /// C++ Reference: ScriptActions::doTeamStop()
     /// Issues stop command to team AI group
     fn do_team_stop(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
-        let team_name = self.get_string_param(action, 0)?;
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::info!("Team '{}' stopping", team_name);
 
-        let group_arc = self.create_ai_group_from_team(&team_name)?;
-        if let Ok(mut group) = group_arc.write() {
-            let params = AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
-            let _ = group.ai_do_command(&params);
+        match self.create_ai_group_from_team(&team_name) {
+            Ok(group_arc) => {
+                if let Ok(mut group) = group_arc.write() {
+                    let params =
+                        AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+                    let _ = group.ai_do_command(&params);
+                }
+            }
+            Err(ScriptError::TeamNotFound(_)) => return Ok(ScriptActionResult::Success),
+            Err(err) => return Err(err),
         }
 
         Ok(ScriptActionResult::Success)
@@ -3895,22 +3901,51 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::info!("Team '{}' stopping and disbanding", team_name);
 
-        // Issue stop command
+        let Some(team_arc) = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&team_name))
+        else {
+            return Ok(ScriptActionResult::Success);
+        };
+
         let group_arc = self.create_ai_group_from_team(&team_name)?;
         if let Ok(mut group) = group_arc.write() {
             let params = AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
             let _ = group.ai_do_command(&params);
         }
 
-        // Disband the team
-        let factory = get_team_factory();
-        if let Ok(mut factory_guard) = factory.lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                let team_id = team_arc.read().ok().map(|t| t.get_id());
-                if let Some(tid) = team_id {
-                    factory_guard.team_about_to_be_deleted(tid);
+        let (members, default_team_name) = {
+            let Ok(team_guard) = team_arc.read() else {
+                return Ok(ScriptActionResult::Success);
+            };
+            let default_team_name = team_guard
+                .get_controlling_player_id()
+                .and_then(|player_id| {
+                    player_list()
+                        .read()
+                        .ok()
+                        .and_then(|players| players.get_player(player_id as i32).cloned())
+                })
+                .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()))
+                .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()));
+            (team_guard.get_members().to_vec(), default_team_name)
+        };
+        for object_id in members {
+            let ai_arc = TheGameLogic::find_object_by_id(object_id).and_then(|object| {
+                object
+                    .read()
+                    .ok()
+                    .and_then(|obj| obj.get_ai_update_interface())
+            });
+            if let Some(ai_arc) = ai_arc {
+                if let Ok(mut ai) = ai_arc.lock() {
+                    ai.set_is_recruitable(true);
                 }
             }
+        }
+        if let Some(default_team_name) = default_team_name {
+            self.merge_team_into_team(&team_name, &default_team_name)?;
         }
 
         Ok(ScriptActionResult::Success)
@@ -3953,23 +3988,33 @@ impl ScriptActionDispatcher {
         let target_team = self.resolve_team_name_token(&self.get_string_param(action, 1)?);
         log::debug!("Merging team '{}' into '{}'", source_team, target_team);
 
+        self.merge_team_into_team(&source_team, &target_team)?;
+
+        Ok(ScriptActionResult::Success)
+    }
+
+    fn merge_team_into_team(
+        &self,
+        source_team: &str,
+        target_team: &str,
+    ) -> Result<(), ScriptError> {
         let (source_team_arc, target_team_arc) = if let Ok(mut factory) = get_team_factory().lock()
         {
             (
-                factory.find_team(&source_team),
+                factory.find_team(source_team),
                 factory
-                    .find_team(&target_team)
-                    .or_else(|| factory.create_team(&target_team)),
+                    .find_team(target_team)
+                    .or_else(|| factory.create_team(target_team)),
             )
         } else {
             (None, None)
         };
         let (Some(source_team_arc), Some(target_team_arc)) = (source_team_arc, target_team_arc)
         else {
-            return Ok(ScriptActionResult::Success);
+            return Ok(());
         };
         if Arc::ptr_eq(&source_team_arc, &target_team_arc) {
-            return Ok(ScriptActionResult::Success);
+            return Ok(());
         }
 
         let source_members = source_team_arc
@@ -3987,15 +4032,20 @@ impl ScriptActionDispatcher {
             };
         }
 
-        if let (Ok(mut source_guard), Ok(mut target_guard)) =
-            (source_team_arc.write(), target_team_arc.write())
-        {
-            source_guard.transfer_units_to(&mut target_guard);
+        if let Ok(mut source_guard) = source_team_arc.write() {
+            for object_id in &source_members {
+                source_guard.remove_member(*object_id);
+            }
             source_guard.delete_team(false);
+        }
+        if let Ok(mut target_guard) = target_team_arc.write() {
+            for object_id in source_members {
+                target_guard.add_member(object_id);
+            }
             target_guard.set_active();
         }
 
-        Ok(ScriptActionResult::Success)
+        Ok(())
     }
 
     fn do_team_flash(&mut self, action: &ScriptAction) -> Result<ScriptActionResult, ScriptError> {
@@ -19779,5 +19829,176 @@ mod tests {
 
         assert!(commands.lock().unwrap().is_empty());
         assert!(locomotors.lock().unwrap().is_empty());
+    }
+
+    #[derive(Debug)]
+    struct RecruitableRecordingAi {
+        commands: Arc<
+            Mutex<
+                Vec<(
+                    AiCommandType,
+                    Option<ObjectID>,
+                    Option<String>,
+                    i32,
+                    CommandSourceType,
+                )>,
+            >,
+        >,
+        recruitable: Arc<Mutex<Vec<bool>>>,
+    }
+
+    impl AIUpdateInterface for RecruitableRecordingAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        fn is_moving(&self) -> bool {
+            false
+        }
+
+        fn is_idle(&self) -> bool {
+            true
+        }
+
+        fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn execute_command(
+            &mut self,
+            command: &AiCommandParams,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.commands.lock().unwrap().push((
+                command.cmd,
+                command.obj,
+                command.team.clone(),
+                command.int_value,
+                command.cmd_source,
+            ));
+            Ok(())
+        }
+
+        fn set_is_recruitable(&mut self, recruitable: bool) {
+            self.recruitable.lock().unwrap().push(recruitable);
+        }
+    }
+
+    #[test]
+    fn executor_team_stop_and_disband_marks_members_recruitable_and_merges_default_team() {
+        get_object_manager().write().unwrap().reset();
+        get_team_factory().lock().unwrap().reset();
+        player_list().write().unwrap().clear();
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("ExecutorDisbandSource"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory.init_team(
+                AsciiString::from("ExecutorDefaultTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("ExecutorDisbandSource")
+                .expect("source team should be created");
+            factory
+                .create_team("ExecutorDefaultTeam")
+                .expect("default team should be created");
+        }
+
+        let default_team = get_team_factory()
+            .lock()
+            .unwrap()
+            .find_team("ExecutorDefaultTeam")
+            .expect("default team exists");
+        let source_team = get_team_factory()
+            .lock()
+            .unwrap()
+            .find_team("ExecutorDisbandSource")
+            .expect("source team exists");
+
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        player
+            .write()
+            .unwrap()
+            .set_default_team(Some(default_team.clone()));
+        player_list().write().unwrap().add_player(player);
+        source_team
+            .write()
+            .unwrap()
+            .set_controlling_player_id(Some(0));
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let recruitable = Arc::new(Mutex::new(Vec::new()));
+        let member_id = 8530;
+        let member = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                member_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test member instance"),
+        ));
+        {
+            let instance = member.write().unwrap();
+            instance
+                .base
+                .write()
+                .unwrap()
+                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecruitableRecordingAi {
+                    commands: Arc::clone(&commands),
+                    recruitable: Arc::clone(&recruitable),
+                }))));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(member.clone(), Coord3D::new(15.0, 15.0, 0.0))
+            .unwrap();
+        source_team.write().unwrap().add_member(member_id);
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamStopAndDisband);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "ExecutorDisbandSource".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_team_stop_and_disband(&action).unwrap();
+
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::Idle,
+                None,
+                None,
+                0,
+                CommandSourceType::FromScript,
+            )]
+        );
+        assert_eq!(*recruitable.lock().unwrap(), vec![true]);
+        assert!(default_team.read().unwrap().has_member(member_id));
+        assert!(!source_team.read().unwrap().has_member(member_id));
+        assert!(Arc::ptr_eq(
+            &member
+                .read()
+                .unwrap()
+                .base
+                .read()
+                .unwrap()
+                .get_team()
+                .unwrap(),
+            &default_team
+        ));
     }
 }
