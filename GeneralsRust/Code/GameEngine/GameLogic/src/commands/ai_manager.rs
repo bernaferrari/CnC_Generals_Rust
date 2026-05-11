@@ -327,6 +327,34 @@ impl AIManager for AIManagerImpl {
 
         any_ok
     }
+
+    fn queue_waypoint_for_object(&mut self, object_id: ObjectID, pos: Coord3D) {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+        let Some(ai) = obj_guard.get_ai_update_interface() else {
+            return;
+        };
+        drop(obj_guard);
+        ai.queue_waypoint(&pos);
+    }
+
+    fn execute_waypoint_queue_for_object(&mut self, object_id: ObjectID) {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return;
+        };
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+        let Some(ai) = obj_guard.get_ai_update_interface() else {
+            return;
+        };
+        drop(obj_guard);
+        ai.execute_waypoint_queue();
+    }
 }
 
 /// Execute the next command in a unit's queue.

@@ -1780,6 +1780,12 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
             .map(|(_, pitch)| pitch)
             .unwrap_or(0.0)
     }
+
+    /// C++ parity: AIUpdateInterface::queueWaypoint() — store waypoint without starting execution
+    fn queue_waypoint(&mut self, _pos: &Coord3D) {}
+
+    /// C++ parity: AIUpdateInterface::executeWaypointQueue() — start the first queued waypoint
+    fn execute_waypoint_queue(&mut self) {}
 }
 
 /// Extension trait for Arc<Mutex<dyn AIUpdateInterface>> to provide convenient methods
@@ -1924,6 +1930,8 @@ pub trait AIUpdateInterfaceExt {
         &self,
         params: &crate::ai::AiCommandParams,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    fn queue_waypoint(&self, pos: &Coord3D);
+    fn execute_waypoint_queue(&self);
 }
 
 impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
@@ -2566,6 +2574,18 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
             guard.execute_command(params)
         } else {
             Err("Failed to lock AIUpdateInterface".into())
+        }
+    }
+
+    fn queue_waypoint(&self, pos: &Coord3D) {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.queue_waypoint(pos);
+        }
+    }
+
+    fn execute_waypoint_queue(&self) {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.execute_waypoint_queue();
         }
     }
 }

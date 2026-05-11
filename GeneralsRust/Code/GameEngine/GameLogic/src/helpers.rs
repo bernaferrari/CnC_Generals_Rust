@@ -4305,6 +4305,10 @@ struct InGameUIState {
     idle_worker_removals: Vec<(ObjectID, Int)>,
     last_selection_frame: UnsignedInt,
     superweapons: Vec<SuperweaponEntry>,
+    /// C++ parity: InGameUI popup message clear request flag.
+    /// Set by GameLogic's ClearInGamePopupMessage command handler,
+    /// consumed by GameClient's popup message handler.
+    popup_clear_requested: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -4477,6 +4481,23 @@ impl TheInGameUI {
             return (additions, removals);
         }
         (Vec::new(), Vec::new())
+    }
+
+    /// C++ parity: InGameUI::clearPopupMessageData().
+    /// Sets a flag consumed by GameClient's popup handler.
+    pub fn request_popup_message_clear() {
+        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+            state.popup_clear_requested = true;
+        }
+    }
+
+    /// Consume and return whether a popup clear was requested.
+    /// Called by GameClient's popup handler each frame.
+    pub fn consume_popup_clear_request() -> bool {
+        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+            return std::mem::take(&mut state.popup_clear_requested);
+        }
+        false
     }
 }
 

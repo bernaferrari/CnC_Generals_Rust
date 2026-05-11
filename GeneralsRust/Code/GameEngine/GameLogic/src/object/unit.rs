@@ -5596,6 +5596,37 @@ impl AIUpdateInterface for UnitAIUpdate {
         false
     }
 
+    fn queue_waypoint(&mut self, pos: &Coord3D) {
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(mut guard) = unit.write() {
+                guard
+                    .waypoint_queue
+                    .push(Waypoint::new(0, *pos, String::new()));
+            }
+        }
+    }
+
+    fn execute_waypoint_queue(&mut self) {
+        let first_pos = {
+            let unit = match self.unit.upgrade() {
+                Some(u) => u,
+                None => return,
+            };
+            let mut guard = match unit.write() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+            if guard.waypoint_queue.is_empty() {
+                return;
+            }
+            let first = guard.waypoint_queue.remove(0);
+            first.position
+        };
+        if let Err(e) = self.ai_move_to_position(&first_pos) {
+            log::warn!("execute_waypoint_queue failed: {}", e);
+        }
+    }
+
     fn append_goal_position_to_path(&mut self, goal: &Coord3D) -> Result<(), String> {
         let unit = self
             .unit
