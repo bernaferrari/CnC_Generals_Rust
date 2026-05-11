@@ -8180,17 +8180,65 @@ impl ClassicState for AIDeadState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        // Handle death
+        if let Some(owner) = self.base.get_machine_owner() {
+            if let Ok(mut owner_guard) = owner.write() {
+                let non_dying_stuff = ModelConditionFlags::UsingWeaponA
+                    | ModelConditionFlags::UsingWeaponB
+                    | ModelConditionFlags::UsingWeaponC
+                    | ModelConditionFlags::FiringA
+                    | ModelConditionFlags::FiringB
+                    | ModelConditionFlags::FiringC
+                    | ModelConditionFlags::BetweenFiringShotsA
+                    | ModelConditionFlags::BetweenFiringShotsB
+                    | ModelConditionFlags::BetweenFiringShotsC
+                    | ModelConditionFlags::ReloadingA
+                    | ModelConditionFlags::ReloadingB
+                    | ModelConditionFlags::ReloadingC
+                    | ModelConditionFlags::PreAttackA
+                    | ModelConditionFlags::PreAttackB
+                    | ModelConditionFlags::PreAttackC
+                    | MODELCONDITION_MOVING;
+
+                let _ = owner_guard
+                    .clear_and_set_model_condition_flags(non_dying_stuff, MODELCONDITION_DYING);
+
+                crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
+            }
+        }
+
         Ok(StateReturnType::Continue)
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        // Stay dead indefinitely
+        if let Some(owner) = self.base.get_machine_owner() {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.set_effectively_dead(true);
+
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.set_locomotor_goal_none();
+                    }
+                }
+
+                if owner_guard.is_kind_of(KindOf::Infantry) {
+                    if let Some(phys) = owner_guard.get_physics() {
+                        let vel = phys.get_velocity();
+                        let vel_mag = (vel.x * vel.x + vel.y * vel.y).sqrt();
+                        phys.scrub_velocity_2d(vel_mag * 0.8);
+                    }
+                }
+            }
+        }
+
         Ok(StateReturnType::Continue)
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        // Should never exit from dead state
+        if let Some(owner) = self.base.get_machine_owner() {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.clear_model_condition_state(MODELCONDITION_DYING);
+            }
+        }
         Ok(())
     }
 }
