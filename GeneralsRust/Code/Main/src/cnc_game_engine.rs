@@ -94,14 +94,18 @@ mod tests {
     static GLOBAL_DATA_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn with_global_data_snapshot_restored<F: FnOnce()>(f: F) {
-        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = GLOBAL_DATA_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let snapshot = game_engine::common::global_data::read().clone();
         f();
         *game_engine::common::global_data::write() = snapshot;
     }
 
     fn with_global_and_startup_state_snapshot_restored<F: FnOnce()>(f: F) {
-        let _guard = GLOBAL_DATA_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = GLOBAL_DATA_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let global_snapshot = game_engine::common::global_data::read().clone();
         let previous_difficulty = gamelogic::helpers::TheScriptEngine::get_global_difficulty();
         let previous_rank_points =
@@ -1078,6 +1082,7 @@ pub struct CnCGameEngine {
     startup_health_summary_logged: bool,
     last_caustic_warmup_attempt: Option<Instant>,
     loading_overlay_active: bool,
+    shell_menu_active: bool, // C++ parity: Shell::push("Menus/MainMenu.wnd") / Shell::pop()
 
     // Game client — C++ parity: TheGameClient singleton, wired into Main's frame loop
     // for drawable updates and display draw. Full GameClient::update() is NOT called
@@ -1884,7 +1889,10 @@ impl CnCGameEngine {
                 // C++ parity: ShellGameLoadScreen::init()
                 // Step 1: winCreateFromScript("Menus/ShellGameLoadScreen.wnd")
                 if let Err(e) = wm.create_layout_with_windows("Menus/ShellGameLoadScreen.wnd") {
-                    warn!("Failed to load ShellGameLoadScreen.wnd: {:?}, loading screen unavailable", e);
+                    warn!(
+                        "Failed to load ShellGameLoadScreen.wnd: {:?}, loading screen unavailable",
+                        e
+                    );
                     return;
                 }
 
@@ -1937,6 +1945,55 @@ impl CnCGameEngine {
             });
 
             self.loading_overlay_active = false;
+        }
+    }
+
+    /// C++ parity: Shell::push("Menus/MainMenu.wnd") + Shell::doPush()
+    /// GameLogic::startNewGame() line 2198: TheShell->push("Menus/MainMenu.wnd")
+    /// when m_gameMode == GAME_SHELL && screenCount == 0.
+    fn show_shell_menu(&mut self) {
+        #[cfg(feature = "game_client")]
+        {
+            if self.shell_menu_active {
+                return;
+            }
+
+            game_client::gui::with_window_manager(|wm| {
+                match wm.create_layout_with_windows("Menus/MainMenu.wnd") {
+                    Ok((layout, _info)) => {
+                        layout.borrow().run_init(None);
+                        if let Some(root) = wm.find_window_by_name("MainMenu.wnd:MainMenuParent") {
+                            let _ = root.borrow_mut().hide(false);
+                            let _ = root.borrow_mut().bring_to_front();
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to load MainMenu.wnd: {:?}", e);
+                    }
+                }
+            });
+
+            self.shell_menu_active = true;
+            info!("Shell menu created from Menus/MainMenu.wnd");
+        }
+    }
+
+    /// C++ parity: Shell::pop() — destroy menu layout when leaving Menu state.
+    fn hide_shell_menu(&mut self) {
+        #[cfg(feature = "game_client")]
+        {
+            if !self.shell_menu_active {
+                return;
+            }
+
+            game_client::gui::with_window_manager(|wm| {
+                if let Some(root) = wm.find_window_by_name("MainMenu.wnd:MainMenuParent") {
+                    let _ = wm.destroy_window(root);
+                }
+                wm.flush_destroy_queue();
+            });
+
+            self.shell_menu_active = false;
         }
     }
 
@@ -2788,7 +2845,9 @@ impl CnCGameEngine {
                 &self.graphics_system,
                 &mut self.game_logic,
             ) {
-                warn!("Failed to reinitialize minimap renderer: {err}. Continuing without minimap.");
+                warn!(
+                    "Failed to reinitialize minimap renderer: {err}. Continuing without minimap."
+                );
             }
             Self::apply_map_lighting(
                 &mut self.graphics_system,
@@ -3256,6 +3315,7 @@ impl CnCGameEngine {
             startup_health_summary_logged: false,
             last_caustic_warmup_attempt: None,
             loading_overlay_active: false,
+            shell_menu_active: false,
 
             #[cfg(feature = "game_client")]
             game_client: game_client::core::game_client::GameClient::new()
@@ -3391,7 +3451,10 @@ impl CnCGameEngine {
                 match UIRenderer::new(device, queue, format) {
                     Ok(renderer) => {
                         set_ui_renderer(Arc::new(std::sync::RwLock::new(renderer)));
-                        info!("UIRenderer created from GraphicsSystem (format: {:?})", format);
+                        info!(
+                            "UIRenderer created from GraphicsSystem (format: {:?})",
+                            format
+                        );
                     }
                     Err(err) => {
                         warn!("UIRenderer creation from GraphicsSystem failed: {err}");
@@ -4604,11 +4667,17 @@ impl CnCGameEngine {
         static UC_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let uc_n = UC_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if uc_n < 15 || (uc_n < 50 && matches!(self.current_state, GameState::Menu)) {
-            info!("update_with_frame_clock #{} start state={:?}", uc_n, self.current_state);
+            info!(
+                "update_with_frame_clock #{} start state={:?}",
+                uc_n, self.current_state
+            );
         }
         self.update_internal(dt);
         if uc_n < 15 || (uc_n < 50 && matches!(self.current_state, GameState::Menu)) {
-            info!("update_with_frame_clock #{} done state={:?}", uc_n, self.current_state);
+            info!(
+                "update_with_frame_clock #{} done state={:?}",
+                uc_n, self.current_state
+            );
         }
     }
 
@@ -4687,6 +4756,7 @@ impl CnCGameEngine {
         match old_state {
             GameState::Menu => {
                 debug!("Exiting Menu state");
+                self.hide_shell_menu();
             }
             GameState::Loading => {
                 debug!("Exiting Loading state");
@@ -4721,6 +4791,7 @@ impl CnCGameEngine {
                 self.set_runtime_ui_state_projection(UISystemState::MainMenu);
                 info!("Menu transition: calling prime_subsystems_before_menu_transition");
                 self.prime_subsystems_before_menu_transition();
+                self.show_shell_menu();
                 info!("Menu transition: prime_subsystems done. transition_to_state complete.");
                 self.last_slow_menu_tick_log = None;
             }
@@ -4889,7 +4960,9 @@ impl CnCGameEngine {
         // C++ parity: radar/audio/client/message/network/cd updates happen each frame.
         self.update_runtime_subsystems(dt);
         if matches!(self.current_state, GameState::Menu) && self.menu_world_frames_rendered < 5 {
-            info!("update_internal: Menu state, update_runtime_subsystems done, entering state match");
+            info!(
+                "update_internal: Menu state, update_runtime_subsystems done, entering state match"
+            );
         }
         // State-based update logic - matches C++ GameEngine::update() conditional updates
         match self.current_state {
@@ -4977,7 +5050,10 @@ impl CnCGameEngine {
                     let gc = &mut self.game_client;
                     let early_menu_frame = self.menu_world_frames_rendered < 5;
                     if early_menu_frame {
-                        info!("Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})", self.menu_world_frames_rendered);
+                        info!(
+                            "Menu update_internal: calling gc.ensure_shell_visible (menu_frame={})",
+                            self.menu_world_frames_rendered
+                        );
                     }
                     let t0 = std::time::Instant::now();
                     gc.ensure_shell_visible().ok();
@@ -5290,10 +5366,14 @@ impl CnCGameEngine {
 
     pub fn render(&mut self) -> Result<()> {
         let render_started = Instant::now();
-        static RENDER_CALL_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        static RENDER_CALL_COUNT: std::sync::atomic::AtomicU32 =
+            std::sync::atomic::AtomicU32::new(0);
         let render_call = RENDER_CALL_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if render_call < 30 || render_call % 300 == 0 {
-            info!("render() called #{}, state={:?}", render_call, self.current_state);
+            info!(
+                "render() called #{}, state={:?}",
+                render_call, self.current_state
+            );
         }
 
         if !matches!(self.current_state, GameState::Loading | GameState::Menu) {

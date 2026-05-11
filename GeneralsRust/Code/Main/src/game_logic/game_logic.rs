@@ -41,6 +41,9 @@ use game_engine::common::well_known_keys::{
 };
 use gamelogic::ai::integration::{initialize_ai_integration, with_ai_integration_mut};
 use gamelogic::ai::THE_AI;
+use gamelogic::common::CommandSourceType;
+use gamelogic::modules::AIUpdateInterfaceExt;
+use gamelogic::object::object_factory::{get_object_factory, ObjectCreationFlags};
 use gamelogic::player::{
     GameDifficulty as LogicGameDifficulty, Player as LogicPlayer, PlayerList as LogicPlayerList,
     PlayerTemplate as LogicPlayerTemplate, PlayerType as LogicPlayerType, ThePlayerList,
@@ -57,9 +60,6 @@ use gamelogic::system::game_logic::RadarEventType;
 use gamelogic::system::map_loader::MapLoader as LogicMapLoader;
 use gamelogic::system::radar_notifier;
 use gamelogic::system::shroud_manager::get_shroud_manager;
-use gamelogic::common::CommandSourceType;
-use gamelogic::modules::AIUpdateInterfaceExt;
-use gamelogic::object::object_factory::{get_object_factory, ObjectCreationFlags};
 use gamelogic::team::get_team_factory;
 use gamelogic::update_game_logic;
 use gamelogic::weapon::{update_dot_effects, with_weapon_store_mut};
@@ -125,10 +125,12 @@ impl PendingSpecialAbility {
 
 /// Bridge Main's lightweight Team enum to GameEngine's Arc<RwLock<Team>>.
 /// Uses the global TeamFactory to look up teams by player/faction name.
-fn resolve_gamelogic_team(team: &Team) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::team::Team>>> {
+fn resolve_gamelogic_team(
+    team: &Team,
+) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::team::Team>>> {
     let team_name = match team {
         Team::USA => "America",
-        Team::China => "China", 
+        Team::China => "China",
         Team::GLA => "GLA",
         Team::Neutral => return None,
     };
@@ -5399,13 +5401,16 @@ impl GameLogic {
                         obj.engine_object_id = Some(engine_id);
                         log::debug!(
                             "Bridged object {} to GameEngine object {} ({})",
-                            id, engine_id, template_name
+                            id,
+                            engine_id,
+                            template_name
                         );
                     }
                     Err(e) => {
                         log::debug!(
                             "ObjectFactory creation skipped for '{}' (lightweight-only): {}",
-                            template_name, e
+                            template_name,
+                            e
                         );
                     }
                 }
@@ -5817,7 +5822,8 @@ impl GameLogic {
                         if let Err(e) = factory.destroy_object(engine_id) {
                             log::debug!(
                                 "ObjectFactory destroy_object({}) failed: {}",
-                                engine_id, e
+                                engine_id,
+                                e
                             );
                         }
                     }
