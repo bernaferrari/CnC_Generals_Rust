@@ -1769,12 +1769,24 @@ impl Player {
     /// Check if player has any objects at all.
     /// C++ Reference: Player::hasAnyObjects()
     pub fn has_any_objects(&self) -> Bool {
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            return manager
-                .get_objects_owned_by_player(self.player_index as UnsignedInt)
-                .iter()
-                .any(|obj_id| manager.get_object(*obj_id).is_some());
+        for &object_id in &self.owned_objects {
+            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+            else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
+                continue;
+            }
+            if object_guard.is_kind_of(KindOf::Projectile)
+                || object_guard.is_kind_of(KindOf::Inert)
+                || object_guard.is_kind_of(KindOf::Mine)
+            {
+                continue;
+            }
+            return true;
         }
         false
     }
@@ -1782,23 +1794,24 @@ impl Player {
     /// Check if player has any units (non-structure objects)
     /// C++ Reference: Player::hasAnyUnits() - checks for non-structure units
     pub fn has_any_units(&self) -> Bool {
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
-            for obj_id in object_ids {
-                if let Some(obj_arc) = manager.get_object(obj_id) {
-                    if let Ok(obj_instance) = obj_arc.read() {
-                        // Get the base Object and check KindOf
-                        if let Ok(base_obj) = obj_instance.base.read() {
-                            // Check if this is a non-structure unit (infantry, vehicle, aircraft, etc.)
-                            // C++: !object->isKindOf(KINDOF_STRUCTURE)
-                            if !base_obj.is_kind_of(KindOf::Structure) {
-                                return true;
-                            }
-                        }
-                    }
-                }
+        for &object_id in &self.owned_objects {
+            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+            else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
+                continue;
             }
+            if object_guard.is_kind_of(KindOf::Structure)
+                || object_guard.is_kind_of(KindOf::Projectile)
+                || object_guard.is_kind_of(KindOf::Mine)
+            {
+                continue;
+            }
+            return true;
         }
         false
     }
@@ -1829,29 +1842,16 @@ impl Player {
     /// Check if player has any build facilities (structures that can produce units)
     /// C++ Reference: Player::hasAnyBuildFacility() - checks for buildings with production capability
     pub fn has_any_build_facility(&self) -> Bool {
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
-            for obj_id in object_ids {
-                if let Some(obj_arc) = manager.get_object(obj_id) {
-                    if let Ok(obj_instance) = obj_arc.read() {
-                        // Get the base Object and check KindOf
-                        if let Ok(base_obj) = obj_instance.base.read() {
-                            // Check if this is a production building
-                            // C++: object->isKindOf(KINDOF_STRUCTURE) && object->isKindOf(KINDOF_FS_FACTORY)
-                            if base_obj.is_kind_of(KindOf::Structure) {
-                                // Check for various production-related KindOf flags
-                                if base_obj.is_kind_of(KindOf::Factory)
-                                    || base_obj.is_kind_of(KindOf::FSBarracks)
-                                    || base_obj.is_kind_of(KindOf::FSAirfield)
-                                    || base_obj.is_kind_of(KindOf::FSSupplyCenter)
-                                {
-                                    return true;
-                                }
-                            }
-                        }
-                    }
-                }
+        for &object_id in &self.owned_objects {
+            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+            else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+            if object_guard.get_template().is_build_facility() {
+                return true;
             }
         }
         false

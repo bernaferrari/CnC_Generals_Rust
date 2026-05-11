@@ -2666,30 +2666,16 @@ impl ScriptEvaluator {
         log::debug!("Evaluating PlayerAllDestroyed for player: {}", player_name);
 
         let Ok(list) = player_list().read() else {
-            return Ok(false);
+            return Ok(true);
         };
         let Some(player_arc) = list.find_player_by_name(player_name) else {
-            return Ok(false);
+            return Ok(true);
         };
         let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
+            return Ok(true);
         };
 
-        for object_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let alive = if let Ok(obj_guard) = obj_arc.read() {
-                !obj_guard.is_destroyed()
-            } else {
-                false
-            };
-            if alive {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
+        Ok(!player_guard.has_any_objects())
     }
 
     /// Evaluate player all build facilities destroyed condition
@@ -2710,28 +2696,16 @@ impl ScriptEvaluator {
         );
 
         let Ok(list) = player_list().read() else {
-            return Ok(false);
+            return Ok(true);
         };
         let Some(player_arc) = list.find_player_by_name(player_name) else {
-            return Ok(false);
+            return Ok(true);
         };
         let Ok(player_guard) = player_arc.read() else {
-            return Ok(false);
+            return Ok(true);
         };
 
-        for object_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_destroyed() && is_build_facility(&obj_guard) {
-                return Ok(false);
-            }
-        }
-
-        Ok(true)
+        Ok(!player_guard.has_any_build_facility())
     }
 
     /// Evaluate team destroyed condition
@@ -4787,20 +4761,6 @@ impl ScriptEvaluator {
         // In a real implementation, this would add money to the player
         Ok(())
     }
-}
-
-fn is_build_facility(obj: &crate::object::Object) -> bool {
-    obj.is_kind_of(KindOf::Factory)
-        || obj.is_kind_of(KindOf::CommandCenter)
-        || obj.is_kind_of(KindOf::FSBarracks)
-        || obj.is_kind_of(KindOf::FSWarfactory)
-        || obj.is_kind_of(KindOf::FSAirfield)
-        || obj.is_kind_of(KindOf::FSInternetCenter)
-        || obj.is_kind_of(KindOf::FSPower)
-        || obj.is_kind_of(KindOf::FSSupplyDropzone)
-        || obj.is_kind_of(KindOf::FSSupplyCenter)
-        || obj.is_kind_of(KindOf::FSSuperweapon)
-        || obj.is_kind_of(KindOf::FSStrategyCenter)
 }
 
 #[cfg(test)]

@@ -14353,8 +14353,8 @@ impl ScriptConditionEvaluator {
         if let Ok(players) = player_list().read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
                 if let Ok(player) = player_arc.read() {
-                    // Player is all destroyed if they have no units
-                    let all_destroyed = !player.has_any_units();
+                    // C++: player is all destroyed if Player::hasAnyObjects() is false.
+                    let all_destroyed = !player.has_any_objects();
                     let result = match wants_alive {
                         Some(true) => !all_destroyed,
                         Some(false) => all_destroyed,
