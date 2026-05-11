@@ -4413,6 +4413,10 @@ impl ClassicState for AIMoveToState {
         self.compute_path(&mut *ai_guard)?;
         let _ = ai_guard.set_path_extra_distance(0.0);
         ai_guard.set_desired_speed(FAST_AS_POSSIBLE);
+
+        // C++ line 1612: Notify AI that movement is starting
+        ai_guard.friend_starting_move();
+
         self.start_move_sound(&owner_guard);
 
         if owner_guard.get_formation_id() != FormationID::NONE {
@@ -4664,6 +4668,8 @@ impl ClassicState for AIMoveToState {
                                 }
                             }
                         }
+                        // C++ line 1724: Notify AI that movement is ending
+                        ai_guard.friend_ending_move();
                         ai_guard.destroy_path();
                     }
                 }
