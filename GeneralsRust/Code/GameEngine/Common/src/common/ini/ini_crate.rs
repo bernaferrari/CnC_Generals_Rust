@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use super::ini::{INIError, INIResult, INI};
+use crate::common::system::kind_of::KIND_OF_BIT_NAMES;
 
 // ---------------------------------------------------------------------------
 // Parsed (intermediate) types -- INI-only, no gameplay dependencies
@@ -274,20 +275,31 @@ pub fn parse_crate_template_definition(ini: &mut INI) -> INIResult<()> {
 /// C++ uses `KindOfMaskType::parseFromINI` which processes space-separated
 /// KindOf flag names into a bitmask.
 fn parse_kind_of_mask(token: &str) -> u64 {
-    // Try parsing as hex first
-    if let Ok(val) = u64::from_str_radix(token.trim_start_matches("0x"), 16) {
-        return val;
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        return 0;
     }
-    // Simple single-name lookup (full impl would parse space-separated list)
-    match token.to_ascii_uppercase().as_str() {
-        "INFANTRY" => 1u64 << 0,
-        "VEHICLE" => 1u64 << 1,
-        "STRUCTURE" => 1u64 << 2,
-        "AIRCRAFT" => 1u64 << 3,
-        "DOZER" => 1u64 << 4,
-        "CLEANUP_HAZARD" => 1u64 << 5,
-        _ => 0,
+
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        return u64::from_str_radix(hex, 16).unwrap_or(0);
     }
+
+    let mut mask = 0u64;
+    for part in trimmed.split(|ch: char| ch.is_whitespace() || ch == '|') {
+        let name = part.trim().to_ascii_uppercase();
+        if let Some(index) = KIND_OF_BIT_NAMES
+            .iter()
+            .position(|bit_name| *bit_name == name.as_str())
+        {
+            if index < u64::BITS as usize {
+                mask |= 1u64 << index;
+            }
+        }
+    }
+    mask
 }
 
 // ---------------------------------------------------------------------------
@@ -341,9 +353,20 @@ mod tests {
 
     #[test]
     fn test_parse_kind_of_mask_name() {
-        assert_ne!(parse_kind_of_mask("INFANTRY"), 0);
-        assert_ne!(parse_kind_of_mask("VEHICLE"), 0);
+        assert_eq!(parse_kind_of_mask("INFANTRY"), 1u64 << 8);
+        assert_eq!(parse_kind_of_mask("VEHICLE"), 1u64 << 9);
+        assert_eq!(parse_kind_of_mask("STRUCTURE"), 1u64 << 7);
+        assert_eq!(parse_kind_of_mask("DOZER"), 1u64 << 12);
+        assert_eq!(parse_kind_of_mask("CLEANUP_HAZARD"), 1u64 << 55);
         assert_eq!(parse_kind_of_mask("UNKNOWN_TYPE"), 0);
+    }
+
+    #[test]
+    fn test_parse_kind_of_mask_multiple_names() {
+        assert_eq!(
+            parse_kind_of_mask("INFANTRY VEHICLE|STRUCTURE"),
+            (1u64 << 8) | (1u64 << 9) | (1u64 << 7)
+        );
     }
 
     #[test]
