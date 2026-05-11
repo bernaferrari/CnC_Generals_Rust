@@ -3135,24 +3135,24 @@ impl ScriptCondition for ResearchCompleteCondition {
             science_name
         );
 
-        // Check player science/upgrade state
-        // Matches C++ Player::Has_Science(science_name)
-        use game_engine::common::rts::ScienceType;
-
-        let player_list_lock = player_list();
-        if let Ok(list) = player_list_lock.read() {
-            if let Some(player_arc) = list.get_player(player as i32) {
-                if let Ok(_player_guard) = player_arc.read() {
-                    // Science system integration: Check player's completed sciences
-                    // The science name needs to be mapped to ScienceType enum
-                    // This requires a string->enum mapping table in the science system
-                    // For now, we cannot directly check without the mapping
-                    // Full implementation needs: ScienceType::from_name(science_name)
-                    return Ok(false);
-                }
-            }
+        let Ok(list) = player_list().read() else {
+            return Ok(false);
+        };
+        let Some(player_arc) = list.get_player(player as i32) else {
+            return Ok(false);
+        };
+        let Ok(player_guard) = player_arc.read() else {
+            return Ok(false);
+        };
+        let Some(store) = get_science_store() else {
+            return Ok(false);
+        };
+        let science = store.get_science_from_internal_name(science_name.as_str());
+        if science == SCIENCE_INVALID {
+            return Ok(false);
         }
-        Ok(false)
+
+        Ok(player_guard.has_science(science))
     }
 
     fn name(&self) -> &str {
@@ -7103,5 +7103,49 @@ mod tests {
             .write()
             .expect("terrain write lock")
             .reset();
+    }
+
+    #[tokio::test]
+    async fn research_complete_checks_player_science_store() {
+        use game_engine::common::rts::science::{
+            get_science_store_mut, init_science_store, ScienceInfo,
+        };
+
+        init_science_store();
+        let science_name = "SCIENCE_RegistryResearchComplete";
+        let science = {
+            let mut store = get_science_store_mut().expect("science store");
+            store.add_science(ScienceInfo::new(SCIENCE_INVALID, science_name));
+            store.get_science_from_internal_name(science_name)
+        };
+        assert_ne!(science, SCIENCE_INVALID);
+
+        player_list().write().unwrap().clear();
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        player.write().unwrap().add_science(science);
+        player_list().write().unwrap().add_player(player);
+
+        let context = ScriptContext {
+            game_time: Duration::from_secs(0),
+            active_player: None,
+            variables: HashMap::new(),
+            game_state: crate::scripting::GameStateContext {
+                map_name: "Test".to_string(),
+                game_mode: "Test".to_string(),
+                players: vec![],
+                objectives: vec![],
+            },
+        };
+        let mut params = HashMap::new();
+        params.insert("player".to_string(), ScriptValue::Int(0));
+        params.insert(
+            "science_name".to_string(),
+            ScriptValue::String(science_name.to_string()),
+        );
+
+        assert!(ResearchCompleteCondition
+            .evaluate(&params, &context)
+            .await
+            .expect("research complete condition"));
     }
 }
