@@ -6111,15 +6111,43 @@ impl ScriptAction for SpawnReinforcementsAction {
         // 3. ThingFactory->newObject(template, team, position)
         // Rust: object_factory.spawn_formation(unit_type, player, position, count, spacing)
 
+        if player < 0 {
+            return Err(GameLogicError::Configuration(
+                "player must be non-negative".to_string(),
+            ));
+        }
+        if count < 0 {
+            return Err(GameLogicError::Configuration(
+                "count must be non-negative".to_string(),
+            ));
+        }
+
+        let team = player_list()
+            .read()
+            .map_err(|_| GameLogicError::Threading("Failed to lock PlayerList".to_string()))?
+            .get_player(player as PlayerIndex)
+            .cloned()
+            .and_then(|player_arc| player_arc.read().ok().and_then(|p| p.get_default_team()));
+
+        let mut created_ids = Vec::with_capacity(count as usize);
+        let manager = get_object_manager();
+        let mut manager = manager
+            .write()
+            .map_err(|_| GameLogicError::Threading("Failed to lock ObjectManager".to_string()))?;
+
         for i in 0..count {
             let offset_x = x + ((i % 5) as f64 * spacing);
             let offset_y = y + ((i / 5) as f64 * spacing);
-            log::debug!("  Creating unit {} at ({}, {})", i + 1, offset_x, offset_y);
+            let object_id = manager.create_object(
+                &unit_type,
+                Coord3D::new(offset_x as f32, offset_y as f32, 0.0),
+                team.clone(),
+                ObjectCreationFlags::from_template(),
+            )?;
+            created_ids.push(ScriptValue::ObjectId(object_id));
         }
 
-        log::debug!("Integration: Unit factory spawns reinforcements in grid formation");
-
-        Ok(ScriptResult::Success(None))
+        Ok(ScriptResult::Success(Some(ScriptValue::Array(created_ids))))
     }
 
     fn name(&self) -> &str {
@@ -7418,6 +7446,19 @@ mod tests {
         get_object_manager().write().unwrap().reset();
     }
 
+    fn ensure_test_template(name: &str) {
+        use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
+
+        if get_thing_factory().unwrap().is_none() {
+            init_thing_factory().unwrap();
+        }
+        let mut factory_guard = get_thing_factory().unwrap();
+        let factory = factory_guard.as_mut().unwrap();
+        if factory.find_template(name, false).is_none() {
+            factory.new_template(name);
+        }
+    }
+
     #[tokio::test]
     async fn test_action_registry() {
         let registry = ActionRegistry::new();
@@ -7731,5 +7772,52 @@ mod tests {
         assert!(manager.get_object(700).is_some());
         manager.update(0).unwrap();
         assert!(manager.get_object(700).is_none());
+    }
+
+    #[tokio::test]
+    async fn spawn_reinforcements_creates_grid_formation() {
+        reset_test_object_manager();
+        ensure_test_template("TestReinforcement");
+
+        let mut params = HashMap::new();
+        params.insert("player".to_string(), ScriptValue::Int(0));
+        params.insert(
+            "unit_type".to_string(),
+            ScriptValue::String("TestReinforcement".to_string()),
+        );
+        params.insert("count".to_string(), ScriptValue::Int(6));
+        params.insert("x".to_string(), ScriptValue::Float(100.0));
+        params.insert("y".to_string(), ScriptValue::Float(200.0));
+        params.insert("spacing".to_string(), ScriptValue::Float(12.0));
+
+        let result = SpawnReinforcementsAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        let ScriptResult::Success(Some(ScriptValue::Array(ids))) = result else {
+            panic!("expected created object id array");
+        };
+        assert_eq!(ids.len(), 6);
+
+        let manager = get_object_manager();
+        let manager = manager.read().unwrap();
+        let expected = [
+            Coord3D::new(100.0, 200.0, 0.0),
+            Coord3D::new(112.0, 200.0, 0.0),
+            Coord3D::new(124.0, 200.0, 0.0),
+            Coord3D::new(136.0, 200.0, 0.0),
+            Coord3D::new(148.0, 200.0, 0.0),
+            Coord3D::new(100.0, 212.0, 0.0),
+        ];
+
+        for (value, expected_pos) in ids.iter().zip(expected.iter()) {
+            let ScriptValue::ObjectId(object_id) = value else {
+                panic!("expected object id");
+            };
+            let object = manager.get_object(*object_id).expect("created object");
+            let object = object.read().unwrap();
+            assert_eq!(*object.get_position(), *expected_pos);
+        }
     }
 }
