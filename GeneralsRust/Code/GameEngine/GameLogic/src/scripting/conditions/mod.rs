@@ -526,13 +526,11 @@ impl ScriptCondition for PlayerHasResourceCondition {
             resource_type
         );
 
-        // Check actual player resources (currently only supports money)
         let player_list_lock = player_list();
         if let Ok(list) = player_list_lock.read() {
             if let Some(player_arc) = list.get_player(player as i32) {
                 if let Ok(player_guard) = player_arc.read() {
-                    // For now, only handle "money" resource type
-                    if resource_type.eq_ignore_ascii_case("money") {
+                    if super::actions::is_money_resource(&resource_type) {
                         let player_money = player_guard.get_money().get_money() as i64;
                         return Ok(player_money >= amount);
                     }
@@ -7185,5 +7183,46 @@ mod tests {
             .evaluate(&params, &context)
             .await
             .expect("flag comparison condition"));
+    }
+
+    #[tokio::test]
+    async fn player_has_resource_uses_money_aliases_like_resource_actions() {
+        player_list().write().unwrap().clear();
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        player.write().unwrap().get_money_mut().set_money(800);
+        player_list().write().unwrap().add_player(player);
+
+        let context = ScriptContext {
+            game_time: Duration::from_secs(0),
+            active_player: None,
+            variables: HashMap::new(),
+            game_state: crate::scripting::GameStateContext {
+                map_name: "Test".to_string(),
+                game_mode: "Test".to_string(),
+                players: vec![],
+                objectives: vec![],
+            },
+        };
+        let mut params = HashMap::new();
+        params.insert("player".to_string(), ScriptValue::Int(0));
+        params.insert(
+            "resource_type".to_string(),
+            ScriptValue::String("supplies".to_string()),
+        );
+        params.insert("amount".to_string(), ScriptValue::Int(800));
+
+        assert!(PlayerHasResourceCondition
+            .evaluate(&params, &context)
+            .await
+            .expect("supplies resource condition"));
+
+        params.insert(
+            "resource_type".to_string(),
+            ScriptValue::String("oil".to_string()),
+        );
+        assert!(!PlayerHasResourceCondition
+            .evaluate(&params, &context)
+            .await
+            .expect("unknown resource condition"));
     }
 }
