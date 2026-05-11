@@ -2346,16 +2346,13 @@ impl ScriptCondition for FlagComparisonCondition {
 
         log::debug!("Checking flag '{}' == {}", flag_name, expected_value);
 
-        // Get flag value from ScriptEngine flag system
-        // Matches C++ Script::Get_Flag()->Get_Value()
-        // For now, check context variables which are populated by the engine
-        let flag_value = _context
-            .variables
-            .get(&flag_name)
-            .and_then(|v| match v {
-                ScriptValue::Bool(b) => Some(*b),
-                ScriptValue::Int(i) => Some(*i != 0),
-                _ => None,
+        let flag_value = get_script_engine()
+            .read()
+            .ok()
+            .and_then(|engine_guard| {
+                engine_guard
+                    .as_ref()
+                    .and_then(|engine| engine.get_flag(&flag_name).map(|flag| flag.value))
             })
             .unwrap_or(false);
 
@@ -7147,5 +7144,46 @@ mod tests {
             .evaluate(&params, &context)
             .await
             .expect("research complete condition"));
+    }
+
+    #[tokio::test]
+    async fn flag_comparison_reads_script_engine_flags() {
+        crate::scripting::engine::initialize_script_engine().expect("script engine");
+
+        let flag_name = "registry_flag_comparison_reads_script_engine_flags";
+        {
+            let engine = get_script_engine();
+            let mut engine_guard = engine.write().expect("script engine write lock");
+            engine_guard
+                .as_mut()
+                .expect("script engine initialized")
+                .set_flag(flag_name, true)
+                .expect("set flag");
+        }
+
+        let mut variables = HashMap::new();
+        variables.insert(flag_name.to_string(), ScriptValue::Bool(false));
+        let context = ScriptContext {
+            game_time: Duration::from_secs(0),
+            active_player: None,
+            variables,
+            game_state: crate::scripting::GameStateContext {
+                map_name: "Test".to_string(),
+                game_mode: "Test".to_string(),
+                players: vec![],
+                objectives: vec![],
+            },
+        };
+        let mut params = HashMap::new();
+        params.insert(
+            "flag_name".to_string(),
+            ScriptValue::String(flag_name.to_string()),
+        );
+        params.insert("value".to_string(), ScriptValue::Bool(true));
+
+        assert!(FlagComparisonCondition
+            .evaluate(&params, &context)
+            .await
+            .expect("flag comparison condition"));
     }
 }
