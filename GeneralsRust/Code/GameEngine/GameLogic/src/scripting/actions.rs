@@ -608,7 +608,7 @@ impl ScriptAction for AddPlayerResourceAction {
     }
 }
 
-fn is_money_resource(resource_type: &str) -> bool {
+pub(crate) fn is_money_resource(resource_type: &str) -> bool {
     matches!(
         resource_type.trim().to_ascii_lowercase().as_str(),
         "money" | "cash" | "resource" | "resources" | "supply" | "supplies"
