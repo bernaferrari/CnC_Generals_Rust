@@ -1141,31 +1141,21 @@ impl ScriptActionDispatcher {
 
         log::info!("Team '{}' attacking team '{}'", attacker_team, victim_team);
 
-        // Get victim team members for targeting
-        let victim_arc = self.get_team_by_name(&victim_team)?;
-        let victim_members = if let Ok(team) = victim_arc.read() {
-            team.get_members().to_vec()
-        } else {
-            return Err(ScriptError::ExecutionFailed(
-                "Failed to read victim team".to_string(),
-            ));
-        };
-
-        if victim_members.is_empty() {
-            log::warn!("Victim team '{}' has no members to attack", victim_team);
+        let victim_team = self.resolve_team_name_token(&victim_team);
+        if self.get_team_by_name(&victim_team).is_err() {
+            log::warn!("Victim team '{}' not found for team attack", victim_team);
             return Ok(ScriptActionResult::Success);
         }
 
         // Create AI group from attacker team
         let group_arc = self.create_ai_group_from_team(&attacker_team)?;
 
-        // Issue attack command to group targeting first victim member
-        // In C++: theGroup->groupAttackObject(theVictim, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT)
+        // Issue attack command to group targeting victim team
+        // C++: aiGroup->groupAttackTeam(victimTeam, NO_MAX_SHOTS_LIMIT, CMD_FROM_SCRIPT)
         if let Ok(mut group) = group_arc.write() {
-            // Use AiCommandInterface to issue attack command
             let mut params =
-                AiCommandParams::new(AiCommandType::AttackObject, CommandSourceType::FromScript);
-            params.obj = Some(victim_members[0]);
+                AiCommandParams::new(AiCommandType::AttackTeam, CommandSourceType::FromScript);
+            params.team = Some(victim_team);
             params.int_value = -1; // NO_MAX_SHOTS_LIMIT
             let _ = group.ai_do_command(&params);
         }
@@ -18903,7 +18893,17 @@ mod tests {
 
     #[derive(Debug)]
     struct RecordingAi {
-        commands: Arc<Mutex<Vec<(AiCommandType, Option<ObjectID>, i32, CommandSourceType)>>>,
+        commands: Arc<
+            Mutex<
+                Vec<(
+                    AiCommandType,
+                    Option<ObjectID>,
+                    Option<String>,
+                    i32,
+                    CommandSourceType,
+                )>,
+            >,
+        >,
         locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
     }
 
@@ -18939,6 +18939,7 @@ mod tests {
             self.commands.lock().unwrap().push((
                 command.cmd,
                 command.obj,
+                command.team.clone(),
                 command.int_value,
                 command.cmd_source,
             ));
@@ -19026,6 +19027,7 @@ mod tests {
             vec![(
                 AiCommandType::ForceAttackObject,
                 Some(target_id),
+                None,
                 -1,
                 CommandSourceType::FromScript,
             )]
@@ -19033,6 +19035,105 @@ mod tests {
         assert_eq!(
             attacker.read().unwrap().base.read().unwrap().get_group_id(),
             None
+        );
+    }
+
+    #[test]
+    fn executor_team_attack_team_dispatches_attack_team() {
+        get_object_manager().write().unwrap().reset();
+        get_team_factory().lock().unwrap().reset();
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("ExecutorAttackers"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory.init_team(
+                AsciiString::from("ExecutorVictims"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("ExecutorAttackers")
+                .expect("attacker team should be created");
+            factory
+                .create_team("ExecutorVictims")
+                .expect("victim team should be created");
+        }
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let attacker_id = 8460;
+        let attacker = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                attacker_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test attacker instance"),
+        ));
+
+        {
+            let instance = attacker.write().unwrap();
+            instance
+                .base
+                .write()
+                .unwrap()
+                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                    commands: Arc::clone(&commands),
+                    locomotors: Arc::clone(&locomotors),
+                }))));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(attacker, Coord3D::new(14.0, 4.0, 0.0))
+            .unwrap();
+        {
+            let factory = get_team_factory();
+            let mut factory_guard = factory.lock().unwrap();
+            factory_guard
+                .find_team("ExecutorAttackers")
+                .unwrap()
+                .write()
+                .unwrap()
+                .add_member(attacker_id);
+        }
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamAttackTeam);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "ExecutorAttackers".to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "ExecutorVictims".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_team_attack_team(&action).unwrap();
+
+        assert_eq!(locomotors.lock().unwrap().len(), 0);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::AttackTeam,
+                None,
+                Some("ExecutorVictims".to_string()),
+                -1,
+                CommandSourceType::FromScript,
+            )]
         );
     }
 }
