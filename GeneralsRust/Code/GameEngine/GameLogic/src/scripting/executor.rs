@@ -464,9 +464,7 @@ impl ScriptActionDispatcher {
             ScriptActionType::TeamGuardInTunnelNetwork => {
                 self.do_team_guard_in_tunnel_network(action)
             }
-            // C++ parity: ScriptActions::executeAction dispatches TEAM_GUARD_FOR_FRAMECOUNT
-            // to doTeamIdleForFramecount.
-            ScriptActionType::TeamGuardForFramecount => self.do_team_idle_for_framecount(action),
+            ScriptActionType::TeamGuardForFramecount => self.do_team_guard_for_framecount(action),
             ScriptActionType::TeamIdleForFramecount => self.do_team_idle_for_framecount(action),
             ScriptActionType::TeamSpinForFramecount => self.do_team_spin_for_framecount(action),
             ScriptActionType::TeamIncreasePriority => self.do_team_increase_priority(action),
@@ -4806,8 +4804,6 @@ impl ScriptActionDispatcher {
                         );
                         guard_params.pos = pos;
                         if let Ok(mut ai) = ai_arc.lock() {
-                            let _ =
-                                ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                             let _ = ai.execute_command(&guard_params);
                         };
                     }
@@ -19740,6 +19736,92 @@ mod tests {
             ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
         dispatcher.do_team_guard(&action).unwrap();
 
+        assert!(locomotors.lock().unwrap().is_empty());
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::GuardPosition,
+                None,
+                None,
+                GuardMode::Normal.as_i32(),
+                CommandSourceType::FromScript,
+            )]
+        );
+    }
+
+    #[test]
+    fn executor_team_guard_for_framecount_dispatches_guard_not_idle() {
+        get_object_manager().write().unwrap().reset();
+        get_team_factory().lock().unwrap().reset();
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("ExecutorTimedGuardTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("ExecutorTimedGuardTeam")
+                .expect("timed guard team should be created");
+        }
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let member_id = 8515;
+        let member = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                member_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test timed guard team member instance"),
+        ));
+
+        {
+            let instance = member.write().unwrap();
+            instance
+                .base
+                .write()
+                .unwrap()
+                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                    commands: Arc::clone(&commands),
+                    locomotors: Arc::clone(&locomotors),
+                }))));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(member, Coord3D::new(10.0, 12.0, 0.0))
+            .unwrap();
+        get_team_factory()
+            .lock()
+            .unwrap()
+            .find_team("ExecutorTimedGuardTeam")
+            .unwrap()
+            .write()
+            .unwrap()
+            .add_member(member_id);
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamGuardForFramecount);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "ExecutorTimedGuardTeam".to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_int(ParameterType::Int, 7))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        let result = dispatcher.execute_action(&action).unwrap();
+
+        assert_eq!(result, ScriptActionResult::Pending(7.0));
         assert!(locomotors.lock().unwrap().is_empty());
         assert_eq!(
             *commands.lock().unwrap(),
