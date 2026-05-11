@@ -5783,7 +5783,16 @@ impl ScriptAction for DestroyBuildingAction {
         // 5. Frees resources
         // Rust: object_manager.destroy_object(object_id, DeathType::Normal)
 
-        log::debug!("Integration: Object system destroys building");
+        if object_id < 0 {
+            return Err(GameLogicError::Configuration(
+                "object_id must be non-negative".to_string(),
+            ));
+        }
+
+        get_object_manager()
+            .write()
+            .map_err(|_| GameLogicError::Threading("Failed to lock ObjectManager".to_string()))?
+            .destroy_object(object_id as u32);
 
         Ok(ScriptResult::Success(None))
     }
@@ -7405,6 +7414,10 @@ mod tests {
         *engine = Some(crate::scripting::engine::ScriptEngine::new().unwrap());
     }
 
+    fn reset_test_object_manager() {
+        get_object_manager().write().unwrap().reset();
+    }
+
     #[tokio::test]
     async fn test_action_registry() {
         let registry = ActionRegistry::new();
@@ -7681,5 +7694,42 @@ mod tests {
         let player1 = list.get_player(1).unwrap().read().unwrap();
         assert_eq!(player0.get_relationship(&player1), Relationship::Enemies);
         assert_eq!(player1.get_relationship(&player0), Relationship::Neutral);
+    }
+
+    #[tokio::test]
+    async fn destroy_building_queues_object_manager_removal() {
+        reset_test_object_manager();
+
+        let object = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                700,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test object instance"),
+        ));
+        {
+            let manager = get_object_manager();
+            manager
+                .write()
+                .unwrap()
+                .register_object_instance(object, Coord3D::new(0.0, 0.0, 0.0))
+                .unwrap();
+        }
+
+        let mut params = HashMap::new();
+        params.insert("object_id".to_string(), ScriptValue::Int(700));
+
+        DestroyBuildingAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        let manager = get_object_manager();
+        let mut manager = manager.write().unwrap();
+        assert!(manager.get_object(700).is_some());
+        manager.update(0).unwrap();
+        assert!(manager.get_object(700).is_none());
     }
 }
