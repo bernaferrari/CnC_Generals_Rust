@@ -127,9 +127,7 @@ impl CleanupAreaPower {
         };
 
         let Some(module) = owner_guard.find_update_module("CleanupHazardUpdate") else {
-            log::debug!(
-                "CleanupAreaPower: owner missing CleanupHazardUpdate module"
-            );
+            log::debug!("CleanupAreaPower: owner missing CleanupHazardUpdate module");
             return Ok(());
         };
 
@@ -200,9 +198,8 @@ fn parse_special_power_template_field(
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template = Some(
-        crate::object::special_power_template::find_or_create_special_power_template(&name),
-    );
+    data.base.special_power_template =
+        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
     Ok(())
 }
 
@@ -211,7 +208,10 @@ fn parse_max_move_distance_from_location(
     data: &mut CleanupAreaPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.cleanup_move_range = INI::parse_real(token)?;
     Ok(())
 }

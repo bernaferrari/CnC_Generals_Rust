@@ -1812,10 +1812,7 @@ impl Team {
 
     /// Check if this team is allied with another team
     pub fn is_allied_with(&self, that_team: &Team) -> Bool {
-        matches!(
-            self.get_relationship(that_team),
-            Relationship::Allies
-        )
+        matches!(self.get_relationship(that_team), Relationship::Allies)
     }
 
     /// Check if this team is enemy with another team

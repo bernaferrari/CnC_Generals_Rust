@@ -324,7 +324,6 @@ impl DeliverPayloadAIUpdateModule {
 }
 
 impl Module for DeliverPayloadAIUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

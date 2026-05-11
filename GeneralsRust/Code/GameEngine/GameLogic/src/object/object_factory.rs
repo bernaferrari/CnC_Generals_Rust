@@ -261,12 +261,7 @@ impl ObjectFactory {
                         .get_behavior_module_info()
                         .iter()
                         .find(|entry| entry.name.as_str() == "AIUpdateInterface")
-                        .and_then(|entry| {
-                            entry
-                                .data
-                                .as_ref()
-        .downcast_ref::<AIUpdateModuleData>()
-                        })
+                        .and_then(|entry| entry.data.as_ref().downcast_ref::<AIUpdateModuleData>())
                         .map(|data| data.clone());
 
                     let railed_transport_ai_module_data = template
@@ -277,7 +272,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<RailedTransportAIUpdateModuleData>()
+                                .downcast_ref::<RailedTransportAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -289,7 +284,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<HackInternetAIUpdateModuleData>()
+                                .downcast_ref::<HackInternetAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -301,7 +296,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<AssaultTransportAIUpdateModuleData>()
+                                .downcast_ref::<AssaultTransportAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -313,7 +308,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
+                                .downcast_ref::<DeliverPayloadAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -325,7 +320,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<DeployStyleAIUpdateModuleData>()
+                                .downcast_ref::<DeployStyleAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -347,7 +342,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<DozerAIUpdateModuleData>()
+                                .downcast_ref::<DozerAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -359,7 +354,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<ChinookAIUpdateModuleData>()
+                                .downcast_ref::<ChinookAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -368,10 +363,7 @@ impl ObjectFactory {
                         .iter()
                         .find(|entry| entry.name.as_str() == "JetAIUpdate")
                         .and_then(|entry| {
-                            entry
-                                .data
-                                .as_ref()
-        .downcast_ref::<JetAIUpdateModuleData>()
+                            entry.data.as_ref().downcast_ref::<JetAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -383,7 +375,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<SupplyTruckAIUpdateModuleData>()
+                                .downcast_ref::<SupplyTruckAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -395,7 +387,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<WorkerAIUpdateModuleData>()
+                                .downcast_ref::<WorkerAIUpdateModuleData>()
                         })
                         .cloned();
 
@@ -408,7 +400,7 @@ impl ObjectFactory {
                             entry
                                 .data
                                 .as_ref()
-        .downcast_ref::<POWTruckAIUpdateModuleData>()
+                                .downcast_ref::<POWTruckAIUpdateModuleData>()
                         })
                         .map(|data| data.base.clone());
 

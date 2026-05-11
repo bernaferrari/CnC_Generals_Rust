@@ -138,8 +138,7 @@ impl DemoralizeSpecialPower {
                         }
 
                         // Bonus range per captured unit, capped at max
-                        range += self.data.bonus_range_per_captured
-                            * contain_count as Real;
+                        range += self.data.bonus_range_per_captured * contain_count as Real;
                         if range > self.data.max_range {
                             range = self.data.max_range;
                         }
@@ -153,10 +152,7 @@ impl DemoralizeSpecialPower {
 
     /// Execute demoralize at a location.
     /// Matches C++ DemoralizeSpecialPower::doSpecialPowerAtLocation().
-    pub fn do_special_power_at_location(
-        &self,
-        loc: &Coord3D,
-    ) -> Result<(), String> {
+    pub fn do_special_power_at_location(&self, loc: &Coord3D) -> Result<(), String> {
         // Check disabled
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return Ok(());
@@ -177,11 +173,12 @@ impl DemoralizeSpecialPower {
         }
 
         // Get owner's map status for filtering (C++ PartitionFilterSameMapStatus)
-        let owner_off_map = if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            owner.read().map(|g| g.is_off_map()).unwrap_or(false)
-        } else {
-            false
-        };
+        let owner_off_map =
+            if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
+                owner.read().map(|g| g.is_off_map()).unwrap_or(false)
+            } else {
+                false
+            };
 
         // Scan objects in range
         // C++ uses PartitionManager with filters:
@@ -339,9 +336,8 @@ fn parse_special_power_template_field(
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template = Some(
-        crate::object::special_power_template::find_or_create_special_power_template(&name),
-    );
+    data.base.special_power_template =
+        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
     Ok(())
 }
 
@@ -350,7 +346,10 @@ fn parse_base_range(
     data: &mut DemoralizeSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.base_range = INI::parse_real(token)?;
     Ok(())
 }
@@ -360,7 +359,10 @@ fn parse_bonus_range_per_captured(
     data: &mut DemoralizeSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.bonus_range_per_captured = INI::parse_real(token)?;
     Ok(())
 }
@@ -370,7 +372,10 @@ fn parse_max_range(
     data: &mut DemoralizeSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.max_range = INI::parse_real(token)?;
     Ok(())
 }
@@ -380,7 +385,10 @@ fn parse_base_duration(
     data: &mut DemoralizeSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     // C++ uses INI::parseDurationUnsignedInt which converts seconds*30 to frames
     data.base_duration_in_frames = INI::parse_duration_unsigned_int(token)?;
     Ok(())
@@ -391,7 +399,10 @@ fn parse_bonus_duration_per_captured(
     data: &mut DemoralizeSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.bonus_duration_per_captured_in_frames = INI::parse_duration_unsigned_int(token)?;
     Ok(())
 }
@@ -401,7 +412,10 @@ fn parse_max_duration(
     data: &mut DemoralizeSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.max_duration_in_frames = INI::parse_duration_unsigned_int(token)?;
     Ok(())
 }
@@ -411,7 +425,10 @@ fn parse_fx_list(
     data: &mut DemoralizeSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.fx_list_name = (*token).to_string();
     Ok(())
 }
@@ -492,7 +509,9 @@ mod tests {
         let arc_data = Arc::new(data);
         let power = DemoralizeSpecialPower::new(0, 0, arc_data);
         // Should return Ok without panicking
-        assert!(power.do_special_power_at_location(&Coord3D::new(0.0, 0.0, 0.0)).is_ok());
+        assert!(power
+            .do_special_power_at_location(&Coord3D::new(0.0, 0.0, 0.0))
+            .is_ok());
     }
 
     #[test]

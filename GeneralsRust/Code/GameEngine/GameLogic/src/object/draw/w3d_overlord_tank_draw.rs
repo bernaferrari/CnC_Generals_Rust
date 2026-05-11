@@ -121,7 +121,6 @@ impl Module for W3DOverlordTankDraw {
         self.base.get_module_tag_name_key()
     }
 
-
     fn get_module_data(&self) -> &dyn ModuleData {
         &self.data
     }

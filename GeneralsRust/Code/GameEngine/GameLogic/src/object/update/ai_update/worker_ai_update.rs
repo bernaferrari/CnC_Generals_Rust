@@ -356,7 +356,6 @@ impl WorkerAIUpdateModule {
 }
 
 impl Module for WorkerAIUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

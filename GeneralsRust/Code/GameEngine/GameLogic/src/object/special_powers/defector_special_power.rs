@@ -12,9 +12,7 @@ use std::sync::{Arc, RwLock};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
-use game_engine::common::thing::module::{
-    Module, ModuleData, NameKeyType,
-};
+use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
 use crate::common::{ObjectID, Real};
 use crate::helpers::TheGameLogic;
@@ -100,10 +98,7 @@ impl DefectorSpecialPower {
 
     /// Execute the defector power on a target object.
     /// Matches C++ DefectorSpecialPower::doSpecialPowerAtObject().
-    pub fn do_special_power_at_object(
-        &self,
-        target_object_id: ObjectID,
-    ) -> Result<(), String> {
+    pub fn do_special_power_at_object(&self, target_object_id: ObjectID) -> Result<(), String> {
         // Check if the owner is disabled
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
             if let Ok(owner_guard) = owner.read() {
@@ -221,7 +216,10 @@ fn parse_fat_cursor_radius(
     data: &mut DefectorSpecialPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.fat_cursor_radius = INI::parse_real(token)?;
     Ok(())
 }
@@ -233,9 +231,8 @@ fn parse_special_power_template_field(
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template = Some(
-        crate::object::special_power_template::find_or_create_special_power_template(&name),
-    );
+    data.base.special_power_template =
+        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
     Ok(())
 }
 

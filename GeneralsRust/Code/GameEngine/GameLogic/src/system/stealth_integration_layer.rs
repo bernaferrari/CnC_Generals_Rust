@@ -306,10 +306,7 @@ impl StealthIntegrationLayer {
                     }
 
                     let relationship = detector_guard.relationship_to(&stealthy_guard);
-                    if matches!(
-                        relationship,
-                        Relationship::Allies
-                    ) {
+                    if matches!(relationship, Relationship::Allies) {
                         continue;
                     }
 

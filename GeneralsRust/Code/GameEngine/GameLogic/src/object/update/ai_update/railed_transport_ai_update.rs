@@ -203,7 +203,6 @@ impl RailedTransportAIUpdateModule {
 }
 
 impl Module for RailedTransportAIUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

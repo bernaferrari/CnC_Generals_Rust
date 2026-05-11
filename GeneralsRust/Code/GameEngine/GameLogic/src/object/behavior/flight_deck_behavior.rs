@@ -2398,7 +2398,6 @@ impl Snapshotable for FlightDeckBehaviorModule {
 }
 
 impl Module for FlightDeckBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
