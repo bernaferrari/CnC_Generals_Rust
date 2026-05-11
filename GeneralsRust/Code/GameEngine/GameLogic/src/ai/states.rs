@@ -6368,6 +6368,8 @@ pub struct AIAttackPositionState {
     target_position: Coord3D,
     issued_attack: Bool,
     attack_machine: Option<AttackStateMachine>,
+    /// Weapon slot that was locked when entering attack state (C++ m_lockedWeaponOnEnter)
+    locked_weapon_on_enter: Option<WeaponSlotType>,
 }
 
 impl AIAttackPositionState {
@@ -6377,6 +6379,7 @@ impl AIAttackPositionState {
             target_position: Coord3D::new(0.0, 0.0, 0.0),
             issued_attack: false,
             attack_machine: None,
+            locked_weapon_on_enter: None,
         }
     }
 
@@ -6493,6 +6496,15 @@ impl ClassicState for AIAttackPositionState {
                     );
                 }
             }
+
+            // C++ line 5538: Track locked weapon on enter
+            if owner_guard.is_cur_weapon_locked() {
+                if let Some((_weapon, slot)) = owner_guard.get_current_weapon() {
+                    self.locked_weapon_on_enter = Some(slot);
+                }
+            } else {
+                self.locked_weapon_on_enter = None;
+            }
         }
 
         // Create attack machine
@@ -6523,8 +6535,73 @@ impl ClassicState for AIAttackPositionState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "attack position state missing owner".to_string())?;
+
+        // C++ lines 5565-5570: Out of ammo check every frame
+        {
+            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
+            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+                return Ok(StateReturnType::Failure);
+            }
+        }
+
+        // C++ lines 5640-5642: Re-evaluate weapon choice every frame
+        {
+            let cmd_source = {
+                let Ok(owner_guard) = owner.read() else {
+                    return Ok(StateReturnType::Failure);
+                };
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        ai_guard.get_last_command_source()
+                    } else {
+                        CommandSourceType::FromAi
+                    }
+                } else {
+                    CommandSourceType::FromAi
+                }
+            };
+
+            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
+            let weapon_found = owner_guard.choose_best_weapon_for_target_id(
+                crate::common::INVALID_ID,
+                WeaponChoiceCriteria::PreferMostDamage,
+                cmd_source,
+            );
+            if !weapon_found {
+                return Ok(StateReturnType::Failure);
+            }
+
+            // C++ lines 5649-5650: Locked weapon drift check
+            if let Some(locked_slot) = self.locked_weapon_on_enter {
+                if let Some((_weapon, cur_slot)) = owner_guard.get_current_weapon() {
+                    if cur_slot != locked_slot {
+                        return Ok(StateReturnType::Failure);
+                    }
+                }
+            }
+
+            // C++ lines 5653-5654: Shot count check
+            if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
+                if weapon.get_max_shot_count() <= 0 {
+                    return Ok(StateReturnType::Failure);
+                }
+            } else {
+                return Ok(StateReturnType::Failure);
+            }
+        }
+
+        // C++ line 5664: Run attack machine with CONVERT_SLEEP_TO_CONTINUE
         if let Some(attack_machine) = self.attack_machine.as_mut() {
-            return Ok(attack_machine.update());
+            let result = attack_machine.update();
+            return Ok(if matches!(result, StateReturnType::Sleep(_)) {
+                StateReturnType::Continue
+            } else {
+                result
+            });
         }
 
         Ok(StateReturnType::Continue)
