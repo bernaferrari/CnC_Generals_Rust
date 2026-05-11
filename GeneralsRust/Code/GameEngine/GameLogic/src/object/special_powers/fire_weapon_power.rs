@@ -116,17 +116,18 @@ impl FireWeaponPower {
         if let Ok(owner_guard) = owner.read() {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
                 // C++: ai->aiAttackPosition(loc, maxShotsToFire, CMD_FROM_AI)
-                ai.ai_attack_position(loc, self.data.max_shots_to_fire as i32, CommandSourceType::FromAi);
+                ai.ai_attack_position(
+                    loc,
+                    self.data.max_shots_to_fire as i32,
+                    CommandSourceType::FromAi,
+                );
             }
         };
     }
 
     /// Execute fire weapon at location.
     /// Matches C++ FireWeaponPower::doSpecialPowerAtLocation().
-    pub fn do_special_power_at_location(
-        &self,
-        loc: &Coord3D,
-    ) -> Result<(), String> {
+    pub fn do_special_power_at_location(&self, loc: &Coord3D) -> Result<(), String> {
         // Check disabled
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
             return Ok(());
@@ -163,7 +164,11 @@ impl FireWeaponPower {
         // C++: ai->aiAttackObject(obj, maxShotsToFire, CMD_FROM_AI)
         if let Ok(owner_guard) = owner.read() {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
-                ai.ai_attack_object_id(obj_id, self.data.max_shots_to_fire as i32, CommandSourceType::FromAi);
+                ai.ai_attack_object_id(
+                    obj_id,
+                    self.data.max_shots_to_fire as i32,
+                    CommandSourceType::FromAi,
+                );
             }
         }
 
@@ -252,9 +257,8 @@ fn parse_special_power_template_field(
 ) -> Result<(), INIError> {
     let token = tokens.first().ok_or(INIError::InvalidData)?;
     let name = crate::common::AsciiString::from(*token);
-    data.base.special_power_template = Some(
-        crate::object::special_power_template::find_or_create_special_power_template(&name),
-    );
+    data.base.special_power_template =
+        Some(crate::object::special_power_template::find_or_create_special_power_template(&name));
     Ok(())
 }
 
@@ -263,7 +267,10 @@ fn parse_max_shots_to_fire(
     data: &mut FireWeaponPowerModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.iter().find(|t| **t != "=").ok_or(INIError::InvalidData)?;
+    let token = tokens
+        .iter()
+        .find(|t| **t != "=")
+        .ok_or(INIError::InvalidData)?;
     data.max_shots_to_fire = INI::parse_unsigned_int(token)?;
     Ok(())
 }
@@ -304,7 +311,9 @@ mod tests {
         let power = FireWeaponPower::new(0, 0, arc_data);
         // Should return Ok without panicking when owner doesn't exist
         assert!(power.do_special_power().is_ok());
-        assert!(power.do_special_power_at_location(&Coord3D::new(0.0, 0.0, 0.0)).is_ok());
+        assert!(power
+            .do_special_power_at_location(&Coord3D::new(0.0, 0.0, 0.0))
+            .is_ok());
         assert!(power.do_special_power_at_object(999).is_ok());
     }
 }

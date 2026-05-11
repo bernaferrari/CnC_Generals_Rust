@@ -301,7 +301,6 @@ impl SupplyTruckAIUpdateModule {
 }
 
 impl Module for SupplyTruckAIUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

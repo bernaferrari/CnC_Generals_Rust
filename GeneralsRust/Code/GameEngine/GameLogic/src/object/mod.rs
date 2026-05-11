@@ -81,14 +81,13 @@ use log::warn;
 use crate::ai::object_registry::{register_legacy_object, unregister_legacy_object};
 use crate::common::types::ControlBarInterface;
 use crate::common::{
-    AsciiString, Bool, Byte, Color, CommandSourceType, Coord2D, Coord3D, DefaultThingTemplate,
-    Dict, DictType, DisabledMaskType, DisabledType, FormationID, GeometryInfo, ICoord3D, Int,
-    KindOf, KindOfMask, KindOfMaskType, Matrix3D, ModelConditionFlags, NameKeyType, ObjectID,
-    ObjectShroudStatus, ObjectStatusMaskType, PathfindLayerEnum, PlayerId, PlayerMaskType, Real,
-    Relationship, Snapshot, TeamMemberList, Thing, ThingTemplate, TurretType, UnsignedByte,
-    UnsignedInt, UpgradeMaskType, VeterancyLevel, WeaponBonusConditionFlags,
-    geometry_type_from_u32, geometry_type_to_u32,
-    LOGICFRAMES_PER_SECOND,
+    geometry_type_from_u32, geometry_type_to_u32, AsciiString, Bool, Byte, Color,
+    CommandSourceType, Coord2D, Coord3D, DefaultThingTemplate, Dict, DictType, DisabledMaskType,
+    DisabledType, FormationID, GeometryInfo, ICoord3D, Int, KindOf, KindOfMask, KindOfMaskType,
+    Matrix3D, ModelConditionFlags, NameKeyType, ObjectID, ObjectShroudStatus, ObjectStatusMaskType,
+    PathfindLayerEnum, PlayerId, PlayerMaskType, Real, Relationship, Snapshot, TeamMemberList,
+    Thing, ThingTemplate, TurretType, UnsignedByte, UnsignedInt, UpgradeMaskType, VeterancyLevel,
+    WeaponBonusConditionFlags, LOGICFRAMES_PER_SECOND,
 };
 use game_engine::common::game_common::FOREVER;
 use glam::{EulerRot, Mat4};
@@ -2842,9 +2841,7 @@ impl Object {
 
         match relationship {
             Relationship::Enemies => ObjectRelationship::Enemy,
-            Relationship::Allies => {
-                ObjectRelationship::Ally
-            }
+            Relationship::Allies => ObjectRelationship::Ally,
             _ => ObjectRelationship::Neutral,
         }
     }
@@ -4093,7 +4090,10 @@ impl Object {
 
     pub fn get_ammo_pip_info(&self) -> (i32, i32) {
         match self.weapon_set.find_ammo_pip_showing_weapon() {
-            Some(w) => (w.get_template().get_clip_size(), w.get_remaining_ammo() as i32),
+            Some(w) => (
+                w.get_template().get_clip_size(),
+                w.get_remaining_ammo() as i32,
+            ),
             None => (0, 0),
         }
     }
@@ -8933,7 +8933,8 @@ impl Object {
     ) -> Result<(), String> {
         // Trigger force application event
         let force_data = (force_x, force_y, force_z);
-        let serialized = bincode::serialize(&force_data).map_err(|e| format!("Serialization error: {}", e))?;
+        let serialized =
+            bincode::serialize(&force_data).map_err(|e| format!("Serialization error: {}", e))?;
         self.trigger_event("apply_force", &serialized).await
     }
 

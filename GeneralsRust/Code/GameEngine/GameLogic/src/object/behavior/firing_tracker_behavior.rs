@@ -150,7 +150,6 @@ impl Snapshotable for FiringTrackerBehaviorModule {
 }
 
 impl Module for FiringTrackerBehaviorModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

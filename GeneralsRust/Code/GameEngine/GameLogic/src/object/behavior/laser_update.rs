@@ -106,7 +106,7 @@ impl LaserUpdate {
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
             .as_ref()
-        .downcast_ref::<LaserUpdateModuleData>()
+            .downcast_ref::<LaserUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
         Ok(Self {

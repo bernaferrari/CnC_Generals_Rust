@@ -291,10 +291,7 @@ impl AreaDamageApplicator {
             if let Some(attacker_arc) = crate::helpers::TheGameLogic::find_object_by_id(attacker_id)
             {
                 if let Ok(attacker_guard) = attacker_arc.read() {
-                    if matches!(
-                        attacker_guard.relationship_to(object),
-                        Relationship::Allies
-                    ) {
+                    if matches!(attacker_guard.relationship_to(object), Relationship::Allies) {
                         return false;
                     }
                 }

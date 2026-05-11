@@ -1453,7 +1453,6 @@ impl DozerAIUpdateModule {
 }
 
 impl Module for DozerAIUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }

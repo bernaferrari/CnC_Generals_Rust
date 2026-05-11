@@ -287,7 +287,6 @@ impl HackInternetAIUpdateModule {
 }
 
 impl Module for HackInternetAIUpdateModule {
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
