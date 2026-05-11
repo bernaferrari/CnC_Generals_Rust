@@ -24,7 +24,9 @@ use game_engine::common::audio::dynamic_audio_event_info::DynamicAudioEventInfo;
 use game_engine::common::bit_flags::{
     create_model_condition_flags, ModelConditionBitFlags, ModelConditionFlags,
 };
-use game_engine::common::ini::{get_anim2d_collection, get_global_data, Anim2DTemplate};
+use game_engine::common::ini::{
+    get_anim2d_collection, get_global_data, Anim2DTemplate, TimeOfDay as IniTimeOfDay,
+};
 use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use game_engine::common::thing::module::Module;
@@ -1171,6 +1173,14 @@ pub trait DrawModule: std::fmt::Debug + Send + Sync {
     /// Draw this module. C++ `DrawModule::doDrawModule(transformMtx)`.
     fn do_draw(&mut self, _transform: &Matrix4, _view: &Matrix4, _projection: &Matrix4) {}
 
+    /// Replace the team indicator color.
+    /// C++ `ObjectDrawInterface::replaceIndicatorColor(color)`.
+    fn replace_indicator_color(&mut self, _color: Option<(u8, u8, u8)>) {}
+
+    /// Called after the drawable is bound to an object.
+    /// C++ `DrawModule::onDrawableBoundToObject()`.
+    fn on_drawable_bound_to_object(&mut self) {}
+
     /// Return barrel count for the given weapon slot.
     /// C++ `ObjectDrawInterface::getBarrelCount(wslot)`.
     fn get_barrel_count(&self, _wslot: WeaponSlotType) -> i32 {
@@ -2103,11 +2113,11 @@ impl BasicDrawable {
     /// Propagate indicator color to all draw modules.
     /// C++ Drawable::setIndicatorColor (Drawable.cpp:4081-4089) iterates draw modules
     /// and calls replaceIndicatorColor on each ObjectDrawInterface.
-    /// PARITY_NOTE: DrawModule system not yet ported. When available, this method must
-    /// iterate draw_modules and call replace_indicator_color on each ObjectDrawInterface.
-    /// For now, the color is stored on Drawable only.
     pub fn set_indicator_color(&mut self, color: Option<(u8, u8, u8)>) {
         self.indicator_color = color;
+        for dm in &mut self.draw_modules {
+            dm.replace_indicator_color(color);
+        }
     }
 
     /// Get the current indicator color.
@@ -2119,30 +2129,38 @@ impl BasicDrawable {
     /// C++ Drawable::friend_bindToObject (Drawable.cpp:4138-4162):
     /// Sets m_object, applies indicator color (day/night aware), creates terrain
     /// decal for FS_FAKE kindof, and notifies draw modules of the binding.
-    /// PARITY_NOTE: Object/Player/DrawModule systems not yet wired. When ported, this
-    /// must read GlobalData->m_timeOfDay to choose getNightIndicatorColor() vs
-    /// getIndicatorColor(), check isKindOf(KINDOF_FS_FAKE) for terrain decal, and
-    /// call onDrawableBoundToObject() on each draw module. For now, stores binding only.
     pub fn friend_bind_to_object(&mut self, object_id: u32) {
         self.object_id = Some(object_id);
-        // C++ sets indicator color from object's team color.
-        // When Object/Player system is fully wired, this reads
-        // getObject()->getIndicatorColor() or getNightIndicatorColor().
-        // For now, store the binding; indicator color is set externally.
+        if let Some(color) = self.bound_object_indicator_color() {
+            self.set_indicator_color(Some(color));
+        }
+        for dm in &mut self.draw_modules {
+            dm.on_drawable_bound_to_object();
+        }
     }
 
     /// Called when the owning object changes teams.
     /// C++ Drawable::changedTeam (Drawable.cpp:4168-4187):
     /// Re-applies indicator color from the object's new team and updates terrain decal.
-    /// PARITY_NOTE: Object/Player systems not yet wired. When ported, this must
-    /// re-read getIndicatorColor()/getNightIndicatorColor() based on time of day,
-    /// and update FS_FAKE terrain decal per the new team relationship. For now, no-op.
     pub fn changed_team(&mut self) {
-        // C++ re-applies indicator color from object's new team color.
-        // When Object system is wired, this calls:
-        //   setIndicatorColor(object->getIndicatorColor()) or
-        //   setIndicatorColor(object->getNightIndicatorColor())
-        // and updates FS_FAKE terrain decal based on new relationship.
+        if let Some(color) = self.bound_object_indicator_color() {
+            self.set_indicator_color(Some(color));
+        }
+    }
+
+    fn bound_object_indicator_color(&self) -> Option<(u8, u8, u8)> {
+        let object_id = self.object_id?;
+        let object_arc = OBJECT_REGISTRY.get_object(object_id)?;
+        let object = object_arc.read().ok()?;
+        let use_night_color = get_global_data()
+            .map(|data| data.read().time_of_day)
+            .is_some_and(|time_of_day| matches!(time_of_day, IniTimeOfDay::Night));
+        let color = if use_night_color {
+            object.get_night_indicator_color()
+        } else {
+            object.get_indicator_color()
+        };
+        Some((color.r, color.g, color.b))
     }
 
     /// Initialize static images shared by all drawables.
@@ -4581,6 +4599,23 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct IndicatorDispatchTestDrawModule {
+        observed_color: Arc<Mutex<Option<(u8, u8, u8)>>>,
+        bind_count: Arc<std::sync::atomic::AtomicU32>,
+    }
+
+    impl DrawModule for IndicatorDispatchTestDrawModule {
+        fn replace_indicator_color(&mut self, color: Option<(u8, u8, u8)>) {
+            *self.observed_color.lock() = color;
+        }
+
+        fn on_drawable_bound_to_object(&mut self) {
+            self.bind_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
     #[test]
     fn test_drawable_creation() {
         let drawable = BasicDrawable::new(DrawableId(1));
@@ -4627,6 +4662,38 @@ mod tests {
         drawable.set_caption_text("Pilot badword ready");
 
         assert_eq!(drawable.get_caption_text(), Some("Pilot ******* ready"));
+    }
+
+    #[test]
+    fn indicator_color_is_dispatched_to_draw_modules() {
+        let observed_color = Arc::new(Mutex::new(None));
+        let bind_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        drawable.add_draw_module(Box::new(IndicatorDispatchTestDrawModule {
+            observed_color: Arc::clone(&observed_color),
+            bind_count: Arc::clone(&bind_count),
+        }));
+
+        drawable.set_indicator_color(Some((10, 20, 30)));
+
+        assert_eq!(*observed_color.lock(), Some((10, 20, 30)));
+        assert_eq!(bind_count.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn object_binding_notifies_draw_modules() {
+        let observed_color = Arc::new(Mutex::new(None));
+        let bind_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        drawable.add_draw_module(Box::new(IndicatorDispatchTestDrawModule {
+            observed_color,
+            bind_count: Arc::clone(&bind_count),
+        }));
+
+        drawable.friend_bind_to_object(123);
+
+        assert_eq!(drawable.object_id, Some(123));
+        assert_eq!(bind_count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[test]
