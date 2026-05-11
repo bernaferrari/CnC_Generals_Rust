@@ -338,7 +338,8 @@ pub fn network_direct_connect_init(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     let mut state = network_direct_connect_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
 
     state.button_pushed = false;
     state.is_shutting_down = false;
@@ -389,7 +390,8 @@ pub fn network_direct_connect_update(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     let mut state = network_direct_connect_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if state.is_shutting_down
         && get_shell().is_anim_finished()
         && with_window_manager(|manager| manager.transitions_finished())
@@ -419,7 +421,8 @@ pub fn network_direct_connect_shutdown(
     with_window_manager(|manager| manager.transition_reverse("NetworkDirectConnectFade"));
 
     let mut state = network_direct_connect_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = true;
 }
 
@@ -430,7 +433,8 @@ pub fn network_direct_connect_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let mut state = network_direct_connect_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::InputFocus => return WindowMsgHandled::Handled,
@@ -469,7 +473,8 @@ pub fn network_direct_connect_input(
         let state = data2 as u32;
         if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
             let state = network_direct_connect_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
             }

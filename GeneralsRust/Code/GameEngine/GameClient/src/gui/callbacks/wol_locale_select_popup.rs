@@ -34,8 +34,7 @@ fn wol_locale_state() -> &'static Mutex<WolLocaleSelectState> {
 }
 
 pub fn wol_locale_select_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
-    let mut state = wol_locale_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = wol_locale_state().lock().unwrap_or_else(|e| e.into_inner());
     state.parent_id = NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ParentLocaleSelect");
     state.button_ok_id = NameKeyGenerator::name_to_key("PopupLocaleSelect.wnd:ButtonOk");
     state.listbox_locale_id =
@@ -103,8 +102,7 @@ pub fn wol_locale_select_system(
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
-            let mut state = wol_locale_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = wol_locale_state().lock().unwrap_or_else(|e| e.into_inner());
             if control_id != state.button_ok_id {
                 return WindowMsgHandled::Handled;
             }

@@ -70,8 +70,7 @@ pub fn popup_join_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std:
         });
     }
 
-    let mut state = popup_join_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_join_state().lock().unwrap_or_else(|e| e.into_inner());
     state.parent_id = Some(parent_id);
     state.text_entry_id = Some(text_entry_id);
     state.button_cancel_id = Some(button_cancel_id);
@@ -99,8 +98,7 @@ pub fn popup_join_game_input(
 
     close_overlay(GameSpyOverlayType::GamePassword);
     set_lobby_attempt_host_join(false);
-    let mut state = popup_join_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_join_state().lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.text_entry = None;
 
@@ -117,8 +115,7 @@ pub fn popup_join_game_system(
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
-            let mut state = popup_join_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = popup_join_state().lock().unwrap_or_else(|e| e.into_inner());
             if control_id == state.button_cancel_id.unwrap_or(0) {
                 close_overlay(GameSpyOverlayType::GamePassword);
                 set_lobby_attempt_host_join(false);
@@ -129,8 +126,7 @@ pub fn popup_join_game_system(
         }
         WindowMessage::GadgetEditDone => {
             let control_id = data1 as u32;
-            let mut state = popup_join_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = popup_join_state().lock().unwrap_or_else(|e| e.into_inner());
             if control_id == state.text_entry_id.unwrap_or(0) {
                 if let Some(text_entry) = state.text_entry.as_ref() {
                     let mut text_entry = text_entry.borrow_mut();
@@ -153,8 +149,7 @@ fn join_game(password: String) {
     let Some(room_id) = current_staging_room_id() else {
         close_overlay(GameSpyOverlayType::GamePassword);
         set_lobby_attempt_host_join(false);
-        let mut state = popup_join_state()
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = popup_join_state().lock().unwrap_or_else(|e| e.into_inner());
         state.parent = None;
         state.text_entry = None;
         return;
@@ -163,8 +158,7 @@ fn join_game(password: String) {
     if find_staging_room_by_id(room_id).is_none() {
         close_overlay(GameSpyOverlayType::GamePassword);
         set_lobby_attempt_host_join(false);
-        let mut state = popup_join_state()
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = popup_join_state().lock().unwrap_or_else(|e| e.into_inner());
         state.parent = None;
         state.text_entry = None;
         return;
@@ -172,8 +166,7 @@ fn join_game(password: String) {
 
     queue_join_request(room_id, password);
     close_overlay(GameSpyOverlayType::GamePassword);
-    let mut state = popup_join_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_join_state().lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.text_entry = None;
 }

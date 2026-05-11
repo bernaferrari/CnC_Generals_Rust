@@ -364,7 +364,10 @@ impl HotReloadManager {
         // Start profiler if enabled
         if self.config.enable_profiling {
             let profiler_handle = self.spawn_profiler_task().await?;
-            *self.profiler_handle.lock().unwrap_or_else(|e| e.into_inner()) = Some(profiler_handle);
+            *self
+                .profiler_handle
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(profiler_handle);
         }
 
         log::info!("Hot reload manager started");
@@ -468,7 +471,10 @@ impl HotReloadManager {
                     affected_handles: Vec::new(), // Will be populated later
                 };
 
-                pending_changes.lock().unwrap_or_else(|e| e.into_inner()).push_back(change_event);
+                pending_changes
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push_back(change_event);
                 log::debug!(
                     "File change detected: {} ({:?})",
                     path.display(),
@@ -619,7 +625,10 @@ impl HotReloadManager {
 
         if should_reload && change.change_type != ChangeType::Deleted {
             // Add to reload queue
-            reload_queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(change.path.clone());
+            reload_queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push_back(change.path.clone());
 
             // Handle dependency cascade if enabled
             if config.enable_dependency_tracking {
@@ -651,7 +660,10 @@ impl HotReloadManager {
                 for dependent_handle in &dependency.dependents {
                     if let Some(path) = handle_map.get(dependent_handle) {
                         if queued.insert(path.clone()) {
-                            reload_queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(path.clone());
+                            reload_queue
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .push_back(path.clone());
                         }
                     }
                 }
@@ -827,7 +839,9 @@ impl HotReloadManager {
                 // Take memory snapshot
                 if now.duration_since(last_memory_snapshot) >= memory_snapshot_interval {
                     let snapshot_data = {
-                        let provider = memory_snapshot_provider.read().unwrap_or_else(|e| e.into_inner());
+                        let provider = memory_snapshot_provider
+                            .read()
+                            .unwrap_or_else(|e| e.into_inner());
                         provider.as_ref().map(|provider| provider())
                     };
 
@@ -859,7 +873,11 @@ impl HotReloadManager {
                             .unwrap_or(0),
                     };
 
-                    profiler_data.write().unwrap_or_else(|e| e.into_inner()).memory_usage.push(snapshot);
+                    profiler_data
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .memory_usage
+                        .push(snapshot);
                     last_memory_snapshot = now;
                 }
 
@@ -919,7 +937,10 @@ impl HotReloadManager {
             .write()
             .unwrap()
             .insert(path.clone(), handle);
-        self.handle_to_path.write().unwrap_or_else(|e| e.into_inner()).insert(handle, path);
+        self.handle_to_path
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(handle, path);
     }
 
     /// Register reload callback for an asset type
@@ -943,7 +964,10 @@ impl HotReloadManager {
     where
         F: Fn() -> MemorySnapshotData + Send + Sync + 'static,
     {
-        *self.memory_snapshot_provider.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(provider));
+        *self
+            .memory_snapshot_provider
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(provider));
     }
 
     /// Record asset load for profiling
@@ -964,13 +988,19 @@ impl HotReloadManager {
 
     /// Get profiler data
     pub fn get_profiler_data(&self) -> ProfilerData {
-        self.profiler_data.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.profiler_data
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Generate debug visualization data
     pub fn generate_debug_visualization(&self) -> DebugVisualization {
         let dependencies = self.dependencies.read().unwrap_or_else(|e| e.into_inner());
-        let reload_attempts = self.reload_attempts.read().unwrap_or_else(|e| e.into_inner());
+        let reload_attempts = self
+            .reload_attempts
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         let profiler = self.profiler_data.read().unwrap_or_else(|e| e.into_inner());
         let mut dependency_graph = Vec::new();
         let mut memory_breakdown = HashMap::new();
@@ -1104,13 +1134,23 @@ impl HotReloadManager {
         *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = None;
 
         // Wait for worker tasks
-        if let Some(worker_handle) = self.worker_handle.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some(worker_handle) = self
+            .worker_handle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
             if let Err(e) = worker_handle.await {
                 log::error!("Worker task failed to shutdown cleanly: {}", e);
             }
         }
 
-        if let Some(profiler_handle) = self.profiler_handle.lock().unwrap_or_else(|e| e.into_inner()).take() {
+        if let Some(profiler_handle) = self
+            .profiler_handle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
             if let Err(e) = profiler_handle.await {
                 log::error!("Profiler task failed to shutdown cleanly: {}", e);
             }

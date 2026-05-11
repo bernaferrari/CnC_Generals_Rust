@@ -235,8 +235,7 @@ pub fn skirmish_map_select_menu_init(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     let state_handle = map_select_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id(MAP_SELECT_PARENT_NAME);
     state.listbox_map_id = name_to_id("SkirmishMapSelectMenu.wnd:ListboxMap");
@@ -321,8 +320,7 @@ pub fn skirmish_map_select_menu_shutdown(
 ) {
     layout.hide(true);
     let state_handle = map_select_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.listbox_map = None;
     state.map_preview = None;
@@ -335,8 +333,7 @@ pub fn skirmish_map_select_menu_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let state_handle = map_select_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::InputFocus => {
@@ -442,8 +439,7 @@ pub fn skirmish_map_select_menu_input(
         let state = data2 as u32;
         if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
             let state_handle = map_select_state();
-            let state = state_handle
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(parent) = state.parent.as_ref() {
                 let _ = parent.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,

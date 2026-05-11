@@ -379,7 +379,8 @@ pub fn get_video_player() -> Option<Arc<Mutex<Option<VideoPlayer>>>> {
 
 pub fn register_video_stream_provider(provider: Arc<dyn VideoStreamProvider>) {
     let mut slot = video_stream_provider_slot()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     *slot = Some(provider);
     drop(slot);
     notify_video_player_provider_state(true);
@@ -388,7 +389,8 @@ pub fn register_video_stream_provider(provider: Arc<dyn VideoStreamProvider>) {
 pub fn clear_video_stream_provider() {
     notify_video_player_provider_state(false);
     let mut slot = video_stream_provider_slot()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     *slot = None;
 }
 
@@ -408,7 +410,8 @@ fn video_stream_provider_slot() -> &'static Mutex<Option<Arc<dyn VideoStreamProv
 
 fn get_video_stream_provider() -> Option<Arc<dyn VideoStreamProvider>> {
     video_stream_provider_slot()
-        .lock().unwrap_or_else(|e| e.into_inner())
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
         .clone()
 }
 

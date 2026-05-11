@@ -126,7 +126,8 @@ thread_local! {
 pub fn get_header_template_manager() -> std::sync::MutexGuard<'static, HeaderTemplateManager> {
     HEADER_TEMPLATE_MANAGER
         .get_or_init(|| Mutex::new(HeaderTemplateManager::new()))
-        .lock().unwrap_or_else(|e| e.into_inner())
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 pub fn register_parser() {

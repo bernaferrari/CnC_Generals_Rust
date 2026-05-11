@@ -808,8 +808,7 @@ pub fn popup_ladder_select_init(
     _layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let mut state = popup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("PopupLadderSelect.wnd:Parent");
     state.listbox_ladder_select_id = name_to_id("PopupLadderSelect.wnd:ListBoxLadderSelect");
@@ -860,8 +859,7 @@ pub fn popup_ladder_select_shutdown(
     _layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let mut state = popup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.listbox_ladder_select = None;
     state.listbox_ladder_details = None;
@@ -886,8 +884,7 @@ pub fn popup_ladder_select_input(
         return WindowMsgHandled::Handled;
     }
 
-    let mut state = popup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
     match state.password_mode {
         PasswordMode::None => {
             populate_ladder_combo_box();
@@ -912,8 +909,7 @@ pub fn popup_ladder_select_system(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let mut state = popup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,

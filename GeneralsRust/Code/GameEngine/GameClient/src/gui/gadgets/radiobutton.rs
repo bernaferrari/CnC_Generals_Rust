@@ -61,7 +61,10 @@ impl RadioButtonGroup {
 
     /// Get all buttons in group
     pub fn get_buttons(&self) -> Vec<GadgetId> {
-        self.buttons.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.buttons
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Check if a button is selected
