@@ -3670,6 +3670,7 @@ impl ScriptAction for NamedHuntAction {
 
         if let Ok(obj_guard) = object_arc.read() {
             if let Some(ai) = obj_guard.get_ai_update_interface() {
+                ai.choose_locomotor_set(LocomotorSetType::Normal);
                 ai.ai_hunt(CommandSourceType::FromScript);
             } else {
                 log::warn!(
@@ -8558,6 +8559,109 @@ mod tests {
         assert_eq!(
             object.read().unwrap().base.read().unwrap().get_group_id(),
             None
+        );
+    }
+
+    #[tokio::test]
+    async fn named_hunt_selects_normal_locomotor_before_hunt() {
+        use crate::modules::AIUpdateInterface;
+        use std::sync::Mutex;
+
+        #[derive(Debug)]
+        struct RecordingAi {
+            commands: Arc<Mutex<Vec<(AiCommandType, CommandSourceType)>>>,
+            locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+        }
+
+        impl AIUpdateInterface for RecordingAi {
+            fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                Ok(())
+            }
+
+            fn is_moving(&self) -> bool {
+                false
+            }
+
+            fn is_idle(&self) -> bool {
+                true
+            }
+
+            fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn choose_locomotor_set(
+                &mut self,
+                set: LocomotorSetType,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.locomotors.lock().unwrap().push(set);
+                Ok(())
+            }
+
+            fn execute_command(
+                &mut self,
+                command: &AiCommandParams,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.commands
+                    .lock()
+                    .unwrap()
+                    .push((command.cmd, command.cmd_source));
+                Ok(())
+            }
+        }
+
+        reset_test_object_manager();
+        reset_test_named_object_tracker();
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let object_id = 8350;
+        let object = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                object_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test hunter instance"),
+        ));
+
+        {
+            let instance = object.write().unwrap();
+            instance
+                .base
+                .write()
+                .unwrap()
+                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                    commands: Arc::clone(&commands),
+                    locomotors: Arc::clone(&locomotors),
+                }))));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(object, Coord3D::new(12.0, 6.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("NamedHunter".to_string(), object_id)
+            .unwrap();
+
+        let mut params = HashMap::new();
+        params.insert(
+            "unit_name".to_string(),
+            ScriptValue::String("NamedHunter".to_string()),
+        );
+
+        NamedHuntAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(AiCommandType::Hunt, CommandSourceType::FromScript)]
         );
     }
 
