@@ -4731,12 +4731,18 @@ impl ScriptEvaluator {
             )
         })?;
 
-        let player_name = player_param.get_string();
         let amount = amount_param.get_int();
+        let player_name = player_param.get_string();
 
         log::info!("Set player '{}' money to {}", player_name, amount);
 
-        // In a real implementation, this would set the player's money
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+            return Ok(());
+        };
+        if let Ok(mut player) = player_arc.write() {
+            player.get_money_mut().set_money(amount);
+        }
+
         Ok(())
     }
 
@@ -4753,12 +4759,24 @@ impl ScriptEvaluator {
             )
         })?;
 
-        let player_name = player_param.get_string();
         let amount = amount_param.get_int();
+        let player_name = player_param.get_string();
 
         log::info!("Give player '{}' {} money", player_name, amount);
 
-        // In a real implementation, this would add money to the player
+        let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+            return Ok(());
+        };
+        if let Ok(mut player) = player_arc.write() {
+            let current = player.get_money().get_money();
+            let updated = if amount < 0 {
+                current.saturating_sub(amount.saturating_neg().min(current.max(0)))
+            } else {
+                current.saturating_add(amount)
+            };
+            player.get_money_mut().set_money(updated);
+        }
+
         Ok(())
     }
 }
@@ -4876,6 +4894,52 @@ mod tests {
         assert!(
             evaluator.evaluate_condition(&mut condition).unwrap(),
             "C++ evaluates threshold < player's credits, not player's credits < threshold"
+        );
+    }
+
+    #[test]
+    fn player_money_actions_mutate_player_money_like_cxx() {
+        initialize_script_engine().unwrap();
+        player_list().write().unwrap().clear();
+        let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        {
+            let mut player_guard = player.write().unwrap();
+            player_guard.set_display_name("MoneyActionEvaluatorPlayer");
+            player_guard.get_money_mut().set_money(500);
+        }
+        player_list().write().unwrap().add_player(player.clone());
+
+        let engine = get_script_engine();
+        let evaluator = ScriptEvaluator::new(engine);
+
+        let mut set_action = ScriptAction::new(ScriptActionType::PlayerSetMoney);
+        set_action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "MoneyActionEvaluatorPlayer".to_string(),
+            ))
+            .unwrap();
+        set_action
+            .add_parameter(Parameter::with_int(ParameterType::Int, 1200))
+            .unwrap();
+        evaluator.execute_action(&set_action).unwrap();
+        assert_eq!(player.read().unwrap().get_money().get_money(), 1200);
+
+        let mut give_action = ScriptAction::new(ScriptActionType::PlayerGiveMoney);
+        give_action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Side,
+                "MoneyActionEvaluatorPlayer".to_string(),
+            ))
+            .unwrap();
+        give_action
+            .add_parameter(Parameter::with_int(ParameterType::Int, -1500))
+            .unwrap();
+        evaluator.execute_action(&give_action).unwrap();
+        assert_eq!(
+            player.read().unwrap().get_money().get_money(),
+            0,
+            "C++ withdraws up to available money for negative give-money actions"
         );
     }
 
