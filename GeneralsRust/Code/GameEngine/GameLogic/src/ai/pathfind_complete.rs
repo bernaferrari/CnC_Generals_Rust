@@ -877,6 +877,17 @@ impl PathfindingSystem {
         ignore_obstacle_id: Option<ObjectID>,
     ) -> bool {
         let coord = GridCoord::from_world(pos);
+        self.valid_movement_cell(surfaces, is_crusher, coord, ignore_obstacle_id)
+    }
+
+    /// Quick validity check for a locomotor grid cell.
+    pub(crate) fn valid_movement_cell(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        coord: GridCoord,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
         if !self.is_valid_coord(coord) {
             return false;
         }

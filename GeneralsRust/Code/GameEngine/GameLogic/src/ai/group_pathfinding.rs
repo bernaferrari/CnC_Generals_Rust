@@ -247,13 +247,30 @@ impl GroupPathfinder {
     /// Find nearest passable cell to given coordinate
     fn find_nearest_passable(
         &self,
-        _pathfinder: &PathfindingSystem,
+        pathfinder: &PathfindingSystem,
         start: GridCoord,
-        _surfaces: u32,
-        _max_radius: i32,
+        surfaces: u32,
+        max_radius: i32,
     ) -> GridCoord {
-        // For now, just return the start coordinate
-        // Full implementation would search outward in expanding square
+        if pathfinder.valid_movement_cell(surfaces, false, start, None) {
+            return start;
+        }
+
+        for radius in 1..=max_radius.max(0) {
+            for dx in -radius..=radius {
+                for dy in -radius..=radius {
+                    if dx.abs() < radius && dy.abs() < radius {
+                        continue;
+                    }
+
+                    let candidate = GridCoord::new(start.x + dx, start.y + dy);
+                    if pathfinder.valid_movement_cell(surfaces, false, candidate, None) {
+                        return candidate;
+                    }
+                }
+            }
+        }
+
         start
     }
 
@@ -379,6 +396,7 @@ impl FlowField {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::pathfind_complete::{PathfindCellType, PathfindLayerEnum};
 
     #[test]
     fn test_line_formation() {
@@ -428,12 +446,33 @@ mod tests {
     #[test]
     fn test_flow_field() {
         let goal = GridCoord::new(10, 10);
-        let mut flow_field = FlowField::new(32, 32, goal);
+        let flow_field = FlowField::new(32, 32, goal);
 
         // Goal should have zero cost
         assert_eq!(flow_field.costs[10][10], 0);
 
         // Other cells should have max cost initially
         assert_eq!(flow_field.costs[0][0], u32::MAX);
+    }
+
+    #[test]
+    fn adjust_formation_moves_blocked_positions_to_nearby_passable_cells() {
+        let pathfinder = PathfindingSystem::new(16, 16);
+        let blocked = GridCoord::new(5, 5);
+        pathfinder.set_cell_type(
+            &blocked.to_world(PathfindLayerEnum::Ground),
+            PathfindCellType::Impassable,
+        );
+
+        let mut positions = HashMap::new();
+        positions.insert(1, blocked.to_world(PathfindLayerEnum::Ground));
+
+        let group_pathfinder = GroupPathfinder::new(20.0);
+        let adjusted =
+            group_pathfinder.adjust_formation_for_terrain(&pathfinder, &positions, SURFACE_GROUND);
+        let adjusted_coord = GridCoord::from_world(adjusted.get(&1).unwrap());
+
+        assert_ne!(adjusted_coord, blocked);
+        assert!(pathfinder.valid_movement_cell(SURFACE_GROUND, false, adjusted_coord, None));
     }
 }
