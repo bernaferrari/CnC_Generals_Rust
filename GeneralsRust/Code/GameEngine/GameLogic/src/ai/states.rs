@@ -6203,17 +6203,33 @@ impl ClassicState for AIAttackObjectState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        // Stop attacking
+        // Stop attacking — destroy attack machine (C++ AIAttackState::onExit)
         self.target = None;
         self.issued_attack = false;
         if let Some(mut machine) = self.attack_machine.take() {
             let _ = machine.halt();
         }
+
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(owner_guard) = owner.read() {
+            // Clear attack-related status flags
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.clear_status(
+                    ObjectStatusMaskType::IS_FIRING_WEAPON
+                        | ObjectStatusMaskType::IS_AIMING_WEAPON
+                        | ObjectStatusMaskType::IS_ATTACKING
+                        | ObjectStatusMaskType::IGNORING_STEALTH,
+                );
+                owner_guard.clear_model_condition_state(ModelConditionFlags::ATTACKING);
+
+                // Clear AI state: current victim, turret targets, goal object
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
                         ai_guard.set_original_victim_pos(None);
+                        ai_guard.set_current_victim(None);
+                        for turret in [TurretType::Primary, TurretType::Secondary] {
+                            ai_guard.set_turret_target_object(turret, None, false);
+                        }
+                        ai_guard.set_goal_object(None::<&Arc<RwLock<Object>>>);
                     }
                 }
             }
@@ -6400,10 +6416,34 @@ impl ClassicState for AIAttackPositionState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        // Stop attacking
+        // Stop attacking — destroy attack machine (C++ AIAttackState::onExit)
         self.issued_attack = false;
         if let Some(mut machine) = self.attack_machine.take() {
             let _ = machine.halt();
+        }
+
+        if let Some(owner) = self.base.get_machine_owner() {
+            // Clear attack-related status flags
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.clear_status(
+                    ObjectStatusMaskType::IS_FIRING_WEAPON
+                        | ObjectStatusMaskType::IS_AIMING_WEAPON
+                        | ObjectStatusMaskType::IS_ATTACKING
+                        | ObjectStatusMaskType::IGNORING_STEALTH,
+                );
+                owner_guard.clear_model_condition_state(ModelConditionFlags::ATTACKING);
+
+                // Clear AI state: current victim, turret targets, goal object
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.set_current_victim(None);
+                        for turret in [TurretType::Primary, TurretType::Secondary] {
+                            ai_guard.set_turret_target_object(turret, None, false);
+                        }
+                        ai_guard.set_goal_object(None::<&Arc<RwLock<Object>>>);
+                    }
+                }
+            }
         }
         Ok(())
     }
