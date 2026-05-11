@@ -5070,16 +5070,27 @@ impl ScriptAction for WeatherSetAction {
 
         log::info!("Setting weather '{}' to {}", weather_type, enabled);
 
-        // Integration with weather system:
-        // Controls environmental weather effects
-        // 1. WeatherSystem::setWeather(weather_type, enabled)
-        // 2. Weather types: "snow", "rain", "sandstorm", "fog"
-        // 3. Visual effects: particle systems, lighting changes
-        // 4. May affect gameplay: reduced vision in fog/sandstorm
-        // 5. Audio changes: ambient weather sounds
-        // Uses: Snow system from GameClient/Snow.h
+        let handler = get_script_engine()
+            .read()
+            .map_err(|_| GameLogicError::Threading("Failed to lock ScriptEngine".to_string()))?
+            .as_ref()
+            .and_then(|engine| engine.action_handler());
 
-        log::debug!("Integration: Weather system toggles environmental effects");
+        if let Some(handler) = handler {
+            if let Err(err) = handler.set_weather_visible(enabled) {
+                log::warn!(
+                    "Script action handler set_weather_visible failed for '{}': {}",
+                    weather_type,
+                    err
+                );
+            }
+        } else {
+            log::debug!(
+                "No script action handler registered for weather '{}' visibility {}",
+                weather_type,
+                enabled
+            );
+        }
 
         Ok(ScriptResult::Success(None))
     }
@@ -7870,5 +7881,49 @@ mod tests {
             player.get_or_start_special_power_ready_frame(&template),
             expected_frame
         );
+    }
+
+    #[tokio::test]
+    async fn weather_set_dispatches_visibility_to_action_handler() {
+        use crate::scripting::engine::ScriptActionHandler;
+        use std::sync::Mutex;
+
+        struct RecordingWeatherHandler {
+            calls: Arc<Mutex<Vec<bool>>>,
+        }
+
+        impl ScriptActionHandler for RecordingWeatherHandler {
+            fn set_weather_visible(&self, visible: bool) -> GameLogicResult<()> {
+                self.calls.lock().unwrap().push(visible);
+                Ok(())
+            }
+        }
+
+        reset_test_script_engine();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        {
+            let engine_lock = get_script_engine();
+            let mut engine = engine_lock.write().unwrap();
+            engine
+                .as_mut()
+                .unwrap()
+                .set_action_handler(Some(Arc::new(RecordingWeatherHandler {
+                    calls: Arc::clone(&calls),
+                })));
+        }
+
+        let mut params = HashMap::new();
+        params.insert(
+            "weather_type".to_string(),
+            ScriptValue::String("snow".to_string()),
+        );
+        params.insert("enabled".to_string(), ScriptValue::Bool(false));
+
+        WeatherSetAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        assert_eq!(*calls.lock().unwrap(), vec![false]);
     }
 }
