@@ -15,6 +15,7 @@ use crate::display::view::{with_tactical_view_ref, Point3};
 use crate::draw_group_info::get_draw_group_info;
 use crate::gui::display_string::get_display_string_manager;
 use crate::gui::font::{get_font_library, FontDesc};
+use crate::language_filter::get_language_filter;
 use crate::render_bridge::get_render_bridge;
 use crate::system::TimeOfDay;
 use crate::system::{Anim2D, Anim2DCollection};
@@ -2236,10 +2237,8 @@ impl BasicDrawable {
             self.clear_caption_text();
             return;
         }
-        // C++ sanitizes via TheLanguageFilter->filterLine() (Drawable.cpp:4302).
-        // PARITY_NOTE: LanguageFilter not yet ported. When available, pass text through
-        // the language filter before storing. For now, text is stored as-is.
-        let sanitized = text.to_string();
+        let mut sanitized = text.to_string();
+        get_language_filter().filter_line(&mut sanitized);
         if self.caption_text.as_deref() != Some(sanitized.as_str()) {
             self.caption_text = Some(sanitized);
         }
@@ -4618,6 +4617,16 @@ mod tests {
 
         drawable.set_selected(false);
         assert!(!drawable.is_selected());
+    }
+
+    #[test]
+    fn caption_text_is_language_filtered() {
+        get_language_filter().set_words_for_test(["badword"]);
+
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        drawable.set_caption_text("Pilot badword ready");
+
+        assert_eq!(drawable.get_caption_text(), Some("Pilot ******* ready"));
     }
 
     #[test]
