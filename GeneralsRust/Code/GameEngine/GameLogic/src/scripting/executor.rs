@@ -4943,6 +4943,11 @@ impl ScriptActionDispatcher {
         let target_id = tracker.get_object_id(&target_name).ok().flatten();
 
         if let Some(tid) = target_id {
+            if TheGameLogic::find_object_by_id(tid).is_none() {
+                log::warn!("Target '{}' object {} no longer exists", target_name, tid);
+                return Ok(ScriptActionResult::Success);
+            }
+
             let group_arc = self.create_ai_group_from_team(&team_name)?;
             let write_result = group_arc.write();
             if let Ok(mut group) = write_result {
@@ -6835,6 +6840,13 @@ impl ScriptActionDispatcher {
                     .ok()
                     .and_then(|obj| obj.get_ai_update_interface());
                 if let Some(ai_arc) = ai_result {
+                    if let Ok(mut obj_guard) = obj_arc.write() {
+                        obj_guard.leave_group();
+                    }
+                    if let Ok(mut ai) = ai_arc.lock() {
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    }
+
                     let mut params = AiCommandParams::new(
                         AiCommandType::AttackArea,
                         CommandSourceType::FromScript,
@@ -6868,9 +6880,17 @@ impl ScriptActionDispatcher {
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let unit_name = self.get_string_param(action, 0)?;
-        let team_name = self.get_string_param(action, 1)?;
+        let team_name = self.resolve_team_name_token(&self.get_string_param(action, 1)?);
 
         log::info!("Unit '{}' attacking team '{}'", unit_name, team_name);
+
+        if self.get_team_by_name(&team_name).is_err() {
+            log::warn!(
+                "Target team '{}' not found for named attack team",
+                team_name
+            );
+            return Ok(ScriptActionResult::Success);
+        }
 
         // Look up object ID by name
         let tracker = get_named_object_tracker();
@@ -6883,11 +6903,19 @@ impl ScriptActionDispatcher {
                     .ok()
                     .and_then(|obj| obj.get_ai_update_interface());
                 if let Some(ai_arc) = ai_result {
+                    if let Ok(mut obj_guard) = obj_arc.write() {
+                        obj_guard.leave_group();
+                    }
+                    if let Ok(mut ai) = ai_arc.lock() {
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    }
+
                     let mut params = AiCommandParams::new(
                         AiCommandType::AttackTeam,
                         CommandSourceType::FromScript,
                     );
                     params.team = Some(team_name.clone());
+                    params.int_value = -1; // NO_MAX_SHOTS_LIMIT
                     let _ = ai_arc.lock().ok().map(|mut ai| {
                         let _ = ai.execute_command(&params);
                         log::info!(
@@ -19135,5 +19163,262 @@ mod tests {
                 CommandSourceType::FromScript,
             )]
         );
+    }
+
+    #[test]
+    fn executor_named_attack_area_leaves_group_and_selects_normal_locomotor() {
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+        get_terrain_logic().write().unwrap().reset();
+
+        get_terrain_logic().write().unwrap().add_trigger_area(
+            crate::polygon_trigger::PolygonTrigger::new(
+                8470,
+                AsciiString::from("ExecutorAttackArea"),
+                vec![
+                    crate::common::ICoord3D::new(0, 0, 0),
+                    crate::common::ICoord3D::new(20, 0, 0),
+                    crate::common::ICoord3D::new(20, 20, 0),
+                    crate::common::ICoord3D::new(0, 20, 0),
+                ],
+            ),
+        );
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let attacker_id = 8471;
+        let attacker = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                attacker_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test attacker instance"),
+        ));
+
+        {
+            let instance = attacker.write().unwrap();
+            let mut base = instance.base.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.enter_group(&crate::ai::AIGroup::new(92));
+            assert_eq!(base.get_group_id(), Some(92));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(attacker.clone(), Coord3D::new(4.0, 4.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("ExecutorAreaAttacker".to_string(), attacker_id)
+            .unwrap();
+
+        let mut action = ScriptAction::new(ScriptActionType::NamedAttackArea);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ExecutorAreaAttacker".to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::TriggerArea,
+                "ExecutorAttackArea".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_named_attack_area(&action).unwrap();
+
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            commands.lock().unwrap()[0],
+            (
+                AiCommandType::AttackArea,
+                None,
+                None,
+                0,
+                CommandSourceType::FromScript,
+            )
+        );
+        assert_eq!(
+            attacker.read().unwrap().base.read().unwrap().get_group_id(),
+            None
+        );
+    }
+
+    #[test]
+    fn executor_named_attack_team_validates_team_and_sets_max_shots() {
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+        get_team_factory().lock().unwrap().reset();
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("ExecutorTargetTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("ExecutorTargetTeam")
+                .expect("target team should be created");
+        }
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let attacker_id = 8480;
+        let attacker = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                attacker_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test attacker instance"),
+        ));
+
+        {
+            let instance = attacker.write().unwrap();
+            let mut base = instance.base.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.enter_group(&crate::ai::AIGroup::new(93));
+            assert_eq!(base.get_group_id(), Some(93));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(attacker.clone(), Coord3D::new(8.0, 4.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("ExecutorTeamAttacker".to_string(), attacker_id)
+            .unwrap();
+
+        let mut action = ScriptAction::new(ScriptActionType::NamedAttackTeam);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ExecutorTeamAttacker".to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "ExecutorTargetTeam".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_named_attack_team(&action).unwrap();
+
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::AttackTeam,
+                None,
+                Some("ExecutorTargetTeam".to_string()),
+                -1,
+                CommandSourceType::FromScript,
+            )]
+        );
+        assert_eq!(
+            attacker.read().unwrap().base.read().unwrap().get_group_id(),
+            None
+        );
+    }
+
+    #[test]
+    fn executor_team_attack_named_ignores_stale_target_tracker_id() {
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+        get_team_factory().lock().unwrap().reset();
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("ExecutorSourceTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("ExecutorSourceTeam")
+                .expect("source team should be created");
+        }
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let member_id = 8490;
+        let member = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                member_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test team member instance"),
+        ));
+
+        {
+            let instance = member.write().unwrap();
+            instance
+                .base
+                .write()
+                .unwrap()
+                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                    commands: Arc::clone(&commands),
+                    locomotors: Arc::clone(&locomotors),
+                }))));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(member, Coord3D::new(8.0, 8.0, 0.0))
+            .unwrap();
+        get_team_factory()
+            .lock()
+            .unwrap()
+            .find_team("ExecutorSourceTeam")
+            .unwrap()
+            .write()
+            .unwrap()
+            .add_member(member_id);
+        get_named_object_tracker()
+            .register_named_object("MissingExecutorVictim".to_string(), 8491)
+            .unwrap();
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamAttackNamed);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "ExecutorSourceTeam".to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "MissingExecutorVictim".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_team_attack_named(&action).unwrap();
+
+        assert!(commands.lock().unwrap().is_empty());
+        assert!(locomotors.lock().unwrap().is_empty());
     }
 }
