@@ -5,14 +5,14 @@
 //!
 //! C++ Reference: ScriptActions.cpp camera action implementations
 
-use async_trait::async_trait;
-use super::{ScriptContext, ScriptResult, ScriptValue};
 use super::actions::ScriptAction;
-use crate::common::{AsciiString, Coord3D, Real, INVALID_OBJECT_ID, INVALID_ID};
+use super::{ScriptContext, ScriptResult, ScriptValue};
+use crate::common::{AsciiString, Coord3D, Real, INVALID_ID, INVALID_OBJECT_ID};
 use crate::helpers::{get_camera_view_bridge, TheGameLogic};
 use crate::scripting::engine::get_named_object_tracker;
 use crate::terrain::get_terrain_logic;
 use crate::{GameLogicError, GameLogicResult};
+use async_trait::async_trait;
 use std::collections::HashMap;
 
 // Local type definitions — GameLogic cannot import GameClient's View types, so we
@@ -97,7 +97,9 @@ fn find_waypoint(name: &str) -> GameLogicResult<Option<Coord3D>> {
     })?;
 
     let ascii_name = AsciiString::from(name);
-    Ok(terrain.get_waypoint_by_name(&ascii_name).map(|wp| *wp.get_location()))
+    Ok(terrain
+        .get_waypoint_by_name(&ascii_name)
+        .map(|wp| *wp.get_location()))
 }
 
 fn find_named_object(name: &str) -> GameLogicResult<Option<u32>> {
@@ -217,7 +219,9 @@ impl ScriptAction for CameraMoveToAction {
         // Move camera to waypoint
         let view = get_tactical_view()?;
         view.move_camera_to(
-            point.x, point.y, point.z,
+            point.x,
+            point.y,
+            point.z,
             (sec * 1000.0) as i32,
             (camera_stutter_sec * 1000.0) as i32,
             true,
@@ -241,7 +245,12 @@ impl ScriptAction for CameraMoveToAction {
     }
 
     fn optional_parameters(&self) -> Vec<String> {
-        vec!["sec".to_string(), "cameraStutterSec".to_string(), "easeIn".to_string(), "easeOut".to_string()]
+        vec![
+            "sec".to_string(),
+            "cameraStutterSec".to_string(),
+            "easeIn".to_string(),
+            "easeOut".to_string(),
+        ]
     }
 }
 
@@ -279,7 +288,12 @@ impl ScriptAction for CameraZoomAction {
             .unwrap_or(0.0);
 
         let view = get_tactical_view()?;
-        view.zoom_camera(zoom as f32, (sec * 1000.0) as i32, (ease_in * 1000.0) as f32, (ease_out * 1000.0) as f32);
+        view.zoom_camera(
+            zoom as f32,
+            (sec * 1000.0) as i32,
+            (ease_in * 1000.0) as f32,
+            (ease_out * 1000.0) as f32,
+        );
 
         Ok(ScriptResult::Success(None))
     }
@@ -297,7 +311,11 @@ impl ScriptAction for CameraZoomAction {
     }
 
     fn optional_parameters(&self) -> Vec<String> {
-        vec!["sec".to_string(), "easeIn".to_string(), "easeOut".to_string()]
+        vec![
+            "sec".to_string(),
+            "easeIn".to_string(),
+            "easeOut".to_string(),
+        ]
     }
 }
 
@@ -335,7 +353,12 @@ impl ScriptAction for CameraPitchAction {
             .unwrap_or(0.0);
 
         let view = get_tactical_view()?;
-        view.pitch_camera(pitch as f32, (sec * 1000.0) as i32, (ease_in * 1000.0) as f32, (ease_out * 1000.0) as f32);
+        view.pitch_camera(
+            pitch as f32,
+            (sec * 1000.0) as i32,
+            (ease_in * 1000.0) as f32,
+            (ease_out * 1000.0) as f32,
+        );
 
         Ok(ScriptResult::Success(None))
     }
@@ -353,7 +376,11 @@ impl ScriptAction for CameraPitchAction {
     }
 
     fn optional_parameters(&self) -> Vec<String> {
-        vec!["sec".to_string(), "easeIn".to_string(), "easeOut".to_string()]
+        vec![
+            "sec".to_string(),
+            "easeIn".to_string(),
+            "easeOut".to_string(),
+        ]
     }
 }
 
@@ -391,7 +418,12 @@ impl ScriptAction for CameraRotateAction {
             .unwrap_or(0.0);
 
         let view = get_tactical_view()?;
-        view.rotate_camera(rotations as f32, (sec * 1000.0) as i32, (ease_in * 1000.0) as f32, (ease_out * 1000.0) as f32);
+        view.rotate_camera(
+            rotations as f32,
+            (sec * 1000.0) as i32,
+            (ease_in * 1000.0) as f32,
+            (ease_out * 1000.0) as f32,
+        );
 
         Ok(ScriptResult::Success(None))
     }
@@ -409,7 +441,11 @@ impl ScriptAction for CameraRotateAction {
     }
 
     fn optional_parameters(&self) -> Vec<String> {
-        vec!["sec".to_string(), "easeIn".to_string(), "easeOut".to_string()]
+        vec![
+            "sec".to_string(),
+            "easeIn".to_string(),
+            "easeOut".to_string(),
+        ]
     }
 }
 
@@ -444,7 +480,9 @@ impl ScriptAction for CameraSetupAction {
         let look_at_waypoint = parameters
             .get("lookAtWaypoint")
             .and_then(|v| v.as_string())
-            .ok_or_else(|| GameLogicError::Configuration("lookAtWaypoint parameter required".into()))?;
+            .ok_or_else(|| {
+                GameLogicError::Configuration("lookAtWaypoint parameter required".into())
+            })?;
 
         // Find waypoints
         let camera_pos = find_waypoint(waypoint_name)?;
@@ -479,7 +517,12 @@ impl ScriptAction for CameraSetupAction {
     }
 
     fn required_parameters(&self) -> Vec<String> {
-        vec!["waypoint".to_string(), "zoom".to_string(), "pitch".to_string(), "lookAtWaypoint".to_string()]
+        vec![
+            "waypoint".to_string(),
+            "zoom".to_string(),
+            "pitch".to_string(),
+            "lookAtWaypoint".to_string(),
+        ]
     }
 
     fn optional_parameters(&self) -> Vec<String> {
@@ -565,7 +608,11 @@ impl ScriptAction for CameraSetDefaultAction {
     }
 
     fn required_parameters(&self) -> Vec<String> {
-        vec!["pitch".to_string(), "angle".to_string(), "maxHeight".to_string()]
+        vec![
+            "pitch".to_string(),
+            "angle".to_string(),
+            "maxHeight".to_string(),
+        ]
     }
 
     fn optional_parameters(&self) -> Vec<String> {
@@ -727,7 +774,13 @@ impl ScriptAction for CameraLookTowardObjectAction {
         let view = get_tactical_view()?;
         let ms = (sec * 1000.0) as i32;
         let hold_ms = (hold_sec * 1000.0) as i32;
-        view.rotate_camera_toward_object(object_id.unwrap(), ms, hold_ms, ease_in as f32, ease_out as f32);
+        view.rotate_camera_toward_object(
+            object_id.unwrap(),
+            ms,
+            hold_ms,
+            ease_in as f32,
+            ease_out as f32,
+        );
 
         Ok(ScriptResult::Success(None))
     }
@@ -745,7 +798,12 @@ impl ScriptAction for CameraLookTowardObjectAction {
     }
 
     fn optional_parameters(&self) -> Vec<String> {
-        vec!["sec".to_string(), "holdSec".to_string(), "easeIn".to_string(), "easeOut".to_string()]
+        vec![
+            "sec".to_string(),
+            "holdSec".to_string(),
+            "easeIn".to_string(),
+            "easeOut".to_string(),
+        ]
     }
 }
 
@@ -798,7 +856,15 @@ impl ScriptAction for CameraLookTowardWaypointAction {
 
         let view = get_tactical_view()?;
         let ms = (sec * 1000.0) as i32;
-        view.rotate_camera_toward_position(point.x, point.y, point.z, ms, ease_in as f32, ease_out as f32, reverse_rotation);
+        view.rotate_camera_toward_position(
+            point.x,
+            point.y,
+            point.z,
+            ms,
+            ease_in as f32,
+            ease_out as f32,
+            reverse_rotation,
+        );
 
         Ok(ScriptResult::Success(None))
     }
@@ -816,7 +882,12 @@ impl ScriptAction for CameraLookTowardWaypointAction {
     }
 
     fn optional_parameters(&self) -> Vec<String> {
-        vec!["sec".to_string(), "easeIn".to_string(), "easeOut".to_string(), "reverseRotation".to_string()]
+        vec![
+            "sec".to_string(),
+            "easeIn".to_string(),
+            "easeOut".to_string(),
+            "reverseRotation".to_string(),
+        ]
     }
 }
 
@@ -967,7 +1038,14 @@ impl ScriptAction for ResetCameraAction {
         let point = Point3::new(pos.x, pos.y, pos.z);
 
         let view = get_tactical_view()?;
-        view.reset_camera(point.x, point.y, point.z, (sec * 1000.0) as i32, (ease_in * 1000.0) as f32, (ease_out * 1000.0) as f32);
+        view.reset_camera(
+            point.x,
+            point.y,
+            point.z,
+            (sec * 1000.0) as i32,
+            (ease_in * 1000.0) as f32,
+            (ease_out * 1000.0) as f32,
+        );
 
         Ok(ScriptResult::Success(None))
     }
@@ -985,7 +1063,11 @@ impl ScriptAction for ResetCameraAction {
     }
 
     fn optional_parameters(&self) -> Vec<String> {
-        vec!["sec".to_string(), "easeIn".to_string(), "easeOut".to_string()]
+        vec![
+            "sec".to_string(),
+            "easeIn".to_string(),
+            "easeOut".to_string(),
+        ]
     }
 }
 
