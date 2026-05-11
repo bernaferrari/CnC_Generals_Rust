@@ -15012,12 +15012,11 @@ impl ScriptConditionEvaluator {
         let team_name = self.get_condition_string_param(condition, 0)?;
         log::debug!("Evaluating if team '{}' is destroyed", team_name);
 
-        // Look up the team and check if it has no members
+        // C++: non-existent team is not destroyed; existing team uses Team::hasAnyObjects().
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
                 if let Ok(team) = team_arc.read() {
-                    // Team is destroyed if it has no members
-                    return Ok(if team.get_member_count() == 0 {
+                    return Ok(if !team.has_any_objects() {
                         ScriptConditionResult::True
                     } else {
                         ScriptConditionResult::False
@@ -15025,8 +15024,7 @@ impl ScriptConditionEvaluator {
                 }
             }
         }
-        // If team doesn't exist, consider it destroyed
-        Ok(ScriptConditionResult::True)
+        Ok(ScriptConditionResult::False)
     }
 
     fn eval_team_has_units(

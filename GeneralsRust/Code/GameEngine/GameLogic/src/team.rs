@@ -1098,12 +1098,6 @@ impl Team {
 
     /// Check if team has any buildings
     pub fn has_any_buildings(&self) -> Bool {
-        self.count_buildings() > 0
-    }
-
-    /// Check if team has buildings of specific kind
-    pub fn has_any_buildings_of_kind(&self, kind_of: u32) -> Bool {
-        let mask = kind_of as KindOfMaskType;
         for &object_id in &self.members {
             let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
@@ -1114,14 +1108,28 @@ impl Team {
             if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
                 continue;
             }
-            if !object_guard.is_kind_of(KindOf::Structure) {
+            if object_guard.is_kind_of(KindOf::Structure) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Check if team has buildings of specific kind
+    pub fn has_any_buildings_of_kind(&self, kind_of: u32) -> Bool {
+        let mask = (kind_of as KindOfMaskType) | (1u64 << (KindOf::Structure as u32));
+        for &object_id in &self.members {
+            let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+            if object_guard.is_effectively_dead() || object_guard.is_destroyed() {
                 continue;
             }
-            for &kind in ALL_KIND_OF {
-                let bit = 1u64 << (kind as u32);
-                if (mask & bit) != 0 && object_guard.is_kind_of(kind) {
-                    return true;
-                }
+            if object_guard.is_kind_of_multi(mask, crate::common::KIND_OF_MASK_NONE) {
+                return true;
             }
         }
         false

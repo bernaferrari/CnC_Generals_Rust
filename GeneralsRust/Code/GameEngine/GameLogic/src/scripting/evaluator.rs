@@ -2721,7 +2721,7 @@ impl ScriptEvaluator {
 
         let teams = self.resolve_team_instances(&team_name);
         if teams.is_empty() {
-            return Ok(true);
+            return Ok(false);
         }
 
         for team_arc in teams {
