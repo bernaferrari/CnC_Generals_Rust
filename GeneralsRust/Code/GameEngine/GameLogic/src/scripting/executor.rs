@@ -1739,16 +1739,19 @@ impl ScriptActionDispatcher {
                     .ok()
                     .and_then(|obj| obj.get_ai_update_interface());
                 if let Some(ai_arc) = ai_result {
-                    let hunt_params =
-                        AiCommandParams::new(AiCommandType::Hunt, CommandSourceType::FromScript);
-                    let _ = ai_arc.lock().ok().map(|mut ai| {
+                    if let Ok(mut ai) = ai_arc.lock() {
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let hunt_params = AiCommandParams::new(
+                            AiCommandType::Hunt,
+                            CommandSourceType::FromScript,
+                        );
                         let _ = ai.execute_command(&hunt_params);
                         log::info!(
                             "Named unit '{}' hunt command issued (ID: {})",
                             unit_name,
                             object_id
                         );
-                    });
+                    };
                 } else {
                     log::warn!("Named unit '{}' has no AI update interface", unit_name);
                 }
@@ -19416,6 +19419,73 @@ mod tests {
 
         assert!(commands.lock().unwrap().is_empty());
         assert!(locomotors.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let hunter_id = 8495;
+        let hunter = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                hunter_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test hunter instance"),
+        ));
+
+        {
+            let instance = hunter.write().unwrap();
+            let mut base = instance.base.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.enter_group(&crate::ai::AIGroup::new(95));
+            assert_eq!(base.get_group_id(), Some(95));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(hunter.clone(), Coord3D::new(11.0, 6.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("ExecutorHunter".to_string(), hunter_id)
+            .unwrap();
+
+        let mut action = ScriptAction::new(ScriptActionType::NamedHunt);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ExecutorHunter".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_named_hunt(&action).unwrap();
+
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::Hunt,
+                None,
+                None,
+                0,
+                CommandSourceType::FromScript,
+            )]
+        );
+        assert_eq!(
+            hunter.read().unwrap().base.read().unwrap().get_group_id(),
+            Some(95)
+        );
     }
 
     #[test]
