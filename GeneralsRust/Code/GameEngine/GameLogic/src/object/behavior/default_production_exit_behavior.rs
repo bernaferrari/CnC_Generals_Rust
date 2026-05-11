@@ -104,14 +104,20 @@ impl DefaultProductionExitBehavior {
         let mut p = self.data.natural_rally_point;
         if offset {
             let mut offset_vec = p;
-            let len = (offset_vec.x * offset_vec.x + offset_vec.y * offset_vec.y).sqrt();
+            let len = (offset_vec.x * offset_vec.x
+                + offset_vec.y * offset_vec.y
+                + offset_vec.z * offset_vec.z)
+                .sqrt();
             if len > 0.001 {
                 offset_vec.x /= len;
                 offset_vec.y /= len;
+                offset_vec.z /= len;
                 offset_vec.x *= 2.0 * PATHFIND_CELL_SIZE_F;
                 offset_vec.y *= 2.0 * PATHFIND_CELL_SIZE_F;
+                offset_vec.z *= 2.0 * PATHFIND_CELL_SIZE_F;
                 p.x += offset_vec.x;
                 p.y += offset_vec.y;
+                p.z += offset_vec.z;
             }
         }
         self.transform_point(&p, transform)
@@ -386,5 +392,31 @@ impl Snapshotable for DefaultProductionExitBehavior {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         self.data.load_post_process()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_near(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "actual {actual} expected {expected}"
+        );
+    }
+
+    #[test]
+    fn natural_rally_offset_normalizes_full_3d_vector() {
+        let mut data = DefaultProductionExitModuleData::default();
+        data.natural_rally_point = Coord3D::new(3.0, 4.0, 12.0);
+        let exit = DefaultProductionExitBehavior::new(data, 1);
+
+        let point = exit.get_natural_rally_point(&Matrix3D::IDENTITY, true);
+        let offset = 2.0 * PATHFIND_CELL_SIZE_F / 13.0;
+
+        assert_near(point.x, 3.0 + 3.0 * offset);
+        assert_near(point.y, 4.0 + 4.0 * offset);
+        assert_near(point.z, 12.0 + 12.0 * offset);
     }
 }

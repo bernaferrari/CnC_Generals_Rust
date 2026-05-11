@@ -741,6 +741,13 @@ const QUEUE_PRODUCTION_EXIT_FIELDS: &[FieldParse<QueueProductionExitModuleData>]
 mod tests {
     use super::*;
 
+    fn assert_near(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "actual {actual} expected {expected}"
+        );
+    }
+
     #[test]
     fn test_exit_creation() {
         let data = QueueProductionExitModuleData::default();
@@ -823,6 +830,20 @@ mod tests {
         // Clear rally point
         exit.clear_rally_point();
         assert!(!exit.rally_point_exists);
+    }
+
+    #[test]
+    fn natural_rally_offset_normalizes_full_3d_vector() {
+        let mut data = QueueProductionExitModuleData::default();
+        data.natural_rally_point = Coord3D::new(3.0, 4.0, 12.0);
+        let exit = QueueProductionExitBehavior::new(data, 1);
+
+        let point = exit.get_natural_rally_point(&Matrix3D::IDENTITY, true);
+        let offset = 2.0 * crate::path::PATHFIND_CELL_SIZE_F / 13.0;
+
+        assert_near(point.x, 3.0 + 3.0 * offset);
+        assert_near(point.y, 4.0 + 4.0 * offset);
+        assert_near(point.z, 12.0 + 12.0 * offset);
     }
 
     #[test]
