@@ -1355,6 +1355,46 @@ impl Player {
         }
     }
 
+    /// Count player-owned structures, matching C++ Player::countBuildings.
+    pub fn count_buildings(&self) -> Int {
+        let mut count = 0;
+        for &object_id in &self.owned_objects {
+            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+            else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+            if object_guard.get_template().is_kind_of(KindOf::Structure) {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    /// Count player-owned objects by KindOf masks, matching C++ Player::countObjects.
+    pub fn count_objects_by_kindof(
+        &self,
+        required: KindOfMaskType,
+        forbidden: KindOfMaskType,
+    ) -> Int {
+        let mut count = 0;
+        for &object_id in &self.owned_objects {
+            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+            else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+            if object_guard.is_kind_of_multi(required, forbidden) {
+                count += 1;
+            }
+        }
+        count
+    }
+
     /// Add an object to this player's ownership
     /// Matches C++ Player::addObject
     pub fn add_owned_object(&mut self, object_id: ObjectID) {

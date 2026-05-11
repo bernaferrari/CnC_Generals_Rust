@@ -14471,21 +14471,7 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
 
-        let mut building_count: i32 = 0;
-        for object_id in player.get_all_objects() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if obj.is_effectively_dead() || obj.is_destroyed() {
-                continue;
-            }
-            if obj.is_kind_of(crate::common::KindOf::Structure) {
-                building_count = building_count.saturating_add(1);
-            }
-        }
+        let building_count = player.count_buildings();
 
         Ok(if count >= building_count {
             ScriptConditionResult::True
@@ -14557,23 +14543,9 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         };
 
-        let mut building_count: i32 = 0;
-        for object_id in player.get_all_objects() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if obj.is_effectively_dead() || obj.is_destroyed() {
-                continue;
-            }
-            if obj.is_kind_of(crate::common::KindOf::Structure)
-                && obj.is_kind_of(crate::common::KindOf::CountsForVictory)
-            {
-                building_count = building_count.saturating_add(1);
-            }
-        }
+        let mask = (1u64 << (crate::common::KindOf::Structure as u32))
+            | (1u64 << (crate::common::KindOf::CountsForVictory as u32));
+        let building_count = player.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE);
 
         Ok(if count >= building_count {
             ScriptConditionResult::True

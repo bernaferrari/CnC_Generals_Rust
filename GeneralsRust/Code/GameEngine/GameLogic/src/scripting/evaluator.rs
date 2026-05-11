@@ -3698,21 +3698,7 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        let mut count = 0;
-        for object_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
-                continue;
-            }
-            if obj_guard.is_kind_of(KindOf::Structure) {
-                count += 1;
-            }
-        }
+        let count = player_guard.count_buildings();
 
         Ok(max_buildings >= count)
     }
@@ -3750,23 +3736,9 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        let mut count = 0;
-        for object_id in player_guard.get_all_objects() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
-                continue;
-            }
-            if obj_guard.is_kind_of(KindOf::Structure)
-                && obj_guard.is_kind_of(KindOf::CountsForVictory)
-            {
-                count += 1;
-            }
-        }
+        let mask =
+            (1u64 << (KindOf::Structure as u32)) | (1u64 << (KindOf::CountsForVictory as u32));
+        let count = player_guard.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE);
 
         Ok(max_buildings >= count)
     }
