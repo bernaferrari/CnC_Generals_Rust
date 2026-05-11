@@ -58,8 +58,26 @@ pub struct FXContext<'a> {
     pub particle_manager: &'a mut ParticleSystemManager,
     pub ray_effect_manager: Option<&'a mut RayEffectManager>,
     pub decal_manager: Option<&'a mut DecalManager>,
+    pub bone_query: Option<&'a dyn FXBoneQuery>,
     pub current_frame: u32,
     pub local_player_index: i32,
+}
+
+/// Current client bone transform resolved from the primary object/drawable.
+#[derive(Clone, Copy, Debug)]
+pub struct FXBoneTransform {
+    pub position: Point3<f32>,
+    pub transform: Matrix3<f32>,
+}
+
+/// Adapter for C++ `Drawable::getCurrentClientBonePositions`.
+pub trait FXBoneQuery {
+    fn current_client_bone_positions(
+        &self,
+        bone_name_prefix: &str,
+        start_index: usize,
+        max_bones: usize,
+    ) -> Vec<FXBoneTransform>;
 }
 
 /// Sound FX nugget - plays audio events (matches C++ SoundFXNugget)
@@ -383,6 +401,8 @@ pub struct FXListAtBonePosFXNugget {
 }
 
 impl FXListAtBonePosFXNugget {
+    const MAX_BONE_POINTS: usize = 40;
+
     pub fn new(fx_list: Arc<FXList>, bone_name: String) -> Self {
         Self {
             fx_list: Some(fx_list),
@@ -414,16 +434,33 @@ impl FXNugget for FXListAtBonePosFXNugget {
         _secondary_pos: Option<Point3<f32>>,
         context: &mut FXContext,
     ) {
-        if let (Some(pos), Some(fx_list)) = (primary_pos, &self.fx_list) {
-            // C++ FXListAtBonePosFXNugget::doFxAtBones:
-            // First tries unadorned bone name, then 01,02,03... variants.
-            // Bone position resolution requires drawable bone queries, which
-            // are not yet threaded through FXContext. For now, execute the
-            // nested FXList at the primary position (matching fallback behavior).
-            fx_list.execute_fx_pos(pos, primary_mtx, 0.0, None, 0.0, context);
+        let Some(fx_list) = &self.fx_list else {
+            return;
+        };
 
-            // TODO: When drawable bone queries are integrated with FXContext,
-            // implement full doFxAtBones matching C++ lines 711-728.
+        if let Some(query) = context.bone_query {
+            for start_index in [0, 1] {
+                let bones = query.current_client_bone_positions(
+                    &self.bone_name,
+                    start_index,
+                    Self::MAX_BONE_POINTS,
+                );
+                for bone in bones {
+                    fx_list.execute_fx_pos(
+                        bone.position,
+                        Some(&bone.transform),
+                        0.0,
+                        None,
+                        0.0,
+                        context,
+                    );
+                }
+            }
+            return;
+        }
+
+        if let Some(pos) = primary_pos {
+            fx_list.execute_fx_pos(pos, primary_mtx, 0.0, None, 0.0, context);
         }
     }
 }
@@ -893,6 +930,71 @@ pub mod helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct RecordingNugget {
+        positions: Arc<Mutex<Vec<Point3<f32>>>>,
+    }
+
+    impl FXNugget for RecordingNugget {
+        fn do_fx_pos(
+            &self,
+            primary: Point3<f32>,
+            _primary_mtx: Option<&Matrix3<f32>>,
+            _primary_speed: f32,
+            _secondary: Option<Point3<f32>>,
+            _override_radius: f32,
+            _context: &mut FXContext,
+        ) {
+            self.positions.lock().unwrap().push(primary);
+        }
+    }
+
+    struct TestBoneQuery;
+
+    impl FXBoneQuery for TestBoneQuery {
+        fn current_client_bone_positions(
+            &self,
+            bone_name_prefix: &str,
+            start_index: usize,
+            max_bones: usize,
+        ) -> Vec<FXBoneTransform> {
+            assert_eq!(bone_name_prefix, "MUZZLE");
+            assert_eq!(max_bones, FXListAtBonePosFXNugget::MAX_BONE_POINTS);
+            match start_index {
+                0 => vec![FXBoneTransform {
+                    position: Point3::new(1.0, 2.0, 3.0),
+                    transform: Matrix3::identity(),
+                }],
+                1 => vec![
+                    FXBoneTransform {
+                        position: Point3::new(4.0, 5.0, 6.0),
+                        transform: Matrix3::identity(),
+                    },
+                    FXBoneTransform {
+                        position: Point3::new(7.0, 8.0, 9.0),
+                        transform: Matrix3::identity(),
+                    },
+                ],
+                _ => Vec::new(),
+            }
+        }
+    }
+
+    fn test_context<'a>(
+        manager: &'a mut ParticleSystemManager,
+        bone_query: Option<&'a dyn FXBoneQuery>,
+    ) -> FXContext<'a> {
+        FXContext {
+            particle_manager: manager,
+            ray_effect_manager: None,
+            decal_manager: None,
+            bone_query,
+            current_frame: 0,
+            local_player_index: 0,
+        }
+    }
 
     #[test]
     fn test_particle_system_fx_nugget() {
@@ -908,6 +1010,28 @@ mod tests {
 
         bridge.register_nugget("TestFX".to_string(), nugget);
         assert_eq!(bridge.active_system_count(), 0);
+    }
+
+    #[test]
+    fn fx_list_at_bone_pos_uses_current_client_bones() {
+        let positions = Arc::new(Mutex::new(Vec::new()));
+        let mut nested = FXList::new();
+        nested.add_nugget(Arc::new(RecordingNugget {
+            positions: Arc::clone(&positions),
+        }));
+        let nugget = FXListAtBonePosFXNugget::new(Arc::new(nested), "MUZZLE".to_string());
+
+        let mut manager = ParticleSystemManager::new();
+        let query = TestBoneQuery;
+        let mut context = test_context(&mut manager, Some(&query));
+
+        nugget.do_fx_obj(None, None, None, &mut context);
+
+        let positions = positions.lock().unwrap();
+        assert_eq!(positions.len(), 3);
+        assert_eq!(positions[0], Point3::new(1.0, 2.0, 3.0));
+        assert_eq!(positions[1], Point3::new(4.0, 5.0, 6.0));
+        assert_eq!(positions[2], Point3::new(7.0, 8.0, 9.0));
     }
 
     #[test]
