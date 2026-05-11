@@ -1964,12 +1964,6 @@ impl ScriptAction for TeamGuardAction {
             log::info!("Team '{}' guarding current position", team_name);
         }
 
-        // Matches C++ ScriptActions.cpp - guard behavior
-        // Integration: Set AI state to GUARD mode for all team members
-        // In C++: theTeam->setGuardPosition(position) or theTeam->guard()
-        // AI will engage enemies that enter guard radius but return to position
-        // Guard radius determined by unit vision range + engagement distance
-
         let resolved_team = resolve_team_name_token(&team_name);
         let guard_pos = if let (Some(x_pos), Some(y_pos)) = (x, y) {
             let z = get_terrain_logic()
@@ -1979,8 +1973,7 @@ impl ScriptAction for TeamGuardAction {
                 .unwrap_or(0.0);
             Coord3D::new(x_pos as f32, y_pos as f32, z)
         } else {
-            let factory = get_team_factory();
-            let Some(team_arc) = factory
+            let Some(team_arc) = get_team_factory()
                 .lock()
                 .ok()
                 .and_then(|mut guard| guard.find_team(&resolved_team))
@@ -1999,27 +1992,31 @@ impl ScriptAction for TeamGuardAction {
                 return Ok(ScriptResult::Success(None));
             }
 
-            let mut sum = Coord3D::new(0.0, 0.0, 0.0);
-            let mut count = 0.0f32;
+            let mut guarded_count = 0usize;
             for member_id in members {
                 if let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) {
                     if let Ok(obj_guard) = obj_arc.read() {
-                        let pos = obj_guard.get_position();
-                        sum.x += pos.x;
-                        sum.y += pos.y;
-                        sum.z += pos.z;
-                        count += 1.0;
+                        let pos = *obj_guard.get_position();
+                        if let Some(ai) = obj_guard.get_ai_update_interface() {
+                            ai.ai_guard_position(
+                                &pos,
+                                GuardMode::Normal,
+                                CommandSourceType::FromScript,
+                            );
+                            guarded_count += 1;
+                        }
                     }
                 }
             }
-            if count <= 0.0 {
+
+            if guarded_count == 0 {
                 log::warn!(
-                    "TeamGuardAction: team '{}' has no valid members",
+                    "TeamGuardAction: team '{}' has no valid AI members",
                     resolved_team
                 );
-                return Ok(ScriptResult::Success(None));
             }
-            Coord3D::new(sum.x / count, sum.y / count, sum.z / count)
+
+            return Ok(ScriptResult::Success(None));
         };
 
         let group_arc = match create_ai_group_from_team(&resolved_team) {
@@ -7478,6 +7475,10 @@ mod tests {
         get_object_manager().write().unwrap().reset();
     }
 
+    fn reset_test_team_factory() {
+        get_team_factory().lock().unwrap().reset();
+    }
+
     fn ensure_test_template(name: &str) {
         use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
 
@@ -7928,6 +7929,121 @@ mod tests {
             .unwrap();
 
         assert_eq!(*calls.lock().unwrap(), vec![false]);
+    }
+
+    #[tokio::test]
+    async fn team_guard_without_position_guards_each_member_at_own_position() {
+        use crate::modules::AIUpdateInterface;
+        use std::sync::Mutex;
+
+        #[derive(Debug)]
+        struct RecordingAi {
+            calls: Arc<Mutex<Vec<(AiCommandType, Coord3D, i32, CommandSourceType)>>>,
+        }
+
+        impl AIUpdateInterface for RecordingAi {
+            fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                Ok(())
+            }
+
+            fn is_moving(&self) -> bool {
+                false
+            }
+
+            fn is_idle(&self) -> bool {
+                true
+            }
+
+            fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+                Ok(())
+            }
+
+            fn execute_command(
+                &mut self,
+                command: &AiCommandParams,
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                self.calls.lock().unwrap().push((
+                    command.cmd,
+                    command.pos,
+                    command.int_value,
+                    command.cmd_source,
+                ));
+                Ok(())
+            }
+        }
+
+        reset_test_object_manager();
+        reset_test_team_factory();
+
+        let team = {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("GuardTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("GuardTeam")
+                .expect("team should be created")
+        };
+
+        let positions = [Coord3D::new(10.0, 20.0, 0.0), Coord3D::new(40.0, 80.0, 0.0)];
+        let mut calls = Vec::new();
+        for (idx, position) in positions.iter().enumerate() {
+            let object_id = 8100 + idx as u32;
+            let call_log = Arc::new(Mutex::new(Vec::new()));
+            calls.push(Arc::clone(&call_log));
+
+            let object = Arc::new(RwLock::new(
+                crate::object_manager::GameObjectInstance::new(
+                    object_id,
+                    None,
+                    Some(Arc::clone(&team)),
+                    ObjectCreationFlags::new(),
+                )
+                .expect("test object instance"),
+            ));
+            {
+                let instance = object.write().unwrap();
+                instance
+                    .base
+                    .write()
+                    .unwrap()
+                    .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                        calls: call_log,
+                    }))));
+            }
+            get_object_manager()
+                .write()
+                .unwrap()
+                .register_object_instance(object, *position)
+                .unwrap();
+            team.write().unwrap().add_member(object_id);
+        }
+
+        let mut params = HashMap::new();
+        params.insert(
+            "team_name".to_string(),
+            ScriptValue::String("GuardTeam".to_string()),
+        );
+
+        TeamGuardAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        for (call_log, expected_pos) in calls.iter().zip(positions.iter()) {
+            assert_eq!(
+                *call_log.lock().unwrap(),
+                vec![(
+                    AiCommandType::GuardPosition,
+                    *expected_pos,
+                    GuardMode::Normal.as_i32(),
+                    CommandSourceType::FromScript,
+                )]
+            );
+        }
     }
 
     #[tokio::test]
