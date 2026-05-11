@@ -14,6 +14,7 @@ use crate::common::{
     INVALID_OBJECT_ID,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
+use crate::effects::FXList;
 use crate::helpers::{TheGameLogic, TheVictoryConditions};
 use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt};
 use crate::object::object_factory::{get_object_factory, GameObjectInstance};
@@ -6069,16 +6070,18 @@ impl ScriptAction for CreateExplosionAction {
             damage
         );
 
-        // Integration with FX/damage system:
-        // 1. FXTemplate *fxTemplate = TheFXStore->find(explosion_type)
-        // 2. Coord3D pos = {x, y, z}
-        // 3. createExplosion(fxTemplate, &pos, damage, attacker)
-        // 4. Visual explosion effects (particles, light, sound)
-        // 5. Damage applied to units in blast radius
-        // 6. Damage falloff with distance
-        // Rust: fx_system.create_explosion(explosion_type, position, damage)
-
-        log::debug!("Integration: FX and damage systems create explosion");
+        let position = Coord3D::new(x as Real, y as Real, z as Real);
+        let fx_list = FXList::new(&explosion_type);
+        if let Err(err) = fx_list.do_fx_at_position_with_radius(&position, damage as Real) {
+            log::warn!(
+                "CreateExplosionAction: failed to execute FX '{}' at ({}, {}, {}): {}",
+                explosion_type,
+                x,
+                y,
+                z,
+                err
+            );
+        }
 
         Ok(ScriptResult::Success(None))
     }
@@ -7925,5 +7928,55 @@ mod tests {
             .unwrap();
 
         assert_eq!(*calls.lock().unwrap(), vec![false]);
+    }
+
+    #[tokio::test]
+    async fn create_explosion_dispatches_fx_at_position() {
+        use crate::common::types::FXListManagerInterface;
+        use crate::helpers::register_fx_list_manager;
+        use game_engine::common::name_key_generator::NameKeyGenerator;
+        use glam::Mat4;
+        use std::sync::Mutex;
+
+        #[derive(Debug)]
+        struct RecordingFxManager {
+            calls: Arc<Mutex<Vec<(u32, Coord3D)>>>,
+        }
+
+        impl FXListManagerInterface for RecordingFxManager {
+            fn do_fx_pos(&self, fx_list: u32, position: &Coord3D, _matrix: Option<&Mat4>) {
+                self.calls.lock().unwrap().push((fx_list, *position));
+            }
+
+            fn do_fx_obj(&self, _fx_list: u32, _object_id: u32) {}
+        }
+
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        assert!(register_fx_list_manager(Arc::new(RecordingFxManager {
+            calls: Arc::clone(&calls),
+        })));
+
+        let mut params = HashMap::new();
+        params.insert(
+            "explosion_type".to_string(),
+            ScriptValue::String("TestExplosionFX".to_string()),
+        );
+        params.insert("x".to_string(), ScriptValue::Float(10.0));
+        params.insert("y".to_string(), ScriptValue::Float(20.0));
+        params.insert("z".to_string(), ScriptValue::Float(5.0));
+        params.insert("damage".to_string(), ScriptValue::Float(25.0));
+
+        CreateExplosionAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        assert_eq!(
+            *calls.lock().unwrap(),
+            vec![(
+                NameKeyGenerator::name_to_key("TestExplosionFX"),
+                Coord3D::new(10.0, 20.0, 5.0),
+            )]
+        );
     }
 }
