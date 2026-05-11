@@ -54,7 +54,8 @@ pub fn wol_custom_score_screen_init(
     }
 
     let mut state = wol_custom_score_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     state.parent_id = parent_id;
     state.button_disconnect_id = button_disconnect_id;
     state.button_lobby_id = button_lobby_id;
@@ -92,7 +93,8 @@ pub fn wol_custom_score_screen_input(
     }
 
     let state = wol_custom_score_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,

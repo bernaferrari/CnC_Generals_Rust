@@ -41,5 +41,6 @@ static SKIRMISH_SETUP: OnceLock<Mutex<SkirmishSetup>> = OnceLock::new();
 pub fn get_skirmish_setup() -> std::sync::MutexGuard<'static, SkirmishSetup> {
     SKIRMISH_SETUP
         .get_or_init(|| Mutex::new(SkirmishSetup::default()))
-        .lock().unwrap_or_else(|e| e.into_inner())
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }

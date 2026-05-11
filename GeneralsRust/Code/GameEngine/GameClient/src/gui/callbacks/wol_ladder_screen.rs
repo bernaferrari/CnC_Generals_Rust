@@ -63,7 +63,8 @@ fn locate_webpages_ini() -> Option<PathBuf> {
 fn ensure_webpages_loaded() -> bool {
     let mut loaded_guard = WEBPAGES_LOADED
         .get_or_init(|| Mutex::new(false))
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if *loaded_guard {
         return true;
     }
@@ -102,8 +103,7 @@ pub fn wol_ladder_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn
         let _ = with_window_manager(|manager| manager.set_focus(Some(parent)));
     }
 
-    let mut state = wol_ladder_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = wol_ladder_state().lock().unwrap_or_else(|e| e.into_inner());
     state.parent_id = parent_id;
     state.button_back_id = button_back_id;
     state.window_ladder_id = window_ladder_id;
@@ -139,8 +139,7 @@ pub fn wol_ladder_screen_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = wol_ladder_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let state = wol_ladder_state().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
@@ -162,8 +161,7 @@ pub fn wol_ladder_screen_system(
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
-            let state = wol_ladder_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let state = wol_ladder_state().lock().unwrap_or_else(|e| e.into_inner());
             if control_id == state.button_back_id {
                 let _ = get_shell().pop();
                 return WindowMsgHandled::Handled;

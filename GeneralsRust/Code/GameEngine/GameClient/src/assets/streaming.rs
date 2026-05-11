@@ -373,7 +373,10 @@ impl StreamingManager {
             + Sync
             + 'static,
     {
-        *self.evict_handler.write().unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(handler));
+        *self
+            .evict_handler
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(Arc::new(handler));
     }
 
     /// Start streaming system
@@ -384,7 +387,10 @@ impl StreamingManager {
         );
 
         // Start worker tasks
-        let mut handles = self.worker_handles.lock().unwrap_or_else(|e| e.into_inner());
+        let mut handles = self
+            .worker_handles
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         for worker_id in 0..self.max_workers {
             let handle = self.spawn_worker(worker_id).await?;
             handles.push(handle);
@@ -681,7 +687,10 @@ impl StreamingManager {
             AssetType::from_extension(path.extension().and_then(|s| s.to_str()).unwrap_or(""));
 
         {
-            let mut assets = self.streaming_assets.write().unwrap_or_else(|e| e.into_inner());
+            let mut assets = self
+                .streaming_assets
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
             assets.entry(handle).or_insert_with(|| StreamingAssetInfo {
                 handle,
                 path: path.clone(),
@@ -721,21 +730,30 @@ impl StreamingManager {
         // Route to appropriate queue based on priority
         match priority {
             AssetPriority::Critical => {
-                let mut queue = self.high_priority_queue.lock().unwrap_or_else(|e| e.into_inner());
+                let mut queue = self
+                    .high_priority_queue
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 queue.push(Reverse(request));
 
                 let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
                 stats.peak_queue_size = stats.peak_queue_size.max(queue.len());
             }
             AssetPriority::High | AssetPriority::Normal => {
-                let mut queue = self.normal_priority_queue.lock().unwrap_or_else(|e| e.into_inner());
+                let mut queue = self
+                    .normal_priority_queue
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 queue.push_back(request);
 
                 let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
                 stats.peak_queue_size = stats.peak_queue_size.max(queue.len());
             }
             AssetPriority::Low | AssetPriority::Lowest => {
-                let mut queue = self.background_queue.lock().unwrap_or_else(|e| e.into_inner());
+                let mut queue = self
+                    .background_queue
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
                 queue.push_back(request);
             }
         }
@@ -747,13 +765,19 @@ impl StreamingManager {
 
     /// Update viewer context for LOD calculations
     pub fn update_viewer_context(&self, context: ViewerContext) {
-        *self.viewer_context.write().unwrap_or_else(|e| e.into_inner()) = context;
+        *self
+            .viewer_context
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = context;
     }
 
     /// Record asset access for pattern analysis
     pub fn record_asset_access(&self, handle: AssetHandle, position: Vector3<f32>) {
         let now = Instant::now();
-        let mut patterns = self.usage_patterns.write().unwrap_or_else(|e| e.into_inner());
+        let mut patterns = self
+            .usage_patterns
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
 
         let pattern = patterns.entry(handle).or_insert_with(|| UsagePattern {
             asset_handle: handle,
@@ -829,7 +853,10 @@ impl StreamingManager {
                 }
 
                 let freed = {
-                    let handler = evict_handler.read().unwrap_or_else(|e| e.into_inner()).clone();
+                    let handler = evict_handler
+                        .read()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone();
                     if let Some(handler) = handler {
                         match handler(handle).await {
                             Ok(bytes) => bytes,
@@ -847,7 +874,11 @@ impl StreamingManager {
                 if freed > 0 {
                     bytes_to_free = bytes_to_free.saturating_sub(freed);
                     memory_used.fetch_sub(freed, Ordering::Relaxed);
-                    if let Some(info) = streaming_assets.write().unwrap_or_else(|e| e.into_inner()).get_mut(&handle) {
+                    if let Some(info) = streaming_assets
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .get_mut(&handle)
+                    {
                         info.streaming_state = StreamingState::NotLoaded;
                         info.memory_residency = MemoryResidency::NotResident;
                     }
@@ -878,7 +909,10 @@ impl StreamingManager {
         normal_queue: &Arc<Mutex<VecDeque<StreamingRequest>>>,
         background_queue: &Arc<Mutex<VecDeque<StreamingRequest>>>,
     ) {
-        let context = viewer_context.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let context = viewer_context
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let mut assets = streaming_assets.write().unwrap_or_else(|e| e.into_inner());
         let mut upgrade_requests = Vec::new();
         let mut downgrade_requests = Vec::new();
@@ -1048,9 +1082,21 @@ impl StreamingManager {
             stats.active_streams = self.active_workers.load(Ordering::Relaxed) as u32;
 
             // Calculate queue sizes
-            let high_queue_size = self.high_priority_queue.lock().unwrap_or_else(|e| e.into_inner()).len();
-            let normal_queue_size = self.normal_priority_queue.lock().unwrap_or_else(|e| e.into_inner()).len();
-            let background_queue_size = self.background_queue.lock().unwrap_or_else(|e| e.into_inner()).len();
+            let high_queue_size = self
+                .high_priority_queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len();
+            let normal_queue_size = self
+                .normal_priority_queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len();
+            let background_queue_size = self
+                .background_queue
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .len();
             let total_queue_size = high_queue_size + normal_queue_size + background_queue_size;
 
             stats.peak_queue_size = stats.peak_queue_size.max(total_queue_size);
@@ -1074,7 +1120,10 @@ impl StreamingManager {
 
         // Wait for all workers to finish
         let handles = {
-            let mut handles_guard = self.worker_handles.lock().unwrap_or_else(|e| e.into_inner());
+            let mut handles_guard = self
+                .worker_handles
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             std::mem::take(&mut *handles_guard)
         };
 

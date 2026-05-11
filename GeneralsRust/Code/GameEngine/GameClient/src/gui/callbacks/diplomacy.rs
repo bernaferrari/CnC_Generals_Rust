@@ -107,8 +107,7 @@ impl DiplomacyCallbacks {
             }
             WindowMessage::None => {
                 let state_handle = diplomacy_ui_state();
-                let mut state = state_handle
-                    .lock().unwrap_or_else(|e| e.into_inner());
+                let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
                 state.animate_manager.update();
                 WindowMsgHandled::Handled
             }
@@ -343,8 +342,7 @@ impl DiplomacyCallbacks {
         }
 
         let state_handle = diplomacy_ui_state();
-        let mut state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if state.layout.is_none() {
             let layout =
                 with_window_manager(|manager| manager.create_layout("Diplomacy.wnd".to_string()));
@@ -377,8 +375,7 @@ impl DiplomacyCallbacks {
 
     fn hide_layout(&self) {
         let state_handle = diplomacy_ui_state();
-        let mut state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(window) = &state.window {
             let _ = window.borrow_mut().hide(true);
         }

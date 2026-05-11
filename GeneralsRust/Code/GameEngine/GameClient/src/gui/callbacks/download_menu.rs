@@ -55,8 +55,7 @@ fn name_to_id(name: &str) -> i32 {
 
 fn close_download_window() {
     let state_handle = download_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     let Some(parent) = state.parent.take() else {
         return;
     };
@@ -107,8 +106,7 @@ fn update_static_text(window: &Option<Rc<RefCell<GameWindow>>>, text: &str) {
 
 fn handle_download_error() {
     let error_key = {
-        let mut guard = download_manager()
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
         guard
             .as_mut()
             .map(|manager| manager.error_key().to_string())
@@ -194,8 +192,7 @@ fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
         }
         DownloadEvent::StatusUpdate(_) => {
             let status_key = {
-                let mut guard = download_manager()
-                    .lock().unwrap_or_else(|e| e.into_inner());
+                let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
                 guard
                     .as_mut()
                     .map(|manager| manager.status_key().to_string())
@@ -228,8 +225,7 @@ fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
         }
         DownloadEvent::End => {
             let (should_start_next, should_quit) = {
-                let mut guard = download_manager()
-                    .lock().unwrap_or_else(|e| e.into_inner());
+                let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
                 guard
                     .as_mut()
                     .map(|manager| {
@@ -250,8 +246,7 @@ fn update_from_event(state: &mut DownloadMenuState, event: DownloadEvent) {
 
 pub fn download_menu_init(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let state_handle = download_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     state.button_cancel_id = name_to_id("DownloadMenu.wnd:ButtonCancel");
     state.static_text_size_id = name_to_id("DownloadMenu.wnd:StaticTextSize");
@@ -276,8 +271,7 @@ pub fn download_menu_init(_layout: &WindowLayout, _user_data: Option<&mut dyn st
         state.progress_bar = parent_guard.find_child_by_id(state.progress_bar_id);
     }
 
-    let mut guard = download_manager()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
     if guard.is_none() {
         *guard = Some(DownloadManager::new());
     }
@@ -286,8 +280,7 @@ pub fn download_menu_init(_layout: &WindowLayout, _user_data: Option<&mut dyn st
 pub fn download_menu_shutdown(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     set_download_manager(None);
     let state_handle = download_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.static_text_size = None;
     state.static_text_time = None;
@@ -300,11 +293,9 @@ pub fn download_menu_shutdown(_layout: &WindowLayout, _user_data: Option<&mut dy
 
 pub fn download_menu_update(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
     let state_handle = download_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     let events = {
-        let mut guard = download_manager()
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
         guard
             .as_mut()
             .map(|manager| manager.update())
@@ -350,7 +341,8 @@ pub fn download_menu_system(
             let state_handle = download_menu_state();
             if control_id
                 == state_handle
-                    .lock().unwrap_or_else(|e| e.into_inner())
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
                     .button_cancel_id
             {
                 crate::gui::shell::main_menu::get_main_menu().handle_canceled_download(true);
@@ -364,16 +356,14 @@ pub fn download_menu_system(
 }
 
 pub fn queue_download(download: QueuedDownload) {
-    let mut guard = download_manager()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(manager) = guard.as_mut() {
         manager.queue_file_for_download(download);
     }
 }
 
 pub fn start_next_download() {
-    let mut guard = download_manager()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(manager) = guard.as_mut() {
         let _ = manager.download_next_queued_file();
     }

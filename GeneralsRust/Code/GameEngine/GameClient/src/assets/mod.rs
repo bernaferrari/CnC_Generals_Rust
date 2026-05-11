@@ -567,8 +567,18 @@ impl AssetManager {
         let path = path.as_ref().to_path_buf();
 
         // Check if already loaded
-        if let Some(handle) = self.asset_index.read().unwrap_or_else(|e| e.into_inner()).get(&path) {
-            if let Some(asset) = self.assets.read().unwrap_or_else(|e| e.into_inner()).get(handle) {
+        if let Some(handle) = self
+            .asset_index
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&path)
+        {
+            if let Some(asset) = self
+                .assets
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(handle)
+            {
                 asset.add_ref();
                 let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
                 stats.cache_hits += 1;
@@ -602,7 +612,10 @@ impl AssetManager {
             submitted_time: Instant::now(),
         };
 
-        self.load_queue.lock().unwrap_or_else(|e| e.into_inner()).push_back(request);
+        self.load_queue
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push_back(request);
         Ok(())
     }
 
@@ -654,9 +667,13 @@ impl AssetManager {
         let asset_data = Arc::new(AssetData::new(descriptor, data, load_time));
 
         // Store in cache
-        self.assets.write().unwrap_or_else(|e| e.into_inner())
+        self.assets
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(handle, asset_data.clone());
-        self.asset_index.write().unwrap_or_else(|e| e.into_inner())
+        self.asset_index
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(path.clone(), handle);
 
         if let Some(hot_reload) = &self.hot_reload {
@@ -766,7 +783,9 @@ impl AssetManager {
             old_size
         };
 
-        self.asset_index.write().unwrap_or_else(|e| e.into_inner())
+        self.asset_index
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(path.to_path_buf(), handle);
 
         let new_size = asset_data.descriptor.size_bytes;
@@ -944,7 +963,10 @@ impl AssetManager {
         let asset_manager = Arc::clone(self);
         hot_reload.register_memory_snapshot_provider(move || {
             let stats = asset_manager.get_stats();
-            let assets = asset_manager.assets.read().unwrap_or_else(|e| e.into_inner());
+            let assets = asset_manager
+                .assets
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
             let mut texture_memory = 0u64;
             let mut audio_memory = 0u64;
             let mut model_memory = 0u64;
@@ -1194,12 +1216,21 @@ impl AssetManager {
 
     /// Get asset by handle
     pub fn get_asset(&self, handle: AssetHandle) -> Option<Arc<AssetData>> {
-        self.assets.read().unwrap_or_else(|e| e.into_inner()).get(&handle).cloned()
+        self.assets
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&handle)
+            .cloned()
     }
 
     /// Release asset reference
     pub fn release_asset(&self, handle: AssetHandle) {
-        if let Some(asset) = self.assets.read().unwrap_or_else(|e| e.into_inner()).get(&handle) {
+        if let Some(asset) = self
+            .assets
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&handle)
+        {
             asset.release();
         }
     }
@@ -1360,8 +1391,14 @@ impl SubsystemInterface for AssetManager {
         log::info!("Resetting AssetManager subsystem");
 
         // Clear all assets
-        self.assets.write().unwrap_or_else(|e| e.into_inner()).clear();
-        self.asset_index.write().unwrap_or_else(|e| e.into_inner()).clear();
+        self.assets
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
+        self.asset_index
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
 
         // Reset memory usage
         *self.memory_used.lock().unwrap_or_else(|e| e.into_inner()) = 0;

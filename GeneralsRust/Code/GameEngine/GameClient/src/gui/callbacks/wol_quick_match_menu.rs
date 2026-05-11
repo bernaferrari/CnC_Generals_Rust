@@ -794,8 +794,7 @@ pub fn wol_quick_match_menu_init(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let mut state = quickmatch_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
     state.is_in_init = true;
 
     if with_gamespy_game_info(|info| info.is_game_in_progress()) {
@@ -1022,8 +1021,7 @@ pub fn wol_quick_match_menu_init(
 }
 
 fn shutdown_complete(layout: &WindowLayout) {
-    let mut state = quickmatch_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = false;
     layout.hide(true);
     let next = state.next_screen.clone();
@@ -1047,8 +1045,7 @@ pub fn wol_quick_match_menu_shutdown(
         }
     }
 
-    let mut state = quickmatch_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
 
     let quitting = get_game_engine()
         .and_then(|engine| engine.lock().ok().map(|guard| guard.get_quitting()))
@@ -1082,8 +1079,7 @@ pub fn wol_quick_match_menu_update(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let mut state = quickmatch_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
     let shell_finished = get_shell().is_anim_finished();
     let transitions_finished = with_window_manager(|manager| manager.transitions_finished());
     if state.is_shutting_down && shell_finished && transitions_finished {
@@ -1265,7 +1261,8 @@ pub fn wol_quick_match_menu_update(
                                     for map in config.get_qm_maps() {
                                         let map_lower = map.to_lowercase();
                                         let cache = get_map_cache_manager();
-                                        let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+                                        let cache_guard =
+                                            cache.lock().unwrap_or_else(|e| e.into_inner());
                                         if let Some(md) = cache_guard.find_map(&map_lower) {
                                             if md.num_players < num_players as i32 {
                                                 continue;
@@ -1283,7 +1280,8 @@ pub fn wol_quick_match_menu_update(
                                         if let Some(map_name) = selected_map.clone() {
                                             info.set_map(map_name);
                                             let cache = get_map_cache_manager();
-                                            let cache_guard = cache.lock().unwrap_or_else(|e| e.into_inner());
+                                            let cache_guard =
+                                                cache.lock().unwrap_or_else(|e| e.into_inner());
                                             if let Some(md) = cache_guard.find_map(info.get_map()) {
                                                 info.set_map_crc(md.crc);
                                                 info.set_map_size(md.filesize);
@@ -1376,8 +1374,7 @@ pub fn wol_quick_match_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = quickmatch_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
     if state.button_pushed {
         return WindowMsgHandled::Handled;
     }
@@ -1402,8 +1399,7 @@ pub fn wol_quick_match_menu_system(
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
-            let mut state = quickmatch_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
             let control_id = data1 as i32;
             if state.button_pushed {
                 return WindowMsgHandled::Handled;

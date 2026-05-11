@@ -166,9 +166,15 @@ fn free_smudge_pool() -> &'static Mutex<Vec<Smudge>> {
 }
 
 fn pop_free_smudge() -> Option<Smudge> {
-    free_smudge_pool().lock().unwrap_or_else(|e| e.into_inner()).pop()
+    free_smudge_pool()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .pop()
 }
 
 fn push_free_smudge(smudge: Smudge) {
-    free_smudge_pool().lock().unwrap_or_else(|e| e.into_inner()).push(smudge);
+    free_smudge_pool()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(smudge);
 }

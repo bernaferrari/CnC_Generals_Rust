@@ -290,8 +290,7 @@ fn set_general_campaign(button_index: usize) -> Option<String> {
 fn start_challenge_game() {
     let selected_index = {
         let state_handle = challenge_menu_state();
-        let state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         match state.last_button_index {
             Some(index) => index,
             None => return,
@@ -325,8 +324,7 @@ fn start_challenge_game() {
 
     {
         let state_handle = challenge_menu_state();
-        let mut state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(previous_index) = state.last_button_index {
             if let Some(button_id) = state.general_button_ids.get(previous_index) {
                 set_general_button_checked(*button_id, false);
@@ -363,8 +361,7 @@ pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     }
 
     let state_handle = challenge_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("ChallengeMenu.wnd:ParentChallengeMenu");
     state.button_play_id = name_to_id("ChallengeMenu.wnd:ButtonPlay");
@@ -431,8 +428,7 @@ pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
 
 pub fn challenge_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = challenge_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     if state.just_entered {
         if state.initial_gadget_delay == 1 {
@@ -486,8 +482,7 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
 
     with_window_manager(|manager| manager.transition_reverse("ChallengeMenuFade"));
     let state_handle = challenge_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = true;
     if let Some(audio) = TheAudio::get() {
         audio.remove_audio_event(state.last_selection_sound);
@@ -507,8 +502,7 @@ pub fn challenge_menu_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let state_handle = challenge_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
@@ -588,8 +582,7 @@ pub fn challenge_menu_input(
 ) -> WindowMsgHandled {
     if msg == WindowMessage::Char && data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
         let state_handle = challenge_menu_state();
-        let state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,

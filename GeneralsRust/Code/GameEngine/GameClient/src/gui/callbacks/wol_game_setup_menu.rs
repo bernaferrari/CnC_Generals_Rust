@@ -328,8 +328,7 @@ fn get_additional_disconnects_from_user_file(profile_id: i32) -> i32 {
 }
 
 fn player_tooltip(window: &GameWindow, _inst: &WindowInstanceData, _mouse: u32) {
-    let state = game_setup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let state = game_setup_state().lock().unwrap_or_else(|e| e.into_inner());
     let window_id = window.get_id() as i32;
     let mut slot_idx = None;
     for i in 0..MAX_SLOTS {
@@ -1541,8 +1540,7 @@ fn first_selectable_player(game: &GameInfo) -> usize {
 }
 
 pub fn wol_game_setup_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let mut state = game_setup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = game_setup_state().lock().unwrap_or_else(|e| e.into_inner());
 
     if with_gamespy_game_info(|info| info.is_game_in_progress()) {
         with_gamespy_game_info_mut(|info| info.set_game_in_progress(false));
@@ -1878,8 +1876,7 @@ pub fn wol_game_setup_menu_update(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let mut state = game_setup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = game_setup_state().lock().unwrap_or_else(|e| e.into_inner());
 
     if state.is_shutting_down
         && get_shell().is_anim_finished()
@@ -2313,8 +2310,7 @@ pub fn wol_game_setup_menu_shutdown(
     layout: &WindowLayout,
     user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let mut state = game_setup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = game_setup_state().lock().unwrap_or_else(|e| e.into_inner());
 
     if let Some(info) = get_gamespy_info() {
         if let Ok(mut info) = info.lock() {
@@ -2368,8 +2364,7 @@ pub fn wol_game_setup_menu_system(
     data1: WindowMsgData,
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let mut state = game_setup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = game_setup_state().lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::Create => {

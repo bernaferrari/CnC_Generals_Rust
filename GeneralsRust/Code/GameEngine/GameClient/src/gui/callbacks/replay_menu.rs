@@ -139,8 +139,7 @@ fn populate_replay_listbox(state: &mut ReplayMenuState) {
 
 fn hide_parent_menu() {
     let state_handle = replay_menu_state();
-    let state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().hide(true);
     }
@@ -152,8 +151,7 @@ fn playback_replay_row_direct(row_selected: i32) {
     }
 
     let state_handle = replay_menu_state();
-    let state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     let filename = state.menu.get_replay_filename_from_listbox(row_selected);
     drop(state);
 
@@ -165,8 +163,7 @@ fn playback_replay_row_direct(row_selected: i32) {
 
 fn playback_selected_replay(ignore_version: bool) {
     let state_handle = replay_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     sync_selected_index(&mut state);
 
     let selected = state.menu.get_selected_index();
@@ -223,8 +220,7 @@ fn playback_selected_replay(ignore_version: bool) {
 
 fn confirm_delete_replay() {
     let state_handle = replay_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     sync_selected_index(&mut state);
     if state.menu.get_selected_index() < 0 {
         drop(state);
@@ -238,8 +234,7 @@ fn confirm_delete_replay() {
     drop(state);
     let yes = Box::new(|| {
         let state_handle = replay_menu_state();
-        let mut state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         state.menu.delete_replay();
         populate_replay_listbox(&mut state);
     });
@@ -253,8 +248,7 @@ fn confirm_delete_replay() {
 
 fn confirm_copy_replay() {
     let state_handle = replay_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     sync_selected_index(&mut state);
     if state.menu.get_selected_index() < 0 {
         drop(state);
@@ -268,8 +262,7 @@ fn confirm_copy_replay() {
     drop(state);
     let yes = Box::new(|| {
         let state_handle = replay_menu_state();
-        let mut state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         state.menu.copy_replay();
         populate_replay_listbox(&mut state);
     });
@@ -283,8 +276,7 @@ fn confirm_copy_replay() {
 
 pub fn replay_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = replay_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("ReplayMenu.wnd:ParentReplayMenu");
     state.gadget_parent_id = name_to_id("ReplayMenu.wnd:GadgetParent");
@@ -328,16 +320,14 @@ pub fn replay_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std::a
     }
 
     let state_handle = replay_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.menu.shutdown(false);
     state.is_shutting_down = true;
 }
 
 pub fn replay_menu_update(layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = replay_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     if state.just_entered {
         if state.initial_gadget_delay == 1 {
             with_window_manager(|manager| {
@@ -368,8 +358,7 @@ pub fn replay_menu_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let state_handle = replay_menu_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
@@ -431,8 +420,7 @@ pub fn replay_menu_input(
 ) -> WindowMsgHandled {
     if msg == WindowMessage::Char && data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
         let state_handle = replay_menu_state();
-        let state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,

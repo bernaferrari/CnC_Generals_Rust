@@ -113,7 +113,8 @@ static LANGUAGE_FILTER: OnceLock<RwLock<LanguageFilter>> = OnceLock::new();
 pub fn get_language_filter() -> std::sync::RwLockWriteGuard<'static, LanguageFilter> {
     LANGUAGE_FILTER
         .get_or_init(|| RwLock::new(LanguageFilter::new()))
-        .write().unwrap_or_else(|e| e.into_inner())
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 fn locate_bad_word_file() -> Option<PathBuf> {
