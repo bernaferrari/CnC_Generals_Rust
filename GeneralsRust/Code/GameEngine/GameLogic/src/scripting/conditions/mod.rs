@@ -773,10 +773,7 @@ impl ScriptCondition for PlayersAlliedCondition {
         };
 
         let rel = p1_guard.get_relationship(&p2_guard);
-        Ok(matches!(
-            rel,
-            crate::common::Relationship::Allies
-        ))
+        Ok(matches!(rel, crate::common::Relationship::Allies))
     }
 
     fn name(&self) -> &str {
@@ -6794,10 +6791,7 @@ impl ScriptCondition for EnemySightedCondition {
                         if let Ok(src_player) = src_arc.read() {
                             if let Ok(tgt_player) = player.read() {
                                 let rel = src_player.get_relationship(&tgt_player);
-                                matches!(
-                                    rel,
-                                    Relationship::Allies
-                                )
+                                matches!(rel, Relationship::Allies)
                             } else {
                                 false
                             }

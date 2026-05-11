@@ -550,7 +550,8 @@ impl ScriptEvaluator {
                 })?;
                 let comparison_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "PlayerHasObjectComparison condition missing comparison parameter".to_string(),
+                        "PlayerHasObjectComparison condition missing comparison parameter"
+                            .to_string(),
                     )
                 })?;
                 let count_param = condition.get_parameter(2).ok_or_else(|| {
@@ -643,9 +644,7 @@ impl ScriptEvaluator {
             }
 
             // Player built an upgrade (any source unit)
-            ConditionType::PlayerBuiltUpgrade => {
-                self.evaluate_upgrade_condition(condition, false)
-            }
+            ConditionType::PlayerBuiltUpgrade => self.evaluate_upgrade_condition(condition, false),
 
             // Player built an upgrade from a specific named unit
             ConditionType::PlayerBuiltUpgradeFromNamed => {
@@ -656,7 +655,8 @@ impl ScriptEvaluator {
             ConditionType::PlayerDestroyedNBuildingsPlayer => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "PlayerDestroyedNBuildingsPlayer condition missing player parameter".to_string(),
+                        "PlayerDestroyedNBuildingsPlayer condition missing player parameter"
+                            .to_string(),
                     )
                 })?;
                 let _num_param = condition.get_parameter(1);
@@ -704,7 +704,8 @@ impl ScriptEvaluator {
                 })?;
                 let type_param = condition.get_parameter(3).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "PlayerHasComparisonUnitTypeInTriggerArea condition missing type parameter".to_string(),
+                        "PlayerHasComparisonUnitTypeInTriggerArea condition missing type parameter"
+                            .to_string(),
                     )
                 })?;
                 let trigger_param = condition.get_parameter(4).ok_or_else(|| {
@@ -781,7 +782,8 @@ impl ScriptEvaluator {
                 })?;
                 let kind_param = condition.get_parameter(3).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "PlayerHasComparisonUnitKindInTriggerArea condition missing kind parameter".to_string(),
+                        "PlayerHasComparisonUnitKindInTriggerArea condition missing kind parameter"
+                            .to_string(),
                     )
                 })?;
                 let trigger_param = condition.get_parameter(4).ok_or_else(|| {
@@ -919,7 +921,8 @@ impl ScriptEvaluator {
                 })?;
                 let power_name_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishSpecialPowerReady condition missing power name parameter".to_string(),
+                        "SkirmishSpecialPowerReady condition missing power name parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1041,13 +1044,15 @@ impl ScriptEvaluator {
             ConditionType::SkirmishSuppliesValueWithinDistance => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishSuppliesValueWithinDistance condition missing player parameter".to_string(),
+                        "SkirmishSuppliesValueWithinDistance condition missing player parameter"
+                            .to_string(),
                     )
                 })?;
                 let _distance_param = condition.get_parameter(1);
                 let threshold_param = condition.get_parameter(2).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishSuppliesValueWithinDistance condition missing threshold parameter".to_string(),
+                        "SkirmishSuppliesValueWithinDistance condition missing threshold parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1068,8 +1073,7 @@ impl ScriptEvaluator {
                     if obj_guard.is_destroyed() {
                         continue;
                     }
-                    let Some(module) =
-                        obj_guard.find_update_module("SupplyWarehouseDockUpdate")
+                    let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate")
                     else {
                         continue;
                     };
@@ -1088,17 +1092,20 @@ impl ScriptEvaluator {
             ConditionType::SkirmishTechBuildingWithinDistance => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishTechBuildingWithinDistance condition missing player parameter".to_string(),
+                        "SkirmishTechBuildingWithinDistance condition missing player parameter"
+                            .to_string(),
                     )
                 })?;
                 let distance_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishTechBuildingWithinDistance condition missing distance parameter".to_string(),
+                        "SkirmishTechBuildingWithinDistance condition missing distance parameter"
+                            .to_string(),
                     )
                 })?;
                 let trigger_param = condition.get_parameter(2).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishTechBuildingWithinDistance condition missing trigger parameter".to_string(),
+                        "SkirmishTechBuildingWithinDistance condition missing trigger parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1166,12 +1173,14 @@ impl ScriptEvaluator {
             ConditionType::SkirmishCommandButtonReadyAll => {
                 let team_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishCommandButtonReadyAll condition missing team parameter".to_string(),
+                        "SkirmishCommandButtonReadyAll condition missing team parameter"
+                            .to_string(),
                     )
                 })?;
                 let button_name_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishCommandButtonReadyAll condition missing button name parameter".to_string(),
+                        "SkirmishCommandButtonReadyAll condition missing button name parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1204,9 +1213,7 @@ impl ScriptEvaluator {
                             all_ready = false;
                             break 'outer;
                         };
-                        if !obj_guard.is_destroyed()
-                            && _button.is_ready(&obj_guard)
-                        {
+                        if !obj_guard.is_destroyed() && _button.is_ready(&obj_guard) {
                             continue;
                         }
                         all_ready = false;
@@ -1220,12 +1227,14 @@ impl ScriptEvaluator {
             ConditionType::SkirmishCommandButtonReadyPartial => {
                 let team_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishCommandButtonReadyPartial condition missing team parameter".to_string(),
+                        "SkirmishCommandButtonReadyPartial condition missing team parameter"
+                            .to_string(),
                     )
                 })?;
                 let button_name_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishCommandButtonReadyPartial condition missing button name parameter".to_string(),
+                        "SkirmishCommandButtonReadyPartial condition missing button name parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1261,12 +1270,14 @@ impl ScriptEvaluator {
             ConditionType::SkirmishUnownedFactionUnitExists => {
                 let comparison_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishUnownedFactionUnitExists condition missing comparison parameter".to_string(),
+                        "SkirmishUnownedFactionUnitExists condition missing comparison parameter"
+                            .to_string(),
                     )
                 })?;
                 let count_param = condition.get_parameter(2).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishUnownedFactionUnitExists condition missing count parameter".to_string(),
+                        "SkirmishUnownedFactionUnitExists condition missing count parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1310,12 +1321,14 @@ impl ScriptEvaluator {
             ConditionType::SkirmishPlayerHasPrerequisiteToBuild => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerHasPrerequisiteToBuild condition missing player parameter".to_string(),
+                        "SkirmishPlayerHasPrerequisiteToBuild condition missing player parameter"
+                            .to_string(),
                     )
                 })?;
                 let type_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerHasPrerequisiteToBuild condition missing type parameter".to_string(),
+                        "SkirmishPlayerHasPrerequisiteToBuild condition missing type parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1335,7 +1348,8 @@ impl ScriptEvaluator {
             ConditionType::SkirmishPlayerHasComparisonGarrisoned => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerHasComparisonGarrisoned condition missing player parameter".to_string(),
+                        "SkirmishPlayerHasComparisonGarrisoned condition missing player parameter"
+                            .to_string(),
                     )
                 })?;
                 let comparison_param = condition.get_parameter(1).ok_or_else(|| {
@@ -1345,7 +1359,8 @@ impl ScriptEvaluator {
                 })?;
                 let count_param = condition.get_parameter(2).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerHasComparisonGarrisoned condition missing count parameter".to_string(),
+                        "SkirmishPlayerHasComparisonGarrisoned condition missing count parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1450,12 +1465,14 @@ impl ScriptEvaluator {
             ConditionType::SkirmishPlayerHasUnitsInArea => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerHasUnitsInArea condition missing player parameter".to_string(),
+                        "SkirmishPlayerHasUnitsInArea condition missing player parameter"
+                            .to_string(),
                     )
                 })?;
                 let trigger_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerHasUnitsInArea condition missing trigger parameter".to_string(),
+                        "SkirmishPlayerHasUnitsInArea condition missing trigger parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1495,7 +1512,8 @@ impl ScriptEvaluator {
             ConditionType::SkirmishPlayerHasBeenAttackedByPlayer => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerHasBeenAttackedByPlayer condition missing player parameter".to_string(),
+                        "SkirmishPlayerHasBeenAttackedByPlayer condition missing player parameter"
+                            .to_string(),
                     )
                 })?;
                 let attacker_param = condition.get_parameter(1).ok_or_else(|| {
@@ -1527,12 +1545,14 @@ impl ScriptEvaluator {
 
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerIsOutsideArea condition missing player parameter".to_string(),
+                        "SkirmishPlayerIsOutsideArea condition missing player parameter"
+                            .to_string(),
                     )
                 })?;
                 let trigger_param = condition.get_parameter(1).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerIsOutsideArea condition missing trigger parameter".to_string(),
+                        "SkirmishPlayerIsOutsideArea condition missing trigger parameter"
+                            .to_string(),
                     )
                 })?;
 
@@ -1571,7 +1591,8 @@ impl ScriptEvaluator {
             ConditionType::SkirmishPlayerHasDiscoveredPlayer => {
                 let player_param = condition.get_parameter(0).ok_or_else(|| {
                     GameLogicError::Configuration(
-                        "SkirmishPlayerHasDiscoveredPlayer condition missing player parameter".to_string(),
+                        "SkirmishPlayerHasDiscoveredPlayer condition missing player parameter"
+                            .to_string(),
                     )
                 })?;
                 let discovered_param = condition.get_parameter(1).ok_or_else(|| {
@@ -1580,7 +1601,8 @@ impl ScriptEvaluator {
                     )
                 })?;
 
-                let Some(discovered_by_arc) = self.resolve_player_from_param(discovered_param) else {
+                let Some(discovered_by_arc) = self.resolve_player_from_param(discovered_param)
+                else {
                     return Ok(false);
                 };
                 let Ok(discovered_by_guard) = discovered_by_arc.read() else {
@@ -1651,10 +1673,7 @@ impl ScriptEvaluator {
                 let Some(player_arc) = self.resolve_player_from_param(player_param) else {
                     return Ok(false);
                 };
-                let player_index = player_arc
-                    .read()
-                    .ok()
-                    .map(|p| p.get_player_index() as i32);
+                let player_index = player_arc.read().ok().map(|p| p.get_player_index() as i32);
                 let Some(player_index) = player_index else {
                     return Ok(false);
                 };
@@ -1671,7 +1690,9 @@ impl ScriptEvaluator {
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
-                    if !obj_guard.is_destroyed() && types.contains_template(Some(obj_guard.get_template())) {
+                    if !obj_guard.is_destroyed()
+                        && types.contains_template(Some(obj_guard.get_template()))
+                    {
                         current_count += 1;
                     }
                 }
@@ -1712,10 +1733,7 @@ impl ScriptEvaluator {
                     return Ok(false);
                 };
                 let player_id = player_guard.get_player_index() as u32;
-                let min_supplies = min_param
-                    .as_ref()
-                    .map(|p| p.get_int())
-                    .unwrap_or(0) as i32;
+                let min_supplies = min_param.as_ref().map(|p| p.get_int()).unwrap_or(0) as i32;
 
                 let safe = crate::ai::integration::with_ai_integration(|manager| {
                     manager.with_ai_player(player_id, |ai| ai.is_supply_source_safe(min_supplies))
