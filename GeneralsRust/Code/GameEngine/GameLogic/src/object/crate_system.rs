@@ -15,7 +15,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use crate::common::science::{ScienceType, SCIENCE_INVALID};
-use crate::common::VeterancyLevel;
+use crate::common::{kind_of_indices, kindof_from_name, VeterancyLevel};
+use game_engine::common::system::kind_of::KIND_OF_BIT_NAMES;
 
 /// Crate creation entry - represents one possible crate that can be created
 /// Matches C++ `crateCreationEntry` struct
@@ -430,23 +431,49 @@ fn parse_veterancy_level(name: &str) -> VeterancyLevel {
 }
 
 /// Parse a KindOf mask from a string token.
-/// C++ uses `KindOfMaskType::parseFromINI` which processes space-separated
-/// KindOf flag names.  For now, we support a single KindOf name or a hex value.
+/// C++ uses `KindOfMaskType::parseFromINI` which processes flag names into
+/// the engine bit layout. Hex masks are accepted for compatibility.
 fn parse_kind_of_mask(token: &str) -> u64 {
-    // Try parsing as hex first
-    if let Ok(val) = u64::from_str_radix(token.trim_start_matches("0x"), 16) {
-        return val;
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        return 0;
     }
-    // Try single KindOf name (simplified -- full impl would parse space-separated list)
-    match token.to_ascii_uppercase().as_str() {
-        "INFANTRY" => 1u64 << 0,
-        "VEHICLE" => 1u64 << 1,
-        "STRUCTURE" => 1u64 << 2,
-        "AIRCRAFT" => 1u64 << 3,
-        "DOZER" => 1u64 << 4,
-        "CLEANUP_HAZARD" => 1u64 << 5,
-        _ => 0,
+
+    if let Some(hex) = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))
+    {
+        return u64::from_str_radix(hex, 16).unwrap_or(0);
     }
+
+    let mut mask = 0u64;
+    for part in trimmed.split(|ch: char| ch.is_whitespace() || ch == '|') {
+        let name = part.trim();
+        if name.is_empty() {
+            continue;
+        }
+        if let Some(index) = kind_of_bit_index_from_name(name) {
+            mask |= 1u64 << index;
+        }
+    }
+    mask
+}
+
+fn kind_of_bit_index_from_name(name: &str) -> Option<u32> {
+    let upper = name.trim().to_ascii_uppercase();
+    if let Some(index) = KIND_OF_BIT_NAMES
+        .iter()
+        .position(|bit_name| *bit_name == upper.as_str())
+    {
+        return (index < u64::BITS as usize).then_some(index as u32);
+    }
+
+    kindof_from_name(&upper).and_then(|kind| {
+        kind_of_indices(kind)
+            .iter()
+            .copied()
+            .find(|index| *index < u64::BITS)
+    })
 }
 
 fn parse_science_type(token: &str) -> ScienceType {
@@ -502,6 +529,24 @@ mod tests {
         assert!(target.is_owned_by_maker);
         assert_eq!(target.possible_crates.len(), 2);
         assert_eq!(target.name, "Target"); // Name is NOT copied
+    }
+
+    #[test]
+    fn killed_by_type_kindof_parser_uses_cpp_bit_positions() {
+        assert_eq!(parse_kind_of_mask("INFANTRY"), 1u64 << 8);
+        assert_eq!(parse_kind_of_mask("VEHICLE"), 1u64 << 9);
+        assert_eq!(parse_kind_of_mask("STRUCTURE"), 1u64 << 7);
+        assert_eq!(parse_kind_of_mask("DOZER"), 1u64 << 12);
+        assert_eq!(parse_kind_of_mask("CLEANUP_HAZARD"), 1u64 << 55);
+    }
+
+    #[test]
+    fn killed_by_type_kindof_parser_accepts_multiple_names_and_hex() {
+        assert_eq!(
+            parse_kind_of_mask("INFANTRY VEHICLE|STRUCTURE"),
+            (1u64 << 8) | (1u64 << 9) | (1u64 << 7)
+        );
+        assert_eq!(parse_kind_of_mask("0x180"), (1u64 << 8) | (1u64 << 7));
     }
 
     #[test]
