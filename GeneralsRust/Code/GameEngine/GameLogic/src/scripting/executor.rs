@@ -1703,34 +1703,41 @@ impl ScriptActionDispatcher {
 
         match (attacker_id, victim_id) {
             (Some(attacker), Some(target)) => {
-                // Get the attacker object to find player ID
-                if let Some(obj_arc) = TheGameLogic::find_object_by_id(attacker) {
-                    let player_id = obj_arc
-                        .read()
-                        .ok()
-                        .and_then(|obj| obj.get_controlling_player_id().map(|id| id as i32));
-
-                    if let Some(pid) = player_id {
-                        let current_frame = TheGameLogic::get_frame();
-                        if let Err(e) =
-                            cmd_api::attack_object(vec![attacker], target, pid, current_frame)
-                        {
-                            log::warn!("Failed to issue attack command: {}", e);
-                        } else {
-                            log::info!(
-                                "Named unit '{}' (ID: {}) attacking '{}' (ID: {})",
-                                attacker_name,
-                                attacker,
-                                victim_name,
-                                target
-                            );
-                        }
-                    } else {
-                        log::warn!("Attacker '{}' has no controlling player", attacker_name);
-                    }
-                } else {
-                    log::warn!("Attacker '{}' not found in object registry", attacker_name);
+                if TheGameLogic::find_object_by_id(target).is_none() {
+                    log::warn!("Victim '{}' not found in object registry", victim_name);
+                    return Ok(ScriptActionResult::Success);
                 }
+
+                let Some(obj_arc) = TheGameLogic::find_object_by_id(attacker) else {
+                    log::warn!("Attacker '{}' not found in object registry", attacker_name);
+                    return Ok(ScriptActionResult::Success);
+                };
+
+                if let Ok(mut obj_guard) = obj_arc.write() {
+                    let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+                        log::warn!("Attacker '{}' has no AI update interface", attacker_name);
+                        return Ok(ScriptActionResult::Success);
+                    };
+                    obj_guard.leave_group();
+                    if let Ok(mut ai_guard) = ai_arc.lock() {
+                        let _ =
+                            ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::ForceAttackObject,
+                            CommandSourceType::FromScript,
+                        );
+                        params.obj = Some(target);
+                        params.int_value = -1; // NO_MAX_SHOTS_LIMIT
+                        let _ = ai_guard.execute_command(&params);
+                        log::info!(
+                            "Named unit '{}' (ID: {}) force attacking '{}' (ID: {})",
+                            attacker_name,
+                            attacker,
+                            victim_name,
+                            target
+                        );
+                    };
+                };
             }
             (None, _) => {
                 log::warn!("Attacker '{}' not found for attack", attacker_name);
@@ -18883,5 +18890,149 @@ impl ScriptConditionEvaluator {
             ComparisonType::Greater => lhs > rhs,
             ComparisonType::NotEqual => lhs != rhs,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::LocomotorSetType;
+    use crate::modules::AIUpdateInterface;
+    use crate::object_manager::ObjectCreationFlags;
+    use std::sync::Mutex;
+
+    #[derive(Debug)]
+    struct RecordingAi {
+        commands: Arc<Mutex<Vec<(AiCommandType, Option<ObjectID>, i32, CommandSourceType)>>>,
+        locomotors: Arc<Mutex<Vec<LocomotorSetType>>>,
+    }
+
+    impl AIUpdateInterface for RecordingAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        fn is_moving(&self) -> bool {
+            false
+        }
+
+        fn is_idle(&self) -> bool {
+            true
+        }
+
+        fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn choose_locomotor_set(
+            &mut self,
+            set: LocomotorSetType,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.locomotors.lock().unwrap().push(set);
+            Ok(())
+        }
+
+        fn execute_command(
+            &mut self,
+            command: &AiCommandParams,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            self.commands.lock().unwrap().push((
+                command.cmd,
+                command.obj,
+                command.int_value,
+                command.cmd_source,
+            ));
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn executor_named_attack_named_leaves_group_and_dispatches_force_attack() {
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let attacker_id = 8450;
+        let target_id = 8451;
+        let attacker = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                attacker_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test attacker instance"),
+        ));
+        let target = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                target_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test target instance"),
+        ));
+
+        {
+            let instance = attacker.write().unwrap();
+            let mut base = instance.base.write().unwrap();
+            base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                commands: Arc::clone(&commands),
+                locomotors: Arc::clone(&locomotors),
+            }))));
+            base.enter_group(&crate::ai::AIGroup::new(91));
+            assert_eq!(base.get_group_id(), Some(91));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(attacker.clone(), Coord3D::new(12.0, 4.0, 0.0))
+            .unwrap();
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(target, Coord3D::new(20.0, 4.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("ExecutorAttacker".to_string(), attacker_id)
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("ExecutorVictim".to_string(), target_id)
+            .unwrap();
+
+        let mut action = ScriptAction::new(ScriptActionType::NamedAttackNamed);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ExecutorAttacker".to_string(),
+            ))
+            .unwrap();
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ExecutorVictim".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_named_attack_named(&action).unwrap();
+
+        assert_eq!(*locomotors.lock().unwrap(), vec![LocomotorSetType::Normal]);
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::ForceAttackObject,
+                Some(target_id),
+                -1,
+                CommandSourceType::FromScript,
+            )]
+        );
+        assert_eq!(
+            attacker.read().unwrap().base.read().unwrap().get_group_id(),
+            None
+        );
     }
 }
