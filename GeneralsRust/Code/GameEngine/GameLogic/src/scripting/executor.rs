@@ -1832,26 +1832,23 @@ impl ScriptActionDispatcher {
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(object_id) = object_id_opt {
-            // Get the object to find player ID
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                let player_id = obj_arc
+                let ai_result = obj_arc
                     .read()
                     .ok()
-                    .and_then(|obj| obj.get_controlling_player_id().map(|id| id as i32));
+                    .and_then(|obj| obj.get_ai_update_interface());
 
-                if let Some(pid) = player_id {
-                    let current_frame = TheGameLogic::get_frame();
-                    if let Err(e) = cmd_api::stop_objects(vec![object_id], pid, current_frame) {
-                        log::warn!("Failed to stop named unit '{}': {}", unit_name, e);
-                    } else {
-                        log::info!(
-                            "Named unit '{}' stop command issued (ID: {})",
-                            unit_name,
-                            object_id
+                if let Some(ai_arc) = ai_result {
+                    if let Ok(mut ai) = ai_arc.lock() {
+                        let params = AiCommandParams::new(
+                            AiCommandType::Idle,
+                            CommandSourceType::FromScript,
                         );
-                    }
+                        let _ = ai.execute_command(&params);
+                        log::info!("Named unit '{}' stopped (ID: {})", unit_name, object_id);
+                    };
                 } else {
-                    log::warn!("Named unit '{}' has no controlling player", unit_name);
+                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
                 }
             } else {
                 log::warn!("Named unit '{}' not found in object registry", unit_name);
@@ -19485,6 +19482,70 @@ mod tests {
         assert_eq!(
             hunter.read().unwrap().base.read().unwrap().get_group_id(),
             Some(95)
+        );
+    }
+
+    #[test]
+    fn executor_named_stop_dispatches_direct_ai_without_player_owner() {
+        get_object_manager().write().unwrap().reset();
+        get_named_object_tracker().clear().unwrap();
+
+        let commands = Arc::new(Mutex::new(Vec::new()));
+        let locomotors = Arc::new(Mutex::new(Vec::new()));
+        let stopper_id = 8496;
+        let stopper = Arc::new(RwLock::new(
+            crate::object_manager::GameObjectInstance::new(
+                stopper_id,
+                None,
+                None,
+                ObjectCreationFlags::new(),
+            )
+            .expect("test stopper instance"),
+        ));
+
+        {
+            let instance = stopper.write().unwrap();
+            instance
+                .base
+                .write()
+                .unwrap()
+                .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+                    commands: Arc::clone(&commands),
+                    locomotors: Arc::clone(&locomotors),
+                }))));
+        }
+
+        get_object_manager()
+            .write()
+            .unwrap()
+            .register_object_instance(stopper, Coord3D::new(13.0, 6.0, 0.0))
+            .unwrap();
+        get_named_object_tracker()
+            .register_named_object("ExecutorStopper".to_string(), stopper_id)
+            .unwrap();
+
+        let mut action = ScriptAction::new(ScriptActionType::NamedStop);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Unit,
+                "ExecutorStopper".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_named_stop(&action).unwrap();
+
+        assert!(locomotors.lock().unwrap().is_empty());
+        assert_eq!(
+            *commands.lock().unwrap(),
+            vec![(
+                AiCommandType::Idle,
+                None,
+                None,
+                0,
+                CommandSourceType::FromScript,
+            )]
         );
     }
 
