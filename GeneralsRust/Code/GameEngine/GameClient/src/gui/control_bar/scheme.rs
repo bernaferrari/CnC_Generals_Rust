@@ -41,9 +41,14 @@ impl super::ControlBarSchemeManager for DefaultControlBarSchemeManager {
             },
         });
 
-        self.loaded_schemes.write().unwrap_or_else(|e| e.into_inner())
+        self.loaded_schemes
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(scheme_name.to_string(), scheme.clone());
-        *self.current_scheme.write().unwrap_or_else(|e| e.into_inner()) = Some(scheme);
+        *self
+            .current_scheme
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(scheme);
 
         Ok(())
     }
@@ -53,7 +58,10 @@ impl super::ControlBarSchemeManager for DefaultControlBarSchemeManager {
     }
 
     fn set_scheme(&mut self, scheme: Arc<ControlBarScheme>) {
-        *self.current_scheme.write().unwrap_or_else(|e| e.into_inner()) = Some(scheme);
+        *self
+            .current_scheme
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = Some(scheme);
     }
 }
 

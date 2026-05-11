@@ -680,7 +680,8 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
     }
 
     get_meta_map()
-        .write().unwrap_or_else(|e| e.into_inner())
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
         .add_record(record);
     Ok(())
 }
@@ -982,7 +983,8 @@ fn cycle_lod_level_state() -> &'static RwLock<DynamicGameLODLevel> {
 fn cycle_dynamic_lod_level() {
     let next = {
         let mut guard = cycle_lod_level_state()
-            .write().unwrap_or_else(|e| e.into_inner());
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
         *guard = match *guard {
             DynamicGameLODLevel::VeryHigh => DynamicGameLODLevel::High,
             DynamicGameLODLevel::High => DynamicGameLODLevel::Medium,
@@ -3835,13 +3837,17 @@ mod tests {
         assert_eq!(dispatch_map_entry(&alias_record("CHEAT_ADD_CASH")), None);
         assert_eq!(
             local_player
-                .read().unwrap_or_else(|e| e.into_inner())
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
                 .get_money()
                 .get_money(),
             20_000
         );
 
-        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
+        ThePlayerList()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     #[test]
@@ -3876,7 +3882,10 @@ mod tests {
             assert!(local_guard.ignores_prereqs());
         }
 
-        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
+        ThePlayerList()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     #[test]
@@ -3914,7 +3923,10 @@ mod tests {
             assert_eq!(local_guard.get_rank_level(), 2);
         }
 
-        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
+        ThePlayerList()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     #[test]
@@ -3977,7 +3989,9 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            *get_objective_movie_index().read().unwrap_or_else(|e| e.into_inner()),
+            *get_objective_movie_index()
+                .read()
+                .unwrap_or_else(|e| e.into_inner()),
             4
         );
 
@@ -3986,7 +4000,9 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            *get_objective_movie_index().read().unwrap_or_else(|e| e.into_inner()),
+            *get_objective_movie_index()
+                .read()
+                .unwrap_or_else(|e| e.into_inner()),
             5
         );
 
@@ -3998,7 +4014,9 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert_eq!(
-            *get_objective_movie_index().read().unwrap_or_else(|e| e.into_inner()),
+            *get_objective_movie_index()
+                .read()
+                .unwrap_or_else(|e| e.into_inner()),
             1
         );
 
@@ -4086,7 +4104,8 @@ mod tests {
         );
         assert_eq!(
             ThePlayerList()
-                .read().unwrap_or_else(|e| e.into_inner())
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
                 .get_local_player_index(),
             1
         );
@@ -4098,7 +4117,8 @@ mod tests {
         );
         assert_eq!(
             ThePlayerList()
-                .read().unwrap_or_else(|e| e.into_inner())
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
                 .get_local_player_index(),
             0
         );
@@ -4107,7 +4127,10 @@ mod tests {
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
         }
-        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
+        ThePlayerList()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     #[test]
@@ -4145,7 +4168,8 @@ mod tests {
         );
         assert_eq!(
             ThePlayerList()
-                .read().unwrap_or_else(|e| e.into_inner())
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
                 .get_local_player_index(),
             0
         );
@@ -4154,7 +4178,10 @@ mod tests {
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
         }
-        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
+        ThePlayerList()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     #[test]
@@ -4195,7 +4222,10 @@ mod tests {
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
         }
-        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
+        ThePlayerList()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     #[test]
@@ -4480,9 +4510,15 @@ mod tests {
             Some(GameMessageDisposition::DestroyMessage)
         );
         assert!(TheVictoryConditions::is_local_allied_victory());
-        assert!(!local_player.read().unwrap_or_else(|e| e.into_inner()).is_defeated());
+        assert!(!local_player
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_defeated());
 
-        ThePlayerList().write().unwrap_or_else(|e| e.into_inner()).clear();
+        ThePlayerList()
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     #[test]

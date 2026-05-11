@@ -46,7 +46,8 @@ pub fn wol_message_window_init(layout: &WindowLayout, _user_data: Option<&mut dy
     }
 
     let mut state = wol_message_window_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     state.parent_id = parent_id;
     state.button_cancel_id = button_cancel_id;
     state.parent = parent;
@@ -82,7 +83,8 @@ pub fn wol_message_window_input(
     }
 
     let state = wol_message_window_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,

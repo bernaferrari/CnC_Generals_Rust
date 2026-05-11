@@ -269,8 +269,7 @@ impl InGameChatCallbacks {
                     NameKeyGenerator::name_to_key("InGameChat.wnd:ButtonClear") as i32;
                 if control_id == button_clear_id {
                     let state_handle = chat_ui_state();
-                    let mut state = state_handle
-                        .lock().unwrap_or_else(|e| e.into_inner());
+                    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
                     set_text_entry_text(&state.text_entry, "");
                     state.saved_text.clear();
                 }
@@ -311,8 +310,7 @@ impl InGameChatCallbacks {
 
         {
             let state_handle = chat_ui_state();
-            let mut state = state_handle
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             if state.just_hid {
                 state.just_hid = false;
                 return Ok(());
@@ -321,15 +319,13 @@ impl InGameChatCallbacks {
 
         {
             let state_handle = chat_ui_state();
-            let mut state = state_handle
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             ensure_chat_layout(&mut state);
         }
 
         let is_hidden = {
             let state_handle = chat_ui_state();
-            let state = state_handle
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             state
                 .parent
                 .as_ref()
@@ -341,8 +337,7 @@ impl InGameChatCallbacks {
             self.show_in_game_chat(immediate)?;
         } else {
             let state_handle = chat_ui_state();
-            let mut state = state_handle
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             let mut msg = text_entry_text(&state.text_entry);
             msg = msg.trim().to_string();
             if !msg.is_empty() && !handle_slash_commands(&msg) {
@@ -366,7 +361,8 @@ impl InGameChatCallbacks {
             self.hide_in_game_chat(immediate)?;
             let state_handle = chat_ui_state();
             state_handle
-                .lock().unwrap_or_else(|e| e.into_inner())
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
                 .just_hid = true;
         }
 
@@ -378,8 +374,7 @@ impl InGameChatCallbacks {
         info!("Hiding in-game chat (immediate: {})", immediate);
 
         let state_handle = chat_ui_state();
-        let mut state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         state.saved_text = text_entry_text(&state.text_entry);
         let parent = state.parent.clone();
         let text_entry = state.text_entry.clone();
@@ -410,8 +405,7 @@ impl InGameChatCallbacks {
         }
 
         let state_handle = chat_ui_state();
-        let mut state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         ensure_chat_layout(&mut state);
 
         if let Some(parent) = &state.parent {
@@ -443,8 +437,7 @@ impl InGameChatCallbacks {
         self.chat_type = InGameChatType::Allies;
         self.history.clear();
         let state_handle = chat_ui_state();
-        let mut state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(layout) = &state.layout {
             with_window_manager(|manager| manager.destroy_layout(layout));
         }
@@ -461,8 +454,7 @@ impl InGameChatCallbacks {
         info!("Setting in-game chat type to: {:?}", chat_type);
         self.chat_type = chat_type;
         let state_handle = chat_ui_state();
-        let state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         let Some(label) = &state.chat_type_text else {
             return Ok(());
         };
@@ -490,8 +482,7 @@ impl InGameChatCallbacks {
     /// Check if chat is active
     pub fn is_in_game_chat_active(&self) -> bool {
         let state_handle = chat_ui_state();
-        let state = state_handle
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         state
             .parent
             .as_ref()

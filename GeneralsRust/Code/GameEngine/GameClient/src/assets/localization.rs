@@ -362,7 +362,11 @@ impl LocalizationManager {
         self.discover_language_packs().await?;
 
         // Load default language pack
-        let current_lang = self.current_language.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let current_lang = self
+            .current_language
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         self.load_language_pack(&current_lang).await?;
 
         // Load fallback languages
@@ -374,7 +378,10 @@ impl LocalizationManager {
 
         log::info!(
             "Localization system initialized with {} languages",
-            self.available_languages.read().unwrap_or_else(|e| e.into_inner()).len()
+            self.available_languages
+                .read()
+                .unwrap_or_else(|e| e.into_inner())
+                .len()
         );
 
         Ok(())
@@ -415,7 +422,10 @@ impl LocalizationManager {
         }
 
         let count = available_languages.len();
-        *self.available_languages.write().unwrap_or_else(|e| e.into_inner()) = available_languages;
+        *self
+            .available_languages
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = available_languages;
 
         // Update stats
         {
@@ -488,7 +498,9 @@ impl LocalizationManager {
         self.validate_language_pack(&language_pack)?;
 
         // Store language pack
-        self.language_packs.write().unwrap_or_else(|e| e.into_inner())
+        self.language_packs
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(language_code.to_string(), language_pack.clone());
 
         // Update stats
@@ -567,7 +579,11 @@ impl LocalizationManager {
 
     /// Switch to different language
     pub async fn switch_language(&self, language_code: &str) -> Result<(), LocalizationError> {
-        let old_language = self.current_language.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let old_language = self
+            .current_language
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
 
         if old_language == language_code {
             return Ok(()); // Already using this language
@@ -604,10 +620,16 @@ impl LocalizationManager {
         }
 
         // Update current language
-        *self.current_language.write().unwrap_or_else(|e| e.into_inner()) = language_code.to_string();
+        *self
+            .current_language
+            .write()
+            .unwrap_or_else(|e| e.into_inner()) = language_code.to_string();
 
         // Clear translation cache
-        self.translation_cache.write().unwrap_or_else(|e| e.into_inner()).clear();
+        self.translation_cache
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
 
         // Update stats
         {
@@ -635,7 +657,10 @@ impl LocalizationManager {
         };
 
         {
-            let cache = self.translation_cache.read().unwrap_or_else(|e| e.into_inner());
+            let cache = self
+                .translation_cache
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
             if let Some(cached_text) = cache.get(&cache_key) {
                 let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
                 stats.cache_hits += 1;
@@ -652,7 +677,10 @@ impl LocalizationManager {
 
         // Cache result
         {
-            let mut cache = self.translation_cache.write().unwrap_or_else(|e| e.into_inner());
+            let mut cache = self
+                .translation_cache
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
             cache.insert(cache_key, formatted_text.clone());
         }
 
@@ -670,8 +698,15 @@ impl LocalizationManager {
 
     /// Get pluralized text based on count
     pub fn get_plural_text(&self, key: &str, count: i64, params: Option<FormatParams>) -> String {
-        let current_lang = self.current_language.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let language_packs = self.language_packs.read().unwrap_or_else(|e| e.into_inner());
+        let current_lang = self
+            .current_language
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let language_packs = self
+            .language_packs
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
 
         if let Some(pack) = language_packs.get(&current_lang) {
             if let Some(translation) = pack.translations.get(key) {
@@ -694,8 +729,15 @@ impl LocalizationManager {
 
     /// Get translation with fallback logic
     fn get_translation_internal(&self, key: &str) -> String {
-        let current_lang = self.current_language.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let language_packs = self.language_packs.read().unwrap_or_else(|e| e.into_inner());
+        let current_lang = self
+            .current_language
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let language_packs = self
+            .language_packs
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
 
         // Try current language first
         if let Some(pack) = language_packs.get(&current_lang) {
@@ -734,8 +776,15 @@ impl LocalizationManager {
 
     /// Format text with parameters
     fn format_text(&self, template: &str, params: &FormatParams) -> String {
-        let current_lang = self.current_language.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let language_packs = self.language_packs.read().unwrap_or_else(|e| e.into_inner());
+        let current_lang = self
+            .current_language
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let language_packs = self
+            .language_packs
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         let language_info = language_packs
             .get(&current_lang)
             .map(|pack| pack.language.clone())
@@ -833,13 +882,23 @@ impl LocalizationManager {
     }
     /// Get list of available languages
     pub fn get_available_languages(&self) -> Vec<LanguageInfo> {
-        self.available_languages.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.available_languages
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Get current language info
     pub fn get_current_language(&self) -> Option<LanguageInfo> {
-        let current_lang = self.current_language.read().unwrap_or_else(|e| e.into_inner()).clone();
-        let language_packs = self.language_packs.read().unwrap_or_else(|e| e.into_inner());
+        let current_lang = self
+            .current_language
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let language_packs = self
+            .language_packs
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         language_packs
             .get(&current_lang)
             .map(|pack| pack.language.clone())
@@ -853,7 +912,10 @@ impl LocalizationManager {
 
     /// Get language completion percentage
     pub fn get_completion_percentage(&self, language_code: &str) -> f32 {
-        let language_packs = self.language_packs.read().unwrap_or_else(|e| e.into_inner());
+        let language_packs = self
+            .language_packs
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         language_packs
             .get(language_code)
             .map_or(0.0, |pack| pack.language.completion)
@@ -891,7 +953,10 @@ impl LocalizationManager {
 
     /// Clear translation cache
     pub fn clear_cache(&self) {
-        self.translation_cache.write().unwrap_or_else(|e| e.into_inner()).clear();
+        self.translation_cache
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
         log::debug!("Translation cache cleared");
     }
 
@@ -901,7 +966,10 @@ impl LocalizationManager {
         language_code: &str,
         output_path: &Path,
     ) -> Result<(), LocalizationError> {
-        let language_packs = self.language_packs.read().unwrap_or_else(|e| e.into_inner());
+        let language_packs = self
+            .language_packs
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(pack) = language_packs.get(language_code) {
             let json = serde_json::to_string_pretty(pack)
                 .map_err(|e| LocalizationError::EncodingError(e.to_string()))?;
@@ -923,7 +991,10 @@ impl LocalizationManager {
     /// Validate all loaded language packs
     pub fn validate_all_languages(&self) -> HashMap<String, Vec<String>> {
         let mut validation_results = HashMap::new();
-        let language_packs = self.language_packs.read().unwrap_or_else(|e| e.into_inner());
+        let language_packs = self
+            .language_packs
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
 
         for (lang_code, pack) in language_packs.iter() {
             let mut issues = Vec::new();
@@ -1320,7 +1391,11 @@ mod tests {
     #[tokio::test]
     async fn test_localization_manager_creation() {
         let manager = LocalizationManager::new("english".to_string()).unwrap();
-        let current = manager.current_language.read().unwrap_or_else(|e| e.into_inner()).clone();
+        let current = manager
+            .current_language
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         assert_eq!(current, "english");
     }
 

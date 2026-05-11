@@ -157,8 +157,13 @@ impl TextureManager {
             texture,
             view: Arc::clone(&view),
         });
-        self.textures.lock().unwrap_or_else(|e| e.into_inner()).insert(handle, stored);
-        self.label_index.lock().unwrap_or_else(|e| e.into_inner())
+        self.textures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(handle, stored);
+        self.label_index
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(label.to_ascii_lowercase(), handle);
         self.memory_used
             .fetch_add((width as u64) * (height as u64) * 4, Ordering::Relaxed);
@@ -167,13 +172,17 @@ impl TextureManager {
     }
 
     pub fn get_handle_by_label(&self, label: &str) -> Option<TextureHandle> {
-        self.label_index.lock().unwrap_or_else(|e| e.into_inner())
+        self.label_index
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&label.to_ascii_lowercase())
             .copied()
     }
 
     pub fn get_view(&self, handle: TextureHandle) -> Option<Arc<wgpu::TextureView>> {
-        self.textures.lock().unwrap_or_else(|e| e.into_inner())
+        self.textures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&handle)
             .map(|stored| Arc::clone(&stored.view))
     }
@@ -197,7 +206,9 @@ impl TextureManager {
     }
 
     pub fn get_texture_view(&self, handle: TextureHandle) -> Option<Arc<wgpu::TextureView>> {
-        self.textures.lock().unwrap_or_else(|e| e.into_inner())
+        self.textures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&handle)
             .map(|stored| Arc::clone(&stored.view))
     }

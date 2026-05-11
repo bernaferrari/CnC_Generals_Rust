@@ -125,8 +125,7 @@ fn get_listbox_text_at_row(state: &PopupReplayState, row: usize) -> Option<Strin
 
 fn save_replay(filename: &str) {
     let state_handle = popup_replay_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     let translated = if filename == GameText::fetch("GUI:LastReplay") {
         last_replay_filename()
@@ -156,8 +155,7 @@ fn save_replay(filename: &str) {
 
 fn really_save_replay() {
     let state_handle = popup_replay_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     let filename = state.replay_path.clone();
     if filename.is_empty() {
@@ -194,8 +192,7 @@ fn really_save_replay() {
 
 pub fn popup_replay_init(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = popup_replay_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     state.button_back = NameKeyGenerator::name_to_key("PopupReplay.wnd:ButtonBack") as i32;
     state.button_save = NameKeyGenerator::name_to_key("PopupReplay.wnd:ButtonSave") as i32;
@@ -253,8 +250,7 @@ pub fn popup_replay_init(_layout: &WindowLayout, _user_data: Option<&dyn std::an
 
 pub fn popup_replay_shutdown(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = popup_replay_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.replay_saved_parent = None;
     state.listbox_window = None;
@@ -265,8 +261,7 @@ pub fn popup_replay_shutdown(_layout: &WindowLayout, _user_data: Option<&dyn std
 
 pub fn popup_replay_update(_layout: &WindowLayout, _user_data: Option<&dyn std::any::Any>) {
     let state_handle = popup_replay_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     if let Some(start) = state.save_popup_start {
         if start.elapsed() >= Duration::from_millis(SAVE_POPUP_DURATION_MS) {
@@ -307,8 +302,7 @@ pub fn popup_replay_input(
     }
 
     let state_handle = popup_replay_state();
-    let state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
@@ -326,8 +320,7 @@ pub fn popup_replay_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let state_handle = popup_replay_state();
-    let mut state = state_handle
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,

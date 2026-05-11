@@ -87,8 +87,7 @@ fn message_box_yes() {
 }
 
 pub fn popup_player_info_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let mut state = popup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
     state.parent_id = name_to_id("PopupPlayerInfo.wnd:PopupParent");
     state.button_close_id = name_to_id("PopupPlayerInfo.wnd:ButtonClose");
     state.button_buddies_id = name_to_id("PopupPlayerInfo.wnd:ButtonCommunicator");
@@ -155,8 +154,7 @@ pub fn popup_player_info_shutdown(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     layout.hide(true);
-    let mut state = popup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
     state.is_overlay_active = false;
 }
@@ -165,8 +163,7 @@ pub fn popup_player_info_update(
     _layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let mut state = popup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
     if state.raise_message_box {
         raise_gs_message_box();
         state.raise_message_box = false;
@@ -185,8 +182,7 @@ pub fn popup_player_info_input(
     if (data2 & KEY_STATE_UP) == 0 {
         return WindowMsgHandled::Handled;
     }
-    let state = popup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
@@ -203,8 +199,7 @@ pub fn popup_player_info_system(
     data1: WindowMsgData,
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    let mut state = popup_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,

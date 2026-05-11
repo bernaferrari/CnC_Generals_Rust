@@ -229,8 +229,7 @@ fn show_underlying_game_options(show: bool) {
 }
 
 pub fn wol_map_select_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let mut state = map_select_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("WOLMapSelectMenu.wnd:WOLMapSelectMenuParent");
     state.button_back_id = name_to_id("WOLMapSelectMenu.wnd:ButtonBack");
@@ -319,8 +318,7 @@ pub fn wol_map_select_menu_update(
     _layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
-    let mut state = map_select_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
     if state.raise_message_boxes {
         raise_gs_message_box();
         state.raise_message_boxes = false;
@@ -340,8 +338,7 @@ pub fn wol_map_select_menu_input(
         return WindowMsgHandled::Handled;
     }
 
-    let state = map_select_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
@@ -362,8 +359,7 @@ pub fn wol_map_select_menu_system(
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
-            let mut state = map_select_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
             let control_id = data1 as i32;
             if control_id == state.button_back_id {
                 show_underlying_game_options(true);
@@ -426,8 +422,7 @@ pub fn wol_map_select_menu_system(
             }
         }
         WindowMessage::GadgetValueChanged => {
-            let mut state = map_select_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
                 update_preview(&mut state);
@@ -435,8 +430,7 @@ pub fn wol_map_select_menu_system(
             }
         }
         WindowMessage::User(0x8000) => {
-            let mut state = map_select_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = map_select_state().lock().unwrap_or_else(|e| e.into_inner());
             if data1 as i32 == state.listbox_map_id {
                 update_selected_map(&mut state);
                 update_preview(&mut state);

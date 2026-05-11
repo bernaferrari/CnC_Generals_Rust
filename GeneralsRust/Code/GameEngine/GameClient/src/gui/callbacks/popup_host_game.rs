@@ -49,8 +49,7 @@ fn name_to_id(name: &str) -> i32 {
 }
 
 pub fn custom_match_hide_host_popup(hide: bool) {
-    let mut state = popup_host_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().hide(hide);
         return;
@@ -142,8 +141,7 @@ fn clear_popup_host_refs(state: &mut PopupHostState) {
 }
 
 pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let mut state = popup_host_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
 
     state.parent_id = name_to_id("PopupHostGame.wnd:ParentHostPopUp");
     state.text_entry_game_name_id = name_to_id("PopupHostGame.wnd:TextEntryGameName");
@@ -210,8 +208,7 @@ pub fn popup_host_game_init(_layout: &WindowLayout, _user_data: Option<&mut dyn 
 }
 
 pub fn popup_host_game_update(_layout: &WindowLayout, _user_data: Option<&mut dyn std::any::Any>) {
-    let state = popup_host_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
     sync_limit_armies_state(&state);
 }
 
@@ -231,8 +228,7 @@ pub fn popup_host_game_input(
         return WindowMsgHandled::Handled;
     }
 
-    let mut state = popup_host_state()
-        .lock().unwrap_or_else(|e| e.into_inner());
+    let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
@@ -253,8 +249,7 @@ pub fn popup_host_game_system(
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
-            let mut state = popup_host_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
             let control_id = data1 as i32;
             if control_id == state.button_cancel_id {
                 // Clear modal before closing - matches C++ GWM_DESTROY handling
@@ -315,8 +310,7 @@ pub fn popup_host_game_system(
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetEditDone => {
-            let mut state = popup_host_state()
-                .lock().unwrap_or_else(|e| e.into_inner());
+            let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
             if data1 as i32 == state.text_entry_game_name_id {
                 let text = get_text_entry(&state.text_entry_game_name);
                 let trimmed = text.trim().to_string();

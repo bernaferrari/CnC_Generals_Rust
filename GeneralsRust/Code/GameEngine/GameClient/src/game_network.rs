@@ -333,8 +333,7 @@ pub mod download_manager {
     }
 
     pub fn set_download_manager(manager: Option<DownloadManager>) {
-        let mut guard = download_manager()
-            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
         *guard = manager;
     }
 }
