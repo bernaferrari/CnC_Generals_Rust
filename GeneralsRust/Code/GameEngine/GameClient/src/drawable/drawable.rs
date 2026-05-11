@@ -2947,12 +2947,12 @@ impl BasicDrawable {
         // C++ applies recoil impulse if recoil_amount != 0
         if recoil_amount != 0.0 {
             let mut adjusted_angle = recoil_angle;
-            // C++ adjusts recoil from absolute to relative by subtracting object orientation.
-            // PARITY_NOTE: getObject()->getOrientation() requires object binding.
-            // For now, apply recoil directly; orientation adjustment will be added when
-            // Object::getOrientation() is wired.
-            if let Some(_obj_id) = self.object_id {
-                // TODO: adjusted_angle -= object.getOrientation();
+            if let Some(obj_id) = self.object_id {
+                if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
+                    if let Ok(obj_guard) = obj_arc.read() {
+                        adjusted_angle -= obj_guard.get_orientation();
+                    }
+                }
             }
             // C++ flips direction 180 degrees
             adjusted_angle += std::f32::consts::PI;
@@ -4548,6 +4548,13 @@ pub enum DrawableType {
 mod tests {
     use super::*;
 
+    fn assert_near(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "actual {actual} expected {expected}"
+        );
+    }
+
     #[derive(Debug)]
     struct SnapshotTestDrawModule {
         identifier: &'static str,
@@ -5394,6 +5401,44 @@ mod tests {
         assert!(drawable.get_status().has(DrawableStatus::SHADOWS));
         drawable.release_shadows();
         assert!(!drawable.get_status().has(DrawableStatus::SHADOWS));
+    }
+
+    #[test]
+    fn weapon_fire_recoil_subtracts_bound_object_orientation() {
+        use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
+        use gamelogic::object::Object;
+        use std::sync::Arc;
+
+        let object_id = 900_001;
+        let template = Arc::new(DefaultThingTemplate::new("DrawableRecoilTest".to_string()));
+        let object =
+            Object::new_with_id(template, object_id, ObjectStatusMaskType::none(), None).unwrap();
+        object
+            .write()
+            .unwrap()
+            .set_orientation(std::f32::consts::FRAC_PI_2)
+            .unwrap();
+
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        drawable.set_object_id(Some(object_id));
+        drawable.loco_info = Some(LocoInfo::default());
+
+        drawable.handle_weapon_fire_fx(
+            WeaponSlotType::Primary,
+            0,
+            None,
+            0.0,
+            2.0,
+            std::f32::consts::FRAC_PI_2,
+            None,
+            0.0,
+        );
+
+        let loco = drawable.get_loco_info().unwrap();
+        assert_near(loco.acceleration_pitch_rate, -2.0);
+        assert_near(loco.acceleration_roll_rate, 0.0);
+
+        OBJECT_REGISTRY.unregister_object(object_id);
     }
 
     #[test]
