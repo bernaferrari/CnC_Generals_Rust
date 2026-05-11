@@ -5230,6 +5230,10 @@ impl ScriptActionDispatcher {
         let team_name = self.resolve_team_name_token(&self.get_string_param(action, 0)?);
         log::debug!("Team '{}' stopping sequential script", team_name);
 
+        let Ok(_team_arc) = self.get_team_by_name(&team_name) else {
+            return Ok(ScriptActionResult::Success);
+        };
+
         let script_engine_lock = get_script_engine();
         if let Ok(mut engine_guard) = script_engine_lock.write() {
             if let Some(engine) = engine_guard.as_mut() {
@@ -18963,6 +18967,7 @@ mod tests {
     use crate::common::LocomotorSetType;
     use crate::modules::AIUpdateInterface;
     use crate::object_manager::ObjectCreationFlags;
+    use crate::scripting::engine::{ScriptEngine, SequentialScript};
     use std::sync::Mutex;
 
     #[derive(Debug)]
@@ -20000,5 +20005,64 @@ mod tests {
                 .unwrap(),
             &default_team
         ));
+    }
+
+    #[test]
+    fn executor_team_stop_sequential_script_requires_live_team() {
+        get_team_factory().lock().unwrap().reset();
+
+        let script_engine_lock = get_script_engine();
+        {
+            let mut engine_guard = script_engine_lock.write().unwrap();
+            *engine_guard = Some(ScriptEngine::new().expect("script engine"));
+            let engine = engine_guard.as_mut().unwrap();
+            let mut missing_team_script = SequentialScript::new();
+            missing_team_script.team_to_exec_on = Some("MissingSequentialTeam".to_string());
+            engine.append_sequential_script(missing_team_script);
+        }
+
+        let mut action = ScriptAction::new(ScriptActionType::TeamStopSequentialScript);
+        action
+            .add_parameter(Parameter::with_string(
+                ParameterType::Team,
+                "MissingSequentialTeam".to_string(),
+            ))
+            .unwrap();
+
+        let mut dispatcher =
+            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+        dispatcher.do_team_stop_sequential_script(&action).unwrap();
+
+        assert!(
+            script_engine_lock
+                .read()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .has_active_sequential_script_for_team("MissingSequentialTeam"),
+            "C++ doTeamStopSequentialScript returns before removal when the team cannot be resolved"
+        );
+
+        {
+            let mut factory = get_team_factory().lock().unwrap();
+            factory.init_team(
+                AsciiString::from("MissingSequentialTeam"),
+                AsciiString::default(),
+                false,
+                None,
+            );
+            factory
+                .create_team("MissingSequentialTeam")
+                .expect("team should be created");
+        }
+
+        dispatcher.do_team_stop_sequential_script(&action).unwrap();
+
+        assert!(!script_engine_lock
+            .read()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .has_active_sequential_script_for_team("MissingSequentialTeam"));
     }
 }
