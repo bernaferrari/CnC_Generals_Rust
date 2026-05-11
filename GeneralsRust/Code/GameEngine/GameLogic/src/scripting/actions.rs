@@ -4303,26 +4303,11 @@ impl ScriptAction for PlayerHuntAction {
 
         log::info!("Player {} AI hunting", player);
 
-        // Integration with AI hunt behavior:
-        // Sets all player units to hunt mode
-        // 1. Player *pPlayer = ThePlayerList->getPlayer(player)
-        // 2. For each unit owned by player:
-        //    a. AIUpdateInterface *ai = unit->getAIUpdateInterface()
-        //    b. ai->setAIState(AI_STATE_HUNT)
-        // 3. All units actively seek and destroy enemies
-        // Rust: player.set_all_units_hunt_mode()
-
         if let Ok(list) = player_list().read() {
             let index = player as i32;
             if let Some(player_arc) = list.get_player(index) {
-                if let Ok(player_guard) = player_arc.read() {
-                    for obj_arc in player_guard.get_objects() {
-                        if let Ok(obj_guard) = obj_arc.read() {
-                            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                                ai.ai_hunt(CommandSourceType::FromScript);
-                            }
-                        }
-                    }
+                if let Ok(mut player_guard) = player_arc.write() {
+                    player_guard.set_units_should_hunt(true, CommandSourceType::FromScript);
                 }
             } else {
                 log::warn!("PlayerHuntAction: player {} not found", player);
@@ -8172,6 +8157,23 @@ mod tests {
             .unwrap();
 
         assert_eq!(*calls.lock().unwrap(), vec![false]);
+    }
+
+    #[tokio::test]
+    async fn player_hunt_sets_player_hunt_flag() {
+        reset_test_player(0, 0);
+
+        let mut params = HashMap::new();
+        params.insert("player".to_string(), ScriptValue::Int(0));
+
+        PlayerHuntAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        let list = player_list().read().unwrap();
+        let player = list.get_player(0).unwrap();
+        assert!(player.read().unwrap().get_units_should_hunt());
     }
 
     #[tokio::test]
