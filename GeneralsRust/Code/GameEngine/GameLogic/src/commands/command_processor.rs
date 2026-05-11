@@ -250,6 +250,55 @@ impl SelectionCommandHandler {
         CommandExecutionResult::Success
     }
 
+    fn execute_area_selection(
+        &self,
+        command: &Command,
+        context: &CommandExecutionContext,
+    ) -> CommandExecutionResult {
+        use super::command::CommandArgumentType;
+        use crate::commands::SelectionType;
+
+        let Some(CommandArgumentType::PixelRegion(region)) = command.get_argument(0) else {
+            return CommandExecutionResult::Failed(AsciiString::from(
+                "AreaSelection missing region",
+            ));
+        };
+
+        let Some(object_manager) = &context.object_manager else {
+            return CommandExecutionResult::Failed(AsciiString::from(
+                "AreaSelection missing object manager",
+            ));
+        };
+        let Ok(object_manager) = object_manager.read() else {
+            return CommandExecutionResult::Failed(AsciiString::from(
+                "Object manager lock poisoned",
+            ));
+        };
+        let object_ids = object_manager.get_objects_in_region(region);
+        drop(object_manager);
+
+        let selection_manager = get_selection_manager();
+        let Ok(mut manager) = selection_manager.write() else {
+            return CommandExecutionResult::Failed(AsciiString::from(
+                "Selection manager lock poisoned",
+            ));
+        };
+        let Some(selection) = manager.get_player_selection(context.player_id) else {
+            return CommandExecutionResult::Failed(AsciiString::from("No player selection"));
+        };
+
+        if object_ids.is_empty() {
+            selection.clear_selection();
+            return CommandExecutionResult::Success;
+        }
+
+        if selection.select_objects(object_ids, SelectionType::Replace) {
+            CommandExecutionResult::Success
+        } else {
+            CommandExecutionResult::Failed(AsciiString::from("Area selection update failed"))
+        }
+    }
+
     fn execute_team_command(
         &self,
         command_type: CommandType,
@@ -347,6 +396,7 @@ impl CommandHandler for SelectionCommandHandler {
                 self.execute_remove_from_selected_group(&queued.command, context)
             }
             CommandType::DestroySelectedGroup => self.execute_destroy_selected_group(context),
+            CommandType::AreaSelection => self.execute_area_selection(&queued.command, context),
             CommandType::CreateTeam0
             | CommandType::CreateTeam1
             | CommandType::CreateTeam2
@@ -390,6 +440,7 @@ impl CommandHandler for SelectionCommandHandler {
                 | CommandType::CreateSelectedGroupNoSound
                 | CommandType::DestroySelectedGroup
                 | CommandType::RemoveFromSelectedGroup
+                | CommandType::AreaSelection
                 | CommandType::CreateTeam0
                 | CommandType::CreateTeam1
                 | CommandType::CreateTeam2
@@ -4848,6 +4899,13 @@ fn override_destination_fallthrough_target_id(command: &QueuedCommand) -> Option
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selection_handler_accepts_area_selection_commands() {
+        let handler = SelectionCommandHandler::new();
+
+        assert!(handler.can_handle(CommandType::AreaSelection));
+    }
 
     #[test]
     fn default_handler_accepts_build_line_commands() {
