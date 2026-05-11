@@ -4348,6 +4348,15 @@ impl ClassicState for AIMoveToState {
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
         // C++ AIMoveToState::onEnter() from AIStates.cpp line 1999
 
+        // C++ line 1599-1601: Check immobile status — fail immediately if object can't move
+        if let Some(owner) = self.base.get_machine_owner() {
+            if let Ok(owner_guard) = owner.read() {
+                if owner_guard.test_status(ObjectStatusTypes::Immobile) {
+                    return Ok(StateReturnType::Failure);
+                }
+            }
+        }
+
         self.adjust_destinations = self.adjust_destinations_override.unwrap_or(true);
         self.ambient_playing_handle = 0;
 
@@ -4465,6 +4474,39 @@ impl ClassicState for AIMoveToState {
                     new_goal.z += half_height;
                 }
             }
+
+            // C++ lines 2084-2099: Missile leading logic
+            // When tracking a moving target, predict where the target will be
+            if owner_guard.is_kind_of(KindOf::Projectile)
+                && goal_guard.get_physics().is_some()
+                && !goal_guard.is_kind_of(KindOf::Immobile)
+            {
+                let our_pos = owner_guard.get_position();
+                let delta = new_goal - *our_pos;
+                let my_speed = owner_guard
+                    .get_physics()
+                    .map(|p| p.get_velocity().length())
+                    .unwrap_or(5.0)
+                    .max(5.0);
+                let goal_speed = goal_guard
+                    .get_physics()
+                    .map(|p| p.get_velocity().length())
+                    .unwrap_or(0.0);
+                let lead_distance = 0.5 * delta.length() * goal_speed / my_speed;
+
+                // Use goal's velocity direction as the lead direction
+                if let Some(physics) = goal_guard.get_physics() {
+                    let vel = physics.get_velocity();
+                    let vel_len = vel.length();
+                    if vel_len > 0.001 {
+                        let dir = vel / vel_len;
+                        new_goal.x += dir.x * lead_distance;
+                        new_goal.y += dir.y * lead_distance;
+                        new_goal.z += dir.z * lead_distance;
+                    }
+                }
+            }
+
             self.goal_position = new_goal;
             if !self.is_same_position(
                 owner_guard.get_position(),
