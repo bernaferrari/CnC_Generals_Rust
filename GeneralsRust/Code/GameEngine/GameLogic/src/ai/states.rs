@@ -40,7 +40,7 @@ use crate::state_machine::*;
 use crate::team::{Team, TheTeamFactory};
 use crate::terrain::get_terrain_logic;
 use crate::waypoint::{Waypoint, WaypointId};
-use crate::weapon::{Weapon, WeaponLockType, WeaponSlotType, WeaponStatus, NO_MAX_SHOTS_LIMIT};
+use crate::weapon::{Weapon, WeaponChoiceCriteria, WeaponLockType, WeaponSlotType, WeaponStatus, NO_MAX_SHOTS_LIMIT};
 use game_engine::common::system::{GeometryType, Snapshotable, Xfer};
 
 use crate::common::INVALID_ID;
@@ -6042,19 +6042,60 @@ impl ClassicState for AIAttackObjectState {
     }
 
     fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "attack object state missing machine owner".to_string())?;
+
+        // C++ lines 5474-5478: Mood matrix sleep mode check
+        {
+            let owner_guard = owner.read().map_err(|_| "lock poisoned".to_string())?;
+            if let Some(ai) = owner_guard.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    let adjustment =
+                        ai_guard.get_mood_matrix_action_adjustment(MoodMatrixAction::Attack);
+                    if (adjustment & mood_matrix_adjustment::ACTION_OK) == 0 {
+                        return Ok(StateReturnType::Success);
+                    }
+                }
+            }
+
+            // C++ lines 5487-5490: Under construction check
+            if owner_guard.test_status(ObjectStatusTypes::UnderConstruction) {
+                return Ok(StateReturnType::Failure);
+            }
+
+            // C++ lines 5493-5495: Out of ammo check
+            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+                return Ok(StateReturnType::Failure);
+            }
+        }
+
+        // C++ lines 5505-5516: Get victim, check dead
         let target = self
             .base
             .get_machine_goal_object()
             .ok_or_else(|| "attack object state missing goal object".to_string())?;
         self.target = Some(target.clone());
-        if let Ok(target_guard) = target.read() {
+
+        {
+            let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
             self.original_victim_pos = *target_guard.get_position();
+
+            // C++ lines 5508-5512: Check if victim is dead
+            if target_guard.is_effectively_dead() {
+                if let Ok(owner_guard) = owner.read() {
+                    if let Some(ai) = owner_guard.get_ai_update_interface() {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            ai_guard.notify_victim_is_dead();
+                        }
+                    }
+                }
+                return Ok(StateReturnType::Failure);
+            }
         }
 
-        let owner = self
-            .base
-            .get_machine_owner()
-            .ok_or_else(|| "attack object state missing machine owner".to_string())?;
+        // Set original victim pos on AI
         if let Ok(owner_guard) = owner.read() {
             if let Some(ai) = owner_guard.get_ai_update_interface() {
                 if let Ok(mut ai_guard) = ai.lock() {
@@ -6063,6 +6104,48 @@ impl ClassicState for AIAttackObjectState {
             }
         }
 
+        // C++ lines 5525-5527: Choose weapon
+        let cmd_source = {
+            let Ok(owner_guard) = owner.read() else {
+                return Ok(StateReturnType::Failure);
+            };
+            if let Some(ai) = owner_guard.get_ai_update_interface() {
+                if let Ok(ai_guard) = ai.lock() {
+                    ai_guard.get_last_command_source()
+                } else {
+                    CommandSourceType::FromAi
+                }
+            } else {
+                CommandSourceType::FromAi
+            }
+        };
+
+        {
+            let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
+            let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
+            let weapon_found = owner_guard.choose_best_weapon_for_target(
+                &*target_guard,
+                WeaponChoiceCriteria::PreferMostDamage,
+                cmd_source,
+            );
+            if !weapon_found {
+                return Ok(StateReturnType::Failure);
+            }
+
+            // C++ lines 5529-5536: Set max shots and stealth check
+            if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
+                let continue_attack_range = weapon.get_continue_attack_range();
+                owner_guard.set_current_weapon_max_shot_count(NO_MAX_SHOTS_LIMIT);
+                if continue_attack_range > 0.0 {
+                    owner_guard.set_status(
+                        ObjectStatusMaskType::from_status(ObjectStatusTypes::IgnoringStealth),
+                        true,
+                    );
+                }
+            }
+        }
+
+        // Create attack machine (C++ lines 5499)
         let mut attack_machine = AttackStateMachine::new(
             Arc::downgrade(&owner),
             "AIAttackMachine",
@@ -6072,11 +6155,22 @@ impl ClassicState for AIAttackObjectState {
         );
         attack_machine.set_goal_object(Some(&target));
         attack_machine.set_goal_position(self.original_victim_pos);
-        let _ = attack_machine.init_default_state();
+
+        // C++ lines 5540-5545: Init default state and set attacking status
+        let ret = attack_machine.init_default_state();
+        if ret == StateReturnType::Continue {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.set_status(
+                    ObjectStatusMaskType::from_status(ObjectStatusTypes::IsAttacking),
+                    true,
+                );
+                owner_guard.set_model_condition_state(ModelConditionFlags::ATTACKING);
+            }
+        }
         self.attack_machine = Some(attack_machine);
         self.issued_attack = true;
 
-        Ok(StateReturnType::Continue)
+        Ok(ret)
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
