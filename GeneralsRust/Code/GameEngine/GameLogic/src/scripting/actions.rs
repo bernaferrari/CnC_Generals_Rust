@@ -514,19 +514,8 @@ impl ScriptAction for SetPlayerResourceAction {
             let mut player_guard = player_arc
                 .write()
                 .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-            let current = player_guard.get_money().get_money();
             let new_amount = clamp_script_money(amount);
-            player_guard.get_money_mut().set_money(new_amount);
-            let diff = new_amount as i64 - current as i64;
-            if diff > 0 {
-                player_guard
-                    .get_score_keeper_mut()
-                    .add_money_earned(diff.min(u32::MAX as i64) as u32);
-            } else if diff < 0 {
-                player_guard
-                    .get_score_keeper_mut()
-                    .add_money_spent(diff.saturating_neg().min(u32::MAX as i64) as u32);
-            }
+            set_script_player_money(&mut player_guard, new_amount);
         }
 
         Ok(ScriptResult::Success(None))
@@ -580,23 +569,12 @@ impl ScriptAction for AddPlayerResourceAction {
             let mut player_guard = player_arc
                 .write()
                 .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-            let current = player_guard.get_money().get_money();
             if amount < 0 {
                 let requested = clamp_script_money(amount.saturating_neg());
-                let withdrawn = requested.min(current.max(0));
-                if withdrawn > 0 {
-                    player_guard.get_money_mut().set_money(current - withdrawn);
-                    player_guard
-                        .get_score_keeper_mut()
-                        .add_money_spent(withdrawn as u32);
-                }
+                spend_script_player_money(&mut player_guard, requested);
             } else {
                 let deposit_amount = clamp_script_money(amount);
-                let new_amount = current.saturating_add(deposit_amount);
-                player_guard.get_money_mut().set_money(new_amount);
-                player_guard
-                    .get_score_keeper_mut()
-                    .add_money_earned(deposit_amount as u32);
+                grant_script_player_money(&mut player_guard, deposit_amount);
             }
         }
 
@@ -633,6 +611,49 @@ fn is_money_resource(resource_type: &str) -> bool {
 
 fn clamp_script_money(amount: i64) -> i32 {
     amount.clamp(0, i32::MAX as i64) as i32
+}
+
+fn set_script_player_money(player: &mut crate::player::Player, new_amount: i32) {
+    let current = player.get_money().get_money();
+    player.get_money_mut().set_money(new_amount);
+    record_script_money_delta(player, new_amount as i64 - current as i64);
+}
+
+fn grant_script_player_money(player: &mut crate::player::Player, amount: i32) {
+    if amount <= 0 {
+        return;
+    }
+
+    let current = player.get_money().get_money();
+    player
+        .get_money_mut()
+        .set_money(current.saturating_add(amount));
+    record_script_money_delta(player, amount as i64);
+}
+
+fn spend_script_player_money(player: &mut crate::player::Player, amount: i32) {
+    if amount <= 0 {
+        return;
+    }
+
+    let current = player.get_money().get_money();
+    let withdrawn = amount.min(current.max(0));
+    if withdrawn > 0 {
+        player.get_money_mut().set_money(current - withdrawn);
+        record_script_money_delta(player, -(withdrawn as i64));
+    }
+}
+
+fn record_script_money_delta(player: &mut crate::player::Player, delta: i64) {
+    if delta > 0 {
+        let amount = delta.min(u32::MAX as i64) as u32;
+        player.get_score_keeper_mut().add_money_earned(amount);
+        player.get_academy_stats_mut().record_income(delta as i32);
+    } else if delta < 0 {
+        player
+            .get_score_keeper_mut()
+            .add_money_spent(delta.saturating_neg().min(u32::MAX as i64) as u32);
+    }
 }
 
 /// Set player relation action
@@ -4477,19 +4498,13 @@ impl ScriptAction for PlayerAddMoneyAction {
             let player_idx = player.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
             if let Some(player_arc) = list.get_player(player_idx) {
                 if let Ok(mut player_guard) = player_arc.write() {
-                    let money = player_guard.get_money_mut();
                     if amount >= 0 {
-                        let deposit_amount = amount as u32;
-                        let _ = money.deposit(deposit_amount);
-                        player_guard
-                            .get_score_keeper_mut()
-                            .add_money_earned(deposit_amount);
+                        grant_script_player_money(&mut player_guard, clamp_script_money(amount));
                     } else {
-                        let withdraw_amount = amount.unsigned_abs().min(u32::MAX as u64) as u32;
-                        let _ = money.withdraw(withdraw_amount);
-                        player_guard
-                            .get_score_keeper_mut()
-                            .add_money_spent(withdraw_amount);
+                        spend_script_player_money(
+                            &mut player_guard,
+                            clamp_script_money(amount.saturating_neg()),
+                        );
                     }
                 }
             }
@@ -6173,31 +6188,13 @@ impl ScriptAction for GiveMoneyAction {
         let mut player_guard = player_arc
             .write()
             .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-        let money = player_guard.get_money_mut();
         if amount < 0 {
-            let withdraw_amount = (-amount).min(u32::MAX as i64) as u32;
-            match money.withdraw(withdraw_amount) {
-                Ok(withdrawn) if withdrawn > 0 => {
-                    player_guard
-                        .get_score_keeper_mut()
-                        .add_money_spent(withdrawn);
-                }
-                Ok(_) => {}
-                Err(err) => {
-                    log::warn!(
-                        "GiveMoneyAction: failed to withdraw {} from '{}': {}",
-                        withdraw_amount,
-                        resolved_name,
-                        err
-                    );
-                }
-            }
+            spend_script_player_money(
+                &mut player_guard,
+                clamp_script_money(amount.saturating_neg()),
+            );
         } else {
-            let deposit_amount = (amount.min(u32::MAX as i64)) as u32;
-            let _ = money.deposit(deposit_amount);
-            player_guard
-                .get_score_keeper_mut()
-                .add_money_earned(deposit_amount);
+            grant_script_player_money(&mut player_guard, clamp_script_money(amount));
         }
 
         Ok(ScriptResult::Success(None))
@@ -6255,19 +6252,7 @@ impl ScriptAction for SetMoneyAction {
         let mut player_guard = player_arc
             .write()
             .map_err(|_| GameLogicError::Threading("Failed to lock Player".to_string()))?;
-        let current = player_guard.get_money().get_money();
-        let new_amount = amount as i32;
-        player_guard.get_money_mut().set_money(new_amount);
-        let diff = new_amount - current;
-        if diff > 0 {
-            player_guard
-                .get_score_keeper_mut()
-                .add_money_earned(diff as u32);
-        } else if diff < 0 {
-            player_guard
-                .get_score_keeper_mut()
-                .add_money_spent((-diff) as u32);
-        }
+        set_script_player_money(&mut player_guard, clamp_script_money(amount));
 
         Ok(ScriptResult::Success(None))
     }
@@ -7369,6 +7354,7 @@ mod tests {
         let mut list = player_list().write().unwrap();
         list.clear();
         let mut player = crate::player::Player::new(index);
+        player.set_display_name(format!("Player{index}"));
         player.get_money_mut().set_money(money);
         list.add_player(Arc::new(RwLock::new(player)));
     }
@@ -7488,5 +7474,57 @@ mod tests {
         let list = player_list().read().unwrap();
         let player = list.get_player(0).unwrap().read().unwrap();
         assert_eq!(player.get_money().get_money(), 800);
+    }
+
+    #[tokio::test]
+    async fn named_money_actions_update_money_without_reentrant_deposit() {
+        reset_test_player(0, 500);
+
+        let mut params = HashMap::new();
+        params.insert(
+            "player".to_string(),
+            ScriptValue::String("Player0".to_string()),
+        );
+        params.insert("amount".to_string(), ScriptValue::Int(250));
+        GiveMoneyAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        params.insert("amount".to_string(), ScriptValue::Int(-1000));
+        GiveMoneyAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        params.insert("amount".to_string(), ScriptValue::Int(1200));
+        SetMoneyAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        let list = player_list().read().unwrap();
+        let player = list.get_player(0).unwrap().read().unwrap();
+        assert_eq!(player.get_money().get_money(), 1200);
+        assert_eq!(player.get_score_keeper().get_total_money_spent(), 750);
+    }
+
+    #[tokio::test]
+    async fn indexed_player_add_money_spends_only_available_money() {
+        reset_test_player(0, 300);
+
+        let mut params = HashMap::new();
+        params.insert("player".to_string(), ScriptValue::Int(0));
+        params.insert("amount".to_string(), ScriptValue::Int(-500));
+
+        PlayerAddMoneyAction
+            .execute(&params, &test_context())
+            .await
+            .unwrap();
+
+        let list = player_list().read().unwrap();
+        let player = list.get_player(0).unwrap().read().unwrap();
+        assert_eq!(player.get_money().get_money(), 0);
+        assert_eq!(player.get_score_keeper().get_total_money_spent(), 300);
     }
 }
