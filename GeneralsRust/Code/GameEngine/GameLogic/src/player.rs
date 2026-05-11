@@ -25,6 +25,7 @@ use crate::supply_system::ResourceGatheringManager;
 use crate::team::{Team, TeamID, TeamPrototype, TeamRelationMap};
 use crate::tunnel_tracker::TunnelTracker;
 use crate::upgrade::{PlayerUpgradeManager, Upgrade, UpgradeTemplate};
+use game_engine::common::global_data;
 use game_engine::common::ini::ensure_player_templates_loaded;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::player_template::get_player_template_store;
@@ -2098,6 +2099,14 @@ impl Player {
 
     pub fn get_money_mut(&mut self) -> &mut PlayerMoney {
         &mut self.money
+    }
+
+    /// C++ Player::getSupplyBoxValue hook. Today it returns the global base value,
+    /// but callers should go through Player so later economy modifiers stay local.
+    pub fn get_supply_box_value(&self) -> UnsignedInt {
+        global_data::read_safe()
+            .map(|data| data.base_value_per_supply_box.max(0) as UnsignedInt)
+            .unwrap_or(0)
     }
 
     pub fn get_energy(&self) -> &PlayerEnergy {
