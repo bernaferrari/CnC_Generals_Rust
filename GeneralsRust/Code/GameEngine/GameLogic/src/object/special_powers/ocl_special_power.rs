@@ -200,12 +200,15 @@ impl OclSpecialPower {
     /// Execute the OCL power at a location.
     /// Matches C++ OCLSpecialPower::doSpecialPowerAtLocation().
     pub fn do_special_power_at_location(&self, loc: &Coord3D, angle: Real) -> Result<(), String> {
-        // Check disabled
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return Ok(());
-                }
+        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
+            return Ok(());
+        };
+        {
+            let Ok(owner_guard) = owner.read() else {
+                return Ok(());
+            };
+            if owner_guard.is_disabled() {
+                return Ok(());
             }
         }
 
@@ -230,22 +233,16 @@ impl OclSpecialPower {
             // If findPosition fails, don't monkey with target coord (C++ behavior)
         }
 
+        let Ok(owner_guard) = owner.read() else {
+            return Ok(());
+        };
+
         // Compute creation coordinate based on create_loc
         // Matches C++ OCLSpecialPower::doSpecialPowerAtLocation() creation coord logic
         let creation_coord = match self.data.create_loc {
-            OCLCreateLocType::CreateAtEdgeNearSource => {
-                let owner_pos = match TheGameLogic::find_object_by_id(self.owner_object_id) {
-                    Some(arc) => arc
-                        .read()
-                        .ok()
-                        .map(|g| *g.get_position())
-                        .unwrap_or(target_coord),
-                    None => target_coord,
-                };
-                TheTerrainLogic::get()
-                    .map(|terrain| terrain.find_closest_edge_point(&owner_pos))
-                    .unwrap_or(owner_pos)
-            }
+            OCLCreateLocType::CreateAtEdgeNearSource => TheTerrainLogic::get()
+                .map(|terrain| terrain.find_closest_edge_point(owner_guard.get_position()))
+                .unwrap_or(*owner_guard.get_position()),
             OCLCreateLocType::CreateAtEdgeNearTarget => TheTerrainLogic::get()
                 .map(|terrain| terrain.find_closest_edge_point(&target_coord))
                 .unwrap_or(target_coord),
@@ -267,23 +264,28 @@ impl OclSpecialPower {
 
         // Execute the OCL
         let ctx = crate::object_creation_list::live_creation_context();
-        let use_owner_flag = self.data.create_loc == OCLCreateLocType::UseOwnerObject;
+        let create_owner = Self::create_owner_flag_for_create_loc(self.data.create_loc);
 
-        // Pass None for primary_obj to avoid holding locks across the create call
-        // (the OCL system resolves ownership internally via the owner_object_id)
-        let result = if use_owner_flag {
-            // C++: OCL->create(OCL::CREATE_WITH_OWNER_OBJECT, ...)
-            ocl.create_with_angle_and_owner_flag(
+        let result = if create_owner {
+            ocl.create_with_angle(
                 &ctx,
-                None,
+                Some(&*owner_guard),
                 &creation_coord,
                 &target_coord,
                 angle,
-                true,
                 0,
             )
         } else {
-            ocl.create_with_angle(&ctx, None, &creation_coord, &target_coord, angle, 0)
+            // C++ USE_OWNER_OBJECT passes createOwner=false.
+            ocl.create_with_angle_and_owner_flag(
+                &ctx,
+                Some(&*owner_guard),
+                &creation_coord,
+                &target_coord,
+                angle,
+                false,
+                0,
+            )
         };
 
         if let Some(created) = result {
@@ -297,6 +299,10 @@ impl OclSpecialPower {
         }
 
         Ok(())
+    }
+
+    fn create_owner_flag_for_create_loc(create_loc: OCLCreateLocType) -> bool {
+        create_loc != OCLCreateLocType::UseOwnerObject
     }
 
     /// Execute the OCL power at an object's position.
@@ -330,29 +336,34 @@ impl OclSpecialPower {
     /// Execute the OCL power with no specific target (use owner position).
     /// Matches C++ OCLSpecialPower::doSpecialPower().
     pub fn do_special_power(&self) -> Result<(), String> {
-        // Check disabled
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return Ok(());
-                }
-                let pos = *owner_guard.get_position();
-                drop(owner_guard);
-
-                let Some(ocl_name) = self.find_ocl_name() else {
-                    return Ok(());
-                };
-
-                let Some(ocl) =
-                    TheObjectCreationListStore::find_object_creation_list(ocl_name.as_str())
-                else {
-                    return Ok(());
-                };
-
-                let ctx = crate::object_creation_list::live_creation_context();
-                let _ = ocl.create_with_angle(&ctx, None, &pos, &pos, 0.0, 0);
+        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
+            return Ok(());
+        };
+        {
+            let Ok(owner_guard) = owner.read() else {
+                return Ok(());
+            };
+            if owner_guard.is_disabled() {
+                return Ok(());
             }
         }
+
+        let Some(ocl_name) = self.find_ocl_name() else {
+            return Ok(());
+        };
+
+        let Some(ocl) = TheObjectCreationListStore::find_object_creation_list(ocl_name.as_str())
+        else {
+            return Ok(());
+        };
+
+        let Ok(owner_guard) = owner.read() else {
+            return Ok(());
+        };
+        let pos = *owner_guard.get_position();
+
+        let ctx = crate::object_creation_list::live_creation_context();
+        let _ = ocl.create_with_angle(&ctx, Some(&*owner_guard), &pos, &pos, 0.0, 0);
 
         Ok(())
     }
@@ -627,5 +638,15 @@ mod tests {
         let arc_data = Arc::new(data);
         let power = OclSpecialPower::new(0, 0, arc_data);
         assert_eq!(power.get_module_name(), "OCLSpecialPower");
+    }
+
+    #[test]
+    fn use_owner_object_matches_cpp_create_owner_false() {
+        assert!(!OclSpecialPower::create_owner_flag_for_create_loc(
+            OCLCreateLocType::UseOwnerObject
+        ));
+        assert!(OclSpecialPower::create_owner_flag_for_create_loc(
+            OCLCreateLocType::CreateAtLocation
+        ));
     }
 }
