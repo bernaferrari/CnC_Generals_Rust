@@ -9,10 +9,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
+use crate::ai::THE_AI;
 use crate::common::audio::AudioEventRts;
 use crate::common::{
     CommandSourceType, Coord3D, GameResult, KindOf, KindOfMaskType, Matrix3D, ModelConditionFlags,
-    ObjectID, PlayerMaskType, TurretType, UnsignedInt, LOGICFRAMES_PER_SECOND,
+    ObjectID, PathfindLayerEnum, PlayerMaskType, TurretType, UnsignedInt, LOGICFRAMES_PER_SECOND,
     MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
 };
 use crate::damage::DamageInfo;
@@ -35,6 +36,12 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 type ObjectId = ObjectID;
 type FirePointMatrix = [[f32; 4]; 3];
+
+struct ExitPrep {
+    owner_id: ObjectID,
+    end_pos: Coord3D,
+    exit_path: Vec<Coord3D>,
+}
 
 /// Constant for unlimited contain capacity
 pub const CONTAIN_MAX_UNKNOWN: i32 = -1;
@@ -1140,22 +1147,59 @@ impl OpenContain {
         (start_pos, end_pos)
     }
 
-    pub fn exit_object_via_door(
-        &mut self,
-        exit_obj: &Arc<RwLock<Object>>,
-        exit_door: ExitDoorType,
-    ) -> GameResult<()> {
-        if matches!(exit_door, ExitDoorType::None | ExitDoorType::NoneAvailable) {
-            return Ok(());
+    fn destination_layer(pos: &Coord3D) -> PathfindLayerEnum {
+        TheTerrainLogic::get()
+            .map(|terrain| terrain.get_layer_for_destination(pos))
+            .unwrap_or(PathfindLayerEnum::Ground)
+    }
+
+    fn add_to_pathfind_map(object_id: ObjectID, pos: Coord3D) {
+        if let Ok(ai_guard) = THE_AI.read() {
+            if let Some(pathfinder) = ai_guard.pathfinder() {
+                if let Ok(mut pf) = pathfinder.write() {
+                    pf.add_object_to_map(object_id, &[pos], false);
+                }
+            }
+        }
+    }
+
+    fn refresh_owner_pathfind_goal(owner: &Object) {
+        let Some(owner_ai) = owner.get_ai_update_interface() else {
+            return;
+        };
+        let Ok(mut owner_ai_guard) = owner_ai.try_lock() else {
+            return;
+        };
+        if !owner_ai_guard.is_idle() || !owner.is_kind_of(KindOf::Vehicle) {
+            return;
         }
 
+        let owner_id = owner.get_id();
+        let owner_pos = *owner.get_position();
+        if let Ok(ai_guard) = THE_AI.read() {
+            if let Some(pathfinder) = ai_guard.pathfinder() {
+                if let Ok(mut pf) = pathfinder.write() {
+                    pf.remove_object_from_map(owner_id, &[owner_pos]);
+                    pf.add_object_to_map(owner_id, &[owner_pos], false);
+                }
+            }
+        }
+        let owner_layer = Self::destination_layer(&owner_pos);
+        let _ = owner_ai_guard.update_goal_position(&owner_pos, owner_layer);
+    }
+
+    fn prepare_exit_object(
+        &mut self,
+        exit_obj: &Arc<RwLock<Object>>,
+        hurry: bool,
+    ) -> GameResult<Option<ExitPrep>> {
         self.remove_from_contain(Arc::clone(exit_obj), false)?;
 
         let Some(owner) = self.get_object() else {
-            return Ok(());
+            return Ok(None);
         };
         let Ok(owner_guard) = owner.read() else {
-            return Ok(());
+            return Ok(None);
         };
 
         self.door_close_countdown
@@ -1171,7 +1215,7 @@ impl OpenContain {
         }
 
         let Ok(owner_guard) = owner.read() else {
-            return Ok(());
+            return Ok(None);
         };
         let (mut start_pos, mut end_pos) = self.next_exit_positions(&owner_guard);
         let exit_angle = owner_guard.get_orientation();
@@ -1183,16 +1227,61 @@ impl OpenContain {
             end_pos.z = terrain.get_ground_height(end_pos.x, end_pos.y, None);
         }
 
-        if let Ok(mut exit_guard) = exit_obj.write() {
+        let exit_id = if let Ok(mut exit_guard) = exit_obj.write() {
             let _ = exit_guard.set_position(&start_pos);
             let _ = exit_guard.set_orientation(exit_angle);
             exit_guard.set_layer(owner_layer);
+            exit_guard.get_id()
+        } else {
+            return Ok(None);
+        };
+
+        Self::add_to_pathfind_map(exit_id, start_pos);
+        Self::refresh_owner_pathfind_goal(&owner_guard);
+
+        if let Ok(exit_guard) = exit_obj.read() {
+            if let Some(ai) = exit_guard.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.try_lock() {
+                    ai_guard.set_ignore_collision_time(LOGICFRAMES_PER_SECOND as UnsignedInt);
+                    let _ = ai_guard.ignore_obstacle(None);
+                    let _ = ai_guard.adjust_destination(&mut end_pos);
+                    let _ =
+                        ai_guard.update_goal_position(&end_pos, Self::destination_layer(&end_pos));
+                }
+            }
         }
 
-        let mut exit_path = vec![end_pos, end_pos];
+        let mut exit_path = if hurry {
+            vec![end_pos]
+        } else {
+            vec![end_pos, end_pos]
+        };
+        if hurry {
+            exit_path.push(end_pos);
+        }
         if self.rally_point_exists {
             exit_path.push(self.rally_point);
         }
+
+        Ok(Some(ExitPrep {
+            owner_id,
+            end_pos,
+            exit_path,
+        }))
+    }
+
+    pub fn exit_object_via_door(
+        &mut self,
+        exit_obj: &Arc<RwLock<Object>>,
+        exit_door: ExitDoorType,
+    ) -> GameResult<()> {
+        if matches!(exit_door, ExitDoorType::None | ExitDoorType::NoneAvailable) {
+            return Ok(());
+        }
+
+        let Some(prep) = self.prepare_exit_object(exit_obj, false)? else {
+            return Ok(());
+        };
 
         if let Ok(exit_guard) = exit_obj.read() {
             let previous_allow_to_fall = exit_guard.get_physics().map(|physics| {
@@ -1202,15 +1291,41 @@ impl OpenContain {
             });
 
             if let Some(ai) = exit_guard.get_ai_update_interface() {
+                ai.ai_follow_path(
+                    &prep.exit_path,
+                    Some(prep.owner_id),
+                    CommandSourceType::FromAi,
+                );
                 if let Ok(mut ai_guard) = ai.try_lock() {
-                    ai_guard.set_ignore_collision_time(LOGICFRAMES_PER_SECOND as UnsignedInt);
-                    let _ = ai_guard.ignore_obstacle(None);
+                    let _ = ai_guard.update_goal_position(
+                        &prep.end_pos,
+                        Self::destination_layer(&prep.end_pos),
+                    );
                 }
-                ai.ai_follow_path(&exit_path, Some(owner_id), CommandSourceType::FromAi);
             }
 
             if let Some((physics, previous)) = previous_allow_to_fall {
                 physics.set_allow_to_fall(previous);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn exit_object_in_a_hurry(&mut self, exit_obj: &Arc<RwLock<Object>>) -> GameResult<()> {
+        let Some(prep) = self.prepare_exit_object(exit_obj, true)? else {
+            return Ok(());
+        };
+
+        if let Ok(exit_guard) = exit_obj.read() {
+            if let Some(ai) = exit_guard.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.try_lock() {
+                    let _ = ai_guard.set_path_from_coords(&prep.exit_path);
+                    let _ = ai_guard.update_goal_position(
+                        &prep.end_pos,
+                        Self::destination_layer(&prep.end_pos),
+                    );
+                }
             }
         }
 
@@ -1612,6 +1727,13 @@ impl ContainModuleInterface for OpenContain {
         door: ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         OpenContain::exit_object_via_door(self, obj, door).map_err(|err| err.into())
+    }
+
+    fn exit_object_in_a_hurry(
+        &mut self,
+        obj: &Arc<RwLock<Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::exit_object_in_a_hurry(self, obj).map_err(|err| err.into())
     }
 
     fn set_passenger_allowed_to_fire(&mut self, allowed: bool) {

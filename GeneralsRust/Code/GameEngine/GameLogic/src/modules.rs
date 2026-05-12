@@ -493,6 +493,14 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
+    /// Special tunnel-network style exit that preserves the passenger's current AI state.
+    fn exit_object_in_a_hurry(
+        &mut self,
+        _obj: &Arc<RwLock<crate::object::Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
     /// Whether a passenger is allowed to fire (default: false).
     fn is_passenger_allowed_to_fire(&self, _id: Option<ObjectID>) -> bool {
         false
@@ -3706,6 +3714,14 @@ pub trait ExitInterface {
         &mut self,
         _obj: &Arc<RwLock<crate::object::Object>>,
         _door: ExitDoorType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
+    /// Special tunnel-network style exit that preserves the passenger's current AI state.
+    fn exit_object_in_a_hurry(
+        &mut self,
+        _obj: &Arc<RwLock<crate::object::Object>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
