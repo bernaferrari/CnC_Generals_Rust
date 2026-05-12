@@ -60,7 +60,7 @@ pub trait ScriptActionHandler: Send + Sync {
         Ok(())
     }
 
-    fn military_caption(&self, _text: &str, _duration_frames: i32) -> GameLogicResult<()> {
+    fn military_caption(&self, _text: &str, _duration_ms: i32) -> GameLogicResult<()> {
         Ok(())
     }
 

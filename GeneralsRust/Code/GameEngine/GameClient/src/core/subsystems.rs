@@ -812,6 +812,7 @@ pub struct InGameUISubsystem {
     selection_events: VecDeque<SelectionEvent>,
     command_log: VecDeque<CommandLogEntry>,
     hud_messages: VecDeque<String>,
+    military_subtitles: VecDeque<(String, i32)>,
     radar_pings: VecDeque<RadarPingEvent>,
     pending_place_template: Option<String>,
     pending_place_source_object_id: ObjectID,
@@ -959,6 +960,15 @@ impl InGameUISubsystem {
             self.hud_messages.pop_front();
         }
         self.hud_messages.push_back(message);
+    }
+
+    fn push_military_subtitle(&mut self, label: &str, duration_ms: i32) {
+        const MAX_MILITARY_SUBTITLES: usize = 8;
+        if self.military_subtitles.len() == MAX_MILITARY_SUBTITLES {
+            self.military_subtitles.pop_front();
+        }
+        self.military_subtitles
+            .push_back((label.to_string(), duration_ms));
     }
 
     fn play_radar_movie(&mut self, movie_name: &str) -> bool {
@@ -1200,6 +1210,7 @@ impl InGameUISubsystem {
         self.selection_events.clear();
         self.command_log.clear();
         self.hud_messages.clear();
+        self.military_subtitles.clear();
         self.radar_pings.clear();
         self.pending_place_template = None;
         self.pending_place_source_object_id = 0;
@@ -1528,6 +1539,12 @@ impl InGameUiHooks for InGameUiHandle {
     fn message(&self, text: &str) {
         if let Ok(mut ui) = self.inner.lock() {
             ui.message(text);
+        }
+    }
+
+    fn military_subtitle(&self, label: &str, duration_ms: i32) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.push_military_subtitle(label, duration_ms);
         }
     }
 
@@ -2043,6 +2060,8 @@ mod tests {
         });
         ui.command_log.push_back(CommandLogEntry::Stop);
         ui.hud_messages.push_back("hello".to_string());
+        ui.military_subtitles
+            .push_back(("SCRIPT:Caption".to_string(), 2000));
         ui.radar_pings.push_back(RadarPingEvent {
             position: Coord3D::new(5.0, 6.0, 0.0),
             kind: RadarPingKind::Generic,
@@ -2080,6 +2099,7 @@ mod tests {
         assert!(ui.selection_events.is_empty());
         assert!(ui.command_log.is_empty());
         assert!(ui.hud_messages.is_empty());
+        assert!(ui.military_subtitles.is_empty());
         assert!(ui.radar_pings.is_empty());
         assert!(ui.pending_place_template.is_none());
         assert_eq!(ui.pending_place_source_object_id, 0);
@@ -2115,5 +2135,20 @@ mod tests {
         ui.set_radius_cursor_none();
         assert!(!ui.radius_cursor_active);
         assert_eq!(ui.radius_cursor_type, "");
+    }
+
+    #[test]
+    fn in_game_ui_handle_records_military_subtitles_separately_from_hud_messages() {
+        let ui = Arc::new(Mutex::new(InGameUISubsystem::default()));
+        let handle = InGameUiHandle::new(ui.clone());
+
+        handle.military_subtitle("SCRIPT:Caption", 2500);
+
+        let guard = ui.lock().unwrap();
+        assert_eq!(
+            guard.military_subtitles.front(),
+            Some(&("SCRIPT:Caption".to_string(), 2500))
+        );
+        assert!(guard.hud_messages.is_empty());
     }
 }

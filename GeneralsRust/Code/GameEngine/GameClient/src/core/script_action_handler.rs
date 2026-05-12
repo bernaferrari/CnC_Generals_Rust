@@ -621,8 +621,8 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         Ok(())
     }
 
-    fn military_caption(&self, text: &str, _duration_frames: i32) -> GameLogicResult<()> {
-        TheInGameUI::message(text);
+    fn military_caption(&self, text: &str, duration_ms: i32) -> GameLogicResult<()> {
+        TheInGameUI::military_subtitle(text, duration_ms);
         Ok(())
     }
 

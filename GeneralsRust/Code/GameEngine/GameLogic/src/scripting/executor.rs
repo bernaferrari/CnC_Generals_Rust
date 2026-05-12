@@ -2086,24 +2086,24 @@ impl ScriptActionDispatcher {
         action: &ScriptAction,
     ) -> Result<ScriptActionResult, ScriptError> {
         let briefing_text = self.get_string_param(action, 0)?;
-        let mut duration_frames = self.get_int_param(action, 1)?;
+        let mut duration_ms = self.get_int_param(action, 1)?;
 
         if let Ok(global) = global_data::read_safe() {
             if global.writable.disable_military_caption {
-                duration_frames = 1;
+                duration_ms = 1;
             }
         }
 
         log::info!(
-            "Showing military caption: {} (duration: {} frames)",
+            "Showing military caption: {} (duration: {} ms)",
             briefing_text,
-            duration_frames
+            duration_ms
         );
 
         if let Ok(engine_guard) = get_script_engine().read() {
             if let Some(ref script_engine) = *engine_guard {
                 if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.military_caption(&briefing_text, duration_frames) {
+                    if let Err(err) = handler.military_caption(&briefing_text, duration_ms) {
                         log::warn!("Script action handler military_caption failed: {}", err);
                     }
                 }
