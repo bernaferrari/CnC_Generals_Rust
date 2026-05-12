@@ -35,12 +35,13 @@ use game_engine::common::ini::ini_language::{get_global_language_read, FontDesc}
 use game_engine::common::thing::get_thing_factory;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
+use gamelogic::common::audio::AudioEventRts;
 use gamelogic::common::CommandSourceType;
 use gamelogic::common::{
     Coord3D, ICoord2D, IRegion2D, KindOf, ObjectID, ObjectShroudStatus, Relationship,
     MAX_PLAYER_COUNT,
 };
-use gamelogic::helpers::{TheGameLogic, TheThingFactory};
+use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory};
 use gamelogic::object::production::construction::FoundationValidator;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::special_power_template::get_special_power_store;
@@ -4162,14 +4163,16 @@ impl InGameUI {
         let point_size = self.military_caption_point_size;
         let char_width = self.caption_char_width();
         let delay_frames = Self::military_caption_delay_frames();
-        Self::update_military_subtitle_state(
+        if Self::update_military_subtitle_state(
             &mut self.current_military_subtitle,
             self.current_frame,
             speed_frames,
             point_size,
             char_width,
             delay_frames,
-        );
+        ) {
+            Self::play_military_subtitle_typing_sound();
+        }
     }
 
     fn update_military_subtitle_state(
@@ -4179,9 +4182,9 @@ impl InGameUI {
         point_size: i32,
         char_width: f32,
         delay_frames: u32,
-    ) {
+    ) -> bool {
         let Some(subtitle) = current_subtitle.as_mut() else {
-            return;
+            return false;
         };
 
         if subtitle.lifetime_frame < current_frame {
@@ -4193,7 +4196,7 @@ impl InGameUI {
                 let new_alpha = (alpha - fade_amount) as u32;
                 subtitle.color = (subtitle.color & 0x00FF_FFFF) | (new_alpha << 24);
             }
-            return;
+            return false;
         }
 
         if subtitle.block_begin_frame + 9 < current_frame {
@@ -4202,14 +4205,15 @@ impl InGameUI {
         }
 
         if subtitle.increment_on_frame >= current_frame {
-            return;
+            return false;
         }
 
         let Some(ch) = subtitle.text.chars().nth(subtitle.index) else {
             subtitle.increment_on_frame = subtitle.lifetime_frame + 1;
-            return;
+            return false;
         };
 
+        let mut typed_visible_char = false;
         if ch == '\n' {
             subtitle.block_pos.0 = subtitle.position.0;
             subtitle.block_pos.1 += point_size.max(1) as f32;
@@ -4224,11 +4228,20 @@ impl InGameUI {
             subtitle.block_pos.0 =
                 subtitle.position.0 + (printed_chars_on_line as f32 * char_width);
             subtitle.increment_on_frame = current_frame + speed_frames;
+            typed_visible_char = true;
         }
 
         subtitle.index += 1;
         if subtitle.index >= subtitle.text.chars().count() {
             subtitle.increment_on_frame = subtitle.lifetime_frame + 1;
+        }
+        typed_visible_char
+    }
+
+    fn play_military_subtitle_typing_sound() {
+        if let Some(audio) = TheAudio::get() {
+            let event = AudioEventRts::new("MilitarySubtitlesTyping");
+            let _ = audio.add_audio_event(&event);
         }
     }
 
@@ -5189,16 +5202,59 @@ mod tests {
             color: 0xFFC8_C81E,
         });
 
-        InGameUI::update_military_subtitle_state(&mut subtitle, 22, 1, 12, 7.2, 22);
+        assert!(!InGameUI::update_military_subtitle_state(
+            &mut subtitle,
+            22,
+            1,
+            12,
+            7.2,
+            22
+        ));
         let state = subtitle.as_ref().unwrap();
         assert_eq!(state.index, 0);
         assert_eq!(state.block_pos, (10.0, 20.0));
 
-        InGameUI::update_military_subtitle_state(&mut subtitle, 23, 1, 12, 7.2, 22);
+        assert!(InGameUI::update_military_subtitle_state(
+            &mut subtitle,
+            23,
+            1,
+            12,
+            7.2,
+            22
+        ));
         let state = subtitle.as_ref().unwrap();
         assert_eq!(state.index, 1);
         assert_eq!(state.increment_on_frame, 24);
         assert_eq!(state.block_pos.0, 17.2);
+    }
+
+    #[test]
+    fn military_caption_newline_advances_without_typing_sound() {
+        let mut subtitle = Some(MilitarySubtitle {
+            text: "\nA".to_string(),
+            index: 0,
+            position: (10.0, 20.0),
+            lifetime_frame: 120,
+            block_drawn: false,
+            block_begin_frame: 0,
+            block_pos: (18.0, 20.0),
+            increment_on_frame: 22,
+            color: 0xFFC8_C81E,
+        });
+
+        assert!(!InGameUI::update_military_subtitle_state(
+            &mut subtitle,
+            23,
+            1,
+            12,
+            7.2,
+            22
+        ));
+        let state = subtitle.as_ref().unwrap();
+        assert_eq!(state.index, 1);
+        assert_eq!(state.block_pos, (10.0, 32.0));
+        assert!(state.block_drawn);
+        assert_eq!(state.increment_on_frame, 45);
     }
 
     #[test]
@@ -5215,10 +5271,24 @@ mod tests {
             color: 0x02C8_C81E,
         });
 
-        InGameUI::update_military_subtitle_state(&mut subtitle, 15, 1, 12, 7.2, 22);
+        assert!(!InGameUI::update_military_subtitle_state(
+            &mut subtitle,
+            15,
+            1,
+            12,
+            7.2,
+            22
+        ));
         assert_eq!(subtitle.as_ref().unwrap().color >> 24, 2);
 
-        InGameUI::update_military_subtitle_state(&mut subtitle, 40, 1, 12, 7.2, 22);
+        assert!(!InGameUI::update_military_subtitle_state(
+            &mut subtitle,
+            40,
+            1,
+            12,
+            7.2,
+            22
+        ));
         assert!(subtitle.is_none());
     }
 }
