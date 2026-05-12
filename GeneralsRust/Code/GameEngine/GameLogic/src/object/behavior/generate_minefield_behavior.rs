@@ -98,6 +98,30 @@ fn circle_mine_count(radius: f32, mine_radius: f32) -> u32 {
     line_segment_count(2.0 * std::f32::consts::PI * radius, mine_radius)
 }
 
+fn rotated_rect_corners(
+    center: &Coord3D,
+    major_radius: f32,
+    minor_radius: f32,
+    rotation: f32,
+) -> [Coord3D; 4] {
+    let cos = rotation.cos();
+    let sin = rotation.sin();
+    let offsets = [
+        (major_radius, minor_radius),
+        (-major_radius, minor_radius),
+        (-major_radius, -minor_radius),
+        (major_radius, -minor_radius),
+    ];
+
+    offsets.map(|(x, y)| {
+        Coord3D::new(
+            center.x + x * cos - y * sin,
+            center.y + x * sin + y * cos,
+            center.z,
+        )
+    })
+}
+
 #[cfg(test)]
 fn smart_border_ring_count(
     mut bounding_circle_radius: f32,
@@ -632,6 +656,7 @@ impl GenerateMinefieldBehavior {
                     &geometry.center,
                     geometry.major_radius + self.config.distance_around_object,
                     geometry.minor_radius + self.config.distance_around_object,
+                    geometry.rotation,
                     mine_template,
                     mine_radius,
                 )?;
@@ -704,14 +729,16 @@ impl GenerateMinefieldBehavior {
         center: &Coord3D,
         major_radius: f32,
         minor_radius: f32,
+        rotation: f32,
         mine_template: &str,
         mine_radius: f32,
     ) -> BehaviorResult<()> {
-        // Place mines along the four sides of the rectangle
+        let corners = rotated_rect_corners(center, major_radius, minor_radius, rotation);
+
         self.place_mines_along_line(
             state,
-            &Coord3D::new(center.x - major_radius, center.y - minor_radius, center.z),
-            &Coord3D::new(center.x + major_radius, center.y - minor_radius, center.z),
+            &corners[0],
+            &corners[1],
             mine_template,
             mine_radius,
             true,
@@ -719,8 +746,8 @@ impl GenerateMinefieldBehavior {
 
         self.place_mines_along_line(
             state,
-            &Coord3D::new(center.x + major_radius, center.y - minor_radius, center.z),
-            &Coord3D::new(center.x + major_radius, center.y + minor_radius, center.z),
+            &corners[1],
+            &corners[2],
             mine_template,
             mine_radius,
             true,
@@ -728,8 +755,8 @@ impl GenerateMinefieldBehavior {
 
         self.place_mines_along_line(
             state,
-            &Coord3D::new(center.x + major_radius, center.y + minor_radius, center.z),
-            &Coord3D::new(center.x - major_radius, center.y + minor_radius, center.z),
+            &corners[2],
+            &corners[3],
             mine_template,
             mine_radius,
             true,
@@ -737,8 +764,8 @@ impl GenerateMinefieldBehavior {
 
         self.place_mines_along_line(
             state,
-            &Coord3D::new(center.x - major_radius, center.y + minor_radius, center.z),
-            &Coord3D::new(center.x - major_radius, center.y - minor_radius, center.z),
+            &corners[3],
+            &corners[0],
             mine_template,
             mine_radius,
             true,
@@ -829,6 +856,7 @@ impl GenerateMinefieldBehavior {
                     &ring_geometry.center,
                     ring_geometry.major_radius,
                     ring_geometry.minor_radius,
+                    ring_geometry.rotation,
                     mine_template,
                     mine_radius,
                 )?;
@@ -1552,6 +1580,22 @@ mod tests {
             4
         );
         assert_eq!(smart_border_ring_count(45.0, 40.0, 5.0), 1);
+    }
+
+    #[test]
+    fn rectangular_border_corners_follow_object_rotation() {
+        let center = Coord3D::new(100.0, 200.0, 7.0);
+        let corners = rotated_rect_corners(&center, 20.0, 10.0, std::f32::consts::FRAC_PI_2);
+
+        assert!((corners[0].x - 90.0).abs() < 0.0001);
+        assert!((corners[0].y - 220.0).abs() < 0.0001);
+        assert!((corners[1].x - 90.0).abs() < 0.0001);
+        assert!((corners[1].y - 180.0).abs() < 0.0001);
+        assert!((corners[2].x - 110.0).abs() < 0.0001);
+        assert!((corners[2].y - 180.0).abs() < 0.0001);
+        assert!((corners[3].x - 110.0).abs() < 0.0001);
+        assert!((corners[3].y - 220.0).abs() < 0.0001);
+        assert!(corners.iter().all(|corner| corner.z == center.z));
     }
 
     #[test]
