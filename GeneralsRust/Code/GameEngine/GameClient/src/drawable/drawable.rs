@@ -1880,7 +1880,15 @@ impl BasicDrawable {
 
     /// Set owning object ID.
     pub fn set_object_id(&mut self, object_id: Option<u32>) {
-        self.object_id = object_id;
+        match object_id {
+            Some(object_id) if self.object_id != Some(object_id) => {
+                self.friend_bind_to_object(object_id);
+            }
+            Some(_) => {}
+            None => {
+                self.object_id = None;
+            }
+        }
     }
 
     /// Get the object used for shroud status when this drawable has no direct object.
@@ -3255,7 +3263,7 @@ impl Drawable for BasicDrawable {
     }
 
     fn set_object_id(&mut self, object_id: Option<u32>) {
-        self.object_id = object_id;
+        BasicDrawable::set_object_id(self, object_id);
     }
 
     fn get_template_name(&self) -> Option<&str> {
@@ -4798,6 +4806,24 @@ mod tests {
         drawable.friend_bind_to_object(123);
 
         assert_eq!(drawable.object_id, Some(123));
+        assert_eq!(bind_count.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn set_object_id_uses_binding_side_effects_once_per_object() {
+        let observed_color = Arc::new(Mutex::new(None));
+        let bind_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        drawable.add_draw_module(Box::new(IndicatorDispatchTestDrawModule {
+            observed_color,
+            bind_count: Arc::clone(&bind_count),
+        }));
+
+        drawable.set_object_id(Some(123));
+        drawable.set_object_id(Some(123));
+        drawable.set_object_id(None);
+
+        assert_eq!(drawable.object_id, None);
         assert_eq!(bind_count.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
