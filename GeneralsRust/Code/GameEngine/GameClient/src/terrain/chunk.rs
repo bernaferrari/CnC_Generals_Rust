@@ -1469,4 +1469,39 @@ mod tests {
             "top-right corner should preserve corner height, got {last_col_top}"
         );
     }
+
+    #[test]
+    fn load_heightmap_preserves_exact_edge_samples_for_render_chunks() {
+        let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
+        heightmap.set_height_at_index(3, 0, 0.25);
+        heightmap.set_height_at_index(0, 3, 0.5);
+        heightmap.set_height_at_index(3, 3, 0.75);
+
+        let config = TerrainConfig {
+            world_size: (3.0, 3.0),
+            chunk_size: 3,
+            ..Default::default()
+        };
+        let mut manager = ChunkManager::with_config(config.clone());
+        manager.load_heightmap(&heightmap, &config).unwrap();
+
+        let chunk = manager.get_chunk(1).unwrap();
+        let top_right = *chunk.heights.first().and_then(|row| row.last()).unwrap();
+        let bottom_left = chunk
+            .heights
+            .last()
+            .and_then(|row| row.first())
+            .copied()
+            .unwrap();
+        let bottom_right = chunk
+            .heights
+            .last()
+            .and_then(|row| row.last())
+            .copied()
+            .unwrap();
+
+        assert!((top_right - 25.0).abs() < 0.001);
+        assert!((bottom_left - 50.0).abs() < 0.001);
+        assert!((bottom_right - 75.0).abs() < 0.001);
+    }
 }
