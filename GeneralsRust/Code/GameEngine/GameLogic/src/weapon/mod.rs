@@ -4588,11 +4588,9 @@ impl Weapon {
         Ok(engine_damage_info.output.actual_damage_dealt)
     }
 
-    /// Random float generator (uses thread_rng)
+    /// Random float generator using synchronized game-logic RNG.
     fn random_float(&self, min: f32, max: f32) -> f32 {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        rng.gen_range(min..=max)
+        get_game_logic_random_value_real(min, max)
     }
 }
 
