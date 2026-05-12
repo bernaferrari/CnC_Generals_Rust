@@ -11,14 +11,16 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface};
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    GameResult, KindOfMaskType, ObjectID, PlayerMaskType, UnsignedInt, LOGICFRAMES_PER_SECOND,
-    MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
+    Coord3D, GameResult, KindOf, KindOfMaskType, ModelConditionFlags, ObjectID, PlayerMaskType,
+    UnsignedInt, LOGICFRAMES_PER_SECOND, MODELCONDITION_DOOR_1_CLOSING,
+    MODELCONDITION_DOOR_1_OPENING,
 };
 use crate::damage::DamageInfo;
 use crate::error::GameLogicError as GameError;
 use crate::helpers::{TheAudio, TheGameLogic};
 use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::die::{
     parse_death_type_flags_tokens, parse_object_status_mask_tokens,
     parse_veterancy_level_flags_tokens, DieMuxData,
@@ -28,9 +30,11 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 type ObjectId = ObjectID;
+type FirePointMatrix = [[f32; 4]; 3];
 
 /// Constant for unlimited contain capacity
 pub const CONTAIN_MAX_UNKNOWN: i32 = -1;
+const MAX_FIRE_POINTS: usize = 32;
 
 /// Configuration data for OpenContain module
 #[derive(Debug, Clone)]
@@ -384,6 +388,8 @@ const OPEN_CONTAIN_FIELDS: &[FieldParse<OpenContainModuleData>] = &[
 pub struct OpenContain {
     /// Reference to the owning object
     object: Weak<RwLock<Object>>,
+    /// UpdateModule base scheduler state.
+    next_call_frame_and_phase: UnsignedInt,
     /// List of contained objects
     contained_objects: Vec<Arc<RwLock<Object>>>,
     /// Cached IDs for ContainModuleInterface access.
@@ -402,6 +408,20 @@ pub struct OpenContain {
     load_sounds_enabled: bool,
     /// Frames remaining before door closes (0 when idle).
     door_close_countdown: AtomicU32,
+    /// Number of stealth garrison units in this container.
+    stealth_units_contained: UnsignedInt,
+    /// Exit path suffix to use next when multiple paths are available.
+    which_exit_path: i32,
+    /// Cached drawable condition state used to redeploy firepoint occupants.
+    condition_state: ModelConditionFlags,
+    /// Cached FIREPOINT transforms; C++ Matrix3D serializes 3 rows of 4 floats.
+    fire_points: [FirePointMatrix; MAX_FIRE_POINTS],
+    fire_point_start: i32,
+    fire_point_next: i32,
+    fire_point_size: i32,
+    no_fire_points_in_art: bool,
+    rally_point: Coord3D,
+    rally_point_exists: bool,
     /// Module configuration data
     module_data: OpenContainModuleData,
 }
@@ -414,6 +434,7 @@ impl OpenContain {
     ) -> GameResult<Self> {
         Ok(Self {
             object,
+            next_call_frame_and_phase: 0,
             contained_objects: Vec::new(),
             contained_object_ids: Vec::new(),
             object_enter_exit_info: HashMap::new(),
@@ -423,8 +444,57 @@ impl OpenContain {
             last_unload_sound_frame: 0,
             load_sounds_enabled: true,
             door_close_countdown: AtomicU32::new(0),
+            stealth_units_contained: 0,
+            which_exit_path: 1,
+            condition_state: ModelConditionFlags::empty(),
+            fire_points: [Self::identity_fire_point_matrix(); MAX_FIRE_POINTS],
+            fire_point_start: -1,
+            fire_point_next: 0,
+            fire_point_size: 0,
+            no_fire_points_in_art: false,
+            rally_point: Coord3D::new(0.0, 0.0, 0.0),
+            rally_point_exists: false,
             module_data: module_data.clone(),
         })
+    }
+
+    const fn identity_fire_point_matrix() -> FirePointMatrix {
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+        ]
+    }
+
+    fn xfer_coord_3d(xfer: &mut dyn Xfer, coord: &mut Coord3D) -> Result<(), String> {
+        xfer.xfer_real(&mut coord.x).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut coord.y).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut coord.z).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn xfer_fire_point_matrix(
+        xfer: &mut dyn Xfer,
+        matrix: &mut FirePointMatrix,
+    ) -> Result<(), String> {
+        for row in matrix {
+            for value in row {
+                xfer.xfer_real(value).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    fn xfer_model_condition_flags(
+        xfer: &mut dyn Xfer,
+        flags: &mut ModelConditionFlags,
+    ) -> Result<(), String> {
+        let mut bits = flags.bits();
+        xfer.xfer_u128(&mut bits).map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            *flags = ModelConditionFlags::from_bits_retain(bits);
+        }
+        Ok(())
     }
 
     fn contain_want_to_cpp_value(want: ContainWant) -> i32 {
@@ -558,8 +628,15 @@ impl OpenContain {
     /// Add object to contain list (can be overridden by inheritors)
     pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
         let obj_id = obj.read().map_err(|_| GameError::LockError)?.get_id();
+        let is_stealth_garrison = obj
+            .read()
+            .map(|guard| guard.is_kind_of(KindOf::StealthGarrison))
+            .unwrap_or(false);
         self.contained_objects.push(obj);
         self.contained_object_ids.push(obj_id);
+        if is_stealth_garrison {
+            self.stealth_units_contained = self.stealth_units_contained.saturating_add(1);
+        }
         Ok(())
     }
 
@@ -578,7 +655,19 @@ impl OpenContain {
             .iter()
             .position(|obj| obj.read().ok().map(|guard| guard.get_id()) == Some(object_id))
         {
+            let is_stealth_garrison = self
+                .contained_objects
+                .get(pos)
+                .and_then(|obj| {
+                    obj.read()
+                        .ok()
+                        .map(|guard| guard.is_kind_of(KindOf::StealthGarrison))
+                })
+                .unwrap_or(false);
             self.contained_objects.remove(pos);
+            if is_stealth_garrison {
+                self.stealth_units_contained = self.stealth_units_contained.saturating_sub(1);
+            }
         }
     }
 
@@ -608,7 +697,19 @@ impl OpenContain {
                 .contained_objects
                 .get(pos)
                 .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()));
+            let is_stealth_garrison = self
+                .contained_objects
+                .get(pos)
+                .and_then(|arc| {
+                    arc.read()
+                        .ok()
+                        .map(|guard| guard.is_kind_of(KindOf::StealthGarrison))
+                })
+                .unwrap_or(false);
             self.contained_objects.remove(pos);
+            if is_stealth_garrison {
+                self.stealth_units_contained = self.stealth_units_contained.saturating_sub(1);
+            }
             if expose_stealth_units {
                 if let Ok(obj_guard) = obj.read() {
                     if let Some(stealth) = obj_guard.get_stealth() {
@@ -905,6 +1006,19 @@ impl OpenContain {
     /// Toggle whether passengers may fire from this container.
     pub fn set_passenger_allowed_to_fire(&mut self, allowed: bool) {
         self.module_data.passengers_allowed_to_fire = allowed;
+    }
+
+    pub fn get_stealth_units_contained(&self) -> UnsignedInt {
+        self.stealth_units_contained
+    }
+
+    pub fn set_rally_point(&mut self, pos: Coord3D) {
+        self.rally_point = pos;
+        self.rally_point_exists = true;
+    }
+
+    pub fn get_rally_point(&self) -> Option<Coord3D> {
+        self.rally_point_exists.then_some(self.rally_point)
     }
 
     /// Check if this is an enclosing container
@@ -1297,6 +1411,8 @@ impl Snapshotable for OpenContain {
         xfer.xfer_version(&mut version, 2)
             .map_err(|e| e.to_string())?;
 
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
+
         match xfer.get_xfer_mode() {
             XferMode::Save | XferMode::Crc => {
                 let mut contain_list_size = self.contained_object_ids.len() as u32;
@@ -1338,8 +1454,7 @@ impl Snapshotable for OpenContain {
         xfer.xfer_unsigned_int(&mut self.last_load_sound_frame)
             .map_err(|e| e.to_string())?;
 
-        let mut stealth_units_contained = 0_u32;
-        xfer.xfer_unsigned_int(&mut stealth_units_contained)
+        xfer.xfer_unsigned_int(&mut self.stealth_units_contained)
             .map_err(|e| e.to_string())?;
 
         let mut door_close_countdown = self.door_close_countdown.load(Ordering::Relaxed);
@@ -1349,6 +1464,25 @@ impl Snapshotable for OpenContain {
             self.door_close_countdown
                 .store(door_close_countdown, Ordering::Relaxed);
         }
+
+        Self::xfer_model_condition_flags(xfer, &mut self.condition_state)?;
+
+        for matrix in &mut self.fire_points {
+            Self::xfer_fire_point_matrix(xfer, matrix)?;
+        }
+
+        xfer.xfer_int(&mut self.fire_point_start)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.fire_point_next)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.fire_point_size)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.no_fire_points_in_art)
+            .map_err(|e| e.to_string())?;
+
+        Self::xfer_coord_3d(xfer, &mut self.rally_point)?;
+        xfer.xfer_bool(&mut self.rally_point_exists)
+            .map_err(|e| e.to_string())?;
 
         let mut enter_exit_count = self.object_enter_exit_info.len() as u16;
         xfer.xfer_unsigned_short(&mut enter_exit_count)
@@ -1384,8 +1518,7 @@ impl Snapshotable for OpenContain {
             XferMode::Invalid => return Err("invalid xfer mode for OpenContain".to_string()),
         }
 
-        let mut which_exit_path = 1_i32;
-        xfer.xfer_int(&mut which_exit_path)
+        xfer.xfer_int(&mut self.which_exit_path)
             .map_err(|e| e.to_string())?;
 
         if version >= 2 {
@@ -1505,11 +1638,22 @@ mod tests {
     fn xfer_preserves_cpp_open_contain_runtime_fields() {
         let mut saved =
             OpenContain::new(Weak::new(), &OpenContainModuleData::default()).expect("contain");
+        saved.next_call_frame_and_phase = 0x5511;
         saved.contained_object_ids = vec![101, 202];
         saved.player_who_entered = PlayerMaskType::PLAYER_1 | PlayerMaskType::PLAYER_3;
         saved.last_unload_sound_frame = 12;
         saved.last_load_sound_frame = 34;
         saved.door_close_countdown.store(56, Ordering::Relaxed);
+        saved.stealth_units_contained = 2;
+        saved.which_exit_path = 3;
+        saved.condition_state = ModelConditionFlags::LOADED | ModelConditionFlags::DOOR_1_OPENING;
+        saved.fire_points[1][2][3] = 7.5;
+        saved.fire_point_start = 4;
+        saved.fire_point_next = 5;
+        saved.fire_point_size = 6;
+        saved.no_fire_points_in_art = true;
+        saved.rally_point = Coord3D::new(1.0, 2.0, 3.0);
+        saved.rally_point_exists = true;
         saved
             .object_enter_exit_info
             .insert(303, ContainWant::WantsToEnter);
@@ -1534,6 +1678,7 @@ mod tests {
             loaded.xfer(&mut xfer).unwrap();
         }
 
+        assert_eq!(loaded.next_call_frame_and_phase, 0x5511);
         assert_eq!(loaded.xfer_contain_id_list, vec![101, 202]);
         assert!(loaded.contained_object_ids.is_empty());
         assert_eq!(
@@ -1543,6 +1688,19 @@ mod tests {
         assert_eq!(loaded.last_unload_sound_frame, 12);
         assert_eq!(loaded.last_load_sound_frame, 34);
         assert_eq!(loaded.door_close_countdown.load(Ordering::Relaxed), 56);
+        assert_eq!(loaded.stealth_units_contained, 2);
+        assert_eq!(loaded.which_exit_path, 3);
+        assert_eq!(
+            loaded.condition_state,
+            ModelConditionFlags::LOADED | ModelConditionFlags::DOOR_1_OPENING
+        );
+        assert_eq!(loaded.fire_points[1][2][3], 7.5);
+        assert_eq!(loaded.fire_point_start, 4);
+        assert_eq!(loaded.fire_point_next, 5);
+        assert_eq!(loaded.fire_point_size, 6);
+        assert!(loaded.no_fire_points_in_art);
+        assert_eq!(loaded.rally_point, Coord3D::new(1.0, 2.0, 3.0));
+        assert!(loaded.rally_point_exists);
         assert_eq!(
             loaded.object_enter_exit_info.get(&303),
             Some(&ContainWant::WantsToEnter)
