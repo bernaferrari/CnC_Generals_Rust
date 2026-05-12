@@ -1321,25 +1321,21 @@ impl GameEngine {
             match factory_result {
                 Ok(mut game_client) => {
                     info!("Using registered game client bootstrap");
-                    match game_client.init() {
-                        Ok(()) => {
-                            self.game_client = Some(game_client);
-                            info!("Game client system initialized successfully");
-                            return Ok(());
-                        }
-                        Err(err) => {
-                            warn!(
-                                "Registered game client bootstrap failed during init: {}; falling back to stub client",
-                                err
-                            );
-                        }
+                    if let Err(err) = game_client.init() {
+                        return Err(SubsystemError::InitializationFailed(format!(
+                            "registered game client bootstrap failed during init: {}",
+                            err
+                        )));
                     }
+                    self.game_client = Some(game_client);
+                    info!("Game client system initialized successfully");
+                    return Ok(());
                 }
                 Err(err) => {
-                    warn!(
-                        "Registered game client bootstrap failed to create client: {}; falling back to stub client",
+                    return Err(SubsystemError::InitializationFailed(format!(
+                        "registered game client bootstrap failed to create client: {}",
                         err
-                    );
+                    )));
                 }
             }
         }
@@ -1826,6 +1822,7 @@ mod tests {
 
     struct RegisteredGameClient {
         init_calls: Arc<AtomicUsize>,
+        init_error: Option<String>,
         active: bool,
         state: SubsystemState,
     }
@@ -1834,6 +1831,16 @@ mod tests {
         fn new(init_calls: Arc<AtomicUsize>) -> Self {
             Self {
                 init_calls,
+                init_error: None,
+                active: true,
+                state: SubsystemState::Uninitialized,
+            }
+        }
+
+        fn failing_init(init_calls: Arc<AtomicUsize>, reason: &str) -> Self {
+            Self {
+                init_calls,
+                init_error: Some(reason.to_string()),
                 active: true,
                 state: SubsystemState::Uninitialized,
             }
@@ -1843,6 +1850,10 @@ mod tests {
     impl GameClientInterface for RegisteredGameClient {
         fn init(&mut self) -> SubsystemResult<()> {
             self.init_calls.fetch_add(1, Ordering::Relaxed);
+            if let Some(reason) = self.init_error.take() {
+                self.state = SubsystemState::Error;
+                return Err(SubsystemError::InitializationFailed(reason));
+            }
             self.state = SubsystemState::Running;
             Ok(())
         }
@@ -1905,6 +1916,64 @@ mod tests {
             .expect("registered client should have been installed");
         assert_eq!(init_calls.load(Ordering::Relaxed), 1);
         assert_eq!(client.get_state(), SubsystemState::Running);
+
+        clear_game_client_factory();
+    }
+
+    #[test]
+    fn test_registered_game_client_factory_create_failure_does_not_fallback_to_stub_client() {
+        let _guard = TEST_LOCK.lock();
+        clear_game_client_factory();
+
+        register_game_client_factory(|| {
+            Err(SubsystemError::InitializationFailed(
+                "real client unavailable".to_string(),
+            ))
+        });
+
+        let mut engine = GameEngine::new();
+        let result = tokio_test::block_on(engine.init_game_client());
+
+        assert!(matches!(
+            result,
+            Err(SubsystemError::InitializationFailed(ref message))
+                if message.contains("registered game client bootstrap failed to create client")
+        ));
+        assert!(
+            engine.game_client.is_none(),
+            "registered bootstrap failures must not be hidden by fallback clients"
+        );
+
+        clear_game_client_factory();
+    }
+
+    #[test]
+    fn test_registered_game_client_init_failure_does_not_fallback_to_stub_client() {
+        let _guard = TEST_LOCK.lock();
+        clear_game_client_factory();
+
+        let init_calls = Arc::new(AtomicUsize::new(0));
+        let factory_calls = Arc::clone(&init_calls);
+        register_game_client_factory(move || {
+            Ok(Box::new(RegisteredGameClient::failing_init(
+                Arc::clone(&factory_calls),
+                "wgpu init failed",
+            )))
+        });
+
+        let mut engine = GameEngine::new();
+        let result = tokio_test::block_on(engine.init_game_client());
+
+        assert_eq!(init_calls.load(Ordering::Relaxed), 1);
+        assert!(matches!(
+            result,
+            Err(SubsystemError::InitializationFailed(ref message))
+                if message.contains("registered game client bootstrap failed during init")
+        ));
+        assert!(
+            engine.game_client.is_none(),
+            "registered bootstrap init failures must not be hidden by fallback clients"
+        );
 
         clear_game_client_factory();
     }
