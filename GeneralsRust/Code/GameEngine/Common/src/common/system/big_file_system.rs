@@ -1299,6 +1299,13 @@ impl BigFileSystem {
         self.file_index.clear();
     }
 
+    /// Close materialized file handles associated with loaded archives without unmounting them.
+    pub fn close_all_files(&mut self) {
+        for archive in &mut self.archives {
+            archive.big_file.close_all_files();
+        }
+    }
+
     /// Get a mutable reference to a BIG file by archive name
     pub fn get_big_file(&mut self, filename: &str) -> Option<&mut BigFile> {
         let key = filename.replace('\\', "/").to_lowercase();
