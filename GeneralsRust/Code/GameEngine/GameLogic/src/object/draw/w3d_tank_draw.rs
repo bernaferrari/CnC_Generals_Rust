@@ -344,17 +344,10 @@ impl W3DTankDraw {
     ///
     /// Finds tread sub-objects in the model and caches them for animation.
     fn update_tread_objects(&mut self) {
-        // When render object system is implemented:
-        // Reference: C++ W3DTankDraw.cpp - tread sub-object discovery
-        // - Query render object for sub-objects matching tread naming convention
-        // - Common names: "TREADLEFT", "TREADRIGHT", "TREAD", "TREADMIDDLE"
-        // - Store references to these sub-objects for UV scrolling
-        // - Classify each as Left/Right/Middle based on name
         self.treads.clear();
-
-        // Temporary fallback until render-object tread discovery is wired.
-        self.treads.push(TreadObjectInfo::new(TreadType::Left));
-        self.treads.push(TreadObjectInfo::new(TreadType::Right));
+        // C++ W3DTankDraw only populates this list from real mesh sub-objects named
+        // TREADS* that use a LinearOffsetTextureMapper. Until the render object bridge
+        // exposes those sub-objects, keep the list empty rather than animating fake treads.
     }
 
     /// Update tread UV coordinates for animation
@@ -628,3 +621,38 @@ impl Snapshotable for W3DTankDraw {
 /// Maximum number of treads per tank
 #[allow(dead_code)]
 const MAX_TREADS_PER_TANK: usize = 4;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_tread_objects_does_not_fabricate_treads_without_render_subobjects() {
+        let mut draw = W3DTankDraw::new(W3DTankDrawModuleData {
+            tread_animation_rate: 1.0,
+            ..W3DTankDrawModuleData::default()
+        });
+        draw.treads.push(TreadObjectInfo::new(TreadType::Left));
+
+        draw.update_tread_objects();
+
+        assert!(
+            draw.treads.is_empty(),
+            "C++ only caches discovered W3D tread meshes and does not create fallback treads"
+        );
+    }
+
+    #[test]
+    fn tread_animation_is_noop_without_discovered_treads() {
+        let mut draw = W3DTankDraw::new(W3DTankDrawModuleData {
+            tread_animation_rate: 1.0,
+            ..W3DTankDrawModuleData::default()
+        });
+        let direction = Coord3D::new(0.0, 1.0, 0.0);
+
+        draw.update_tread_animation(3.0, 10.0, 1.0, true, &direction);
+
+        assert!(draw.treads.is_empty());
+        assert_eq!(draw.last_direction, direction);
+    }
+}
