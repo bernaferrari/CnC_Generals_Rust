@@ -446,6 +446,14 @@ impl AssetManager {
         self.audio_loader.is_sound_playing(instance_id)
     }
 
+    pub fn set_audio_instance_volume(
+        &self,
+        instance_id: u64,
+        volume: f32,
+    ) -> Result<(), AudioError> {
+        self.audio_loader.set_sound_volume(instance_id, volume)
+    }
+
     /// Initialize asset manager with texture system integration
     pub async fn initialize(
         &mut self,
