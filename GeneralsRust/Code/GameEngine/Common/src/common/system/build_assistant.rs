@@ -479,7 +479,7 @@ impl BuildAssistant {
         end: &Coord3D,
         tiling_size: f32,
         max_tiles: i32,
-        _builder_object: Option<&Object>,
+        builder_object: Option<&Object>,
     ) -> Option<TileBuildInfo> {
         let mut placement_vector = Coord3D::new(end.x - start.x, end.y - start.y, 0.0);
 
@@ -507,11 +507,12 @@ impl BuildAssistant {
                 &pos,
                 thing_being_tiled,
                 angle,
-                LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS
+                LocalLegalToBuildOptions::USE_QUICK_PATHFIND
+                    | LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS
                     | LocalLegalToBuildOptions::CLEAR_PATH
                     | LocalLegalToBuildOptions::NO_OBJECT_OVERLAP
                     | LocalLegalToBuildOptions::SHROUD_REVEALED,
-                None,
+                builder_object,
                 None,
             ) != LegalBuildCode::Ok
             {
