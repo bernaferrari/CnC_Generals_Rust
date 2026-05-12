@@ -458,7 +458,7 @@ impl MissileAIUpdate {
 
         // Check if missile fell through world
         if current_pos.z < 0.0 {
-            // Would destroy object
+            let _ = TheGameLogic::destroy_object_by_id(self.object_id);
             return Ok(());
         }
 
@@ -1179,6 +1179,26 @@ mod tests {
         assert_eq!(missile.state, MissileState::Dead);
         assert!(object.read().unwrap().is_effectively_dead());
         assert!(TheGameLogic::find_object_by_id(1003).is_some());
+        reset_game_logic_objects();
+    }
+
+    #[test]
+    fn update_below_world_queues_projectile_destruction() {
+        let _guard = game_logic_test_guard();
+        reset_game_logic_objects();
+        register_test_object(1004);
+        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let mut missile = MissileAIUpdate::new(data, 0);
+        missile.object_id = 1004;
+
+        missile.update(1, Coord3D::new(0.0, 0.0, -0.01)).unwrap();
+
+        assert!(TheGameLogic::find_object_by_id(1004).is_some());
+        {
+            let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+            logic.cleanup_dead_objects().unwrap();
+        }
+        assert!(TheGameLogic::find_object_by_id(1004).is_none());
         reset_game_logic_objects();
     }
 
