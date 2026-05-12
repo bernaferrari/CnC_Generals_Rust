@@ -467,6 +467,32 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         None
     }
 
+    /// Whether the specified contained object can exit through this container.
+    fn can_exit(&self, object_id: ObjectID) -> bool {
+        self.get_contained_objects().contains(&object_id)
+    }
+
+    /// Reserve an exit door/path for a contained object.
+    fn reserve_door_for_exit(
+        &mut self,
+        _spawner: Option<&crate::object::Object>,
+        _spawn: Option<&crate::object::Object>,
+    ) -> ExitDoorType {
+        DOOR_NONE_AVAILABLE
+    }
+
+    /// Release a reserved exit door/path.
+    fn unreserve_door_for_exit(&mut self, _door: ExitDoorType) {}
+
+    /// Exit a contained object via a reserved door/path.
+    fn exit_object_via_door(
+        &mut self,
+        _obj: &Arc<RwLock<crate::object::Object>>,
+        _door: ExitDoorType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
     /// Whether a passenger is allowed to fire (default: false).
     fn is_passenger_allowed_to_fire(&self, _id: Option<ObjectID>) -> bool {
         false

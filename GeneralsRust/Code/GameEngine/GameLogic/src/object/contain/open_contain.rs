@@ -11,14 +11,16 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface};
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    Coord3D, GameResult, KindOf, KindOfMaskType, Matrix3D, ModelConditionFlags, ObjectID,
-    PlayerMaskType, TurretType, UnsignedInt, LOGICFRAMES_PER_SECOND, MODELCONDITION_DOOR_1_CLOSING,
-    MODELCONDITION_DOOR_1_OPENING,
+    CommandSourceType, Coord3D, GameResult, KindOf, KindOfMaskType, Matrix3D, ModelConditionFlags,
+    ObjectID, PlayerMaskType, TurretType, UnsignedInt, LOGICFRAMES_PER_SECOND,
+    MODELCONDITION_DOOR_1_CLOSING, MODELCONDITION_DOOR_1_OPENING,
 };
 use crate::damage::DamageInfo;
 use crate::error::GameLogicError as GameError;
-use crate::helpers::{TheAudio, TheGameLogic};
-use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
+use crate::helpers::{TheAudio, TheGameLogic, TheTerrainLogic};
+use crate::modules::{
+    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime,
+};
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::die::{
@@ -1062,6 +1064,23 @@ impl OpenContain {
         self.rally_point_exists.then_some(self.rally_point)
     }
 
+    pub fn get_natural_rally_point(&self) -> Option<Coord3D> {
+        let owner = self.get_object()?;
+        let owner_guard = owner.read().ok()?;
+        let number_exits = self.module_data.number_of_exit_paths;
+        if number_exits > 0 {
+            let end_bone = if number_exits > 1 {
+                "ExitEnd01"
+            } else {
+                "ExitEnd"
+            };
+            let (_, rally_point, _) = owner_guard.get_single_logical_bone_position(end_bone);
+            Some(rally_point)
+        } else {
+            Some(*owner_guard.get_position())
+        }
+    }
+
     /// Check if this is an enclosing container
     pub fn is_enclosing_container_for(&self, _obj: &Object) -> bool {
         true // Most containers enclose their contents
@@ -1091,6 +1110,96 @@ impl OpenContain {
             }
         }
         Ok(ExitDoorType::Primary)
+    }
+
+    fn exit_bone_names_for_next_path(&mut self) -> (&'static str, String, String) {
+        let number_exits = self.module_data.number_of_exit_paths;
+        if number_exits > 1 {
+            let suffix = format!("{:02}", self.which_exit_path);
+            self.which_exit_path = (self.which_exit_path % number_exits) + 1;
+            (
+                "numbered",
+                format!("ExitStart{suffix}"),
+                format!("ExitEnd{suffix}"),
+            )
+        } else {
+            ("single", "ExitStart".to_string(), "ExitEnd".to_string())
+        }
+    }
+
+    fn next_exit_positions(&mut self, owner: &Object) -> (Coord3D, Coord3D) {
+        if self.module_data.number_of_exit_paths <= 0 {
+            let pos = *owner.get_position();
+            return (pos, pos);
+        }
+
+        let (_, start_bone, end_bone) = self.exit_bone_names_for_next_path();
+        let (_, start_pos, _) = owner.get_single_logical_bone_position(&start_bone);
+        let (_, end_pos, _) = owner.get_single_logical_bone_position(&end_bone);
+        (start_pos, end_pos)
+    }
+
+    pub fn exit_object_via_door(
+        &mut self,
+        exit_obj: &Arc<RwLock<Object>>,
+        exit_door: ExitDoorType,
+    ) -> GameResult<()> {
+        if matches!(exit_door, ExitDoorType::None | ExitDoorType::NoneAvailable) {
+            return Ok(());
+        }
+
+        self.remove_from_contain(Arc::clone(exit_obj), false)?;
+
+        let Some(owner) = self.get_object() else {
+            return Ok(());
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return Ok(());
+        };
+
+        self.door_close_countdown
+            .store(self.module_data.door_open_time, Ordering::Relaxed);
+        if self.module_data.door_open_time > 0 {
+            drop(owner_guard);
+            if let Ok(mut owner_guard) = owner.write() {
+                let _ = owner_guard.clear_and_set_model_condition_flags(
+                    MODELCONDITION_DOOR_1_CLOSING,
+                    MODELCONDITION_DOOR_1_OPENING,
+                );
+            }
+        }
+
+        let Ok(owner_guard) = owner.read() else {
+            return Ok(());
+        };
+        let (mut start_pos, mut end_pos) = self.next_exit_positions(&owner_guard);
+        let exit_angle = owner_guard.get_orientation();
+        let owner_layer = owner_guard.get_layer();
+        let owner_id = owner_guard.get_id();
+
+        if let Some(terrain) = TheTerrainLogic::get() {
+            start_pos.z = terrain.get_ground_height(start_pos.x, start_pos.y, None);
+            end_pos.z = terrain.get_ground_height(end_pos.x, end_pos.y, None);
+        }
+
+        if let Ok(mut exit_guard) = exit_obj.write() {
+            let _ = exit_guard.set_position(&start_pos);
+            let _ = exit_guard.set_orientation(exit_angle);
+            exit_guard.set_layer(owner_layer);
+        }
+
+        let mut exit_path = vec![end_pos, end_pos];
+        if self.rally_point_exists {
+            exit_path.push(self.rally_point);
+        }
+
+        if let Ok(exit_guard) = exit_obj.read() {
+            if let Some(ai) = exit_guard.get_ai_update_interface() {
+                ai.ai_follow_path(&exit_path, Some(owner_id), CommandSourceType::FromAi);
+            }
+        }
+
+        Ok(())
     }
 
     /// Unreserve door for exit
@@ -1458,6 +1567,36 @@ impl ContainModuleInterface for OpenContain {
 
     fn get_rally_point(&self) -> Option<Coord3D> {
         OpenContain::get_rally_point(self)
+    }
+
+    fn reserve_door_for_exit(
+        &mut self,
+        _spawner: Option<&Object>,
+        _spawn: Option<&Object>,
+    ) -> ExitDoorType {
+        if self.module_data.door_open_time > 0 {
+            if let Some(owner) = self.get_object() {
+                if let Ok(mut owner_guard) = owner.write() {
+                    let _ = owner_guard.clear_and_set_model_condition_flags(
+                        MODELCONDITION_DOOR_1_CLOSING,
+                        MODELCONDITION_DOOR_1_OPENING,
+                    );
+                }
+            }
+        }
+        ExitDoorType::Primary
+    }
+
+    fn unreserve_door_for_exit(&mut self, door: ExitDoorType) {
+        let _ = OpenContain::unreserve_door_for_exit(self, door);
+    }
+
+    fn exit_object_via_door(
+        &mut self,
+        obj: &Arc<RwLock<Object>>,
+        door: ExitDoorType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::exit_object_via_door(self, obj, door).map_err(|err| err.into())
     }
 
     fn set_passenger_allowed_to_fire(&mut self, allowed: bool) {
@@ -1835,5 +1974,37 @@ mod tests {
             ContainModuleInterface::get_rally_point(&contain),
             Some(rally)
         );
+    }
+
+    #[test]
+    fn exit_bone_names_cycle_numbered_paths_like_cpp() {
+        let data = OpenContainModuleData {
+            number_of_exit_paths: 3,
+            ..OpenContainModuleData::default()
+        };
+        let mut contain = OpenContain::new(Weak::new(), &data).expect("contain");
+
+        let (_, start_1, end_1) = contain.exit_bone_names_for_next_path();
+        let (_, start_2, end_2) = contain.exit_bone_names_for_next_path();
+        let (_, start_3, end_3) = contain.exit_bone_names_for_next_path();
+        let (_, start_4, end_4) = contain.exit_bone_names_for_next_path();
+
+        assert_eq!(
+            (start_1.as_str(), end_1.as_str()),
+            ("ExitStart01", "ExitEnd01")
+        );
+        assert_eq!(
+            (start_2.as_str(), end_2.as_str()),
+            ("ExitStart02", "ExitEnd02")
+        );
+        assert_eq!(
+            (start_3.as_str(), end_3.as_str()),
+            ("ExitStart03", "ExitEnd03")
+        );
+        assert_eq!(
+            (start_4.as_str(), end_4.as_str()),
+            ("ExitStart01", "ExitEnd01")
+        );
+        assert_eq!(contain.which_exit_path, 2);
     }
 }
