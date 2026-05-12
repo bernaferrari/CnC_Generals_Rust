@@ -29,6 +29,7 @@ use crate::message_stream::game_message::{
 };
 use crate::message_stream::message_stream::append_message_to_stream;
 use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::global_data;
 use game_engine::common::ini::get_anim2d_collection;
 use game_engine::common::ini::ini_language::{get_global_language_read, FontDesc};
 use game_engine::common::thing::get_thing_factory;
@@ -43,6 +44,7 @@ use gamelogic::object::production::construction::FoundationValidator;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::special_power_template::get_special_power_store;
 use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
+use gamelogic::object::Object;
 use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
 
 /// Re-export of the INI settings type from the Common crate's INI parser.
@@ -3861,6 +3863,51 @@ impl InGameUI {
         Self::mouseover_tooltip_text(template_name, &display_name)
     }
 
+    fn format_supply_warehouse_tooltip_feedback(
+        label: &str,
+        boxes_stored: i32,
+        base_value_per_supply_box: i32,
+    ) -> String {
+        let value = boxes_stored.max(0) * base_value_per_supply_box.max(0);
+        let value_text = value.to_string();
+        if label.contains("%d") {
+            label.replace("%d", &value_text)
+        } else if label.contains("%i") {
+            label.replace("%i", &value_text)
+        } else if label.contains("{}") {
+            label.replacen("{}", &value_text, 1)
+        } else {
+            format!("{label}{value_text}")
+        }
+    }
+
+    fn supply_warehouse_tooltip_feedback(
+        boxes_stored: i32,
+        base_value_per_supply_box: i32,
+    ) -> String {
+        let label = GameText::fetch("TOOLTIP:SupplyWarehouse");
+        Self::format_supply_warehouse_tooltip_feedback(
+            &label,
+            boxes_stored,
+            base_value_per_supply_box,
+        )
+    }
+
+    fn supply_warehouse_boxes_for_object(object: &Object) -> Option<i32> {
+        for behavior in object.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            let Some(dock) = behavior.get_dock_update_interface() else {
+                continue;
+            };
+            if let Some(boxes) = dock.supply_warehouse_boxes_stored() {
+                return Some(boxes);
+            }
+        }
+        None
+    }
+
     fn mouseover_tooltip_visible_for_shroud(status: ObjectShroudStatus) -> bool {
         matches!(
             status,
@@ -4565,16 +4612,25 @@ impl InGameUI {
                 self.moused_over_drawable_id = draw_id;
                 // C++: TheMouse->setCursorTooltip(displayName, -1, playerColor, widthMult)
                 // Deferred C++ behaviors: MobMemberSlavedUpdate redirect, Disguiser detection,
-                // SupplyWarehouseDockUpdate dollar amount, Warehouse contents feedback.
+                // multiplayer player suffix, stealth-garrison player color.
                 if let Some(obj) = OBJECT_REGISTRY.get_object(draw_id) {
                     if let Ok(guard) = obj.read() {
                         let visible = Self::mouseover_tooltip_visible_for_shroud(
                             guard.get_shrouded_status(self.player_id as i32),
                         );
                         if visible {
-                            if let Some(display_name) =
+                            if let Some(mut display_name) =
                                 Self::mouseover_tooltip_for_template(guard.get_template_name())
                             {
+                                if let Some(boxes) = Self::supply_warehouse_boxes_for_object(&guard)
+                                {
+                                    let base_value = global_data::read_safe()
+                                        .map(|data| data.base_value_per_supply_box)
+                                        .unwrap_or(100);
+                                    display_name.push_str(
+                                        &Self::supply_warehouse_tooltip_feedback(boxes, base_value),
+                                    );
+                                }
                                 let indicator = guard.get_indicator_color();
                                 with_mouse(|m| {
                                     m.set_cursor_tooltip(
@@ -4821,6 +4877,22 @@ mod tests {
         );
 
         Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn supply_warehouse_tooltip_feedback_formats_placeholder_value() {
+        assert_eq!(
+            InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", 12, 100),
+            " ($1200)"
+        );
+    }
+
+    #[test]
+    fn supply_warehouse_tooltip_feedback_appends_without_placeholder() {
+        assert_eq!(
+            InGameUI::format_supply_warehouse_tooltip_feedback(" supplies: ", 3, 200),
+            " supplies: 600"
+        );
     }
 
     #[test]
