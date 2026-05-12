@@ -377,19 +377,19 @@ fn parse_audio_event(
     setter: &mut dyn FnMut(AudioEventRts),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(AudioEventRts::new(*token));
+    let token = required_value(tokens)?;
+    setter(AudioEventRts::new(token));
     Ok(())
 }
 
 fn parse_real_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_real(token)?);
     Ok(())
 }
 
 fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_bool(token)?);
     Ok(())
 }
@@ -398,7 +398,7 @@ fn parse_duration_unsigned_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_duration_unsigned_int(token)?);
     Ok(())
 }
@@ -408,15 +408,36 @@ fn parse_carriage_list(
     data: &mut RailroadBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
+    let values = value_tokens(tokens)?;
     data.carriage_template_names
-        .extend(tokens.iter().map(|t| AsciiString::from(*t)));
+        .extend(values.iter().map(|t| AsciiString::from(*t)));
     Ok(())
 }
 
 fn parse_ascii_field(setter: &mut dyn FnMut(AsciiString), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(AsciiString::from(*token));
+    let token = required_value(tokens)?;
+    setter(AsciiString::from(token));
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> Result<Vec<&'a str>, INIError> {
+    let values: Vec<_> = tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect();
+    if values.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+    Ok(values)
 }
 
 const RAILROAD_BEHAVIOR_FIELDS: &[FieldParse<RailroadBehaviorModuleData>] = &[
@@ -506,6 +527,80 @@ impl RailroadBehaviorModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         self.base.parse_from_ini(ini)?;
         ini.init_from_ini_with_fields(self, RAILROAD_BEHAVIOR_FIELDS)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_field(data: &mut RailroadBehaviorModuleData, token: &str, values: &[&str]) {
+        let field = RAILROAD_BEHAVIOR_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
+    #[test]
+    fn railroad_behavior_fields_accept_ini_equals_token() {
+        let mut data = RailroadBehaviorModuleData::default();
+
+        parse_field(
+            &mut data,
+            "CarriageTemplateName",
+            &["=", "TrainCarA", "TrainCarB"],
+        );
+        parse_field(&mut data, "PathPrefixName", &["=", "TrainPath"]);
+        parse_field(&mut data, "CrashFXTemplateName", &["=", "TrainCrashFX"]);
+        parse_field(&mut data, "IsLocomotive", &["=", "Yes"]);
+        parse_field(&mut data, "RunningGarrisonSpeedMax", &["=", "2.5"]);
+        parse_field(&mut data, "KillSpeedMin", &["=", "3.25"]);
+        parse_field(&mut data, "SpeedMax", &["=", "4.75"]);
+        parse_field(&mut data, "Acceleration", &["=", "1.05"]);
+        parse_field(&mut data, "Braking", &["=", "0.92"]);
+        parse_field(&mut data, "Friction", &["=", "0.88"]);
+        parse_field(&mut data, "WaitAtStationTime", &["=", "3000"]);
+        parse_field(&mut data, "RunningSound", &["=", "TrainRunning"]);
+        parse_field(&mut data, "ClicketyClackSound", &["=", "TrainClickety"]);
+        parse_field(&mut data, "WhistleSound", &["=", "TrainWhistle"]);
+        parse_field(&mut data, "MeatyBounceSound", &["=", "TrainMeatyHit"]);
+        parse_field(&mut data, "BigMetalBounceSound", &["=", "TrainBigMetalHit"]);
+        parse_field(
+            &mut data,
+            "SmallMetalBounceSound",
+            &["=", "TrainSmallMetalHit"],
+        );
+
+        assert_eq!(data.carriage_template_names.len(), 2);
+        assert_eq!(data.carriage_template_names[0].as_str(), "TrainCarA");
+        assert_eq!(data.carriage_template_names[1].as_str(), "TrainCarB");
+        assert_eq!(data.path_prefix_name.as_str(), "TrainPath");
+        assert_eq!(data.crash_fx_template_name.as_str(), "TrainCrashFX");
+        assert!(data.is_locomotive);
+        assert_eq!(data.running_garrison_speed_max, 2.5);
+        assert_eq!(data.kill_speed_min, 3.25);
+        assert_eq!(data.speed_max, 4.75);
+        assert_eq!(data.acceleration, 1.05);
+        assert_eq!(data.braking, 0.92);
+        assert_eq!(data.friction, 0.88);
+        assert_eq!(data.wait_at_station_time, 90);
+        assert_eq!(data.running_sound.get_event_name(), "TrainRunning");
+        assert_eq!(data.clickety_clack_sound.get_event_name(), "TrainClickety");
+        assert_eq!(data.whistle_sound.get_event_name(), "TrainWhistle");
+        assert_eq!(
+            data.meaty_impact_default_sound.get_event_name(),
+            "TrainMeatyHit"
+        );
+        assert_eq!(
+            data.big_metal_impact_default_sound.get_event_name(),
+            "TrainBigMetalHit"
+        );
+        assert_eq!(
+            data.small_metal_impact_default_sound.get_event_name(),
+            "TrainSmallMetalHit"
+        );
     }
 }
 
