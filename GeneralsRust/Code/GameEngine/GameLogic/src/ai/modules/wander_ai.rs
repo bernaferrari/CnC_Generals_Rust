@@ -8,9 +8,9 @@ use super::{
 };
 use crate::ai::AiError;
 use crate::common::{CommandSourceType, Coord3D, ObjectID, Real};
+use crate::helpers::get_game_logic_random_value_real;
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::registry::OBJECT_REGISTRY;
-use rand::Rng;
 
 #[derive(Debug)]
 pub struct WanderAIUpdate {
@@ -40,9 +40,8 @@ impl WanderAIUpdate {
         let Some(ai) = guard.get_ai_update_interface() else {
             return;
         };
-        let mut rng = rand::thread_rng();
-        let dx: Real = rng.gen_range(5.0..=50.0);
-        let dy: Real = rng.gen_range(5.0..=50.0);
+        let dx: Real = get_game_logic_random_value_real(5.0, 50.0);
+        let dy: Real = get_game_logic_random_value_real(5.0, 50.0);
         let pos = guard.get_position();
         let dest = Coord3D::new(pos.x + dx, pos.y + dy, pos.z);
         ai.ai_move_to_position(&dest, false, CommandSourceType::FromAi);
