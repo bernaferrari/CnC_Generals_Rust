@@ -702,4 +702,24 @@ mod tests {
         assert_ne!(draw.tread_uv_middle, 0.0);
         assert_eq!(draw.last_direction, direction);
     }
+
+    #[test]
+    fn tank_treads_match_cpp_pivot_and_drive_scroll_directions() {
+        let mut draw = W3DTankDraw::new(W3DTankDrawModuleData {
+            tread_animation_rate: 0.25,
+            tread_pivot_speed_fraction: 0.6,
+            tread_drive_speed_fraction: 0.3,
+            ..W3DTankDrawModuleData::default()
+        });
+
+        draw.update_tread_animation(1.0, 10.0, 1.0, true, &Coord3D::new(0.0, 1.0, 0.0));
+        assert_eq!(draw.tread_uv_left, 0.25);
+        assert_eq!(draw.tread_uv_right, 0.75);
+        assert_eq!(draw.tread_uv_middle, 0.25);
+
+        draw.update_tread_animation(8.0, 10.0, 0.0, true, &Coord3D::new(0.0, 1.0, 0.0));
+        assert_eq!(draw.tread_uv_left, 0.0);
+        assert_eq!(draw.tread_uv_right, 0.5);
+        assert_eq!(draw.tread_uv_middle, 0.0);
+    }
 }
