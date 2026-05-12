@@ -31,6 +31,7 @@ use crate::message_stream::message_stream::append_message_to_stream;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::get_anim2d_collection;
 use game_engine::common::ini::ini_language::{get_global_language_read, FontDesc};
+use game_engine::common::thing::get_thing_factory;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
 use gamelogic::common::CommandSourceType;
@@ -3821,6 +3822,32 @@ impl InGameUI {
         GameText::fetch(label)
     }
 
+    fn mouseover_tooltip_text(template_name: &str, display_name: &str) -> Option<String> {
+        let mut tooltip = display_name.trim().to_string();
+        if tooltip.is_empty() {
+            tooltip = GameText::fetch(&format!("ThingTemplate:{template_name}"));
+        }
+
+        if tooltip.is_empty() || tooltip == GameText::fetch("OBJECT:Prop") {
+            return None;
+        }
+
+        Some(tooltip)
+    }
+
+    fn mouseover_tooltip_for_template(template_name: &str) -> Option<String> {
+        let display_name = get_thing_factory()
+            .ok()
+            .and_then(|guard| {
+                guard
+                    .as_ref()
+                    .and_then(|factory| factory.find_template(template_name, false))
+                    .map(|template| template.get_display_name().to_string())
+            })
+            .unwrap_or_default();
+        Self::mouseover_tooltip_text(template_name, &display_name)
+    }
+
     fn military_caption_delay_frames() -> u32 {
         let delay_ms = get_global_language_read()
             .map(|language| language.military_caption_delay_ms)
@@ -4406,8 +4433,8 @@ impl InGameUI {
     /// drawable ID and sets the cursor to SELECTING for selectable+controlled
     /// drawables, or ARROW otherwise.
     ///
-    /// Simplified from C++: tooltip display (setCursorTooltip, displayName,
-    /// playerColor, shroud checks) is deferred until the tooltip system is ported.
+    /// Simplified from C++: player-name suffixes, shroud checks, and special
+    /// object cases are deferred until the rest of the tooltip path is ported.
     pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
         // Phase 1: Early exit guards
         // C++: if (m_isScrolling || m_isSelecting) return;
@@ -4433,10 +4460,19 @@ impl InGameUI {
                 // SupplyWarehouseDockUpdate dollar amount, Warehouse contents feedback.
                 if let Some(obj) = OBJECT_REGISTRY.get_object(draw_id) {
                     if let Ok(guard) = obj.read() {
-                        let display_name = guard.get_template_name().to_string();
-                        with_mouse(|m| {
-                            m.set_cursor_tooltip(display_name, None, None, None);
-                        });
+                        if let Some(display_name) =
+                            Self::mouseover_tooltip_for_template(guard.get_template_name())
+                        {
+                            let indicator = guard.get_indicator_color();
+                            with_mouse(|m| {
+                                m.set_cursor_tooltip(
+                                    display_name,
+                                    None,
+                                    Some([indicator.r, indicator.g, indicator.b, indicator.a]),
+                                    None,
+                                );
+                            });
+                        }
                     }
                 }
             }
@@ -4643,6 +4679,42 @@ mod tests {
             InGameUI::military_caption_text("SCRIPT:Briefing"),
             "Localized briefing text"
         );
+
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn mouseover_tooltip_prefers_template_display_name() {
+        Language::clear_localized_strings();
+        Language::register_localized_string("ThingTemplate:UnitA", "Localized fallback");
+
+        assert_eq!(
+            InGameUI::mouseover_tooltip_text("UnitA", "Explicit display name"),
+            Some("Explicit display name".to_string())
+        );
+
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn mouseover_tooltip_falls_back_to_thing_template_label() {
+        Language::clear_localized_strings();
+        Language::register_localized_string("ThingTemplate:UnitA", "Localized fallback");
+
+        assert_eq!(
+            InGameUI::mouseover_tooltip_text("UnitA", ""),
+            Some("Localized fallback".to_string())
+        );
+
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn mouseover_tooltip_suppresses_props() {
+        Language::clear_localized_strings();
+        Language::register_localized_string("OBJECT:Prop", "Prop");
+
+        assert_eq!(InGameUI::mouseover_tooltip_text("Tree01", "Prop"), None);
 
         Language::clear_localized_strings();
     }
