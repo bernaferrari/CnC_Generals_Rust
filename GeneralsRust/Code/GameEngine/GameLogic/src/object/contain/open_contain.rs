@@ -25,6 +25,7 @@ use crate::object::die::{
 };
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 type ObjectId = ObjectID;
 
@@ -389,6 +390,8 @@ pub struct OpenContain {
     contained_object_ids: Vec<ObjectID>,
     /// Track objects requesting enter/exit to support container-specific gating.
     object_enter_exit_info: HashMap<ObjectID, ContainWant>,
+    /// Contained IDs read from a save stream and resolved after all objects load.
+    xfer_contain_id_list: Vec<ObjectID>,
     /// Player mask for the last player that entered this container.
     player_who_entered: PlayerMaskType,
     /// Last frame a load sound played.
@@ -414,6 +417,7 @@ impl OpenContain {
             contained_objects: Vec::new(),
             contained_object_ids: Vec::new(),
             object_enter_exit_info: HashMap::new(),
+            xfer_contain_id_list: Vec::new(),
             player_who_entered: PlayerMaskType::none(),
             last_load_sound_frame: 0,
             last_unload_sound_frame: 0,
@@ -421,6 +425,23 @@ impl OpenContain {
             door_close_countdown: AtomicU32::new(0),
             module_data: module_data.clone(),
         })
+    }
+
+    fn contain_want_to_cpp_value(want: ContainWant) -> i32 {
+        match want {
+            ContainWant::WantsToEnter => 0,
+            ContainWant::WantsToExit => 1,
+            ContainWant::WantsNeither => 2,
+        }
+    }
+
+    fn contain_want_from_cpp_value(value: i32) -> Result<ContainWant, String> {
+        match value {
+            0 => Ok(ContainWant::WantsToEnter),
+            1 => Ok(ContainWant::WantsToExit),
+            2 => Ok(ContainWant::WantsNeither),
+            _ => Err(format!("invalid ObjectEnterExitType value {value}")),
+        }
     }
 
     /// Get the object this module belongs to
@@ -1266,6 +1287,147 @@ impl ContainModuleInterface for OpenContain {
     }
 }
 
+impl Snapshotable for OpenContain {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| e.to_string())?;
+
+        match xfer.get_xfer_mode() {
+            XferMode::Save | XferMode::Crc => {
+                let mut contain_list_size = self.contained_object_ids.len() as u32;
+                xfer.xfer_unsigned_int(&mut contain_list_size)
+                    .map_err(|e| e.to_string())?;
+                for id in &self.contained_object_ids {
+                    let mut object_id = *id;
+                    xfer.xfer_object_id(&mut object_id)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            XferMode::Load => {
+                self.contained_objects.clear();
+                self.contained_object_ids.clear();
+                self.xfer_contain_id_list.clear();
+
+                let mut contain_list_size = 0_u32;
+                xfer.xfer_unsigned_int(&mut contain_list_size)
+                    .map_err(|e| e.to_string())?;
+                for _ in 0..contain_list_size {
+                    let mut object_id = 0;
+                    xfer.xfer_object_id(&mut object_id)
+                        .map_err(|e| e.to_string())?;
+                    self.xfer_contain_id_list.push(object_id);
+                }
+            }
+            XferMode::Invalid => return Err("invalid xfer mode for OpenContain".to_string()),
+        }
+
+        let mut player_mask_bits = self.player_who_entered.bits();
+        xfer.xfer_unsigned_int(&mut player_mask_bits)
+            .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.player_who_entered = PlayerMaskType::from_bits_truncate(player_mask_bits);
+        }
+
+        xfer.xfer_unsigned_int(&mut self.last_unload_sound_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.last_load_sound_frame)
+            .map_err(|e| e.to_string())?;
+
+        let mut stealth_units_contained = 0_u32;
+        xfer.xfer_unsigned_int(&mut stealth_units_contained)
+            .map_err(|e| e.to_string())?;
+
+        let mut door_close_countdown = self.door_close_countdown.load(Ordering::Relaxed);
+        xfer.xfer_unsigned_int(&mut door_close_countdown)
+            .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.door_close_countdown
+                .store(door_close_countdown, Ordering::Relaxed);
+        }
+
+        let mut enter_exit_count = self.object_enter_exit_info.len() as u16;
+        xfer.xfer_unsigned_short(&mut enter_exit_count)
+            .map_err(|e| e.to_string())?;
+        match xfer.get_xfer_mode() {
+            XferMode::Save | XferMode::Crc => {
+                for (id, want) in &self.object_enter_exit_info {
+                    let mut object_id = *id;
+                    let mut enter_exit_type = Self::contain_want_to_cpp_value(*want);
+                    xfer.xfer_object_id(&mut object_id)
+                        .map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut enter_exit_type)
+                        .map_err(|e| e.to_string())?;
+                }
+            }
+            XferMode::Load => {
+                if !self.object_enter_exit_info.is_empty() {
+                    return Err("OpenContain enter/exit map must be empty before load".to_string());
+                }
+                for _ in 0..enter_exit_count {
+                    let mut object_id = 0;
+                    let mut enter_exit_type = 0;
+                    xfer.xfer_object_id(&mut object_id)
+                        .map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut enter_exit_type)
+                        .map_err(|e| e.to_string())?;
+                    self.object_enter_exit_info.insert(
+                        object_id,
+                        Self::contain_want_from_cpp_value(enter_exit_type)?,
+                    );
+                }
+            }
+            XferMode::Invalid => return Err("invalid xfer mode for OpenContain".to_string()),
+        }
+
+        let mut which_exit_path = 1_i32;
+        xfer.xfer_int(&mut which_exit_path)
+            .map_err(|e| e.to_string())?;
+
+        if version >= 2 {
+            xfer.xfer_bool(&mut self.module_data.passengers_allowed_to_fire)
+                .map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        if !self.contained_objects.is_empty() || !self.contained_object_ids.is_empty() {
+            return Err("OpenContain list must be empty before load_post_process".to_string());
+        }
+
+        let owner = self.get_object().ok_or_else(|| {
+            "OpenContain has no owning object during load_post_process".to_string()
+        })?;
+        let ids = std::mem::take(&mut self.xfer_contain_id_list);
+        for object_id in ids {
+            let obj = TheGameLogic::find_object_by_id(object_id).ok_or_else(|| {
+                format!("OpenContain could not resolve contained object {object_id}")
+            })?;
+            self.contained_object_ids.push(object_id);
+            self.contained_objects.push(obj.clone());
+            if let Ok(obj_guard) = obj.read() {
+                if self.is_enclosing_container_for(&*obj_guard) {
+                    let _ = self.add_or_remove_obj_from_world(obj.clone(), false);
+                }
+            }
+            {
+                let mut obj_guard = obj.write().map_err(|e| e.to_string())?;
+                obj_guard
+                    .on_contained_by(owner.clone())
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl ContainerInterface for OpenContain {
     fn can_contain(&self, obj: &Object) -> bool {
         self.is_valid_container_for(obj, true)
@@ -1306,6 +1468,9 @@ pub struct ObjectTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     #[test]
     fn test_open_contain_creation() {
@@ -1334,5 +1499,58 @@ mod tests {
 
         parse_door_open_time(&mut ini, &mut data, &["1.5s"]).expect("duration");
         assert_eq!(data.door_open_time, 45);
+    }
+
+    #[test]
+    fn xfer_preserves_cpp_open_contain_runtime_fields() {
+        let mut saved =
+            OpenContain::new(Weak::new(), &OpenContainModuleData::default()).expect("contain");
+        saved.contained_object_ids = vec![101, 202];
+        saved.player_who_entered = PlayerMaskType::PLAYER_1 | PlayerMaskType::PLAYER_3;
+        saved.last_unload_sound_frame = 12;
+        saved.last_load_sound_frame = 34;
+        saved.door_close_countdown.store(56, Ordering::Relaxed);
+        saved
+            .object_enter_exit_info
+            .insert(303, ContainWant::WantsToEnter);
+        saved
+            .object_enter_exit_info
+            .insert(404, ContainWant::WantsToExit);
+        saved.module_data.passengers_allowed_to_fire = true;
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded =
+            OpenContain::new(Weak::new(), &OpenContainModuleData::default()).expect("contain");
+        loaded.last_unload_sound_frame = 1;
+        loaded.last_load_sound_frame = 2;
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.xfer_contain_id_list, vec![101, 202]);
+        assert!(loaded.contained_object_ids.is_empty());
+        assert_eq!(
+            loaded.player_who_entered,
+            PlayerMaskType::PLAYER_1 | PlayerMaskType::PLAYER_3
+        );
+        assert_eq!(loaded.last_unload_sound_frame, 12);
+        assert_eq!(loaded.last_load_sound_frame, 34);
+        assert_eq!(loaded.door_close_countdown.load(Ordering::Relaxed), 56);
+        assert_eq!(
+            loaded.object_enter_exit_info.get(&303),
+            Some(&ContainWant::WantsToEnter)
+        );
+        assert_eq!(
+            loaded.object_enter_exit_info.get(&404),
+            Some(&ContainWant::WantsToExit)
+        );
+        assert!(loaded.module_data.passengers_allowed_to_fire);
     }
 }
