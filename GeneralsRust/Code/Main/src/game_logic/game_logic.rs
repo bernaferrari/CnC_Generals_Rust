@@ -539,6 +539,7 @@ pub struct GameLogic {
     cinematic_text: Option<(String, f32)>,
     military_caption: Option<(String, f32)>,
     radar_enabled: bool,
+    radar_forced: bool,
     pending_music_stop: bool,
     pending_movie: Option<String>,
     pending_radar_movie: Option<String>,
@@ -1300,6 +1301,7 @@ impl GameLogic {
             cinematic_text: None,
             military_caption: None,
             radar_enabled: true,
+            radar_forced: false,
             pending_music_stop: false,
             pending_movie: None,
             pending_radar_movie: None,
@@ -1365,6 +1367,7 @@ impl GameLogic {
         self.cinematic_text = None;
         self.military_caption = None;
         self.radar_enabled = true;
+        self.radar_forced = false;
         self.pending_music_stop = false;
         self.pending_movie = None;
         self.pending_radar_movie = None;
@@ -8816,6 +8819,15 @@ impl GameLogic {
             self.radar_enabled = enabled;
         }
 
+        if let Some(forced) = self
+            .mission_scripts
+            .drain_radar_forced_updates()
+            .into_iter()
+            .last()
+        {
+            self.radar_forced = forced;
+        }
+
         if let Some(visible) = self
             .mission_scripts
             .drain_weather_visibility_updates()
@@ -9528,7 +9540,8 @@ impl GameLogic {
         ui_state.cinematic_letterbox = self.cinematic_letterbox;
         ui_state.cinematic_text = self.cinematic_text.as_ref().map(|(text, _)| text.clone());
         ui_state.military_caption = self.military_caption.as_ref().map(|(text, _)| text.clone());
-        ui_state.radar_enabled = self.radar_enabled;
+        ui_state.radar_enabled = self.radar_forced || self.radar_enabled;
+        ui_state.radar_forced = self.radar_forced;
         ui_state.objectives = self.mission_objectives.clone();
         ui_state
     }
@@ -9986,6 +9999,30 @@ mod tests {
         assert!((GameLogic::military_caption_duration_seconds(2500) - 2.5).abs() < f32::EPSILON);
         assert_eq!(GameLogic::military_caption_duration_seconds(0), 0.0);
         assert_eq!(GameLogic::military_caption_duration_seconds(-1), 0.0);
+    }
+
+    #[test]
+    fn radar_force_keeps_ui_radar_visible_until_reverted() {
+        let mut game_logic = GameLogic::new();
+        game_logic.scripts_loaded = true;
+
+        game_logic.mission_scripts.push_radar_enabled(false);
+        game_logic.evaluate_and_execute_scripts(0.0);
+        let ui_state = game_logic.update_ui_state(0);
+        assert!(!ui_state.radar_enabled);
+        assert!(!ui_state.radar_forced);
+
+        game_logic.mission_scripts.push_radar_forced(true);
+        game_logic.evaluate_and_execute_scripts(0.0);
+        let ui_state = game_logic.update_ui_state(0);
+        assert!(ui_state.radar_enabled);
+        assert!(ui_state.radar_forced);
+
+        game_logic.mission_scripts.push_radar_forced(false);
+        game_logic.evaluate_and_execute_scripts(0.0);
+        let ui_state = game_logic.update_ui_state(0);
+        assert!(!ui_state.radar_enabled);
+        assert!(!ui_state.radar_forced);
     }
 
     #[test]

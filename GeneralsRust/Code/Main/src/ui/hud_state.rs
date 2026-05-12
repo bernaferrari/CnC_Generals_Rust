@@ -145,6 +145,7 @@ pub struct GameUIState {
     pub cinematic_text: Option<String>,
     pub military_caption: Option<String>,
     pub radar_enabled: bool,
+    pub radar_forced: bool,
     pub objectives: Vec<ObjectiveDisplay>,
 }
 
@@ -189,6 +190,7 @@ impl Default for GameUIState {
             cinematic_text: None,
             military_caption: None,
             radar_enabled: true,
+            radar_forced: false,
             objectives: Vec::new(),
         }
     }
