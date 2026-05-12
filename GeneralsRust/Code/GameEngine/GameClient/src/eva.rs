@@ -469,11 +469,31 @@ impl Eva {
     }
 
     fn message_should_play(&mut self, message: EvaMessage) -> bool {
+        self.message_should_play_with_local_player(message, Self::has_local_player())
+    }
+
+    fn message_should_play_with_local_player(
+        &mut self,
+        message: EvaMessage,
+        has_local_player: bool,
+    ) -> bool {
+        if !has_local_player {
+            return false;
+        }
+
         self.message_being_tested = message;
         match message {
             EvaMessage::LowPower => self.should_play_low_power(),
             _ => self.should_play_generic(),
         }
+    }
+
+    fn has_local_player() -> bool {
+        ThePlayerList()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .is_some()
     }
 
     fn should_play_low_power(&self) -> bool {
@@ -849,5 +869,15 @@ mod tests {
         let _ = LogicEva::set_enabled(true);
         eva.sync_enabled_from_logic();
         assert!(eva.enabled);
+    }
+
+    #[test]
+    fn generic_eva_messages_do_not_probe_without_local_player() {
+        let mut eva = Eva::new();
+        eva.set_should_play(EvaMessage::BuildingLost);
+
+        assert!(!eva.message_should_play_with_local_player(EvaMessage::BuildingLost, false));
+        assert!(eva.should_play[EvaMessage::BuildingLost.as_index()]);
+        assert_eq!(eva.message_being_tested, EvaMessage::LowPower);
     }
 }
