@@ -87,6 +87,56 @@ pub enum ValidationMode {
     AsciiOnly,
 }
 
+/// Draw command emitted by text gadgets for the UI renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextRenderCommand {
+    Background {
+        rect: Rect,
+        color: Color,
+    },
+    Border {
+        rect: Rect,
+        color: Color,
+        width: u32,
+    },
+    Text {
+        rect: Rect,
+        text: String,
+        color: Color,
+        font_size: u32,
+        alignment: TextAlignment,
+        vertical_alignment: VerticalAlignment,
+        left_margin: u32,
+        top_margin: u32,
+        line_index: usize,
+    },
+    Placeholder {
+        rect: Rect,
+        text: String,
+        color: Color,
+        font_size: u32,
+        alignment: TextAlignment,
+        vertical_alignment: VerticalAlignment,
+        left_margin: u32,
+        top_margin: u32,
+    },
+    Selection {
+        rect: Rect,
+        color: Color,
+        start: usize,
+        end: usize,
+    },
+    Cursor {
+        rect: Rect,
+        color: Color,
+        position: usize,
+    },
+    FocusOutline {
+        rect: Rect,
+        color: Color,
+    },
+}
+
 /// Configuration for text rendering and behavior
 #[derive(Debug, Clone)]
 pub struct TextConfig {
@@ -279,35 +329,18 @@ impl StaticText {
         self.background_color = color;
     }
 
-    /// Update cached text layout (would compute actual text positioning)
-    fn update_cache(&mut self) {
-        if !self.cache_dirty {
-            return;
-        }
-
-        // In a real implementation, this would:
-        // 1. Measure text with current font
-        // 2. Apply word wrapping if enabled
-        // 3. Split into lines that fit within bounds
-        // 4. Calculate positioning based on alignment
-
-        // Simplified implementation for demonstration
-        if self.config.word_wrap {
-            // Simple word wrap simulation
-            let words: Vec<&str> = self.text.split_whitespace().collect();
-            self.cached_lines.clear();
-
+    fn layout_lines_for(text: &str, config: &TextConfig, bounds: Rect) -> Vec<String> {
+        if config.word_wrap {
+            let words: Vec<&str> = text.split_whitespace().collect();
+            let mut lines = Vec::new();
             let mut current_line = String::new();
-            let max_line_length = ((self
-                .bounds
-                .width
-                .saturating_sub(self.config.left_margin * 2))
-                / 8) as usize; // Rough character estimate
+            let max_line_length =
+                (bounds.width.saturating_sub(config.left_margin * 2) / 8).max(1) as usize;
 
             for word in words {
                 if current_line.len() + word.len() + 1 > max_line_length && !current_line.is_empty()
                 {
-                    self.cached_lines.push(current_line);
+                    lines.push(current_line);
                     current_line = word.to_string();
                 } else {
                     if !current_line.is_empty() {
@@ -318,14 +351,21 @@ impl StaticText {
             }
 
             if !current_line.is_empty() {
-                self.cached_lines.push(current_line);
+                lines.push(current_line);
             }
-        } else {
-            // No word wrap - split by newlines only
-            self.cached_lines = self.text.lines().map(|s| s.to_string()).collect();
-        }
 
-        self.cache_dirty = false;
+            lines
+        } else {
+            text.lines().map(|s| s.to_string()).collect()
+        }
+    }
+
+    /// Update cached text layout.
+    fn update_cache(&mut self) {
+        if self.cache_dirty {
+            self.cached_lines = Self::layout_lines_for(&self.text, &self.config, self.bounds);
+            self.cache_dirty = false;
+        }
     }
 
     /// Get the effective text color
@@ -337,6 +377,50 @@ impl StaticText {
                 theme.disabled_text_color
             }
         })
+    }
+
+    /// Build renderer-facing commands for the current static text state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<TextRenderCommand> {
+        if !self.visible {
+            return Vec::new();
+        }
+
+        let mut commands = Vec::new();
+        if let Some(color) = self.background_color {
+            commands.push(TextRenderCommand::Background {
+                rect: self.bounds,
+                color,
+            });
+        }
+
+        let lines = if self.cache_dirty {
+            Self::layout_lines_for(&self.text, &self.config, self.bounds)
+        } else {
+            self.cached_lines.clone()
+        };
+        let text_color = self.get_text_color(theme);
+        commands.extend(lines.into_iter().enumerate().map(|(line_index, text)| {
+            TextRenderCommand::Text {
+                rect: self.bounds,
+                text,
+                color: text_color,
+                font_size: self.config.font_size,
+                alignment: self.config.alignment,
+                vertical_alignment: self.config.vertical_alignment,
+                left_margin: self.config.left_margin,
+                top_margin: self.config.top_margin,
+                line_index,
+            }
+        }));
+
+        if self.focused {
+            commands.push(TextRenderCommand::FocusOutline {
+                rect: self.bounds,
+                color: theme.focused_color,
+            });
+        }
+
+        commands
     }
 }
 
@@ -415,32 +499,7 @@ impl Gadget for StaticText {
     }
 
     fn render(&self, theme: &GadgetTheme) {
-        // Placeholder rendering code
-        let text_color = self.get_text_color(theme);
-
-        println!(
-            "Rendering static text {} at ({}, {}) {}x{}",
-            self.id, self.bounds.x, self.bounds.y, self.bounds.width, self.bounds.height
-        );
-
-        if let Some(bg_color) = self.background_color {
-            println!("  Background: {:?}", bg_color);
-        }
-
-        println!("  Text color: {:?}", text_color);
-        println!("  Font size: {}", self.config.font_size);
-        println!(
-            "  Alignment: {:?} / {:?}",
-            self.config.alignment, self.config.vertical_alignment
-        );
-        println!(
-            "  Margins: left={}, top={}",
-            self.config.left_margin, self.config.top_margin
-        );
-
-        for (i, line) in self.cached_lines.iter().enumerate() {
-            println!("  Line {}: '{}'", i, line);
-        }
+        let _commands = self.render_commands(theme);
     }
 
     #[allow(unused_variables)]
@@ -1055,6 +1114,119 @@ impl TextEntry {
             }
         })
     }
+
+    fn text_rect(&self) -> Rect {
+        Rect::new(
+            self.bounds.x + self.config.left_margin as i32,
+            self.bounds.y + self.config.top_margin as i32,
+            self.bounds
+                .width
+                .saturating_sub(self.config.left_margin * 2),
+            self.bounds
+                .height
+                .saturating_sub(self.config.top_margin * 2),
+        )
+    }
+
+    fn cursor_rect(&self) -> Rect {
+        let char_width = (self.config.font_size / 2).max(1) as i32;
+        Rect::new(
+            self.text_rect().x
+                + self.cursor_position.saturating_sub(self.scroll_offset) as i32 * char_width,
+            self.text_rect().y,
+            1,
+            self.text_rect().height.max(self.config.font_size),
+        )
+    }
+
+    fn selection_rect(&self, start: usize, end: usize) -> Rect {
+        let char_width = (self.config.font_size / 2).max(1) as i32;
+        let text_rect = self.text_rect();
+        let visible_start = start.saturating_sub(self.scroll_offset);
+        let visible_end = end.saturating_sub(self.scroll_offset).max(visible_start);
+        Rect::new(
+            text_rect.x + visible_start as i32 * char_width,
+            text_rect.y,
+            ((visible_end - visible_start) as u32).saturating_mul(char_width as u32),
+            text_rect.height.max(self.config.font_size),
+        )
+    }
+
+    /// Build renderer-facing commands for the current text-entry state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<TextRenderCommand> {
+        if !self.visible {
+            return Vec::new();
+        }
+
+        let mut commands = vec![
+            TextRenderCommand::Background {
+                rect: self.bounds,
+                color: self.background_color.unwrap_or(Color::WHITE),
+            },
+            TextRenderCommand::Border {
+                rect: self.bounds,
+                color: self.border_color.unwrap_or(theme.border_color),
+                width: 1,
+            },
+        ];
+
+        let text_rect = self.text_rect();
+        let text_color = self.get_text_color(theme);
+        if self.focused {
+            if let (Some(start), Some(end)) = (self.selection_start, self.selection_end) {
+                let (start, end) = if start <= end {
+                    (start, end)
+                } else {
+                    (end, start)
+                };
+                commands.push(TextRenderCommand::Selection {
+                    rect: self.selection_rect(start, end),
+                    color: self.selection_color,
+                    start,
+                    end,
+                });
+            }
+        }
+
+        if self.text.is_empty() && !self.placeholder.is_empty() {
+            commands.push(TextRenderCommand::Placeholder {
+                rect: text_rect,
+                text: self.placeholder.clone(),
+                color: text_color,
+                font_size: self.config.font_size,
+                alignment: self.config.alignment,
+                vertical_alignment: self.config.vertical_alignment,
+                left_margin: 0,
+                top_margin: 0,
+            });
+        } else {
+            commands.push(TextRenderCommand::Text {
+                rect: text_rect,
+                text: self.displayed_text.clone(),
+                color: text_color,
+                font_size: self.config.font_size,
+                alignment: self.config.alignment,
+                vertical_alignment: self.config.vertical_alignment,
+                left_margin: 0,
+                top_margin: 0,
+                line_index: 0,
+            });
+        }
+
+        if self.focused {
+            commands.push(TextRenderCommand::Cursor {
+                rect: self.cursor_rect(),
+                color: self.cursor_color,
+                position: self.cursor_position,
+            });
+            commands.push(TextRenderCommand::FocusOutline {
+                rect: self.bounds,
+                color: theme.focused_color,
+            });
+        }
+
+        commands
+    }
 }
 
 impl Gadget for TextEntry {
@@ -1267,43 +1439,7 @@ impl Gadget for TextEntry {
     }
 
     fn render(&self, theme: &GadgetTheme) {
-        // Placeholder rendering code
-        let text_color = self.get_text_color(theme);
-        let bg_color = self.background_color.unwrap_or(Color::WHITE);
-        let border_color = self.border_color.unwrap_or(theme.border_color);
-
-        println!(
-            "Rendering text entry {} at ({}, {}) {}x{}",
-            self.id, self.bounds.x, self.bounds.y, self.bounds.width, self.bounds.height
-        );
-
-        println!("  Background: {:?}", bg_color);
-        println!("  Border: {:?}", border_color);
-        println!("  Text color: {:?}", text_color);
-
-        if self.text.is_empty() && !self.placeholder.is_empty() {
-            println!("  Placeholder: '{}'", self.placeholder);
-        } else {
-            println!("  Text: '{}'", self.displayed_text);
-        }
-
-        if self.focused {
-            println!("  Cursor at position: {}", self.cursor_position);
-            if self.has_selection() {
-                println!(
-                    "  Selection: {:?} to {:?}",
-                    self.selection_start, self.selection_end
-                );
-            }
-        }
-
-        println!("  Validation: {:?}", self.validation_mode);
-        if self.is_password {
-            println!("  Password field");
-        }
-        if self.is_multiline {
-            println!("  Multiline");
-        }
+        let _commands = self.render_commands(theme);
     }
 
     fn handle_tab(&mut self, _direction: TabDirection) -> bool {
@@ -1324,6 +1460,58 @@ mod tests {
         assert_eq!(text.text(), "Hello World");
         assert_eq!(text.config.alignment, TextAlignment::Center);
         assert_eq!(text.config.vertical_alignment, VerticalAlignment::Center);
+    }
+
+    #[test]
+    fn static_text_render_commands_cover_background_lines_and_focus() {
+        let theme = GadgetTheme::default();
+        let mut text = StaticText::new(1, 10, 20, 200, 40)
+            .with_text("Alpha\nBeta")
+            .with_alignment(TextAlignment::Center, VerticalAlignment::Bottom)
+            .with_margins(4, 6)
+            .with_font_size(14)
+            .with_text_color(Color::RED)
+            .with_background_color(Color::BLUE);
+        text.set_focus(true);
+
+        assert_eq!(
+            text.render_commands(&theme),
+            vec![
+                TextRenderCommand::Background {
+                    rect: Rect::new(10, 20, 200, 40),
+                    color: Color::BLUE,
+                },
+                TextRenderCommand::Text {
+                    rect: Rect::new(10, 20, 200, 40),
+                    text: "Alpha".to_string(),
+                    color: Color::RED,
+                    font_size: 14,
+                    alignment: TextAlignment::Center,
+                    vertical_alignment: VerticalAlignment::Bottom,
+                    left_margin: 4,
+                    top_margin: 6,
+                    line_index: 0,
+                },
+                TextRenderCommand::Text {
+                    rect: Rect::new(10, 20, 200, 40),
+                    text: "Beta".to_string(),
+                    color: Color::RED,
+                    font_size: 14,
+                    alignment: TextAlignment::Center,
+                    vertical_alignment: VerticalAlignment::Bottom,
+                    left_margin: 4,
+                    top_margin: 6,
+                    line_index: 1,
+                },
+                TextRenderCommand::FocusOutline {
+                    rect: Rect::new(10, 20, 200, 40),
+                    color: theme.focused_color,
+                },
+            ]
+        );
+
+        text.set_visible(false);
+        assert!(text.render_commands(&theme).is_empty());
     }
 
     #[test]
@@ -1362,6 +1550,89 @@ mod tests {
         assert_eq!(entry.text(), "password123");
         assert_eq!(entry.displayed_text, "***********");
         assert!(entry.is_password());
+    }
+
+    #[test]
+    fn text_entry_render_commands_cover_placeholder_password_cursor_and_selection() {
+        let theme = GadgetTheme::default();
+        let mut entry = TextEntry::new(1, 10, 20, 200, 30)
+            .with_placeholder("Commander")
+            .with_cursor_colors(Color::RED, Color::BLUE);
+
+        assert_eq!(
+            entry.render_commands(&theme),
+            vec![
+                TextRenderCommand::Background {
+                    rect: Rect::new(10, 20, 200, 30),
+                    color: Color::WHITE,
+                },
+                TextRenderCommand::Border {
+                    rect: Rect::new(10, 20, 200, 30),
+                    color: theme.border_color,
+                    width: 1,
+                },
+                TextRenderCommand::Placeholder {
+                    rect: Rect::new(10, 20, 200, 30),
+                    text: "Commander".to_string(),
+                    color: theme.text_color,
+                    font_size: 12,
+                    alignment: TextAlignment::Left,
+                    vertical_alignment: VerticalAlignment::Top,
+                    left_margin: 0,
+                    top_margin: 0,
+                },
+            ]
+        );
+
+        entry.set_text("secret");
+        entry.set_password(true);
+        entry.move_cursor_home(false);
+        entry.move_cursor_right(true);
+        entry.set_focus(true);
+
+        assert_eq!(
+            entry.render_commands(&theme),
+            vec![
+                TextRenderCommand::Background {
+                    rect: Rect::new(10, 20, 200, 30),
+                    color: Color::WHITE,
+                },
+                TextRenderCommand::Border {
+                    rect: Rect::new(10, 20, 200, 30),
+                    color: theme.border_color,
+                    width: 1,
+                },
+                TextRenderCommand::Selection {
+                    rect: Rect::new(10, 20, 6, 30),
+                    color: Color::BLUE,
+                    start: 0,
+                    end: 1,
+                },
+                TextRenderCommand::Text {
+                    rect: Rect::new(10, 20, 200, 30),
+                    text: "******".to_string(),
+                    color: theme.text_color,
+                    font_size: 12,
+                    alignment: TextAlignment::Left,
+                    vertical_alignment: VerticalAlignment::Top,
+                    left_margin: 0,
+                    top_margin: 0,
+                    line_index: 0,
+                },
+                TextRenderCommand::Cursor {
+                    rect: Rect::new(16, 20, 1, 30),
+                    color: Color::RED,
+                    position: 1,
+                },
+                TextRenderCommand::FocusOutline {
+                    rect: Rect::new(10, 20, 200, 30),
+                    color: theme.focused_color,
+                },
+            ]
+        );
+
+        entry.set_visible(false);
+        assert!(entry.render_commands(&theme).is_empty());
     }
 
     #[test]
