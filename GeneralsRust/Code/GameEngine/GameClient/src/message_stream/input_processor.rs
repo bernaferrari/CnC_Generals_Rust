@@ -335,11 +335,20 @@ impl InputProcessor {
                 raw_key_msg.append_integer_argument(self.build_key_state(modifiers, true) as i32);
                 messages.push(raw_key_msg);
 
-                if matches!(key, KeyCode::LeftAlt | KeyCode::RightAlt) {
-                    messages.push(GameMessage::with_player(
-                        GameMessageType::MetaBeginForceAttack,
-                        player_id,
-                    ));
+                match key {
+                    KeyCode::LeftCtrl | KeyCode::RightCtrl => messages.push(
+                        GameMessage::with_player(GameMessageType::MetaBeginForceAttack, player_id),
+                    ),
+                    KeyCode::LeftAlt | KeyCode::RightAlt => messages.push(
+                        GameMessage::with_player(GameMessageType::MetaBeginWaypoints, player_id),
+                    ),
+                    KeyCode::LeftShift | KeyCode::RightShift => {
+                        messages.push(GameMessage::with_player(
+                            GameMessageType::MetaBeginPreferSelection,
+                            player_id,
+                        ));
+                    }
+                    _ => {}
                 }
 
                 if key == KeyCode::Escape {
@@ -400,11 +409,20 @@ impl InputProcessor {
                 raw_key_msg.append_integer_argument(self.build_key_state(modifiers, false) as i32);
                 messages.push(raw_key_msg);
 
-                if matches!(key, KeyCode::LeftAlt | KeyCode::RightAlt) {
-                    messages.push(GameMessage::with_player(
-                        GameMessageType::MetaEndForceAttack,
-                        player_id,
-                    ));
+                match key {
+                    KeyCode::LeftCtrl | KeyCode::RightCtrl => messages.push(
+                        GameMessage::with_player(GameMessageType::MetaEndForceAttack, player_id),
+                    ),
+                    KeyCode::LeftAlt | KeyCode::RightAlt => messages.push(
+                        GameMessage::with_player(GameMessageType::MetaEndWaypoints, player_id),
+                    ),
+                    KeyCode::LeftShift | KeyCode::RightShift => {
+                        messages.push(GameMessage::with_player(
+                            GameMessageType::MetaEndPreferSelection,
+                            player_id,
+                        ));
+                    }
+                    _ => {}
                 }
             }
 
