@@ -81,8 +81,8 @@ pub use slider::{
 };
 pub use tabcontrol::{Tab, TabCallback, TabControl, TabControlData};
 pub use text::{
-    StaticText, TextAlignment, TextConfig, TextEntry, TextEntryCallback, ValidationMode,
-    VerticalAlignment,
+    StaticText, TextAlignment, TextConfig, TextEntry, TextEntryCallback, TextRenderCommand,
+    ValidationMode, VerticalAlignment,
 };
 
 use std::collections::HashMap;
