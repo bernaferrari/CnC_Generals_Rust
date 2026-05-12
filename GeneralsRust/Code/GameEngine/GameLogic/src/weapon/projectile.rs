@@ -3,7 +3,7 @@
 //! This module manages projectile objects, their physics simulation, and collision detection.
 //! Supports various projectile types including ballistic, guided, beam, and special weapons.
 
-use crate::helpers::{TheGameLogic, ThePartitionManager};
+use crate::helpers::{get_game_logic_random_value_real, TheGameLogic, ThePartitionManager};
 use crate::object::{registry::OBJECT_REGISTRY, ObjectId};
 use crate::scripting::engine::get_script_engine;
 use crate::weapon::{
@@ -497,10 +497,11 @@ impl Projectile {
             log::debug!("Parachute deployed for projectile {}", self.id);
 
             // Add horizontal drift from wind
-            use rand::Rng;
-            let mut rng = rand::thread_rng();
-            parachute.drift_velocity =
-                Coord3D::new(rng.gen_range(-2.0..2.0), rng.gen_range(-2.0..2.0), 0.0);
+            parachute.drift_velocity = Coord3D::new(
+                get_game_logic_random_value_real(-2.0, 2.0),
+                get_game_logic_random_value_real(-2.0, 2.0),
+                0.0,
+            );
         }
 
         // Apply parachute physics
@@ -570,9 +571,7 @@ impl Projectile {
         self.physics.velocity.y *= bounce_state.restitution;
 
         // Add some random bounce direction variation
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let angle_variation = rng.gen_range(-0.3..0.3);
+        let angle_variation = get_game_logic_random_value_real(-0.3, 0.3);
         let current_angle = self.physics.velocity.y.atan2(self.physics.velocity.x);
         let new_angle = current_angle + angle_variation;
         let horizontal_speed =
@@ -730,14 +729,11 @@ impl Projectile {
 
     /// Handle spread detonation (miss with scatter)
     fn handle_spread_detonation(&mut self) -> GameLogicResult<ProjectileUpdateResult> {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
         // Calculate spread position based on scatter radius
         let scatter_radius = self.weapon_template.scatter_radius;
         if scatter_radius > 0.0 {
-            let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
-            let distance = rng.gen_range(0.0..scatter_radius);
+            let angle = get_game_logic_random_value_real(0.0, std::f32::consts::PI * 2.0);
+            let distance = get_game_logic_random_value_real(0.0, scatter_radius);
 
             self.physics.position.x += distance * angle.cos();
             self.physics.position.y += distance * angle.sin();
@@ -956,15 +952,15 @@ impl Projectile {
 
     /// Create fragmentation projectiles
     fn create_fragments(&mut self) -> GameLogicResult<()> {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
         self.pending_fragment_spawns
             .reserve(self.warhead.fragment_count as usize);
 
         for _ in 0..self.warhead.fragment_count {
-            let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
-            let elevation = rng.gen_range(-std::f32::consts::PI / 4.0..std::f32::consts::PI / 4.0);
+            let angle = get_game_logic_random_value_real(0.0, std::f32::consts::PI * 2.0);
+            let elevation = get_game_logic_random_value_real(
+                -std::f32::consts::PI / 4.0,
+                std::f32::consts::PI / 4.0,
+            );
 
             let fragment_velocity = Coord3D::new(
                 self.warhead.fragment_velocity * angle.cos() * elevation.cos(),
@@ -1584,8 +1580,6 @@ impl ProjectileManager {
         volley_count: u32,
         volley_spread: f32,
     ) -> Vec<ObjectId> {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
         let mut projectile_ids = Vec::new();
 
         for i in 0..volley_count {
@@ -1599,7 +1593,7 @@ impl ProjectileManager {
             };
 
             // Add random variation
-            let random_angle_variation = rng.gen_range(-0.1..0.1);
+            let random_angle_variation = get_game_logic_random_value_real(-0.1, 0.1);
             let final_angle = angle_offset + random_angle_variation;
 
             // Modify trajectory for spread
@@ -1657,14 +1651,13 @@ impl ProjectileManager {
         spread_count: u32,
         spread_cone_angle: f32,
     ) -> Vec<ObjectId> {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
         let mut projectile_ids = Vec::new();
 
         for _ in 0..spread_count {
             // Random direction within cone
-            let horizontal_angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
-            let vertical_angle = rng.gen_range(0.0..spread_cone_angle);
+            let horizontal_angle =
+                get_game_logic_random_value_real(0.0, std::f32::consts::PI * 2.0);
+            let vertical_angle = get_game_logic_random_value_real(0.0, spread_cone_angle);
 
             // Calculate spread direction
             let spread_x = vertical_angle.sin() * horizontal_angle.cos();
