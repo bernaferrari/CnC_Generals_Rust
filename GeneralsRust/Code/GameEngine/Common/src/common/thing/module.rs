@@ -196,6 +196,11 @@ pub trait LaserUpdateInterface {
     fn get_width_scale(&self) -> f32;
 }
 
+pub trait RadarUpdateInterface {
+    fn extend_radar(&mut self);
+    fn is_radar_active(&self) -> bool;
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -260,6 +265,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_laser_update_interface(&mut self) -> Option<&mut dyn LaserUpdateInterface> {
+        None
+    }
+
+    fn get_radar_update_interface(&mut self) -> Option<&mut dyn RadarUpdateInterface> {
         None
     }
 }
