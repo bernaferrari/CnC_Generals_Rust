@@ -977,7 +977,7 @@ impl ActiveBody {
         let Some(owner) = self.get_owner() else {
             return;
         };
-        let behaviors = match owner.read() {
+        let behaviors = match owner.try_read() {
             Ok(owner_guard) => owner_guard.get_behavior_modules(),
             Err(_) => return,
         };
@@ -1217,9 +1217,15 @@ impl BodyModuleInterface for ActiveBody {
         }
 
         if let Some(owner) = self.get_owner() {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_effectively_dead() {
-                    return Ok(());
+            match owner.try_read() {
+                Ok(owner_guard) => {
+                    if owner_guard.is_effectively_dead() {
+                        return Ok(());
+                    }
+                }
+                Err(std::sync::TryLockError::WouldBlock) => {}
+                Err(std::sync::TryLockError::Poisoned(_)) => {
+                    return Err(BodyError::OperationNotSupported);
                 }
             }
         } else if let Ok(state) = self.state.read() {
@@ -2002,7 +2008,7 @@ impl BodyModuleInterface for ActiveBody {
 
     fn evaluate_visual_condition(&mut self) -> BodyResult<()> {
         if let Some(owner) = self.get_owner() {
-            if let Ok(owner_guard) = owner.read() {
+            if let Ok(owner_guard) = owner.try_read() {
                 if let Some(drawable) = owner_guard.get_drawable() {
                     if let Ok(mut draw_guard) = drawable.write() {
                         let max_health = self.get_max_health().max(f32::EPSILON);
@@ -2020,7 +2026,7 @@ impl BodyModuleInterface for ActiveBody {
         self.delete_all_particle_systems()?;
 
         let aflame = if let Some(owner) = self.get_owner() {
-            if let Ok(guard) = owner.read() {
+            if let Ok(guard) = owner.try_read() {
                 guard.test_status(ObjectStatusTypes::Aflame)
             } else {
                 false

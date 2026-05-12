@@ -614,11 +614,16 @@ impl MissileAIUpdate {
             return;
         }
 
-        // Destroy or kill the object
-        if self.data.detonate_calls_kill {
-            // Would call: obj->kill()
-        } else {
-            // Would call: TheGameLogic->destroyObject(obj)
+        if self.detonation_weapon_tmpl.is_some() {
+            if self.data.detonate_calls_kill {
+                if let Some(obj_arc) = TheGameLogic::find_object_by_id(self.object_id) {
+                    if let Ok(mut obj_guard) = obj_arc.write() {
+                        obj_guard.kill(None, None);
+                    }
+                }
+            } else {
+                let _ = TheGameLogic::destroy_object_by_id(self.object_id);
+            }
         }
 
         self.switch_to_state(MissileState::Dead, current_frame);
@@ -992,6 +997,38 @@ mod tests {
     use super::*;
     use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
     use std::io::Cursor;
+    use std::sync::{Mutex, MutexGuard, OnceLock, RwLock};
+
+    static GAME_LOGIC_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn game_logic_test_guard() -> MutexGuard<'static, ()> {
+        GAME_LOGIC_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap()
+    }
+
+    fn reset_game_logic_objects() {
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            logic.clear_all_objects();
+        }
+    }
+
+    fn register_test_object(object_id: ObjectID) -> Arc<RwLock<Object>> {
+        let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .register_object(object.clone())
+            .unwrap();
+        object
+    }
+
+    fn test_weapon_template() -> (Arc<WeaponTemplate>, Weak<WeaponTemplate>) {
+        let weapon = Arc::new(WeaponTemplate::new(String::from("TestMissileWeapon")));
+        let weak = Arc::downgrade(&weapon);
+        (weapon, weak)
+    }
 
     #[test]
     fn test_missile_state_machine() {
@@ -1068,6 +1105,81 @@ mod tests {
         assert!((missile.original_target_pos.x - expected_x).abs() < 0.001);
         assert!((missile.original_target_pos.y - expected_y).abs() < 0.001);
         assert_eq!(missile.original_target_pos.z, 0.0);
+    }
+
+    #[test]
+    fn kill_self_without_detonation_template_only_goes_dead() {
+        let _guard = game_logic_test_guard();
+        reset_game_logic_objects();
+        let object = register_test_object(1001);
+        let data = Arc::new(MissileAIUpdateModuleData {
+            kill_self_delay: 3,
+            ..Default::default()
+        });
+        let mut missile = MissileAIUpdate::new(data, 10);
+        missile.object_id = 1001;
+        missile.switch_to_state(MissileState::KillSelf, 10);
+
+        missile.do_kill_self_state(13);
+
+        assert_eq!(missile.state, MissileState::Dead);
+        assert!(TheGameLogic::find_object_by_id(1001).is_some());
+        assert!(!object.read().unwrap().is_effectively_dead());
+        reset_game_logic_objects();
+    }
+
+    #[test]
+    fn kill_self_destroy_path_queues_object_removal() {
+        let _guard = game_logic_test_guard();
+        reset_game_logic_objects();
+        register_test_object(1002);
+        let (_weapon, weak_weapon) = test_weapon_template();
+        let data = Arc::new(MissileAIUpdateModuleData {
+            kill_self_delay: 2,
+            detonate_calls_kill: false,
+            ..Default::default()
+        });
+        let mut missile = MissileAIUpdate::new(data, 20);
+        missile.object_id = 1002;
+        missile.detonation_weapon_tmpl = Some(weak_weapon);
+        missile.switch_to_state(MissileState::KillSelf, 20);
+
+        missile.do_kill_self_state(21);
+        assert_eq!(missile.state, MissileState::KillSelf);
+        assert!(TheGameLogic::find_object_by_id(1002).is_some());
+
+        missile.do_kill_self_state(22);
+        assert_eq!(missile.state, MissileState::Dead);
+        {
+            let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+            logic.cleanup_dead_objects().unwrap();
+        }
+        assert!(TheGameLogic::find_object_by_id(1002).is_none());
+        reset_game_logic_objects();
+    }
+
+    #[test]
+    fn kill_self_kill_path_runs_object_kill() {
+        let _guard = game_logic_test_guard();
+        reset_game_logic_objects();
+        let object = register_test_object(1003);
+        let (_weapon, weak_weapon) = test_weapon_template();
+        let data = Arc::new(MissileAIUpdateModuleData {
+            kill_self_delay: 0,
+            detonate_calls_kill: true,
+            ..Default::default()
+        });
+        let mut missile = MissileAIUpdate::new(data, 30);
+        missile.object_id = 1003;
+        missile.detonation_weapon_tmpl = Some(weak_weapon);
+        missile.switch_to_state(MissileState::KillSelf, 30);
+
+        missile.do_kill_self_state(30);
+
+        assert_eq!(missile.state, MissileState::Dead);
+        assert!(object.read().unwrap().is_effectively_dead());
+        assert!(TheGameLogic::find_object_by_id(1003).is_some());
+        reset_game_logic_objects();
     }
 
     #[test]
