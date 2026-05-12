@@ -2604,9 +2604,12 @@ impl BasicDrawable {
     }
 
     pub fn draw_caption(&mut self, _health_region: &IRegion2D) {
-        // Caption display is driven by m_captionDisplayString in C++.
-        // For now, overlay_data.caption remains None unless set externally.
-        // The render pipeline will check this field.
+        if let Some(caption) = self.caption_text.as_ref() {
+            self.overlay_data.caption = Some(caption.clone());
+            self.overlay_data.visible = true;
+        } else {
+            self.overlay_data.caption = None;
+        }
     }
 
     pub fn draw_emoticon(&mut self, _health_region: &IRegion2D) {
@@ -4775,6 +4778,41 @@ mod tests {
         drawable.set_caption_text("Pilot badword ready");
 
         assert_eq!(drawable.get_caption_text(), Some("Pilot ******* ready"));
+    }
+
+    #[test]
+    fn draw_caption_publishes_caption_overlay() {
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        drawable.set_caption_text("Beacon Alpha");
+
+        drawable.draw_caption(&IRegion2D::new(
+            ICoord2D::new(10, 20),
+            ICoord2D::new(60, 40),
+        ));
+
+        assert_eq!(
+            drawable.overlay_data.caption.as_deref(),
+            Some("Beacon Alpha")
+        );
+        assert!(drawable.overlay_data.visible);
+    }
+
+    #[test]
+    fn draw_caption_clears_stale_overlay_without_caption_text() {
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        drawable.set_caption_text("Beacon Alpha");
+        drawable.draw_caption(&IRegion2D::new(
+            ICoord2D::new(10, 20),
+            ICoord2D::new(60, 40),
+        ));
+
+        drawable.clear_caption_text();
+        drawable.draw_caption(&IRegion2D::new(
+            ICoord2D::new(10, 20),
+            ICoord2D::new(60, 40),
+        ));
+
+        assert_eq!(drawable.overlay_data.caption, None);
     }
 
     #[test]
