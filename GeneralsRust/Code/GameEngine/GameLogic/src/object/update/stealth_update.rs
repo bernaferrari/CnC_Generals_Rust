@@ -18,6 +18,7 @@
 use crate::common::ModelConditionFlags;
 use crate::common::*;
 use crate::damage::DamageType;
+use crate::helpers::game_client_random_value_real;
 use crate::modules::StealthControllerExt;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::drawable::{Drawable, StealthLookType};
@@ -195,8 +196,8 @@ impl StealthUpdateController {
         let stealth_allowed_frame = current_frame + data.stealth_delay;
         let enabled = !data.team_disguised; // Bomb truck starts disabled
 
-        // Random pulse phase like C++ line 121
-        let pulse_phase = rand::random::<f32>() * PI;
+        // C++ uses GameClientRandomValueReal for the visual pulse phase.
+        let pulse_phase = game_client_random_value_real(0.0, PI);
 
         Self {
             data,
