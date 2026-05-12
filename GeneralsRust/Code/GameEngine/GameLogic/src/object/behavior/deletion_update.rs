@@ -1,7 +1,7 @@
 //! DeletionUpdate - Auto-deletion of objects after conditions
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
-use crate::common::{Bool, ModuleData, UnsignedInt};
+use crate::common::{Bool, ModuleData, TheGameLogic, UnsignedInt};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
@@ -117,8 +117,11 @@ impl UpdateModuleInterface for DeletionUpdate {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
 
         if current_frame >= self.delete_frame {
-            // Delete object through game logic
-            // In full implementation, would call TheGameLogic::destroy_object
+            if let Some(object) = self.object.upgrade() {
+                if let Ok(guard) = object.read() {
+                    let _ = TheGameLogic::destroy_object(&guard);
+                }
+            }
             return UpdateSleepTime::Forever;
         }
 
