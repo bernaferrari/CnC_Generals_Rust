@@ -3908,6 +3908,32 @@ impl InGameUI {
         None
     }
 
+    fn ignored_gui_slaver_id_for_object(object: &Object) -> Option<ObjectID> {
+        if !object.is_kind_of(KindOf::IgnoredInGui) {
+            return None;
+        }
+
+        for behavior in object.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            let Some(slaved) = behavior.get_slaved_update_interface() else {
+                continue;
+            };
+            let Some(slaver_id) = slaved.slaver_id() else {
+                continue;
+            };
+            if OBJECT_REGISTRY.get_object(slaver_id).is_some() {
+                return Some(slaver_id);
+            }
+        }
+        None
+    }
+
+    fn mouseover_drawable_id_for_object(drawable_id: u32, object: &Object) -> u32 {
+        Self::ignored_gui_slaver_id_for_object(object).unwrap_or(drawable_id)
+    }
+
     fn mouseover_tooltip_visible_for_shroud(status: ObjectShroudStatus) -> bool {
         matches!(
             status,
@@ -4609,12 +4635,14 @@ impl InGameUI {
             if draw_id == Self::INVALID_DRAWABLE_ID {
                 self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
             } else {
-                self.moused_over_drawable_id = draw_id;
-                // C++: TheMouse->setCursorTooltip(displayName, -1, playerColor, widthMult)
-                // Deferred C++ behaviors: MobMemberSlavedUpdate redirect, Disguiser detection,
-                // multiplayer player suffix, stealth-garrison player color.
                 if let Some(obj) = OBJECT_REGISTRY.get_object(draw_id) {
                     if let Ok(guard) = obj.read() {
+                        self.moused_over_drawable_id =
+                            Self::mouseover_drawable_id_for_object(draw_id, &guard);
+
+                        // C++: TheMouse->setCursorTooltip(displayName, -1, playerColor, widthMult)
+                        // Deferred C++ behaviors: Disguiser detection, multiplayer player suffix,
+                        // stealth-garrison player color.
                         let visible = Self::mouseover_tooltip_visible_for_shroud(
                             guard.get_shrouded_status(self.player_id as i32),
                         );
@@ -4643,6 +4671,8 @@ impl InGameUI {
                             }
                         }
                     }
+                } else {
+                    self.moused_over_drawable_id = draw_id;
                 }
             }
         } else {

@@ -3553,6 +3553,11 @@ pub trait ModuleInterface {
 pub trait SlavedUpdateInterface {
     fn slaved_update(&mut self, object_id: ObjectID, delta_time: Real);
 
+    /// Current slaver/master object, if any.
+    fn slaver_id(&self) -> Option<ObjectID> {
+        None
+    }
+
     /// Called when this object becomes enslaved to a master
     fn on_enslave(
         &mut self,
