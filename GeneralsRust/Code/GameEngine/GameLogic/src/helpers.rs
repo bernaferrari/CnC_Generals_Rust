@@ -1909,6 +1909,14 @@ pub struct BoneOverrideState {
     pub transform: Matrix3D,
 }
 
+/// Per-frame mesh UV override for render sub-objects selected by mesh-name prefix.
+#[derive(Clone, Debug)]
+pub struct MeshUvOverrideState {
+    pub mesh_name_prefix: String,
+    pub u_offset: Real,
+    pub v_offset: Real,
+}
+
 /// Per-frame model draw data written by W3DModelDraw::do_draw_module().
 /// Read by the GameClient device layer to produce `render_bridge::DrawSubmission`.
 #[derive(Clone, Debug)]
@@ -1923,6 +1931,7 @@ pub struct ModelDrawState {
     pub animation_time: f32,
     /// Matches AnimMode discriminant (0=Manual … 5=OnceBackwards).
     pub animation_mode: i32,
+    pub mesh_uv_overrides: Vec<MeshUvOverrideState>,
 }
 
 #[derive(Clone, Debug)]

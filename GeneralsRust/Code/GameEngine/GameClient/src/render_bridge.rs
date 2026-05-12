@@ -175,6 +175,13 @@ pub struct BoneOverride {
     pub transform: glam::Mat4,
 }
 
+#[derive(Debug, Clone)]
+pub struct MeshUvOverride {
+    pub mesh_name_prefix: String,
+    pub u_offset: f32,
+    pub v_offset: f32,
+}
+
 // ---------------------------------------------------------------------------
 // Per-frame draw submission
 // ---------------------------------------------------------------------------
@@ -208,6 +215,7 @@ pub struct DrawSubmission {
     pub condition_flags: RenderConditionFlags,
     pub render_state: RenderStateOverrides,
     pub bone_overrides: Vec<BoneOverride>,
+    pub mesh_uv_overrides: Vec<MeshUvOverride>,
     pub animation_name: Option<String>,
     pub animation_mode: Option<AnimationMode>,
     pub animation_time: f32,
@@ -228,6 +236,7 @@ impl Default for DrawSubmission {
             condition_flags: RenderConditionFlags::empty(),
             render_state: RenderStateOverrides::default(),
             bone_overrides: Vec::new(),
+            mesh_uv_overrides: Vec::new(),
             animation_name: None,
             animation_mode: None,
             animation_time: 0.0,
