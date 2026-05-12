@@ -231,12 +231,11 @@ impl ThingFactory {
         // Assign name
         new_template.set_template_name(AsciiString::from(name));
 
-        let template_arc = Arc::new(new_template);
-
         // Add to list and hash map
-        self.add_template(template_arc.clone());
+        self.add_template(Arc::new(new_template));
 
-        template_arc
+        self.find_template(name, false)
+            .expect("newly-added ThingTemplate missing")
     }
 
     /// Create a new override template
@@ -472,7 +471,7 @@ impl ThingFactory {
     }
 
     /// Add template to the database
-    fn add_template(&mut self, template: Arc<ThingTemplate>) {
+    fn add_template(&mut self, mut template: Arc<ThingTemplate>) {
         // Check for duplicates
         if self.template_hash_map.contains_key(template.get_name()) {
             panic!(
@@ -482,9 +481,7 @@ impl ThingFactory {
         }
 
         // Link to list
-        if let Some(ref mut _first) = self.first_template {
-            // template.set_next_template(Some(first.clone()));
-        }
+        Arc::make_mut(&mut template).set_next_template(self.first_template.clone());
 
         // Add to hash map
         self.template_hash_map
@@ -1042,7 +1039,7 @@ fn skip_ini_block(lines: &[&str], mut index: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_object_declarations, ObjectDeclaration};
+    use super::{parse_object_declarations, ObjectDeclaration, ThingFactory};
 
     #[test]
     fn parse_object_declarations_handles_object_and_reskin_blocks() {
@@ -1072,6 +1069,52 @@ mod tests {
                     reskin_from: Some("AmericaVehicleHumvee".to_string()),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn thing_factory_links_templates_newest_first_for_id_lookup() {
+        let mut factory = ThingFactory::new();
+
+        let first = factory.new_template("FirstObject");
+        let second = factory.new_template("SecondObject");
+        let third = factory.new_template("ThirdObject");
+
+        let first_from_head = factory.first_template().expect("missing first template");
+        assert_eq!(first_from_head.get_name().as_str(), "ThirdObject");
+        assert_eq!(
+            first_from_head
+                .get_next_template()
+                .as_ref()
+                .map(|template| template.get_name().as_str()),
+            Some("SecondObject")
+        );
+        assert_eq!(
+            first_from_head
+                .get_next_template()
+                .as_ref()
+                .and_then(|template| template.get_next_template().as_ref())
+                .map(|template| template.get_name().as_str()),
+            Some("FirstObject")
+        );
+
+        assert_eq!(
+            factory
+                .find_by_template_id(first.get_template_id())
+                .map(|template| template.get_name().as_str().to_string()),
+            Some("FirstObject".to_string())
+        );
+        assert_eq!(
+            factory
+                .find_by_template_id(second.get_template_id())
+                .map(|template| template.get_name().as_str().to_string()),
+            Some("SecondObject".to_string())
+        );
+        assert_eq!(
+            factory
+                .find_by_template_id(third.get_template_id())
+                .map(|template| template.get_name().as_str().to_string()),
+            Some("ThirdObject".to_string())
         );
     }
 }
