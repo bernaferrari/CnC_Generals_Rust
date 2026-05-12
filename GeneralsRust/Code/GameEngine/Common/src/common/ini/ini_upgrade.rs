@@ -366,6 +366,7 @@ impl UpgradeTemplate {
 #[derive(Debug)]
 pub struct UpgradeCenter {
     templates: HashMap<String, UpgradeTemplate>,
+    template_order: Vec<String>,
     researched_upgrades: HashMap<String, u32>, // Name -> stack count
 }
 
@@ -373,6 +374,7 @@ impl UpgradeCenter {
     pub fn new() -> Self {
         Self {
             templates: HashMap::new(),
+            template_order: Vec::new(),
             researched_upgrades: HashMap::new(),
         }
     }
@@ -390,7 +392,11 @@ impl UpgradeCenter {
     /// Create a new template
     pub fn new_template(&mut self, name: AsciiString) -> &mut UpgradeTemplate {
         let template = UpgradeTemplate::new(name.clone());
-        self.templates.insert(name.as_str().to_string(), template);
+        let key = name.as_str().to_string();
+        if !self.templates.contains_key(&key) {
+            self.template_order.insert(0, key.clone());
+        }
+        self.templates.insert(key, template);
         self.templates.get_mut(name.as_str()).unwrap()
     }
 
@@ -405,18 +411,25 @@ impl UpgradeCenter {
     /// Register a template
     pub fn register_template(&mut self, template: UpgradeTemplate) {
         let name = template.name.as_str().to_string();
+        if !self.templates.contains_key(&name) {
+            self.template_order.insert(0, name.clone());
+        }
         self.templates.insert(name, template);
     }
 
     /// Get all template names
     pub fn get_template_names(&self) -> Vec<&String> {
-        self.templates.keys().collect()
+        self.template_order
+            .iter()
+            .filter(|name| self.templates.contains_key(name.as_str()))
+            .collect()
     }
 
     /// Get templates by category
     pub fn get_templates_by_category(&self, category: &UpgradeCategory) -> Vec<&UpgradeTemplate> {
-        self.templates
-            .values()
+        self.template_order
+            .iter()
+            .filter_map(|name| self.templates.get(name.as_str()))
             .filter(|t| &t.category == category)
             .collect()
     }
@@ -460,12 +473,18 @@ impl UpgradeCenter {
 
     /// Remove a template
     pub fn remove_template(&mut self, name: &AsciiString) -> bool {
-        self.templates.remove(name.as_str()).is_some()
+        let removed = self.templates.remove(name.as_str()).is_some();
+        if removed {
+            self.template_order
+                .retain(|template_name| template_name != name.as_str());
+        }
+        removed
     }
 
     /// Clear all templates
     pub fn clear(&mut self) {
         self.templates.clear();
+        self.template_order.clear();
         self.researched_upgrades.clear();
     }
 
@@ -656,6 +675,50 @@ mod tests {
 
         // Count templates
         assert_eq!(center.get_template_count(), 1);
+    }
+
+    #[test]
+    fn upgrade_center_enumerates_in_cpp_list_order() {
+        let mut center = UpgradeCenter::new();
+
+        let mut first = UpgradeTemplate::new(AsciiString::from("FirstUpgrade"));
+        first.category = UpgradeCategory::Weapon;
+        let mut second = UpgradeTemplate::new(AsciiString::from("SecondUpgrade"));
+        second.category = UpgradeCategory::Armor;
+        let mut third = UpgradeTemplate::new(AsciiString::from("ThirdUpgrade"));
+        third.category = UpgradeCategory::Weapon;
+
+        center.register_template(first);
+        center.register_template(second);
+        center.register_template(third);
+
+        let names: Vec<&str> = center
+            .get_template_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(names, vec!["ThirdUpgrade", "SecondUpgrade", "FirstUpgrade"]);
+
+        let weapon_names: Vec<&str> = center
+            .get_templates_by_category(&UpgradeCategory::Weapon)
+            .into_iter()
+            .map(|template| template.name.as_str())
+            .collect();
+        assert_eq!(weapon_names, vec!["ThirdUpgrade", "FirstUpgrade"]);
+
+        let mut replacement = UpgradeTemplate::new(AsciiString::from("SecondUpgrade"));
+        replacement.category = UpgradeCategory::Weapon;
+        center.register_template(replacement);
+
+        let names_after_override: Vec<&str> = center
+            .get_template_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            names_after_override,
+            vec!["ThirdUpgrade", "SecondUpgrade", "FirstUpgrade"]
+        );
     }
 
     #[test]
