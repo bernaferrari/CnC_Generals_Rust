@@ -80,6 +80,39 @@ pub enum ClockMode {
     Inverse,
 }
 
+/// Draw command emitted by [`PushButton`] for the UI renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PushButtonRenderCommand {
+    FillRect {
+        rect: Rect,
+        color: Color,
+    },
+    Border {
+        rect: Rect,
+        color: Color,
+    },
+    Text {
+        rect: Rect,
+        text: String,
+        color: Color,
+    },
+    Clock {
+        rect: Rect,
+        mode: ClockMode,
+        progress: u8,
+        color: Color,
+    },
+    OverlayImage {
+        rect: Rect,
+        image_path: String,
+    },
+    CheckMark {
+        rect: Rect,
+        checked: bool,
+        color: Color,
+    },
+}
+
 /// Visual styling data for buttons
 #[derive(Debug, Clone)]
 pub struct ButtonStyle {
@@ -379,6 +412,59 @@ impl PushButton {
             .filter(|name| !name.is_empty())
             .unwrap_or("GUIClick");
         with_button_audio(|hook| hook(event_name));
+    }
+
+    /// Build renderer-facing commands for the current button state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<PushButtonRenderCommand> {
+        if !self.visible {
+            return Vec::new();
+        }
+
+        let mut commands = vec![PushButtonRenderCommand::FillRect {
+            rect: self.bounds,
+            color: self.get_current_color(theme),
+        }];
+
+        if self.style.draw_border {
+            commands.push(PushButtonRenderCommand::Border {
+                rect: self.bounds,
+                color: self.style.border_color,
+            });
+        }
+
+        if !self.text.is_empty() {
+            commands.push(PushButtonRenderCommand::Text {
+                rect: self.bounds,
+                text: self.text.clone(),
+                color: self.get_current_text_color(theme),
+            });
+        }
+
+        if self.style.clock_mode != ClockMode::None {
+            commands.push(PushButtonRenderCommand::Clock {
+                rect: self.bounds,
+                mode: self.style.clock_mode,
+                progress: self.style.clock_progress,
+                color: self.style.clock_color,
+            });
+        }
+
+        if let Some(image_path) = self.style.overlay_image.as_ref() {
+            commands.push(PushButtonRenderCommand::OverlayImage {
+                rect: self.bounds,
+                image_path: image_path.clone(),
+            });
+        }
+
+        if self.is_checkbox {
+            commands.push(PushButtonRenderCommand::CheckMark {
+                rect: self.bounds,
+                checked: self.is_checked,
+                color: self.get_current_text_color(theme),
+            });
+        }
+
+        commands
     }
 
     /// Handle mouse button press
@@ -736,55 +822,7 @@ impl Gadget for PushButton {
     }
 
     fn render(&self, theme: &GadgetTheme) {
-        // This is a placeholder for actual rendering
-        // In a real implementation, this would draw the button using the graphics system
-
-        let bg_color = self.get_current_color(theme);
-        let text_color = self.get_current_text_color(theme);
-
-        // Pseudo-rendering code (actual implementation would use graphics API)
-        println!(
-            "Rendering button {} at ({}, {}) {}x{}",
-            self.id, self.bounds.x, self.bounds.y, self.bounds.width, self.bounds.height
-        );
-        println!("  Background: {:?}", bg_color);
-        println!("  Text: '{}' in color {:?}", self.text, text_color);
-
-        if self.style.draw_border {
-            println!("  Border: {:?}", self.style.border_color);
-        }
-
-        match self.style.clock_mode {
-            ClockMode::Normal => {
-                println!(
-                    "  Clock progress: {}% in {:?}",
-                    self.style.clock_progress, self.style.clock_color
-                );
-            }
-            ClockMode::Inverse => {
-                println!(
-                    "  Inverse clock: {}% remaining in {:?}",
-                    100 - self.style.clock_progress,
-                    self.style.clock_color
-                );
-            }
-            ClockMode::None => {}
-        }
-
-        if let Some(ref overlay) = self.style.overlay_image {
-            println!("  Overlay image: {}", overlay);
-        }
-
-        if self.is_checkbox {
-            println!(
-                "  Checkbox state: {}",
-                if self.is_checked {
-                    "checked"
-                } else {
-                    "unchecked"
-                }
-            );
-        }
+        let _commands = self.render_commands(theme);
     }
 
     fn handle_tab(&mut self, direction: TabDirection) -> bool {
@@ -1006,6 +1044,77 @@ mod tests {
         assert_eq!(button.text(), "Builder Button");
         assert!(button.is_checkbox());
         assert!(button.is_checked());
+    }
+
+    #[test]
+    fn render_commands_cover_button_draw_data_without_console_output() {
+        let theme = GadgetTheme::default();
+        let button = PushButtonBuilder::new(1, 10, 20, 100, 30)
+            .text("Build")
+            .border(Color::BLUE)
+            .clock(75, Color::GREEN)
+            .build()
+            .with_overlay_image("Command_Construct");
+
+        assert_eq!(
+            button.render_commands(&theme),
+            vec![
+                PushButtonRenderCommand::FillRect {
+                    rect: Rect::new(10, 20, 100, 30),
+                    color: theme.normal_color,
+                },
+                PushButtonRenderCommand::Border {
+                    rect: Rect::new(10, 20, 100, 30),
+                    color: Color::BLUE,
+                },
+                PushButtonRenderCommand::Text {
+                    rect: Rect::new(10, 20, 100, 30),
+                    text: "Build".to_string(),
+                    color: theme.text_color,
+                },
+                PushButtonRenderCommand::Clock {
+                    rect: Rect::new(10, 20, 100, 30),
+                    mode: ClockMode::Normal,
+                    progress: 75,
+                    color: Color::GREEN,
+                },
+                PushButtonRenderCommand::OverlayImage {
+                    rect: Rect::new(10, 20, 100, 30),
+                    image_path: "Command_Construct".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn render_commands_include_check_like_state_and_skip_hidden_buttons() {
+        let theme = GadgetTheme::default();
+        let mut button = PushButton::new(1, 0, 0, 20, 20)
+            .with_text("Toggle")
+            .as_checkbox(true);
+
+        assert_eq!(
+            button.render_commands(&theme),
+            vec![
+                PushButtonRenderCommand::FillRect {
+                    rect: Rect::new(0, 0, 20, 20),
+                    color: theme.normal_color,
+                },
+                PushButtonRenderCommand::Text {
+                    rect: Rect::new(0, 0, 20, 20),
+                    text: "Toggle".to_string(),
+                    color: theme.text_color,
+                },
+                PushButtonRenderCommand::CheckMark {
+                    rect: Rect::new(0, 0, 20, 20),
+                    checked: true,
+                    color: theme.text_color,
+                },
+            ]
+        );
+
+        button.set_visible(false);
+        assert!(button.render_commands(&theme).is_empty());
     }
 
     #[test]
