@@ -459,6 +459,14 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Override drop destination for contained objects (default: no-op).
     fn set_override_destination(&mut self, _pos: &Coord3D) {}
 
+    /// Set a rally point for contained units that exit this container.
+    fn set_rally_point(&mut self, _pos: Coord3D) {}
+
+    /// Return the rally point for contained units that exit this container.
+    fn get_rally_point(&self) -> Option<Coord3D> {
+        None
+    }
+
     /// Whether a passenger is allowed to fire (default: false).
     fn is_passenger_allowed_to_fire(&self, _id: Option<ObjectID>) -> bool {
         false
@@ -680,6 +688,8 @@ pub trait ContainModuleInterfaceExt {
     fn is_enclosing_container_for(&self, obj: &Object) -> bool;
     fn is_passenger_allowed_to_fire(&self, id: Option<ObjectID>) -> bool;
     fn set_override_destination(&self, pos: &Coord3D);
+    fn set_rally_point(&self, pos: Coord3D);
+    fn get_rally_point(&self) -> Option<Coord3D>;
     fn has_objects_wanting_to_enter_or_exit(&self) -> bool;
     fn is_special_overlord_style_container(&self) -> bool;
     fn get_rider_id(&self) -> Option<ObjectID>;
@@ -780,6 +790,18 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
         if let Ok(mut guard) = self.try_lock() {
             guard.set_override_destination(pos);
         }
+    }
+
+    fn set_rally_point(&self, pos: Coord3D) {
+        if let Ok(mut guard) = self.try_lock() {
+            guard.set_rally_point(pos);
+        }
+    }
+
+    fn get_rally_point(&self) -> Option<Coord3D> {
+        self.try_lock()
+            .ok()
+            .and_then(|guard| guard.get_rally_point())
     }
 
     fn has_objects_wanting_to_enter_or_exit(&self) -> bool {
