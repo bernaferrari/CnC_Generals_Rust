@@ -244,6 +244,10 @@ impl PhysicsBehavior for RailroadPhysicsHandle {
         self.allow_to_fall = allow;
     }
 
+    fn get_allow_to_fall(&self) -> bool {
+        self.allow_to_fall
+    }
+
     fn set_turning(&mut self, turning: i32) {
         self.turning = turning;
     }
