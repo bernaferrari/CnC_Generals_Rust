@@ -1262,6 +1262,24 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
         }
     }
 
+    fn tint_particle_system_all_colors(
+        &self,
+        system_id: gamelogic::common::ParticleSystemId,
+        color: gamelogic::common::Color,
+    ) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.tint_all_colors([
+                        color.r as f32 / 255.0,
+                        color.g as f32 / 255.0,
+                        color.b as f32 / 255.0,
+                    ]);
+                }
+            }
+        }
+    }
+
     fn set_particle_system_velocity_multiplier(
         &self,
         system_id: gamelogic::common::ParticleSystemId,

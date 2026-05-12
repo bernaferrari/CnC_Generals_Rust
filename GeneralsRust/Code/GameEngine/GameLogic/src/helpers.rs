@@ -1793,6 +1793,11 @@ impl TheParticleSystemManager {
         manager.create_particle_system(template_id)
     }
 
+    pub fn find_template(&self, template: &str) -> Option<u32> {
+        let manager = get_particle_system_manager()?;
+        manager.find_template(template)
+    }
+
     pub fn create_attached_particle_system_id(
         &self,
         template: Option<&str>,
@@ -1854,6 +1859,12 @@ impl TheParticleSystemManager {
     pub fn stop_particle_system(&self, id: u32) {
         if let Some(manager) = get_particle_system_manager() {
             manager.stop_particle_system(id);
+        }
+    }
+
+    pub fn tint_particle_system_all_colors(&self, id: u32, color: Color) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.tint_particle_system_all_colors(id, color);
         }
     }
 
