@@ -1210,6 +1210,10 @@ impl SlavedUpdateInterface for SlavedUpdate {
         let _ = self.update_simple();
     }
 
+    fn slaver_id(&self) -> Option<ObjectID> {
+        (self.slaver != INVALID_ID).then_some(self.slaver)
+    }
+
     fn on_enslave(
         &mut self,
         master: &Arc<RwLock<GameObject>>,
@@ -1324,5 +1328,20 @@ impl Module for SlavedUpdateModule {
 
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slaver_id_reports_current_slaver() {
+        let data = Arc::new(SlavedUpdateModuleData::default());
+        let mut update = SlavedUpdate::new(7, data).expect("slaved update");
+
+        assert_eq!(update.slaver_id(), None);
+        update.slaver = 99;
+        assert_eq!(update.slaver_id(), Some(99));
     }
 }
