@@ -9,6 +9,7 @@
 //! Desc:   Parsing Weapon INI entries
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::ini::INILoadType;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -627,6 +628,32 @@ impl WeaponStore {
         self.templates.insert(name, template);
     }
 
+    pub fn register_definition(
+        &mut self,
+        name: AsciiString,
+        properties: &HashMap<String, String>,
+        load_type: INILoadType,
+    ) -> WeaponResult<()> {
+        let mut template = if let Some(existing) = self.find_template(&name).cloned() {
+            if load_type != INILoadType::CreateOverrides {
+                return Err(WeaponError::AlreadyExists);
+            }
+            existing
+        } else {
+            WeaponTemplate::new(name)
+        };
+
+        template.update_from_properties(properties);
+        if !template.is_valid() {
+            return Err(WeaponError::ParseError(
+                "Invalid weapon template configuration".to_string(),
+            ));
+        }
+
+        self.register_template(template);
+        Ok(())
+    }
+
     /// Get all template names
     pub fn get_template_names(&self) -> Vec<&String> {
         self.template_order
@@ -773,6 +800,22 @@ impl IniWeapon {
         Ok(())
     }
 
+    pub fn register_definition(
+        name: AsciiString,
+        properties: HashMap<String, String>,
+        load_type: INILoadType,
+    ) -> WeaponResult<()> {
+        if name.is_empty() {
+            return Err(WeaponError::InvalidName);
+        }
+
+        initialize_weapon_store();
+
+        let mut store = get_weapon_store()
+            .ok_or_else(|| WeaponError::StoreError("Store not initialized".to_string()))?;
+        store.register_definition(name, &properties, load_type)
+    }
+
     /// Find a weapon template by name
     pub fn find_template_by_name(name: &AsciiString) -> Option<WeaponTemplate> {
         if let Some(store) = get_weapon_store() {
@@ -888,6 +931,74 @@ mod tests {
             .map(|template| template.name.as_str())
             .collect();
         assert_eq!(projectile_names, vec!["FirstWeapon", "SecondWeapon"]);
+    }
+
+    #[test]
+    fn weapon_definition_rejects_duplicate_without_override_load() {
+        let mut store = WeaponStore::new();
+        let name = AsciiString::from("ExistingWeapon");
+        let mut properties = HashMap::new();
+        properties.insert("PrimaryDamage".to_string(), "25".to_string());
+
+        store
+            .register_definition(name.clone(), &properties, INILoadType::Overwrite)
+            .unwrap();
+
+        let result = store.register_definition(name, &properties, INILoadType::Overwrite);
+        assert_eq!(result, Err(WeaponError::AlreadyExists));
+        assert_eq!(store.get_template_count(), 1);
+    }
+
+    #[test]
+    fn weapon_override_preserves_existing_order_and_fields() {
+        let mut store = WeaponStore::new();
+
+        let first_name = AsciiString::from("FirstWeapon");
+        let second_name = AsciiString::from("SecondWeapon");
+        let mut first_properties = HashMap::new();
+        first_properties.insert("PrimaryDamage".to_string(), "25".to_string());
+        first_properties.insert("Range".to_string(), "100".to_string());
+        let mut second_properties = HashMap::new();
+        second_properties.insert("PrimaryDamage".to_string(), "50".to_string());
+        second_properties.insert("Range".to_string(), "150".to_string());
+
+        store
+            .register_definition(
+                first_name.clone(),
+                &first_properties,
+                INILoadType::Overwrite,
+            )
+            .unwrap();
+        store
+            .register_definition(
+                second_name.clone(),
+                &second_properties,
+                INILoadType::Overwrite,
+            )
+            .unwrap();
+
+        let mut override_properties = HashMap::new();
+        override_properties.insert("PrimaryDamage".to_string(), "77".to_string());
+        store
+            .register_definition(
+                first_name.clone(),
+                &override_properties,
+                INILoadType::CreateOverrides,
+            )
+            .unwrap();
+
+        let first = store.find_template(&first_name).unwrap();
+        assert_eq!(first.primary_damage, 77.0);
+        assert_eq!(first.range, 100.0);
+        assert_eq!(
+            store
+                .get_template_names()
+                .into_iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["FirstWeapon", "SecondWeapon"]
+        );
+        assert_eq!(store.get_template_count(), 2);
     }
 
     #[test]
