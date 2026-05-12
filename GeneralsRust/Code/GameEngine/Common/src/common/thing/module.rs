@@ -170,6 +170,10 @@ pub trait CreateInterface {
 }
 
 pub trait ClientUpdateInterface {
+    fn client_update(&mut self) -> bool {
+        false
+    }
+
     fn hide_beacon(&mut self) -> bool {
         false
     }

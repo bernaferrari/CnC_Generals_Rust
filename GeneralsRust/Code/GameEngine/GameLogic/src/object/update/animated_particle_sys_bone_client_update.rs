@@ -6,7 +6,7 @@ use crate::helpers::TheGameLogic;
 use crate::object::draw::w3d_model_draw::W3DModelDraw;
 use crate::object::drawable::DrawableArcExt;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -69,6 +69,17 @@ impl Module for AnimatedParticleSysBoneClientUpdateModule {
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
     }
+
+    fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
+        Some(self)
+    }
+}
+
+impl ClientUpdateInterface for AnimatedParticleSysBoneClientUpdateModule {
+    fn client_update(&mut self) -> bool {
+        AnimatedParticleSysBoneClientUpdateModule::client_update(self);
+        true
+    }
 }
 
 impl Snapshotable for AnimatedParticleSysBoneClientUpdateModule {
@@ -122,5 +133,13 @@ mod tests {
         }
 
         assert_eq!(loaded.life, 77);
+    }
+
+    #[test]
+    fn animated_particle_sys_bone_exposes_typed_client_update_interface() {
+        let module_data = Arc::new(BaseModuleData::new());
+        let mut module = AnimatedParticleSysBoneClientUpdateModule::new(11, module_data, 22);
+
+        assert!(module.get_client_update_interface().is_some());
     }
 }
