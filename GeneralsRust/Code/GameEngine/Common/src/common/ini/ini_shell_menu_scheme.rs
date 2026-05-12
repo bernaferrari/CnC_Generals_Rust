@@ -103,6 +103,7 @@ impl ShellMenuScheme {
 #[derive(Debug, Default)]
 pub struct ShellMenuSchemeManager {
     schemes: HashMap<String, ShellMenuScheme>,
+    scheme_order: Vec<String>,
     current_scheme: Option<String>,
 }
 
@@ -110,6 +111,7 @@ impl ShellMenuSchemeManager {
     pub fn new() -> Self {
         Self {
             schemes: HashMap::new(),
+            scheme_order: Vec::new(),
             current_scheme: None,
         }
     }
@@ -118,11 +120,13 @@ impl ShellMenuSchemeManager {
     /// If the scheme already exists, it's replaced
     pub fn new_shell_menu_scheme(&mut self, name: String) -> &mut ShellMenuScheme {
         let normalized_name = name.trim().to_lowercase();
-        // Remove existing if present
         self.schemes.remove(&normalized_name);
+        self.scheme_order
+            .retain(|existing| existing != &normalized_name);
 
         let scheme = ShellMenuScheme::new(normalized_name.clone());
         self.schemes.insert(normalized_name.clone(), scheme);
+        self.scheme_order.push(normalized_name.clone());
 
         self.schemes.get_mut(&normalized_name).unwrap()
     }
@@ -155,6 +159,7 @@ impl ShellMenuSchemeManager {
     /// Clear all schemes.
     pub fn clear(&mut self) {
         self.schemes.clear();
+        self.scheme_order.clear();
         self.current_scheme = None;
     }
 }
@@ -459,6 +464,25 @@ mod tests {
         assert_eq!(scheme.name, "testscheme");
         assert!(scheme.image_list.is_empty());
         assert!(scheme.line_list.is_empty());
+    }
+
+    #[test]
+    fn test_shell_menu_scheme_replacement_moves_to_cpp_list_tail() {
+        let mut manager = ShellMenuSchemeManager::new();
+        manager.new_shell_menu_scheme("First".to_string());
+        manager.new_shell_menu_scheme("Second".to_string());
+        manager
+            .new_shell_menu_scheme("FIRST".to_string())
+            .add_line(ShellMenuSchemeLine {
+                start_pos: ICoord2D::new(0, 0),
+                end_pos: ICoord2D::new(1, 1),
+                width: 2,
+                color: game_make_color(255, 255, 255, 255),
+            });
+
+        assert_eq!(manager.scheme_order, vec!["second", "first"]);
+        assert_eq!(manager.schemes["first"].line_list.len(), 1);
+        assert!(manager.schemes["first"].image_list.is_empty());
     }
 
     #[test]
