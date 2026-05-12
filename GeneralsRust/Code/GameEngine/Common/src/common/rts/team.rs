@@ -1001,16 +1001,23 @@ impl Team {
                     continue;
                 }
 
-                // Note: In full implementation, would also check under_construction status
-                let _ = ignore_under_construction;
+                if ignore_under_construction && member.is_under_construction() {
+                    continue;
+                }
 
-                // Check each template
                 for (i, template_name) in templates.iter().enumerate() {
-                    // In full implementation, would check template equivalence
-                    // For now, this is a placeholder
-                    let _ = template_name;
-                    if i < counts.len() {
-                        // counts[i] += 1; // Would increment if template matches
+                    if i >= counts.len() {
+                        break;
+                    }
+
+                    let matches_template = member.is_template_equivalent_to(template_name)
+                        || member
+                            .get_template_name()
+                            .is_some_and(|name| name == *template_name);
+
+                    if matches_template {
+                        counts[i] += 1;
+                        break;
                     }
                 }
             }
@@ -3240,4 +3247,159 @@ lazy_static::lazy_static! {
 /// Get the global team factory
 pub fn the_team_factory() -> &'static std::sync::RwLock<TeamFactory> {
     &THE_TEAM_FACTORY
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone)]
+    struct TestTeamMember {
+        id: u32,
+        template_name: &'static str,
+        equivalent_names: &'static [&'static str],
+        dead: bool,
+        under_construction: bool,
+    }
+
+    impl TeamMember for TestTeamMember {
+        fn is_effectively_dead(&self) -> bool {
+            self.dead
+        }
+
+        fn is_destroyed(&self) -> bool {
+            false
+        }
+
+        fn get_kind_of_mask(&self) -> KindOfMask {
+            KindOfMask::empty()
+        }
+
+        fn get_id(&self) -> u32 {
+            self.id
+        }
+
+        fn get_position(&self) -> Option<Coord3D> {
+            None
+        }
+
+        fn is_ai_recruitable(&self) -> bool {
+            true
+        }
+
+        fn is_idle(&self) -> bool {
+            true
+        }
+
+        fn is_disabled_held(&self) -> bool {
+            false
+        }
+
+        fn get_template_name(&self) -> Option<&str> {
+            Some(self.template_name)
+        }
+
+        fn is_template_equivalent_to(&self, template_name: &str) -> bool {
+            self.template_name == template_name || self.equivalent_names.contains(&template_name)
+        }
+
+        fn is_under_construction(&self) -> bool {
+            self.under_construction
+        }
+    }
+
+    #[test]
+    fn count_objects_by_thing_template_matches_templates_and_filters_members() {
+        let mut team = Team::with_id("CountTeam".to_string(), 1);
+        team.add_member(10);
+        team.add_member(20);
+        team.add_member(30);
+        team.add_member(40);
+
+        let members = HashMap::from([
+            (
+                10,
+                TestTeamMember {
+                    id: 10,
+                    template_name: "AmericaTankCrusader",
+                    equivalent_names: &["AmericaTankCrusader_Var1"],
+                    dead: false,
+                    under_construction: false,
+                },
+            ),
+            (
+                20,
+                TestTeamMember {
+                    id: 20,
+                    template_name: "AmericaInfantryRanger",
+                    equivalent_names: &[],
+                    dead: true,
+                    under_construction: false,
+                },
+            ),
+            (
+                30,
+                TestTeamMember {
+                    id: 30,
+                    template_name: "AmericaTankCrusader",
+                    equivalent_names: &[],
+                    dead: false,
+                    under_construction: true,
+                },
+            ),
+            (
+                40,
+                TestTeamMember {
+                    id: 40,
+                    template_name: "AmericaVehicleDozer",
+                    equivalent_names: &[],
+                    dead: false,
+                    under_construction: false,
+                },
+            ),
+        ]);
+
+        let mut counts = [0, 0, 0];
+        team.count_objects_by_thing_template(
+            |id| members.get(&id).cloned(),
+            &[
+                "AmericaTankCrusader_Var1",
+                "AmericaInfantryRanger",
+                "AmericaVehicleDozer",
+            ],
+            true,
+            true,
+            &mut counts,
+        );
+
+        assert_eq!(counts, [1, 0, 1]);
+    }
+
+    #[test]
+    fn count_objects_by_thing_template_keeps_cxx_first_match_behavior() {
+        let mut team = Team::with_id("FirstMatchTeam".to_string(), 2);
+        team.add_member(10);
+
+        let members = HashMap::from([(
+            10,
+            TestTeamMember {
+                id: 10,
+                template_name: "SharedTemplate",
+                equivalent_names: &["AliasTemplate"],
+                dead: false,
+                under_construction: false,
+            },
+        )]);
+
+        let mut counts = [0, 0];
+        team.count_objects_by_thing_template(
+            |id| members.get(&id).cloned(),
+            &["SharedTemplate", "AliasTemplate"],
+            false,
+            false,
+            &mut counts,
+        );
+
+        assert_eq!(counts, [1, 0]);
+    }
 }
