@@ -395,6 +395,10 @@ impl SlavedUpdateInterface for MobMemberSlavedUpdate {
         let _ = self.update_simple();
     }
 
+    fn slaver_id(&self) -> Option<ObjectID> {
+        (self.mob_leader != OBJECT_INVALID_ID).then_some(self.mob_leader)
+    }
+
     fn on_enslave(
         &mut self,
         master: &Arc<RwLock<GameObject>>,
@@ -575,5 +579,32 @@ impl MobMemberSlavedUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(MobMemberSlavedUpdate::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slaver_id_reports_current_mob_leader() {
+        let data = Arc::new(MobMemberSlavedUpdateModuleData::default());
+        let mut update = MobMemberSlavedUpdate {
+            object: Weak::new(),
+            module_data: data,
+            next_call_frame_and_phase: 0,
+            mob_leader: OBJECT_INVALID_ID,
+            frames_to_wait: 0,
+            mob_state: MobStates::None,
+            personal_color: RGBColor::new(0, 0, 0),
+            primary_victim_id: OBJECT_INVALID_ID,
+            squirrelliness_ratio: 0.0,
+            is_self_tasking: false,
+            catch_up_crisis_timer: 0,
+        };
+
+        assert_eq!(update.slaver_id(), None);
+        update.mob_leader = 42;
+        assert_eq!(update.slaver_id(), Some(42));
     }
 }
