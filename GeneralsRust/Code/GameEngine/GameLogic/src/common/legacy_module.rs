@@ -3,7 +3,7 @@ use std::any::Any;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{
     ActiveShroudUpgradeConfig, DynamicShroudClearingRangeUpdateConfig, ModuleData, NameKeyType,
-    RadarUpdateConfig, RadarUpgradeConfig,
+    RadarUpdateConfig, RadarUpgradeConfig, ShroudCrateCollideConfig,
 };
 use game_engine::thing::StaticGameLodLevel;
 
@@ -51,6 +51,10 @@ pub trait LegacyModuleData: Snapshotable + Clone + Send + Sync + std::fmt::Debug
     fn get_dynamic_shroud_clearing_range_update_config(
         &self,
     ) -> Option<DynamicShroudClearingRangeUpdateConfig> {
+        None
+    }
+
+    fn get_shroud_crate_collide_config(&self) -> Option<ShroudCrateCollideConfig> {
         None
     }
 
