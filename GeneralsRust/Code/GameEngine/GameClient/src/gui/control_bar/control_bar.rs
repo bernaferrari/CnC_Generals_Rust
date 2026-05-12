@@ -28,6 +28,7 @@ use crate::system::SubsystemInterface;
 use game_engine::common::ini::ini_command_button::{
     get_control_bar as get_ini_control_bar, CommandButton as IniCommandButton,
 };
+use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
 use gamelogic::command_button::map_gui_command_to_command_type;
 use gamelogic::commands::command::CommandType;
@@ -35,7 +36,7 @@ use gamelogic::commands::{get_command_queue_manager, Command, CommandPriority, Q
 use gamelogic::common::types::OBJECT_STATUS_UNDER_CONSTRUCTION;
 use gamelogic::common::GameError;
 use gamelogic::control_bar::get_control_bar_bridge;
-use gamelogic::helpers::TheGameLogic;
+use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{player_list as logic_player_list, PlayerIndex};
 use gamelogic::system::beacon_manager::snapshot_beacons;
@@ -224,6 +225,8 @@ impl ControlBar {
             self.evaluate_context_ui()?;
             self.ui_dirty = false;
         }
+
+        self.update_place_beacon_button_enabled();
 
         let context = self
             .context
@@ -1627,6 +1630,58 @@ impl ControlBar {
         Ok(())
     }
 
+    fn update_place_beacon_button_enabled(&self) {
+        let Some(window_manager) = self.window_manager.as_ref() else {
+            return;
+        };
+        let place_button = window_manager.find_window_by_name("ControlBar.wnd:ButtonPlaceBeacon");
+        let enabled = self.local_player_below_beacon_limit();
+        Self::apply_place_beacon_button_enabled(&place_button, enabled);
+    }
+
+    fn local_player_below_beacon_limit(&self) -> bool {
+        let Some(local_player) = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+        else {
+            return false;
+        };
+        let Ok(local_player) = local_player.read() else {
+            return false;
+        };
+        let Some(template_name) = local_player
+            .get_player_template()
+            .map(|template| template.beacon_name.clone())
+        else {
+            return false;
+        };
+        if template_name.is_empty() {
+            return false;
+        }
+        let Some(beacon_template) = TheThingFactory::find_template(&template_name) else {
+            return false;
+        };
+        let mut count = [0];
+        local_player.count_objects_by_thing_template(
+            std::slice::from_ref(&beacon_template),
+            false,
+            false,
+            &mut count,
+        );
+        let max_beacons = with_multiplayer_settings(|settings| settings.max_beacons_per_player);
+        count[0] < max_beacons
+    }
+
+    fn apply_place_beacon_button_enabled(
+        place_button: &Option<Rc<RefCell<GameWindow>>>,
+        enabled: bool,
+    ) {
+        if let Some(window) = place_button {
+            let _ = window.borrow_mut().enable(enabled);
+        }
+    }
+
     fn populate_beacon_windows(
         &self,
         locally_controlled: bool,
@@ -1896,5 +1951,16 @@ mod tests {
         assert!(text_entry.unwrap().borrow().is_hidden());
         assert!(static_text.unwrap().borrow().is_hidden());
         assert!(clear_button.unwrap().borrow().is_hidden());
+    }
+
+    #[test]
+    fn place_beacon_button_enabled_state_tracks_limit() {
+        let place_button = Some(named_window("ControlBar.wnd:ButtonPlaceBeacon"));
+
+        ControlBar::apply_place_beacon_button_enabled(&place_button, false);
+        assert!(!place_button.as_ref().unwrap().borrow().is_enabled());
+
+        ControlBar::apply_place_beacon_button_enabled(&place_button, true);
+        assert!(place_button.unwrap().borrow().is_enabled());
     }
 }
