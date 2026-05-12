@@ -14,8 +14,9 @@ use super::mission_scripts::{
     CameraModRollingAverageRequest, CameraMotionBlurRequest, CameraMoveToRequest,
     CameraPathRequest, CameraPitchRequest, CameraRotateRequest, CameraSetDefaultRequest,
     CameraSlaveModeRequest, CameraZoomRequest, MissionScriptActionHandler, MissionScriptHooks,
-    NamedTimerMutation, ScreenShakeRequest, ScriptPopupMessageRequest, SetFpsLimitRequest,
-    SuperweaponObjectDisplayMutation, ViewGuardbandRequest, VisualSpeedMultiplierRequest,
+    NamedTimerMutation, RadarScriptEventRequest, ScreenShakeRequest, ScriptPopupMessageRequest,
+    SetFpsLimitRequest, SuperweaponObjectDisplayMutation, ViewGuardbandRequest,
+    VisualSpeedMultiplierRequest,
 };
 use super::partition_manager::PartitionManager;
 use super::radar_notifications::{self, RadarEntry, RadarNotifications};
@@ -8810,6 +8811,10 @@ impl GameLogic {
             });
         }
 
+        for radar_event in self.mission_scripts.drain_radar_event_requests() {
+            self.queue_script_radar_event(radar_event);
+        }
+
         if let Some(enabled) = self
             .mission_scripts
             .drain_radar_enabled_updates()
@@ -9672,6 +9677,62 @@ impl GameLogic {
         self.queue_radar_message_at(message, Vec3::ZERO, radar_notifications::RadarKind::Generic);
     }
 
+    fn queue_script_radar_event(&mut self, event: RadarScriptEventRequest) {
+        let position = event.position;
+        match event.event_type {
+            1 => self.queue_radar_message_at(
+                "Construction event",
+                position,
+                radar_notifications::RadarKind::Generic,
+            ),
+            2 => self.queue_radar_message_at(
+                "Upgrade event",
+                position,
+                radar_notifications::RadarKind::Generic,
+            ),
+            3 => self.queue_radar_attack_at("Under attack", position),
+            4 => self.queue_radar_message_at(
+                "Radar event",
+                position,
+                radar_notifications::RadarKind::Generic,
+            ),
+            5 => self.queue_radar_message_at(
+                "Beacon pulse",
+                position,
+                radar_notifications::RadarKind::Generic,
+            ),
+            6 => self.queue_radar_message_at(
+                "Infiltration event",
+                position,
+                radar_notifications::RadarKind::Attack,
+            ),
+            7 => self.queue_radar_message_at(
+                "Battle plan event",
+                position,
+                radar_notifications::RadarKind::Ally,
+            ),
+            8 => self.queue_radar_message_at(
+                "Stealth discovered",
+                position,
+                radar_notifications::RadarKind::Generic,
+            ),
+            9 => self.queue_radar_message_at(
+                "Stealth neutralized",
+                position,
+                radar_notifications::RadarKind::Attack,
+            ),
+            10 => {
+                self.last_radar_event = Some(RadarEntry {
+                    text: "Radar event".to_string(),
+                    position,
+                    timestamp: self.sim_time_seconds,
+                    kind: radar_notifications::RadarKind::Generic,
+                });
+            }
+            _ => {}
+        }
+    }
+
     pub fn queue_radar_message_at<S: Into<String>>(
         &mut self,
         message: S,
@@ -10023,6 +10084,29 @@ mod tests {
         let ui_state = game_logic.update_ui_state(0);
         assert!(!ui_state.radar_enabled);
         assert!(!ui_state.radar_forced);
+    }
+
+    #[test]
+    fn script_radar_event_reaches_ui_ping() {
+        let mut game_logic = GameLogic::new();
+        game_logic.scripts_loaded = true;
+
+        game_logic
+            .mission_scripts
+            .push_radar_event_request(RadarScriptEventRequest {
+                position: Vec3::new(42.0, 7.0, 0.0),
+                event_type: 3,
+            });
+        game_logic.evaluate_and_execute_scripts(0.0);
+
+        let ui_state = game_logic.update_ui_state(0);
+        assert_eq!(ui_state.radar_messages, vec!["Under attack"]);
+        assert_eq!(ui_state.radar_pings.len(), 1);
+        assert_eq!(ui_state.radar_pings[0].position, Vec3::new(42.0, 7.0, 0.0));
+        assert_eq!(
+            game_logic.last_radar_event_position(),
+            Some(Vec3::new(42.0, 7.0, 0.0))
+        );
     }
 
     #[test]

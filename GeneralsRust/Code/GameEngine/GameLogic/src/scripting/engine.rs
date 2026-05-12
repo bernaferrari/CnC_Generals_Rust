@@ -456,6 +456,16 @@ pub trait ScriptActionHandler: Send + Sync {
         Ok(())
     }
 
+    fn create_radar_event(
+        &self,
+        _x: f32,
+        _y: f32,
+        _z: f32,
+        _event_type: i32,
+    ) -> GameLogicResult<()> {
+        Ok(())
+    }
+
     fn set_objective(
         &self,
         _name: &str,
