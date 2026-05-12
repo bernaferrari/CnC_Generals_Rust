@@ -1,7 +1,9 @@
 use game_engine::common::system::build_assistant::{
-    clear_build_assistant_backend, BuildAssistant, CanMakeType, Coord3D, LegalBuildCode,
-    LocalLegalToBuildOptions, Object, Player, ThingTemplate,
+    clear_build_assistant_backend, set_build_assistant_backend, BuildAssistant,
+    BuildAssistantBackend, CanMakeType, Coord3D, LegalBuildCode, LocalLegalToBuildOptions, Object,
+    ObjectID, Player, ThingTemplate,
 };
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn build_assistant_fails_closed_without_gamelogic_backend() {
@@ -38,4 +40,75 @@ fn build_assistant_fails_closed_without_gamelogic_backend() {
         assistant.can_make_unit(&builder, &template),
         CanMakeType::NoPrereq
     );
+}
+
+#[derive(Debug, Default)]
+struct CapturingBackend {
+    checks: Mutex<Vec<(u32, Option<ObjectID>)>>,
+}
+
+impl BuildAssistantBackend for CapturingBackend {
+    fn build_object_now(
+        &self,
+        _builder_id: Option<ObjectID>,
+        _template_name: &str,
+        _pos: &Coord3D,
+        _angle: f32,
+        _owning_player: u32,
+    ) -> Option<ObjectID> {
+        None
+    }
+
+    fn is_location_legal_to_build(
+        &self,
+        _world_pos: &Coord3D,
+        _template_name: &str,
+        _angle: f32,
+        options: LocalLegalToBuildOptions,
+        builder_id: Option<ObjectID>,
+        _player_id: Option<u32>,
+    ) -> LegalBuildCode {
+        self.checks
+            .lock()
+            .expect("checks lock")
+            .push((options.bits(), builder_id));
+        LegalBuildCode::Ok
+    }
+}
+
+#[test]
+fn tiled_locations_forward_cpp_line_build_flags_and_builder() {
+    clear_build_assistant_backend();
+    let backend = Arc::new(CapturingBackend::default());
+    set_build_assistant_backend(backend.clone());
+
+    let assistant = BuildAssistant::new();
+    let builder = Object {
+        id: 42,
+        position: Coord3D::new(0.0, 0.0, 0.0),
+        orientation: 0.0,
+    };
+    let template = ThingTemplate::new("ChinaWallSegment");
+    let start = Coord3D::new(0.0, 0.0, 0.0);
+    let end = Coord3D::new(30.0, 0.0, 0.0);
+
+    let result = assistant
+        .build_tiled_locations(&template, 0.0, &start, &end, 10.0, 10, Some(&builder))
+        .expect("tile locations");
+
+    assert_eq!(result.tiles_used, 4);
+    let checks = backend.checks.lock().expect("checks lock");
+    assert_eq!(checks.len(), 3);
+    let expected = (LocalLegalToBuildOptions::USE_QUICK_PATHFIND
+        | LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS
+        | LocalLegalToBuildOptions::CLEAR_PATH
+        | LocalLegalToBuildOptions::NO_OBJECT_OVERLAP
+        | LocalLegalToBuildOptions::SHROUD_REVEALED)
+        .bits();
+    for (options, builder_id) in checks.iter() {
+        assert_eq!(*options, expected);
+        assert_eq!(*builder_id, Some(42));
+    }
+
+    clear_build_assistant_backend();
 }
