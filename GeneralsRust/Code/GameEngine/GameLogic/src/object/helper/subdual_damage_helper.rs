@@ -20,6 +20,7 @@ use super::{DisabledMaskType, ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
 use crate::damage::{DamageInfo, DamageType};
 use crate::helpers::TheGameLogic;
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Module data for SubdualDamageHelper
 ///
@@ -184,9 +185,37 @@ impl ObjectHelperInterface for SubdualDamageHelper {
     }
 }
 
+impl Snapshotable for SubdualDamageHelper {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("SubdualDamageHelper xfer version: {err:?}"))?;
+
+        xfer.xfer_unsigned_int(&mut self.healing_step_countdown)
+            .map_err(|err| format!("SubdualDamageHelper xfer healing_step_countdown: {err:?}"))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.wake_frame = if self.healing_step_countdown == 0 {
+            u32::MAX
+        } else {
+            0
+        };
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     #[test]
     fn test_subdual_damage_helper_creation() {
@@ -283,5 +312,28 @@ mod tests {
             helper.get_disabled_types_to_process(),
             DisabledMaskType::All
         );
+    }
+
+    #[test]
+    fn xfer_preserves_healing_countdown_state() {
+        let mut saved = SubdualDamageHelper::new(INVALID_ID, SubdualDamageHelperModuleData::new());
+        saved.notify_subdual_damage(100.0, 45);
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded = SubdualDamageHelper::new(INVALID_ID, SubdualDamageHelperModuleData::new());
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+        loaded.load_post_process().unwrap();
+
+        assert_eq!(loaded.healing_step_countdown, saved.healing_step_countdown);
+        assert_eq!(loaded.wake_frame, 0);
     }
 }
