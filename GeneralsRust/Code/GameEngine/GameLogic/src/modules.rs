@@ -2872,6 +2872,11 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
         let _ = allow;
     }
 
+    /// Whether this object is currently allowed to fall under gravity.
+    fn get_allow_to_fall(&self) -> bool {
+        true
+    }
+
     /// Clear current acceleration (matches C++ clearAcceleration).
     fn clear_acceleration(&mut self) {}
 
@@ -2952,6 +2957,7 @@ pub trait PhysicsBehaviorExt {
     fn set_allow_bouncing(&self, allow: bool);
     fn set_allow_airborne_friction(&self, allow: bool);
     fn set_allow_to_fall(&self, allow: bool);
+    fn get_allow_to_fall(&self) -> bool;
     fn set_turning(&self, turning: i32);
     fn set_angles(&self, yaw: Real, pitch: Real, roll: Real);
     fn apply_angular_velocity(&self, angular_velocity: &Vec3D);
@@ -3045,6 +3051,14 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
     fn set_allow_to_fall(&self, allow: bool) {
         if let Ok(mut guard) = self.try_lock() {
             guard.set_allow_to_fall(allow);
+        }
+    }
+
+    fn get_allow_to_fall(&self) -> bool {
+        if let Ok(guard) = self.try_lock() {
+            guard.get_allow_to_fall()
+        } else {
+            true
         }
     }
 

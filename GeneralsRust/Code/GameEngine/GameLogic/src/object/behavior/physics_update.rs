@@ -417,6 +417,10 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.set_flag(FLAG_ALLOW_TO_FALL, allow);
     }
 
+    fn get_allow_to_fall(&self) -> bool {
+        self.state.has_flag(FLAG_ALLOW_TO_FALL)
+    }
+
     fn clear_acceleration(&mut self) {
         self.state.accel = Coord3D::ZERO;
         self.state.prev_accel = Coord3D::ZERO;
