@@ -64,7 +64,7 @@ pub mod text;
 
 pub use button::{
     register_button_audio_hook, ButtonAudioHook, ButtonCallback, ButtonStyle, ClockMode,
-    PushButton, PushButtonBuilder,
+    PushButton, PushButtonBuilder, PushButtonRenderCommand,
 };
 pub use checkbox::{CheckBox, CheckBoxBuilder, CheckBoxCallback, CheckBoxConfig, CheckBoxStyle};
 pub use combobox::{ComboBox, ComboBoxCallback, ComboBoxItem};
