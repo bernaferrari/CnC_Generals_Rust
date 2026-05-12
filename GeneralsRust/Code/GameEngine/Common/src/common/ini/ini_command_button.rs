@@ -387,6 +387,7 @@ impl CommandButton {
 #[derive(Debug)]
 pub struct ControlBar {
     command_buttons: HashMap<String, CommandButton>,
+    button_order: Vec<String>,
     button_overrides: HashMap<String, Vec<CommandButton>>,
 }
 
@@ -395,6 +396,7 @@ impl ControlBar {
     pub fn new() -> Self {
         Self {
             command_buttons: HashMap::new(),
+            button_order: Vec::new(),
             button_overrides: HashMap::new(),
         }
     }
@@ -422,6 +424,9 @@ impl ControlBar {
     /// Create a new command button
     pub fn new_command_button(&mut self, name: String) -> &mut CommandButton {
         let button = CommandButton::new(name.clone());
+        if !self.command_buttons.contains_key(&name) {
+            self.button_order.insert(0, name.clone());
+        }
         self.command_buttons.insert(name.clone(), button);
         self.command_buttons.get_mut(&name).unwrap()
     }
@@ -446,19 +451,22 @@ impl ControlBar {
 
     /// Get all command button names
     pub fn get_button_names(&self) -> Vec<&String> {
-        self.command_buttons.keys().collect()
+        self.button_order.iter().collect()
     }
 
     /// Iterate over all stored command buttons.
     pub fn iter_buttons(&self) -> impl Iterator<Item = (&String, &CommandButton)> {
-        self.command_buttons.iter()
+        self.button_order
+            .iter()
+            .filter_map(|name| self.command_buttons.get(name).map(|button| (name, button)))
     }
 
     /// Iterate over resolved command buttons, returning overrides when present.
     pub fn iter_resolved_buttons(&self) -> Vec<(&String, &CommandButton)> {
-        self.command_buttons
+        self.button_order
             .iter()
-            .filter_map(|(name, base)| {
+            .filter_map(|name| {
+                let base = self.command_buttons.get(name)?;
                 let resolved = self.find_command_button_resolved(name).unwrap_or(base);
                 Some((name, resolved))
             })
@@ -473,6 +481,7 @@ impl ControlBar {
     /// Clear all command buttons
     pub fn clear(&mut self) {
         self.command_buttons.clear();
+        self.button_order.clear();
         self.button_overrides.clear();
     }
 
@@ -962,6 +971,54 @@ mod tests {
         // Try to find non-existent button
         let not_found = control_bar.find_command_button("NonExistent");
         assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn control_bar_enumerates_command_buttons_in_cpp_list_order() {
+        let mut control_bar = ControlBar::new();
+
+        control_bar.new_command_button("FirstButton".to_string());
+        control_bar.new_command_button("SecondButton".to_string());
+        control_bar.new_command_button("ThirdButton".to_string());
+
+        let names: Vec<&str> = control_bar
+            .get_button_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(names, vec!["ThirdButton", "SecondButton", "FirstButton"]);
+
+        let first_button = control_bar
+            .find_command_button("FirstButton")
+            .unwrap()
+            .clone();
+        let first_override = control_bar.new_command_button_override(&first_button);
+        first_override.purchase_cost = 123;
+
+        let iter_names: Vec<&str> = control_bar
+            .iter_buttons()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(
+            iter_names,
+            vec!["ThirdButton", "SecondButton", "FirstButton"]
+        );
+
+        let resolved_names: Vec<&str> = control_bar
+            .iter_resolved_buttons()
+            .into_iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(
+            resolved_names,
+            vec!["ThirdButton", "SecondButton", "FirstButton"]
+        );
+        assert_eq!(
+            control_bar
+                .find_command_button_resolved("FirstButton")
+                .map(|button| button.purchase_cost),
+            Some(123)
+        );
     }
 
     #[test]
