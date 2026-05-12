@@ -449,19 +449,24 @@ use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 /// Store for all campaign definitions
 pub struct CampaignStore {
     campaigns: HashMap<String, Campaign>,
+    campaign_order: Vec<String>,
 }
 
 impl CampaignStore {
     pub fn new() -> Self {
         Self {
             campaigns: HashMap::new(),
+            campaign_order: Vec::new(),
         }
     }
 
     /// Add or replace a campaign (matches C++ CampaignManager::newCampaign behavior)
     pub fn add_campaign(&mut self, campaign: Campaign) {
-        self.campaigns
-            .insert(campaign.name.to_lowercase(), campaign);
+        let name = campaign.name.to_lowercase();
+        self.campaign_order
+            .retain(|existing| existing.as_str() != name.as_str());
+        self.campaign_order.push(name.clone());
+        self.campaigns.insert(name, campaign);
     }
 
     /// Get a campaign by name
@@ -476,12 +481,16 @@ impl CampaignStore {
 
     /// Get all campaign names
     pub fn campaign_names(&self) -> Vec<&String> {
-        self.campaigns.keys().collect()
+        self.campaign_order
+            .iter()
+            .filter(|name| self.campaigns.contains_key(*name))
+            .collect()
     }
 
     /// Clear all campaigns
     pub fn clear(&mut self) {
         self.campaigns.clear();
+        self.campaign_order.clear();
     }
 
     /// Get number of campaigns
@@ -642,5 +651,63 @@ mod tests {
         assert_eq!(store.len(), 1);
         assert!(store.get_campaign("TestCampaign").is_some());
         assert!(store.get_campaign("testcampaign").is_some()); // case insensitive
+    }
+
+    #[test]
+    fn test_campaign_store_preserves_cpp_list_order() {
+        let mut store = CampaignStore::new();
+
+        store.add_campaign(Campaign::with_name("China".to_string()));
+        store.add_campaign(Campaign::with_name("USA".to_string()));
+        store.add_campaign(Campaign::with_name("GLA".to_string()));
+
+        assert_eq!(
+            store
+                .campaign_names()
+                .into_iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["china", "usa", "gla"]
+        );
+    }
+
+    #[test]
+    fn test_campaign_store_duplicate_moves_to_end_like_cpp_new_campaign() {
+        let mut store = CampaignStore::new();
+
+        store.add_campaign(Campaign::with_name("China".to_string()));
+        store.add_campaign(Campaign::with_name("USA".to_string()));
+        let mut replacement = Campaign::with_name("China".to_string());
+        replacement.campaign_name_label = "GUI:ChinaReplacement".to_string();
+        store.add_campaign(replacement);
+
+        assert_eq!(store.len(), 2);
+        assert_eq!(
+            store
+                .campaign_names()
+                .into_iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["usa", "china"]
+        );
+        assert_eq!(
+            store
+                .get_campaign("china")
+                .expect("campaign exists")
+                .campaign_name_label,
+            "GUI:ChinaReplacement"
+        );
+    }
+
+    #[test]
+    fn test_campaign_store_clear_removes_order_entries() {
+        let mut store = CampaignStore::new();
+
+        store.add_campaign(Campaign::with_name("China".to_string()));
+        store.add_campaign(Campaign::with_name("USA".to_string()));
+        store.clear();
+
+        assert!(store.is_empty());
+        assert!(store.campaign_names().is_empty());
     }
 }
