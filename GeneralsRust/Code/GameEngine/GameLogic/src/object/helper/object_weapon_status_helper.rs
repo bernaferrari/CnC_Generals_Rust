@@ -21,6 +21,8 @@
 
 use super::{ObjectHelperInterface, SleepyUpdatePhase, UpdateSleepTime};
 use crate::common::*;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Module data for ObjectWeaponStatusHelper
 ///
@@ -70,6 +72,9 @@ pub struct ObjectWeaponStatusHelper {
 
     /// Whether object has any weapons
     has_weapons: bool,
+
+    /// C++ UpdateModule base state: packed next-call frame and phase.
+    next_call_frame_and_phase: u32,
 }
 
 impl ObjectWeaponStatusHelper {
@@ -92,6 +97,7 @@ impl ObjectWeaponStatusHelper {
             module_data,
             current_status: WeaponStatus::None,
             has_weapons,
+            next_call_frame_and_phase: 0,
         }
     }
 
@@ -148,9 +154,38 @@ impl ObjectHelperInterface for ObjectWeaponStatusHelper {
     }
 }
 
+impl Snapshotable for ObjectWeaponStatusHelper {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("ObjectWeaponStatusHelper xfer version: {err:?}"))?;
+
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| {
+                format!("ObjectWeaponStatusHelper xfer object helper version: {err:?}")
+            })?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|err| format!("ObjectWeaponStatusHelper xfer update module base: {err}"))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     #[test]
     fn test_weapon_status_helper_creation() {
@@ -251,5 +286,34 @@ mod tests {
 
         // Verify phase ordering
         assert!(SleepyUpdatePhase::Final > SleepyUpdatePhase::Normal);
+    }
+
+    #[test]
+    fn helper_base_xfer_preserves_weapon_status_next_call_state() {
+        let mut saved =
+            ObjectWeaponStatusHelper::new(ObjectWeaponStatusHelperModuleData::new(), true);
+        saved.update_weapon_status(WeaponStatus::Reloading);
+        saved.next_call_frame_and_phase = 0x5603;
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded =
+            ObjectWeaponStatusHelper::new(ObjectWeaponStatusHelperModuleData::new(), true);
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+
+        assert_eq!(
+            loaded.next_call_frame_and_phase,
+            saved.next_call_frame_and_phase
+        );
+        assert_eq!(loaded.current_status, WeaponStatus::None);
+        assert!(loaded.has_weapons);
     }
 }
