@@ -173,17 +173,15 @@ impl HelicopterSlowDeathUpdate {
 }
 
 fn game_logic_random_value(min: u32, max: u32) -> u32 {
-    use rand::Rng;
     if min >= max {
         return min;
     }
-    rand::thread_rng().gen_range(min..=max)
+    crate::helpers::game_logic_random_value(min, max)
 }
 
 fn game_logic_random_value_real(min: f32, max: f32) -> f32 {
-    use rand::Rng;
     if min >= max {
         return min;
     }
-    rand::thread_rng().gen_range(min..=max)
+    crate::helpers::get_game_logic_random_value_real(min, max)
 }
