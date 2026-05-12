@@ -78,6 +78,7 @@ unicode-normalization = "0.1"
 lz4 = { version = "1.28", optional = true }
 zstd = { version = "0.13", optional = true }
 crc32fast = "1.5"
+generals_compression = { workspace = true }
 
 ww3d-animation = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation" }
 ww3d-core = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-core" }

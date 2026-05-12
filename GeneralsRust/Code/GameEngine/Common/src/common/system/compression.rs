@@ -12,7 +12,11 @@
 //! Rust conversion: 2025
 
 use once_cell::sync::OnceCell;
-use std::io::{self, Read, Write};
+use std::io::{self, Read};
+
+use generals_compression::compression_manager::{
+    CompressionManager as LegacyCompressionManager, CompressionType as LegacyCompressionType,
+};
 
 /// Compression types supported by the engine
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -41,14 +45,6 @@ struct CompressedHeader {
 }
 
 impl CompressedHeader {
-    fn encode(self) -> [u8; 9] {
-        let mut out = [0u8; 9];
-        out[0..4].copy_from_slice(&COMPRESSED_MAGIC);
-        out[4] = self.compression_type as u8;
-        out[5..9].copy_from_slice(&self.original_size.to_le_bytes());
-        out
-    }
-
     fn decode(data: &[u8]) -> Option<Self> {
         if data.len() < 9 {
             return None;
@@ -72,14 +68,18 @@ impl CompressedHeader {
 }
 
 pub fn get_preferred_compression() -> CompressionType {
-    CompressionType::Zlib
+    CompressionType::RefPack
 }
 
 pub fn is_data_compressed(data: &[u8]) -> bool {
-    CompressedHeader::decode(data).is_some()
+    LegacyCompressionManager::is_data_compressed(data) || CompressedHeader::decode(data).is_some()
 }
 
 pub fn get_uncompressed_size(data: &[u8]) -> Option<usize> {
+    if LegacyCompressionManager::is_data_compressed(data) {
+        return Some(LegacyCompressionManager::get_uncompressed_size(data) as usize);
+    }
+
     CompressedHeader::decode(data).map(|header| header.original_size as usize)
 }
 
@@ -92,23 +92,48 @@ pub fn compress_data(
         return Ok(data.to_vec());
     }
 
-    let mut fallback = None;
-    let engine = get_compression_engine().unwrap_or_else(|| {
-        fallback = Some(CompressionEngine::new());
-        fallback.as_ref().unwrap()
-    });
-    let result = engine.compress(data, compression_type, level)?;
-    let header = CompressedHeader {
-        compression_type,
-        original_size: data.len() as u32,
-    };
-    let mut out = Vec::with_capacity(9 + result.compressed_data.len());
-    out.extend_from_slice(&header.encode());
-    out.extend_from_slice(&result.compressed_data);
+    let legacy_type = legacy_compression_type(compression_type, level)?;
+    let max_size =
+        LegacyCompressionManager::get_max_compressed_size(data.len() as i32, legacy_type);
+    if max_size <= 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "unsupported compression type",
+        ));
+    }
+
+    let mut out = vec![0u8; max_size as usize];
+    let compressed_size = LegacyCompressionManager::compress_data(legacy_type, data, &mut out);
+    if compressed_size <= 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "legacy compression failed",
+        ));
+    }
+    out.truncate(compressed_size as usize);
     Ok(out)
 }
 
 pub fn decompress_data(data: &[u8]) -> Result<Vec<u8>, io::Error> {
+    if LegacyCompressionManager::is_data_compressed(data) {
+        let size = LegacyCompressionManager::get_uncompressed_size(data);
+        if size < 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid legacy uncompressed size",
+            ));
+        }
+        let mut out = vec![0u8; size as usize];
+        let decompressed_size = LegacyCompressionManager::decompress_data(data, &mut out);
+        if decompressed_size != size {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "legacy decompression failed",
+            ));
+        }
+        return Ok(out);
+    }
+
     let header = CompressedHeader::decode(data).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -126,6 +151,26 @@ pub fn decompress_data(data: &[u8]) -> Result<Vec<u8>, io::Error> {
         header.compression_type,
         Some(header.original_size as usize),
     )
+}
+
+fn legacy_compression_type(
+    compression_type: CompressionType,
+    level: CompressionLevel,
+) -> Result<LegacyCompressionType, io::Error> {
+    match compression_type {
+        CompressionType::None => Ok(LegacyCompressionType::None),
+        CompressionType::RefPack => Ok(LegacyCompressionType::RefPack),
+        CompressionType::Zlib => Ok(match level {
+            CompressionLevel::None => LegacyCompressionType::ZLib1,
+            CompressionLevel::Fast => LegacyCompressionType::ZLib1,
+            CompressionLevel::Default => LegacyCompressionType::ZLib5,
+            CompressionLevel::Best => LegacyCompressionType::ZLib9,
+        }),
+        CompressionType::LZ4 => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "LZ4 is not a Generals C++ compression type",
+        )),
+    }
 }
 
 /// Compression result structure
@@ -183,25 +228,6 @@ impl CompressionEngine {
         Self {}
     }
 
-    /// Compress data using zlib/deflate
-    fn compress_zlib(&self, data: &[u8], level: CompressionLevel) -> Result<Vec<u8>, io::Error> {
-        use flate2::write::ZlibEncoder;
-        use flate2::Compression;
-
-        let compression_level = match level {
-            CompressionLevel::None => Compression::none(),
-            CompressionLevel::Fast => Compression::fast(),
-            CompressionLevel::Default => Compression::default(),
-            CompressionLevel::Best => Compression::best(),
-        };
-
-        let mut encoder = ZlibEncoder::new(Vec::new(), compression_level);
-        encoder.write_all(data)?;
-        encoder
-            .finish()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-    }
-
     /// Decompress zlib data
     fn decompress_zlib(&self, compressed_data: &[u8]) -> Result<Vec<u8>, io::Error> {
         use flate2::read::ZlibDecoder;
@@ -250,20 +276,6 @@ impl CompressionEngine {
         Ok(compressed_data[8..].to_vec())
     }
 
-    /// RefPack compression (proprietary EA format - mock implementation)
-    fn compress_refpack(
-        &self,
-        data: &[u8],
-        _level: CompressionLevel,
-    ) -> Result<Vec<u8>, io::Error> {
-        // Mock RefPack compression
-        let mut result = Vec::with_capacity(data.len() + 12);
-        result.extend_from_slice(b"RefPack\0"); // Magic
-        result.extend_from_slice(&(data.len() as u32).to_le_bytes()); // Original size
-        result.extend_from_slice(data); // Mock: just copy data
-        Ok(result)
-    }
-
     /// RefPack decompression (mock implementation)
     fn decompress_refpack(&self, compressed_data: &[u8]) -> Result<Vec<u8>, io::Error> {
         if compressed_data.len() < 12 {
@@ -301,9 +313,10 @@ impl CompressionInterface for CompressionEngine {
     ) -> Result<CompressionResult, io::Error> {
         let compressed_data = match compression_type {
             CompressionType::None => data.to_vec(),
-            CompressionType::Zlib => self.compress_zlib(data, level)?,
+            CompressionType::Zlib | CompressionType::RefPack => {
+                compress_data(data, compression_type, level)?
+            }
             CompressionType::LZ4 => self.compress_lz4(data, level)?,
-            CompressionType::RefPack => self.compress_refpack(data, level)?,
         };
 
         let original_size = data.len();
@@ -330,6 +343,12 @@ impl CompressionInterface for CompressionEngine {
     ) -> Result<Vec<u8>, io::Error> {
         match compression_type {
             CompressionType::None => Ok(compressed_data.to_vec()),
+            CompressionType::Zlib | CompressionType::RefPack
+                if LegacyCompressionManager::is_data_compressed(compressed_data)
+                    || CompressedHeader::decode(compressed_data).is_some() =>
+            {
+                decompress_data(compressed_data)
+            }
             CompressionType::Zlib => self.decompress_zlib(compressed_data),
             CompressionType::LZ4 => self.decompress_lz4(compressed_data),
             CompressionType::RefPack => self.decompress_refpack(compressed_data),
@@ -415,6 +434,7 @@ mod tests {
             .decompress(&result.compressed_data, CompressionType::Zlib, None)
             .unwrap();
         assert_eq!(decompressed, data);
+        assert_eq!(&result.compressed_data[0..4], b"ZL5\0");
     }
 
     #[test]
@@ -443,6 +463,22 @@ mod tests {
             .decompress(&result.compressed_data, CompressionType::RefPack, None)
             .unwrap();
         assert_eq!(decompressed, data);
+        assert_eq!(&result.compressed_data[0..4], b"EAR\0");
+    }
+
+    #[test]
+    fn top_level_compression_uses_cpp_headers_and_size() {
+        let data = b"Generals compressed chunk payload".repeat(4);
+        let compressed = compress_data(&data, CompressionType::Zlib, CompressionLevel::Best)
+            .expect("compress cpp zlib");
+
+        assert_eq!(&compressed[0..4], b"ZL9\0");
+        assert!(is_data_compressed(&compressed));
+        assert_eq!(get_uncompressed_size(&compressed), Some(data.len()));
+        assert_eq!(
+            decompress_data(&compressed).expect("decompress cpp zlib"),
+            data
+        );
     }
 
     #[test]
