@@ -5,7 +5,7 @@ use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, RadarUpgradeConfig};
 
 /// Module data describing the radar upgrade.
 #[derive(Debug, Clone)]
@@ -31,9 +31,58 @@ impl RadarUpgradeModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, RADAR_UPGRADE_FIELDS)
     }
+
+    fn to_config(&self) -> RadarUpgradeConfig {
+        RadarUpgradeConfig {
+            is_disable_proof: self.is_disable_proof,
+        }
+    }
+
+    fn from_config(config: RadarUpgradeConfig, module_tag_name_key: NameKeyType) -> Self {
+        Self {
+            module_tag_name_key,
+            is_disable_proof: config.is_disable_proof,
+        }
+    }
 }
 
-crate::impl_legacy_module_data_with_key_field!(RadarUpgradeModuleData, module_tag_name_key);
+impl LegacyModuleData for RadarUpgradeModuleData {
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        self.module_tag_name_key = key;
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_tag_name_key
+    }
+
+    fn get_radar_upgrade_config(&self) -> Option<RadarUpgradeConfig> {
+        Some(self.to_config())
+    }
+}
+
+impl ModuleData for RadarUpgradeModuleData {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        LegacyModuleData::set_module_tag_name_key(self, key);
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        LegacyModuleData::get_module_tag_name_key(self)
+    }
+
+    fn get_radar_upgrade_config(&self) -> Option<RadarUpgradeConfig> {
+        Some(self.to_config())
+    }
+}
+
+impl crate::common::types::ModuleData for RadarUpgradeModuleData {
+    fn get_radar_upgrade_config(&self) -> Option<RadarUpgradeConfig> {
+        Some(self.to_config())
+    }
+}
 
 impl Snapshotable for RadarUpgradeModuleData {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -79,6 +128,22 @@ impl RadarUpgrade {
         self.data.is_disable_proof()
     }
 
+    pub fn from_module_data(
+        module_name_key: NameKeyType,
+        module_data: Arc<dyn ModuleData>,
+        object_id: ObjectID,
+    ) -> Option<Self> {
+        let config = module_data.get_radar_upgrade_config()?;
+        Some(Self::new(
+            module_name_key,
+            Arc::new(RadarUpgradeModuleData::from_config(
+                config,
+                module_data.get_module_tag_name_key(),
+            )),
+            object_id,
+        ))
+    }
+
     fn apply_radar_upgrade(&mut self) -> Result<(), String> {
         let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
             return Err(format!(
@@ -100,8 +165,10 @@ impl RadarUpgrade {
         }
 
         if let Some(radar_module) = object_guard.find_update_module("RadarUpdate") {
-            let _ = radar_module.with_module_downcast::<crate::object::behavior::radar_update::RadarUpdateModule, _, _>(|module| {
-                module.behavior_mut().extend_radar();
+            radar_module.with_module(|module| {
+                if let Some(radar_update) = module.get_radar_update_interface() {
+                    radar_update.extend_radar();
+                }
             });
         }
 
@@ -230,3 +297,35 @@ const RADAR_UPGRADE_FIELDS: &[FieldParse<RadarUpgradeModuleData>] = &[FieldParse
     token: "DisableProof",
     parse: parse_disable_proof_field,
 }];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::LegacyModuleData;
+    use game_engine::common::ini::INI;
+
+    #[test]
+    fn disable_proof_uses_ini_bool_parser() {
+        let mut data = RadarUpgradeModuleData::default();
+        let mut ini = INI::new();
+
+        parse_disable_proof_field(&mut ini, &mut data, &["yes"]).expect("bool disable proof");
+
+        assert!(data.is_disable_proof());
+    }
+
+    #[test]
+    fn radar_upgrade_builds_from_typed_config() {
+        let mut data = RadarUpgradeModuleData::default();
+        LegacyModuleData::set_module_tag_name_key(&mut data, 0xCAFE);
+        data.is_disable_proof = true;
+
+        let module =
+            RadarUpgrade::from_module_data(0xBEEF, Arc::new(data), 42).expect("radar config");
+
+        assert_eq!(module.module_name_key, 0xBEEF);
+        assert_eq!(module.object_id, 42);
+        assert!(module.is_disable_proof());
+        assert_eq!(module.get_module_tag_name_key(), 0xCAFE);
+    }
+}

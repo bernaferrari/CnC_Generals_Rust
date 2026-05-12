@@ -112,6 +112,9 @@ pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
     fn get_active_shroud_upgrade_config(&self) -> Option<ActiveShroudUpgradeConfig> {
         None
     }
+    fn get_radar_upgrade_config(&self) -> Option<RadarUpgradeConfig> {
+        None
+    }
     fn get_minimum_required_game_lod(&self) -> StaticGameLodLevel {
         StaticGameLodLevel::Low
     }
@@ -133,6 +136,11 @@ pub struct RadarUpdateConfig {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActiveShroudUpgradeConfig {
     pub new_shroud_range: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RadarUpgradeConfig {
+    pub is_disable_proof: bool,
 }
 
 impl dyn ModuleData {

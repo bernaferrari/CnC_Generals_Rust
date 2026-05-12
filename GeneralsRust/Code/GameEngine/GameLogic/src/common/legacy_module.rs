@@ -2,7 +2,7 @@ use std::any::Any;
 
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{
-    ActiveShroudUpgradeConfig, ModuleData, NameKeyType, RadarUpdateConfig,
+    ActiveShroudUpgradeConfig, ModuleData, NameKeyType, RadarUpdateConfig, RadarUpgradeConfig,
 };
 use game_engine::thing::StaticGameLodLevel;
 
@@ -40,6 +40,10 @@ pub trait LegacyModuleData: Snapshotable + Clone + Send + Sync + std::fmt::Debug
     }
 
     fn get_active_shroud_upgrade_config(&self) -> Option<ActiveShroudUpgradeConfig> {
+        None
+    }
+
+    fn get_radar_upgrade_config(&self) -> Option<RadarUpgradeConfig> {
         None
     }
 
