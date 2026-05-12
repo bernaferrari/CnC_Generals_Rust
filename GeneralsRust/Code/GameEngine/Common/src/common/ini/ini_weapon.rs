@@ -578,12 +578,14 @@ impl WeaponTemplate {
 #[derive(Debug)]
 pub struct WeaponStore {
     templates: HashMap<String, WeaponTemplate>,
+    template_order: Vec<String>,
 }
 
 impl WeaponStore {
     pub fn new() -> Self {
         Self {
             templates: HashMap::new(),
+            template_order: Vec::new(),
         }
     }
 
@@ -600,7 +602,11 @@ impl WeaponStore {
     /// Create a new template
     pub fn new_template(&mut self, name: AsciiString) -> &mut WeaponTemplate {
         let template = WeaponTemplate::new(name.clone());
-        self.templates.insert(name.as_str().to_string(), template);
+        let key = name.as_str().to_string();
+        if !self.templates.contains_key(&key) {
+            self.template_order.push(key.clone());
+        }
+        self.templates.insert(key, template);
         self.templates.get_mut(name.as_str()).unwrap()
     }
 
@@ -615,38 +621,52 @@ impl WeaponStore {
     /// Register a template
     pub fn register_template(&mut self, template: WeaponTemplate) {
         let name = template.name.as_str().to_string();
+        if !self.templates.contains_key(&name) {
+            self.template_order.push(name.clone());
+        }
         self.templates.insert(name, template);
     }
 
     /// Get all template names
     pub fn get_template_names(&self) -> Vec<&String> {
-        self.templates.keys().collect()
+        self.template_order
+            .iter()
+            .filter(|name| self.templates.contains_key(name.as_str()))
+            .collect()
     }
 
     /// Get templates by damage type
     pub fn get_templates_by_damage_type(&self, damage_type: &DamageType) -> Vec<&WeaponTemplate> {
-        self.templates
-            .values()
+        self.template_order
+            .iter()
+            .filter_map(|name| self.templates.get(name.as_str()))
             .filter(|t| &t.damage_type == damage_type)
             .collect()
     }
 
     /// Get templates by attack type
     pub fn get_templates_by_attack_type(&self, attack_type: &AttackType) -> Vec<&WeaponTemplate> {
-        self.templates
-            .values()
+        self.template_order
+            .iter()
+            .filter_map(|name| self.templates.get(name.as_str()))
             .filter(|t| &t.attack_type == attack_type)
             .collect()
     }
 
     /// Remove a template
     pub fn remove_template(&mut self, name: &AsciiString) -> bool {
-        self.templates.remove(name.as_str()).is_some()
+        let removed = self.templates.remove(name.as_str()).is_some();
+        if removed {
+            self.template_order
+                .retain(|template_name| template_name != name.as_str());
+        }
+        removed
     }
 
     /// Clear all templates
     pub fn clear(&mut self) {
         self.templates.clear();
+        self.template_order.clear();
     }
 
     /// Get template count
@@ -828,6 +848,46 @@ mod tests {
 
         // Count templates
         assert_eq!(store.get_template_count(), 1);
+    }
+
+    #[test]
+    fn weapon_store_enumerates_in_registration_order() {
+        let mut store = WeaponStore::new();
+
+        let mut first = WeaponTemplate::new(AsciiString::from("FirstWeapon"));
+        first.damage_type = DamageType::Explosive;
+        first.attack_type = AttackType::Projectile;
+        let mut second = WeaponTemplate::new(AsciiString::from("SecondWeapon"));
+        second.damage_type = DamageType::Laser;
+        second.attack_type = AttackType::Projectile;
+        let mut third = WeaponTemplate::new(AsciiString::from("ThirdWeapon"));
+        third.damage_type = DamageType::Explosive;
+        third.attack_type = AttackType::Beam;
+
+        store.register_template(first);
+        store.register_template(second);
+        store.register_template(third);
+
+        let names: Vec<&str> = store
+            .get_template_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(names, vec!["FirstWeapon", "SecondWeapon", "ThirdWeapon"]);
+
+        let explosive_names: Vec<&str> = store
+            .get_templates_by_damage_type(&DamageType::Explosive)
+            .into_iter()
+            .map(|template| template.name.as_str())
+            .collect();
+        assert_eq!(explosive_names, vec!["FirstWeapon", "ThirdWeapon"]);
+
+        let projectile_names: Vec<&str> = store
+            .get_templates_by_attack_type(&AttackType::Projectile)
+            .into_iter()
+            .map(|template| template.name.as_str())
+            .collect();
+        assert_eq!(projectile_names, vec!["FirstWeapon", "SecondWeapon"]);
     }
 
     #[test]
