@@ -1246,40 +1246,22 @@ impl PartitionFilterPlayerAffiliation {
 
 impl super::partition_manager::PartitionFilter for PartitionFilterPlayerAffiliation {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        // We need the relationship from our player to the other object.
-        // Use the GameObject trait's get_relationship which returns a relationship.
-        // Note: this requires a source object context, so we approximate
-        // by checking if the other object's team relationship to our player
-        // matches one of the affiliation flags.
+        let Some(other_handle) = obj.as_object_handle() else {
+            return !self.match_flag;
+        };
+        let Ok(other_guard) = other_handle.read() else {
+            return !self.match_flag;
+        };
 
-        // Check if same player first
-        if obj.get_controlling_player() == self.player_id {
+        let rel = compute_player_affiliation(self.player_id, &other_guard);
+        let matches = match rel {
+            Relationship::Enemies => self.affiliation & AFFILIATION_ALLOW_ENEMIES != 0,
+            Relationship::Neutral => self.affiliation & AFFILIATION_ALLOW_NEUTRAL != 0,
+            Relationship::Allies => self.affiliation & AFFILIATION_ALLOW_ALLIES != 0,
+        };
+
+        if matches || other_guard.get_player_id() == Some(self.player_id) {
             return self.match_flag;
-        }
-
-        // Use the object-to-object relationship via the registry
-        // to compute the player-level relationship.
-        if let Some(other_handle) = obj.as_object_handle() {
-            if let Ok(other_guard) = other_handle.read() {
-                // Try to find a player-owned object to compute relationship
-                // For simplicity, use the object's own relationship computation.
-                // The full C++ implementation calls m_player->getRelationship(other->getTeam()).
-                // Since we don't have Player::getRelationship here, we check if
-                // the other object is enemy/ally/neutral to us via kind-of heuristics.
-                let rel = compute_player_affiliation(self.player_id, &other_guard);
-
-                let matches = match rel {
-                    Relationship::Enemies => self.affiliation & AFFILIATION_ALLOW_ENEMIES != 0,
-                    Relationship::Neutral => self.affiliation & AFFILIATION_ALLOW_NEUTRAL != 0,
-                    Relationship::Allies => self.affiliation & AFFILIATION_ALLOW_ALLIES != 0,
-                };
-
-                if matches {
-                    return self.match_flag;
-                }
-
-                return !self.match_flag;
-            }
         }
 
         !self.match_flag
@@ -1291,27 +1273,25 @@ impl super::partition_manager::PartitionFilter for PartitionFilterPlayerAffiliat
 }
 
 /// Compute the relationship of a player to an object.
-/// Approximates C++ Player::getRelationship(other->getTeam()).
+/// Matches C++ Player::getRelationship(other->getTeam()).
 fn compute_player_affiliation(player_id: PlayerId, obj: &crate::object::Object) -> Relationship {
-    use crate::object::Object;
-    use std::sync::RwLock;
-
-    let obj_player_id = obj.get_player_id().unwrap_or(PlayerId::NEUTRAL);
-
-    // Same player = friend
-    if obj_player_id == player_id {
-        return Relationship::Allies;
-    }
-
-    // Neutral player
-    if obj_player_id == PlayerId::NEUTRAL {
+    let Some(team_arc) = obj.get_team() else {
         return Relationship::Neutral;
-    }
+    };
+    let Ok(team_guard) = team_arc.read() else {
+        return Relationship::Neutral;
+    };
+    let Ok(player_list) = ThePlayerList().read() else {
+        return Relationship::Neutral;
+    };
+    let Some(player_arc) = player_list.get_player(player_id.0.into()) else {
+        return Relationship::Neutral;
+    };
+    let Ok(player_guard) = player_arc.read() else {
+        return Relationship::Neutral;
+    };
 
-    // Use relationship_to if we can find a player-owned object
-    // For now, default to Neutral; the team/relationship system
-    // will be properly connected when PlayerList is fully ported.
-    Relationship::Neutral
+    player_guard.get_relationship_with_team(&team_guard)
 }
 
 // ---------------------------------------------------------------------------
@@ -1553,11 +1533,14 @@ mod tests {
     use super::super::partition_manager::PartitionFilter;
     use super::*;
     use crate::common::types::DefaultThingTemplate;
+    use crate::common::AsciiString;
     use crate::modules::ContainModuleInterface;
     use crate::object::contain::{GarrisonContain, GarrisonContainModuleData};
     use crate::object::Object;
+    use crate::player::Player;
+    use crate::team::Team;
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, RwLock};
 
     fn structure_object() -> Arc<std::sync::RwLock<Object>> {
         let mut template = DefaultThingTemplate::new("TestStructure".to_string());
@@ -1581,6 +1564,20 @@ mod tests {
             .write()
             .expect("object write lock")
             .set_contain(Some(contain));
+    }
+
+    fn reset_player_list_with_players(players: &[Arc<RwLock<Player>>]) {
+        let mut list = ThePlayerList().write().expect("player list write lock");
+        list.clear();
+        for player in players {
+            list.add_player(Arc::clone(player));
+        }
+    }
+
+    fn team_for_player(name: &str, id: u32, player_id: u32) -> Arc<RwLock<Team>> {
+        let mut team = Team::new(AsciiString::from(name), id);
+        team.set_controlling_player_id(Some(player_id));
+        Arc::new(RwLock::new(team))
     }
 
     #[test]
@@ -1608,5 +1605,33 @@ mod tests {
         );
 
         assert!(!filter.allow(&object));
+    }
+
+    #[test]
+    fn player_affiliation_uses_player_team_relationships() {
+        let player0 = Arc::new(RwLock::new(Player::new(0)));
+        let player1 = Arc::new(RwLock::new(Player::new(1)));
+        reset_player_list_with_players(&[Arc::clone(&player0), Arc::clone(&player1)]);
+
+        player0
+            .write()
+            .expect("player write lock")
+            .set_player_relationship_by_index(1, Relationship::Enemies);
+
+        let enemy_team = team_for_player("EnemyTeam", 1, 1);
+        let target = structure_object();
+        target
+            .write()
+            .expect("target write lock")
+            .set_team(Some(enemy_team))
+            .expect("set target team");
+
+        let enemy_filter =
+            PartitionFilterPlayerAffiliation::new(PlayerId(0), AFFILIATION_ALLOW_ENEMIES, true);
+        let neutral_filter =
+            PartitionFilterPlayerAffiliation::new(PlayerId(0), AFFILIATION_ALLOW_NEUTRAL, true);
+
+        assert!(enemy_filter.allow(&target));
+        assert!(!neutral_filter.allow(&target));
     }
 }
