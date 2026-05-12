@@ -24,6 +24,7 @@
 use super::{DisabledMaskType, ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
 use crate::object::drawable::TintStatus;
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Module data for TempWeaponBonusHelper
 ///
@@ -228,9 +229,117 @@ impl ObjectHelperInterface for TempWeaponBonusHelper {
     }
 }
 
+fn weapon_bonus_to_cpp_value(bonus: WeaponBonusConditionType) -> u32 {
+    match bonus {
+        WeaponBonusConditionType::Invalid => u32::MAX,
+        WeaponBonusConditionType::Garrisoned => 0,
+        WeaponBonusConditionType::Horde => 1,
+        WeaponBonusConditionType::ContinuousFireMean => 2,
+        WeaponBonusConditionType::ContinuousFireFast => 3,
+        WeaponBonusConditionType::Nationalism => 4,
+        WeaponBonusConditionType::PlayerUpgrade => 5,
+        WeaponBonusConditionType::DroneSpotting | WeaponBonusConditionType::DroneSpotForStrike => 6,
+        WeaponBonusConditionType::Demoralized | WeaponBonusConditionType::DemoralizedObsolete => 7,
+        WeaponBonusConditionType::Enthusiastic => 8,
+        WeaponBonusConditionType::Veteran => 9,
+        WeaponBonusConditionType::Elite => 10,
+        WeaponBonusConditionType::Hero => 11,
+        WeaponBonusConditionType::BattlePlanBombardment => 12,
+        WeaponBonusConditionType::BattlePlanHoldTheLine => 13,
+        WeaponBonusConditionType::BattlePlanSearchAndDestroy => 14,
+        WeaponBonusConditionType::Subliminal => 15,
+        WeaponBonusConditionType::SoloHumanEasy => 16,
+        WeaponBonusConditionType::SoloHumanNormal => 17,
+        WeaponBonusConditionType::SoloHumanHard => 18,
+        WeaponBonusConditionType::SoloAiEasy => 19,
+        WeaponBonusConditionType::SoloAiNormal => 20,
+        WeaponBonusConditionType::SoloAiHard => 21,
+        WeaponBonusConditionType::TargetFaerieFire => 22,
+        WeaponBonusConditionType::Fanaticism => 23,
+        WeaponBonusConditionType::FrenzyOne => 24,
+        WeaponBonusConditionType::FrenzyTwo => 25,
+        WeaponBonusConditionType::FrenzyThree => 26,
+    }
+}
+
+fn weapon_bonus_from_cpp_value(value: u32) -> WeaponBonusConditionType {
+    match value {
+        u32::MAX => WeaponBonusConditionType::Invalid,
+        0 => WeaponBonusConditionType::Garrisoned,
+        1 => WeaponBonusConditionType::Horde,
+        2 => WeaponBonusConditionType::ContinuousFireMean,
+        3 => WeaponBonusConditionType::ContinuousFireFast,
+        4 => WeaponBonusConditionType::Nationalism,
+        5 => WeaponBonusConditionType::PlayerUpgrade,
+        6 => WeaponBonusConditionType::DroneSpotting,
+        7 => WeaponBonusConditionType::DemoralizedObsolete,
+        8 => WeaponBonusConditionType::Enthusiastic,
+        9 => WeaponBonusConditionType::Veteran,
+        10 => WeaponBonusConditionType::Elite,
+        11 => WeaponBonusConditionType::Hero,
+        12 => WeaponBonusConditionType::BattlePlanBombardment,
+        13 => WeaponBonusConditionType::BattlePlanHoldTheLine,
+        14 => WeaponBonusConditionType::BattlePlanSearchAndDestroy,
+        15 => WeaponBonusConditionType::Subliminal,
+        16 => WeaponBonusConditionType::SoloHumanEasy,
+        17 => WeaponBonusConditionType::SoloHumanNormal,
+        18 => WeaponBonusConditionType::SoloHumanHard,
+        19 => WeaponBonusConditionType::SoloAiEasy,
+        20 => WeaponBonusConditionType::SoloAiNormal,
+        21 => WeaponBonusConditionType::SoloAiHard,
+        22 => WeaponBonusConditionType::TargetFaerieFire,
+        23 => WeaponBonusConditionType::Fanaticism,
+        24 => WeaponBonusConditionType::FrenzyOne,
+        25 => WeaponBonusConditionType::FrenzyTwo,
+        26 => WeaponBonusConditionType::FrenzyThree,
+        _ => WeaponBonusConditionType::Invalid,
+    }
+}
+
+impl Snapshotable for TempWeaponBonusHelper {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("TempWeaponBonusHelper xfer version: {err:?}"))?;
+
+        let mut bonus = weapon_bonus_to_cpp_value(self.current_bonus);
+        xfer.xfer_unsigned_int(&mut bonus)
+            .map_err(|err| format!("TempWeaponBonusHelper xfer current_bonus: {err:?}"))?;
+        self.current_bonus = weapon_bonus_from_cpp_value(bonus);
+
+        xfer.xfer_unsigned_int(&mut self.frame_to_remove)
+            .map_err(|err| format!("TempWeaponBonusHelper xfer frame_to_remove: {err:?}"))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        if self.current_bonus == WeaponBonusConditionType::Invalid {
+            self.frame_to_remove = 0;
+            self.current_tint = TintStatus::NONE;
+            self.wake_frame = u32::MAX;
+        } else {
+            self.current_tint = match self.current_bonus {
+                WeaponBonusConditionType::FrenzyOne
+                | WeaponBonusConditionType::FrenzyTwo
+                | WeaponBonusConditionType::FrenzyThree => TintStatus::FRENZY,
+                _ => TintStatus::NONE,
+            };
+            self.wake_frame = self.frame_to_remove;
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     #[test]
     fn test_temp_weapon_bonus_helper_creation() {
@@ -370,5 +479,56 @@ mod tests {
 
         helper.do_temp_weapon_bonus(WeaponBonusConditionType::SoloAiHard, 100, 300);
         assert_eq!(helper.current_bonus, WeaponBonusConditionType::SoloAiHard);
+    }
+
+    #[test]
+    fn xfer_preserves_temp_weapon_bonus_timer_state() {
+        let mut saved =
+            TempWeaponBonusHelper::new(INVALID_ID, TempWeaponBonusHelperModuleData::new());
+        saved.do_temp_weapon_bonus(WeaponBonusConditionType::FrenzyTwo, 90, 120);
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded =
+            TempWeaponBonusHelper::new(INVALID_ID, TempWeaponBonusHelperModuleData::new());
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+        loaded.load_post_process().unwrap();
+
+        assert_eq!(loaded.current_bonus, saved.current_bonus);
+        assert_eq!(loaded.frame_to_remove, saved.frame_to_remove);
+        assert_eq!(loaded.wake_frame, saved.frame_to_remove);
+        assert_eq!(loaded.current_tint, TintStatus::FRENZY);
+    }
+
+    #[test]
+    fn weapon_bonus_cpp_wire_values_match_retail_order() {
+        assert_eq!(
+            weapon_bonus_to_cpp_value(WeaponBonusConditionType::Invalid),
+            u32::MAX
+        );
+        assert_eq!(
+            weapon_bonus_to_cpp_value(WeaponBonusConditionType::Garrisoned),
+            0
+        );
+        assert_eq!(
+            weapon_bonus_to_cpp_value(WeaponBonusConditionType::DemoralizedObsolete),
+            7
+        );
+        assert_eq!(
+            weapon_bonus_to_cpp_value(WeaponBonusConditionType::FrenzyThree),
+            26
+        );
+        assert_eq!(
+            weapon_bonus_from_cpp_value(7),
+            WeaponBonusConditionType::DemoralizedObsolete
+        );
     }
 }
