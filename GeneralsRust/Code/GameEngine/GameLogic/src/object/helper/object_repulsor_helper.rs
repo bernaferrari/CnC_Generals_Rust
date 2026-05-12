@@ -13,6 +13,8 @@
 
 use super::{ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Module data for ObjectRepulsorHelper
 ///
@@ -48,6 +50,9 @@ pub struct ObjectRepulsorHelper {
 
     /// Whether the repulsor status needs to be cleared
     needs_clear: bool,
+
+    /// C++ UpdateModule base state: packed next-call frame and phase.
+    next_call_frame_and_phase: u32,
 }
 
 impl ObjectRepulsorHelper {
@@ -57,6 +62,7 @@ impl ObjectRepulsorHelper {
             module_data,
             wake_frame: u32::MAX, // Sleep forever initially
             needs_clear: false,
+            next_call_frame_and_phase: 0,
         }
     }
 
@@ -105,9 +111,36 @@ impl ObjectHelperInterface for ObjectRepulsorHelper {
     }
 }
 
+impl Snapshotable for ObjectRepulsorHelper {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("ObjectRepulsorHelper xfer version: {err:?}"))?;
+
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| format!("ObjectRepulsorHelper xfer object helper version: {err:?}"))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|err| format!("ObjectRepulsorHelper xfer update module base: {err}"))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     #[test]
     fn test_repulsor_helper_creation() {
@@ -166,5 +199,32 @@ mod tests {
 
         helper.sleep_until(1000);
         assert_eq!(helper.wake_frame, 1000);
+    }
+
+    #[test]
+    fn helper_base_xfer_preserves_repulsor_next_call_state() {
+        let mut saved = ObjectRepulsorHelper::new(ObjectRepulsorHelperModuleData::new());
+        saved.next_call_frame_and_phase = 0x1201;
+        saved.wake_for_clear(321);
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded = ObjectRepulsorHelper::new(ObjectRepulsorHelperModuleData::new());
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+
+        assert_eq!(
+            loaded.next_call_frame_and_phase,
+            saved.next_call_frame_and_phase
+        );
+        assert_eq!(loaded.wake_frame, u32::MAX);
+        assert!(!loaded.needs_clear);
     }
 }
