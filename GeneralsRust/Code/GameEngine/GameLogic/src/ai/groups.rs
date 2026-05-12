@@ -16,7 +16,7 @@ use super::states::{AIStateMachine, AIStateType};
 use super::{AiCommandParams, AiCommandType, AiError, AttitudeType, CommandSourceType};
 use crate::common::types::{Coord2D, Coord3D, Real};
 use crate::common::ObjectID;
-use crate::helpers::TheGameLogic;
+use crate::helpers::{get_game_logic_random_value_real, TheGameLogic};
 use crate::object::registry::OBJECT_REGISTRY;
 
 /// Formation types for unit groups
@@ -616,17 +616,15 @@ impl AiUnitGroup {
     }
 
     fn generate_scattered_formation(&mut self, unit_count: usize) {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
         let scatter_radius = self.formation_spacing * 2.0;
 
         for _i in 0..unit_count {
-            let angle = rng.gen::<Real>() * 2.0 * std::f32::consts::PI;
-            let distance = rng.gen::<Real>() * scatter_radius;
+            let angle = get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+            let distance = get_game_logic_random_value_real(0.0, scatter_radius);
 
             let position = FormationPosition {
                 offset: Coord2D::new(distance * angle.cos(), distance * angle.sin()),
-                facing: rng.gen::<Real>() * 2.0 * std::f32::consts::PI,
+                facing: get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI),
                 priority: 25,
                 tolerance: scatter_radius * 0.5,
             };
