@@ -113,7 +113,7 @@ impl Default for GenerateMinefieldBehaviorModuleData {
             mine_name_upgraded: None,
             mine_upgrade_trigger: None,
             generation_fx: None,
-            distance_around_object: 50.0,
+            distance_around_object: 40.0,
             mines_per_square_foot: 0.01,
             random_jitter: 0.0,
             skip_if_this_much_under_structure: 0.33,
@@ -125,6 +125,14 @@ impl Default for GenerateMinefieldBehaviorModuleData {
             smart_border_skip_interior: true,
         }
     }
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 crate::impl_behavior_module_data_via_base!(GenerateMinefieldBehaviorModuleData, base);
@@ -140,10 +148,7 @@ fn parse_mine_name(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens
-        .iter()
-        .find(|t| **t != "=")
-        .ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.mine_name = INI::parse_ascii_string(token)?;
     Ok(())
 }
@@ -153,10 +158,7 @@ fn parse_upgraded_mine_name(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens
-        .iter()
-        .find(|t| **t != "=")
-        .ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     let value = INI::parse_ascii_string(token)?;
     data.mine_name_upgraded = if value.is_empty() { None } else { Some(value) };
     Ok(())
@@ -167,10 +169,7 @@ fn parse_upgrade_trigger(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens
-        .iter()
-        .find(|t| **t != "=")
-        .ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     let value = INI::parse_ascii_string(token)?;
     data.mine_upgrade_trigger = if value.is_empty() { None } else { Some(value) };
     Ok(())
@@ -181,10 +180,7 @@ fn parse_generation_fx(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens
-        .iter()
-        .find(|t| **t != "=")
-        .ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     let value = INI::parse_ascii_string(token)?;
     data.generation_fx = if value.is_empty() { None } else { Some(value) };
     Ok(())
@@ -195,7 +191,7 @@ fn parse_distance_around_object(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.distance_around_object = INI::parse_real(token)?;
     Ok(())
 }
@@ -205,7 +201,7 @@ fn parse_mines_per_square_foot(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.mines_per_square_foot = INI::parse_real(token)?;
     Ok(())
 }
@@ -215,7 +211,7 @@ fn parse_generate_only_on_death(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.on_death = INI::parse_bool(token)?;
     Ok(())
 }
@@ -225,7 +221,7 @@ fn parse_border_only(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.border_only = INI::parse_bool(token)?;
     Ok(())
 }
@@ -235,7 +231,7 @@ fn parse_smart_border(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.smart_border = INI::parse_bool(token)?;
     Ok(())
 }
@@ -245,7 +241,7 @@ fn parse_smart_border_skip_interior(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.smart_border_skip_interior = INI::parse_bool(token)?;
     Ok(())
 }
@@ -255,7 +251,7 @@ fn parse_always_circular(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.always_circular = INI::parse_bool(token)?;
     Ok(())
 }
@@ -265,7 +261,7 @@ fn parse_upgradable(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.upgradable = INI::parse_bool(token)?;
     Ok(())
 }
@@ -275,7 +271,7 @@ fn parse_random_jitter(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.random_jitter = INI::parse_percent_to_real(token)?;
     Ok(())
 }
@@ -285,7 +281,7 @@ fn parse_skip_if_this_much_under_structure(
     data: &mut GenerateMinefieldBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.skip_if_this_much_under_structure = INI::parse_percent_to_real(token)?;
     Ok(())
 }
@@ -1376,6 +1372,15 @@ impl GenerateMinefieldBehaviorFactory {
 mod tests {
     use super::*;
 
+    fn parse_field(data: &mut GenerateMinefieldBehaviorModuleData, token: &str, values: &[&str]) {
+        let field = GENERATE_MINEFIELD_BEHAVIOR_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
     fn create_test_behavior() -> GenerateMinefieldBehavior {
         GenerateMinefieldBehaviorBuilder::new()
             .mine_name("test_mine")
@@ -1394,6 +1399,50 @@ mod tests {
         assert!(!stats.is_upgraded);
         assert_eq!(stats.mine_count, 0);
         assert_eq!(stats.current_mine_template, "test_mine");
+    }
+
+    #[test]
+    fn default_minefield_distance_matches_cpp_global_data() {
+        let data = GenerateMinefieldBehaviorModuleData::default();
+
+        assert_eq!(data.distance_around_object, 40.0);
+        assert_eq!(data.mines_per_square_foot, 0.01);
+        assert!(data.border_only);
+    }
+
+    #[test]
+    fn generate_minefield_fields_accept_ini_equals_token() {
+        let mut data = GenerateMinefieldBehaviorModuleData::default();
+
+        parse_field(&mut data, "MineName", &["=", "DemoMine"]);
+        parse_field(&mut data, "UpgradedMineName", &["=", "DemoMineUpgraded"]);
+        parse_field(&mut data, "UpgradedTriggeredBy", &["=", "Upgrade_Test"]);
+        parse_field(&mut data, "GenerationFX", &["=", "FX_Test"]);
+        parse_field(&mut data, "DistanceAroundObject", &["=", "60.5"]);
+        parse_field(&mut data, "MinesPerSquareFoot", &["=", "0.02"]);
+        parse_field(&mut data, "GenerateOnlyOnDeath", &["=", "Yes"]);
+        parse_field(&mut data, "BorderOnly", &["=", "No"]);
+        parse_field(&mut data, "SmartBorder", &["=", "Yes"]);
+        parse_field(&mut data, "SmartBorderSkipInterior", &["=", "No"]);
+        parse_field(&mut data, "AlwaysCircular", &["=", "Yes"]);
+        parse_field(&mut data, "Upgradable", &["=", "Yes"]);
+        parse_field(&mut data, "RandomJitter", &["=", "25%"]);
+        parse_field(&mut data, "SkipIfThisMuchUnderStructure", &["=", "50%"]);
+
+        assert_eq!(data.mine_name, "DemoMine");
+        assert_eq!(data.mine_name_upgraded.as_deref(), Some("DemoMineUpgraded"));
+        assert_eq!(data.mine_upgrade_trigger.as_deref(), Some("Upgrade_Test"));
+        assert_eq!(data.generation_fx.as_deref(), Some("FX_Test"));
+        assert_eq!(data.distance_around_object, 60.5);
+        assert_eq!(data.mines_per_square_foot, 0.02);
+        assert!(data.on_death);
+        assert!(!data.border_only);
+        assert!(data.smart_border);
+        assert!(!data.smart_border_skip_interior);
+        assert!(data.always_circular);
+        assert!(data.upgradable);
+        assert_eq!(data.random_jitter, 0.25);
+        assert_eq!(data.skip_if_this_much_under_structure, 0.5);
     }
 
     #[test]
