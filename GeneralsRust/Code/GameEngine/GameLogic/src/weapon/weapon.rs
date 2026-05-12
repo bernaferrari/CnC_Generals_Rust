@@ -11,7 +11,7 @@ use crate::common::{Bool, Coord3D, KindOf, ObjectID, Real, UnsignedInt, INVALID_
 use crate::damage::{
     DamageInfo, DamageInfoInput, DamageType as LogicDamageType, DeathType as LogicDeathType,
 };
-use crate::helpers::{TheGameLogic, TheTerrainLogic, TheThingFactory};
+use crate::helpers::{get_game_logic_random_value, TheGameLogic, TheTerrainLogic, TheThingFactory};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::weapon::{
     DamageType, DeathType, WeaponBonus, WeaponBonusConditionFlags, WeaponBonusField,
@@ -497,9 +497,9 @@ impl Weapon {
             };
 
             // Pick random scatter target
-            use rand::Rng;
-            let mut rng = rand::thread_rng();
-            let random_pick = rng.gen_range(0..self.scatter_targets_unused.len());
+            let random_pick =
+                get_game_logic_random_value(0, self.scatter_targets_unused.len() as i32 - 1)
+                    as usize;
             let target_index = self.scatter_targets_unused[random_pick];
 
             // Calculate scatter offset
