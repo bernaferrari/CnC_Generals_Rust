@@ -8137,13 +8137,38 @@ impl GameLogic {
         if let Ok(events) = gamelogic::helpers::TheEva::drain_events() {
             for eva in events {
                 let sound_name = match eva {
+                    gamelogic::helpers::EvaEvent::LowPower => "EVA_LowPower",
+                    gamelogic::helpers::EvaEvent::InsufficientFunds => "EVA_InsufficientFunds",
                     gamelogic::helpers::EvaEvent::BuildingLost => "EVA_BuildingLost",
+                    gamelogic::helpers::EvaEvent::BaseUnderAttack => "EVA_BaseUnderAttack",
+                    gamelogic::helpers::EvaEvent::AllyUnderAttack => "EVA_AllyUnderAttack",
                     gamelogic::helpers::EvaEvent::UnitLost => "EVA_UnitLost",
                     gamelogic::helpers::EvaEvent::BuildingSabotaged => "EVA_BuildingSabotaged",
                     gamelogic::helpers::EvaEvent::CashStolen => "EVA_CashStolen",
                     gamelogic::helpers::EvaEvent::VehicleStolen => "EVA_VehicleStolen",
+                    gamelogic::helpers::EvaEvent::BuildingStolen => "EVA_BuildingStolen",
+                    gamelogic::helpers::EvaEvent::UpgradeComplete => "EVA_UpgradeComplete",
+                    gamelogic::helpers::EvaEvent::BuildingBeingStolen => "EVA_BuildingBeingStolen",
                     gamelogic::helpers::EvaEvent::BeaconDetected => "EVA_BeaconDetected",
                     gamelogic::helpers::EvaEvent::GeneralLevelUp => "EVA_GeneralLevelUp",
+                    gamelogic::helpers::EvaEvent::EnemyBlackLotusDetected => {
+                        "EVA_EnemyBlackLotusDetected"
+                    }
+                    gamelogic::helpers::EvaEvent::EnemyJarmenKellDetected => {
+                        "EVA_EnemyJarmenKellDetected"
+                    }
+                    gamelogic::helpers::EvaEvent::EnemyColonelBurtonDetected => {
+                        "EVA_EnemyColonelBurtonDetected"
+                    }
+                    gamelogic::helpers::EvaEvent::OwnBlackLotusDetected => {
+                        "EVA_OwnBlackLotusDetected"
+                    }
+                    gamelogic::helpers::EvaEvent::OwnJarmenKellDetected => {
+                        "EVA_OwnJarmenKellDetected"
+                    }
+                    gamelogic::helpers::EvaEvent::OwnColonelBurtonDetected => {
+                        "EVA_OwnColonelBurtonDetected"
+                    }
                     gamelogic::helpers::EvaEvent::SuperweaponDetectedOwnParticleCannon
                     | gamelogic::helpers::EvaEvent::SuperweaponDetectedAllyParticleCannon
                     | gamelogic::helpers::EvaEvent::SuperweaponDetectedEnemyParticleCannon => {
@@ -8173,6 +8198,21 @@ impl GameLogic {
                     | gamelogic::helpers::EvaEvent::SuperweaponLaunchedAllyScudStorm
                     | gamelogic::helpers::EvaEvent::SuperweaponLaunchedEnemyScudStorm => {
                         "EVA_SuperweaponLaunchedScudStorm"
+                    }
+                    gamelogic::helpers::EvaEvent::SuperweaponReadyOwnParticleCannon
+                    | gamelogic::helpers::EvaEvent::SuperweaponReadyAllyParticleCannon
+                    | gamelogic::helpers::EvaEvent::SuperweaponReadyEnemyParticleCannon => {
+                        "EVA_SuperweaponReadyParticleCannon"
+                    }
+                    gamelogic::helpers::EvaEvent::SuperweaponReadyOwnNuke
+                    | gamelogic::helpers::EvaEvent::SuperweaponReadyAllyNuke
+                    | gamelogic::helpers::EvaEvent::SuperweaponReadyEnemyNuke => {
+                        "EVA_SuperweaponReadyNuke"
+                    }
+                    gamelogic::helpers::EvaEvent::SuperweaponReadyOwnScudStorm
+                    | gamelogic::helpers::EvaEvent::SuperweaponReadyAllyScudStorm
+                    | gamelogic::helpers::EvaEvent::SuperweaponReadyEnemyScudStorm => {
+                        "EVA_SuperweaponReadyScudStorm"
                     }
                     gamelogic::helpers::EvaEvent::SuperweaponLaunchedOwnGpsScrambler
                     | gamelogic::helpers::EvaEvent::SuperweaponLaunchedAllyGpsScrambler

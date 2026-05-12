@@ -636,30 +636,27 @@ impl Eva {
 
 fn map_logic_event(event: LogicEvaEvent) -> Option<EvaMessage> {
     match event {
-        LogicEvaEvent::BuildingSabotaged => Some(EvaMessage::BuildingSabotaged),
-        LogicEvaEvent::BuildingLost => Some(EvaMessage::BuildingLost),
-        LogicEvaEvent::CashStolen => Some(EvaMessage::CashStolen),
-        LogicEvaEvent::UnitLost => Some(EvaMessage::UnitLost),
-        LogicEvaEvent::VehicleStolen => Some(EvaMessage::VehicleStolen),
+        LogicEvaEvent::LowPower => Some(EvaMessage::LowPower),
+        LogicEvaEvent::InsufficientFunds => Some(EvaMessage::InsufficientFunds),
         LogicEvaEvent::SuperweaponDetectedOwnParticleCannon => {
             Some(EvaMessage::SuperweaponDetectedOwnParticleCannon)
+        }
+        LogicEvaEvent::SuperweaponDetectedOwnNuke => Some(EvaMessage::SuperweaponDetectedOwnNuke),
+        LogicEvaEvent::SuperweaponDetectedOwnScudStorm => {
+            Some(EvaMessage::SuperweaponDetectedOwnScudStorm)
         }
         LogicEvaEvent::SuperweaponDetectedAllyParticleCannon => {
             Some(EvaMessage::SuperweaponDetectedAllyParticleCannon)
         }
+        LogicEvaEvent::SuperweaponDetectedAllyNuke => Some(EvaMessage::SuperweaponDetectedAllyNuke),
+        LogicEvaEvent::SuperweaponDetectedAllyScudStorm => {
+            Some(EvaMessage::SuperweaponDetectedAllyScudStorm)
+        }
         LogicEvaEvent::SuperweaponDetectedEnemyParticleCannon => {
             Some(EvaMessage::SuperweaponDetectedEnemyParticleCannon)
         }
-        LogicEvaEvent::SuperweaponDetectedOwnNuke => Some(EvaMessage::SuperweaponDetectedOwnNuke),
-        LogicEvaEvent::SuperweaponDetectedAllyNuke => Some(EvaMessage::SuperweaponDetectedAllyNuke),
         LogicEvaEvent::SuperweaponDetectedEnemyNuke => {
             Some(EvaMessage::SuperweaponDetectedEnemyNuke)
-        }
-        LogicEvaEvent::SuperweaponDetectedOwnScudStorm => {
-            Some(EvaMessage::SuperweaponDetectedOwnScudStorm)
-        }
-        LogicEvaEvent::SuperweaponDetectedAllyScudStorm => {
-            Some(EvaMessage::SuperweaponDetectedAllyScudStorm)
         }
         LogicEvaEvent::SuperweaponDetectedEnemyScudStorm => {
             Some(EvaMessage::SuperweaponDetectedEnemyScudStorm)
@@ -667,26 +664,65 @@ fn map_logic_event(event: LogicEvaEvent) -> Option<EvaMessage> {
         LogicEvaEvent::SuperweaponLaunchedOwnParticleCannon => {
             Some(EvaMessage::SuperweaponLaunchedOwnParticleCannon)
         }
+        LogicEvaEvent::SuperweaponLaunchedOwnNuke => Some(EvaMessage::SuperweaponLaunchedOwnNuke),
+        LogicEvaEvent::SuperweaponLaunchedOwnScudStorm => {
+            Some(EvaMessage::SuperweaponLaunchedOwnScudStorm)
+        }
         LogicEvaEvent::SuperweaponLaunchedAllyParticleCannon => {
             Some(EvaMessage::SuperweaponLaunchedAllyParticleCannon)
+        }
+        LogicEvaEvent::SuperweaponLaunchedAllyNuke => Some(EvaMessage::SuperweaponLaunchedAllyNuke),
+        LogicEvaEvent::SuperweaponLaunchedAllyScudStorm => {
+            Some(EvaMessage::SuperweaponLaunchedAllyScudStorm)
         }
         LogicEvaEvent::SuperweaponLaunchedEnemyParticleCannon => {
             Some(EvaMessage::SuperweaponLaunchedEnemyParticleCannon)
         }
-        LogicEvaEvent::SuperweaponLaunchedOwnNuke => Some(EvaMessage::SuperweaponLaunchedOwnNuke),
-        LogicEvaEvent::SuperweaponLaunchedAllyNuke => Some(EvaMessage::SuperweaponLaunchedAllyNuke),
         LogicEvaEvent::SuperweaponLaunchedEnemyNuke => {
             Some(EvaMessage::SuperweaponLaunchedEnemyNuke)
-        }
-        LogicEvaEvent::SuperweaponLaunchedOwnScudStorm => {
-            Some(EvaMessage::SuperweaponLaunchedOwnScudStorm)
-        }
-        LogicEvaEvent::SuperweaponLaunchedAllyScudStorm => {
-            Some(EvaMessage::SuperweaponLaunchedAllyScudStorm)
         }
         LogicEvaEvent::SuperweaponLaunchedEnemyScudStorm => {
             Some(EvaMessage::SuperweaponLaunchedEnemyScudStorm)
         }
+        LogicEvaEvent::SuperweaponReadyOwnParticleCannon => {
+            Some(EvaMessage::SuperweaponReadyOwnParticleCannon)
+        }
+        LogicEvaEvent::SuperweaponReadyOwnNuke => Some(EvaMessage::SuperweaponReadyOwnNuke),
+        LogicEvaEvent::SuperweaponReadyOwnScudStorm => {
+            Some(EvaMessage::SuperweaponReadyOwnScudStorm)
+        }
+        LogicEvaEvent::SuperweaponReadyAllyParticleCannon => {
+            Some(EvaMessage::SuperweaponReadyAllyParticleCannon)
+        }
+        LogicEvaEvent::SuperweaponReadyAllyNuke => Some(EvaMessage::SuperweaponReadyAllyNuke),
+        LogicEvaEvent::SuperweaponReadyAllyScudStorm => {
+            Some(EvaMessage::SuperweaponReadyAllyScudStorm)
+        }
+        LogicEvaEvent::SuperweaponReadyEnemyParticleCannon => {
+            Some(EvaMessage::SuperweaponReadyEnemyParticleCannon)
+        }
+        LogicEvaEvent::SuperweaponReadyEnemyNuke => Some(EvaMessage::SuperweaponReadyEnemyNuke),
+        LogicEvaEvent::SuperweaponReadyEnemyScudStorm => {
+            Some(EvaMessage::SuperweaponReadyEnemyScudStorm)
+        }
+        LogicEvaEvent::BuildingLost => Some(EvaMessage::BuildingLost),
+        LogicEvaEvent::BaseUnderAttack => Some(EvaMessage::BaseUnderAttack),
+        LogicEvaEvent::AllyUnderAttack => Some(EvaMessage::AllyUnderAttack),
+        LogicEvaEvent::BeaconDetected => Some(EvaMessage::BeaconDetected),
+        LogicEvaEvent::EnemyBlackLotusDetected => Some(EvaMessage::EnemyBlackLotusDetected),
+        LogicEvaEvent::EnemyJarmenKellDetected => Some(EvaMessage::EnemyJarmenKellDetected),
+        LogicEvaEvent::EnemyColonelBurtonDetected => Some(EvaMessage::EnemyColonelBurtonDetected),
+        LogicEvaEvent::OwnBlackLotusDetected => Some(EvaMessage::OwnBlackLotusDetected),
+        LogicEvaEvent::OwnJarmenKellDetected => Some(EvaMessage::OwnJarmenKellDetected),
+        LogicEvaEvent::OwnColonelBurtonDetected => Some(EvaMessage::OwnColonelBurtonDetected),
+        LogicEvaEvent::UnitLost => Some(EvaMessage::UnitLost),
+        LogicEvaEvent::GeneralLevelUp => Some(EvaMessage::GeneralLevelUp),
+        LogicEvaEvent::VehicleStolen => Some(EvaMessage::VehicleStolen),
+        LogicEvaEvent::BuildingStolen => Some(EvaMessage::BuildingStolen),
+        LogicEvaEvent::CashStolen => Some(EvaMessage::CashStolen),
+        LogicEvaEvent::UpgradeComplete => Some(EvaMessage::UpgradeComplete),
+        LogicEvaEvent::BuildingBeingStolen => Some(EvaMessage::BuildingBeingStolen),
+        LogicEvaEvent::BuildingSabotaged => Some(EvaMessage::BuildingSabotaged),
         LogicEvaEvent::SuperweaponLaunchedOwnGpsScrambler => {
             Some(EvaMessage::SuperweaponLaunchedOwnGpsScrambler)
         }
@@ -705,8 +741,6 @@ fn map_logic_event(event: LogicEvaEvent) -> Option<EvaMessage> {
         LogicEvaEvent::SuperweaponLaunchedEnemySneakAttack => {
             Some(EvaMessage::SuperweaponLaunchedEnemySneakAttack)
         }
-        LogicEvaEvent::GeneralLevelUp => Some(EvaMessage::GeneralLevelUp),
-        LogicEvaEvent::BeaconDetected => Some(EvaMessage::BeaconDetected),
     }
 }
 
