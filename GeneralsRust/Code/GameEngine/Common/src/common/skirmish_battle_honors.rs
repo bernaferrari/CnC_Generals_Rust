@@ -45,6 +45,10 @@ pub const MAX_BATTLE_HONOR_IMAGE_HEIGHT: u32 = 41;
 
 const MAX_GLOBAL_GENERAL_TYPES: usize = 9;
 
+fn challenge_campaign_key(general_index: usize, difficulty: i32) -> String {
+    format!("ChallengeCampaign{}_{}", general_index, difficulty)
+}
+
 #[derive(Debug, Clone)]
 pub struct SkirmishBattleHonors {
     data: HashMap<String, String>,
@@ -195,17 +199,14 @@ impl SkirmishBattleHonors {
         if general_index >= MAX_GLOBAL_GENERAL_TYPES {
             return false;
         }
-        self.get_bool(
-            &format!("Challenge_{}_{}", general_index, difficulty),
-            false,
-        )
+        self.get_bool(&challenge_campaign_key(general_index, difficulty), false)
     }
 
     pub fn set_challenge_campaign_complete(&mut self, general_index: usize, difficulty: i32) {
         if general_index >= MAX_GLOBAL_GENERAL_TYPES {
             return;
         }
-        self.set_bool(&format!("Challenge_{}_{}", general_index, difficulty), true);
+        self.set_bool(&challenge_campaign_key(general_index, difficulty), true);
         self.award_honor(BATTLE_HONOR_CHALLENGE_MODE);
     }
 
@@ -336,5 +337,39 @@ impl SkirmishBattleHonors {
             }
         }
         PathBuf::from(&self.filename)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn challenge_campaign_completion_uses_cpp_profile_key() {
+        let mut honors = SkirmishBattleHonors::new();
+        honors.clear();
+
+        honors.set_challenge_campaign_complete(3, 2);
+
+        assert!(honors.get_challenge_campaign_complete(3, 2));
+        assert_eq!(
+            honors.data.get("ChallengeCampaign3_2"),
+            Some(&"1".to_string())
+        );
+        assert!(!honors.data.contains_key("Challenge_3_2"));
+        assert_ne!(honors.get_honors() & BATTLE_HONOR_CHALLENGE_MODE, 0);
+    }
+
+    #[test]
+    fn challenge_campaign_completion_rejects_out_of_range_generals() {
+        let mut honors = SkirmishBattleHonors::new();
+        honors.clear();
+
+        honors.set_challenge_campaign_complete(MAX_GLOBAL_GENERAL_TYPES, 1);
+
+        assert!(!honors.get_challenge_campaign_complete(MAX_GLOBAL_GENERAL_TYPES, 1));
+        assert!(!honors
+            .data
+            .contains_key(&challenge_campaign_key(MAX_GLOBAL_GENERAL_TYPES, 1)));
     }
 }
