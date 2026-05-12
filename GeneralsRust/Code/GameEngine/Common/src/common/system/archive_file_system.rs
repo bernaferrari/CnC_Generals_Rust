@@ -181,7 +181,7 @@ impl ArchiveFileSystem {
 
     /// Close any materialized file handles (archives are already read-only memory/stream views).
     pub fn close_all_files(&mut self) {
-        self.big_system.close_all_archive_files();
+        self.big_system.close_all_files();
     }
 
     /// Load BIG archives from a directory using a glob mask.
