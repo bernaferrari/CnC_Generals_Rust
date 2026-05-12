@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use crate::common::*;
 use crate::damage::DamageInfo;
 use crate::experience::VeterancyLevel;
-use crate::helpers::TheThingFactory;
+use crate::helpers::{
+    get_game_logic_random_value, get_game_logic_random_value_real, TheThingFactory,
+};
 use crate::object::{Object, ObjectId};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::common::science::SCIENCE_INVALID;
@@ -478,15 +480,11 @@ impl CreateCrateDie {
 
 /// Helper functions matching C++ GameLogic random functions
 fn GameLogicRandomValueReal(min: f32, max: f32) -> f32 {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    rng.gen::<f32>() * (max - min) + min
+    get_game_logic_random_value_real(min, max)
 }
 
 fn GameLogicRandomValue(min: i32, max: i32) -> i32 {
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    rng.gen_range(min..=max)
+    get_game_logic_random_value(min, max)
 }
 
 /// Relationship enumeration
