@@ -283,6 +283,22 @@ impl EvaCheckInfo {
             },
         ]
     }
+
+    pub fn message(&self) -> EvaMessage {
+        self.message
+    }
+
+    pub fn priority(&self) -> u32 {
+        self.priority
+    }
+
+    pub fn frames_between_checks(&self) -> u32 {
+        self.frames_between_checks
+    }
+
+    pub fn frames_to_expire(&self) -> u32 {
+        self.frames_to_expire
+    }
 }
 
 fn parse_priority(_ini: &mut INI, target: &mut EvaCheckInfo, tokens: &[&str]) -> INIResult<()> {
@@ -430,6 +446,11 @@ impl Eva {
         self.all_check_infos
             .iter()
             .find(|info| info.message == message)
+    }
+
+    pub fn get_eva_check_info_by_name(&self, name: &str) -> Option<&EvaCheckInfo> {
+        let message = EvaMessage::from_name(name)?;
+        self.get_eva_check_info(message)
     }
 
     fn is_time_for_check(&self, message: EvaMessage) -> bool {
@@ -744,5 +765,62 @@ pub fn set_eva_enabled(enabled: bool) {
     let eva = get_eva();
     if let Ok(mut guard) = eva.lock() {
         guard.set_enabled(enabled);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eva_message_names_match_cpp_indices() {
+        for (index, name) in EVA_MESSAGE_NAMES.iter().enumerate() {
+            let message = EvaMessage::from_index(index).expect("valid EVA index");
+
+            assert_eq!(EvaMessage::from_name(name), Some(message));
+            assert_eq!(
+                EvaMessage::from_name(&name.to_ascii_lowercase()),
+                Some(message)
+            );
+            assert_eq!(message.to_name(), *name);
+            assert_eq!(message.as_index(), index);
+        }
+
+        assert_eq!(EvaMessage::from_index(EVA_COUNT), None);
+        assert_eq!(EvaMessage::from_name("EVA_INVALID"), None);
+        assert_eq!(EvaMessage::from_name("UNKNOWN"), None);
+    }
+
+    #[test]
+    fn new_eva_check_info_rejects_duplicates_like_cpp() {
+        let mut eva = Eva::new();
+
+        let first = eva
+            .new_eva_check_info("LOWPOWER")
+            .expect("first LOWPOWER check info");
+        assert_eq!(first.message(), EvaMessage::LowPower);
+        assert_eq!(first.priority(), 1);
+        assert_eq!(first.frames_between_checks(), 900);
+        assert_eq!(first.frames_to_expire(), 150);
+
+        assert!(eva.new_eva_check_info("lowpower").is_none());
+        assert!(eva.new_eva_check_info("EVA_INVALID").is_none());
+        assert!(eva.new_eva_check_info("UNKNOWN").is_none());
+    }
+
+    #[test]
+    fn eva_check_info_can_be_looked_up_by_name() {
+        let mut eva = Eva::new();
+        eva.new_eva_check_info("BUILDINGLOST")
+            .expect("BUILDINGLOST check info");
+
+        let info = eva
+            .get_eva_check_info_by_name("buildinglost")
+            .expect("case-insensitive lookup");
+        assert_eq!(info.message(), EvaMessage::BuildingLost);
+        assert_eq!(info.priority(), 1);
+
+        assert!(eva.get_eva_check_info_by_name("EVA_INVALID").is_none());
+        assert!(eva.get_eva_check_info_by_name("UNKNOWN").is_none());
     }
 }
