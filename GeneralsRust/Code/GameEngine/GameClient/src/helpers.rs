@@ -59,6 +59,11 @@ pub trait InGameUiHooks: Send + Sync {
     fn military_subtitle(&self, label: &str, _duration_ms: i32) {
         self.message(label);
     }
+    fn disable_tooltips_until(&self, _frame_num: u32) {}
+    fn clear_tooltips_disabled(&self) {}
+    fn are_tooltips_disabled(&self) -> bool {
+        false
+    }
     fn clear_attack_move_to_mode(&self);
     fn is_in_attack_move_to_mode(&self) -> bool;
     fn set_attack_move_to_mode(&self, enabled: bool);
@@ -1156,6 +1161,18 @@ impl TheInGameUI {
                 GameText::fetch(label)
             );
         }
+    }
+
+    pub fn disable_tooltips_until(frame_num: u32) {
+        let _ = with_backend(|backend| backend.disable_tooltips_until(frame_num));
+    }
+
+    pub fn clear_tooltips_disabled() {
+        let _ = with_backend(|backend| backend.clear_tooltips_disabled());
+    }
+
+    pub fn are_tooltips_disabled() -> bool {
+        with_backend_result(|backend| backend.are_tooltips_disabled()).unwrap_or(false)
     }
 
     pub fn clear_attack_move_to_mode() {

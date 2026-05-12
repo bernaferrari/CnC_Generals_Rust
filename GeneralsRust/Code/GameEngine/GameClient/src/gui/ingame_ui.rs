@@ -927,6 +927,7 @@ pub struct InGameUI {
     military_caption_randomize_typing: bool,
     military_caption_speed: i32,
     current_military_subtitle: Option<MilitarySubtitle>,
+    tooltips_disabled_until: u32,
 
     // ── Floating text INI values (C++: m_floatingTextTimeOut, etc.) ──
     floating_text_timeout_frames: u32,
@@ -1078,6 +1079,7 @@ impl InGameUI {
             military_caption_randomize_typing: false,
             military_caption_speed: 1,
             current_military_subtitle: None,
+            tooltips_disabled_until: 0,
 
             // Floating text INI defaults (C++ constructor: InGameUI.cpp:1013-1015)
             floating_text_timeout_frames: DEFAULT_FLOATING_TEXT_TIMEOUT,
@@ -3795,6 +3797,7 @@ impl InGameUI {
         let pos_y = self.military_caption_position.1 as f32 * multiplier_y;
 
         let lifetime_frame = self.current_frame + (30 * duration_ms as u32) / 1000;
+        self.disable_tooltips_until(lifetime_frame);
 
         let color = ((self.military_caption_color.3 as u32) << 24)
             | ((self.military_caption_color.0 as u32) << 16)
@@ -3831,6 +3834,7 @@ impl InGameUI {
 
     pub fn remove_military_subtitle(&mut self) {
         self.current_military_subtitle = None;
+        self.clear_tooltips_disabled();
     }
 
     pub fn get_military_subtitle(&self) -> Option<&MilitarySubtitle> {
@@ -3840,9 +3844,23 @@ impl InGameUI {
     pub fn expire_military_subtitle(&mut self) {
         if let Some(ref sub) = self.current_military_subtitle {
             if self.current_frame >= sub.lifetime_frame {
-                self.current_military_subtitle = None;
+                self.remove_military_subtitle();
             }
         }
+    }
+
+    pub fn disable_tooltips_until(&mut self, frame_num: u32) {
+        if frame_num > self.tooltips_disabled_until {
+            self.tooltips_disabled_until = frame_num;
+        }
+    }
+
+    pub fn clear_tooltips_disabled(&mut self) {
+        self.tooltips_disabled_until = 0;
+    }
+
+    pub fn are_tooltips_disabled(&self) -> bool {
+        self.current_frame < self.tooltips_disabled_until
     }
 
     fn update_military_subtitle(&mut self) {
