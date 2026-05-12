@@ -90,7 +90,7 @@ impl UpgradeCenter {
 
         // Store in registry
         self.upgrades.insert(name_key, template.clone());
-        self.upgrade_list.push(template.clone());
+        self.upgrade_list.insert(0, template.clone());
 
         // Check if this is the default upgrade
         if name.as_str() == "DefaultUpgrade" {
@@ -108,7 +108,7 @@ impl UpgradeCenter {
         let template = Arc::new(template);
 
         self.upgrades.insert(name_key, template.clone());
-        self.upgrade_list.push(template);
+        self.upgrade_list.insert(0, template);
 
         log::debug!("Created veterancy upgrade: {}", level);
     }
@@ -227,7 +227,7 @@ impl UpgradeCenter {
             .iter()
             .any(|t| t.get_name_key() == name_key)
         {
-            self.upgrade_list.push(template);
+            self.upgrade_list.insert(0, template);
         }
 
         Ok(())
@@ -327,6 +327,44 @@ mod tests {
         let center = setup_test_center();
         let upgrades = center.get_all_upgrades();
         assert!(upgrades.len() >= 3);
+    }
+
+    #[test]
+    fn upgrade_center_uses_cpp_head_insertion_order() {
+        let mut center = UpgradeCenter::new();
+        center.new_upgrade(AsciiString::from("FirstUpgrade"));
+        center.new_upgrade(AsciiString::from("SecondUpgrade"));
+        center.new_upgrade(AsciiString::from("ThirdUpgrade"));
+
+        let names: Vec<_> = center
+            .get_upgrade_names()
+            .into_iter()
+            .map(|name| name.to_string())
+            .collect();
+        assert_eq!(names, vec!["ThirdUpgrade", "SecondUpgrade", "FirstUpgrade"]);
+        assert_eq!(
+            center.first_upgrade().unwrap().get_name().as_str(),
+            "ThirdUpgrade"
+        );
+    }
+
+    #[test]
+    fn init_veterancy_upgrades_match_cpp_list_order() {
+        let center = setup_test_center();
+
+        let names: Vec<_> = center
+            .get_upgrade_names()
+            .into_iter()
+            .map(|name| name.to_string())
+            .collect();
+        assert_eq!(
+            &names[..3],
+            &[
+                "Upgrade_Veterancy_HEROIC".to_string(),
+                "Upgrade_Veterancy_ELITE".to_string(),
+                "Upgrade_Veterancy_VETERAN".to_string(),
+            ]
+        );
     }
 
     #[test]
