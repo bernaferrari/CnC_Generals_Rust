@@ -53,6 +53,11 @@ pub trait BuildAssistantBackend: std::fmt::Debug + Send + Sync {
         builder_id: Option<ObjectID>,
         player_id: Option<u32>,
     ) -> LegalBuildCode;
+
+    fn get_ground_height(&self, x: f32, y: f32) -> f32 {
+        let _ = (x, y);
+        0.0
+    }
 }
 
 fn backend_cell() -> &'static Mutex<Option<Arc<dyn BuildAssistantBackend>>> {
@@ -301,6 +306,12 @@ impl BuildAssistant {
         self.sell_list.clear();
     }
 
+    fn get_ground_height(&self, x: f32, y: f32) -> f32 {
+        get_build_assistant_backend()
+            .map(|backend| backend.get_ground_height(x, y))
+            .unwrap_or(0.0)
+    }
+
     /// Update the build assistant - processes selling objects
     pub fn update(&mut self, current_frame: u32) {
         let mut items_to_remove = Vec::new();
@@ -461,7 +472,8 @@ impl BuildAssistant {
                     }
                 }
 
-                let sample_point = Coord3D::new(world_x, world_y, 0.0); // Z would be ground height
+                let sample_point =
+                    Coord3D::new(world_x, world_y, self.get_ground_height(world_x, world_y));
                 func(&sample_point, func_user_data);
 
                 x += sample_resolution;
@@ -496,11 +508,9 @@ impl BuildAssistant {
         positions.push(*start);
 
         for i in 1..tiles_needed {
-            let pos = Coord3D::new(
-                placement_vector.x * (tiling_size * i as f32) + start.x,
-                placement_vector.y * (tiling_size * i as f32) + start.y,
-                0.0, // Would be ground height in real implementation
-            );
+            let x = placement_vector.x * (tiling_size * i as f32) + start.x;
+            let y = placement_vector.y * (tiling_size * i as f32) + start.y;
+            let pos = Coord3D::new(x, y, self.get_ground_height(x, y));
 
             // Check if this position is legal to build at
             if self.is_location_legal_to_build(
