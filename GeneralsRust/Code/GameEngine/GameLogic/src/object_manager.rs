@@ -187,6 +187,12 @@ impl engine_module::Thing for GameObjectInstance {
 }
 
 impl GameObjectInstance {
+    fn player_from_team(team: Option<&Arc<RwLock<Team>>>) -> Option<Arc<RwLock<Player>>> {
+        let player_index = team?.read().ok()?.get_controlling_player_id()? as Int;
+        let list = crate::player::player_list().read().ok()?;
+        list.get_player(player_index).cloned()
+    }
+
     /// Wrap an existing base object created elsewhere (ObjectFactory) into a manager instance.
     pub fn from_existing(
         base: Arc<RwLock<Object>>,
@@ -212,11 +218,13 @@ impl GameObjectInstance {
                 0.0,
             ));
 
+        let player = Self::player_from_team(team.as_ref());
+
         Self {
             base,
             template,
             team,
-            player: None,
+            player,
             status_bits,
             script_status: HashMap::new(),
             transform,
@@ -254,13 +262,13 @@ impl GameObjectInstance {
         let mut instance = Self {
             base,
             template: Some(template.clone()),
-            team,
-            player: None, // Would be derived from team
+            team: team.clone(),
+            player: Self::player_from_team(team.as_ref()),
             status_bits: flags.status_mask,
             script_status: HashMap::new(),
             transform: Matrix3D::IDENTITY,
             cached_position: Coord3D::new(0.0, 0.0, 0.0),
-            current_health: 100.0, // Would come from template
+            current_health: 100.0,
             max_health: 100.0,
             experience: 0.0,
             veterancy_level: 0,
@@ -1351,7 +1359,34 @@ pub fn get_object_manager() -> Arc<RwLock<ObjectManager>> {
 mod tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
+    use crate::player::{player_list, Player};
     use std::sync::Arc;
+
+    fn reset_players() {
+        player_list().write().expect("player list write").clear();
+    }
+
+    fn player_with_team(index: PlayerIndex, team_id: crate::team::TeamID) -> Arc<RwLock<Team>> {
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("Player{}DefaultTeam", index).into(),
+            team_id,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(index as UnsignedInt));
+
+        let player = Arc::new(RwLock::new(Player::new(index)));
+        player
+            .write()
+            .expect("player write")
+            .set_default_team(Some(Arc::clone(&team)));
+        player_list()
+            .write()
+            .expect("player list write")
+            .add_player(player);
+
+        team
+    }
 
     #[test]
     fn test_object_creation_flags() {
@@ -1371,6 +1406,43 @@ mod tests {
         assert_eq!(obj.veterancy_level, 0);
         assert_eq!(obj.current_health, obj.max_health);
         assert!(!obj.is_destroyed());
+    }
+
+    #[test]
+    fn new_object_instance_caches_player_from_team_controller() {
+        reset_players();
+        let team = player_with_team(0, 42);
+        let template = Arc::new(DefaultThingTemplate::new("PlayerOwnedObject".to_string()));
+
+        let obj =
+            GameObjectInstance::new(43, Some(template), Some(team), ObjectCreationFlags::new())
+                .expect("failed to create object instance");
+
+        let player = obj.player.as_ref().expect("cached player");
+        assert_eq!(player.read().expect("player read").get_player_index(), 0);
+        reset_players();
+    }
+
+    #[test]
+    fn wrapped_object_instance_caches_player_from_team_controller() {
+        reset_players();
+        let team = player_with_team(0, 43);
+        let template = Arc::new(DefaultThingTemplate::new(
+            "WrappedPlayerOwnedObject".to_string(),
+        ));
+        let base = Object::new_with_id(
+            template.clone(),
+            44,
+            ObjectStatusMaskType::none(),
+            Some(Arc::clone(&team)),
+        )
+        .expect("failed to create base object");
+
+        let obj = GameObjectInstance::from_existing(base, Some(template), Some(team));
+
+        let player = obj.player.as_ref().expect("cached player");
+        assert_eq!(player.read().expect("player read").get_player_index(), 0);
+        reset_players();
     }
 
     #[test]
