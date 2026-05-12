@@ -289,6 +289,8 @@ impl TerrainType {
 
     /// Update terrain type from properties
     pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+        self.properties.extend(properties.clone());
+
         for (key, value) in properties {
             match key.as_str() {
                 "Surface" => {
@@ -298,7 +300,6 @@ impl TerrainType {
                     if let Some(surface) = TerrainSurface::from_class_name(value) {
                         self.surface_type = surface;
                     }
-                    self.properties.insert(key.clone(), value.clone());
                 }
                 "Texture" => {
                     self.texture_name = AsciiString::from(value);
@@ -416,12 +417,14 @@ impl TerrainType {
 #[derive(Debug, Clone)]
 pub struct TerrainTypes {
     terrain_types: HashMap<String, TerrainType>,
+    terrain_order: Vec<String>,
 }
 
 impl TerrainTypes {
     pub fn new() -> Self {
         Self {
             terrain_types: HashMap::new(),
+            terrain_order: Vec::new(),
         }
     }
 
@@ -437,10 +440,20 @@ impl TerrainTypes {
 
     /// Create a new terrain type
     pub fn new_terrain(&mut self, name: AsciiString) -> &mut TerrainType {
-        let terrain_type = TerrainType::new(name.clone());
-        self.terrain_types
-            .insert(name.as_str().to_string(), terrain_type);
-        self.terrain_types.get_mut(name.as_str()).unwrap()
+        let key = name.as_str().to_string();
+        let terrain_type = if let Some(default_terrain) = self.terrain_types.get("DefaultTerrain") {
+            let mut terrain_type = default_terrain.clone();
+            terrain_type.name = name;
+            terrain_type
+        } else {
+            TerrainType::new(name)
+        };
+
+        if !self.terrain_types.contains_key(&key) {
+            self.terrain_order.insert(0, key.clone());
+        }
+        self.terrain_types.insert(key.clone(), terrain_type);
+        self.terrain_types.get_mut(&key).unwrap()
     }
 
     /// Get or create a terrain type
@@ -454,30 +467,55 @@ impl TerrainTypes {
     /// Register a terrain type
     pub fn register_terrain(&mut self, terrain_type: TerrainType) {
         let name = terrain_type.name.as_str().to_string();
+        if !self.terrain_types.contains_key(&name) {
+            self.terrain_order.insert(0, name.clone());
+        }
         self.terrain_types.insert(name, terrain_type);
+    }
+
+    /// Register parsed terrain properties with C++ default inheritance.
+    pub fn register_terrain_properties(
+        &mut self,
+        name: AsciiString,
+        properties: &HashMap<String, String>,
+    ) -> TerrainResult<()> {
+        if name.is_empty() {
+            return Err(TerrainError::InvalidName);
+        }
+
+        let terrain_type = self.get_or_create_terrain(&name);
+        terrain_type.update_from_properties(properties);
+        Ok(())
     }
 
     /// Get all terrain type names
     pub fn get_terrain_names(&self) -> Vec<&String> {
-        self.terrain_types.keys().collect()
+        self.terrain_order.iter().collect()
     }
 
     /// Get terrain types by surface
     pub fn get_terrains_by_surface(&self, surface: &TerrainSurface) -> Vec<&TerrainType> {
-        self.terrain_types
-            .values()
+        self.terrain_order
+            .iter()
+            .filter_map(|name| self.terrain_types.get(name))
             .filter(|t| &t.surface_type == surface)
             .collect()
     }
 
     /// Remove a terrain type
     pub fn remove_terrain(&mut self, name: &AsciiString) -> bool {
-        self.terrain_types.remove(name.as_str()).is_some()
+        let removed = self.terrain_types.remove(name.as_str()).is_some();
+        if removed {
+            self.terrain_order
+                .retain(|terrain_name| terrain_name != name.as_str());
+        }
+        removed
     }
 
     /// Clear all terrain types
     pub fn clear(&mut self) {
         self.terrain_types.clear();
+        self.terrain_order.clear();
     }
 
     /// Get terrain type count
@@ -611,7 +649,14 @@ impl IniTerrain {
     /// Register a terrain type
     pub fn register_terrain_type(terrain_type: TerrainType) -> TerrainResult<()> {
         let terrain_types = initialize_terrain_types();
-        terrain_types.write().register_terrain(terrain_type);
+        if terrain_type.properties.is_empty() {
+            terrain_types.write().register_terrain(terrain_type);
+        } else {
+            let name = terrain_type.name.clone();
+            terrain_types
+                .write()
+                .register_terrain_properties(name, &terrain_type.properties)?;
+        }
         Ok(())
     }
 
@@ -696,8 +741,7 @@ fn parse_terrain_file_into(target: &mut TerrainTypes, path: &Path) -> TerrainRes
         if trimmed.eq_ignore_ascii_case("END") {
             if let Some(name) = current_name.take() {
                 let props = std::mem::take(&mut properties);
-                let terrain = IniTerrain::parse_terrain_block(name, props)?;
-                target.register_terrain(terrain);
+                target.register_terrain_properties(name, &props)?;
             } else {
                 trace!(
                     "Encountered 'End' without active terrain block in '{}' (line {})",
@@ -711,8 +755,7 @@ fn parse_terrain_file_into(target: &mut TerrainTypes, path: &Path) -> TerrainRes
         if trimmed.starts_with('[') {
             if let Some(name) = current_name.take() {
                 let props = std::mem::take(&mut properties);
-                let terrain = IniTerrain::parse_terrain_block(name, props)?;
-                target.register_terrain(terrain);
+                target.register_terrain_properties(name, &props)?;
             }
             properties.clear();
             continue;
@@ -728,8 +771,7 @@ fn parse_terrain_file_into(target: &mut TerrainTypes, path: &Path) -> TerrainRes
         {
             if let Some(name) = current_name.take() {
                 let props = std::mem::take(&mut properties);
-                let terrain = IniTerrain::parse_terrain_block(name, props)?;
-                target.register_terrain(terrain);
+                target.register_terrain_properties(name, &props)?;
             }
 
             let raw_name = trimmed[7..].trim();
@@ -767,8 +809,7 @@ fn parse_terrain_file_into(target: &mut TerrainTypes, path: &Path) -> TerrainRes
 
     if let Some(name) = current_name.take() {
         let props = std::mem::take(&mut properties);
-        let terrain = IniTerrain::parse_terrain_block(name, props)?;
-        target.register_terrain(terrain);
+        target.register_terrain_properties(name, &props)?;
     }
 
     let after_count = target.get_terrain_count();
@@ -846,6 +887,66 @@ mod tests {
 
         // Count terrain types
         assert_eq!(manager.get_terrain_count(), 1);
+    }
+
+    #[test]
+    fn terrain_types_new_terrain_copies_default_and_lists_newest_first() {
+        let mut manager = TerrainTypes::new();
+
+        {
+            let default = manager.new_terrain(AsciiString::from("DefaultTerrain"));
+            default.surface_type = TerrainSurface::Rock;
+            default.texture_name = AsciiString::from("default_rock.tga");
+            default.is_buildable = false;
+            default.traction = 0.75;
+        }
+
+        let first = manager.new_terrain(AsciiString::from("FirstTerrain"));
+        assert_eq!(first.name.as_str(), "FirstTerrain");
+        assert!(matches!(first.surface_type, TerrainSurface::Rock));
+        assert_eq!(first.texture_name.as_str(), "default_rock.tga");
+        assert!(!first.is_buildable);
+        assert_eq!(first.traction, 0.75);
+
+        manager.new_terrain(AsciiString::from("SecondTerrain"));
+        let names: Vec<&str> = manager
+            .get_terrain_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            names,
+            vec!["SecondTerrain", "FirstTerrain", "DefaultTerrain"]
+        );
+    }
+
+    #[test]
+    fn parsed_terrain_properties_preserve_inherited_defaults() {
+        let mut manager = TerrainTypes::new();
+        {
+            let default = manager.new_terrain(AsciiString::from("DefaultTerrain"));
+            default.texture_name = AsciiString::from("default_texture.tga");
+            default.is_buildable = false;
+            default.traction = 0.5;
+        }
+
+        let mut properties = HashMap::new();
+        properties.insert("Texture".to_string(), "custom_texture.tga".to_string());
+
+        manager
+            .register_terrain_properties(AsciiString::from("CustomTerrain"), &properties)
+            .unwrap();
+
+        let terrain = manager
+            .find_terrain(&AsciiString::from("CustomTerrain"))
+            .unwrap();
+        assert_eq!(terrain.texture_name.as_str(), "custom_texture.tga");
+        assert!(!terrain.is_buildable);
+        assert_eq!(terrain.traction, 0.5);
+        assert_eq!(
+            terrain.properties.get("Texture").map(String::as_str),
+            Some("custom_texture.tga")
+        );
     }
 
     #[test]
