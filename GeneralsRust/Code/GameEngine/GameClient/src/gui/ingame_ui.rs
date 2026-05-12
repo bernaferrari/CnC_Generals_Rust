@@ -29,7 +29,7 @@ use crate::message_stream::game_message::{
 use crate::message_stream::message_stream::append_message_to_stream;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::get_anim2d_collection;
-use game_engine::common::ini::ini_language::get_global_language_read;
+use game_engine::common::ini::ini_language::{get_global_language_read, FontDesc};
 use gamelogic::action_manager::ActionManager;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
 use gamelogic::common::CommandSourceType;
@@ -3990,6 +3990,65 @@ impl InGameUI {
 
         self.draw_rmb_scroll_anchor = settings.draw_rmb_scroll_anchor;
         self.move_rmb_scroll_anchor = settings.move_rmb_scroll_anchor;
+
+        self.apply_global_language_font_overrides();
+    }
+
+    fn apply_global_language_font_overrides(&mut self) {
+        let Some(language) = get_global_language_read() else {
+            return;
+        };
+
+        if let Some((name, size, bold)) = Self::language_font_override(&language.message_font) {
+            self.message_font_name = name;
+            self.message_point_size = size;
+            self.message_bold = bold;
+        }
+
+        if let Some((name, size, bold)) =
+            Self::language_font_override(&language.military_caption_title_font)
+        {
+            self.military_caption_title_font = name;
+            self.military_caption_title_point_size = size;
+            self.military_caption_title_bold = bold;
+        }
+
+        if let Some((name, size, bold)) =
+            Self::language_font_override(&language.military_caption_font)
+        {
+            self.military_caption_font = name;
+            self.military_caption_point_size = size;
+            self.military_caption_bold = bold;
+        }
+
+        if let Some((name, size, bold)) =
+            Self::language_font_override(&language.superweapon_countdown_normal_font)
+        {
+            self.superweapon_normal_font = name;
+            self.superweapon_normal_point_size = size;
+            self.superweapon_normal_bold = bold;
+        }
+
+        if let Some((name, size, bold)) =
+            Self::language_font_override(&language.superweapon_countdown_ready_font)
+        {
+            self.superweapon_ready_font = name;
+            self.superweapon_ready_point_size = size;
+            self.superweapon_ready_bold = bold;
+        }
+
+        if let Some((name, size, bold)) =
+            Self::language_font_override(&language.drawable_caption_font)
+        {
+            self.drawable_caption_font = name;
+            self.drawable_caption_point_size = size;
+            self.drawable_caption_bold = bold;
+        }
+    }
+
+    fn language_font_override(font: &FontDesc) -> Option<(String, i32, bool)> {
+        (!font.name.is_empty() && *font != FontDesc::default())
+            .then(|| (font.name.clone(), font.size, font.bold))
     }
 
     // ── Command hint system ──────────────────────────────────────────────
@@ -4566,6 +4625,19 @@ mod tests {
         );
 
         Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn language_font_override_extracts_explicit_language_font() {
+        assert_eq!(
+            InGameUI::language_font_override(&FontDesc::new("Localized Caption", 14, true)),
+            Some(("Localized Caption".to_string(), 14, true))
+        );
+    }
+
+    #[test]
+    fn language_font_override_ignores_default_language_font_descriptor() {
+        assert_eq!(InGameUI::language_font_override(&FontDesc::default()), None);
     }
 
     #[test]
