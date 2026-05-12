@@ -49,7 +49,7 @@ impl WeaponFiringSystem {
         }
 
         // 2. Get weapon properties for targeting
-        let template = weapon.get_template();
+        let template = Arc::clone(weapon.get_template());
         let bonus = self.compute_weapon_bonus(shooter_id);
 
         // 3. Acquire target
@@ -82,7 +82,7 @@ impl WeaponFiringSystem {
         };
 
         // 4. Handle lock-on for guided weapons (missiles)
-        if self.requires_lock_on(template) {
+        if self.requires_lock_on(&template) {
             let lock_state = self.update_and_check_lock_on(shooter_id, target.target_id)?;
 
             match lock_state {
@@ -127,7 +127,7 @@ impl WeaponFiringSystem {
         bonus: &WeaponBonus,
         current_frame: u32,
     ) -> GameLogicResult<Option<TargetAcquisitionResult>> {
-        let template = weapon.get_template();
+        let template = Arc::clone(weapon.get_template());
 
         // Build search parameters
         let params = TargetSearchParams {
@@ -136,7 +136,7 @@ impl WeaponFiringSystem {
             max_range: template.get_attack_range(bonus),
             min_range: template.get_minimum_attack_range(),
             anti_mask: template.anti_mask,
-            preferred_priorities: self.get_preferred_priorities_for_weapon(template),
+            preferred_priorities: self.get_preferred_priorities_for_weapon(&template),
             require_line_of_sight: !template.capable_of_following_waypoint,
             weapon_bonus: bonus.clone(),
             projectile_speed: template.weapon_speed,
@@ -167,14 +167,14 @@ impl WeaponFiringSystem {
             return Ok(None);
         }
 
-        let template = weapon.get_template();
+        let template = Arc::clone(weapon.get_template());
         let params = TargetSearchParams {
             shooter_pos: *shooter_pos,
             shooter_id,
             max_range: template.get_attack_range(bonus),
             min_range: template.get_minimum_attack_range(),
             anti_mask: template.anti_mask,
-            preferred_priorities: self.get_preferred_priorities_for_weapon(template),
+            preferred_priorities: self.get_preferred_priorities_for_weapon(&template),
             require_line_of_sight: !template.capable_of_following_waypoint,
             weapon_bonus: bonus.clone(),
             projectile_speed: template.weapon_speed,
@@ -299,8 +299,20 @@ impl WeaponFiringSystem {
     ) -> GameLogicResult<Vec<WeaponFiringResult>> {
         let mut results = Vec::new();
 
+        if max_targets == 0 {
+            return Ok(results);
+        }
+
+        if weapon.get_status() != WeaponStatus::ReadyToFire {
+            results.push(WeaponFiringResult::WeaponNotReady {
+                status: weapon.get_status(),
+                time_until_ready: self.calculate_time_until_ready(weapon, current_frame),
+            });
+            return Ok(results);
+        }
+
         // Find multiple targets
-        let template = weapon.get_template();
+        let template = Arc::clone(weapon.get_template());
         let bonus = self.compute_weapon_bonus(shooter_id);
 
         let params = TargetSearchParams {
@@ -309,16 +321,58 @@ impl WeaponFiringSystem {
             max_range: template.get_attack_range(&bonus),
             min_range: template.get_minimum_attack_range(),
             anti_mask: template.anti_mask,
-            preferred_priorities: self.get_preferred_priorities_for_weapon(template),
+            preferred_priorities: self.get_preferred_priorities_for_weapon(&template),
             require_line_of_sight: !template.capable_of_following_waypoint,
             weapon_bonus: bonus.clone(),
             projectile_speed: template.weapon_speed,
         };
 
-        // This would find multiple targets and fire at each
-        // For scatter weapons or multi-barrel weapons
+        let targets =
+            self.target_acquisition
+                .find_best_targets(&params, current_frame, max_targets)?;
+        if targets.is_empty() {
+            results.push(WeaponFiringResult::NoValidTarget);
+            return Ok(results);
+        }
 
-        results.push(WeaponFiringResult::NoValidTarget);
+        for target in targets {
+            if weapon.get_status() != WeaponStatus::ReadyToFire {
+                results.push(WeaponFiringResult::WeaponNotReady {
+                    status: weapon.get_status(),
+                    time_until_ready: self.calculate_time_until_ready(weapon, current_frame),
+                });
+                break;
+            }
+
+            if self.requires_lock_on(&template) {
+                match self.update_and_check_lock_on(shooter_id, target.target_id)? {
+                    LockOnState::Locked { .. } => {}
+                    LockOnState::Acquiring { progress, .. } => {
+                        results.push(WeaponFiringResult::AcquiringLock {
+                            target_id: target.target_id,
+                            progress,
+                        });
+                        continue;
+                    }
+                    _ => {
+                        results.push(WeaponFiringResult::NoLock);
+                        continue;
+                    }
+                }
+            }
+
+            let aim_point = target.predicted_position.unwrap_or(target.position);
+            weapon.fire_weapon_at_position(shooter_id, &aim_point)?;
+            results.push(WeaponFiringResult::Fired {
+                target_id: target.target_id,
+                target_position: target.position,
+                aim_point,
+                distance: target.distance,
+                predicted_hit: target.predicted_position.is_some(),
+                clip_auto_reloaded: false,
+            });
+        }
+
         Ok(results)
     }
 

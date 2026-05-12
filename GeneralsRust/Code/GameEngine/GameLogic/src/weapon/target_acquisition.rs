@@ -123,11 +123,29 @@ impl WeaponTargetAcquisition {
         params: &TargetSearchParams,
         current_frame: u32,
     ) -> GameLogicResult<Option<TargetAcquisitionResult>> {
+        Ok(self
+            .find_best_targets(params, current_frame, 1)?
+            .into_iter()
+            .next())
+    }
+
+    /// Find the best targets for a weapon, ordered by the same priority and
+    /// confidence rules as single-target acquisition.
+    pub fn find_best_targets(
+        &self,
+        params: &TargetSearchParams,
+        current_frame: u32,
+        max_targets: usize,
+    ) -> GameLogicResult<Vec<TargetAcquisitionResult>> {
+        if max_targets == 0 {
+            return Ok(Vec::new());
+        }
+
         // 1. Get all objects within range using spatial partitioning
         let potential_targets = self.get_objects_in_range(&params.shooter_pos, params.max_range)?;
 
         if potential_targets.is_empty() {
-            return Ok(None);
+            return Ok(Vec::new());
         }
 
         // 2. Filter and validate targets
@@ -148,7 +166,7 @@ impl WeaponTargetAcquisition {
         }
 
         if valid_targets.is_empty() {
-            return Ok(None);
+            return Ok(Vec::new());
         }
 
         // 3. Sort by priority class (primary) and then by score (secondary)
@@ -165,8 +183,8 @@ impl WeaponTargetAcquisition {
             }
         });
 
-        // 4. Return best target
-        Ok(valid_targets.into_iter().next())
+        valid_targets.truncate(max_targets);
+        Ok(valid_targets)
     }
 
     /// Evaluate a specific target using the same validation/scoring pipeline
@@ -726,5 +744,25 @@ mod tests {
             params.preferred_priorities[0],
             TargetPriorityClass::Structure
         );
+    }
+
+    #[test]
+    fn test_find_best_targets_zero_limit_skips_search() {
+        let acquisition = WeaponTargetAcquisition::new();
+        let params = TargetSearchParams {
+            shooter_pos: Coord3D::new(0.0, 0.0, 0.0),
+            shooter_id: 1,
+            max_range: 500.0,
+            min_range: 0.0,
+            anti_mask: WeaponAntiMask::new(WeaponAntiMask::GROUND),
+            preferred_priorities: vec![TargetPriorityClass::Structure],
+            require_line_of_sight: true,
+            weapon_bonus: WeaponBonus::new(),
+            projectile_speed: 100.0,
+        };
+
+        let targets = acquisition.find_best_targets(&params, 100, 0).unwrap();
+
+        assert!(targets.is_empty());
     }
 }
