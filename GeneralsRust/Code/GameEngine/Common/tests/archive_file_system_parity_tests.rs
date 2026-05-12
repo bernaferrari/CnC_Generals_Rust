@@ -1,6 +1,7 @@
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::archive_file_system::ArchiveFileSystem;
 use game_engine::common::system::big_file_system::BIG_FILE_IDENTIFIER;
+use game_engine::common::system::file_system::FilenameList;
 use std::fs;
 use std::io::{self, Read, Write};
 
@@ -89,6 +90,49 @@ fn close_all_files_does_not_unmount_archives() -> Result<(), Box<dyn std::error:
 
     archive_system.close_all_archive_files();
     assert!(!archive_system.does_file_exist("Data/INI/GameData.ini"));
+
+    Ok(())
+}
+
+#[test]
+fn archive_directory_listing_recurses_like_cpp_even_when_flag_is_false(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let dir = tempfile::tempdir()?;
+    let archive_path = dir.path().join("Data.big");
+    create_test_big_file(
+        &archive_path,
+        &[
+            ("Data/INI/Object/AmericaVehicle.ini", b"vehicle"),
+            ("Data/INI/Object/Nested/AmericaNested.ini", b"nested"),
+            ("Data/INI/Upgrade.ini", b"upgrade"),
+        ],
+    )?;
+
+    let mut archive_system = ArchiveFileSystem::new();
+    archive_system.open_archive_file(archive_path.to_str().expect("archive path"))?;
+
+    let mut filenames = FilenameList::new();
+    archive_system.get_file_list_in_directory(
+        &AsciiString::from(""),
+        &AsciiString::from("data/ini/object"),
+        &AsciiString::from("*.ini"),
+        &mut filenames,
+        false,
+    );
+
+    let listed = filenames
+        .iter()
+        .map(|name| name.as_str().replace('\\', "/").to_lowercase())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        listed,
+        vec![
+            "data/ini/object/americavehicle.ini".to_string(),
+            "data/ini/object/nested/americanested.ini".to_string(),
+        ],
+        "C++ ArchiveFile::getFileListInDirectory always descends archive subdirectories"
+    );
 
     Ok(())
 }
