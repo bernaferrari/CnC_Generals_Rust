@@ -7,7 +7,7 @@
 //! Rust port: 2025
 
 use once_cell::sync::OnceCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
@@ -633,7 +633,7 @@ pub fn parse_initial_camera_position(
 /// Map cache storage
 #[derive(Debug)]
 pub struct MapCache {
-    maps: HashMap<String, MapMetaData>,
+    maps: BTreeMap<String, MapMetaData>,
 }
 
 impl Default for MapCache {
@@ -645,7 +645,7 @@ impl Default for MapCache {
 impl MapCache {
     pub fn new() -> Self {
         Self {
-            maps: HashMap::new(),
+            maps: BTreeMap::new(),
         }
     }
 
@@ -665,7 +665,7 @@ impl MapCache {
     }
 
     /// Iterate over map metadata entries
-    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, MapMetaData> {
+    pub fn iter(&self) -> std::collections::btree_map::Iter<'_, String, MapMetaData> {
         self.maps.iter()
     }
 
@@ -971,6 +971,80 @@ mod tests {
 
         let official_maps = cache.get_official_maps();
         assert_eq!(official_maps.len(), 1);
+    }
+
+    #[test]
+    fn test_map_cache_iterates_in_cpp_std_map_key_order() {
+        let mut cache = MapCache::new();
+
+        cache.insert("Maps\\Zulu\\Zulu.map".to_string(), MapMetaData::new());
+        cache.insert("Maps\\Alpha\\Alpha.map".to_string(), MapMetaData::new());
+        cache.insert("Maps\\Middle\\Middle.map".to_string(), MapMetaData::new());
+
+        assert_eq!(
+            cache
+                .get_map_names()
+                .into_iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec![
+                "maps\\alpha\\alpha.map",
+                "maps\\middle\\middle.map",
+                "maps\\zulu\\zulu.map"
+            ]
+        );
+        assert_eq!(
+            cache
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "maps\\alpha\\alpha.map",
+                "maps\\middle\\middle.map",
+                "maps\\zulu\\zulu.map"
+            ]
+        );
+    }
+
+    #[test]
+    fn test_map_cache_filtered_results_keep_cpp_std_map_key_order() {
+        let mut cache = MapCache::new();
+
+        let mut zulu = MapMetaData::new();
+        zulu.is_multiplayer = true;
+        zulu.is_official = true;
+        zulu.num_players = 4;
+
+        let mut alpha = MapMetaData::new();
+        alpha.is_multiplayer = true;
+        alpha.is_official = true;
+        alpha.num_players = 4;
+
+        let mut middle = MapMetaData::new();
+        middle.is_multiplayer = true;
+        middle.is_official = false;
+        middle.num_players = 8;
+
+        cache.insert("Maps\\Zulu\\Zulu.map".to_string(), zulu);
+        cache.insert("Maps\\Alpha\\Alpha.map".to_string(), alpha);
+        cache.insert("Maps\\Middle\\Middle.map".to_string(), middle);
+
+        assert_eq!(
+            cache
+                .find_multiplayer_maps(2, 6)
+                .into_iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["maps\\alpha\\alpha.map", "maps\\zulu\\zulu.map"]
+        );
+        assert_eq!(
+            cache
+                .get_official_maps()
+                .into_iter()
+                .map(|(name, _)| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["maps\\alpha\\alpha.map", "maps\\zulu\\zulu.map"]
+        );
     }
 
     #[test]
