@@ -474,6 +474,7 @@ impl ShellMenuScheme {
 #[derive(Debug)]
 pub struct ShellMenuSchemeManager {
     schemes: HashMap<String, ShellMenuScheme>,
+    scheme_order: Vec<String>,
     current_scheme: Option<String>,
 }
 
@@ -481,6 +482,7 @@ impl ShellMenuSchemeManager {
     pub fn new() -> Self {
         Self {
             schemes: HashMap::new(),
+            scheme_order: Vec::new(),
             current_scheme: None,
         }
     }
@@ -521,11 +523,17 @@ impl ShellMenuSchemeManager {
     }
 
     pub fn new_shell_menu_scheme(&mut self, name: String) -> &mut ShellMenuScheme {
-        let key = name.to_ascii_lowercase();
+        let key = name.trim().to_ascii_lowercase();
+        self.schemes.remove(&key);
+        self.scheme_order.retain(|existing| existing != &key);
         self.schemes
-            .entry(key.clone())
-            .or_insert_with(|| ShellMenuScheme::new(name));
+            .insert(key.clone(), ShellMenuScheme::new(key.clone()));
+        self.scheme_order.push(key.clone());
         self.schemes.get_mut(&key).unwrap()
+    }
+
+    fn get_shell_menu_scheme_mut(&mut self, name: &str) -> Option<&mut ShellMenuScheme> {
+        self.schemes.get_mut(&name.trim().to_ascii_lowercase())
     }
 
     fn load_default_scheme_files(&mut self) {
@@ -546,14 +554,18 @@ impl ShellMenuSchemeManager {
                            scheme_name: &Option<String>,
                            image: &mut Option<ShellMenuSchemeImage>| {
             if let (Some(name), Some(image)) = (scheme_name.as_ref(), image.take()) {
-                manager.new_shell_menu_scheme(name.clone()).add_image(image);
+                if let Some(scheme) = manager.get_shell_menu_scheme_mut(name) {
+                    scheme.add_image(image);
+                }
             }
         };
         let flush_line = |manager: &mut ShellMenuSchemeManager,
                           scheme_name: &Option<String>,
                           line: &mut Option<ShellMenuSchemeLine>| {
             if let (Some(name), Some(line)) = (scheme_name.as_ref(), line.take()) {
-                manager.new_shell_menu_scheme(name.clone()).add_line(line);
+                if let Some(scheme) = manager.get_shell_menu_scheme_mut(name) {
+                    scheme.add_line(line);
+                }
             }
         };
 
@@ -583,7 +595,9 @@ impl ShellMenuSchemeManager {
             if let Some(name) = line.strip_prefix("ShellMenuScheme ") {
                 flush_image(self, &current_scheme, &mut current_image);
                 flush_line(self, &current_scheme, &mut current_line);
-                current_scheme = Some(name.trim().to_string());
+                let name = name.trim().to_string();
+                self.new_shell_menu_scheme(name.clone());
+                current_scheme = Some(name);
                 continue;
             }
             if line.eq_ignore_ascii_case("ImagePart") {
@@ -3143,6 +3157,59 @@ mod tests {
         assert_eq!(manager.current_scheme.as_deref(), Some("test_scheme"));
         manager.set_shell_menu_scheme("");
         assert!(manager.current_scheme.is_none());
+    }
+
+    #[test]
+    fn test_scheme_manager_replaces_duplicates_in_cpp_list_order() {
+        let mut manager = ShellMenuSchemeManager::new();
+
+        manager.new_shell_menu_scheme("first".to_string());
+        manager.new_shell_menu_scheme("second".to_string());
+        manager
+            .new_shell_menu_scheme("FIRST".to_string())
+            .add_line(ShellMenuSchemeLine::new(
+                Coord2D::new(1, 2),
+                Coord2D::new(3, 4),
+                5,
+                Color::white(),
+            ));
+
+        assert_eq!(manager.scheme_order, vec!["second", "first"]);
+        assert_eq!(manager.schemes["first"].lines.len(), 1);
+        assert!(manager.schemes["first"].images.is_empty());
+    }
+
+    #[test]
+    fn test_parse_shell_menu_schemes_replaces_duplicate_blocks() {
+        let mut manager = ShellMenuSchemeManager::new();
+
+        manager.parse_shell_menu_schemes(
+            r#"
+ShellMenuScheme Alpha
+  ImagePart
+    Position = 1 2
+    Size = 3 4
+    ImageName = stale
+  EndImagePart
+End
+ShellMenuScheme Beta
+End
+ShellMenuScheme Alpha
+  LinePart
+    StartPosition = 5 6
+    EndPosition = 7 8
+    Color = 4294967295
+    Width = 9
+  EndLinePart
+End
+"#,
+        );
+
+        assert_eq!(manager.scheme_order, vec!["beta", "alpha"]);
+        let alpha = &manager.schemes["alpha"];
+        assert!(alpha.images.is_empty());
+        assert_eq!(alpha.lines.len(), 1);
+        assert_eq!(alpha.lines[0].width, 9);
     }
 
     #[test]
