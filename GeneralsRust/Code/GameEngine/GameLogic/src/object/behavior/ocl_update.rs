@@ -20,12 +20,15 @@
 //! Original C++ Author: EA Developers
 //! Rust conversion: 2025
 
-use serde::{Deserialize, Serialize};
-use crate::common::{ObjectID, Real, Coord3D, UnsignedInt, Bool};
-use crate::helpers::{TheTerrainLogic, TheThingFactory};
+use crate::common::{Bool, Coord3D, ObjectID, Real, UnsignedInt};
+use crate::helpers::{
+    get_game_logic_random_value, get_game_logic_random_value_real, TheTerrainLogic,
+    TheThingFactory,
+};
+use crate::modules::OCLUpdateInterface;
 use crate::player::ThePlayerList;
 use crate::team::get_team_factory;
-use crate::modules::OCLUpdateInterface;
+use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
 /// Object creation disposition (spawn pattern)
@@ -240,15 +243,13 @@ impl OCLUpdate {
         self.objects_created = 0;
         self.created_object_ids.clear();
 
-        // Determine how many objects to create
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
         if self.data.min_count == self.data.max_count {
             self.target_count = self.data.min_count;
         } else {
-            let range = self.data.max_count - self.data.min_count;
-            self.target_count = self.data.min_count + rng.gen_range(0..=range);
+            self.target_count = get_game_logic_random_value(
+                self.data.min_count as i32,
+                self.data.max_count as i32,
+            ) as u32;
         }
 
         self.next_creation_frame = self.current_frame;
@@ -273,10 +274,8 @@ impl OCLUpdate {
             OCLDisposition::DoParallelCreate => {
                 // All at same position with optional spread
                 if self.data.spread_radius > 0.0 {
-                    use rand::Rng;
-                    let mut rng = rand::thread_rng();
-                    let angle = rng.gen::<Real>() * 2.0 * PI;
-                    let distance = rng.gen::<Real>() * self.data.spread_radius;
+                    let angle = get_game_logic_random_value_real(0.0, 2.0 * PI);
+                    let distance = get_game_logic_random_value_real(0.0, self.data.spread_radius);
                     pos[0] += distance * angle.cos();
                     pos[1] += distance * angle.sin();
                 }
