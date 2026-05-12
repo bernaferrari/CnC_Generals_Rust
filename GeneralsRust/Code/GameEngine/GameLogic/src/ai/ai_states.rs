@@ -328,7 +328,7 @@ impl AIIdleState {
 
     fn do_init_idle_state(&mut self) {
         if !self.inited {
-            self.initial_sleep_offset = (rand::random::<u16>() % 30) as u16;
+            self.initial_sleep_offset = game_logic_random_value(0, LOGICFRAMES_PER_SECOND * 2) as u16;
             self.inited = true;
         }
     }
