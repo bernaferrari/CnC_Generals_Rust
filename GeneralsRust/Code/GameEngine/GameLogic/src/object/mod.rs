@@ -3208,6 +3208,30 @@ impl Object {
         self.is_kind_of(KindOf::Structure)
     }
 
+    /// C++ Object::isFactionStructure(): any KINDOF_FS bit marks a faction structure.
+    pub fn is_faction_structure(&self) -> bool {
+        self.is_any_kind_of(&[
+            KindOf::FSBarracks,
+            KindOf::FSWarfactory,
+            KindOf::FSAirfield,
+            KindOf::FSInternetCenter,
+            KindOf::FSPower,
+            KindOf::FSSupplyDropzone,
+            KindOf::FSSupplyCenter,
+            KindOf::FSSuperweapon,
+            KindOf::FSStrategyCenter,
+            KindOf::FSFake,
+            KindOf::FSTechnology,
+            KindOf::FsBlackMarket,
+            KindOf::FsAdvancedTech,
+        ])
+    }
+
+    /// C++ Object::isNonFactionStructure().
+    pub fn is_non_faction_structure(&self) -> bool {
+        self.is_structure() && !self.is_faction_structure()
+    }
+
     /// AI helper: idle if AI present.
     pub fn ai_idle(&mut self) {
         if let Some(ai) = &self.ai {
@@ -12128,6 +12152,36 @@ mod tests {
         let result = obj.set_health(50.0);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ObjectError::AlreadyDead));
+    }
+
+    #[test]
+    fn faction_structure_matches_cpp_fs_kind_mask() {
+        let mut faction_template = DefaultThingTemplate::new("FactionStructure".to_string());
+        let mut properties = std::collections::HashMap::new();
+        properties.insert("KindOf".to_string(), "STRUCTURE | FS_BARRACKS".to_string());
+        faction_template.parse_object_fields_from_ini(&properties);
+        let faction_obj = Object::new_raw(
+            Arc::new(faction_template),
+            10,
+            ObjectStatusMaskType::none(),
+            None,
+        );
+        assert!(faction_obj.is_structure());
+        assert!(faction_obj.is_faction_structure());
+        assert!(!faction_obj.is_non_faction_structure());
+
+        let mut civilian_template = DefaultThingTemplate::new("CivilianStructure".to_string());
+        properties.insert("KindOf".to_string(), "STRUCTURE | CIVILIAN".to_string());
+        civilian_template.parse_object_fields_from_ini(&properties);
+        let civilian_obj = Object::new_raw(
+            Arc::new(civilian_template),
+            11,
+            ObjectStatusMaskType::none(),
+            None,
+        );
+        assert!(civilian_obj.is_structure());
+        assert!(!civilian_obj.is_faction_structure());
+        assert!(civilian_obj.is_non_faction_structure());
     }
 
     #[test]
