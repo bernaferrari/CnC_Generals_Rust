@@ -25,6 +25,7 @@ use std::sync::{Arc, RwLock};
 
 const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
 const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
+const KEY_ESC: u32 = 0x1B;
 
 /// Control bar system state
 #[derive(Debug, Clone)]
@@ -102,6 +103,20 @@ fn selection_is_empty() -> bool {
         .get_player_selection_ref(local_index)
         .map(|selection| selection.get_selection_count() == 0)
         .unwrap_or(true)
+}
+
+fn clear_local_selection() {
+    let local_index = ThePlayerList()
+        .read()
+        .map(|list| list.get_local_player_index())
+        .unwrap_or(0);
+    let selection_manager = get_selection_manager();
+    let Ok(mut manager) = selection_manager.write() else {
+        return;
+    };
+    if let Some(selection) = manager.get_player_selection(local_index) {
+        selection.clear_selection();
+    }
 }
 
 fn filter_beacon_edit_text(mut text: String) -> String {
@@ -421,6 +436,20 @@ impl Default for ControlBarCallbacks {
     }
 }
 
+pub fn beacon_window_input(
+    _window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    _data2: WindowMsgData,
+) -> WindowMsgHandled {
+    if msg == WindowMessage::Char && data1 == KEY_ESC {
+        clear_local_selection();
+        return WindowMsgHandled::Handled;
+    }
+
+    WindowMsgHandled::Ignored
+}
+
 /// Left HUD input handler
 pub struct LeftHUDCallbacks {}
 
@@ -734,5 +763,19 @@ mod tests {
         let filtered = filter_beacon_edit_text("hold badword beacon".to_string());
 
         assert_eq!(filtered, "hold ******* beacon");
+    }
+
+    #[test]
+    fn beacon_window_input_handles_escape_only() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            beacon_window_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            beacon_window_input(&window, WindowMessage::Char, b'A' as u32, 0),
+            WindowMsgHandled::Ignored
+        );
     }
 }
