@@ -5037,6 +5037,9 @@ pub trait ParticleSystemManagerInterface: std::fmt::Debug + Send + Sync {
     /// Stop emitting new particles from a system (mirrors ParticleSystem::stop).
     fn stop_particle_system(&self, _system_id: ParticleSystemId) {}
 
+    /// Tint all active particle-system colors (mirrors ParticleSystem::tintAllColors).
+    fn tint_particle_system_all_colors(&self, _system_id: ParticleSystemId, _color: Color) {}
+
     /// Scale particle velocity on an active system (mirrors ParticleSystem::setVelocityMultiplier).
     fn set_particle_system_velocity_multiplier(
         &self,

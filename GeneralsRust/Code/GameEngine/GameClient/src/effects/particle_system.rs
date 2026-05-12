@@ -2138,6 +2138,13 @@ impl ParticleSystem {
     pub fn template(&self) -> &Arc<ParticleSystemTemplate> {
         &self.template
     }
+
+    /// Tint all color keys on this system's private template copy.
+    pub fn tint_all_colors(&mut self, tint_color: [f32; 3]) {
+        Arc::make_mut(&mut self.template)
+            .info_mut()
+            .tint_all_colors(tint_color);
+    }
 }
 
 #[cfg(test)]
@@ -2152,6 +2159,25 @@ mod tests {
         assert_eq!(particle.personality, 1);
         assert_eq!(particle.lifetime_left, 30);
         assert_eq!(particle.alpha, 1.0);
+    }
+
+    #[test]
+    fn particle_system_tint_all_colors_keeps_template_source_unchanged() {
+        let mut template = ParticleSystemTemplate::new("TintSource".to_string());
+        template.info_mut().color_keys[0] = RGBColorKeyframe {
+            color: [1.0, 0.5, 0.25],
+            frame: 0,
+        };
+        let template = Arc::new(template);
+        let mut system = ParticleSystem::new(template.clone(), 1, false);
+
+        system.tint_all_colors([0.25, 0.5, 1.0]);
+
+        assert_eq!(
+            system.template().info().color_keys[0].color,
+            [0.25, 0.25, 0.25]
+        );
+        assert_eq!(template.info().color_keys[0].color, [1.0, 0.5, 0.25]);
     }
 
     #[test]
