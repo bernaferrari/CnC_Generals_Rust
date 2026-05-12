@@ -10,6 +10,7 @@ use crate::gui::{
     WindowMsgData, WindowMsgHandled,
 };
 use crate::helpers::{TheControlBar, TheInGameUI};
+use crate::language_filter::get_language_filter;
 use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -101,6 +102,11 @@ fn selection_is_empty() -> bool {
         .get_player_selection_ref(local_index)
         .map(|selection| selection.get_selection_count() == 0)
         .unwrap_or(true)
+}
+
+fn filter_beacon_edit_text(mut text: String) -> String {
+    get_language_filter().filter_line(&mut text);
+    text
 }
 
 fn has_pending_radar_targeting_mode() -> bool {
@@ -310,6 +316,7 @@ impl ControlBarCallbacks {
                     .map(|win| win.borrow().get_text().to_string())
             })
             .unwrap_or_default();
+            let text = filter_beacon_edit_text(text);
             let message_stream = get_message_stream();
             let mut stream = message_stream.write().unwrap_or_else(|e| e.into_inner());
             stream.append_message(GameMessageType::SetBeaconText(
@@ -718,5 +725,14 @@ mod tests {
         assert!(toggle_control_bar(true).is_ok());
         assert!(hide_control_bar(true).is_ok());
         assert!(show_control_bar(true).is_ok());
+    }
+
+    #[test]
+    fn beacon_edit_text_is_language_filtered() {
+        get_language_filter().set_words_for_test(["badword"]);
+
+        let filtered = filter_beacon_edit_text("hold badword beacon".to_string());
+
+        assert_eq!(filtered, "hold ******* beacon");
     }
 }
