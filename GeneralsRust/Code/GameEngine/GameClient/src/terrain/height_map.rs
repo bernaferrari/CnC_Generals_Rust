@@ -282,18 +282,22 @@ impl HeightMap {
 
     /// Get height at world coordinates with bilinear interpolation
     pub fn get_height_at(&self, world_x: f32, world_y: f32) -> f32 {
-        // Convert world coordinates to heightmap coordinates
-        let hm_x = world_x / self.scale;
-        let hm_y = world_y / self.scale;
-
-        // Clamp to heightmap bounds
-        if hm_x < 0.0
-            || hm_y < 0.0
-            || hm_x >= self.width as f32 - 1.0
-            || hm_y >= self.height as f32 - 1.0
-        {
+        if self.width == 0 || self.height == 0 || self.scale.abs() <= f32::EPSILON {
             return 0.0;
         }
+
+        // Convert world coordinates to heightmap coordinates
+        let mut hm_x = world_x / self.scale;
+        let mut hm_y = world_y / self.scale;
+
+        // Clamp to heightmap bounds
+        let max_x = self.width.saturating_sub(1) as f32;
+        let max_y = self.height.saturating_sub(1) as f32;
+        if hm_x < 0.0 || hm_y < 0.0 || hm_x > max_x || hm_y > max_y {
+            return 0.0;
+        }
+        hm_x = hm_x.clamp(0.0, max_x);
+        hm_y = hm_y.clamp(0.0, max_y);
 
         // Get integer coordinates and fractional parts
         let x0 = hm_x.floor() as u32;
@@ -782,6 +786,19 @@ mod tests {
         let expected = (0.5 + 1.0 + 0.25 + 0.75) / 4.0 * 100.0; // Average * max_height
 
         assert!((height - expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_heightmap_sampling_includes_exact_map_edges() {
+        let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
+        heightmap.set_height_at_index(3, 0, 0.25);
+        heightmap.set_height_at_index(0, 3, 0.5);
+        heightmap.set_height_at_index(3, 3, 0.75);
+
+        assert!((heightmap.get_height_at(3.0, 0.0) - 25.0).abs() < 0.001);
+        assert!((heightmap.get_height_at(0.0, 3.0) - 50.0).abs() < 0.001);
+        assert!((heightmap.get_height_at(3.0, 3.0) - 75.0).abs() < 0.001);
+        assert_eq!(heightmap.get_height_at(3.001, 3.0), 0.0);
     }
 
     #[test]
