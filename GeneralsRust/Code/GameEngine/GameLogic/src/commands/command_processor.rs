@@ -42,7 +42,7 @@ use crate::object::object_factory::{get_object_factory, GameObjectInstance};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
-use crate::system::beacon_manager::get_beacon_manager;
+use crate::system::beacon_manager::{get_beacon_manager, BeaconManager};
 use crate::upgrade::center::THE_UPGRADE_CENTER;
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType, NO_MAX_SHOTS_LIMIT};
 use game_engine::common::game_engine::get_game_engine;
@@ -575,8 +575,6 @@ pub struct DefaultCommandHandler {
 static NEXT_FORMATION_ID: AtomicU32 = AtomicU32::new(1);
 
 impl DefaultCommandHandler {
-    const BEACON_MATCH_THRESHOLD: Real = 3.0;
-
     pub fn new() -> Self {
         Self {
             validator: RtsCommandValidator::new(),
@@ -2432,15 +2430,6 @@ impl DefaultCommandHandler {
         command: &QueuedCommand,
         context: &mut CommandExecutionContext,
     ) -> CommandExecutionResult {
-        let position = match self.extract_command_location(command) {
-            Some(pos) => pos,
-            None => {
-                return CommandExecutionResult::Failed(AsciiString::from(
-                    "No beacon position supplied",
-                ))
-            }
-        };
-
         let text = match self.extract_command_text(command) {
             Some(text) => text,
             None => {
@@ -2448,42 +2437,7 @@ impl DefaultCommandHandler {
             }
         };
 
-        let template = match self.resolve_beacon_template_for_player(context.player_id) {
-            Some(template) => template,
-            None => {
-                return CommandExecutionResult::Failed(AsciiString::from("Beacon template missing"))
-            }
-        };
-
-        let mut found = false;
-        let manager_handle = get_object_manager();
-        if let Ok(manager) = manager_handle.read() {
-            for object_id in manager.get_objects_owned_by_player(context.player_id as UnsignedInt) {
-                let Some(instance) = manager.get_object(object_id) else {
-                    continue;
-                };
-                let Ok(instance_guard) = instance.read() else {
-                    continue;
-                };
-                let obj_arc = instance_guard.base.clone();
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if !template.is_equivalent_to(obj_guard.get_template().as_ref()) {
-                    continue;
-                }
-                if obj_guard.get_position().distance(position) > Self::BEACON_MATCH_THRESHOLD {
-                    continue;
-                }
-                found = true;
-                break;
-            }
-        }
-
-        if !found {
-            return CommandExecutionResult::Failed(AsciiString::from("Beacon not found"));
-        }
-
+        let selected_beacons = self.collect_selected_beacon_positions(context.player_id);
         let mut manager = match get_beacon_manager().lock() {
             Ok(lock) => lock,
             Err(_) => {
@@ -2493,11 +2447,69 @@ impl DefaultCommandHandler {
             }
         };
 
-        if manager.set_beacon_text(context.player_id, &position, text) {
+        let fallback = self
+            .extract_command_location(command)
+            .map(|position| (context.player_id, position));
+        if Self::apply_beacon_text_updates(&mut manager, &selected_beacons, fallback, text) {
             CommandExecutionResult::Success
         } else {
             CommandExecutionResult::Failed(AsciiString::from("Beacon not found"))
         }
+    }
+
+    fn apply_beacon_text_updates(
+        manager: &mut BeaconManager,
+        selected_beacons: &[(Int, Coord3D)],
+        fallback: Option<(Int, Coord3D)>,
+        text: AsciiString,
+    ) -> bool {
+        let mut updated = false;
+        for (owner_id, position) in selected_beacons {
+            updated |= manager.set_beacon_text(*owner_id, position, text.clone());
+        }
+        if updated {
+            true
+        } else if let Some((owner_id, position)) = fallback {
+            manager.set_beacon_text(owner_id, &position, text)
+        } else {
+            false
+        }
+    }
+
+    fn collect_selected_beacon_positions(&self, player_id: Int) -> Vec<(Int, Coord3D)> {
+        let selected_ids = match player_list().read() {
+            Ok(list) => list
+                .get_player(player_id)
+                .and_then(|player| {
+                    player
+                        .read()
+                        .ok()
+                        .map(|guard| guard.get_current_selection_ids())
+                })
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        };
+
+        let mut beacons = Vec::new();
+        for object_id in selected_ids {
+            let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(obj_guard) = obj_arc.read() else {
+                continue;
+            };
+            let owner_id = obj_guard
+                .get_controlling_player_id()
+                .map(|id| id as Int)
+                .unwrap_or(player_id);
+            let Some(owner_template) = self.resolve_beacon_template_for_player(owner_id) else {
+                continue;
+            };
+            if owner_template.is_equivalent_to(obj_guard.get_template().as_ref()) {
+                beacons.push((owner_id, *obj_guard.get_position()));
+            }
+        }
+        beacons
     }
 
     fn is_in_region_no_z(region: &crate::common::Region3D, position: &Coord3D) -> bool {
@@ -2698,8 +2710,7 @@ impl DefaultCommandHandler {
             return Vec::new();
         };
         let mut hidden = Vec::new();
-        let object_ids =
-            manager_guard.find_objects_in_radius(*position, Self::BEACON_MATCH_THRESHOLD);
+        let object_ids = manager_guard.find_objects_in_radius(*position, 3.0);
         for object_id in object_ids {
             let Some(instance) = manager_guard.get_object(object_id) else {
                 continue;
@@ -2711,7 +2722,7 @@ impl DefaultCommandHandler {
             let Ok(obj_guard) = obj_arc.read() else {
                 continue;
             };
-            if obj_guard.get_position().distance(*position) > Self::BEACON_MATCH_THRESHOLD {
+            if obj_guard.get_position().distance(*position) > 3.0 {
                 continue;
             }
             let owner_id = obj_guard
@@ -5035,6 +5046,44 @@ mod tests {
         assert!(handler.can_handle(CommandType::DoAttackSquad));
         assert!(handler.can_handle(CommandType::SetReplayCamera));
         assert!(handler.can_handle(CommandType::LogicCrc));
+    }
+
+    #[test]
+    fn beacon_text_prefers_selected_beacon_positions_over_default_location() {
+        let mut manager = BeaconManager::new();
+        let selected_position = Coord3D::new(100.0, 50.0, 0.0);
+        let default_message_position = Coord3D::ZERO;
+        manager.place_beacon(3, selected_position, 10);
+
+        let updated = DefaultCommandHandler::apply_beacon_text_updates(
+            &mut manager,
+            &[(3, selected_position)],
+            Some((3, default_message_position)),
+            AsciiString::from("Alpha"),
+        );
+
+        assert!(updated);
+        let snapshot = manager.snapshot();
+        assert_eq!(snapshot.len(), 1);
+        assert_eq!(snapshot[0].text.as_deref(), Some("Alpha"));
+        assert_eq!(snapshot[0].position, selected_position);
+    }
+
+    #[test]
+    fn beacon_text_falls_back_to_message_location_without_selection() {
+        let mut manager = BeaconManager::new();
+        let position = Coord3D::new(25.0, 75.0, 0.0);
+        manager.place_beacon(1, position, 10);
+
+        let updated = DefaultCommandHandler::apply_beacon_text_updates(
+            &mut manager,
+            &[],
+            Some((1, position)),
+            AsciiString::from("Bravo"),
+        );
+
+        assert!(updated);
+        assert_eq!(manager.snapshot()[0].text.as_deref(), Some("Bravo"));
     }
 
     #[test]
