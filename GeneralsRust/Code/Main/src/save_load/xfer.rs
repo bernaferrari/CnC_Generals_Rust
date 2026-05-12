@@ -185,6 +185,7 @@ fn write_kind_of_variant(kind_of: KindOf) -> u8 {
         KindOf::FSTechnology => 25,
         KindOf::FSBlackMarket => 26,
         KindOf::FSAdvancedTech => 27,
+        KindOf::FSBaseDefense => 28,
     }
 }
 
@@ -218,6 +219,7 @@ fn read_kind_of_variant(variant: u8) -> SaveLoadResult<KindOf> {
         25 => Ok(KindOf::FSTechnology),
         26 => Ok(KindOf::FSBlackMarket),
         27 => Ok(KindOf::FSAdvancedTech),
+        28 => Ok(KindOf::FSBaseDefense),
         _ => Err(SaveLoadError::Corrupted(format!(
             "Invalid KindOf variant: {variant}"
         ))),
