@@ -21,6 +21,7 @@
 use super::{DisabledMaskType, ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
 use crate::helpers::TheGameLogic;
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Object status types that can be temporarily applied
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -175,9 +176,42 @@ impl ObjectHelperInterface for StatusDamageHelper {
     }
 }
 
+impl Snapshotable for StatusDamageHelper {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("StatusDamageHelper xfer version: {err:?}"))?;
+
+        let mut status = self.status_to_heal as u32;
+        xfer.xfer_unsigned_int(&mut status)
+            .map_err(|err| format!("StatusDamageHelper xfer status_to_heal: {err:?}"))?;
+        self.status_to_heal = ObjectStatusTypes::from_u32(status);
+
+        xfer.xfer_unsigned_int(&mut self.frame_to_heal)
+            .map_err(|err| format!("StatusDamageHelper xfer frame_to_heal: {err:?}"))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.wake_frame = if self.status_to_heal == ObjectStatusTypes::None {
+            u32::MAX
+        } else {
+            self.frame_to_heal
+        };
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     #[test]
     fn test_status_damage_helper_creation() {
@@ -199,5 +233,31 @@ mod tests {
             helper.get_disabled_types_to_process(),
             DisabledMaskType::All
         );
+    }
+
+    #[test]
+    fn xfer_preserves_status_timer_state() {
+        let mut saved = StatusDamageHelper::new(INVALID_ID, StatusDamageHelperModuleData::new());
+        saved.status_to_heal = ObjectStatusTypes::Immobile;
+        saved.frame_to_heal = 1234;
+        saved.wake_frame = saved.frame_to_heal;
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded = StatusDamageHelper::new(INVALID_ID, StatusDamageHelperModuleData::new());
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+        loaded.load_post_process().unwrap();
+
+        assert_eq!(loaded.status_to_heal, saved.status_to_heal);
+        assert_eq!(loaded.frame_to_heal, saved.frame_to_heal);
+        assert_eq!(loaded.wake_frame, saved.frame_to_heal);
     }
 }
