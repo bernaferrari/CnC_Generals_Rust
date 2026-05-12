@@ -58,6 +58,18 @@ impl FXList {
     }
 
     /// Execute a visual effect on an object with an optional source object.
+    pub fn do_fx_obj_ids(
+        &self,
+        object_id: ObjectID,
+        source_id: Option<ObjectID>,
+        optional: Option<&str>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let fx_mgr = Self::fx_manager()?;
+        fx_mgr.do_fx_obj_with_source(self.resolve_id(optional), object_id, source_id);
+        Ok(())
+    }
+
+    /// Execute a visual effect on an object with an optional source object.
     pub fn do_fx_obj_with_source(
         &self,
         object: &Arc<RwLock<Object>>,
@@ -75,10 +87,7 @@ impl FXList {
             None => None,
         };
 
-        let fx_mgr = Self::fx_manager()?;
-        fx_mgr.do_fx_obj_with_source(self.resolve_id(optional), object_id, source_id);
-
-        Ok(())
+        self.do_fx_obj_ids(object_id, source_id, optional)
     }
 
     /// Execute a visual effect on an object
@@ -176,5 +185,55 @@ impl ObjectCreationList {
         let secondary = *position;
         let _ = self.create_with_angle(&ctx, primary_obj, &primary, &secondary, angle, 0);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::types::FXListManagerInterface;
+    use crate::helpers::{register_fx_list_manager, TheFXListStore};
+    use glam::Mat4;
+    use std::sync::Mutex;
+
+    #[derive(Debug)]
+    struct RecordingFxManager {
+        object_calls: Arc<Mutex<Vec<(FXListId, ObjectID, Option<ObjectID>)>>>,
+    }
+
+    impl FXListManagerInterface for RecordingFxManager {
+        fn do_fx_pos(&self, _fx_list: FXListId, _position: &Coord3D, _matrix: Option<&Mat4>) {}
+
+        fn do_fx_obj(&self, fx_list: FXListId, object_id: ObjectID) {
+            self.object_calls
+                .lock()
+                .unwrap()
+                .push((fx_list, object_id, None));
+        }
+
+        fn do_fx_obj_with_source(
+            &self,
+            fx_list: FXListId,
+            object_id: ObjectID,
+            source_id: Option<ObjectID>,
+        ) {
+            self.object_calls
+                .lock()
+                .unwrap()
+                .push((fx_list, object_id, source_id));
+        }
+    }
+
+    #[test]
+    fn fx_list_object_id_dispatch_preserves_source_orientation() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let _ = register_fx_list_manager(Arc::new(RecordingFxManager {
+            object_calls: Arc::clone(&calls),
+        }));
+        let fx = TheFXListStore::ensure_fx_list("FX_TestDeath");
+
+        fx.do_fx_obj_ids(42, Some(77), None).unwrap();
+
+        assert_eq!(*calls.lock().unwrap(), vec![(fx.id(), 42, Some(77))]);
     }
 }
