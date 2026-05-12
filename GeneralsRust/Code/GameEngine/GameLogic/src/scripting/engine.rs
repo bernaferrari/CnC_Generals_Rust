@@ -452,6 +452,10 @@ pub trait ScriptActionHandler: Send + Sync {
         Ok(())
     }
 
+    fn set_radar_forced(&self, _forced: bool) -> GameLogicResult<()> {
+        Ok(())
+    }
+
     fn set_objective(
         &self,
         _name: &str,

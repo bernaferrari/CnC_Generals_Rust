@@ -10950,6 +10950,18 @@ impl ScriptActionDispatcher {
         if let Ok(mut radar) = get_radar_system().write() {
             radar.force_on(true);
         }
+        if let Ok(engine_guard) = get_script_engine().read() {
+            if let Some(ref script_engine) = *engine_guard {
+                if let Some(handler) = script_engine.action_handler() {
+                    if let Err(err) = handler.set_radar_forced(true) {
+                        log::warn!(
+                            "Script action handler set_radar_forced(true) failed: {}",
+                            err
+                        );
+                    }
+                }
+            }
+        }
         Ok(ScriptActionResult::Success)
     }
 
@@ -10957,6 +10969,18 @@ impl ScriptActionDispatcher {
         log::debug!("Reverting radar to normal");
         if let Ok(mut radar) = get_radar_system().write() {
             radar.force_on(false);
+        }
+        if let Ok(engine_guard) = get_script_engine().read() {
+            if let Some(ref script_engine) = *engine_guard {
+                if let Some(handler) = script_engine.action_handler() {
+                    if let Err(err) = handler.set_radar_forced(false) {
+                        log::warn!(
+                            "Script action handler set_radar_forced(false) failed: {}",
+                            err
+                        );
+                    }
+                }
+            }
         }
         Ok(ScriptActionResult::Success)
     }
