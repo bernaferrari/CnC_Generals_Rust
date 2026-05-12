@@ -3464,9 +3464,6 @@ impl InGameUI {
 
     pub fn pre_draw(&mut self, frame: u32) {
         self.current_frame = frame;
-        if self.double_click_attack_move_guard_timer > 0 {
-            self.double_click_attack_move_guard_timer -= 1;
-        }
         self.expire_hints();
         self.update_floating_texts();
         self.update_superweapon_timers(frame);
@@ -3870,6 +3867,15 @@ impl InGameUI {
         }
     }
 
+    fn consume_double_click_attack_move_guard_hint(timer: &mut u32) -> bool {
+        if *timer == 0 {
+            return false;
+        }
+
+        *timer -= 1;
+        *timer > 0
+    }
+
     fn military_caption_delay_frames() -> u32 {
         let delay_ms = get_global_language_read()
             .map(|language| language.military_caption_delay_ms)
@@ -4178,7 +4184,15 @@ impl InGameUI {
 
         // C++: doubleClickAttackMove guard timer — suppresses hints for a few frames
         // after a double-click attack-move to prevent spurious cursor flicker.
-        if self.double_click_attack_move_guard_timer > 0 {
+        if Self::consume_double_click_attack_move_guard_hint(
+            &mut self.double_click_attack_move_guard_timer,
+        ) {
+            self.set_mouse_cursor(MouseCursor::ForceAttackGround);
+            self.set_radius_cursor(
+                RadiusCursorType::GuardArea,
+                Coord3D::new(0.0, 0.0, 0.0),
+                1.0,
+            );
             return;
         }
 
@@ -4801,6 +4815,25 @@ mod tests {
             ),
             CommandHintType::ForceAttackObject
         );
+    }
+
+    #[test]
+    fn double_click_attack_move_guard_hint_uses_cpp_predecrement_semantics() {
+        let mut timer = 2;
+        assert!(InGameUI::consume_double_click_attack_move_guard_hint(
+            &mut timer
+        ));
+        assert_eq!(timer, 1);
+
+        assert!(!InGameUI::consume_double_click_attack_move_guard_hint(
+            &mut timer
+        ));
+        assert_eq!(timer, 0);
+
+        assert!(!InGameUI::consume_double_click_attack_move_guard_hint(
+            &mut timer
+        ));
+        assert_eq!(timer, 0);
     }
 
     #[test]
