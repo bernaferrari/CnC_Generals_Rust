@@ -969,19 +969,16 @@ impl super::partition_manager::PartitionFilter for PartitionFilterInsignificantB
         if let Some(handle) = obj.as_object_handle() {
             if let Ok(guard) = handle.read() {
                 if guard.is_structure() {
-                    // PARITY_NOTE: C++ calls Object::isNonFactionStructure() which checks
-                    // if the building is not owned by any playable faction. The TechBuilding ||
-                    // Civilian KindOf check is a reasonable approximation — tech buildings and
-                    // civilian structures are the primary non-faction buildings in Generals/ZH.
-                    let is_non_faction = guard.is_kind_of(KindOf::TechBuilding)
-                        || guard.is_kind_of(KindOf::Civilian);
-
-                    if is_non_faction && !self.allow_insignificant {
-                        // Check if it has a garrisonable contain with units inside.
-                        // ContainModule not yet exposed here; approximate by
-                        // checking if the building can attack (which implies occupants).
-                        if !guard.is_able_to_attack() {
-                            return false;
+                    if guard.is_non_faction_structure() && !self.allow_insignificant {
+                        if let Some(contain) = guard.get_contain() {
+                            let Ok(contain_guard) = contain.lock() else {
+                                return false;
+                            };
+                            if !contain_guard.is_garrisonable()
+                                || contain_guard.get_contained_count() == 0
+                            {
+                                return false;
+                            }
                         }
                     }
                     return true;
