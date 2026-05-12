@@ -29,7 +29,7 @@ pub struct ScriptEffectRequest {
 #[derive(Debug, Clone)]
 pub struct MilitaryCaptionRequest {
     pub text: String,
-    pub duration_frames: i32,
+    pub duration_ms: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -1389,12 +1389,9 @@ impl MissionScriptHooks {
         }
     }
 
-    pub fn push_military_caption(&self, text: String, duration_frames: i32) {
+    pub fn push_military_caption(&self, text: String, duration_ms: i32) {
         if let Ok(mut queue) = self.military_captions.lock() {
-            queue.push(MilitaryCaptionRequest {
-                text,
-                duration_frames,
-            });
+            queue.push(MilitaryCaptionRequest { text, duration_ms });
         }
     }
 
@@ -2051,9 +2048,9 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         Ok(())
     }
 
-    fn military_caption(&self, text: &str, duration_frames: i32) -> GameLogicResult<()> {
+    fn military_caption(&self, text: &str, duration_ms: i32) -> GameLogicResult<()> {
         self.hooks
-            .push_military_caption(text.to_string(), duration_frames);
+            .push_military_caption(text.to_string(), duration_ms);
         Ok(())
     }
 
@@ -2808,6 +2805,21 @@ mod tests {
 
         let requests = hooks.drain_border_shroud_levels();
         assert_eq!(requests, vec![32, 128]);
+    }
+
+    #[test]
+    fn handler_forwards_military_caption_duration_as_milliseconds() {
+        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let handler = MissionScriptActionHandler::new(hooks.clone());
+
+        handler
+            .military_caption("SCRIPT:Briefing", 2500)
+            .expect("military caption request should succeed");
+
+        let captions = hooks.drain_military_captions();
+        assert_eq!(captions.len(), 1);
+        assert_eq!(captions[0].text, "SCRIPT:Briefing");
+        assert_eq!(captions[0].duration_ms, 2500);
     }
 
     #[test]
