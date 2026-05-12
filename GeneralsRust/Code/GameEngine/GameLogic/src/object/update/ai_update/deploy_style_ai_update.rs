@@ -108,12 +108,29 @@ impl Snapshotable for DeployStyleAIUpdateModuleData {
     }
 }
 
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> Vec<&'a str> {
+    tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect()
+}
+
 fn parse_auto_acquire_field(
     _ini: &mut INI,
     data: &mut DeployStyleAIUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = INI::parse_bit_string_32(tokens, AUTO_ACQUIRE_ENEMIES_NAMES)?;
+    let values = value_tokens(tokens);
+    let value = INI::parse_bit_string_32(&values, AUTO_ACQUIRE_ENEMIES_NAMES)?;
     data.base.set_auto_acquire_enemies_when_idle(value);
     Ok(())
 }
@@ -122,17 +139,13 @@ fn parse_duration_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_duration_unsigned_int(token)?);
     Ok(())
 }
 
 fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_bool(token)?);
     Ok(())
 }
@@ -225,6 +238,73 @@ impl DeployStyleAIUpdateModule {
             module_name_key,
             data,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deploy_style_fields_accept_ini_equals_token() {
+        let mut ini = INI::new();
+        let mut data = DeployStyleAIUpdateModuleData::default();
+
+        parse_auto_acquire_field(&mut ini, &mut data, &["=", "YES", "ATTACK_BUILDINGS"]).unwrap();
+        parse_duration_field(
+            &mut |value| data.base.set_mood_attack_check_rate(value),
+            &["=", "2000"],
+        )
+        .unwrap();
+        parse_duration_field(
+            &mut |value| data.base.set_surrender_duration_frames(value),
+            &["=", "3000"],
+        )
+        .unwrap();
+        parse_bool_field(
+            &mut |value| data.base.set_forbid_player_commands(value),
+            &["=", "Yes"],
+        )
+        .unwrap();
+        parse_bool_field(
+            &mut |value| data.base.set_turrets_linked(value),
+            &["=", "Yes"],
+        )
+        .unwrap();
+        parse_duration_field(&mut |value| data.unpack_time = value, &["=", "1500"]).unwrap();
+        parse_duration_field(&mut |value| data.pack_time = value, &["=", "2500"]).unwrap();
+        parse_bool_field(
+            &mut |value| data.reset_turret_before_packing = value,
+            &["=", "Yes"],
+        )
+        .unwrap();
+        parse_bool_field(
+            &mut |value| data.turrets_function_only_when_deployed = value,
+            &["=", "Yes"],
+        )
+        .unwrap();
+        parse_bool_field(
+            &mut |value| data.turrets_must_center_before_packing = value,
+            &["=", "Yes"],
+        )
+        .unwrap();
+        parse_bool_field(
+            &mut |value| data.manual_deploy_animations = value,
+            &["=", "Yes"],
+        )
+        .unwrap();
+
+        assert_eq!(data.base.auto_acquire_enemies_when_idle(), 0b10001);
+        assert_eq!(data.base.mood_attack_check_rate(), 60);
+        assert_eq!(data.base.surrender_duration_frames(), 90);
+        assert!(data.base.forbid_player_commands());
+        assert!(data.base.turrets_linked());
+        assert_eq!(data.unpack_time, 45);
+        assert_eq!(data.pack_time, 75);
+        assert!(data.reset_turret_before_packing);
+        assert!(data.turrets_function_only_when_deployed);
+        assert!(data.turrets_must_center_before_packing);
+        assert!(data.manual_deploy_animations);
     }
 }
 
