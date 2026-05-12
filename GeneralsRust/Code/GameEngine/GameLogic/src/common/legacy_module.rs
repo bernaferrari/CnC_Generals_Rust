@@ -1,7 +1,9 @@
 use std::any::Any;
 
 use game_engine::common::system::Snapshotable;
-use game_engine::common::thing::module::{ModuleData, NameKeyType, RadarUpdateConfig};
+use game_engine::common::thing::module::{
+    ActiveShroudUpgradeConfig, ModuleData, NameKeyType, RadarUpdateConfig,
+};
 use game_engine::thing::StaticGameLodLevel;
 
 /// Legacy module-data bridge that mirrors the WW3D expectations.
@@ -34,6 +36,10 @@ pub trait LegacyModuleData: Snapshotable + Clone + Send + Sync + std::fmt::Debug
     }
 
     fn get_radar_update_config(&self) -> Option<RadarUpdateConfig> {
+        None
+    }
+
+    fn get_active_shroud_upgrade_config(&self) -> Option<ActiveShroudUpgradeConfig> {
         None
     }
 
