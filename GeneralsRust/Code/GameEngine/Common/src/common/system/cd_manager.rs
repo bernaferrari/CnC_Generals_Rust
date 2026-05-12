@@ -66,38 +66,19 @@ impl CDDrive {
         Self {
             disk_name: AsciiString::new(),
             drive_path: AsciiString::new(),
-            disk: Disk::NoDisk,
+            disk: Disk::UnknownDisk,
         }
     }
 
     /// Set the drive path
     pub fn set_path(&mut self, path: &str) {
         self.drive_path = AsciiString::from(path);
-        self.refresh_info();
     }
 }
 
 impl CDDriveInterface for CDDrive {
     fn refresh_info(&mut self) {
-        // Mock implementation - in real system this would:
-        // 1. Check if drive exists
-        // 2. Read volume label
-        // 3. Determine disk type
-        // 4. Update disk status
-
-        if !self.drive_path.is_empty() {
-            // Simulate checking for disk presence
-            if std::path::Path::new(self.drive_path.as_str()).exists() {
-                self.disk = Disk::Disk1;
-                self.disk_name = AsciiString::from("Game Disk 1");
-            } else {
-                self.disk = Disk::NoDisk;
-                self.disk_name.clear();
-            }
-        } else {
-            self.disk = Disk::UnknownDisk;
-            self.disk_name.clear();
-        }
+        self.disk = Disk::UnknownDisk;
     }
 
     fn get_disk_name(&self) -> AsciiString {
@@ -165,12 +146,6 @@ impl CDManager {
 
     /// Scan for available CD drives on the system
     fn scan_drives(&mut self) {
-        // Mock implementation - in real system this would:
-        // 1. Enumerate system drives
-        // 2. Check which ones are CD-ROM drives
-        // 3. Add them to the drives list
-
-        // For now, we'll just add a mock drive
         #[cfg(target_os = "windows")]
         {
             for letter in b'D'..=b'Z' {
@@ -184,23 +159,15 @@ impl CDManager {
         }
 
         #[cfg(not(target_os = "windows"))]
-        {
-            // Unix-like systems
-            let common_mount_points = ["/media", "/mnt", "/cdrom"];
-            for mount_point in &common_mount_points {
-                if std::path::Path::new(mount_point).exists() {
-                    let mut drive = CDDrive::new();
-                    drive.set_path(mount_point);
-                    self.drives.push(Box::new(drive));
-                }
-            }
-        }
+        {}
     }
 }
 
 impl CDManagerInterface for CDManager {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.destroy_all_drives();
         self.scan_drives();
+        self.refresh_drives();
         Ok(())
     }
 
@@ -282,7 +249,7 @@ mod tests {
     #[test]
     fn test_cd_drive_creation() {
         let drive = CDDrive::new();
-        assert_eq!(drive.get_disk(), Disk::NoDisk);
+        assert_eq!(drive.get_disk(), Disk::UnknownDisk);
         assert!(drive.get_path().is_empty());
         assert!(drive.get_disk_name().is_empty());
     }
@@ -292,6 +259,7 @@ mod tests {
         let mut drive = CDDrive::new();
         drive.set_path("/test/path");
         assert_eq!(drive.get_path().as_str(), "/test/path");
+        assert_eq!(drive.get_disk(), Disk::UnknownDisk);
     }
 
     #[test]
