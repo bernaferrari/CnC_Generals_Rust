@@ -376,6 +376,40 @@ impl Object {
             || self.template_name.contains("Headquarters")
     }
 
+    pub fn is_faction_structure(&self) -> bool {
+        self.is_kind_of(KindOf::FSBarracks)
+            || self.is_kind_of(KindOf::FSWarFactory)
+            || self.is_kind_of(KindOf::FSAirfield)
+            || self.is_kind_of(KindOf::FSInternetCenter)
+            || self.is_kind_of(KindOf::FSPower)
+            || self.is_kind_of(KindOf::FSSupplyDropzone)
+            || self.is_kind_of(KindOf::FSSupplyCenter)
+            || self.is_kind_of(KindOf::FSSuperweapon)
+            || self.is_kind_of(KindOf::FSStrategyCenter)
+            || self.is_kind_of(KindOf::FSFake)
+            || self.is_kind_of(KindOf::FSTechnology)
+            || self.is_kind_of(KindOf::FSBlackMarket)
+            || self.is_kind_of(KindOf::FSAdvancedTech)
+            || self.is_command_center()
+            || self.is_kind_of(KindOf::SupplyCenter)
+            || self.is_kind_of(KindOf::PowerPlant)
+            || self.template_name.contains("Barracks")
+            || self.template_name.contains("WarFactory")
+            || self.template_name.contains("Airfield")
+            || self.template_name.contains("InternetCenter")
+            || self.template_name.contains("PowerPlant")
+            || self.template_name.contains("SupplyDropzone")
+            || self.template_name.contains("SupplyCenter")
+            || self.template_name.contains("Superweapon")
+            || self.template_name.contains("StrategyCenter")
+            || self.template_name.contains("BlackMarket")
+            || self.template_name.contains("TechCenter")
+    }
+
+    pub fn is_non_faction_structure(&self) -> bool {
+        self.is_kind_of(KindOf::Structure) && !self.is_faction_structure()
+    }
+
     /// C++ parity (Object::isDisabled): returns true if the object is in any
     /// disabled state that prevents it from acting (attacking, producing, etc.)
     pub fn is_disabled(&self) -> bool {
