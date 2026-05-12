@@ -112,7 +112,7 @@ impl WgpuBinkVideoPlayer {
     }
 
     pub fn open(&mut self, path: &Path) -> Result<(), String> {
-        let decoder = BinkDecoder::open(path)?;
+        let mut decoder = BinkDecoder::open(path)?;
         self.create_texture_resources(decoder.width(), decoder.height());
         self.current_frame_rgba = decoder.decode_current_frame_rgba();
         self.decoder = Some(decoder);
