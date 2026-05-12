@@ -1,5 +1,5 @@
 use crate::command_system::{CommandType, GameCommand};
-use crate::game_logic::{AIState, GameLogic, Object, ObjectId, Team};
+use crate::game_logic::{AIState, GameLogic, Object, ObjectId, Player, Team};
 use crc32fast::Hasher;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -43,6 +43,50 @@ impl TraceObject {
     }
 }
 
+/// Canonical per-player state used by deterministic gameplay trace comparisons.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TracePlayer {
+    pub id: i32,
+    pub name: String,
+    pub side: String,
+    pub base_side: String,
+    pub player_type: String,
+    pub money: i32,
+    pub power: i32,
+    pub low_power: bool,
+    pub has_radar: bool,
+    pub is_dead: bool,
+    pub rank_level: i32,
+    pub skill_points: i32,
+    pub science_purchase_points: i32,
+    pub total_score: i32,
+}
+
+impl TracePlayer {
+    pub fn from_player(player: &Player) -> Self {
+        Self {
+            id: player.id as i32,
+            name: player.name.clone(),
+            side: player.team.get_name().to_string(),
+            base_side: player.team.get_name().to_string(),
+            player_type: if player.is_local { "Human" } else { "Computer" }.to_string(),
+            money: player.resources.supplies as i32,
+            power: player.power_available,
+            low_power: player.power_available < 0,
+            has_radar: player.power_available >= 0,
+            is_dead: !player.is_alive,
+            rank_level: 0,
+            skill_points: 0,
+            science_purchase_points: player.unlocked_sciences.len() as i32,
+            total_score: player.statistics.units_destroyed as i32
+                + player.statistics.structures_destroyed as i32
+                + player.statistics.resources_collected as i32
+                - player.statistics.units_lost as i32
+                - player.statistics.structures_lost as i32,
+        }
+    }
+}
+
 /// Canonical command input for a frame. Selected units are sorted so equivalent
 /// command batches produce the same hash even when built from unordered state.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -74,6 +118,8 @@ pub struct FrameTrace {
     pub rng_seed: [u32; 6],
     pub commands: Vec<TraceCommand>,
     pub objects: Vec<TraceObject>,
+    #[serde(default)]
+    pub players: Vec<TracePlayer>,
     pub victory_state: Option<String>,
     pub crc: u32,
 }
@@ -138,6 +184,24 @@ impl FrameTrace {
         objects: Vec<TraceObject>,
         victory_state: Option<String>,
     ) -> Self {
+        Self::new_with_players(
+            frame,
+            rng_seed,
+            commands,
+            objects,
+            Vec::new(),
+            victory_state,
+        )
+    }
+
+    pub fn new_with_players(
+        frame: u32,
+        rng_seed: [u32; 6],
+        commands: Vec<GameCommand>,
+        objects: Vec<TraceObject>,
+        players: Vec<TracePlayer>,
+        victory_state: Option<String>,
+    ) -> Self {
         let mut commands: Vec<TraceCommand> = commands
             .into_iter()
             .map(TraceCommand::from_command)
@@ -147,11 +211,15 @@ impl FrameTrace {
         let mut objects = objects;
         objects.sort_by_key(|object| object.id);
 
+        let mut players = players;
+        players.sort_by_key(|player| player.id);
+
         let crc = calculate_frame_crc(
             frame,
             &rng_seed,
             &commands,
             &objects,
+            &players,
             victory_state.as_deref(),
         );
 
@@ -160,6 +228,7 @@ impl FrameTrace {
             rng_seed,
             commands,
             objects,
+            players,
             victory_state,
             crc,
         }
@@ -176,12 +245,18 @@ impl FrameTrace {
             .values()
             .map(TraceObject::from_object)
             .collect();
+        let players = game_logic
+            .get_players()
+            .values()
+            .map(TracePlayer::from_player)
+            .collect();
 
-        Self::new(
+        Self::new_with_players(
             game_logic.get_frame(),
             rng_seed,
             commands,
             objects,
+            players,
             victory_state,
         )
     }
@@ -264,6 +339,7 @@ pub fn calculate_frame_crc(
     rng_seed: &[u32; 6],
     commands: &[TraceCommand],
     objects: &[TraceObject],
+    players: &[TracePlayer],
     victory_state: Option<&str>,
 ) -> u32 {
     let mut hasher = Hasher::new();
@@ -303,6 +379,25 @@ pub fn calculate_frame_crc(
         hash_object_id(&mut hasher, object.target);
         hash_optional_vec3(&mut hasher, object.target_location);
         hasher.update(&object.construction_percent.to_le_bytes());
+    }
+
+    hasher.update(b"PLAYERS");
+    hasher.update(&(players.len() as u32).to_le_bytes());
+    for player in players {
+        hasher.update(&player.id.to_le_bytes());
+        hash_str(&mut hasher, &player.name);
+        hash_str(&mut hasher, &player.side);
+        hash_str(&mut hasher, &player.base_side);
+        hash_str(&mut hasher, &player.player_type);
+        hasher.update(&player.money.to_le_bytes());
+        hasher.update(&player.power.to_le_bytes());
+        hasher.update(&[player.low_power as u8]);
+        hasher.update(&[player.has_radar as u8]);
+        hasher.update(&[player.is_dead as u8]);
+        hasher.update(&player.rank_level.to_le_bytes());
+        hasher.update(&player.skill_points.to_le_bytes());
+        hasher.update(&player.science_purchase_points.to_le_bytes());
+        hasher.update(&player.total_score.to_le_bytes());
     }
 
     hasher.update(b"VICTORY");
