@@ -6186,6 +6186,7 @@ impl GameLogic {
             ("fsairfield", KindOf::FSAirfield),
             ("fsinternetcenter", KindOf::FSInternetCenter),
             ("fspower", KindOf::FSPower),
+            ("fsbasedefense", KindOf::FSBaseDefense),
             ("fssupplydropzone", KindOf::FSSupplyDropzone),
             ("fssupplycenter", KindOf::FSSupplyCenter),
             ("fssuperweapon", KindOf::FSSuperweapon),

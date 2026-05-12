@@ -382,6 +382,7 @@ impl Object {
             || self.is_kind_of(KindOf::FSAirfield)
             || self.is_kind_of(KindOf::FSInternetCenter)
             || self.is_kind_of(KindOf::FSPower)
+            || self.is_kind_of(KindOf::FSBaseDefense)
             || self.is_kind_of(KindOf::FSSupplyDropzone)
             || self.is_kind_of(KindOf::FSSupplyCenter)
             || self.is_kind_of(KindOf::FSSuperweapon)
