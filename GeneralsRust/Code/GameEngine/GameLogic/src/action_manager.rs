@@ -64,6 +64,7 @@ fn is_faction_structure(obj: &Object) -> bool {
         KindOf::FSAirfield,
         KindOf::FSInternetCenter,
         KindOf::FSPower,
+        KindOf::FSBaseDefense,
         KindOf::FSSupplyDropzone,
         KindOf::FSSupplyCenter,
         KindOf::FSSuperweapon,

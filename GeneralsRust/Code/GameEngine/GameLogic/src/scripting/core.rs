@@ -1103,6 +1103,7 @@ fn kind_of_index_to_name(index: i32) -> &'static str {
         KindOf::FSAirfield => "FS_AIRFIELD",
         KindOf::FSInternetCenter => "FS_INTERNET_CENTER",
         KindOf::FSPower => "FS_POWER",
+        KindOf::FSBaseDefense => "FS_BASE_DEFENSE",
         KindOf::FSSupplyDropzone => "FS_SUPPLY_DROPZONE",
         KindOf::FSSupplyCenter => "FS_SUPPLY_CENTER",
         KindOf::FSSuperweapon => "FS_SUPERWEAPON",

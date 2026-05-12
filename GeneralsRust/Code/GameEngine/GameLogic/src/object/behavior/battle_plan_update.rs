@@ -1057,6 +1057,7 @@ fn kindof_name(kind: KindOf) -> Option<&'static str> {
         KindOf::FSAirfield => Some("FS_AIRFIELD"),
         KindOf::FSInternetCenter => Some("FS_INTERNET_CENTER"),
         KindOf::FSPower => Some("FS_POWER"),
+        KindOf::FSBaseDefense => Some("FS_BASE_DEFENSE"),
         KindOf::FSSupplyDropzone => Some("FS_SUPPLY_DROPZONE"),
         KindOf::FSSupplyCenter => Some("FS_SUPPLY_CENTER"),
         KindOf::FSSuperweapon => Some("FS_SUPERWEAPON"),

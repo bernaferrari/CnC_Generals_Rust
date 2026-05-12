@@ -3216,6 +3216,7 @@ impl Object {
             KindOf::FSAirfield,
             KindOf::FSInternetCenter,
             KindOf::FSPower,
+            KindOf::FSBaseDefense,
             KindOf::FSSupplyDropzone,
             KindOf::FSSupplyCenter,
             KindOf::FSSuperweapon,

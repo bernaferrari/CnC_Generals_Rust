@@ -906,7 +906,38 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
                     crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id)
                 {
                     if let Ok(src_guard) = src_handle.read() {
-                        let rel = src_guard.relationship_to(&other_guard);
+                        let Some(my_player) = src_guard.get_controlling_player() else {
+                            return false;
+                        };
+
+                        let Ok(my_guard) = my_player.read() else {
+                            return false;
+                        };
+                        let other_player = other_guard
+                            .get_contain()
+                            .and_then(|contain| {
+                                contain.lock().ok().and_then(|guard| {
+                                    guard.get_apparent_controlling_player(Some(&my_guard))
+                                })
+                            })
+                            .or_else(|| other_guard.get_controlling_player());
+
+                        let Some(other_default_team) = other_player.and_then(|player| {
+                            player
+                                .read()
+                                .ok()
+                                .and_then(|guard| guard.get_default_team())
+                        }) else {
+                            return false;
+                        };
+
+                        let rel = other_default_team
+                            .read()
+                            .ok()
+                            .map(|other_team_guard| {
+                                my_guard.get_relationship_with_team(&other_team_guard)
+                            })
+                            .unwrap_or(Relationship::Neutral);
 
                         if rel != Relationship::Enemies {
                             return false;
@@ -917,17 +948,13 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
                             return true;
                         }
 
-                        // Don't reject base defense-like structures
-                        if other_guard.is_kind_of(KindOf::FSBarracks)
-                            || other_guard.is_kind_of(KindOf::FSWarfactory)
-                            || other_guard.is_kind_of(KindOf::FSPower)
-                            || other_guard.is_kind_of(KindOf::Defense)
-                        {
+                        // Don't reject faction base defenses.
+                        if other_guard.is_kind_of(KindOf::FSBaseDefense) {
                             return true;
                         }
 
                         // Don't reject garrisoned buildings that can attack
-                        if other_guard.is_able_to_attack() {
+                        if other_guard.get_contain().is_some() && other_guard.is_able_to_attack() {
                             return true;
                         }
                     }
@@ -1536,20 +1563,44 @@ mod tests {
     use crate::common::AsciiString;
     use crate::modules::ContainModuleInterface;
     use crate::object::contain::{GarrisonContain, GarrisonContainModuleData};
+    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
     use crate::player::Player;
     use crate::team::Team;
     use std::collections::HashMap;
     use std::sync::{Arc, Mutex, RwLock};
 
-    fn structure_object() -> Arc<std::sync::RwLock<Object>> {
+    fn object_with_kind_of(kind_of: &str) -> Arc<std::sync::RwLock<Object>> {
         let mut template = DefaultThingTemplate::new("TestStructure".to_string());
         let mut fields = HashMap::new();
-        fields.insert("KindOf".to_string(), "STRUCTURE".to_string());
+        fields.insert("KindOf".to_string(), kind_of.to_string());
         template.parse_object_fields_from_ini(&fields);
 
         Object::new(Arc::new(template), ObjectStatusMaskType::none(), None)
             .expect("test structure object")
+    }
+
+    fn structure_object() -> Arc<std::sync::RwLock<Object>> {
+        object_with_kind_of("STRUCTURE")
+    }
+
+    fn registered_object_with_kind_of(
+        object_id: crate::common::ObjectID,
+        kind_of: &str,
+        team: Arc<RwLock<Team>>,
+    ) -> Arc<std::sync::RwLock<Object>> {
+        let mut template = DefaultThingTemplate::new(format!("TestObject{object_id}"));
+        let mut fields = HashMap::new();
+        fields.insert("KindOf".to_string(), kind_of.to_string());
+        template.parse_object_fields_from_ini(&fields);
+
+        Object::new_with_id(
+            Arc::new(template),
+            object_id,
+            ObjectStatusMaskType::none(),
+            Some(team),
+        )
+        .expect("registered test object")
     }
 
     fn attach_garrison_contain(object: &Arc<std::sync::RwLock<Object>>) {
@@ -1633,5 +1684,52 @@ mod tests {
 
         assert!(enemy_filter.allow(&target));
         assert!(!neutral_filter.allow(&target));
+    }
+
+    #[test]
+    fn reject_buildings_only_accepts_enemy_fs_base_defense_for_human_sources() {
+        OBJECT_REGISTRY.clear();
+
+        let player0 = Arc::new(RwLock::new(Player::new(0)));
+        let player1 = Arc::new(RwLock::new(Player::new(1)));
+        let source_team = team_for_player("SourceTeam", 10, 0);
+        let enemy_team = team_for_player("EnemyTeam", 11, 1);
+
+        player0
+            .write()
+            .expect("player0 write lock")
+            .set_player_type(crate::player::PlayerType::Human, false);
+        player0
+            .write()
+            .expect("player0 write lock")
+            .set_default_team(Some(Arc::clone(&source_team)));
+        player1
+            .write()
+            .expect("player1 write lock")
+            .set_default_team(Some(Arc::clone(&enemy_team)));
+        player0
+            .write()
+            .expect("player0 write lock")
+            .set_player_relationship_by_index(1, Relationship::Enemies);
+        reset_player_list_with_players(&[Arc::clone(&player0), Arc::clone(&player1)]);
+
+        let source = registered_object_with_kind_of(91_001, "STRUCTURE", Arc::clone(&source_team));
+        let generic_defense =
+            registered_object_with_kind_of(91_002, "STRUCTURE|DEFENSE", Arc::clone(&enemy_team));
+        let fs_base_defense = registered_object_with_kind_of(
+            91_003,
+            "STRUCTURE|FS_BASE_DEFENSE",
+            Arc::clone(&enemy_team),
+        );
+
+        let filter =
+            PartitionFilterRejectBuildings::new(source.read().expect("source read lock").get_id());
+
+        assert!(!filter.allow(&generic_defense));
+        assert!(filter.allow(&fs_base_defense));
+
+        OBJECT_REGISTRY.unregister_object(91_001);
+        OBJECT_REGISTRY.unregister_object(91_002);
+        OBJECT_REGISTRY.unregister_object(91_003);
     }
 }
