@@ -259,4 +259,30 @@ impl SoundPlaybackHook for AssetAudioPlaybackHook {
         }
         playing
     }
+
+    fn set_event_volume(&self, event: &AudioEventRts) {
+        let instance_id = {
+            let Ok(map) = self.handle_map.lock() else {
+                return;
+            };
+            map.get(&event.get_playing_handle()).and_then(|id| *id)
+        };
+
+        let Some(instance_id) = instance_id else {
+            return;
+        };
+
+        let volume = event.get_volume().clamp(0.0, 1.0);
+        let asset_manager = Arc::clone(&self.asset_manager);
+        self.spawn(async move {
+            if let Err(err) = asset_manager.set_audio_instance_volume(instance_id, volume) {
+                log::debug!(
+                    "Failed to update audio instance {} volume to {}: {}",
+                    instance_id,
+                    volume,
+                    err
+                );
+            }
+        });
+    }
 }
