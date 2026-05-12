@@ -509,14 +509,27 @@ impl GraphicsSystem {
         self.draw_calls = 0;
     }
 
-    /// Try to get a cached model by name; if not found, return the diagnostic
-    /// fallback cube model. Gameplay rendering should only call this from explicit
-    /// debug fallback paths.
+    /// Try to get a cached model by name.
+    ///
+    /// The diagnostic fallback cube is returned only when requested by its explicit
+    /// sentinel name; arbitrary missing retail W3D names must remain misses.
     pub fn get_model_or_fallback(&self, model_name: &str) -> Option<Arc<W3DModel>> {
-        if let Some(model) = self.loaded_models.get(model_name) {
+        Self::lookup_model_or_explicit_fallback(&self.loaded_models, model_name)
+    }
+
+    fn lookup_model_or_explicit_fallback(
+        loaded_models: &HashMap<String, Arc<W3DModel>>,
+        model_name: &str,
+    ) -> Option<Arc<W3DModel>> {
+        if let Some(model) = loaded_models.get(model_name) {
             return Some(Arc::clone(model));
         }
-        self.loaded_models.get("__fallback_cube__").map(Arc::clone)
+
+        if Self::is_fallback_model(model_name) {
+            return loaded_models.get("__fallback_cube__").map(Arc::clone);
+        }
+
+        None
     }
 
     /// Check whether a model is the built-in fallback cube.
@@ -853,5 +866,23 @@ mod tests {
     fn test_fallback_model_name_marker_stays_stable() {
         assert!(GraphicsSystem::is_fallback_model("__fallback_cube__"));
         assert!(!GraphicsSystem::is_fallback_model("unit_tank"));
+    }
+
+    #[test]
+    fn test_missing_retail_model_does_not_resolve_to_diagnostic_cube() {
+        let fallback = Arc::new(GraphicsSystem::create_fallback_cube_model());
+        let mut loaded_models = HashMap::new();
+        loaded_models.insert("__fallback_cube__".to_string(), Arc::clone(&fallback));
+
+        assert!(
+            GraphicsSystem::lookup_model_or_explicit_fallback(&loaded_models, "unit_tank")
+                .is_none(),
+            "normal missing model lookups must not synthesize diagnostic cube geometry"
+        );
+        assert!(Arc::ptr_eq(
+            &GraphicsSystem::lookup_model_or_explicit_fallback(&loaded_models, "__fallback_cube__")
+                .expect("explicit fallback lookup should return the diagnostic cube"),
+            &fallback
+        ));
     }
 }
