@@ -578,6 +578,8 @@ impl TerrainRoadType {
 pub struct TerrainRoadCollection {
     roads: HashMap<AsciiString, TerrainRoadType>,
     bridges: HashMap<AsciiString, TerrainRoadType>,
+    road_order: Vec<AsciiString>,
+    bridge_order: Vec<AsciiString>,
     id_counter: u32,
 }
 
@@ -586,6 +588,8 @@ impl TerrainRoadCollection {
         Self {
             roads: HashMap::new(),
             bridges: HashMap::new(),
+            road_order: Vec::new(),
+            bridge_order: Vec::new(),
             id_counter: 0,
         }
     }
@@ -608,6 +612,13 @@ impl TerrainRoadCollection {
         let id = self.next_id();
         let mut road = TerrainRoadType::new(name.clone(), false);
         road.id = id;
+        if let Some(default_road) = self.find_road("DefaultRoad") {
+            road.texture = default_road.texture.clone();
+            road.road_width = default_road.road_width;
+            road.road_width_in_texture = default_road.road_width_in_texture;
+        }
+        self.road_order.retain(|existing| existing != &name);
+        self.road_order.insert(0, name.clone());
         self.roads.insert(name.clone(), road);
         self.roads.get_mut(&name).unwrap()
     }
@@ -624,12 +635,46 @@ impl TerrainRoadCollection {
         let id = self.next_id();
         let mut bridge = TerrainRoadType::new(name.clone(), true);
         bridge.id = id;
+        if let Some(default_bridge) = self.find_bridge("DefaultBridge") {
+            bridge.texture = default_bridge.texture.clone();
+            bridge.bridge_scale = default_bridge.bridge_scale;
+            bridge.bridge_model_name = default_bridge.bridge_model_name.clone();
+            bridge.bridge_model_name_damaged = default_bridge.bridge_model_name_damaged.clone();
+            bridge.bridge_model_name_really_damaged =
+                default_bridge.bridge_model_name_really_damaged.clone();
+            bridge.bridge_model_name_broken = default_bridge.bridge_model_name_broken.clone();
+            bridge.texture_damaged = default_bridge.texture_damaged.clone();
+            bridge.texture_really_damaged = default_bridge.texture_really_damaged.clone();
+            bridge.texture_broken = default_bridge.texture_broken.clone();
+            bridge.transition_effects_height = default_bridge.transition_effects_height;
+            bridge.num_fx_per_type = default_bridge.num_fx_per_type;
+            bridge.damage_to_sound_string = default_bridge.damage_to_sound_string.clone();
+            bridge.damage_to_ocl_string = default_bridge.damage_to_ocl_string.clone();
+            bridge.damage_to_fx_string = default_bridge.damage_to_fx_string.clone();
+            bridge.repaired_to_sound_string = default_bridge.repaired_to_sound_string.clone();
+            bridge.repaired_to_ocl_string = default_bridge.repaired_to_ocl_string.clone();
+            bridge.repaired_to_fx_string = default_bridge.repaired_to_fx_string.clone();
+        }
+        self.bridge_order.retain(|existing| existing != &name);
+        self.bridge_order.insert(0, name.clone());
         self.bridges.insert(name.clone(), bridge);
         self.bridges.get_mut(&name).unwrap()
     }
 
     pub fn find_road_or_bridge(&self, name: &str) -> Option<&TerrainRoadType> {
         self.find_road(name).or_else(|| self.find_bridge(name))
+    }
+
+    pub fn iter_roads(&self) -> impl Iterator<Item = &TerrainRoadType> {
+        self.road_order
+            .iter()
+            .filter_map(|name| self.roads.get(name))
+    }
+
+    pub fn iter_bridges(&self) -> impl Iterator<Item = &TerrainRoadType> {
+        self.bridge_order
+            .iter()
+            .filter_map(|name| self.bridges.get(name))
     }
 }
 
@@ -812,6 +857,74 @@ mod tests {
         assert!(collection.find_bridge("Bridge1").is_some());
         assert!(collection.find_road("Bridge1").is_none());
         assert!(collection.find_bridge("Road1").is_none());
+    }
+
+    #[test]
+    fn test_terrain_road_collection_uses_cpp_head_list_order() {
+        let mut collection = TerrainRoadCollection::new();
+
+        collection.new_road(AsciiString::from("Road1"));
+        collection.new_road(AsciiString::from("Road2"));
+        collection.new_bridge(AsciiString::from("Bridge1"));
+        collection.new_bridge(AsciiString::from("Bridge2"));
+
+        let road_names: Vec<&str> = collection
+            .iter_roads()
+            .map(|road| road.name.to_str())
+            .collect();
+        let bridge_names: Vec<&str> = collection
+            .iter_bridges()
+            .map(|bridge| bridge.name.to_str())
+            .collect();
+
+        assert_eq!(road_names, vec!["Road2", "Road1"]);
+        assert_eq!(bridge_names, vec!["Bridge2", "Bridge1"]);
+    }
+
+    #[test]
+    fn test_terrain_road_collection_copies_cpp_default_road_fields() {
+        let mut collection = TerrainRoadCollection::new();
+
+        let default = collection.new_road(AsciiString::from("DefaultRoad"));
+        default.texture = AsciiString::from("default_road.tga");
+        default.road_width = 23.0;
+        default.road_width_in_texture = 17.0;
+
+        let road = collection.new_road(AsciiString::from("CityRoad"));
+
+        assert_eq!(road.texture.to_str(), "default_road.tga");
+        assert_eq!(road.road_width, 23.0);
+        assert_eq!(road.road_width_in_texture, 17.0);
+        assert_eq!(road.name.to_str(), "CityRoad");
+    }
+
+    #[test]
+    fn test_terrain_road_collection_copies_cpp_default_bridge_fields() {
+        let mut collection = TerrainRoadCollection::new();
+
+        let default = collection.new_bridge(AsciiString::from("DefaultBridge"));
+        default.texture = AsciiString::from("default_bridge.tga");
+        default.bridge_scale = 2.5;
+        default.bridge_model_name = AsciiString::from("default_bridge.w3d");
+        default.texture_broken = AsciiString::from("default_bridge_broken.tga");
+        default.transition_effects_height = 11.0;
+        default.num_fx_per_type = 3;
+        default.damage_to_fx_string[BodyDamageType::Damaged as usize][0] =
+            AsciiString::from("DefaultBridgeDamageFX");
+
+        let bridge = collection.new_bridge(AsciiString::from("RiverBridge"));
+
+        assert_eq!(bridge.texture.to_str(), "default_bridge.tga");
+        assert_eq!(bridge.bridge_scale, 2.5);
+        assert_eq!(bridge.bridge_model_name.to_str(), "default_bridge.w3d");
+        assert_eq!(bridge.texture_broken.to_str(), "default_bridge_broken.tga");
+        assert_eq!(bridge.transition_effects_height, 11.0);
+        assert_eq!(bridge.num_fx_per_type, 3);
+        assert_eq!(
+            bridge.damage_to_fx_string[BodyDamageType::Damaged as usize][0].to_str(),
+            "DefaultBridgeDamageFX"
+        );
+        assert_eq!(bridge.name.to_str(), "RiverBridge");
     }
 
     #[test]
