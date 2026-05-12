@@ -81,6 +81,7 @@ pub struct DiplomacyCallbacks {
     active: bool,
     players: HashMap<i32, PlayerInfo>,
     local_player_id: i32,
+    briefing_list: Vec<String>,
 }
 
 impl DiplomacyCallbacks {
@@ -89,6 +90,7 @@ impl DiplomacyCallbacks {
             active: false,
             players: HashMap::new(),
             local_player_id: 0,
+            briefing_list: Vec::new(),
         }
     }
 
@@ -176,6 +178,7 @@ impl DiplomacyCallbacks {
 
         self.active = false;
         self.players.clear();
+        self.briefing_list.clear();
 
         self.hide_layout();
         Ok(())
@@ -260,6 +263,24 @@ impl DiplomacyCallbacks {
     /// Get all players
     pub fn get_all_players(&self) -> &HashMap<i32, PlayerInfo> {
         &self.players
+    }
+
+    /// Get military briefing history.
+    pub fn briefing_text_list(&self) -> &[String] {
+        &self.briefing_list
+    }
+
+    /// Update military briefing history.
+    pub fn update_briefing_text(&mut self, new_text: &str, clear: bool) {
+        if clear {
+            self.briefing_list.clear();
+        }
+
+        if new_text.is_empty() || self.briefing_list.iter().any(|entry| entry == new_text) {
+            return;
+        }
+
+        self.briefing_list.push(new_text.to_string());
     }
 
     /// Get local player ID
@@ -566,6 +587,18 @@ impl DiplomacySystem {
         let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
         callbacks.set_player_muted(player_id, muted)
     }
+
+    /// Update military briefing history through the system.
+    pub fn update_briefing_text(&self, new_text: &str, clear: bool) {
+        let mut callbacks = self.callbacks.write().unwrap_or_else(|e| e.into_inner());
+        callbacks.update_briefing_text(new_text, clear);
+    }
+
+    /// Get military briefing history through the system.
+    pub fn briefing_text_list(&self) -> Vec<String> {
+        let callbacks = self.callbacks.read().unwrap_or_else(|e| e.into_inner());
+        callbacks.briefing_text_list().to_vec()
+    }
 }
 
 impl Default for DiplomacySystem {
@@ -610,6 +643,18 @@ pub fn is_diplomacy_active() -> bool {
     system.is_active()
 }
 
+pub fn update_diplomacy_briefing_text(new_text: &str, clear: bool) {
+    let system = get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    system.update_briefing_text(new_text, clear);
+}
+
+pub fn get_briefing_text_list() -> Vec<String> {
+    let system = get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    system.briefing_text_list()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -630,6 +675,30 @@ mod tests {
         // Test invalid player ID
         assert!(diplomacy.set_local_player(-1).is_err());
         assert!(diplomacy.set_local_player(MAX_SLOTS as i32).is_err());
+    }
+
+    #[test]
+    fn briefing_history_tracks_unique_labels_and_reset_clears() {
+        let mut diplomacy = DiplomacyCallbacks::new();
+
+        diplomacy.update_briefing_text("SCRIPT:Intro", false);
+        diplomacy.update_briefing_text("SCRIPT:Intro", false);
+        diplomacy.update_briefing_text("", false);
+        diplomacy.update_briefing_text("SCRIPT:Second", false);
+
+        assert_eq!(
+            diplomacy.briefing_text_list(),
+            &["SCRIPT:Intro".to_string(), "SCRIPT:Second".to_string()]
+        );
+
+        diplomacy.update_briefing_text("SCRIPT:Replacement", true);
+        assert_eq!(
+            diplomacy.briefing_text_list(),
+            &["SCRIPT:Replacement".to_string()]
+        );
+
+        diplomacy.reset_diplomacy().unwrap();
+        assert!(diplomacy.briefing_text_list().is_empty());
     }
 
     #[test]

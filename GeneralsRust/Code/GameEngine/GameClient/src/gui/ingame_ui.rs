@@ -20,6 +20,7 @@ use super::ui_renderer::{UIRect, UIRenderer, UIRendererError};
 use super::window_video_manager::with_window_video_manager;
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
 use crate::game_text::GameText;
+use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
 use crate::helpers::TheInGameUI;
 use crate::input::keyboard::KeyboardState;
 use crate::input::mouse::{with_mouse, ButtonState, MouseButton, MouseState};
@@ -3781,6 +3782,7 @@ impl InGameUI {
     // C++: InGameUI::removeMilitarySubtitle() (InGameUI.cpp:4093)
 
     pub fn military_subtitle(&mut self, title: &str, duration_ms: i32) {
+        update_diplomacy_briefing_text(title, false);
         let title = Self::military_caption_text(title);
         if title.is_empty() || duration_ms <= 0 {
             return;
