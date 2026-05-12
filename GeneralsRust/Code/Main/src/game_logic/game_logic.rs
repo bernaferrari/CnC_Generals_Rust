@@ -8742,7 +8742,7 @@ impl GameLogic {
             .into_iter()
             .last()
         {
-            let duration = (last.duration_frames as f32 / 30.0).max(0.0);
+            let duration = Self::military_caption_duration_seconds(last.duration_ms);
             self.military_caption = Some((last.text, self.sim_time_seconds + duration));
         }
 
@@ -9237,6 +9237,10 @@ impl GameLogic {
         if let Some(focus) = path_move.advance(dt) {
             self.request_camera_focus(focus);
         }
+    }
+
+    fn military_caption_duration_seconds(duration_ms: i32) -> f32 {
+        (duration_ms as f32 / 1000.0).max(0.0)
     }
 
     /// Update UI state from game logic
@@ -9975,6 +9979,13 @@ mod tests {
         game_logic.game_mode = GameMode::Internet;
         assert!(game_logic.isInInternetGame());
         assert!(game_logic.isInNetworkGame());
+    }
+
+    #[test]
+    fn military_caption_script_duration_uses_milliseconds_like_cpp() {
+        assert!((GameLogic::military_caption_duration_seconds(2500) - 2.5).abs() < f32::EPSILON);
+        assert_eq!(GameLogic::military_caption_duration_seconds(0), 0.0);
+        assert_eq!(GameLogic::military_caption_duration_seconds(-1), 0.0);
     }
 
     #[test]
