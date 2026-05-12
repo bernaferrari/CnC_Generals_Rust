@@ -94,7 +94,8 @@ impl DeletionUpdate {
 
         // Get current frame from game logic - matches C++ DeletionUpdate.cpp
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let lifetime = (specific_data.min_lifetime + specific_data.max_lifetime) / 2;
+        let lifetime =
+            Self::calc_sleep_delay_static(specific_data.min_lifetime, specific_data.max_lifetime);
 
         Ok(Self {
             object: Arc::downgrade(&object),
@@ -106,8 +107,21 @@ impl DeletionUpdate {
 
     pub fn set_lifetime_range(&mut self, min_lifetime: UnsignedInt, max_lifetime: UnsignedInt) {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let lifetime = (min_lifetime + max_lifetime) / 2;
-        self.delete_frame = current_frame + lifetime;
+        self.delete_frame =
+            current_frame + Self::calc_sleep_delay_static(min_lifetime, max_lifetime);
+    }
+
+    /// Calculate random sleep delay between min and max frames.
+    /// C++ Reference: DeletionUpdate.cpp - uses GameLogicRandomValue and clamps to at least 1.
+    fn calc_sleep_delay_static(
+        min_lifetime: UnsignedInt,
+        max_lifetime: UnsignedInt,
+    ) -> UnsignedInt {
+        let mut delay = crate::GameLogicRandomValue!(min_lifetime, max_lifetime) as UnsignedInt;
+        if delay < 1 {
+            delay = 1;
+        }
+        delay
     }
 }
 
