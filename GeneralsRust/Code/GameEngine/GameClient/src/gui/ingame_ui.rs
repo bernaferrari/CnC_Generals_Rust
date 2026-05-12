@@ -45,6 +45,7 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::special_power_template::get_special_power_store;
 use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
 use gamelogic::object::Object;
+use gamelogic::player::player_list;
 use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
 
 /// Re-export of the INI settings type from the Common crate's INI parser.
@@ -3934,6 +3935,32 @@ impl InGameUI {
         Self::ignored_gui_slaver_id_for_object(object).unwrap_or(drawable_id)
     }
 
+    fn mouseover_tooltip_color_for_object(object: &Object) -> [u8; 4] {
+        let mut color = object.get_indicator_color();
+
+        if let Some(contain) = object.get_contain() {
+            let local_player = player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned());
+            let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
+
+            if let Ok(contain_guard) = contain.lock() {
+                if contain_guard.is_garrisonable() {
+                    if let Some(player) =
+                        contain_guard.get_apparent_controlling_player(local_player_guard.as_deref())
+                    {
+                        if let Ok(player_guard) = player.read() {
+                            color = player_guard.get_player_color();
+                        }
+                    }
+                }
+            }
+        }
+
+        [color.r, color.g, color.b, color.a]
+    }
+
     fn mouseover_tooltip_visible_for_shroud(status: ObjectShroudStatus) -> bool {
         matches!(
             status,
@@ -4659,12 +4686,12 @@ impl InGameUI {
                                         &Self::supply_warehouse_tooltip_feedback(boxes, base_value),
                                     );
                                 }
-                                let indicator = guard.get_indicator_color();
+                                let indicator = Self::mouseover_tooltip_color_for_object(&guard);
                                 with_mouse(|m| {
                                     m.set_cursor_tooltip(
                                         display_name,
                                         Some(-1),
-                                        Some([indicator.r, indicator.g, indicator.b, indicator.a]),
+                                        Some(indicator),
                                         None,
                                     );
                                 });
