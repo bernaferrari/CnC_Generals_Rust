@@ -448,13 +448,12 @@ fn parse_particle_system_block(ini: &mut INI) -> INIResult<()> {
 
 fn parse_special_power_block(ini: &mut INI) -> INIResult<()> {
     let (name, properties) = parse_named_property_block(ini)?;
-    let template = super::ini_special_power::IniSpecialPower::parse_special_power_block(
+    super::ini_special_power::IniSpecialPower::register_definition(
         AsciiString::from(name.as_str()),
         properties,
+        ini.get_load_type(),
     )
     .map_err(|_| INIError::InvalidData)?;
-    super::ini_special_power::IniSpecialPower::register_template(template)
-        .map_err(|_| INIError::InvalidData)?;
     Ok(())
 }
 
