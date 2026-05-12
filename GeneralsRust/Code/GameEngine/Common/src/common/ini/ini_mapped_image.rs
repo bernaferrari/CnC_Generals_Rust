@@ -9,9 +9,10 @@
 use crate::common::ascii_string::AsciiString;
 use crate::common::ini::ini::{FieldParse, INIError, INILoadType, INIResult, INI};
 use crate::common::ini::ini_game_data::get_global_data;
+use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 use once_cell::sync::OnceCell;
 use parking_lot::RwLock;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -455,7 +456,7 @@ pub fn parse_texture_height(_ini: &mut INI, image: &mut Image, args: &[&str]) ->
 #[derive(Debug)]
 pub struct ImageCollection {
     /// Map of images by name key
-    images: HashMap<String, Image>,
+    images: BTreeMap<NameKeyType, Image>,
 }
 
 impl Default for ImageCollection {
@@ -465,14 +466,14 @@ impl Default for ImageCollection {
 }
 
 impl ImageCollection {
-    fn normalize_key(name: &str) -> String {
-        name.to_ascii_lowercase()
+    fn image_key(name: &str) -> NameKeyType {
+        NameKeyGenerator::name_to_key_lowercase(name)
     }
 
     /// Create a new ImageCollection
     pub fn new() -> Self {
         Self {
-            images: HashMap::new(),
+            images: BTreeMap::new(),
         }
     }
 
@@ -520,7 +521,7 @@ impl ImageCollection {
     /// # Returns
     /// Reference to the image if found, None otherwise
     pub fn find_image_by_name(&self, name: &str) -> Option<&Image> {
-        self.images.get(&Self::normalize_key(name))
+        self.images.get(&Self::image_key(name))
     }
 
     /// Add image to the collection (transfers ownership)
@@ -528,7 +529,7 @@ impl ImageCollection {
     /// # Arguments
     /// * `image` - Image to add to collection
     pub fn add_image(&mut self, image: Image) {
-        let key = Self::normalize_key(image.get_name());
+        let key = Self::image_key(image.get_name());
         self.images.insert(key, image);
     }
 
@@ -545,12 +546,12 @@ impl ImageCollection {
     /// # Returns
     /// The removed image if it existed
     pub fn remove_image(&mut self, name: &str) -> Option<Image> {
-        self.images.remove(&Self::normalize_key(name))
+        self.images.remove(&Self::image_key(name))
     }
 
     /// Get image names
     pub fn get_image_names(&self) -> Vec<&String> {
-        self.images.keys().collect()
+        self.images.values().map(|image| &image.name).collect()
     }
 
     /// Get number of images
@@ -646,12 +647,12 @@ pub fn parse_mapped_image_definition(ini: &mut INI) -> Result<(), String> {
     // C++ parity: image entries are parsed in-place and existing raw texture data
     // only triggers a debug assert (non-fatal in release builds).
     let collection_handle = ensure_mapped_image_collection();
-    let key = ImageCollection::normalize_key(name.as_str());
+    let key = ImageCollection::image_key(name.as_str());
     let mut collection = collection_handle.write();
     if !collection.images.contains_key(&key) {
         let mut new_image = Image::new();
         new_image.set_name(name.clone());
-        collection.images.insert(key.clone(), new_image);
+        collection.images.insert(key, new_image);
     }
 
     let image = collection
@@ -956,6 +957,61 @@ mod tests {
         assert!(collection.enum_image(0).is_some());
         assert!(collection.enum_image(1).is_some());
         assert!(collection.enum_image(2).is_none());
+    }
+
+    #[test]
+    fn image_collection_enumerates_in_name_key_order() {
+        let mut collection = ImageCollection::new();
+
+        let mut first = Image::new();
+        first.set_name("MappedOrderFirst".to_string());
+        first.set_filename("shared_texture.tga".to_string());
+        first.set_status(ImageStatus::ROTATED_90_CLOCKWISE);
+        let mut second = Image::new();
+        second.set_name("MappedOrderSecond".to_string());
+        second.set_filename("other_texture.tga".to_string());
+        let mut third = Image::new();
+        third.set_name("MappedOrderThird".to_string());
+        third.set_filename("shared_texture.tga".to_string());
+        third.set_status(ImageStatus::ROTATED_90_CLOCKWISE);
+
+        collection.add_image(first);
+        collection.add_image(second);
+        collection.add_image(third);
+
+        let enum_names: Vec<&str> = (0..collection.len())
+            .filter_map(|index| collection.enum_image(index))
+            .map(Image::get_name)
+            .collect();
+        assert_eq!(
+            enum_names,
+            vec!["MappedOrderFirst", "MappedOrderSecond", "MappedOrderThird"]
+        );
+
+        let name_list: Vec<&str> = collection
+            .get_image_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(name_list, enum_names);
+
+        let rotated_names: Vec<&str> = collection
+            .find_images_with_status(ImageStatus::ROTATED_90_CLOCKWISE)
+            .into_iter()
+            .map(Image::get_name)
+            .collect();
+        assert_eq!(rotated_names, vec!["MappedOrderFirst", "MappedOrderThird"]);
+
+        let texture_names: Vec<&str> = collection
+            .find_images_by_texture("shared_texture.tga")
+            .into_iter()
+            .map(Image::get_name)
+            .collect();
+        assert_eq!(texture_names, vec!["MappedOrderFirst", "MappedOrderThird"]);
+
+        let replacement = collection.remove_image("mappedordersecond");
+        assert!(replacement.is_some());
+        assert!(collection.find_image_by_name("MAPPEDORDERSECOND").is_none());
     }
 
     #[test]
