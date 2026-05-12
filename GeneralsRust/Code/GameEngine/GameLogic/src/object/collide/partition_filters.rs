@@ -720,17 +720,19 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBehind {
         if let Some(src_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id) {
             if let Ok(src_guard) = src_handle.read() {
                 let src_pos = src_guard.get_position();
-                let angle = src_guard.get_orientation();
                 let other_pos = obj.get_position();
 
-                // Compute facing direction from orientation angle (2D approximation)
-                let dir_x = angle.cos();
-                let dir_y = angle.sin();
+                let dir = src_guard
+                    .get_transform_matrix()
+                    .x_axis
+                    .truncate()
+                    .normalize_or_zero();
 
                 let v_x = other_pos.x - src_pos.x;
                 let v_y = other_pos.y - src_pos.y;
+                let v_z = other_pos.z - src_pos.z;
 
-                let dot = dir_x * v_x + dir_y * v_y;
+                let dot = dir.x * v_x + dir.y * v_y + dir.z * v_z;
                 return dot > 0.0;
             }
         }
@@ -1684,6 +1686,44 @@ mod tests {
 
         assert!(enemy_filter.allow(&target));
         assert!(!neutral_filter.allow(&target));
+    }
+
+    #[test]
+    fn reject_behind_uses_transform_x_vector() {
+        OBJECT_REGISTRY.clear();
+
+        let team = team_for_player("SourceTeam", 20, 0);
+        let source = registered_object_with_kind_of(92_001, "STRUCTURE", team);
+        {
+            let mut source_guard = source.write().expect("source write lock");
+            source_guard
+                .set_position(&crate::common::Coord3D::new(0.0, 0.0, 0.0))
+                .expect("set source position");
+            source_guard
+                .set_orientation(std::f32::consts::FRAC_PI_2)
+                .expect("set source orientation");
+        }
+
+        let ahead = object_with_kind_of("STRUCTURE");
+        ahead
+            .write()
+            .expect("ahead write lock")
+            .set_position(&crate::common::Coord3D::new(0.0, 10.0, 0.0))
+            .expect("set ahead position");
+        let behind = object_with_kind_of("STRUCTURE");
+        behind
+            .write()
+            .expect("behind write lock")
+            .set_position(&crate::common::Coord3D::new(0.0, -10.0, 0.0))
+            .expect("set behind position");
+
+        let filter =
+            PartitionFilterRejectBehind::new(source.read().expect("source read lock").get_id());
+
+        assert!(filter.allow(&ahead));
+        assert!(!filter.allow(&behind));
+
+        OBJECT_REGISTRY.unregister_object(92_001);
     }
 
     #[test]
