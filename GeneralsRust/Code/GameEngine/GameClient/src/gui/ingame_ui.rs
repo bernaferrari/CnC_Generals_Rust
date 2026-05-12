@@ -19,6 +19,7 @@ use wgpu::TextureView;
 use super::ui_renderer::{UIRect, UIRenderer, UIRendererError};
 use super::window_video_manager::with_window_video_manager;
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
+use crate::game_text::GameText;
 use crate::helpers::TheInGameUI;
 use crate::input::keyboard::KeyboardState;
 use crate::input::mouse::{with_mouse, ButtonState, MouseButton, MouseState};
@@ -3780,6 +3781,7 @@ impl InGameUI {
     // C++: InGameUI::removeMilitarySubtitle() (InGameUI.cpp:4093)
 
     pub fn military_subtitle(&mut self, title: &str, duration_ms: i32) {
+        let title = Self::military_caption_text(title);
         if title.is_empty() || duration_ms <= 0 {
             return;
         }
@@ -3798,7 +3800,7 @@ impl InGameUI {
             | (self.military_caption_color.2 as u32);
 
         self.current_military_subtitle = Some(MilitarySubtitle {
-            text: title.to_string(),
+            text: title,
             index: 0,
             position: (pos_x, pos_y),
             lifetime_frame,
@@ -3808,6 +3810,10 @@ impl InGameUI {
             increment_on_frame: self.current_frame + Self::military_caption_delay_frames(),
             color,
         });
+    }
+
+    fn military_caption_text(label: &str) -> String {
+        GameText::fetch(label)
     }
 
     fn military_caption_delay_frames() -> u32 {
@@ -4463,6 +4469,7 @@ pub enum CommandHintType {
 mod tests {
     use super::*;
     use game_engine::common::ini::ini_language::init_global_language;
+    use game_engine::common::language::Language;
 
     #[test]
     fn test_selection_box() {
@@ -4546,6 +4553,19 @@ mod tests {
         assert_eq!(InGameUI::milliseconds_to_logic_frames(750), 22);
         assert_eq!(InGameUI::milliseconds_to_logic_frames(1000), 30);
         assert_eq!(InGameUI::milliseconds_to_logic_frames(-1), 0);
+    }
+
+    #[test]
+    fn military_caption_fetches_localized_text() {
+        Language::clear_localized_strings();
+        Language::register_localized_string("SCRIPT:Briefing", "Localized briefing text");
+
+        assert_eq!(
+            InGameUI::military_caption_text("SCRIPT:Briefing"),
+            "Localized briefing text"
+        );
+
+        Language::clear_localized_strings();
     }
 
     #[test]
