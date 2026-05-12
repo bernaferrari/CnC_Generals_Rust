@@ -408,7 +408,7 @@ fn parse_academy_classification(value: &str) -> AcademyClassificationType {
     match value.trim().to_ascii_uppercase().as_str() {
         "TACTICAL" => AcademyClassificationType::Tactical,
         "STRATEGIC" => AcademyClassificationType::Strategic,
-        "SUPERWEAPON" => AcademyClassificationType::Superweapon,
+        "SUPERWEAPON" | "SUPERPOWER" | "ACT_SUPERPOWER" => AcademyClassificationType::Superweapon,
         "DEFENSIVE" => AcademyClassificationType::Defensive,
         "ECONOMIC" => AcademyClassificationType::Economic,
         _ => AcademyClassificationType::Invalid,
@@ -598,5 +598,17 @@ mod tests {
         assert_eq!(parse_duration_frames("1500ms"), Some(45));
         assert_eq!(parse_duration_frames("1.5s"), Some(45));
         assert_eq!(parse_duration_frames(""), None);
+    }
+
+    #[test]
+    fn parse_academy_classification_accepts_cpp_tokens() {
+        assert_eq!(
+            parse_academy_classification("ACT_SUPERPOWER"),
+            AcademyClassificationType::Superweapon
+        );
+        assert_eq!(
+            parse_academy_classification("SUPERPOWER"),
+            AcademyClassificationType::Superweapon
+        );
     }
 }
