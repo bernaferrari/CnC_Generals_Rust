@@ -76,7 +76,8 @@ pub use progressbar::{
 };
 pub use radiobutton::{RadioButton, RadioButtonBuilder, RadioButtonCallback, RadioButtonGroup};
 pub use slider::{
-    HorizontalSlider, SliderCallback, SliderConfig, SliderOrientation, SliderStyle, VerticalSlider,
+    HorizontalSlider, SliderCallback, SliderConfig, SliderOrientation, SliderRenderCommand,
+    SliderStyle, VerticalSlider,
 };
 pub use tabcontrol::{Tab, TabCallback, TabControl, TabControlData};
 pub use text::{
