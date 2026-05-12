@@ -345,35 +345,11 @@ impl FXListDie {
         };
 
         if self.base.module_data.orient_to_object {
-            if let Some(object_arc) = TheGameLogic::find_object_by_id(object.get_id()) {
-                let damage_dealer = TheGameLogic::find_object_by_id(damage_info.input.source_id);
-                let _ = fx_list.do_fx_obj_with_source(&object_arc, damage_dealer.as_ref(), None);
-                return;
-            }
+            let source_id = TheGameLogic::find_object_by_id(damage_info.input.source_id)
+                .map(|_| damage_info.input.source_id);
+            let _ = fx_list.do_fx_obj_ids(object.get_id(), source_id, None);
         } else {
             let _ = fx_list.do_fx_at_position(object.get_position());
-            return;
-        }
-
-        if self.base.module_data.orient_to_object {
-            // Orient FX toward the damage dealer
-            log::debug!(
-                "FXListDie: Would play oriented FX '{}' for object {} toward source {:?}",
-                fx_name,
-                object.get_id(),
-                damage_info.input.source_id
-            );
-        } else {
-            // Position FX at object location
-            // let position = object.get_position();
-            // FXList::doFXPos(fx_name, position);
-
-            log::debug!(
-                "FXListDie: Would play positional FX '{}' for object {} at {:?}",
-                fx_name,
-                object.get_id(),
-                object.get_position()
-            );
         }
     }
 }
