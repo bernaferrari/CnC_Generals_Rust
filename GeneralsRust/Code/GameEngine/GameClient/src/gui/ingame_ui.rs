@@ -4489,7 +4489,7 @@ impl InGameUI {
                                 with_mouse(|m| {
                                     m.set_cursor_tooltip(
                                         display_name,
-                                        None,
+                                        Some(-1),
                                         Some([indicator.r, indicator.g, indicator.b, indicator.a]),
                                         None,
                                     );
