@@ -1030,6 +1030,9 @@ impl CountermeasuresBehaviorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     fn create_test_behavior() -> CountermeasuresBehavior {
         let mut data = CountermeasuresBehaviorModuleData::default();
@@ -1072,5 +1075,55 @@ mod tests {
     fn parse_duration_frames_accepts_duration_suffixes() {
         assert_eq!(parse_duration_frames("1500ms").expect("duration"), 45);
         assert_eq!(parse_duration_frames("1.5s").expect("duration"), 45);
+    }
+
+    #[test]
+    fn xfer_preserves_cpp_countermeasure_runtime_fields_only() {
+        let mut saved = create_test_behavior();
+        saved.next_call_frame_and_phase = 0x6721;
+        {
+            let mut state = saved.state.write().unwrap();
+            state.countermeasures.push_back(10);
+            state.countermeasures.push_back(20);
+            state.available_countermeasures = 7;
+            state.active_countermeasures = 2;
+            state.diverted_missiles = 3;
+            state.incoming_missiles = 4;
+            state.reaction_frame = 100;
+            state.next_volley_frame = 125;
+            state.reload_frame = 900;
+        }
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded = create_test_behavior();
+        loaded.next_call_frame_and_phase = 0;
+        {
+            let mut state = loaded.state.write().unwrap();
+            state.reload_frame = 55;
+        }
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.next_call_frame_and_phase, 0x6721);
+        let state = loaded.state.read().unwrap();
+        assert_eq!(
+            state.countermeasures.iter().copied().collect::<Vec<_>>(),
+            vec![10, 20]
+        );
+        assert_eq!(state.available_countermeasures, 7);
+        assert_eq!(state.active_countermeasures, 2);
+        assert_eq!(state.diverted_missiles, 3);
+        assert_eq!(state.incoming_missiles, 4);
+        assert_eq!(state.reaction_frame, 100);
+        assert_eq!(state.next_volley_frame, 125);
+        assert_eq!(state.reload_frame, 55);
     }
 }
