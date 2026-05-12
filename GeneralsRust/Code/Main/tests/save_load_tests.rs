@@ -15,7 +15,7 @@ use generals_main::save_load::GameMode as ReplayGameMode;
 use generals_main::save_load::*;
 use std::collections::HashMap;
 use std::io::Cursor;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
 
 #[test]
@@ -601,41 +601,297 @@ fn test_save_game_info() {
 
 #[cfg(test)]
 mod integration_tests {
-    // These tests would require a full game_logic implementation
-    // They are placeholders demonstrating the API usage
+    use super::*;
+    use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
+    use generals_main::game_logic::GameMode;
+    use glam::Vec3;
+
+    fn command(
+        command_id: u32,
+        command_type: CommandType,
+        selected_units: Vec<ObjectId>,
+    ) -> GameCommand {
+        GameCommand {
+            command_type,
+            player_id: 0,
+            command_id,
+            timestamp: UNIX_EPOCH + Duration::from_secs(command_id as u64),
+            selected_units,
+            modifier_keys: ModifierKeys::default(),
+        }
+    }
+
+    fn template(
+        name: &str,
+        kind_of: &[KindOf],
+        health: f32,
+        supplies: u32,
+        build_time: f32,
+    ) -> ThingTemplate {
+        let mut template = ThingTemplate::new(name);
+        template.set_health(health);
+        template.set_cost(supplies, 0);
+        template.build_time = build_time;
+        for kind in kind_of {
+            template.add_kind_of(*kind);
+        }
+        template
+    }
+
+    fn install_fixture_templates(game_logic: &mut GameLogic) {
+        let templates = [
+            template(
+                "SaveTestCommandCenter",
+                &[KindOf::Structure, KindOf::Selectable, KindOf::CommandCenter],
+                2000.0,
+                2000,
+                0.1,
+            ),
+            template(
+                "SaveTestDozer",
+                &[KindOf::Vehicle, KindOf::Worker, KindOf::Selectable],
+                300.0,
+                1000,
+                0.1,
+            ),
+            template(
+                "SaveTestBarracks",
+                &[KindOf::Structure, KindOf::Selectable],
+                1000.0,
+                500,
+                0.1,
+            ),
+            template(
+                "SaveTestRanger",
+                &[KindOf::Infantry, KindOf::Selectable, KindOf::Attackable],
+                120.0,
+                100,
+                0.05,
+            ),
+        ];
+
+        for template in templates {
+            game_logic.templates.insert(template.name.clone(), template);
+        }
+    }
+
+    fn save_info(filename: &str, save_type: SaveFileType) -> SaveGameInfo {
+        SaveGameInfo {
+            filename: filename.to_string(),
+            display_name: "Save Fixture".to_string(),
+            description: "Deterministic save/load fixture".to_string(),
+            map_name: "SaveFixtureMap".to_string(),
+            campaign_side: None,
+            mission_number: None,
+            save_date: UNIX_EPOCH + Duration::from_secs(1_700_000_000),
+            game_version: env!("CARGO_PKG_VERSION").to_string(),
+            play_time: Duration::from_secs(42),
+            difficulty: GameDifficulty::Medium,
+            save_type,
+        }
+    }
+
+    fn fixture_game() -> GameLogic {
+        let mut game_logic = GameLogic::new();
+        game_logic.start_new_game(GameMode::Skirmish);
+        game_logic.clear_all_players();
+        install_fixture_templates(&mut game_logic);
+        game_logic.add_player(Player::new(0, Team::USA, "USA", true));
+        game_logic.add_player(Player::new(1, Team::China, "China", false));
+        game_logic
+    }
+
+    fn save_and_load(filename: &str, game_logic: &GameLogic) -> (GameLogic, SaveGameInfo) {
+        let save_dir = TempDir::new().expect("save temp dir should be created");
+        let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+        manager.init().expect("save manager should initialize");
+        let info = save_info(filename, SaveFileType::Normal);
+        manager
+            .save_game(filename, game_logic, &info)
+            .expect("fixture should save");
+
+        let mut loaded = GameLogic::new();
+        install_fixture_templates(&mut loaded);
+        let loaded_info = manager
+            .load_game(filename, &mut loaded)
+            .expect("fixture should load");
+        (loaded, loaded_info)
+    }
 
     #[test]
-    #[ignore] // Requires full game implementation
     fn test_full_save_load_cycle() {
-        // This test would:
-        // 1. Create a game instance
-        // 2. Set up some game state (units, buildings, etc.)
-        // 3. Save the game
-        // 4. Load the game
-        // 5. Verify all state was restored correctly
+        let mut game_logic = fixture_game();
+        let command_center = game_logic
+            .create_object("SaveTestCommandCenter", Team::USA, Vec3::ZERO)
+            .expect("command center should spawn");
+        let enemy_command_center = game_logic
+            .create_object(
+                "SaveTestCommandCenter",
+                Team::China,
+                Vec3::new(80.0, 0.0, 0.0),
+            )
+            .expect("enemy command center should spawn");
+        let ranger = game_logic
+            .create_object("SaveTestRanger", Team::USA, Vec3::new(10.0, 0.0, 0.0))
+            .expect("ranger should spawn");
+
+        let ranger_object = game_logic
+            .get_object_mut(ranger)
+            .expect("ranger should exist");
+        ranger_object.weapon = Some(Weapon {
+            damage: 60.0,
+            range: 200.0,
+            reload_time: 0.0,
+            projectile_speed: 0.0,
+            ..Weapon::default()
+        });
+
+        let (mut loaded, loaded_info) = save_and_load("full_cycle", &game_logic);
+        assert_eq!(loaded_info.map_name, "SaveFixtureMap");
+        assert!(loaded.get_object(command_center).is_some());
+        assert!(loaded.get_object(ranger).is_some());
+        assert!(loaded.get_object(enemy_command_center).is_some());
+
+        loaded.queue_command(command(
+            1,
+            CommandType::AttackObject {
+                target_id: enemy_command_center,
+            },
+            vec![ranger],
+        ));
+        loaded.update();
+        assert!(
+            loaded
+                .get_object(enemy_command_center)
+                .expect("enemy command center should survive one shot")
+                .health
+                .current
+                < 2000.0
+        );
     }
 
     #[test]
-    #[ignore] // Requires full game implementation
     fn test_save_with_active_units() {
-        // Test saving/loading with units in motion
+        let mut game_logic = fixture_game();
+        let dozer = game_logic
+            .create_object("SaveTestDozer", Team::USA, Vec3::ZERO)
+            .expect("dozer should spawn");
+
+        game_logic.queue_command(command(
+            2,
+            CommandType::MoveTo {
+                destination: Vec3::new(64.0, 0.0, 0.0),
+                waypoints: vec![Vec3::new(32.0, 0.0, 0.0)],
+            },
+            vec![dozer],
+        ));
+        game_logic.process_commands();
+
+        let (loaded, _) = save_and_load("active_units", &game_logic);
+        let loaded_dozer = loaded.get_object(dozer).expect("moving dozer should load");
+        assert_eq!(loaded_dozer.ai_state, AIState::Moving);
+        assert!(loaded_dozer.status.moving);
+        assert_eq!(
+            loaded_dozer.movement.target_position,
+            Some(Vec3::new(64.0, 0.0, 0.0))
+        );
     }
 
     #[test]
-    #[ignore] // Requires full game implementation
     fn test_save_with_active_combat() {
-        // Test saving/loading during combat
+        let mut game_logic = fixture_game();
+        let attacker = game_logic
+            .create_object("SaveTestRanger", Team::USA, Vec3::ZERO)
+            .expect("attacker should spawn");
+        let target = game_logic
+            .create_object(
+                "SaveTestCommandCenter",
+                Team::China,
+                Vec3::new(60.0, 0.0, 0.0),
+            )
+            .expect("target should spawn");
+        {
+            let attacker = game_logic
+                .get_object_mut(attacker)
+                .expect("attacker should exist");
+            attacker.weapon = Some(Weapon {
+                damage: 75.0,
+                range: 200.0,
+                reload_time: 0.0,
+                projectile_speed: 0.0,
+                ..Weapon::default()
+            });
+            attacker.attack_target(target);
+        }
+
+        let (mut loaded, _) = save_and_load("active_combat", &game_logic);
+        let loaded_attacker = loaded.get_object(attacker).expect("attacker should load");
+        assert_eq!(loaded_attacker.ai_state, AIState::Attacking);
+        assert_eq!(loaded_attacker.target, Some(target));
+        assert!(loaded_attacker.weapon.is_some());
+
+        loaded.update();
+        assert!(
+            loaded
+                .get_object(target)
+                .expect("target should still exist")
+                .health
+                .current
+                < 2000.0
+        );
     }
 
     #[test]
-    #[ignore] // Requires full game implementation
     fn test_save_with_production_queue() {
-        // Test saving/loading with active production
+        let mut game_logic = fixture_game();
+        let barracks = game_logic
+            .create_object("SaveTestBarracks", Team::USA, Vec3::ZERO)
+            .expect("barracks should spawn");
+        assert!(game_logic.enqueue_production(barracks, "SaveTestRanger".to_string()));
+        {
+            let building = game_logic
+                .get_object_mut(barracks)
+                .and_then(|object| object.building_data.as_mut())
+                .expect("barracks should have building data");
+            building.production_queue[0].progress = 0.02;
+            building.rally_point = Some(Vec3::new(30.0, 0.0, 10.0));
+        }
+
+        let (loaded, _) = save_and_load("production_queue", &game_logic);
+        let building = loaded
+            .get_object(barracks)
+            .and_then(|object| object.building_data.as_ref())
+            .expect("loaded barracks should keep building data");
+        assert_eq!(building.production_queue.len(), 1);
+        assert_eq!(building.production_queue[0].template_name, "SaveTestRanger");
+        assert_eq!(building.production_queue[0].cost.supplies, 100);
+        assert!((building.production_queue[0].progress - 0.02).abs() < 0.001);
+        assert_eq!(building.rally_point, Some(Vec3::new(30.0, 0.0, 10.0)));
     }
 
     #[test]
-    #[ignore] // Requires full game implementation
     fn test_autosave_functionality() {
-        // Test autosave triggers and cleanup
+        let mut game_logic = fixture_game();
+        let command_center = game_logic
+            .create_object("SaveTestCommandCenter", Team::USA, Vec3::ZERO)
+            .expect("command center should spawn");
+        let save_dir = TempDir::new().expect("save temp dir should be created");
+        let mut manager = SaveFileManager::with_save_directory(save_dir.path());
+        manager.init().expect("save manager should initialize");
+
+        manager
+            .auto_save(&game_logic)
+            .expect("autosave should complete");
+        let saves = manager.list_saves().expect("autosave should be listed");
+        assert_eq!(saves.len(), 1);
+        assert_eq!(saves[0].save_info.save_type, SaveFileType::AutoSave);
+
+        let mut loaded = GameLogic::new();
+        install_fixture_templates(&mut loaded);
+        let loaded_info = manager
+            .load_game(&saves[0].filename, &mut loaded)
+            .expect("autosave should load");
+        assert_eq!(loaded_info.save_type, SaveFileType::AutoSave);
+        assert!(loaded.get_object(command_center).is_some());
     }
 }
