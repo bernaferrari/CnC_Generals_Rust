@@ -9,7 +9,6 @@
 // Port from C++ Radar.cpp and Radar.h (Colin Day, January 2002)
 ///////////////////////////////////////////////////////////////////////////////
 
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 /// Radar cell dimensions (matches C++ RADAR_CELL_WIDTH/HEIGHT)
@@ -524,9 +523,6 @@ pub struct RadarSystem {
     /// Radar objects for local player only
     local_object_list: Vec<RadarObject>,
 
-    /// HashMap for quick object lookup by ID
-    object_map: HashMap<u32, usize>,
-
     /// Radar events array
     events: [RadarEvent; MAX_RADAR_EVENTS],
 
@@ -601,7 +597,6 @@ impl RadarSystem {
             water_average_z: 0.0,
             object_list: Vec::new(),
             local_object_list: Vec::new(),
-            object_map: HashMap::new(),
             events: std::array::from_fn(|_| RadarEvent::default()),
             next_free_event: 0,
             last_event: None,
@@ -624,7 +619,6 @@ impl RadarSystem {
     pub fn reset(&mut self) {
         self.object_list.clear();
         self.local_object_list.clear();
-        self.object_map.clear();
         self.clear_all_events();
         self.radar_force_on = false;
         self.terrain_dirty = true;
@@ -760,29 +754,26 @@ impl RadarSystem {
             .unwrap_or(list.len());
 
         list.insert(insert_pos, radar_obj.clone());
-
-        // Add to map for quick lookup
-        self.object_map.insert(radar_obj.object_id, insert_pos);
     }
 
     /// Remove object from radar (matches C++ Radar::removeObject)
     pub fn remove_object(&mut self, object_id: u32) -> bool {
-        if let Some(&index) = self.object_map.get(&object_id) {
-            // Remove from local list
-            if index < self.local_object_list.len()
-                && self.local_object_list[index].object_id == object_id
-            {
-                self.local_object_list.remove(index);
-                self.object_map.remove(&object_id);
-                return true;
-            }
+        if let Some(index) = self
+            .local_object_list
+            .iter()
+            .position(|obj| obj.object_id == object_id)
+        {
+            self.local_object_list.remove(index);
+            return true;
+        }
 
-            // Remove from regular list
-            if index < self.object_list.len() && self.object_list[index].object_id == object_id {
-                self.object_list.remove(index);
-                self.object_map.remove(&object_id);
-                return true;
-            }
+        if let Some(index) = self
+            .object_list
+            .iter()
+            .position(|obj| obj.object_id == object_id)
+        {
+            self.object_list.remove(index);
+            return true;
         }
 
         false
@@ -1724,8 +1715,64 @@ mod tests {
     }
 
     #[test]
+    fn test_remove_object_searches_local_and_regular_lists() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+
+        let mut local = RadarObject::new(1);
+        local.world_pos = Coord3D::new(100.0, 100.0, 0.0);
+        local.priority = RadarPriorityType::Unit;
+        local.is_local = true;
+        radar.add_object(local);
+
+        let mut regular = RadarObject::new(2);
+        regular.world_pos = Coord3D::new(200.0, 200.0, 0.0);
+        regular.priority = RadarPriorityType::Unit;
+        radar.add_object(regular);
+
+        assert!(radar.remove_object(2));
+        assert_eq!(radar.local_object_list.len(), 1);
+        assert_eq!(radar.object_list.len(), 0);
+
+        assert!(radar.remove_object(1));
+        assert_eq!(radar.local_object_list.len(), 0);
+        assert_eq!(radar.object_list.len(), 0);
+    }
+
+    #[test]
+    fn test_remove_object_survives_priority_insert_shifts() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+
+        let mut unit = RadarObject::new(1);
+        unit.world_pos = Coord3D::new(100.0, 100.0, 0.0);
+        unit.priority = RadarPriorityType::Unit;
+        radar.add_object(unit);
+
+        let mut structure = RadarObject::new(2);
+        structure.world_pos = Coord3D::new(200.0, 200.0, 0.0);
+        structure.priority = RadarPriorityType::Structure;
+        radar.add_object(structure);
+
+        assert_eq!(radar.object_list[0].object_id, 2);
+        assert_eq!(radar.object_list[1].object_id, 1);
+
+        assert!(radar.remove_object(1));
+        assert_eq!(radar.object_list.len(), 1);
+        assert_eq!(radar.object_list[0].object_id, 2);
+    }
+
+    #[test]
     fn test_event_colors() {
-        let (color1, color2) = RadarEventType::UnderAttack.get_colors();
+        let (color1, _color2) = RadarEventType::UnderAttack.get_colors();
         assert_eq!(color1.r, 255);
         assert_eq!(color1.g, 0);
         assert_eq!(color1.b, 0);
