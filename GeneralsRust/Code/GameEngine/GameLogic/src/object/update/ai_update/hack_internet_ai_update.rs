@@ -126,26 +126,43 @@ fn parse_auto_acquire_field(
     data: &mut HackInternetAIUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = INI::parse_bit_string_32(tokens, AUTO_ACQUIRE_ENEMIES_NAMES)?;
+    let values = value_tokens(tokens)?;
+    let value = INI::parse_bit_string_32(&values, AUTO_ACQUIRE_ENEMIES_NAMES)?;
     data.base.set_auto_acquire_enemies_when_idle(value);
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> Result<Vec<&'a str>, INIError> {
+    let values: Vec<_> = tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect();
+    if values.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+    Ok(values)
 }
 
 fn parse_duration_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_duration_unsigned_int(token)?);
     Ok(())
 }
 
 fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_bool(token)?);
     Ok(())
 }
@@ -154,17 +171,13 @@ fn parse_unsigned_int_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_unsigned_int(token)?);
     Ok(())
 }
 
 fn parse_real_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_real(token)?);
     Ok(())
 }
@@ -758,5 +771,60 @@ impl HackInternetAIUpdateInterface for HackInternetAIUpdate {
 
     fn is_hacking_packing_or_unpacking(&self) -> bool {
         self.is_hacking_packing_or_unpacking_state()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_field(data: &mut HackInternetAIUpdateModuleData, token: &str, values: &[&str]) {
+        let field = HACK_INTERNET_AI_UPDATE_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
+    #[test]
+    fn hack_internet_fields_accept_ini_equals_token() {
+        let mut data = HackInternetAIUpdateModuleData::default();
+
+        parse_field(
+            &mut data,
+            "AutoAcquireEnemiesWhenIdle",
+            &["=", "YES", "ATTACK_BUILDINGS"],
+        );
+        parse_field(&mut data, "MoodAttackCheckRate", &["=", "2000"]);
+        parse_field(&mut data, "SurrenderDuration", &["=", "3000"]);
+        parse_field(&mut data, "ForbidPlayerCommands", &["=", "Yes"]);
+        parse_field(&mut data, "TurretsLinked", &["=", "Yes"]);
+        parse_field(&mut data, "UnpackTime", &["=", "1200"]);
+        parse_field(&mut data, "PackTime", &["=", "900"]);
+        parse_field(&mut data, "PackUnpackVariationFactor", &["=", "0.25"]);
+        parse_field(&mut data, "CashUpdateDelay", &["=", "4000"]);
+        parse_field(&mut data, "CashUpdateDelayFast", &["=", "1000"]);
+        parse_field(&mut data, "RegularCashAmount", &["=", "5"]);
+        parse_field(&mut data, "VeteranCashAmount", &["=", "6"]);
+        parse_field(&mut data, "EliteCashAmount", &["=", "7"]);
+        parse_field(&mut data, "HeroicCashAmount", &["=", "8"]);
+        parse_field(&mut data, "XpPerCashUpdate", &["=", "9"]);
+
+        assert_ne!(data.base.auto_acquire_enemies_when_idle(), 0);
+        assert_eq!(data.base.mood_attack_check_rate(), 60);
+        assert_eq!(data.base.surrender_duration_frames(), 90);
+        assert!(data.base.forbid_player_commands());
+        assert!(data.base.turrets_linked());
+        assert_eq!(data.unpack_time, 36);
+        assert_eq!(data.pack_time, 27);
+        assert_eq!(data.pack_unpack_variation_factor, 0.25);
+        assert_eq!(data.cash_update_delay, 120);
+        assert_eq!(data.cash_update_delay_fast, 30);
+        assert_eq!(data.regular_cash_amount, 5);
+        assert_eq!(data.veteran_cash_amount, 6);
+        assert_eq!(data.elite_cash_amount, 7);
+        assert_eq!(data.heroic_cash_amount, 8);
+        assert_eq!(data.xp_per_cash_update, 9);
     }
 }
