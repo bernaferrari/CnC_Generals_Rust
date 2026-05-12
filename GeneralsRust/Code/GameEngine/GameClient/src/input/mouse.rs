@@ -1136,6 +1136,17 @@ mod tests {
     }
 
     #[test]
+    fn cursor_tooltip_accepts_negative_delay_to_restore_default_timing() {
+        let mut mouse = Mouse::new();
+
+        mouse.set_cursor_tooltip("Fast".to_string(), Some(0), None, None);
+        assert_eq!(mouse.tooltip_state.tooltip_delay_override_ms, 0);
+
+        mouse.set_cursor_tooltip("Default".to_string(), Some(-1), None, None);
+        assert_eq!(mouse.tooltip_state.tooltip_delay_override_ms, -1);
+    }
+
+    #[test]
     fn test_button_conversion() {
         assert_eq!(MouseButton::from(WinitMouseButton::Left), MouseButton::Left);
         assert_eq!(
