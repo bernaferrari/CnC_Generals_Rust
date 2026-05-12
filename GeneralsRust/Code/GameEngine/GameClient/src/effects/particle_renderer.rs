@@ -228,6 +228,15 @@ pub struct ParticleRenderStats {
     pub render_time_ms: f64,
 }
 
+impl ParticleRenderStats {
+    fn reset_frame_counters(&mut self) {
+        self.particles_rendered = 0;
+        self.batches_rendered = 0;
+        self.draw_calls = 0;
+        self.render_time_ms = 0.0;
+    }
+}
+
 impl ParticleRenderer {
     /// Create new particle renderer
     pub fn new(
@@ -690,6 +699,7 @@ impl ParticleRenderer {
         uniforms: &ParticleUniforms,
     ) {
         let start_time = std::time::Instant::now();
+        self.stats.reset_frame_counters();
 
         // Update uniforms
         self.queue
@@ -741,6 +751,8 @@ impl ParticleRenderer {
             // Set billboard vertices
             render_pass.set_vertex_buffer(0, self.billboard_buffer.slice(..));
 
+            let mut rendered_batches = 0usize;
+
             // Render each batch
             for batch in self.batches.values() {
                 if batch.vertices.is_empty() || batch.vertex_buffer.is_none() {
@@ -777,9 +789,10 @@ impl ParticleRenderer {
                 render_pass.draw(0..4, 0..batch.vertices.len() as u32);
 
                 self.stats.draw_calls += 1;
+                rendered_batches += 1;
             }
 
-            self.stats.batches_rendered = self.batches.len();
+            self.stats.batches_rendered = rendered_batches;
         }
 
         self.stats.render_time_ms = start_time.elapsed().as_secs_f64() * 1000.0;
@@ -1178,5 +1191,24 @@ mod tests {
         let mut batch = ParticleBatch::new(ParticleShaderType::Alpha, "test.tga".to_string());
         assert_eq!(batch.vertices.len(), 0);
         assert!(batch.dirty);
+    }
+
+    #[test]
+    fn particle_stats_frame_reset_preserves_gpu_memory() {
+        let mut stats = ParticleRenderStats {
+            particles_rendered: 17,
+            batches_rendered: 3,
+            draw_calls: 3,
+            gpu_memory_used: 4096,
+            render_time_ms: 2.5,
+        };
+
+        stats.reset_frame_counters();
+
+        assert_eq!(stats.particles_rendered, 0);
+        assert_eq!(stats.batches_rendered, 0);
+        assert_eq!(stats.draw_calls, 0);
+        assert_eq!(stats.gpu_memory_used, 4096);
+        assert_eq!(stats.render_time_ms, 0.0);
     }
 }
