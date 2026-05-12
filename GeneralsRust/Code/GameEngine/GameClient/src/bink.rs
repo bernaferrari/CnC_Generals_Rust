@@ -3,13 +3,15 @@ use std::path::Path;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use self::bink_decoder::BinkVideoDecoder;
 use crate::video_buffer::{VideoBuffer, VideoBufferType};
 use crate::video_player::{register_video_stream_provider, VideoStreamProvider};
 use crate::video_stream::VideoStreamInterface;
 
+#[path = "bink_decoder.rs"]
 mod bink_decoder;
 
-pub const ENABLE_REAL_BINK1_DECODER: bool = false;
+pub const ENABLE_REAL_BINK1_DECODER: bool = true;
 
 const BINK_HEADER_SIZE: usize = 44;
 
@@ -98,12 +100,12 @@ pub struct BinkFramePacket {
     pub size: usize,
 }
 
-#[derive(Debug, Clone)]
 pub struct BinkDecoder {
     bytes: Arc<[u8]>,
     header: BinkHeader,
     frame_packets: Vec<BinkFramePacket>,
     current_frame: u32,
+    video_decoder: Option<BinkVideoDecoder>,
 }
 
 impl BinkDecoder {
@@ -121,11 +123,22 @@ impl BinkDecoder {
             return Err("Bink file contains no extractable frame packets".to_string());
         }
 
+        let video_decoder = (ENABLE_REAL_BINK1_DECODER && header.version == BinkVersion::Bink1)
+            .then(|| {
+                BinkVideoDecoder::new(
+                    header.magic[3],
+                    header.video_flags,
+                    header.width.max(1) as usize,
+                    header.height.max(1) as usize,
+                )
+            });
+
         Ok(Self {
             bytes,
             header,
             frame_packets,
             current_frame: 0,
+            video_decoder,
         })
     }
 
@@ -163,22 +176,29 @@ impl BinkDecoder {
         &self.bytes[packet.offset..packet.offset + packet.size]
     }
 
-    pub fn decode_current_frame_rgba(&self) -> Vec<u8> {
+    pub fn decode_current_frame_rgba(&mut self) -> Vec<u8> {
         self.decode_frame_rgba(self.current_frame_index())
     }
 
-    pub fn decode_frame_rgba(&self, frame_index: u32) -> Vec<u8> {
-        let packet = self.packet(frame_index);
+    pub fn decode_frame_rgba(&mut self, frame_index: u32) -> Vec<u8> {
+        let packet = self.packet(frame_index).to_vec();
         match self.header.version {
-            BinkVersion::Bink1 => pseudo_decode_paletted_frame(
-                packet,
-                self.width(),
-                self.height(),
-                frame_index,
-                self.header.has_alpha(),
-            ),
+            BinkVersion::Bink1 => {
+                if let Some(decoder) = self.video_decoder.as_mut() {
+                    if let Ok(rgba) = decoder.decode_frame(&packet) {
+                        return rgba;
+                    }
+                }
+                pseudo_decode_paletted_frame(
+                    &packet,
+                    self.width(),
+                    self.height(),
+                    frame_index,
+                    self.header.has_alpha(),
+                )
+            }
             BinkVersion::Bink2 => pseudo_decode_yuv_frame(
-                packet,
+                &packet,
                 self.width(),
                 self.height(),
                 frame_index,
@@ -211,7 +231,7 @@ pub struct BinkVideoStream {
 
 impl BinkVideoStream {
     pub fn open(path: &Path) -> Result<Self, String> {
-        let decoder = BinkDecoder::open(path)?;
+        let mut decoder = BinkDecoder::open(path)?;
         let current_rgba = decoder.decode_current_frame_rgba();
         Ok(Self {
             decoder,
@@ -602,7 +622,7 @@ mod tests {
     #[test]
     fn pseudo_decode_outputs_rgba() {
         let bytes = make_bink_blob(*b"BIKi");
-        let decoder = BinkDecoder::from_bytes(bytes).expect("decoder should parse");
+        let mut decoder = BinkDecoder::from_bytes(bytes).expect("decoder should parse");
         let rgba = decoder.decode_current_frame_rgba();
         assert_eq!(rgba.len(), 4 * 4 * 4);
         assert!(rgba.iter().any(|byte| *byte != 0));
