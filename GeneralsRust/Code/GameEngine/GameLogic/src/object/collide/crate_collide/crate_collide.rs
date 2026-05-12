@@ -123,7 +123,6 @@ struct CrateCollideState {
     /// Whether the crate has been collected
     is_collected: bool,
     /// Time when the crate was created
-    #[allow(dead_code)]
     creation_time: u64,
 }
 
@@ -163,7 +162,7 @@ impl CrateCollide {
             module_data,
             state: Arc::new(Mutex::new(CrateCollideState {
                 is_collected: false,
-                creation_time: 0, // Would be set to current game time
+                creation_time: TheGameLogic::get_frame() as u64,
             })),
             object_handle: OBJECT_REGISTRY.get_object(object_id),
         }
@@ -184,7 +183,7 @@ impl CrateCollide {
             module_data,
             state: Arc::new(Mutex::new(CrateCollideState {
                 is_collected: false,
-                creation_time: 0,
+                creation_time: TheGameLogic::get_frame() as u64,
             })),
             object_handle: Some(thing),
         }
@@ -211,6 +210,13 @@ impl CrateCollide {
             CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
         })?;
         Ok(state.is_collected)
+    }
+
+    pub fn get_creation_time(&self) -> Result<u64, CollisionError> {
+        let state = self.state.lock().map_err(|e| {
+            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
+        })?;
+        Ok(state.creation_time)
     }
 
     pub fn set_collected(&self, collected: bool) -> Result<(), CollisionError> {
@@ -589,6 +595,64 @@ impl LegacyCollideAdapter for CrateCollide {
 }
 
 // Mock-based tests removed to avoid mocks in fidelity-critical code.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::system::game_logic::get_game_logic;
+    use std::sync::OnceLock;
+
+    static CRATE_COLLIDE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn crate_collide_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        CRATE_COLLIDE_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("crate collide test lock")
+    }
+
+    fn set_logic_frame(frame: u64) {
+        get_game_logic()
+            .lock()
+            .expect("game logic lock")
+            .set_current_frame(frame);
+    }
+
+    struct LogicFrameReset;
+
+    impl Drop for LogicFrameReset {
+        fn drop(&mut self) {
+            set_logic_frame(0);
+        }
+    }
+
+    #[test]
+    fn crate_collide_records_current_logic_frame_on_create() {
+        let _guard = crate_collide_test_guard();
+        set_logic_frame(321);
+        let _frame_reset = LogicFrameReset;
+
+        let collide = CrateCollide::new(7, CrateCollideModuleData::default());
+
+        assert_eq!(collide.get_creation_time().expect("creation time"), 321);
+    }
+
+    #[test]
+    fn crate_collide_from_object_handle_records_current_logic_frame() {
+        let _guard = crate_collide_test_guard();
+        set_logic_frame(654);
+        let _frame_reset = LogicFrameReset;
+        let template = Arc::new(DefaultThingTemplate::new("CrateFrameTest".to_string()));
+        let object = Object::new_with_id(template, 8, ObjectStatusMaskType::none(), None)
+            .expect("crate object");
+
+        let collide = CrateCollide::from_object_handle(object, CrateCollideModuleData::default());
+
+        assert_eq!(collide.get_creation_time().expect("creation time"), 654);
+        OBJECT_REGISTRY.unregister_object(8);
+    }
+}
 
 impl game_engine::common::system::Snapshotable for CrateCollide {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
