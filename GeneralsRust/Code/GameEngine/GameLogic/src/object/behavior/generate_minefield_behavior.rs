@@ -84,6 +84,39 @@ impl GeometryInfo {
             (self.major_radius * self.major_radius + self.minor_radius * self.minor_radius).sqrt()
         }
     }
+
+    fn footprint_area(&self) -> f32 {
+        if self.is_circular {
+            std::f32::consts::PI * self.major_radius * self.major_radius
+        } else {
+            self.major_radius * 2.0 * self.minor_radius * 2.0
+        }
+    }
+
+    fn contains_point_2d(&self, center: &Coord3D, point: &Coord3D) -> bool {
+        let dx = point.x - center.x;
+        let dy = point.y - center.y;
+        let cos = self.rotation.cos();
+        let sin = self.rotation.sin();
+        let local_x = dx * cos + dy * sin;
+        let local_y = -dx * sin + dy * cos;
+
+        if self.is_circular {
+            local_x * local_x + local_y * local_y <= self.major_radius * self.major_radius
+        } else {
+            local_x.abs() <= self.major_radius && local_y.abs() <= self.minor_radius
+        }
+    }
+
+    fn offset_to_world(&self, center: &Coord3D, local_x: f32, local_y: f32) -> Coord3D {
+        let cos = self.rotation.cos();
+        let sin = self.rotation.sin();
+        Coord3D::new(
+            center.x + local_x * cos - local_y * sin,
+            center.y + local_x * sin + local_y * cos,
+            center.z,
+        )
+    }
 }
 
 fn line_segment_count(length: f32, mine_radius: f32) -> u32 {
@@ -96,6 +129,22 @@ fn line_segment_count(length: f32, mine_radius: f32) -> u32 {
 
 fn circle_mine_count(radius: f32, mine_radius: f32) -> u32 {
     line_segment_count(2.0 * std::f32::consts::PI * radius, mine_radius)
+}
+
+fn footprint_mine_count(area: f32, mines_per_square_foot: f32) -> u32 {
+    (area * mines_per_square_foot).ceil().max(1.0) as u32
+}
+
+fn is_any_position_too_close_2d(
+    positions: &[Coord3D],
+    position: &Coord3D,
+    min_dist_sqr: f32,
+) -> bool {
+    positions.iter().any(|existing| {
+        let dx = existing.x - position.x;
+        let dy = existing.y - position.y;
+        dx * dx + dy * dy < min_dist_sqr
+    })
 }
 
 fn rotated_rect_corners(
@@ -662,7 +711,7 @@ impl GenerateMinefieldBehavior {
                 )?;
             }
             MinePlacementPattern::FootprintBased => {
-                self.place_mines_in_footprint(state, geometry, mine_template)?;
+                self.place_mines_in_footprint(state, geometry, mine_template, mine_radius)?;
             }
             MinePlacementPattern::SmartBorder => {
                 self.place_mines_smart_border(state, geometry, mine_template)?;
@@ -780,32 +829,61 @@ impl GenerateMinefieldBehavior {
         state: &mut MinefieldState,
         geometry: &GeometryInfo,
         mine_template: &str,
+        mine_radius: f32,
     ) -> BehaviorResult<()> {
-        // For footprint-based placement, use a grid pattern within the expanded geometry
-        let effective_major = geometry.major_radius + self.config.distance_around_object;
-        let effective_minor = geometry.minor_radius + self.config.distance_around_object;
-        let mine_spacing = (1.0 / self.config.mines_per_square_foot).sqrt();
+        let mut expanded_geometry = geometry.clone();
+        expanded_geometry.expand(self.config.distance_around_object);
+        if self.config.always_circular {
+            let radius = expanded_geometry.bounding_circle_radius();
+            expanded_geometry.major_radius = radius;
+            expanded_geometry.minor_radius = radius;
+            expanded_geometry.is_circular = true;
+        }
 
-        let x_count = ((2.0 * effective_major) / mine_spacing).ceil() as i32;
-        let y_count = ((2.0 * effective_minor) / mine_spacing).ceil() as i32;
+        let num_mines = footprint_mine_count(
+            expanded_geometry.footprint_area(),
+            self.config.mines_per_square_foot,
+        );
+        let min_dist_sqr = (mine_radius * 2.0) * (mine_radius * 2.0);
+        let mut created_positions = Vec::new();
 
-        for x in 0..x_count {
-            for y in 0..y_count {
-                let position = Coord3D::new(
-                    geometry.center.x - effective_major + (x as f32 * mine_spacing),
-                    geometry.center.y - effective_minor + (y as f32 * mine_spacing),
-                    geometry.center.z,
-                );
+        for _ in 0..num_mines {
+            let mut max_retry = 100;
+            let position = loop {
+                let candidate = self.random_point_in_footprint(&expanded_geometry);
+                max_retry -= 1;
+                if !is_any_position_too_close_2d(&created_positions, &candidate, min_dist_sqr)
+                    || max_retry == 0
+                {
+                    break candidate;
+                }
+            };
 
-                if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
-                    if self.config.upgradable {
-                        state.mine_list.push(mine_id);
-                    }
+            if geometry.contains_point_2d(&geometry.center, &position) {
+                continue;
+            }
+
+            if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
+                created_positions.push(position);
+                if self.config.upgradable {
+                    state.mine_list.push(mine_id);
                 }
             }
         }
 
         Ok(())
+    }
+
+    fn random_point_in_footprint(&self, geometry: &GeometryInfo) -> Coord3D {
+        if geometry.is_circular {
+            let angle = self.random_value(0.0, 2.0 * std::f32::consts::PI);
+            let radius = self.random_value(0.0, 1.0).sqrt() * geometry.major_radius;
+            geometry.offset_to_world(&geometry.center, radius * angle.cos(), radius * angle.sin())
+        } else {
+            let x = self.random_value(-geometry.major_radius, geometry.major_radius);
+            let y = self.random_value(-geometry.minor_radius, geometry.minor_radius);
+            geometry.offset_to_world(&geometry.center, x, y)
+        }
     }
 
     /// Place mines using smart border algorithm
@@ -1596,6 +1674,65 @@ mod tests {
         assert!((corners[3].x - 110.0).abs() < 0.0001);
         assert!((corners[3].y - 220.0).abs() < 0.0001);
         assert!(corners.iter().all(|corner| corner.z == center.z));
+    }
+
+    #[test]
+    fn footprint_density_uses_expanded_area_with_minimum_one_mine() {
+        let mut geom = GeometryInfo {
+            center: Coord3D::new(0.0, 0.0, 0.0),
+            major_radius: 10.0,
+            minor_radius: 5.0,
+            rotation: 0.0,
+            is_circular: false,
+        };
+        geom.expand(10.0);
+
+        assert_eq!(geom.footprint_area(), 1200.0);
+        assert_eq!(footprint_mine_count(geom.footprint_area(), 0.01), 12);
+        assert_eq!(footprint_mine_count(0.0, 0.01), 1);
+    }
+
+    #[test]
+    fn footprint_contains_point_respects_rotation_and_circle() {
+        let center = Coord3D::new(10.0, 20.0, 0.0);
+        let rect = GeometryInfo {
+            center,
+            major_radius: 20.0,
+            minor_radius: 10.0,
+            rotation: std::f32::consts::FRAC_PI_2,
+            is_circular: false,
+        };
+        let inside = Coord3D::new(0.0, 20.0, 0.0);
+        let outside = Coord3D::new(-5.0, 20.0, 0.0);
+
+        assert!(rect.contains_point_2d(&center, &inside));
+        assert!(!rect.contains_point_2d(&center, &outside));
+
+        let circle = GeometryInfo {
+            center,
+            major_radius: 5.0,
+            minor_radius: 5.0,
+            rotation: 0.0,
+            is_circular: true,
+        };
+        assert!(circle.contains_point_2d(&center, &Coord3D::new(13.0, 24.0, 0.0)));
+        assert!(!circle.contains_point_2d(&center, &Coord3D::new(14.0, 24.0, 0.0)));
+    }
+
+    #[test]
+    fn footprint_spacing_check_matches_cpp_strict_less_than() {
+        let positions = vec![Coord3D::new(0.0, 0.0, 0.0)];
+
+        assert!(is_any_position_too_close_2d(
+            &positions,
+            &Coord3D::new(9.0, 0.0, 0.0),
+            100.0
+        ));
+        assert!(!is_any_position_too_close_2d(
+            &positions,
+            &Coord3D::new(10.0, 0.0, 0.0),
+            100.0
+        ));
     }
 
     #[test]
