@@ -284,6 +284,7 @@ const COMMAND_SET_FIELDS: &[FieldParse<CommandSet>] = &[
 #[derive(Debug)]
 pub struct CommandSetManager {
     command_sets: HashMap<String, CommandSet>,
+    command_set_order: Vec<String>,
     set_overrides: HashMap<String, Vec<CommandSet>>,
 }
 
@@ -292,6 +293,7 @@ impl CommandSetManager {
     pub fn new() -> Self {
         Self {
             command_sets: HashMap::new(),
+            command_set_order: Vec::new(),
             set_overrides: HashMap::new(),
         }
     }
@@ -319,6 +321,9 @@ impl CommandSetManager {
     /// Create a new command set
     pub fn new_command_set(&mut self, name: String) -> &mut CommandSet {
         let command_set = CommandSet::new(name.clone());
+        if !self.command_sets.contains_key(&name) {
+            self.command_set_order.insert(0, name.clone());
+        }
         self.command_sets.insert(name.clone(), command_set);
         self.command_sets.get_mut(&name).unwrap()
     }
@@ -340,19 +345,25 @@ impl CommandSetManager {
 
     /// Remove a command set
     pub fn remove_command_set(&mut self, name: &str) -> Option<CommandSet> {
-        self.command_sets.remove(name)
+        let removed = self.command_sets.remove(name);
+        if removed.is_some() {
+            self.command_set_order.retain(|set_name| set_name != name);
+            self.set_overrides.remove(name);
+        }
+        removed
     }
 
     /// Get all command set names
     pub fn get_command_set_names(&self) -> Vec<&String> {
-        self.command_sets.keys().collect()
+        self.command_set_order.iter().collect()
     }
 
     /// Iterate over resolved command sets, returning overrides when present.
     pub fn iter_resolved_sets(&self) -> Vec<(&String, &CommandSet)> {
-        self.command_sets
+        self.command_set_order
             .iter()
-            .filter_map(|(name, base)| {
+            .filter_map(|name| {
+                let base = self.command_sets.get(name)?;
                 let resolved = self.find_command_set_resolved(name).unwrap_or(base);
                 Some((name, resolved))
             })
@@ -367,6 +378,7 @@ impl CommandSetManager {
     /// Clear all command sets
     pub fn clear(&mut self) {
         self.command_sets.clear();
+        self.command_set_order.clear();
         self.set_overrides.clear();
     }
 
@@ -579,6 +591,50 @@ mod tests {
         // Try to find non-existent command set
         let not_found = manager.find_command_set("NonExistent");
         assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn command_set_manager_enumerates_cpp_list_order() {
+        let mut manager = CommandSetManager::new();
+
+        manager.new_command_set("FirstSet".to_string());
+        manager.new_command_set("SecondSet".to_string());
+        manager.new_command_set("ThirdSet".to_string());
+
+        let names: Vec<&str> = manager
+            .get_command_set_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(names, vec!["ThirdSet", "SecondSet", "FirstSet"]);
+
+        let first_set = manager.find_command_set("FirstSet").unwrap().clone();
+        let first_override = manager.new_command_set_override(&first_set);
+        first_override
+            .set_button_at_position(0, "OverrideButton".to_string())
+            .unwrap();
+
+        let resolved_names: Vec<&str> = manager
+            .iter_resolved_sets()
+            .into_iter()
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(resolved_names, vec!["ThirdSet", "SecondSet", "FirstSet"]);
+        assert_eq!(
+            manager
+                .find_command_set_resolved("FirstSet")
+                .and_then(|set| set.get_button_at_position(0))
+                .map(String::as_str),
+            Some("OverrideButton")
+        );
+
+        assert!(manager.remove_command_set("SecondSet").is_some());
+        let names_after_remove: Vec<&str> = manager
+            .get_command_set_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(names_after_remove, vec!["ThirdSet", "FirstSet"]);
     }
 
     #[test]
