@@ -113,6 +113,7 @@ impl Speech {
         speech.valid = true;
         speech.priority = speech_info.priority;
         speech.info = speech_info.clone();
+        speech.info.internal_play_count = 0;
         speech
     }
 }
@@ -185,6 +186,7 @@ pub struct Speaker {
     pub delay: TimeStamp,
     pub delay_time: TimeStamp,
     pub current_speech: Option<SpeechItem>,
+    pub last_opened_filename: Option<AsciiString>,
     pub pending: VecDeque<SpeechItem>,
     pub buffer_time: Int,
 }
@@ -198,6 +200,7 @@ impl Speaker {
             delay: 0,
             delay_time: 300,
             current_speech: None,
+            last_opened_filename: None,
             pending: VecDeque::new(),
             buffer_time: 3000,
         }
@@ -359,6 +362,7 @@ impl Speaker {
         // Stop audio stream
         self.flush();
         self.current_speech = None;
+        self.last_opened_filename = None;
     }
 
     pub fn cancel(&mut self, speech: &Speech) {
@@ -408,7 +412,12 @@ impl Speaker {
 
         // Start next speech if current one is done and delay has passed
         if self.current_speech.is_none() && self.paused == 0 && self.delay <= now {
-            if let Some(next_item) = self.pending.pop_front() {
+            if let Some(mut next_item) = self.pending.pop_front() {
+                self.last_opened_filename = next_item
+                    .speech
+                    .as_mut()
+                    .map(SpeechManager::get_next_filename_for_play)
+                    .filter(|filename| !filename.is_empty());
                 self.current_speech = Some(next_item);
                 self.delay = now + self.delay_time;
             }
@@ -802,6 +811,28 @@ impl SpeechManager {
         format!(
             "{}\\{}{}.{}",
             BASE_DLG_DIR, local_dir, clean_filename, BASE_DLG_EXT
+        )
+    }
+
+    /// Get the next playback filename using the same helper path as C++ Speaker playback.
+    pub fn get_next_filename_for_play(speech: &mut Speech) -> AsciiString {
+        speech.info.internal_play_count += 1;
+
+        if speech.info.dialog_files.is_empty() {
+            return String::new();
+        }
+
+        let index_to_play = if speech.info.sequential_start_index < 0 {
+            let max_index = speech.info.dialog_files.len() as Int - 1;
+            let min_index = speech.info.random_start_index.clamp(0, max_index);
+            get_game_client_random_value(min_index, max_index) as usize
+        } else {
+            0
+        };
+
+        format!(
+            "Data\\Audio\\Sounds\\{}.{}",
+            speech.info.dialog_files[index_to_play], BASE_DLG_EXT
         )
     }
 }
