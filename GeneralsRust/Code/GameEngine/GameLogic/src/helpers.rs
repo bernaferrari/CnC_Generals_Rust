@@ -2487,6 +2487,46 @@ impl FiringTracker {
         }
     }
 
+    pub(crate) fn xfer_cpp_runtime_state(
+        &mut self,
+        xfer: &mut dyn game_engine::common::system::Xfer,
+    ) -> Result<(), String> {
+        xfer.xfer_int(&mut self.consecutive_shots)
+            .map_err(|err| format!("FiringTracker xfer consecutive_shots: {err:?}"))?;
+        xfer.xfer_object_id(&mut self.victim_id)
+            .map_err(|err| format!("FiringTracker xfer victim_id: {err:?}"))?;
+        xfer.xfer_unsigned_int(&mut self.frame_to_start_cooldown)
+            .map_err(|err| format!("FiringTracker xfer frame_to_start_cooldown: {err:?}"))?;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_xfer_test_state(
+        &mut self,
+        consecutive_shots: i32,
+        victim_id: ObjectID,
+        frame_to_start_cooldown: UnsignedInt,
+        frame_to_force_reload: UnsignedInt,
+        frame_to_stop_looping_sound: UnsignedInt,
+    ) {
+        self.consecutive_shots = consecutive_shots;
+        self.victim_id = victim_id;
+        self.frame_to_start_cooldown = frame_to_start_cooldown;
+        self.frame_to_force_reload = frame_to_force_reload;
+        self.frame_to_stop_looping_sound = frame_to_stop_looping_sound;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn xfer_test_state(&self) -> (i32, ObjectID, UnsignedInt, UnsignedInt, UnsignedInt) {
+        (
+            self.consecutive_shots,
+            self.victim_id,
+            self.frame_to_start_cooldown,
+            self.frame_to_force_reload,
+            self.frame_to_stop_looping_sound,
+        )
+    }
+
     pub fn shot_fired(&mut self, weapon: &crate::weapon::Weapon, victim_id: ObjectID) {
         let now = TheGameLogic::get_frame();
         self.last_shot_frame = now;
