@@ -97,6 +97,7 @@ fn directory_listing_normalizes_case_and_slashes() {
         &[
             ("Data\\INI\\Object\\AmericaVehicle.ini", b"vehicle"),
             ("Data/INI/Object/AmericaInfantry.ini", b"infantry"),
+            ("Data/INI/Object/Nested/AmericaNested.ini", b"nested"),
             ("Data/INI/Upgrade.ini", b"upgrade"),
         ],
     )
@@ -121,7 +122,8 @@ fn directory_listing_normalizes_case_and_slashes() {
         non_recursive_files,
         vec![
             "data/ini/object/americainfantry.ini".to_string(),
-            "data/ini/object/americavehicle.ini".to_string()
+            "data/ini/object/americavehicle.ini".to_string(),
+            "data/ini/object/nested/americanested.ini".to_string()
         ]
     );
 
@@ -133,6 +135,6 @@ fn directory_listing_normalizes_case_and_slashes() {
         true,
     );
 
-    assert_eq!(recursive.len(), 3);
+    assert_eq!(recursive.len(), 4);
     assert!(recursive.contains(&AsciiString::from("Data/INI/Upgrade.ini")));
 }

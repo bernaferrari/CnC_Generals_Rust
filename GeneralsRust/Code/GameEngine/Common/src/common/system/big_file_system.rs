@@ -1340,7 +1340,7 @@ impl BigFileSystem {
         directory: &AsciiString,
         search_name: &AsciiString,
         filename_list: &mut FilenameList,
-        recursive: bool,
+        _recursive: bool,
     ) {
         let dir_norm = directory
             .as_str()
@@ -1369,18 +1369,13 @@ impl BigFileSystem {
         for (canonical_path, locator) in canonical_paths {
             let path_lower = canonical_path.as_str();
 
+            // C++ ArchiveFile::getFileListInDirectory always descends from the selected
+            // archive directory; the search_subdirectories flag is only honored by the
+            // local filesystem implementation.
             if !dir_prefix.is_empty() {
                 if !path_lower.starts_with(&dir_prefix) {
                     continue;
                 }
-                if !recursive {
-                    let remainder = &path_lower[dir_prefix.len()..];
-                    if remainder.contains('/') {
-                        continue;
-                    }
-                }
-            } else if !recursive && path_lower.contains('/') {
-                continue;
             }
 
             let file_name_lower = path_lower
