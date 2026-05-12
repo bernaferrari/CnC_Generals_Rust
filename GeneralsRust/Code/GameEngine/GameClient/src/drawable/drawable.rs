@@ -31,6 +31,7 @@ use game_engine::common::system::game_common::WhichTurretType;
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use game_engine::common::thing::module::Module;
 use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
+use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::AnimatedParticleSysBoneClientUpdateModule;
 use gamelogic::object::update::BeaconClientUpdateModule;
@@ -2437,6 +2438,44 @@ impl BasicDrawable {
         flags
     }
 
+    fn render_condition_flags_from_bits(
+        condition_bits: u128,
+    ) -> crate::render_bridge::RenderConditionFlags {
+        crate::render_bridge::RenderConditionFlags::from_bits_truncate(condition_bits as u64)
+    }
+
+    fn animation_mode_from_model_draw(mode: i32) -> Option<ww3d_core::animation::AnimationMode> {
+        match mode {
+            0 => Some(ww3d_core::animation::AnimationMode::Manual),
+            1 => Some(ww3d_core::animation::AnimationMode::Loop),
+            2 => Some(ww3d_core::animation::AnimationMode::Once),
+            3 => Some(ww3d_core::animation::AnimationMode::LoopPingPong),
+            4 => Some(ww3d_core::animation::AnimationMode::LoopBackward),
+            5 => Some(ww3d_core::animation::AnimationMode::OnceBackward),
+            _ => None,
+        }
+    }
+
+    fn bone_override_from_model_draw(
+        override_state: &BoneOverrideState,
+    ) -> crate::render_bridge::BoneOverride {
+        crate::render_bridge::BoneOverride {
+            bone_index: override_state.bone_index,
+            bone_name: None,
+            transform: override_state.transform,
+        }
+    }
+
+    fn matrix4_from_model_draw(matrix: glam::Mat4) -> Matrix4 {
+        Matrix4 {
+            elements: matrix.to_cols_array_2d(),
+        }
+    }
+
+    fn model_draw_state(&self) -> Option<ModelDrawState> {
+        TheGameClient::get()?.get_drawable_model_draw(self.id.0)
+    }
+
     fn find_hotkey_squad_number(player: &mut Player, object_id: u32) -> Option<i32> {
         for squad_number in 0..NUM_HOTKEY_SQUADS {
             if let Some(squad) = player.get_hotkey_squad(squad_number as i32) {
@@ -3492,9 +3531,48 @@ impl Drawable for BasicDrawable {
         let tint = self.get_tint_color();
         let selected = self.is_selected();
 
-        let model_name = self.template_name.clone().unwrap_or_default();
+        let model_draw = self.model_draw_state();
 
-        let condition_flags = self.compute_render_condition_flags();
+        let model_name = model_draw
+            .as_ref()
+            .map(|state| state.model_name.clone())
+            .filter(|name| !name.is_empty())
+            .or_else(|| self.template_name.clone())
+            .unwrap_or_default();
+
+        if let Some(model_draw) = model_draw.as_ref() {
+            world_transform = Self::matrix4_from_model_draw(model_draw.world_transform);
+        }
+
+        let mut condition_flags = model_draw
+            .as_ref()
+            .map(|state| Self::render_condition_flags_from_bits(state.condition_flags_bits))
+            .unwrap_or_else(|| self.compute_render_condition_flags());
+
+        if selected {
+            condition_flags |= crate::render_bridge::RenderConditionFlags::SELECTED;
+        }
+
+        let bone_overrides = model_draw
+            .as_ref()
+            .map(|state| {
+                state
+                    .bone_overrides
+                    .iter()
+                    .map(Self::bone_override_from_model_draw)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let animation_name = model_draw
+            .as_ref()
+            .and_then(|state| state.animation_name.clone());
+        let animation_mode = model_draw
+            .as_ref()
+            .and_then(|state| Self::animation_mode_from_model_draw(state.animation_mode));
+        let animation_time = model_draw
+            .as_ref()
+            .map(|state| state.animation_time)
+            .unwrap_or(0.0);
 
         let submission = crate::render_bridge::DrawSubmission {
             drawable_id: crate::render_bridge::DrawableId(self.id.0),
@@ -3508,10 +3586,10 @@ impl Drawable for BasicDrawable {
                 hidden: false,
                 ..Default::default()
             },
-            bone_overrides: Vec::new(),
-            animation_name: None,
-            animation_mode: None,
-            animation_time: 0.0,
+            bone_overrides,
+            animation_name,
+            animation_mode,
+            animation_time,
             bounding_sphere: {
                 let (_, radius) = self.get_bounding_sphere();
                 ww3d_core::BoundingSphere::new(
@@ -5467,6 +5545,61 @@ mod tests {
         assert!(render_flags.contains(RenderConditionFlags::SNOW));
         assert!(render_flags.contains(RenderConditionFlags::AFLAME));
         assert!(render_flags.contains(RenderConditionFlags::TOPPLED));
+    }
+
+    #[test]
+    fn test_model_draw_bits_flow_into_render_flags() {
+        use crate::render_bridge::RenderConditionFlags;
+        use gamelogic::common::ModelConditionFlags as LogicModelConditionFlags;
+
+        let bits = (LogicModelConditionFlags::DAMAGED | LogicModelConditionFlags::SNOW).bits();
+        let render_flags = BasicDrawable::render_condition_flags_from_bits(bits);
+
+        assert!(render_flags.contains(RenderConditionFlags::DAMAGED));
+        assert!(render_flags.contains(RenderConditionFlags::SNOW));
+    }
+
+    #[test]
+    fn test_model_draw_animation_mode_mapping_matches_logic_discriminants() {
+        assert_eq!(
+            BasicDrawable::animation_mode_from_model_draw(0),
+            Some(ww3d_core::animation::AnimationMode::Manual)
+        );
+        assert_eq!(
+            BasicDrawable::animation_mode_from_model_draw(1),
+            Some(ww3d_core::animation::AnimationMode::Loop)
+        );
+        assert_eq!(
+            BasicDrawable::animation_mode_from_model_draw(2),
+            Some(ww3d_core::animation::AnimationMode::Once)
+        );
+        assert_eq!(
+            BasicDrawable::animation_mode_from_model_draw(3),
+            Some(ww3d_core::animation::AnimationMode::LoopPingPong)
+        );
+        assert_eq!(
+            BasicDrawable::animation_mode_from_model_draw(4),
+            Some(ww3d_core::animation::AnimationMode::LoopBackward)
+        );
+        assert_eq!(
+            BasicDrawable::animation_mode_from_model_draw(5),
+            Some(ww3d_core::animation::AnimationMode::OnceBackward)
+        );
+        assert_eq!(BasicDrawable::animation_mode_from_model_draw(99), None);
+    }
+
+    #[test]
+    fn test_model_draw_bone_override_preserves_index_and_transform() {
+        let transform = glam::Mat4::from_translation(glam::Vec3::new(1.0, 2.0, 3.0));
+        let override_state = BoneOverrideState {
+            bone_index: 7,
+            transform,
+        };
+
+        let render_override = BasicDrawable::bone_override_from_model_draw(&override_state);
+
+        assert_eq!(render_override.bone_index, 7);
+        assert_eq!(render_override.transform, transform);
     }
 
     #[test]
