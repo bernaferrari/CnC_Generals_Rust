@@ -1009,6 +1009,11 @@ pub struct InGameUI {
     // ── Minimap ping animations ──
     /// Active minimap pings, each with a world position and expiration frame.
     minimap_pings: Vec<MinimapPing>,
+
+    /// C++: TheRecorder->getMode() == RECORDERMODETYPE_PLAYBACK.
+    recorder_playback_active: bool,
+    /// C++: TheLookAtTranslator->hasMouseMovedRecently().
+    look_at_mouse_moved_recently: bool,
 }
 
 impl InGameUI {
@@ -1143,6 +1148,9 @@ impl InGameUI {
 
             // Minimap pings
             minimap_pings: Vec::new(),
+
+            recorder_playback_active: false,
+            look_at_mouse_moved_recently: true,
         }
     }
 
@@ -2094,6 +2102,14 @@ impl InGameUI {
 
     pub fn get_moused_over_drawable_id(&self) -> u32 {
         self.moused_over_drawable_id
+    }
+
+    pub fn set_recorder_playback_active(&mut self, active: bool) {
+        self.recorder_playback_active = active;
+    }
+
+    pub fn set_look_at_mouse_moved_recently(&mut self, moved_recently: bool) {
+        self.look_at_mouse_moved_recently = moved_recently;
     }
 
     // ── Hint system ──────────────────────────────────────────────────────
@@ -3895,6 +3911,13 @@ impl InGameUI {
         }
     }
 
+    fn mouseover_cursor_update_allowed(
+        recorder_playback_active: bool,
+        look_at_mouse_moved_recently: bool,
+    ) -> bool {
+        !recorder_playback_active || look_at_mouse_moved_recently
+    }
+
     fn selected_source_id_for_command_hint(&self) -> Option<u32> {
         let selected = self.get_selection();
         (selected.len() == 1).then(|| selected[0])
@@ -4569,10 +4592,11 @@ impl InGameUI {
             && !self.is_scrolling
             && !self.is_selecting
             && self.get_select_count() == 0
+            && Self::mouseover_cursor_update_allowed(
+                self.recorder_playback_active,
+                self.look_at_mouse_moved_recently,
+            )
         {
-            // C++: TheRecorder->getMode() != RECORDERMODETYPE_PLAYBACK check deferred
-            // C++: TheLookAtTranslator->hasMouseMovedRecently() check deferred
-
             if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
                 // C++: CanSelectDrawable(draw, FALSE) and obj->isLocallyControlled()
                 let can_select = match OBJECT_REGISTRY.get_object(self.moused_over_drawable_id) {
@@ -4817,6 +4841,14 @@ mod tests {
         assert!(!InGameUI::mouseover_tooltip_visible_for_shroud(
             ObjectShroudStatus::Invalid
         ));
+    }
+
+    #[test]
+    fn mouseover_cursor_updates_match_cpp_replay_gate() {
+        assert!(InGameUI::mouseover_cursor_update_allowed(false, false));
+        assert!(InGameUI::mouseover_cursor_update_allowed(false, true));
+        assert!(InGameUI::mouseover_cursor_update_allowed(true, true));
+        assert!(!InGameUI::mouseover_cursor_update_allowed(true, false));
     }
 
     #[test]
