@@ -6,7 +6,6 @@
 //!
 //! Author: Converted from C++ by Claude, original by Michael S. Booth, January 2002
 
-use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, RwLock, Weak};
