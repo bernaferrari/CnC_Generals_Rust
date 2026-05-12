@@ -7,6 +7,7 @@ use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTra
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, ViewLocation};
 use crate::gui::get_shell;
 use crate::helpers::TheInGameUI;
+use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use gamelogic::helpers::TheGameLogic;
 
@@ -76,6 +77,15 @@ pub struct LookAtTranslator {
 impl LookAtTranslator {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// C++: LookAtTranslator::hasMouseMovedRecently()
+    pub fn has_mouse_moved_recently(&mut self, current_frame: u32) -> bool {
+        if self.last_mouse_move_frame > current_frame {
+            self.last_mouse_move_frame = 0;
+        }
+
+        self.last_mouse_move_frame + LOGICFRAMES_PER_SECOND >= current_frame
     }
 
     fn set_scrolling(&mut self, scroll_type: ScrollType) {
@@ -394,5 +404,28 @@ impl GameMessageTranslator for LookAtTranslator {
         }
 
         GameMessageDisposition::KeepMessage
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mouse_move_recency_matches_cpp_one_second_window() {
+        let mut translator = LookAtTranslator::new();
+        translator.last_mouse_move_frame = 100;
+
+        assert!(translator.has_mouse_moved_recently(130));
+        assert!(!translator.has_mouse_moved_recently(131));
+    }
+
+    #[test]
+    fn mouse_move_recency_resets_when_frame_counter_rewinds() {
+        let mut translator = LookAtTranslator::new();
+        translator.last_mouse_move_frame = 100;
+
+        assert!(translator.has_mouse_moved_recently(10));
+        assert_eq!(translator.last_mouse_move_frame, 0);
     }
 }
