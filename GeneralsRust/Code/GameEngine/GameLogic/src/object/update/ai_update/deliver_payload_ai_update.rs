@@ -134,51 +134,58 @@ impl Snapshotable for DeliverPayloadAIUpdateModuleData {
     }
 }
 
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> Vec<&'a str> {
+    tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect()
+}
+
 fn parse_duration_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_duration_unsigned_int(token)?);
     Ok(())
 }
 
 fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_bool(token)?);
     Ok(())
 }
 
 fn parse_real_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_real(token)?);
     Ok(())
 }
 
 fn parse_int_field(setter: &mut dyn FnMut(Int), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_int(token)?);
     Ok(())
 }
 
 fn parse_coord3d_field(setter: &mut dyn FnMut(Coord3D), tokens: &[&str]) -> Result<(), INIError> {
-    let coord = if tokens.len() >= 3 {
-        let x = INI::parse_real(tokens[0])?;
-        let y = INI::parse_real(tokens[1])?;
-        let z = INI::parse_real(tokens[2])?;
+    let values = value_tokens(tokens);
+    let coord = if values.len() >= 3 {
+        let x = INI::parse_real(values[0])?;
+        let y = INI::parse_real(values[1])?;
+        let z = INI::parse_real(values[2])?;
         Coord3D::new(x, y, z)
     } else {
-        let Some(token) = tokens.first().copied() else {
-            return Err(INIError::InvalidData);
-        };
+        let token = required_value(tokens)?;
         let parts: Vec<&str> = token
             .split(|c: char| c == ',' || c.is_whitespace())
             .filter(|part| !part.is_empty())
@@ -196,9 +203,7 @@ fn parse_coord3d_field(setter: &mut dyn FnMut(Coord3D), tokens: &[&str]) -> Resu
 }
 
 fn parse_ascii_field(setter: &mut dyn FnMut(AsciiString), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(AsciiString::from(token));
     Ok(())
 }
@@ -215,7 +220,8 @@ fn parse_auto_acquire_field(
         "NOTWHILEATTACKING",
         "ATTACK_BUILDINGS",
     ];
-    let value = INI::parse_bit_string_32(tokens, AUTO_ACQUIRE_ENEMIES_NAMES)?;
+    let values = value_tokens(tokens);
+    let value = INI::parse_bit_string_32(&values, AUTO_ACQUIRE_ENEMIES_NAMES)?;
     data.base.set_auto_acquire_enemies_when_idle(value);
     Ok(())
 }
@@ -1470,5 +1476,81 @@ impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
 
     fn is_allowed_to_respond_to_ai_commands(&self) -> Bool {
         self.is_allowed_to_respond_to_ai_commands()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deliver_payload_ai_fields_accept_ini_equals_token() {
+        let mut data = DeliverPayloadAIUpdateModuleData::default();
+
+        parse_duration_field(&mut |value| data.door_delay = value, &["=", "1000"]).unwrap();
+        parse_ascii_field(
+            &mut |value| data.put_in_container_name = value,
+            &["=", "AmericaVehicleChinook"],
+        )
+        .unwrap();
+        parse_real_field(
+            &mut |value| data.max_distance_to_target = value,
+            &["=", "250.5"],
+        )
+        .unwrap();
+        parse_int_field(&mut |value| data.max_number_attempts = value, &["=", "3"]).unwrap();
+        parse_duration_field(&mut |value| data.drop_delay = value, &["=", "3000"]).unwrap();
+        parse_coord3d_field(
+            &mut |value| data.drop_offset = value,
+            &["=", "1.0", "2.0", "3.0"],
+        )
+        .unwrap();
+        parse_coord3d_field(
+            &mut |value| data.drop_variance = value,
+            &["=", "4.0,5.0,6.0"],
+        )
+        .unwrap();
+        parse_real_field(
+            &mut |value| data.delivery_decal_radius = value,
+            &["=", "80.0"],
+        )
+        .unwrap();
+
+        assert_eq!(data.door_delay, 30);
+        assert_eq!(data.put_in_container_name.as_str(), "AmericaVehicleChinook");
+        assert!((data.max_distance_to_target - 250.5).abs() < f32::EPSILON);
+        assert_eq!(data.max_number_attempts, 3);
+        assert_eq!(data.drop_delay, 90);
+        assert_eq!(data.drop_offset, Coord3D::new(1.0, 2.0, 3.0));
+        assert_eq!(data.drop_variance, Coord3D::new(4.0, 5.0, 6.0));
+        assert!((data.delivery_decal_radius - 80.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn deliver_payload_ai_base_fields_accept_ini_equals_token() {
+        let mut ini = INI::new();
+        let mut data = DeliverPayloadAIUpdateModuleData::default();
+
+        parse_auto_acquire_field(&mut ini, &mut data, &["=", "YES", "ATTACK_BUILDINGS"]).unwrap();
+        parse_duration_field(
+            &mut |value| data.base.set_mood_attack_check_rate(value),
+            &["=", "2000"],
+        )
+        .unwrap();
+        parse_bool_field(
+            &mut |value| data.base.set_forbid_player_commands(value),
+            &["=", "Yes"],
+        )
+        .unwrap();
+        parse_bool_field(
+            &mut |value| data.base.set_turrets_linked(value),
+            &["=", "Yes"],
+        )
+        .unwrap();
+
+        assert_eq!(data.base.auto_acquire_enemies_when_idle(), 0b10001);
+        assert_eq!(data.base.mood_attack_check_rate(), 60);
+        assert!(data.base.forbid_player_commands());
+        assert!(data.base.turrets_linked());
     }
 }
