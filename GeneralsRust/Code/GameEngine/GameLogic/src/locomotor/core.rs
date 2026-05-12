@@ -8,7 +8,9 @@
 
 use crate::ai::pathfinding_system::{MovementCapabilities, PathfindLayerEnum};
 use crate::common::*;
-use crate::helpers::TheTerrainLogic;
+use crate::helpers::{
+    get_game_logic_random_value, get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic,
+};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::physics::{PhysicsState, PhysicsType};
@@ -664,9 +666,15 @@ impl Locomotor {
     /// Matches C++ Locomotor.cpp:629-651
     pub fn new(template: Arc<LocomotorTemplate>) -> Self {
         // Random initial wander offset (C++ lines 647-649)
-        let angle_offset = (rand::random::<f32>() - 0.5) * (std::f32::consts::PI / 3.0);
+        let angle_offset = get_game_logic_random_value_real(
+            -std::f32::consts::PI / 6.0,
+            std::f32::consts::PI / 6.0,
+        );
         let offset_increment = (std::f32::consts::PI / 40.0)
-            * ((rand::random::<f32>() * 0.4 + 0.8) / template.wander_length_factor.max(0.01));
+            * (get_game_logic_random_value_real(0.8, 1.2) / template.wander_length_factor);
+        let offset_increasing = get_game_logic_random_value(0, 1) != 0;
+        let donut_timer = TheGameLogic::get_frame()
+            + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
 
         Self {
             max_speed: template.max_speed,
@@ -682,16 +690,16 @@ impl Locomotor {
             offset_increment,
             active_path: None,
             last_obstacle_check: 0,
-            donut_timer: 0,
+            donut_timer,
             flags: if template.is_close_enough_dist_3d {
                 FLAG_CLOSE_ENOUGH_3D
-                    | (if rand::random::<bool>() {
+                    | (if offset_increasing {
                         FLAG_OFFSET_INCREASING
                     } else {
                         0
                     })
             } else {
-                if rand::random::<bool>() {
+                if offset_increasing {
                     FLAG_OFFSET_INCREASING
                 } else {
                     0
