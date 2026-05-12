@@ -1,7 +1,7 @@
 use crate::assets::W3DMaterial;
 use crate::fow_rendering::ObjectVisibility;
 use crate::game_logic::ObjectId;
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 
 use super::render_pipeline::RenderPass;
 
@@ -56,6 +56,9 @@ pub struct RenderItem {
     /// FOW visibility data for this render item
     pub fow_visibility: ObjectVisibility,
 
+    /// Per-instance UV offset override for submeshes such as W3D tread meshes.
+    pub uv_offset_override: Option<Vec2>,
+
     pub animation_frame: f32,
 }
 
@@ -96,6 +99,7 @@ impl RenderItem {
             index_buffer_range: None,
             sorting_key,
             fow_visibility: ObjectVisibility::default(),
+            uv_offset_override: None,
             animation_frame: 0.0,
         }
     }

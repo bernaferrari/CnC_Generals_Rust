@@ -12,7 +12,7 @@
 use super::draw_module::*;
 use super::w3d_model_draw::*;
 use crate::common::*;
-use crate::helpers::{TheGameLogic, TheParticleSystemManager};
+use crate::helpers::{MeshUvOverrideState, TheGameClient, TheGameLogic, TheParticleSystemManager};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
@@ -217,6 +217,11 @@ pub struct W3DTankDraw {
     /// Tread sub-objects (up to MAX_TREADS_PER_TANK)
     treads: Vec<TreadObjectInfo>,
 
+    /// Symbolic tread offsets used by the render bridge once real TREADS* meshes are present.
+    tread_uv_left: Real,
+    tread_uv_right: Real,
+    tread_uv_middle: Real,
+
     /// Last direction vector (for calculating rotation)
     last_direction: Coord3D,
 
@@ -243,6 +248,9 @@ impl W3DTankDraw {
             data,
             base,
             treads: Vec::new(),
+            tread_uv_left: 0.0,
+            tread_uv_right: 0.0,
+            tread_uv_middle: 0.0,
             last_direction: Coord3D::new(1.0, 0.0, 0.0),
             tread_debris_left: None,
             tread_debris_right: None,
@@ -355,6 +363,10 @@ impl W3DTankDraw {
     /// # Arguments
     /// * `uv_delta` - Amount to scroll UV coordinates (based on speed and time)
     fn update_tread_positions(&mut self, uv_delta: Real) {
+        self.tread_uv_left = wrap_uv_offset(self.tread_uv_left + uv_delta);
+        self.tread_uv_right = wrap_uv_offset(self.tread_uv_right - uv_delta);
+        self.tread_uv_middle = wrap_uv_offset(self.tread_uv_middle + uv_delta);
+
         for tread in &mut self.treads {
             let offset = match tread.tread_type {
                 TreadType::Left => tread.uv_offset + uv_delta,
@@ -363,14 +375,38 @@ impl W3DTankDraw {
                 // Keep middle treads moving in the same direction as left for stability.
                 TreadType::Middle => tread.uv_offset + uv_delta,
             };
-            tread.uv_offset = offset - offset.floor();
-
-            // When render object system is implemented:
-            // Reference: C++ W3DTankDraw.cpp - UV scrolling for treads
-            // - Apply UV offset to tread material's texture coordinate transform
-            // - This scrolls the tread texture to simulate movement
-            // render_object.set_material_uv_offset(tread_sub_object, tread.uv_offset, 0.0);
+            tread.uv_offset = wrap_uv_offset(offset);
         }
+    }
+
+    fn publish_tread_uv_overrides(&self) {
+        let Some(owner_id) = self.base.owner_id() else {
+            return;
+        };
+        let Some(client) = TheGameClient::get() else {
+            return;
+        };
+        let Some(mut state) = client.get_drawable_model_draw(owner_id) else {
+            return;
+        };
+
+        state.mesh_uv_overrides.push(MeshUvOverrideState {
+            mesh_name_prefix: "TREADSL".to_string(),
+            u_offset: self.tread_uv_left,
+            v_offset: 0.0,
+        });
+        state.mesh_uv_overrides.push(MeshUvOverrideState {
+            mesh_name_prefix: "TREADSR".to_string(),
+            u_offset: self.tread_uv_right,
+            v_offset: 0.0,
+        });
+        state.mesh_uv_overrides.push(MeshUvOverrideState {
+            mesh_name_prefix: "TREADS".to_string(),
+            u_offset: self.tread_uv_middle,
+            v_offset: 0.0,
+        });
+
+        client.set_drawable_model_draw(owner_id, state);
     }
 
     /// Update tread animation based on movement
@@ -382,7 +418,7 @@ impl W3DTankDraw {
         is_motive: bool,
         direction: &Coord3D,
     ) {
-        if self.treads.is_empty() || self.data.tread_animation_rate == 0.0 {
+        if self.data.tread_animation_rate == 0.0 {
             self.last_direction = *direction;
             return;
         }
@@ -411,9 +447,12 @@ impl W3DTankDraw {
 
         // C++ parity: moving straight at speed uses uniform scroll on all treads.
         if is_motive && speed_fraction >= self.data.tread_drive_speed_fraction {
+            self.tread_uv_left = wrap_uv_offset(self.tread_uv_left - tread_scroll_speed);
+            self.tread_uv_right = wrap_uv_offset(self.tread_uv_right - tread_scroll_speed);
+            self.tread_uv_middle = wrap_uv_offset(self.tread_uv_middle - tread_scroll_speed);
             for tread in &mut self.treads {
                 let offset = tread.uv_offset - tread_scroll_speed;
-                tread.uv_offset = offset - offset.floor();
+                tread.uv_offset = wrap_uv_offset(offset);
             }
         }
 
@@ -530,6 +569,7 @@ impl DrawModule for W3DTankDraw {
 
         // Draw base model (includes turret positioning and recoil)
         self.base.do_draw_module(transform_mtx);
+        self.publish_tread_uv_overrides();
 
         // When render object system is implemented:
         // Reference: C++ W3DTankDraw.cpp - tread rendering
@@ -622,6 +662,10 @@ impl Snapshotable for W3DTankDraw {
 #[allow(dead_code)]
 const MAX_TREADS_PER_TANK: usize = 4;
 
+fn wrap_uv_offset(offset: Real) -> Real {
+    offset - offset.floor()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -629,7 +673,7 @@ mod tests {
     #[test]
     fn update_tread_objects_does_not_fabricate_treads_without_render_subobjects() {
         let mut draw = W3DTankDraw::new(W3DTankDrawModuleData {
-            tread_animation_rate: 1.0,
+            tread_animation_rate: 0.25,
             ..W3DTankDrawModuleData::default()
         });
         draw.treads.push(TreadObjectInfo::new(TreadType::Left));
@@ -643,9 +687,9 @@ mod tests {
     }
 
     #[test]
-    fn tread_animation_is_noop_without_discovered_treads() {
+    fn tread_animation_keeps_symbolic_offsets_without_discovered_treads() {
         let mut draw = W3DTankDraw::new(W3DTankDrawModuleData {
-            tread_animation_rate: 1.0,
+            tread_animation_rate: 0.25,
             ..W3DTankDrawModuleData::default()
         });
         let direction = Coord3D::new(0.0, 1.0, 0.0);
@@ -653,6 +697,9 @@ mod tests {
         draw.update_tread_animation(3.0, 10.0, 1.0, true, &direction);
 
         assert!(draw.treads.is_empty());
+        assert_ne!(draw.tread_uv_left, 0.0);
+        assert_ne!(draw.tread_uv_right, 0.0);
+        assert_ne!(draw.tread_uv_middle, 0.0);
         assert_eq!(draw.last_direction, direction);
     }
 }

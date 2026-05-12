@@ -1830,6 +1830,7 @@ impl W3DModelDraw {
             animation_name: anim_name,
             animation_time: self.get_current_anim_fraction().clamp(0.0, 1.0),
             animation_mode: anim_mode,
+            mesh_uv_overrides: Vec::new(),
         };
 
         client.set_drawable_model_draw(owner_id, state);

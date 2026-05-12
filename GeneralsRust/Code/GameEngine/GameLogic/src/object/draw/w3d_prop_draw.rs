@@ -132,12 +132,7 @@ impl DrawModule for W3DPropDraw {
                     animation_name: None,
                     animation_time: 0.0,
                     animation_mode: 0,
-                    anim_distance_covered: 0.0,
-                    anim_natural_duration_ms: 0.0,
-                    anim_frame_rate_multiplier: 1.0,
-                    should_animate: true,
-                    instance_scale: 1.0,
-                    physics_speed: 0.0,
+                    mesh_uv_overrides: Vec::new(),
                 },
             );
         }

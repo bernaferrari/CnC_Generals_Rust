@@ -3563,6 +3563,20 @@ impl Drawable for BasicDrawable {
                     .collect()
             })
             .unwrap_or_default();
+        let mesh_uv_overrides = model_draw
+            .as_ref()
+            .map(|state| {
+                state
+                    .mesh_uv_overrides
+                    .iter()
+                    .map(|uv| crate::render_bridge::MeshUvOverride {
+                        mesh_name_prefix: uv.mesh_name_prefix.clone(),
+                        u_offset: uv.u_offset,
+                        v_offset: uv.v_offset,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let animation_name = model_draw
             .as_ref()
             .and_then(|state| state.animation_name.clone());
@@ -3587,6 +3601,7 @@ impl Drawable for BasicDrawable {
                 ..Default::default()
             },
             bone_overrides,
+            mesh_uv_overrides,
             animation_name,
             animation_mode,
             animation_time,

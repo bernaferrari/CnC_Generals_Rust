@@ -1854,6 +1854,8 @@ impl RenderPipeline {
                             item.distance = world_position.distance(camera_position);
                             item.set_fow_visibility(fow_vis);
                             item.animation_frame = anim_frame;
+                            item.uv_offset_override =
+                                Self::mesh_uv_override_for_submission(&submission, &mesh.name);
                             self.render_items.push(item);
                         }
                         bridge_items_added += 1;
@@ -1891,6 +1893,26 @@ impl RenderPipeline {
                 bridge_items_added, submissions_count
             );
         }
+    }
+
+    #[cfg(feature = "game_client")]
+    fn mesh_uv_override_for_submission(
+        submission: &game_client::render_bridge::DrawSubmission,
+        mesh_name: &str,
+    ) -> Option<Vec2> {
+        let leaf_name = mesh_name.rsplit('.').next().unwrap_or(mesh_name);
+        submission
+            .mesh_uv_overrides
+            .iter()
+            .filter(|override_state| {
+                leaf_name
+                    .get(..override_state.mesh_name_prefix.len())
+                    .is_some_and(|prefix| {
+                        prefix.eq_ignore_ascii_case(&override_state.mesh_name_prefix)
+                    })
+            })
+            .max_by_key(|override_state| override_state.mesh_name_prefix.len())
+            .map(|override_state| Vec2::new(override_state.u_offset, override_state.v_offset))
     }
 
     /// Sort render items for optimal rendering - equivalent to C++ RenderPipeline::SortRenderItems()
@@ -3097,6 +3119,7 @@ impl ForwardPass {
         mesh.model = Some(mesh_model);
         mesh.alpha_override = item.fow_visibility.visibility_alpha;
         mesh.is_hidden = item.fow_visibility.visibility_alpha <= 0.01;
+        mesh.set_uv_offset_override(item.uv_offset_override.map(|offset| [offset.x, offset.y]));
         if std::env::var_os("GENERALS_FORCE_TWO_SIDED").is_some() {
             static LOGGED_FORCE_TWO_SIDED: AtomicBool = AtomicBool::new(false);
             if !LOGGED_FORCE_TWO_SIDED.swap(true, Ordering::Relaxed) {
