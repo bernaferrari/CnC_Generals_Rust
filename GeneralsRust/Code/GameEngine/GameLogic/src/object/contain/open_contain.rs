@@ -19,7 +19,8 @@ use crate::damage::DamageInfo;
 use crate::error::GameLogicError as GameError;
 use crate::helpers::{TheAudio, TheGameLogic, TheTerrainLogic};
 use crate::modules::{
-    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime,
+    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType, PhysicsBehaviorExt,
+    UpdateSleepTime,
 };
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
@@ -1194,8 +1195,22 @@ impl OpenContain {
         }
 
         if let Ok(exit_guard) = exit_obj.read() {
+            let previous_allow_to_fall = exit_guard.get_physics().map(|physics| {
+                let previous = physics.get_allow_to_fall();
+                physics.set_allow_to_fall(false);
+                (physics, previous)
+            });
+
             if let Some(ai) = exit_guard.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.try_lock() {
+                    ai_guard.set_ignore_collision_time(LOGICFRAMES_PER_SECOND as UnsignedInt);
+                    let _ = ai_guard.ignore_obstacle(None);
+                }
                 ai.ai_follow_path(&exit_path, Some(owner_id), CommandSourceType::FromAi);
+            }
+
+            if let Some((physics, previous)) = previous_allow_to_fall {
+                physics.set_allow_to_fall(previous);
             }
         }
 
