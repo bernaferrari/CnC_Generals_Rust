@@ -258,34 +258,31 @@ mod integration_tests {
         assert!(!messages.is_empty());
     }
 
-    /// Test modifier key behavior (Alt for force attack)
+    /// Test modifier key behavior (Ctrl for force attack)
     #[test]
     fn test_force_attack_mode() {
         let mut processor = InputProcessor::with_default_config();
 
-        // Press Alt to enter force attack mode
-        let alt_down = InputEvent::KeyDown {
-            key: KeyCode::LeftAlt,
-            modifiers: KeyModifiers::ALT,
+        let ctrl_down = InputEvent::KeyDown {
+            key: KeyCode::LeftCtrl,
+            modifiers: KeyModifiers::CTRL,
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(alt_down);
+        let messages = processor.process_input_event(ctrl_down);
 
-        // Should generate force attack mode message
         let has_force_attack_begin = messages
             .iter()
             .any(|msg| matches!(msg.get_type(), GameMessageType::MetaBeginForceAttack));
         assert!(has_force_attack_begin);
 
-        // Release Alt to exit force attack mode
-        let alt_up = InputEvent::KeyUp {
-            key: KeyCode::LeftAlt,
+        let ctrl_up = InputEvent::KeyUp {
+            key: KeyCode::LeftCtrl,
             modifiers: KeyModifiers::empty(),
             timestamp: Instant::now(),
         };
 
-        let messages = processor.process_input_event(alt_up);
+        let messages = processor.process_input_event(ctrl_up);
 
         let has_force_attack_end = messages
             .iter()
@@ -293,24 +290,50 @@ mod integration_tests {
         assert!(has_force_attack_end);
     }
 
-    /// Test Shift for waypoint mode
+    /// Test Alt for waypoint mode
     #[test]
     fn test_waypoint_mode() {
         let mut processor = InputProcessor::with_default_config();
 
-        // Press Shift
+        let alt_down = InputEvent::KeyDown {
+            key: KeyCode::LeftAlt,
+            modifiers: KeyModifiers::ALT,
+            timestamp: Instant::now(),
+        };
+
+        let messages = processor.process_input_event(alt_down);
+        assert!(messages
+            .iter()
+            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaBeginWaypoints)));
+
+        let alt_up = InputEvent::KeyUp {
+            key: KeyCode::LeftAlt,
+            modifiers: KeyModifiers::empty(),
+            timestamp: Instant::now(),
+        };
+
+        let messages = processor.process_input_event(alt_up);
+        assert!(messages
+            .iter()
+            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaEndWaypoints)));
+    }
+
+    /// Test Shift for prefer-selection mode
+    #[test]
+    fn test_prefer_selection_mode() {
+        let mut processor = InputProcessor::with_default_config();
+
         let shift_down = InputEvent::KeyDown {
             key: KeyCode::LeftShift,
             modifiers: KeyModifiers::SHIFT,
             timestamp: Instant::now(),
         };
 
-        processor.process_input_event(shift_down);
+        let messages = processor.process_input_event(shift_down);
+        assert!(messages
+            .iter()
+            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaBeginPreferSelection)));
 
-        // Waypoint mode should be active in command translator
-        // (Can't directly test internal state, but can verify messages are processed)
-
-        // Release Shift
         let shift_up = InputEvent::KeyUp {
             key: KeyCode::LeftShift,
             modifiers: KeyModifiers::empty(),
@@ -318,7 +341,9 @@ mod integration_tests {
         };
 
         let messages = processor.process_input_event(shift_up);
-        assert!(!messages.is_empty());
+        assert!(messages
+            .iter()
+            .any(|msg| matches!(msg.get_type(), GameMessageType::MetaEndPreferSelection)));
     }
 
     /// Test focus loss clears all input state

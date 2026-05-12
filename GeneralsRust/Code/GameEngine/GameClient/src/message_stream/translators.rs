@@ -2495,19 +2495,6 @@ impl CommandTranslator {
             0x11 => {
                 // Ctrl key
                 if down {
-                    self.prefer_selection_mode = true;
-                    TheInGameUI::set_prefer_selection_mode(true);
-                    messages.push(GameMessageType::MetaBeginPreferSelection);
-                } else {
-                    self.prefer_selection_mode = false;
-                    TheInGameUI::set_prefer_selection_mode(false);
-                    messages.push(GameMessageType::MetaEndPreferSelection);
-                }
-            }
-            // Alt key for force attack
-            0x12 => {
-                // Alt key
-                if down {
                     self.force_attack_mode = true;
                     TheInGameUI::set_force_attack_mode(true);
                     messages.push(GameMessageType::MetaBeginForceAttack);
@@ -2517,14 +2504,26 @@ impl CommandTranslator {
                     messages.push(GameMessageType::MetaEndForceAttack);
                 }
             }
-            0x10 => {
-                // Shift key
+            0x12 => {
+                // Alt key
                 if down {
                     self.waypoint_mode = true;
                     messages.push(GameMessageType::MetaBeginWaypoints);
                 } else {
                     self.waypoint_mode = false;
                     messages.push(GameMessageType::MetaEndWaypoints);
+                }
+            }
+            0x10 => {
+                // Shift key
+                if down {
+                    self.prefer_selection_mode = true;
+                    TheInGameUI::set_prefer_selection_mode(true);
+                    messages.push(GameMessageType::MetaBeginPreferSelection);
+                } else {
+                    self.prefer_selection_mode = false;
+                    TheInGameUI::set_prefer_selection_mode(false);
+                    messages.push(GameMessageType::MetaEndPreferSelection);
                 }
             }
             _ => {}
@@ -5882,23 +5881,34 @@ mod tests {
         // Test force attack mode
         assert!(!translator.force_attack_mode);
 
-        let alt_down = GameMessage::new(GameMessageType::RawKeyDown(0x12)); // Alt key
-        translator.translate_game_message(&alt_down);
+        let ctrl_down = GameMessage::new(GameMessageType::RawKeyDown(0x11));
+        translator.translate_game_message(&ctrl_down);
         assert!(translator.force_attack_mode);
+
+        let ctrl_up = GameMessage::new(GameMessageType::RawKeyUp(0x11));
+        translator.translate_game_message(&ctrl_up);
+        assert!(!translator.force_attack_mode);
+
+        // Test waypoint mode
+        assert!(!translator.waypoint_mode);
+
+        let alt_down = GameMessage::new(GameMessageType::RawKeyDown(0x12));
+        translator.translate_game_message(&alt_down);
+        assert!(translator.waypoint_mode);
 
         let alt_up = GameMessage::new(GameMessageType::RawKeyUp(0x12));
         translator.translate_game_message(&alt_up);
-        assert!(!translator.force_attack_mode);
+        assert!(!translator.waypoint_mode);
 
         // Test prefer selection mode
         assert!(!translator.prefer_selection_mode);
 
-        let ctrl_down = GameMessage::new(GameMessageType::RawKeyDown(0x11)); // Ctrl key
-        translator.translate_game_message(&ctrl_down);
+        let shift_down = GameMessage::new(GameMessageType::RawKeyDown(0x10));
+        translator.translate_game_message(&shift_down);
         assert!(translator.prefer_selection_mode);
 
-        let ctrl_up = GameMessage::new(GameMessageType::RawKeyUp(0x11));
-        translator.translate_game_message(&ctrl_up);
+        let shift_up = GameMessage::new(GameMessageType::RawKeyUp(0x10));
+        translator.translate_game_message(&shift_up);
         assert!(!translator.prefer_selection_mode);
     }
 
