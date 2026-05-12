@@ -6469,16 +6469,17 @@ fn dynamic_shroud_clearing_range_update_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>()
+    let config = module_data
+        .get_dynamic_shroud_clearing_range_update_config()
         .expect("DynamicShroudClearingRangeUpdateModuleData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
+    let module_data_arc = Arc::new(DynamicShroudClearingRangeUpdateModuleData::from_config(
+        config,
+        module_data.get_module_tag_name_key(),
+    ));
     let (owner_id, _) = resolve_owner_info(&thing);
     let object = TheGameLogic::find_object_by_id(owner_id)
         .expect("DynamicShroudClearingRangeUpdate requires a valid object");
-    let behavior = DynamicShroudClearingRangeUpdate::new(object, module_data_arc.clone())
+    let behavior = DynamicShroudClearingRangeUpdate::new_with_data(object, module_data_arc.clone())
         .expect("DynamicShroudClearingRangeUpdate failed to initialize");
 
     let module_name = AsciiString::from("DynamicShroudClearingRangeUpdate");
