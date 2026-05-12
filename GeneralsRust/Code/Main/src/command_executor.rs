@@ -1968,12 +1968,9 @@ impl<'a> CommandExecutor<'a> {
             return false;
         }
 
-        // C++ allows some hostile edge cases (empty non-faction containers). In Main, approximate
-        // this by allowing hostile enter/dock only for empty non-structure containers.
         if target.team != unit.team && target.team != Team::Neutral {
-            let target_is_structure = target.is_kind_of(KindOf::Structure);
             let target_has_occupants = !target.contained_units().is_empty();
-            if target_is_structure || target_has_occupants {
+            if target.is_faction_structure() || target_has_occupants {
                 return false;
             }
         }

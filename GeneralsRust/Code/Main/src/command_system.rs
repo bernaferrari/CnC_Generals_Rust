@@ -1410,7 +1410,6 @@ impl CommandSystem {
             return false;
         }
 
-        let target_is_structure = target.is_kind_of(KindOf::Structure);
         let target_has_occupants = !target.contained_units().is_empty();
 
         for &unit_id in units {
@@ -1433,10 +1432,9 @@ impl CommandSystem {
                 continue;
             }
 
-            // C++ allows some hostile edge cases; keep Main conservative here.
             if target.team != unit.team
                 && target.team != Team::Neutral
-                && (target_is_structure || target_has_occupants)
+                && (target.is_faction_structure() || target_has_occupants)
             {
                 continue;
             }

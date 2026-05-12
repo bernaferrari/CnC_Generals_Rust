@@ -4465,6 +4465,7 @@ impl GameLogic {
                         container_radius,
                         container_team,
                         container_is_structure,
+                        container_is_faction_structure,
                         container_is_alive,
                         container_under_construction,
                         container_can_contain,
@@ -4477,6 +4478,7 @@ impl GameLogic {
                             container.selection_radius,
                             container.team,
                             container.is_kind_of(KindOf::Structure),
+                            container.is_faction_structure(),
                             container.is_alive(),
                             container.status.under_construction,
                             container.can_contain(),
@@ -4505,11 +4507,9 @@ impl GameLogic {
                         continue;
                     }
 
-                    // C++ allows some hostile edge cases (empty non-faction containers). In Main,
-                    // approximate this by only allowing hostile enter/dock on empty non-structures.
                     if container_team != team
                         && container_team != Team::Neutral
-                        && (container_is_structure || container_occupant_count > 0)
+                        && (container_is_faction_structure || container_occupant_count > 0)
                     {
                         if let Some(obj) = self.objects.get_mut(&object_id) {
                             obj.stop_moving();
@@ -6130,6 +6130,7 @@ impl GameLogic {
         if kind_of.contains("powered") {
             template.add_kind_of(KindOf::Powered);
         }
+        Self::add_faction_structure_kind_bits(&mut template, &kind_of);
 
         if lower.contains("commandcenter") {
             template
@@ -6175,6 +6176,31 @@ impl GameLogic {
         }
 
         template
+    }
+
+    fn add_faction_structure_kind_bits(template: &mut ThingTemplate, kind_of: &str) {
+        let compact_kind_of = kind_of.replace('_', "");
+        let mappings = [
+            ("fsbarracks", KindOf::FSBarracks),
+            ("fswarfactory", KindOf::FSWarFactory),
+            ("fsairfield", KindOf::FSAirfield),
+            ("fsinternetcenter", KindOf::FSInternetCenter),
+            ("fspower", KindOf::FSPower),
+            ("fssupplydropzone", KindOf::FSSupplyDropzone),
+            ("fssupplycenter", KindOf::FSSupplyCenter),
+            ("fssuperweapon", KindOf::FSSuperweapon),
+            ("fsstrategycenter", KindOf::FSStrategyCenter),
+            ("fsfake", KindOf::FSFake),
+            ("fstechnology", KindOf::FSTechnology),
+            ("fsblackmarket", KindOf::FSBlackMarket),
+            ("fsadvancedtech", KindOf::FSAdvancedTech),
+        ];
+
+        for (token, kind) in mappings {
+            if compact_kind_of.contains(token) {
+                template.add_kind_of(kind);
+            }
+        }
     }
 
     fn object_definition_attr(definition: &ObjectDefinition, key: &str) -> Option<String> {
@@ -10155,6 +10181,20 @@ mod tests {
         assert!(game_logic.players.is_empty());
     }
 
+    #[test]
+    fn asset_template_preserves_cpp_fs_kind_tokens() {
+        let mut definition = ObjectDefinition::new("AmericaBarracks".to_string());
+        definition
+            .attributes
+            .insert("KindOf".to_string(), "STRUCTURE FS_BARRACKS".to_string());
+
+        let template =
+            GameLogic::build_template_from_object_definition("AmericaBarracks", &definition, None);
+
+        assert!(template.is_kind_of(KindOf::Structure));
+        assert!(template.is_kind_of(KindOf::FSBarracks));
+    }
+
     fn ensure_test_tank_template(game_logic: &mut GameLogic) {
         if game_logic.templates.contains_key("TestTank") {
             return;
@@ -10266,6 +10306,7 @@ mod tests {
         let mut barracks = ThingTemplate::new("TestBarracks");
         barracks
             .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::FSBarracks)
             .add_kind_of(KindOf::Selectable)
             .add_kind_of(KindOf::Attackable)
             .set_health(1000.0)
@@ -10273,6 +10314,23 @@ mod tests {
         game_logic
             .templates
             .insert("TestBarracks".to_string(), barracks);
+    }
+
+    fn ensure_test_garrison_template(game_logic: &mut GameLogic) {
+        if game_logic.templates.contains_key("TestBunker") {
+            return;
+        }
+
+        let mut garrison = ThingTemplate::new("TestBunker");
+        garrison
+            .add_kind_of(KindOf::Structure)
+            .add_kind_of(KindOf::Selectable)
+            .add_kind_of(KindOf::Attackable)
+            .set_health(1000.0)
+            .set_cost(0, 0);
+        game_logic
+            .templates
+            .insert("TestBunker".to_string(), garrison);
     }
 
     fn ensure_test_repair_pad_template(game_logic: &mut GameLogic) {
@@ -10713,6 +10771,38 @@ mod tests {
     }
 
     #[test]
+    fn enter_command_allows_empty_enemy_non_faction_structure() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+
+        let friendly_unit_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(-10.0, 0.0, 0.0))
+            .expect("friendly unit should be created");
+        let enemy_garrison_id = game_logic
+            .create_object("TestBunker", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("enemy garrison should be created");
+
+        game_logic.queue_command(crate::command_system::GameCommand {
+            command_type: crate::command_system::CommandType::Enter {
+                target_id: enemy_garrison_id,
+            },
+            player_id: 0,
+            command_id: 2,
+            timestamp: std::time::SystemTime::now(),
+            selected_units: vec![friendly_unit_id],
+            modifier_keys: crate::command_system::ModifierKeys::default(),
+        });
+        game_logic.process_commands();
+
+        let friendly = game_logic
+            .find_object(friendly_unit_id)
+            .expect("friendly unit should exist");
+        assert_eq!(friendly.target, Some(enemy_garrison_id));
+        assert_eq!(friendly.ai_state, AIState::Entering);
+    }
+
+    #[test]
     fn entering_state_clears_enemy_structure_target() {
         let mut game_logic = GameLogic::new();
         ensure_test_tank_template(&mut game_logic);
@@ -10746,6 +10836,40 @@ mod tests {
             AIState::Idle,
             "unit should return to idle when enter legality fails"
         );
+    }
+
+    #[test]
+    fn entering_state_allows_empty_enemy_non_faction_structure() {
+        let mut game_logic = GameLogic::new();
+        ensure_test_tank_template(&mut game_logic);
+        ensure_test_garrison_template(&mut game_logic);
+
+        let unit_id = game_logic
+            .create_object("TestTank", Team::USA, Vec3::new(2.0, 0.0, 0.0))
+            .expect("unit should be created");
+        let enemy_garrison_id = game_logic
+            .create_object("TestBunker", Team::GLA, Vec3::new(0.0, 0.0, 0.0))
+            .expect("enemy garrison should be created");
+
+        {
+            let unit = game_logic
+                .find_object_mut(unit_id)
+                .expect("unit should exist");
+            unit.target = Some(enemy_garrison_id);
+            unit.ai_state = AIState::Entering;
+            unit.status.moving = true;
+        }
+
+        game_logic.update_ai(&[unit_id, enemy_garrison_id], 1.0 / 60.0);
+
+        let garrison = game_logic
+            .find_object(enemy_garrison_id)
+            .expect("garrison should exist");
+        assert!(garrison.contained_units().contains(&unit_id));
+
+        let unit = game_logic.find_object(unit_id).expect("unit should exist");
+        assert_eq!(unit.ai_state, AIState::Garrisoned);
+        assert_eq!(unit.target, Some(enemy_garrison_id));
     }
 
     #[test]
