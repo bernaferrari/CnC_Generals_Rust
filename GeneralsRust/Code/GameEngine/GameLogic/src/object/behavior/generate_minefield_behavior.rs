@@ -741,12 +741,9 @@ impl GenerateMinefieldBehavior {
                     geometry.center.z,
                 );
 
-                // Check if position is valid for mine placement
-                if self.is_position_valid_for_mine(&position)? {
-                    if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
-                        if self.config.upgradable {
-                            state.mine_list.push(mine_id);
-                        }
+                if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
+                    if self.config.upgradable {
+                        state.mine_list.push(mine_id);
                     }
                 }
             }
@@ -931,16 +928,6 @@ impl GenerateMinefieldBehavior {
         }
 
         Ok(mine_id)
-    }
-
-    /// Check if a position is valid for mine placement
-    fn is_position_valid_for_mine(&self, position: &Coord3D) -> BehaviorResult<bool> {
-        // Delegate to place_mine_at validation logic
-        match self.place_mine_at(position, &self.config.mine_name) {
-            Ok(_) => Ok(true),
-            Err(BehaviorError::InvalidPosition) | Err(BehaviorError::NoSpaceAvailable) => Ok(false),
-            Err(e) => Err(e),
-        }
     }
 
     /// Get object geometry information
