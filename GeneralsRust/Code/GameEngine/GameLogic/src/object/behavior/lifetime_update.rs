@@ -4,7 +4,9 @@
 //! Author: Colin Day, December 2001 (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{AsciiString, ModuleData, TheGameLogic, UnsignedInt, XferVersion, INVALID_ID};
+use crate::common::{
+    AsciiString, Bool, Int, KindOf, ModuleData, TheGameLogic, UnsignedInt, XferVersion, INVALID_ID,
+};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::Object as GameObject;
@@ -50,10 +52,7 @@ fn parse_min_lifetime(
     data: &mut LifetimeUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.min_frames = INI::parse_duration_unsigned_int(tokens[0])?;
+    data.min_frames = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -62,11 +61,16 @@ fn parse_max_lifetime(
     data: &mut LifetimeUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.max_frames = INI::parse_duration_unsigned_int(tokens[0])?;
+    data.max_frames = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 const LIFETIME_UPDATE_FIELDS: &[FieldParse<LifetimeUpdateModuleData>] = &[
@@ -79,6 +83,54 @@ const LIFETIME_UPDATE_FIELDS: &[FieldParse<LifetimeUpdateModuleData>] = &[
         parse: parse_max_lifetime,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_field(data: &mut LifetimeUpdateModuleData, token: &str, values: &[&str]) {
+        let field = LIFETIME_UPDATE_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
+    #[test]
+    fn lifetime_fields_accept_ini_equals_token() {
+        let mut data = LifetimeUpdateModuleData::default();
+
+        parse_field(&mut data, "MinLifetime", &["=", "1000"]);
+        parse_field(&mut data, "MaxLifetime", &["=", "2500"]);
+
+        assert_eq!(data.min_frames, 30);
+        assert_eq!(data.max_frames, 75);
+    }
+
+    #[test]
+    fn hulk_lifetime_override_replaces_configured_range() {
+        let original = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+        crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(42);
+
+        assert_eq!(
+            LifetimeUpdate::effective_lifetime_range(true, 30, 75),
+            (42, 42)
+        );
+        assert_eq!(
+            LifetimeUpdate::effective_lifetime_range(false, 30, 75),
+            (30, 75)
+        );
+
+        crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
+        assert_eq!(
+            LifetimeUpdate::effective_lifetime_range(true, 30, 75),
+            (30, 75)
+        );
+
+        crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(original);
+    }
+}
 
 pub struct LifetimeUpdate {
     object: Weak<RwLock<GameObject>>,
@@ -98,10 +150,17 @@ impl LifetimeUpdate {
             .downcast_ref::<LifetimeUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
-        // Get current frame from game logic - matches C++ LifetimeUpdate.cpp
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let die_frame = current_frame
-            + Self::calc_sleep_delay_static(specific_data.min_frames, specific_data.max_frames);
+        let is_hulk = object
+            .read()
+            .map(|guard| guard.is_kind_of(KindOf::Hulk))
+            .unwrap_or(false);
+        let (min_frames, max_frames) = Self::effective_lifetime_range(
+            is_hulk,
+            specific_data.min_frames,
+            specific_data.max_frames,
+        );
+        let die_frame = current_frame + Self::calc_sleep_delay_static(min_frames, max_frames);
 
         Ok(Self {
             object: Arc::downgrade(&object),
@@ -129,6 +188,20 @@ impl LifetimeUpdate {
             delay = 1;
         }
         delay
+    }
+
+    fn effective_lifetime_range(
+        is_hulk: Bool,
+        min_frames: UnsignedInt,
+        max_frames: UnsignedInt,
+    ) -> (UnsignedInt, UnsignedInt) {
+        let override_frames: Int = crate::helpers::TheGameLogic::get_hulk_max_lifetime_override();
+        if is_hulk && override_frames != -1 {
+            let override_frames = override_frames.max(0) as UnsignedInt;
+            (override_frames, override_frames)
+        } else {
+            (min_frames, max_frames)
+        }
     }
 
     /// Get remaining frames until death
