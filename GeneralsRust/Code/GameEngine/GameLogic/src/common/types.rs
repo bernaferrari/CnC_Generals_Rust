@@ -29,6 +29,7 @@ use std::sync::{Arc, OnceLock, RwLock};
 
 // Import Object and ThingId for UpdateContext trait methods
 use super::ThingId;
+use crate::helpers::get_game_logic_random_value_real;
 use crate::object::Object;
 
 /// Shared result type used across legacy subsystems.
@@ -5409,7 +5410,7 @@ impl RandomVariable {
         if self.min == self.max {
             self.min
         } else {
-            self.min + (self.max - self.min) * rand::random::<f32>()
+            get_game_logic_random_value_real(self.min, self.max)
         }
     }
 
