@@ -855,9 +855,7 @@ impl MissileAIUpdate {
     /// Dead state: no longer active
     /// Matches C++ MissileAIUpdate::doDeadState from MissileAIUpdate.cpp lines 614-622
     fn do_dead_state(&mut self) {
-        // Disable all propulsion
-        // curLoco->setMaxAcceleration(0);
-        // curLoco->setMaxTurnRate(0);
+        self.set_locomotor_acceleration_and_turn(0.0, 0.0);
     }
 
     /// Handle lost airborne target
