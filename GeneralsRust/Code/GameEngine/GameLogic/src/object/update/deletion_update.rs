@@ -96,9 +96,8 @@ impl DeletionUpdate {
 }
 
 fn game_logic_random_value(min: u32, max: u32) -> u32 {
-    use rand::Rng;
     if min >= max {
         return min;
     }
-    rand::thread_rng().gen_range(min..=max)
+    crate::helpers::game_logic_random_value(min, max)
 }
