@@ -4256,7 +4256,7 @@ mod tests {
             let script_engine = get_script_engine();
             if let Ok(mut guard) = script_engine.write() {
                 *guard = None;
-            }
+            };
         }
 
         assert_eq!(
