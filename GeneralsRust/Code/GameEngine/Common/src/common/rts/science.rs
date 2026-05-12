@@ -292,6 +292,8 @@ impl ScienceInfo {
 pub struct ScienceStore {
     /// Map of science type to science information
     sciences: HashMap<ScienceType, ScienceInfo>,
+    /// Sciences in C++ `m_sciences` insertion order.
+    science_order: Vec<ScienceType>,
     /// Internal-name key to science type mapping for quick lookups
     name_to_science: HashMap<NameKeyType, ScienceType>,
 }
@@ -352,6 +354,7 @@ impl ScienceStore {
     pub fn new() -> Self {
         Self {
             sciences: HashMap::new(),
+            science_order: Vec::new(),
             name_to_science: HashMap::new(),
         }
     }
@@ -362,6 +365,7 @@ impl ScienceStore {
     /// Clears all sciences to prepare for fresh loading.
     pub fn init(&mut self) {
         self.sciences.clear();
+        self.science_order.clear();
         self.name_to_science.clear();
     }
 
@@ -426,12 +430,16 @@ impl ScienceStore {
         // Add to mappings
         let key = NameKeyGenerator::name_to_key(&info.name);
         self.name_to_science.insert(key, info.science);
+        if !self.sciences.contains_key(&info.science) {
+            self.science_order.push(info.science);
+        }
         self.sciences.insert(info.science, info);
     }
 
     /// Merge or insert a science definition originating from INI data.
     pub fn ingest_definition(&mut self, mut def: ScienceDefinition) {
         let science = NameKeyGenerator::name_to_key(&def.name) as ScienceType;
+        let is_new_science = !self.sciences.contains_key(&science);
 
         let mut info = self
             .sciences
@@ -463,12 +471,15 @@ impl ScienceStore {
 
         self.name_to_science
             .insert(NameKeyGenerator::name_to_key(&info.name), science);
+        if is_new_science {
+            self.science_order.push(science);
+        }
         self.sciences.insert(science, info);
     }
 
     /// Recompute root-science caches after bulk updates.
     pub fn rebuild_root_sciences(&mut self) {
-        let keys: Vec<ScienceType> = self.sciences.keys().copied().collect();
+        let keys = self.science_order.clone();
         for science in keys {
             let mut roots = Vec::new();
 
@@ -495,19 +506,27 @@ impl ScienceStore {
         P: AsRef<Path>,
     {
         let mut definitions: HashMap<ScienceType, ScienceDefinition> = HashMap::new();
+        let mut definition_order = Vec::new();
 
         for path in base_paths {
-            ingest_science_file(path.as_ref(), false, &mut definitions)?;
+            ingest_science_file(
+                path.as_ref(),
+                false,
+                &mut definitions,
+                &mut definition_order,
+            )?;
         }
 
         for path in override_paths {
-            ingest_science_file(path.as_ref(), true, &mut definitions)?;
+            ingest_science_file(path.as_ref(), true, &mut definitions, &mut definition_order)?;
         }
 
         self.init();
 
-        for definition in definitions.into_values() {
-            self.ingest_definition(definition);
+        for science in definition_order {
+            if let Some(definition) = definitions.remove(&science) {
+                self.ingest_definition(definition);
+            }
         }
 
         self.rebuild_root_sciences();
@@ -604,7 +623,11 @@ impl ScienceStore {
         let mut potentially_purchasable = Vec::new();
 
         // C++ Science.cpp:305-328 - Iterate all sciences
-        for (&science, info) in &self.sciences {
+        for &science in &self.science_order {
+            let Some(info) = self.sciences.get(&science) else {
+                continue;
+            };
+
             // C++ Science.cpp:309-313 - Skip if not purchasable (cost == 0)
             if info.science_purchase_point_cost == 0 {
                 continue;
@@ -640,8 +663,9 @@ impl ScienceStore {
     /// Returns list of all known science names. Used by WorldBuilder for editing.
     /// NOTE: Don't use this in RTS runtime code!
     pub fn get_science_names(&self) -> Vec<String> {
-        self.sciences
-            .values()
+        self.science_order
+            .iter()
+            .filter_map(|science| self.sciences.get(science))
             .map(|info| info.name.clone())
             .collect()
     }
@@ -658,7 +682,9 @@ impl ScienceStore {
 
     /// Iterates over the science definitions currently resident in the store.
     pub fn iter(&self) -> impl Iterator<Item = (&ScienceType, &ScienceInfo)> {
-        self.sciences.iter()
+        self.science_order
+            .iter()
+            .filter_map(|science| self.sciences.get_key_value(science))
     }
 
     /// Parse science definition from INI file
@@ -748,6 +774,7 @@ fn ingest_science_file(
     path: &Path,
     is_override: bool,
     definitions: &mut HashMap<ScienceType, ScienceDefinition>,
+    definition_order: &mut Vec<ScienceType>,
 ) -> Result<(), ScienceLoadError> {
     let file = match File::open(path) {
         Ok(file) => file,
@@ -798,7 +825,13 @@ fn ingest_science_file(
                     }
 
                     if let Some(def) = current.take() {
-                        merge_science_definition(path, def, definitions, is_override);
+                        merge_science_definition(
+                            path,
+                            def,
+                            definitions,
+                            definition_order,
+                            is_override,
+                        );
                     }
 
                     current = Some(ScienceDefinition {
@@ -810,7 +843,13 @@ fn ingest_science_file(
 
                 if keyword.eq_ignore_ascii_case("End") {
                     if let Some(def) = current.take() {
-                        merge_science_definition(path, def, definitions, is_override);
+                        merge_science_definition(
+                            path,
+                            def,
+                            definitions,
+                            definition_order,
+                            is_override,
+                        );
                     } else {
                         warn!(
                             "ScienceStore: stray 'End' found in {:?} at line {}",
@@ -886,7 +925,7 @@ fn ingest_science_file(
     }
 
     if let Some(def) = current.take() {
-        merge_science_definition(path, def, definitions, is_override);
+        merge_science_definition(path, def, definitions, definition_order, is_override);
     }
 
     Ok(())
@@ -896,6 +935,7 @@ fn merge_science_definition(
     path: &Path,
     mut definition: ScienceDefinition,
     definitions: &mut HashMap<ScienceType, ScienceDefinition>,
+    definition_order: &mut Vec<ScienceType>,
     is_override: bool,
 ) {
     // Ensure base definitions provide defaults when fields are omitted.
@@ -935,6 +975,7 @@ fn merge_science_definition(
             }
         }
         Entry::Vacant(entry) => {
+            definition_order.push(science);
             entry.insert(definition);
         }
     }
@@ -1122,6 +1163,7 @@ mod tests {
         assert_eq!(store.get_science_count(), 1);
         assert!(store.is_valid_science(100));
         assert!(!store.is_valid_science(200));
+        assert_eq!(store.get_science_names(), vec!["TestScience"]);
 
         assert_eq!(store.get_science_from_internal_name("TestScience"), 100);
         assert_eq!(store.get_internal_name_for_science(100), "TestScience");
@@ -1181,8 +1223,8 @@ mod tests {
             sciences: HashSet::new(),
         };
 
-        // Player has no sciences - can't get any
-        assert!(!store.player_has_prereqs_for_science(&player, 1));
+        // Root sciences have no direct prereqs, so C++ treats them as satisfied.
+        assert!(store.player_has_prereqs_for_science(&player, 1));
         assert!(!store.player_has_prereqs_for_science(&player, 2));
         assert!(!store.player_has_prereqs_for_science(&player, 3));
 
@@ -1291,33 +1333,68 @@ mod tests {
         let (purchasable, potentially) = store.get_purchasable_sciences(&player);
 
         // Can purchase tier1 sciences immediately
-        assert_eq!(purchasable.len(), 2);
-        assert!(purchasable.contains(&2));
-        assert!(purchasable.contains(&3));
+        assert_eq!(purchasable, vec![2, 3]);
 
         // Tier2 is potentially purchasable (has root but missing intermediate)
-        assert_eq!(potentially.len(), 1);
-        assert!(potentially.contains(&4));
+        assert_eq!(potentially, vec![4]);
 
         // Player gets one tier1 science
         player.sciences.insert(2);
         let (purchasable, potentially) = store.get_purchasable_sciences(&player);
 
         // Can still buy the other tier1
-        assert_eq!(purchasable.len(), 1);
-        assert!(purchasable.contains(&3));
+        assert_eq!(purchasable, vec![3]);
 
         // Tier2 still potentially purchasable
-        assert_eq!(potentially.len(), 1);
+        assert_eq!(potentially, vec![4]);
 
         // Player gets both tier1 sciences
         player.sciences.insert(3);
         let (purchasable, potentially) = store.get_purchasable_sciences(&player);
 
         // Now can buy tier2
-        assert_eq!(purchasable.len(), 1);
-        assert!(purchasable.contains(&4));
-        assert_eq!(potentially.len(), 0);
+        assert_eq!(purchasable, vec![4]);
+        assert!(potentially.is_empty());
+    }
+
+    #[test]
+    fn test_science_store_preserves_cpp_insertion_order() {
+        let mut store = ScienceStore::new();
+
+        store.ingest_definition(ScienceDefinition {
+            name: "SCIENCE_FIRST".to_string(),
+            cost: Some(1),
+            ..Default::default()
+        });
+        store.ingest_definition(ScienceDefinition {
+            name: "SCIENCE_SECOND".to_string(),
+            cost: Some(1),
+            ..Default::default()
+        });
+        store.ingest_definition(ScienceDefinition {
+            name: "SCIENCE_FIRST".to_string(),
+            display_name: Some("Updated".to_string()),
+            ..Default::default()
+        });
+
+        let first = store.get_science_from_internal_name("SCIENCE_FIRST");
+        let second = store.get_science_from_internal_name("SCIENCE_SECOND");
+
+        assert_eq!(
+            store.get_science_names(),
+            vec!["SCIENCE_FIRST", "SCIENCE_SECOND"]
+        );
+        assert_eq!(
+            store
+                .iter()
+                .map(|(science, _)| *science)
+                .collect::<Vec<_>>(),
+            vec![first, second]
+        );
+        assert_eq!(
+            store.find_science_info(first).unwrap().display_name,
+            "Updated"
+        );
     }
 
     /// Test science name lookups
