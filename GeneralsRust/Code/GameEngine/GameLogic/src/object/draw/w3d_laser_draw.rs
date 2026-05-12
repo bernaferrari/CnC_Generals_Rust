@@ -21,7 +21,6 @@ use crate::common::*;
 use crate::helpers::TheGameLogic;
 use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
 use crate::object::drawable::DrawableArcExt;
-use crate::object::update::laser_update::LaserUpdateModule;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{SceneLineDesc, SceneLineId, Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
@@ -489,22 +488,26 @@ impl W3DLaserDraw {
         let mut update_positions = None;
         let mut width_scale = None;
         for module in drawable.get_draw_modules() {
-            let matched = module.with_module_downcast::<LaserUpdateModule, _, _>(|laser_update| {
-                let update = laser_update.update_mut();
-                if update.is_dirty() || self.self_dirty {
-                    update_positions = Some((update.get_start_pos(), update.get_end_pos()));
-                    update.set_dirty(false);
+            let mut matched = false;
+            module.with_module(|module| {
+                if let Some(laser_update) = module.get_laser_update_interface() {
+                    matched = true;
+                    if laser_update.is_dirty() || self.self_dirty {
+                        update_positions =
+                            Some((laser_update.get_start_pos(), laser_update.get_end_pos()));
+                        laser_update.set_dirty(false);
+                    }
+                    width_scale = Some(laser_update.get_width_scale());
                 }
-                width_scale = Some(update.get_width_scale());
             });
-            if matched.is_some() {
+            if matched {
                 break;
             }
         }
 
         if let Some((start, end)) = update_positions {
-            self.start_pos = start;
-            self.end_pos = end;
+            self.start_pos = Coord3D::new(start[0], start[1], start[2]);
+            self.end_pos = Coord3D::new(end[0], end[1], end[2]);
             self.self_dirty = false;
         }
         if let Some(width) = width_scale {
