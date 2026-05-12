@@ -248,6 +248,11 @@ impl Module for BeaconClientUpdateModule {
 }
 
 impl ClientUpdateInterface for BeaconClientUpdateModule {
+    fn client_update(&mut self) -> bool {
+        BeaconClientUpdateModule::client_update(self);
+        true
+    }
+
     fn hide_beacon(&mut self) -> bool {
         BeaconClientUpdateModule::hide_beacon(self);
         true

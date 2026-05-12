@@ -33,11 +33,6 @@ use game_engine::common::thing::module::Module;
 use gamelogic::common::types::{FormationID, ObjectID, WeaponSlotType, INVALID_ID};
 use gamelogic::helpers::{BoneOverrideState, ModelDrawState, TheGameClient};
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::object::update::AnimatedParticleSysBoneClientUpdateModule;
-use gamelogic::object::update::BeaconClientUpdateModule;
-use gamelogic::object::update::LaserUpdate;
-use gamelogic::object::update::LaserUpdateModule;
-use gamelogic::object::update::SwayClientUpdateModule;
 use gamelogic::player::{Player, NO_HOTKEY_SQUAD, NUM_HOTKEY_SQUADS};
 use parking_lot::{Mutex, RwLock};
 
@@ -3471,26 +3466,15 @@ impl Drawable for BasicDrawable {
         }
 
         // C++ parity: Drawable::updateDrawable() dispatches to all ClientUpdateModules.
-        // Each concrete module has client_update() — no shared trait exists yet.
         if let Some(object_id) = self.object_id {
             if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
                 if let Ok(obj_guard) = obj_arc.read() {
                     for module_handle in obj_guard.client_update_modules() {
-                        let _ = module_handle
-                            .with_module_downcast::<SwayClientUpdateModule, _, ()>(|m| {
-                                m.client_update()
-                            });
-                        let _ = module_handle
-                            .with_module_downcast::<BeaconClientUpdateModule, _, ()>(|m| {
-                                m.client_update()
-                            });
-                        let _ = module_handle.with_module_downcast::<
-                            AnimatedParticleSysBoneClientUpdateModule,
-                            _,
-                            (),
-                        >(|m| m.client_update());
-                        let _ = module_handle
-                            .with_module_downcast::<LaserUpdate, _, ()>(|m| m.client_update());
+                        module_handle.with_module(|module| {
+                            if let Some(client_update) = module.get_client_update_interface() {
+                                let _ = client_update.client_update();
+                            }
+                        });
                     }
                 }
             }

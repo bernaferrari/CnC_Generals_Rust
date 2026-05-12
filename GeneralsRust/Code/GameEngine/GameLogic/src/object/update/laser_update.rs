@@ -10,7 +10,7 @@ use crate::player::ThePlayerList;
 use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -171,6 +171,17 @@ impl Module for LaserUpdateModule {
 
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
+        Some(self)
+    }
+}
+
+impl ClientUpdateInterface for LaserUpdateModule {
+    fn client_update(&mut self) -> bool {
+        self.update.client_update();
+        true
     }
 }
 
@@ -802,5 +813,13 @@ mod tests {
         assert_eq!(update.target_particle_system_id, None);
         assert_eq!(update.parent_id, None);
         assert_eq!(update.target_id, None);
+    }
+
+    #[test]
+    fn laser_update_exposes_typed_client_update_interface() {
+        let module_data = Arc::new(LaserUpdateModuleData::default());
+        let mut module = LaserUpdateModule::new(11, module_data, Some(22));
+
+        assert!(module.get_client_update_interface().is_some());
     }
 }
