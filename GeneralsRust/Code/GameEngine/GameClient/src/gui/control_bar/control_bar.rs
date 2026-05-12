@@ -8,8 +8,10 @@
 //!   GameClient/GUI/ControlBar/ControlBarCommand.cpp
 //! Original Author: Colin Day, March 2002
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -36,6 +38,7 @@ use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{player_list as logic_player_list, PlayerIndex};
+use gamelogic::system::beacon_manager::snapshot_beacons;
 use gamelogic::upgrade::center::with_upgrade_center;
 
 pub struct ControlBar {
@@ -260,7 +263,9 @@ impl ControlBar {
             ControlBarState::StructureInventory => {
                 self.update_context_structure_inventory()?;
             }
-            ControlBarState::Beacon => {}
+            ControlBarState::Beacon => {
+                self.update_context_beacon()?;
+            }
             ControlBarState::UnderConstruction => {
                 self.update_context_under_construction(delta_time)?;
             }
@@ -1583,6 +1588,102 @@ impl ControlBar {
         Ok(())
     }
 
+    fn update_context_beacon(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let selected_object = self
+            .context
+            .read()
+            .map_err(|_| "Failed to acquire context read lock")?
+            .selected_objects
+            .first()
+            .copied();
+
+        let Some(object_id) = selected_object else {
+            self.populate_beacon_windows(false, "")?;
+            return Ok(());
+        };
+        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            self.populate_beacon_windows(false, "")?;
+            return Ok(());
+        };
+        let Ok(object) = object_arc.read() else {
+            self.populate_beacon_windows(false, "")?;
+            return Ok(());
+        };
+
+        let position = *object.get_position();
+        let player_id = object.get_controlling_player_id().map(|id| id as i32);
+        let caption = player_id
+            .and_then(|player_id| {
+                snapshot_beacons()
+                    .into_iter()
+                    .find(|entry| {
+                        entry.player_id == player_id && (entry.position - position).length() <= 3.0
+                    })
+                    .and_then(|entry| entry.text.map(|text| text.to_string()))
+            })
+            .unwrap_or_default();
+
+        self.populate_beacon_windows(object.is_locally_controlled(), &caption)?;
+        Ok(())
+    }
+
+    fn populate_beacon_windows(
+        &self,
+        locally_controlled: bool,
+        caption: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let Some(window_manager) = self.window_manager.as_ref() else {
+            return Ok(());
+        };
+
+        let text_entry = window_manager.find_window_by_name("ControlBar.wnd:EditBeaconText");
+        let static_text =
+            window_manager.find_window_by_name("ControlBar.wnd:StaticTextBeaconLabel");
+        let clear_button =
+            window_manager.find_window_by_name("ControlBar.wnd:ButtonClearBeaconText");
+
+        Self::apply_beacon_window_state(
+            &text_entry,
+            &static_text,
+            &clear_button,
+            locally_controlled,
+            caption,
+        );
+        Ok(())
+    }
+
+    fn apply_beacon_window_state(
+        text_entry: &Option<Rc<RefCell<GameWindow>>>,
+        static_text: &Option<Rc<RefCell<GameWindow>>>,
+        clear_button: &Option<Rc<RefCell<GameWindow>>>,
+        locally_controlled: bool,
+        caption: &str,
+    ) {
+        if locally_controlled {
+            if let Some(window) = text_entry {
+                let mut guard = window.borrow_mut();
+                let _ = guard.hide(false);
+                let _ = guard.set_text(caption);
+            }
+            if let Some(window) = static_text {
+                let _ = window.borrow_mut().hide(false);
+            }
+            if let Some(window) = clear_button {
+                let _ = window.borrow_mut().hide(false);
+            }
+        } else {
+            if let Some(window) = text_entry {
+                let _ = window.borrow_mut().hide(true);
+            }
+            if let Some(window) = static_text {
+                let _ = window.borrow_mut().hide(true);
+            }
+            if let Some(window) = clear_button {
+                let _ = window.borrow_mut().hide(true);
+            }
+        }
+    }
+
     fn update_context_under_construction(
         &mut self,
         _delta_time: Duration,
@@ -1738,5 +1839,62 @@ impl Default for ButtonState {
             availability: CommandAvailability::Available,
             check_like_active: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn named_window(name: &str) -> Rc<RefCell<GameWindow>> {
+        let window = Rc::new(RefCell::new(GameWindow::new()));
+        window.borrow_mut().set_name(name);
+        window
+    }
+
+    #[test]
+    fn local_beacon_windows_show_editor_and_caption_text() {
+        let text_entry = Some(named_window("ControlBar.wnd:EditBeaconText"));
+        let static_text = Some(named_window("ControlBar.wnd:StaticTextBeaconLabel"));
+        let clear_button = Some(named_window("ControlBar.wnd:ButtonClearBeaconText"));
+        for window in [&text_entry, &static_text, &clear_button]
+            .into_iter()
+            .flatten()
+        {
+            window.borrow_mut().hide(true).unwrap();
+        }
+
+        ControlBar::apply_beacon_window_state(
+            &text_entry,
+            &static_text,
+            &clear_button,
+            true,
+            "Beacon Alpha",
+        );
+
+        let edit = text_entry.unwrap();
+        assert!(!edit.borrow().is_hidden());
+        assert_eq!(edit.borrow().get_text(), "Beacon Alpha");
+        assert!(!static_text.unwrap().borrow().is_hidden());
+        assert!(!clear_button.unwrap().borrow().is_hidden());
+    }
+
+    #[test]
+    fn nonlocal_beacon_windows_hide_editor_label_and_clear() {
+        let text_entry = Some(named_window("ControlBar.wnd:EditBeaconText"));
+        let static_text = Some(named_window("ControlBar.wnd:StaticTextBeaconLabel"));
+        let clear_button = Some(named_window("ControlBar.wnd:ButtonClearBeaconText"));
+
+        ControlBar::apply_beacon_window_state(
+            &text_entry,
+            &static_text,
+            &clear_button,
+            false,
+            "Enemy Beacon",
+        );
+
+        assert!(text_entry.unwrap().borrow().is_hidden());
+        assert!(static_text.unwrap().borrow().is_hidden());
+        assert!(clear_button.unwrap().borrow().is_hidden());
     }
 }
