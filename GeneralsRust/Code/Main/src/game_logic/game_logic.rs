@@ -3146,12 +3146,7 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // C++: for( Object *obj = m_objList; obj; obj = obj->getNextObject() )
         // C++:   if( obj->isDisabled() ) obj->checkDisabledStatus();
-        //
-        // Check timer-based disabled states and re-enable objects whose disable
-        // duration has expired. The Main crate's ObjectStatus does not yet have
-        // a disabled/disabled_timer field, so this is a no-op placeholder that
-        // will become active once the disabled-status tracking is implemented.
-        // The gamelogic crate's update_pipeline handles this for its objects.
+        self.check_bridge_disabled_statuses();
 
         // -----------------------------------------------------------------------
         // Phase 17: Vision/Shroud Update
@@ -5288,6 +5283,28 @@ impl GameLogic {
             let should_disable =
                 underpowered_teams.contains(&obj.team) && obj.is_alive() && obj.is_constructed();
             obj.status.disabled_underpowered = should_disable;
+        }
+    }
+
+    fn check_bridge_disabled_statuses(&self) {
+        let engine_ids: Vec<u32> = self
+            .objects
+            .values()
+            .filter_map(|obj| obj.engine_object_id)
+            .collect();
+
+        for engine_id in engine_ids {
+            let Some(engine_obj) =
+                gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)
+            else {
+                continue;
+            };
+            let Ok(mut engine_obj) = engine_obj.write() else {
+                continue;
+            };
+            if engine_obj.is_disabled() {
+                engine_obj.check_disabled_status();
+            }
         }
     }
 
