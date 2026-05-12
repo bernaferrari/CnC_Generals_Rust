@@ -1,7 +1,7 @@
 use generals_main::command_system::{CommandType, GameCommand, ModifierKeys};
 use generals_main::deterministic_trace::{
     calculate_frame_crc, compare_frame_traces, first_trace_difference, run_trace_scenario,
-    FrameTrace, TraceDifference, TraceObject, TraceScenario,
+    FrameTrace, TraceDifference, TraceObject, TracePlayer, TraceScenario,
 };
 use generals_main::game_logic::{GameLogic, KindOf, ObjectId, Player, Team, ThingTemplate, Weapon};
 use glam::Vec3;
@@ -192,6 +192,7 @@ fn frame_trace_reports_first_divergent_frame() {
         &actual[1].rng_seed,
         &actual[1].commands,
         &actual[1].objects,
+        &actual[1].players,
         actual[1].victory_state.as_deref(),
     );
 
@@ -213,6 +214,7 @@ fn frame_trace_compare_reports_crc_mismatch_with_frame_context() {
         &actual[1].rng_seed,
         &actual[1].commands,
         &actual[1].objects,
+        &actual[1].players,
         actual[1].victory_state.as_deref(),
     );
 
@@ -307,4 +309,66 @@ fn trace_scenario_runs_scheduled_commands_before_each_frame_capture() {
         .find(|object| object.id == technical)
         .expect("technical should be traced");
     assert!(final_technical.health < 240.0);
+}
+
+#[test]
+fn frame_trace_captures_player_economy_state_in_crc() {
+    let mut player_a = TracePlayer {
+        id: 1,
+        name: "GLA".to_string(),
+        side: "GLA".to_string(),
+        base_side: "GLA".to_string(),
+        player_type: "Computer".to_string(),
+        money: 5_000,
+        power: 0,
+        low_power: false,
+        has_radar: false,
+        is_dead: false,
+        rank_level: 1,
+        skill_points: 0,
+        science_purchase_points: 0,
+        total_score: 0,
+    };
+    let player_b = TracePlayer {
+        id: 0,
+        name: "USA".to_string(),
+        side: "America".to_string(),
+        base_side: "America".to_string(),
+        player_type: "Human".to_string(),
+        money: 10_000,
+        power: 5,
+        low_power: false,
+        has_radar: true,
+        is_dead: false,
+        rank_level: 1,
+        skill_points: 0,
+        science_purchase_points: 0,
+        total_score: 0,
+    };
+
+    let trace_a = FrameTrace::new_with_players(
+        1,
+        seed(),
+        Vec::new(),
+        Vec::new(),
+        vec![player_a.clone(), player_b.clone()],
+        None,
+    );
+    let trace_b = FrameTrace::new_with_players(
+        1,
+        seed(),
+        Vec::new(),
+        Vec::new(),
+        vec![player_b, player_a.clone()],
+        None,
+    );
+
+    assert_eq!(trace_a, trace_b);
+    assert_eq!(trace_a.players[0].id, 0);
+
+    player_a.money -= 500;
+    let trace_c =
+        FrameTrace::new_with_players(1, seed(), Vec::new(), Vec::new(), vec![player_a], None);
+
+    assert_ne!(trace_a.crc, trace_c.crc);
 }
