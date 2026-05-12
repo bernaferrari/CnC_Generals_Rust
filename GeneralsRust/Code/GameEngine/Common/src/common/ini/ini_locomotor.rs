@@ -11,10 +11,11 @@
 //! Matches C++ Locomotor.h and Locomotor.cpp field parse table
 
 use once_cell::sync::OnceCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 
 /// Result type for locomotor operations
 pub type LocomotorResult<T> = Result<T, LocomotorError>;
@@ -392,34 +393,49 @@ impl LocomotorTemplate {
 
 /// Locomotor template store
 pub struct LocomotorStore {
-    templates: HashMap<AsciiString, LocomotorTemplate>,
+    templates: BTreeMap<NameKeyType, LocomotorTemplate>,
 }
 
 impl LocomotorStore {
     pub fn new() -> Self {
         Self {
-            templates: HashMap::new(),
+            templates: BTreeMap::new(),
         }
     }
 
+    fn template_key(name: &AsciiString) -> NameKeyType {
+        NameKeyGenerator::name_to_key(name.as_str())
+    }
+
+    fn template_key_from_str(name: &str) -> NameKeyType {
+        NameKeyGenerator::name_to_key(name)
+    }
+
     pub fn add_template(&mut self, template: LocomotorTemplate) -> LocomotorResult<()> {
-        let name = template.name.clone();
-        if self.templates.contains_key(&name) {
+        let key = Self::template_key(&template.name);
+        if self.templates.contains_key(&key) {
             // In C++, this would be an override situation
-            self.templates.insert(name, template);
+            self.templates.insert(key, template);
             Ok(())
         } else {
-            self.templates.insert(name, template);
+            self.templates.insert(key, template);
             Ok(())
         }
     }
 
     pub fn find_template(&self, name: &str) -> Option<&LocomotorTemplate> {
-        self.templates.get(&AsciiString::from(name))
+        self.templates.get(&Self::template_key_from_str(name))
     }
 
     pub fn find_template_mut(&mut self, name: &str) -> Option<&mut LocomotorTemplate> {
-        self.templates.get_mut(&AsciiString::from(name))
+        self.templates.get_mut(&Self::template_key_from_str(name))
+    }
+
+    pub fn get_template_names(&self) -> Vec<&AsciiString> {
+        self.templates
+            .values()
+            .map(|template| &template.name)
+            .collect()
     }
 }
 
@@ -873,6 +889,26 @@ mod tests {
         let found = store.find_template("TestLoco");
         assert!(found.is_some());
         assert_eq!(found.unwrap().name.to_str(), "TestLoco");
+    }
+
+    #[test]
+    fn locomotor_store_enumerates_in_name_key_order() {
+        NameKeyGenerator::reset();
+
+        let mut store = LocomotorStore::new();
+        for name in ["GammaLoco", "AlphaLoco", "BetaLoco"] {
+            store
+                .add_template(LocomotorTemplate::new(AsciiString::from(name)))
+                .unwrap();
+        }
+
+        let names: Vec<&str> = store
+            .get_template_names()
+            .into_iter()
+            .map(|name| name.as_str())
+            .collect();
+
+        assert_eq!(names, vec!["GammaLoco", "AlphaLoco", "BetaLoco"]);
     }
 
     #[test]
