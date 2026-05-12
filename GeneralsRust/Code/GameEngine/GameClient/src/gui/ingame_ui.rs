@@ -3918,6 +3918,14 @@ impl InGameUI {
         !recorder_playback_active || look_at_mouse_moved_recently
     }
 
+    fn command_hint_update_allowed(
+        is_scrolling: bool,
+        is_selecting: bool,
+        recorder_playback_active: bool,
+    ) -> bool {
+        !(is_scrolling || is_selecting || recorder_playback_active)
+    }
+
     fn selected_source_id_for_command_hint(&self) -> Option<u32> {
         let selected = self.get_selection();
         (selected.len() == 1).then(|| selected[0])
@@ -4233,7 +4241,11 @@ impl InGameUI {
     /// issued if the player clicked.
     pub fn create_command_hint(&mut self, hint_type: CommandHintType) {
         // Early exit: no cursor hints while scrolling, selecting, or in playback
-        if self.is_scrolling || self.is_selecting {
+        if !Self::command_hint_update_allowed(
+            self.is_scrolling,
+            self.is_selecting,
+            self.recorder_playback_active,
+        ) {
             return;
         }
 
@@ -4849,6 +4861,14 @@ mod tests {
         assert!(InGameUI::mouseover_cursor_update_allowed(false, true));
         assert!(InGameUI::mouseover_cursor_update_allowed(true, true));
         assert!(!InGameUI::mouseover_cursor_update_allowed(true, false));
+    }
+
+    #[test]
+    fn command_hint_updates_match_cpp_replay_gate() {
+        assert!(InGameUI::command_hint_update_allowed(false, false, false));
+        assert!(!InGameUI::command_hint_update_allowed(true, false, false));
+        assert!(!InGameUI::command_hint_update_allowed(false, true, false));
+        assert!(!InGameUI::command_hint_update_allowed(false, false, true));
     }
 
     #[test]
