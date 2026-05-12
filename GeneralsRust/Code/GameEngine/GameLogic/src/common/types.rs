@@ -172,6 +172,12 @@ pub trait ModuleData: AsAny + Send + Sync + std::fmt::Debug + std::any::Any {
         let full = std::any::type_name::<Self>();
         full.rsplit("::").next().unwrap_or(full)
     }
+
+    fn get_radar_update_config(
+        &self,
+    ) -> Option<game_engine::common::thing::module::RadarUpdateConfig> {
+        None
+    }
 }
 
 impl dyn ModuleData {
