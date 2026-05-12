@@ -6,8 +6,8 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Coord3D, CoordOrigin, ModuleData, RadiusDecal, RadiusDecalTemplate, Real,
-    UnsignedInt, SHADOW_NAMES,
+    AsciiString, Coord3D, CoordOrigin, LegacyModuleData as RealLegacyModuleData, ModuleData,
+    RadiusDecal, RadiusDecalTemplate, Real, UnsignedInt, SHADOW_NAMES,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{
@@ -19,7 +19,10 @@ use crate::player::ThePlayerList;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    DynamicShroudClearingRangeUpdateConfig, Module, ModuleData as EngineModuleData, NameKeyType,
+    RadiusDecalTemplateConfig,
+};
 use std::sync::{Arc, RwLock, Weak};
 
 const GRID_FX_DECAL_COUNT: usize = 30;
@@ -82,11 +85,133 @@ impl Default for DynamicShroudClearingRangeUpdateModuleData {
     }
 }
 
-crate::impl_behavior_module_data_via_base!(DynamicShroudClearingRangeUpdateModuleData, base);
-
 impl DynamicShroudClearingRangeUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, DYNAMIC_SHROUD_UPDATE_FIELDS)
+    }
+
+    fn to_config(&self) -> DynamicShroudClearingRangeUpdateConfig {
+        DynamicShroudClearingRangeUpdateConfig {
+            shrink_delay: self.shrink_delay,
+            shrink_time: self.shrink_time,
+            grow_delay: self.grow_delay,
+            grow_time: self.grow_time,
+            final_vision: self.final_vision,
+            change_interval: self.change_interval,
+            grow_interval: self.grow_interval,
+            do_spy_sat_fx: self.do_spy_sat_fx,
+            grid_decal_template: RadiusDecalTemplateConfig {
+                radius: self.grid_decal_template.radius,
+                opacity: self.grid_decal_template.opacity,
+                color: self.grid_decal_template.color,
+                texture_name: self.grid_decal_template.texture_name.as_str().to_string(),
+                shadow_type: self.grid_decal_template.shadow_type,
+                min_opacity: self.grid_decal_template.min_opacity,
+                max_opacity: self.grid_decal_template.max_opacity,
+                opacity_throb_time: self.grid_decal_template.opacity_throb_time,
+                only_visible_to_owning_player: self
+                    .grid_decal_template
+                    .only_visible_to_owning_player,
+            },
+        }
+    }
+
+    pub(crate) fn from_config(
+        config: DynamicShroudClearingRangeUpdateConfig,
+        module_tag_name_key: NameKeyType,
+    ) -> Self {
+        let mut base = BehaviorModuleData::default();
+        EngineModuleData::set_module_tag_name_key(&mut base, module_tag_name_key);
+        Self {
+            base,
+            shrink_delay: config.shrink_delay,
+            shrink_time: config.shrink_time,
+            grow_delay: config.grow_delay,
+            grow_time: config.grow_time,
+            final_vision: config.final_vision,
+            change_interval: config.change_interval,
+            grow_interval: config.grow_interval,
+            do_spy_sat_fx: config.do_spy_sat_fx,
+            grid_decal_template: RadiusDecalTemplate {
+                radius: config.grid_decal_template.radius,
+                opacity: config.grid_decal_template.opacity,
+                color: config.grid_decal_template.color,
+                texture_name: AsciiString::from(&config.grid_decal_template.texture_name),
+                shadow_type: config.grid_decal_template.shadow_type,
+                min_opacity: config.grid_decal_template.min_opacity,
+                max_opacity: config.grid_decal_template.max_opacity,
+                opacity_throb_time: config.grid_decal_template.opacity_throb_time,
+                only_visible_to_owning_player: config
+                    .grid_decal_template
+                    .only_visible_to_owning_player,
+            },
+        }
+    }
+}
+
+impl Snapshotable for DynamicShroudClearingRangeUpdateModuleData {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.base.load_post_process()
+    }
+}
+
+impl RealLegacyModuleData for DynamicShroudClearingRangeUpdateModuleData {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        EngineModuleData::set_module_tag_name_key(&mut self.base, key);
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        EngineModuleData::get_module_tag_name_key(&self.base)
+    }
+
+    fn get_dynamic_shroud_clearing_range_update_config(
+        &self,
+    ) -> Option<DynamicShroudClearingRangeUpdateConfig> {
+        Some(self.to_config())
+    }
+}
+
+impl EngineModuleData for DynamicShroudClearingRangeUpdateModuleData {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        RealLegacyModuleData::set_module_tag_name_key(self, key);
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        RealLegacyModuleData::get_module_tag_name_key(self)
+    }
+
+    fn get_dynamic_shroud_clearing_range_update_config(
+        &self,
+    ) -> Option<DynamicShroudClearingRangeUpdateConfig> {
+        Some(self.to_config())
+    }
+}
+
+impl ModuleData for DynamicShroudClearingRangeUpdateModuleData {
+    fn get_dynamic_shroud_clearing_range_update_config(
+        &self,
+    ) -> Option<DynamicShroudClearingRangeUpdateConfig> {
+        Some(self.to_config())
     }
 }
 
@@ -333,17 +458,27 @@ impl DynamicShroudClearingRangeUpdate {
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<DynamicShroudClearingRangeUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+        let config = module_data
+            .get_dynamic_shroud_clearing_range_update_config()
+            .ok_or("DynamicShroudClearingRangeUpdateModuleData expected")?;
+        Self::new_with_data(
+            object,
+            Arc::new(DynamicShroudClearingRangeUpdateModuleData::from_config(
+                config, 0,
+            )),
+        )
+    }
 
+    pub(crate) fn new_with_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: Arc<DynamicShroudClearingRangeUpdateModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         // Calculate state timeline (see C++ diagram comment)
-        let state_countdown = (data.shrink_delay + data.shrink_time) as i32;
+        let state_countdown = (module_data.shrink_delay + module_data.shrink_time) as i32;
         let total_frames = state_countdown.max(1);
-        let shrink_start_deadline = state_countdown as u32 - data.shrink_delay;
-        let grow_start_deadline = state_countdown as u32 - data.grow_delay;
-        let sustain_deadline = grow_start_deadline - data.grow_time;
+        let shrink_start_deadline = state_countdown as u32 - module_data.shrink_delay;
+        let grow_start_deadline = state_countdown as u32 - module_data.grow_delay;
+        let sustain_deadline = grow_start_deadline - module_data.grow_time;
 
         debug_assert!(
             sustain_deadline >= shrink_start_deadline,
@@ -373,7 +508,7 @@ impl DynamicShroudClearingRangeUpdate {
 
         Ok(Self {
             object: Arc::downgrade(&object),
-            module_data: Arc::new(data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             state: DSCRUState::NotStartedYet,
             state_countdown,
@@ -389,6 +524,22 @@ impl DynamicShroudClearingRangeUpdate {
             current_clearing_range: 0.0,
             grid_decals,
         })
+    }
+
+    pub fn from_module_data(
+        object: Arc<RwLock<GameObject>>,
+        module_data: Arc<dyn EngineModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let config = module_data
+            .get_dynamic_shroud_clearing_range_update_config()
+            .ok_or("DynamicShroudClearingRangeUpdateModuleData expected")?;
+        Self::new_with_data(
+            object,
+            Arc::new(DynamicShroudClearingRangeUpdateModuleData::from_config(
+                config,
+                module_data.get_module_tag_name_key(),
+            )),
+        )
     }
 
     /// Create grid decals for visual effect
@@ -676,7 +827,7 @@ impl Module for DynamicShroudClearingRangeUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        EngineModuleData::get_module_tag_name_key(self.module_data.as_ref())
     }
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
@@ -690,9 +841,69 @@ impl DynamicShroudClearingRangeUpdateFactory {
         thing: Arc<RwLock<GameObject>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(DynamicShroudClearingRangeUpdate::new(
+        let config = module_data
+            .get_dynamic_shroud_clearing_range_update_config()
+            .ok_or("DynamicShroudClearingRangeUpdateModuleData expected")?;
+        let module_data_arc = Arc::new(DynamicShroudClearingRangeUpdateModuleData::from_config(
+            config, 0,
+        ));
+        Ok(Box::new(DynamicShroudClearingRangeUpdate::new_with_data(
             thing,
-            module_data,
+            module_data_arc,
         )?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::LegacyModuleData as RealLegacyModuleData;
+
+    #[test]
+    fn dynamic_shroud_config_preserves_ini_fields() {
+        let mut data = DynamicShroudClearingRangeUpdateModuleData::default();
+        RealLegacyModuleData::set_module_tag_name_key(&mut data, 0xCAFE);
+        data.shrink_delay = 30;
+        data.shrink_time = 45;
+        data.grow_delay = 10;
+        data.grow_time = 15;
+        data.final_vision = 25.0;
+        data.change_interval = 3;
+        data.grow_interval = 2;
+        data.do_spy_sat_fx = true;
+        data.grid_decal_template.radius = 12.0;
+        data.grid_decal_template.opacity = 0.75;
+        data.grid_decal_template.color = 0x11223344;
+        data.grid_decal_template.texture_name = AsciiString::from("EXGrid");
+        data.grid_decal_template.shadow_type = 0x40;
+        data.grid_decal_template.min_opacity = 0.25;
+        data.grid_decal_template.max_opacity = 0.9;
+        data.grid_decal_template.opacity_throb_time = 90;
+        data.grid_decal_template.only_visible_to_owning_player = false;
+
+        let rebuilt =
+            DynamicShroudClearingRangeUpdateModuleData::from_config(data.to_config(), 0xBEEF);
+
+        assert_eq!(
+            RealLegacyModuleData::get_module_tag_name_key(&rebuilt),
+            0xBEEF
+        );
+        assert_eq!(rebuilt.shrink_delay, 30);
+        assert_eq!(rebuilt.shrink_time, 45);
+        assert_eq!(rebuilt.grow_delay, 10);
+        assert_eq!(rebuilt.grow_time, 15);
+        assert_eq!(rebuilt.final_vision, 25.0);
+        assert_eq!(rebuilt.change_interval, 3);
+        assert_eq!(rebuilt.grow_interval, 2);
+        assert!(rebuilt.do_spy_sat_fx);
+        assert_eq!(rebuilt.grid_decal_template.radius, 12.0);
+        assert_eq!(rebuilt.grid_decal_template.opacity, 0.75);
+        assert_eq!(rebuilt.grid_decal_template.color, 0x11223344);
+        assert_eq!(rebuilt.grid_decal_template.texture_name.as_str(), "EXGrid");
+        assert_eq!(rebuilt.grid_decal_template.shadow_type, 0x40);
+        assert_eq!(rebuilt.grid_decal_template.min_opacity, 0.25);
+        assert_eq!(rebuilt.grid_decal_template.max_opacity, 0.9);
+        assert_eq!(rebuilt.grid_decal_template.opacity_throb_time, 90);
+        assert!(!rebuilt.grid_decal_template.only_visible_to_owning_player);
     }
 }
