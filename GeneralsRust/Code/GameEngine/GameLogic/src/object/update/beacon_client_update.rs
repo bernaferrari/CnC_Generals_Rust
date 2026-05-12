@@ -9,7 +9,9 @@ use game_engine::common::system::radar::{
     get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
 };
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    BeaconClientUpdateConfig, ClientUpdateInterface, Module, ModuleData, NameKeyType,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -34,6 +36,14 @@ impl BeaconClientUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, BEACON_CLIENT_UPDATE_FIELDS)
     }
+
+    fn from_config(config: BeaconClientUpdateConfig) -> Self {
+        Self {
+            module_tag_name_key: 0,
+            frames_between_radar_pulses: config.frames_between_radar_pulses,
+            radar_pulse_duration: config.radar_pulse_duration,
+        }
+    }
 }
 
 impl Snapshotable for BeaconClientUpdateModuleData {
@@ -50,7 +60,38 @@ impl Snapshotable for BeaconClientUpdateModuleData {
     }
 }
 
-crate::impl_legacy_module_data_with_key_field!(BeaconClientUpdateModuleData, module_tag_name_key);
+impl crate::common::LegacyModuleData for BeaconClientUpdateModuleData {
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        self.module_tag_name_key = key;
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_tag_name_key
+    }
+}
+
+impl ModuleData for BeaconClientUpdateModuleData {
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        self.module_tag_name_key = key;
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_tag_name_key
+    }
+
+    fn get_beacon_client_update_config(&self) -> Option<BeaconClientUpdateConfig> {
+        Some(BeaconClientUpdateConfig {
+            frames_between_radar_pulses: self.frames_between_radar_pulses,
+            radar_pulse_duration: self.radar_pulse_duration,
+        })
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl crate::common::types::ModuleData for BeaconClientUpdateModuleData {}
 
 fn parse_radar_pulse_frequency(
     _ini: &mut INI,
@@ -112,6 +153,17 @@ impl BeaconClientUpdateModule {
             particle_system_id: None,
             last_radar_pulse: TheGameLogic::get_frame(),
         }
+    }
+
+    pub fn from_module_data(
+        module_name_key: NameKeyType,
+        module_data: Arc<dyn ModuleData>,
+        owner_id: ObjectID,
+    ) -> Option<Self> {
+        module_data
+            .get_beacon_client_update_config()
+            .map(BeaconClientUpdateModuleData::from_config)
+            .map(|data| Self::new(module_name_key, Arc::new(data), owner_id))
     }
 
     pub fn hide_beacon(&mut self) {
@@ -377,5 +429,17 @@ mod tests {
         let mut module = BeaconClientUpdateModule::new(11, module_data, 22);
 
         assert!(module.get_client_update_interface().is_some());
+    }
+
+    #[test]
+    fn beacon_client_update_builds_from_erased_module_data() {
+        let mut data = BeaconClientUpdateModuleData::default();
+        data.frames_between_radar_pulses = 90;
+        data.radar_pulse_duration = 12;
+        let module =
+            BeaconClientUpdateModule::from_module_data(11, Arc::new(data), 22).expect("module");
+
+        assert_eq!(module.module_data.frames_between_radar_pulses, 90);
+        assert_eq!(module.module_data.radar_pulse_duration, 12);
     }
 }
