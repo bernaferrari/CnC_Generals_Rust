@@ -375,6 +375,13 @@ pub struct RenderBridgeStats {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MeshUvOverrideStateSummary {
+    pub mesh_name_prefix: String,
+    pub u_offset_bits: u32,
+    pub v_offset_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderObjectStateSummary {
     pub drawable_id: u32,
     pub model_name: String,
@@ -389,6 +396,7 @@ pub struct RenderObjectStateSummary {
     pub snow: bool,
     pub hidden: bool,
     pub mesh_uv_override_count: usize,
+    pub mesh_uv_overrides: Vec<MeshUvOverrideStateSummary>,
     pub bone_override_count: usize,
     pub animation_name: Option<String>,
     pub world_translation_bits: [u32; 3],
@@ -793,6 +801,11 @@ impl RenderObjectStateSummary {
             snow: submission.render_state.apply_snow_map,
             hidden: submission.render_state.hidden,
             mesh_uv_override_count: submission.mesh_uv_overrides.len(),
+            mesh_uv_overrides: submission
+                .mesh_uv_overrides
+                .iter()
+                .map(MeshUvOverrideStateSummary::from_override)
+                .collect(),
             bone_override_count: submission.bone_overrides.len(),
             animation_name: submission.animation_name.clone(),
             world_translation_bits: [
@@ -801,6 +814,16 @@ impl RenderObjectStateSummary {
                 translation.z.to_bits(),
             ],
             bounding_radius_bits: submission.bounding_sphere.radius.to_bits(),
+        }
+    }
+}
+
+impl MeshUvOverrideStateSummary {
+    fn from_override(uv_override: &MeshUvOverride) -> Self {
+        Self {
+            mesh_name_prefix: uv_override.mesh_name_prefix.clone(),
+            u_offset_bits: uv_override.u_offset.to_bits(),
+            v_offset_bits: uv_override.v_offset.to_bits(),
         }
     }
 }
@@ -928,6 +951,11 @@ fn stable_render_fingerprint(
         hash.write_bool(object.snow);
         hash.write_bool(object.hidden);
         hash.write_usize(object.mesh_uv_override_count);
+        for uv_override in &object.mesh_uv_overrides {
+            hash.write_str(&uv_override.mesh_name_prefix);
+            hash.write_u32(uv_override.u_offset_bits);
+            hash.write_u32(uv_override.v_offset_bits);
+        }
         hash.write_usize(object.bone_override_count);
         if let Some(animation_name) = &object.animation_name {
             hash.write_bool(true);
@@ -1309,11 +1337,26 @@ mod tests {
         assert_eq!(summary.projectile_streams.len(), 0);
         assert_eq!(summary.objects[0].drawable_id, 100);
         assert_eq!(summary.objects[0].mesh_uv_override_count, 2);
+        assert_eq!(
+            summary.objects[0].mesh_uv_overrides,
+            vec![
+                MeshUvOverrideStateSummary {
+                    mesh_name_prefix: "TREADSL".to_string(),
+                    u_offset_bits: 0.25_f32.to_bits(),
+                    v_offset_bits: 0.0_f32.to_bits(),
+                },
+                MeshUvOverrideStateSummary {
+                    mesh_name_prefix: "TREADSR".to_string(),
+                    u_offset_bits: 0.25_f32.to_bits(),
+                    v_offset_bits: 0.0_f32.to_bits(),
+                },
+            ]
+        );
         assert!(summary.objects[0].selected);
         assert!(summary.objects[0].night);
         assert_eq!(summary.objects[1].drawable_id, 101);
         assert!(summary.objects[1].snow);
-        assert_eq!(summary.fingerprint, 0x953de240a0ed7a5b);
+        assert_eq!(summary.fingerprint, 0xadbc86b303c293a1);
     }
 
     #[test]
