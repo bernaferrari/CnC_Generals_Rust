@@ -13,7 +13,9 @@ use crate::common::{
 };
 use crate::damage::{DamageInfo, DamageInfoInput};
 use crate::effects::{FXList, ObjectCreationList};
-use crate::helpers::TheThingFactory;
+use crate::helpers::{
+    get_game_logic_random_value, get_game_logic_random_value_real, TheThingFactory,
+};
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::CountermeasuresBehaviorInterface;
 use crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule;
@@ -323,13 +325,10 @@ impl WeaponTemplate {
 
     /// Get delay between shots with bonus and randomization (matches C++)
     pub fn get_delay_between_shots(&self, bonus: &WeaponBonus) -> i32 {
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-
         let delay = if self.min_delay_between_shots == self.max_delay_between_shots {
             self.min_delay_between_shots
         } else {
-            rng.gen_range(self.min_delay_between_shots..=self.max_delay_between_shots)
+            get_game_logic_random_value(self.min_delay_between_shots, self.max_delay_between_shots)
         };
 
         let bonus_rof = bonus.get_field(WeaponBonusField::RateOfFire);
@@ -825,10 +824,9 @@ impl WeaponTemplate {
 
         if scatter_radius > 0.0 {
             // Randomize scatter (C++ lines 979-995)
-            use rand::Rng;
-            let mut rng = rand::thread_rng();
-            let actual_scatter = rng.gen_range(0.0..scatter_radius);
-            let scatter_angle_radian = rng.gen_range(0.0..(2.0 * std::f32::consts::PI));
+            let actual_scatter = get_game_logic_random_value_real(0.0, scatter_radius);
+            let scatter_angle_radian =
+                get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI);
 
             projectile_destination.x += actual_scatter * scatter_angle_radian.cos();
             projectile_destination.y += actual_scatter * scatter_angle_radian.sin();
