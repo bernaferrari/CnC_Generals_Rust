@@ -1002,6 +1002,36 @@ impl AudioLoader {
             .unwrap_or(false)
     }
 
+    /// Update the gain of a playing sound instance.
+    pub fn set_sound_volume(&self, instance_id: u64, volume: f32) -> Result<(), AudioError> {
+        let mut instances = self
+            .active_instances
+            .write()
+            .unwrap_or_else(|e| e.into_inner());
+        let instance = instances
+            .get_mut(&instance_id)
+            .ok_or_else(|| AudioError::EngineError("Sound instance not found".to_string()))?;
+
+        let volume = volume.clamp(0.0, 1.0);
+        instance.volume = volume;
+
+        if let Some(handle) = instance.sound_handle.as_mut() {
+            handle
+                .set_volume(
+                    Volume::Amplitude((volume * self.config.master_volume) as f64),
+                    Tween::default(),
+                )
+                .map_err(|e| {
+                    AudioError::EngineError(format!(
+                        "Failed to update sound instance {} volume: {}",
+                        instance_id, e
+                    ))
+                })?;
+        }
+
+        Ok(())
+    }
+
     /// Update 3D listener position
     pub fn update_listener(&self, position: Vector3<f32>, forward: Vector3<f32>, up: Vector3<f32>) {
         let mut listener = self.listener.write().unwrap_or_else(|e| e.into_inner());
