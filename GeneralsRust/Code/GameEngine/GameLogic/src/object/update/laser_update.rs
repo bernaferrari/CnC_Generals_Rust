@@ -10,7 +10,9 @@ use crate::player::ThePlayerList;
 use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    ClientUpdateInterface, LaserUpdateInterface, Module, ModuleData, NameKeyType,
+};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -176,12 +178,38 @@ impl Module for LaserUpdateModule {
     fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
         Some(self)
     }
+
+    fn get_laser_update_interface(&mut self) -> Option<&mut dyn LaserUpdateInterface> {
+        Some(self)
+    }
 }
 
 impl ClientUpdateInterface for LaserUpdateModule {
     fn client_update(&mut self) -> bool {
         self.update.client_update();
         true
+    }
+}
+
+impl LaserUpdateInterface for LaserUpdateModule {
+    fn is_dirty(&self) -> bool {
+        self.update.is_dirty()
+    }
+
+    fn set_dirty(&mut self, dirty: bool) {
+        self.update.set_dirty(dirty);
+    }
+
+    fn get_start_pos(&self) -> [f32; 3] {
+        self.update.get_start_pos().to_array()
+    }
+
+    fn get_end_pos(&self) -> [f32; 3] {
+        self.update.get_end_pos().to_array()
+    }
+
+    fn get_width_scale(&self) -> f32 {
+        self.update.get_width_scale()
     }
 }
 
@@ -821,5 +849,13 @@ mod tests {
         let mut module = LaserUpdateModule::new(11, module_data, Some(22));
 
         assert!(module.get_client_update_interface().is_some());
+    }
+
+    #[test]
+    fn laser_update_exposes_typed_laser_update_interface() {
+        let module_data = Arc::new(LaserUpdateModuleData::default());
+        let mut module = LaserUpdateModule::new(11, module_data, Some(22));
+
+        assert!(module.get_laser_update_interface().is_some());
     }
 }

@@ -179,6 +179,14 @@ pub trait ClientUpdateInterface {
     }
 }
 
+pub trait LaserUpdateInterface {
+    fn is_dirty(&self) -> bool;
+    fn set_dirty(&mut self, dirty: bool);
+    fn get_start_pos(&self) -> [f32; 3];
+    fn get_end_pos(&self) -> [f32; 3];
+    fn get_width_scale(&self) -> f32;
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -239,6 +247,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
+        None
+    }
+
+    fn get_laser_update_interface(&mut self) -> Option<&mut dyn LaserUpdateInterface> {
         None
     }
 }
