@@ -353,12 +353,7 @@ impl BuildAssistant {
             return None;
         }
 
-        // Fallback mock object when no backend is installed.
-        Some(Object {
-            id: 1, // Mock ID
-            position: *pos,
-            orientation: angle,
-        })
+        None
     }
 
     /// Build a line of objects from start to end
@@ -412,44 +407,7 @@ impl BuildAssistant {
             );
         }
 
-        // Mock implementation - would contain actual validation logic
-
-        // Check basic bounds (simplified)
-        if world_pos.x < -1000.0
-            || world_pos.x > 1000.0
-            || world_pos.y < -1000.0
-            || world_pos.y > 1000.0
-        {
-            return LegalBuildCode::RestrictedTerrain;
-        }
-
-        // Check terrain restrictions
-        if options.contains(LocalLegalToBuildOptions::TERRAIN_RESTRICTIONS) {
-            // Simplified terrain check
-            if self.check_terrain_restrictions(world_pos, build, angle) != LegalBuildCode::Ok {
-                return LegalBuildCode::RestrictedTerrain;
-            }
-        }
-
-        // Check object overlap
-        if options.contains(LocalLegalToBuildOptions::NO_OBJECT_OVERLAP) {
-            // Simplified object check
-            // In real implementation, this would check for overlapping objects
-        }
-
-        LegalBuildCode::Ok
-    }
-
-    /// Check terrain restrictions for building
-    fn check_terrain_restrictions(
-        &self,
-        _world_pos: &Coord3D,
-        _build: &ThingTemplate,
-        _angle: f32,
-    ) -> LegalBuildCode {
-        // Mock implementation
-        // Real implementation would sample the footprint and check terrain
-        LegalBuildCode::Ok
+        LegalBuildCode::GenericFailure
     }
 
     /// Iterate over the footprint of a building
@@ -581,8 +539,7 @@ impl BuildAssistant {
         _builder: &Object,
         _what_to_build: &ThingTemplate,
     ) -> bool {
-        // Mock implementation - would check prerequisites, command sets, etc.
-        true
+        false
     }
 
     /// Check if a unit can be made (including money check)
@@ -591,8 +548,6 @@ impl BuildAssistant {
             return CanMakeType::NoPrereq;
         }
 
-        // Mock money check
-        // In real implementation, would check player money vs. cost
         CanMakeType::Ok
     }
 
