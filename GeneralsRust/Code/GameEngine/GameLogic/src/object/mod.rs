@@ -1323,6 +1323,18 @@ impl ExitInterface for ExitInterfaceProxy {
         Ok(())
     }
 
+    fn exit_object_in_a_hurry(
+        &mut self,
+        obj: &Arc<RwLock<crate::object::Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Ok(mut guard) = self.behavior.lock() {
+            if let Some(exit_interface) = guard.get_update_exit_interface() {
+                return exit_interface.exit_object_in_a_hurry(obj);
+            }
+        }
+        Ok(())
+    }
+
     fn exit_object_by_budding(
         &mut self,
         obj: &Arc<RwLock<crate::object::Object>>,
@@ -1388,6 +1400,16 @@ impl ExitInterface for ContainExitInterfaceProxy {
             .map_err(|_| "failed to lock contain exit interface".into())
             .and_then(|mut guard| guard.exit_object_via_door(obj, door))
     }
+
+    fn exit_object_in_a_hurry(
+        &mut self,
+        obj: &Arc<RwLock<crate::object::Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.contain
+            .lock()
+            .map_err(|_| "failed to lock contain exit interface".into())
+            .and_then(|mut guard| guard.exit_object_in_a_hurry(obj))
+    }
 }
 
 impl ExitInterface for ModuleExitInterfaceProxy {
@@ -1429,6 +1451,14 @@ impl ExitInterface for ModuleExitInterfaceProxy {
         door: crate::modules::ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.with_exit_behavior(|module| module.exit_object_via_door(obj, door))
+            .unwrap_or(Ok(()))
+    }
+
+    fn exit_object_in_a_hurry(
+        &mut self,
+        obj: &Arc<RwLock<crate::object::Object>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.with_exit_behavior(|module| module.exit_object_in_a_hurry(obj))
             .unwrap_or(Ok(()))
     }
 
