@@ -27,6 +27,12 @@ pub struct ScriptEffectRequest {
 }
 
 #[derive(Debug, Clone)]
+pub struct RadarScriptEventRequest {
+    pub position: Vec3,
+    pub event_type: i32,
+}
+
+#[derive(Debug, Clone)]
 pub struct MilitaryCaptionRequest {
     pub text: String,
     pub duration_ms: i32,
@@ -1008,6 +1014,7 @@ pub struct MissionScriptHooks {
     radar_movie_requests: Mutex<Vec<String>>,
     objective_updates: Mutex<Vec<ObjectiveUpdate>>,
     effect_requests: Mutex<Vec<ScriptEffectRequest>>,
+    radar_event_requests: Mutex<Vec<RadarScriptEventRequest>>,
     radar_enabled_updates: Mutex<Vec<bool>>,
     radar_forced_updates: Mutex<Vec<bool>>,
     weather_visibility_updates: Mutex<Vec<bool>>,
@@ -1076,6 +1083,7 @@ impl MissionScriptHooks {
             radar_movie_requests: Mutex::new(Vec::new()),
             objective_updates: Mutex::new(Vec::new()),
             effect_requests: Mutex::new(Vec::new()),
+            radar_event_requests: Mutex::new(Vec::new()),
             radar_enabled_updates: Mutex::new(Vec::new()),
             radar_forced_updates: Mutex::new(Vec::new()),
             weather_visibility_updates: Mutex::new(Vec::new()),
@@ -1431,6 +1439,12 @@ impl MissionScriptHooks {
 
     pub fn push_effect_request(&self, request: ScriptEffectRequest) {
         if let Ok(mut queue) = self.effect_requests.lock() {
+            queue.push(request);
+        }
+    }
+
+    pub fn push_radar_event_request(&self, request: RadarScriptEventRequest) {
+        if let Ok(mut queue) = self.radar_event_requests.lock() {
             queue.push(request);
         }
     }
@@ -1892,6 +1906,13 @@ impl MissionScriptHooks {
 
     pub fn drain_effect_requests(&self) -> Vec<ScriptEffectRequest> {
         self.effect_requests
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn drain_radar_event_requests(&self) -> Vec<RadarScriptEventRequest> {
+        self.radar_event_requests
             .lock()
             .map(|mut q| q.drain(..).collect())
             .unwrap_or_default()
@@ -2649,6 +2670,15 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         Ok(())
     }
 
+    fn create_radar_event(&self, x: f32, y: f32, z: f32, event_type: i32) -> GameLogicResult<()> {
+        self.hooks
+            .push_radar_event_request(RadarScriptEventRequest {
+                position: Vec3::new(x, y, z),
+                event_type,
+            });
+        Ok(())
+    }
+
     fn set_weather_visible(&self, visible: bool) -> GameLogicResult<()> {
         self.hooks.push_weather_visible(visible);
         Ok(())
@@ -2856,6 +2886,21 @@ mod tests {
 
         assert_eq!(hooks.drain_radar_forced_updates(), vec![true, false]);
         assert!(hooks.drain_radar_forced_updates().is_empty());
+    }
+
+    #[test]
+    fn handler_forwards_radar_event_requests() {
+        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let handler = MissionScriptActionHandler::new(hooks.clone());
+
+        handler
+            .create_radar_event(10.0, 20.0, 5.0, 3)
+            .expect("radar event request should succeed");
+
+        let requests = hooks.drain_radar_event_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].position, Vec3::new(10.0, 20.0, 5.0));
+        assert_eq!(requests[0].event_type, 3);
     }
 
     #[test]

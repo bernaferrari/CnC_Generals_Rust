@@ -29,6 +29,7 @@ use crate::team::get_team_factory;
 use crate::terrain::get_terrain_logic;
 use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::radar::{get_radar_system, RadarEventType};
 
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -148,6 +149,9 @@ impl ActionRegistry {
         self.register_action(Box::new(MoviePlayAction));
         self.register_action(Box::new(TextDisplayAction));
         self.register_action(Box::new(SpeechPlayAction));
+        self.register_action(Box::new(RadarCreateEventAction));
+        self.register_action(Box::new(ObjectCreateRadarEventAction));
+        self.register_action(Box::new(TeamCreateRadarEventAction));
         self.register_action(Box::new(RadarEnableAction));
         self.register_action(Box::new(RadarDisableAction));
         self.register_action(Box::new(RadarForceEnableAction));
@@ -1653,6 +1657,50 @@ pub fn get_float_param(
             name
         ))),
     }
+}
+
+fn get_coord_param_optional(
+    parameters: &HashMap<String, ScriptValue>,
+    name: &str,
+) -> Option<Coord3D> {
+    match parameters.get(name) {
+        Some(ScriptValue::Coord3D([x, y, z])) => Some(Coord3D::new(*x, *y, *z)),
+        _ => None,
+    }
+}
+
+fn radar_event_type_from_int(event_type: i32) -> RadarEventType {
+    match event_type {
+        1 => RadarEventType::Construction,
+        2 => RadarEventType::Upgrade,
+        3 => RadarEventType::UnderAttack,
+        4 => RadarEventType::Information,
+        5 => RadarEventType::BeaconPulse,
+        6 => RadarEventType::Infiltration,
+        7 => RadarEventType::BattlePlan,
+        8 => RadarEventType::StealthDiscovered,
+        9 => RadarEventType::StealthNeutralized,
+        10 => RadarEventType::Fake,
+        _ => RadarEventType::Invalid,
+    }
+}
+
+fn create_radar_event_for_position(position: Coord3D, event_type: i32) -> GameLogicResult<()> {
+    if let Ok(mut radar) = get_radar_system().write() {
+        let radar_pos =
+            game_engine::common::system::radar::Coord3D::new(position.x, position.y, position.z);
+        radar.create_event(&radar_pos, radar_event_type_from_int(event_type), 4.0);
+    }
+
+    if let Ok(engine_guard) = get_script_engine().read() {
+        if let Some(ref script_engine) = *engine_guard {
+            if let Some(handler) = script_engine.action_handler() {
+                handler.create_radar_event(position.x, position.y, position.z, event_type)?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn resolve_player_name_token(raw: &str) -> String {
@@ -5553,6 +5601,145 @@ impl ScriptAction for SpeechPlayAction {
 
     fn required_parameters(&self) -> Vec<String> {
         vec!["speech_name".to_string()]
+    }
+
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+}
+
+/// Create a radar event at an explicit world position.
+struct RadarCreateEventAction;
+
+#[async_trait]
+impl ScriptAction for RadarCreateEventAction {
+    async fn execute(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<ScriptResult> {
+        let position = get_coord_param_optional(parameters, "position").unwrap_or_else(|| {
+            let x = get_float_param_optional(parameters, "x").unwrap_or(0.0) as f32;
+            let y = get_float_param_optional(parameters, "y").unwrap_or(0.0) as f32;
+            let z = get_float_param_optional(parameters, "z").unwrap_or(0.0) as f32;
+            Coord3D::new(x, y, z)
+        });
+        let event_type = get_int_param(parameters, "event_type")? as i32;
+
+        create_radar_event_for_position(position, event_type)?;
+
+        Ok(ScriptResult::Success(None))
+    }
+
+    fn name(&self) -> &str {
+        "radar_create_event"
+    }
+
+    fn description(&self) -> &str {
+        "Creates a radar event at a world position"
+    }
+
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["event_type".to_string()]
+    }
+
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![
+            "position".to_string(),
+            "x".to_string(),
+            "y".to_string(),
+            "z".to_string(),
+        ]
+    }
+}
+
+/// Create a radar event at a named object's current position.
+struct ObjectCreateRadarEventAction;
+
+#[async_trait]
+impl ScriptAction for ObjectCreateRadarEventAction {
+    async fn execute(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<ScriptResult> {
+        let object_name = get_string_param(parameters, "object_name")
+            .or_else(|_| get_string_param(parameters, "unit_name"))?;
+        let event_type = get_int_param(parameters, "event_type")? as i32;
+
+        let Some(object_id) = resolve_named_object_id(&object_name) else {
+            return Ok(ScriptResult::Success(None));
+        };
+        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+            return Ok(ScriptResult::Success(None));
+        };
+        let Some(position) = object_arc.read().ok().map(|object| *object.get_position()) else {
+            return Ok(ScriptResult::Success(None));
+        };
+
+        create_radar_event_for_position(position, event_type)?;
+
+        Ok(ScriptResult::Success(None))
+    }
+
+    fn name(&self) -> &str {
+        "object_create_radar_event"
+    }
+
+    fn description(&self) -> &str {
+        "Creates a radar event at a named object's position"
+    }
+
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["object_name".to_string(), "event_type".to_string()]
+    }
+
+    fn optional_parameters(&self) -> Vec<String> {
+        vec!["unit_name".to_string()]
+    }
+}
+
+/// Create a radar event at a team's estimated position.
+struct TeamCreateRadarEventAction;
+
+#[async_trait]
+impl ScriptAction for TeamCreateRadarEventAction {
+    async fn execute(
+        &self,
+        parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<ScriptResult> {
+        let team_name = resolve_team_name_token(&get_string_param(parameters, "team_name")?);
+        let event_type = get_int_param(parameters, "event_type")? as i32;
+
+        let Some(position) = get_team_factory()
+            .lock()
+            .ok()
+            .and_then(|mut factory| factory.find_team(&team_name))
+            .and_then(|team| {
+                team.read()
+                    .ok()
+                    .and_then(|team| team.get_estimate_team_position())
+            })
+        else {
+            return Ok(ScriptResult::Success(None));
+        };
+
+        create_radar_event_for_position(position, event_type)?;
+
+        Ok(ScriptResult::Success(None))
+    }
+
+    fn name(&self) -> &str {
+        "team_create_radar_event"
+    }
+
+    fn description(&self) -> &str {
+        "Creates a radar event at a team's estimated position"
+    }
+
+    fn required_parameters(&self) -> Vec<String> {
+        vec!["team_name".to_string(), "event_type".to_string()]
     }
 
     fn optional_parameters(&self) -> Vec<String> {

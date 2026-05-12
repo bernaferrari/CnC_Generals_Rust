@@ -5360,6 +5360,20 @@ impl ScriptActionDispatcher {
                     let radar_pos = to_radar_coord(&pos);
                     radar.create_event(&radar_pos, radar_event, 4.0);
                 }
+                if let Ok(engine_guard) = get_script_engine().read() {
+                    if let Some(ref script_engine) = *engine_guard {
+                        if let Some(handler) = script_engine.action_handler() {
+                            if let Err(err) =
+                                handler.create_radar_event(pos.x, pos.y, pos.z, event_type)
+                            {
+                                log::warn!(
+                                    "Script action handler create_radar_event failed: {}",
+                                    err
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
         Ok(ScriptActionResult::Success)
@@ -10942,6 +10956,17 @@ impl ScriptActionDispatcher {
             let radar_pos = to_radar_coord(&position);
             radar.create_event(&radar_pos, radar_event, 4.0);
         }
+        if let Ok(engine_guard) = get_script_engine().read() {
+            if let Some(ref script_engine) = *engine_guard {
+                if let Some(handler) = script_engine.action_handler() {
+                    if let Err(err) =
+                        handler.create_radar_event(position.x, position.y, position.z, event_type)
+                    {
+                        log::warn!("Script action handler create_radar_event failed: {}", err);
+                    }
+                }
+            }
+        }
         Ok(ScriptActionResult::Success)
     }
 
@@ -11239,6 +11264,20 @@ impl ScriptActionDispatcher {
                     if let Ok(mut radar) = get_radar_system().write() {
                         let radar_pos = to_radar_coord(&pos);
                         radar.create_event(&radar_pos, radar_event, 4.0);
+                    }
+                    if let Ok(engine_guard) = get_script_engine().read() {
+                        if let Some(ref script_engine) = *engine_guard {
+                            if let Some(handler) = script_engine.action_handler() {
+                                if let Err(err) =
+                                    handler.create_radar_event(pos.x, pos.y, pos.z, event_type)
+                                {
+                                    log::warn!(
+                                        "Script action handler create_radar_event failed: {}",
+                                        err
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }
