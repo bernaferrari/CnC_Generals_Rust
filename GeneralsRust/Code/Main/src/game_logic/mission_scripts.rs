@@ -1009,6 +1009,7 @@ pub struct MissionScriptHooks {
     objective_updates: Mutex<Vec<ObjectiveUpdate>>,
     effect_requests: Mutex<Vec<ScriptEffectRequest>>,
     radar_enabled_updates: Mutex<Vec<bool>>,
+    radar_forced_updates: Mutex<Vec<bool>>,
     weather_visibility_updates: Mutex<Vec<bool>>,
     music_stop_requests: Mutex<Vec<()>>,
     oversize_terrain_requests: Mutex<Vec<i32>>,
@@ -1076,6 +1077,7 @@ impl MissionScriptHooks {
             objective_updates: Mutex::new(Vec::new()),
             effect_requests: Mutex::new(Vec::new()),
             radar_enabled_updates: Mutex::new(Vec::new()),
+            radar_forced_updates: Mutex::new(Vec::new()),
             weather_visibility_updates: Mutex::new(Vec::new()),
             music_stop_requests: Mutex::new(Vec::new()),
             oversize_terrain_requests: Mutex::new(Vec::new()),
@@ -1436,6 +1438,12 @@ impl MissionScriptHooks {
     pub fn push_radar_enabled(&self, enabled: bool) {
         if let Ok(mut queue) = self.radar_enabled_updates.lock() {
             queue.push(enabled);
+        }
+    }
+
+    pub fn push_radar_forced(&self, forced: bool) {
+        if let Ok(mut queue) = self.radar_forced_updates.lock() {
+            queue.push(forced);
         }
     }
 
@@ -1891,6 +1899,13 @@ impl MissionScriptHooks {
 
     pub fn drain_radar_enabled_updates(&self) -> Vec<bool> {
         self.radar_enabled_updates
+            .lock()
+            .map(|mut q| q.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn drain_radar_forced_updates(&self) -> Vec<bool> {
+        self.radar_forced_updates
             .lock()
             .map(|mut q| q.drain(..).collect())
             .unwrap_or_default()
@@ -2629,6 +2644,11 @@ impl ScriptActionHandler for MissionScriptActionHandler {
         Ok(())
     }
 
+    fn set_radar_forced(&self, forced: bool) -> GameLogicResult<()> {
+        self.hooks.push_radar_forced(forced);
+        Ok(())
+    }
+
     fn set_weather_visible(&self, visible: bool) -> GameLogicResult<()> {
         self.hooks.push_weather_visible(visible);
         Ok(())
@@ -2820,6 +2840,22 @@ mod tests {
         assert_eq!(captions.len(), 1);
         assert_eq!(captions[0].text, "SCRIPT:Briefing");
         assert_eq!(captions[0].duration_ms, 2500);
+    }
+
+    #[test]
+    fn handler_forwards_radar_force_updates() {
+        let hooks = MissionScriptHooks::new().expect("mission script hooks should initialize");
+        let handler = MissionScriptActionHandler::new(hooks.clone());
+
+        handler
+            .set_radar_forced(true)
+            .expect("radar force request should succeed");
+        handler
+            .set_radar_forced(false)
+            .expect("radar revert request should succeed");
+
+        assert_eq!(hooks.drain_radar_forced_updates(), vec![true, false]);
+        assert!(hooks.drain_radar_forced_updates().is_empty());
     }
 
     #[test]

@@ -150,6 +150,8 @@ impl ActionRegistry {
         self.register_action(Box::new(SpeechPlayAction));
         self.register_action(Box::new(RadarEnableAction));
         self.register_action(Box::new(RadarDisableAction));
+        self.register_action(Box::new(RadarForceEnableAction));
+        self.register_action(Box::new(RadarRevertToNormalAction));
 
         // Original camera and UI actions
         self.register_action(Box::new(MoveCameraAction));
@@ -5653,6 +5655,96 @@ impl ScriptAction for RadarDisableAction {
 
     fn description(&self) -> &str {
         "Disables the radar display"
+    }
+
+    fn required_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+}
+
+/// Force radar on regardless of the player's current radar producers.
+struct RadarForceEnableAction;
+
+#[async_trait]
+impl ScriptAction for RadarForceEnableAction {
+    async fn execute(
+        &self,
+        _parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<ScriptResult> {
+        log::info!("Force enabling radar");
+
+        if let Ok(engine_guard) = get_script_engine().read() {
+            if let Some(ref script_engine) = *engine_guard {
+                if let Some(handler) = script_engine.action_handler() {
+                    if let Err(err) = handler.set_radar_forced(true) {
+                        log::warn!(
+                            "Script action handler set_radar_forced(true) failed: {}",
+                            err
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(ScriptResult::Success(None))
+    }
+
+    fn name(&self) -> &str {
+        "radar_force_enable"
+    }
+
+    fn description(&self) -> &str {
+        "Forces the radar display on"
+    }
+
+    fn required_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+
+    fn optional_parameters(&self) -> Vec<String> {
+        vec![]
+    }
+}
+
+/// Return radar visibility to normal player/radar-producer rules.
+struct RadarRevertToNormalAction;
+
+#[async_trait]
+impl ScriptAction for RadarRevertToNormalAction {
+    async fn execute(
+        &self,
+        _parameters: &HashMap<String, ScriptValue>,
+        _context: &ScriptContext,
+    ) -> GameLogicResult<ScriptResult> {
+        log::info!("Reverting radar to normal");
+
+        if let Ok(engine_guard) = get_script_engine().read() {
+            if let Some(ref script_engine) = *engine_guard {
+                if let Some(handler) = script_engine.action_handler() {
+                    if let Err(err) = handler.set_radar_forced(false) {
+                        log::warn!(
+                            "Script action handler set_radar_forced(false) failed: {}",
+                            err
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(ScriptResult::Success(None))
+    }
+
+    fn name(&self) -> &str {
+        "radar_revert_to_normal"
+    }
+
+    fn description(&self) -> &str {
+        "Restores normal radar visibility rules"
     }
 
     fn required_parameters(&self) -> Vec<String> {
