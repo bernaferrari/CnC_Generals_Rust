@@ -450,10 +450,7 @@ impl MissileAIUpdate {
 
         // Handle countermeasure diversion
         if self.frames_till_decoyed > 0 && self.frames_till_decoyed <= current_frame {
-            self.frames_till_decoyed = 0;
-            self.no_damage = true;
-            // Would retarget to countermeasure
-            // Matches C++ lines 640-660
+            self.handle_countermeasure_diversion();
         }
 
         // Check if missile fell through world
@@ -485,6 +482,53 @@ impl MissileAIUpdate {
         // Would check layer transitions for bridge hits
 
         Ok(())
+    }
+
+    fn handle_countermeasure_diversion(&mut self) {
+        self.frames_till_decoyed = 0;
+        self.no_damage = true;
+
+        let Some(victim_arc) = TheGameLogic::find_object_by_id(self.victim_id) else {
+            return;
+        };
+        let Some(missile_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return;
+        };
+
+        let target_id = {
+            let Ok(missile_guard) = missile_arc.read() else {
+                return;
+            };
+            let Ok(victim_guard) = victim_arc.read() else {
+                return;
+            };
+            missile_guard.calculate_countermeasure_to_divert_to(&victim_guard)
+        };
+        if target_id == INVALID_ID {
+            return;
+        }
+
+        let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) else {
+            return;
+        };
+        let Ok(target_guard) = target_arc.read() else {
+            return;
+        };
+        let target_pos = *target_guard.get_position();
+        let target_id = target_guard.get_id();
+        drop(target_guard);
+
+        let ai = missile_arc
+            .read()
+            .ok()
+            .and_then(|missile_guard| missile_guard.get_ai_update_interface());
+        if let Some(ai) = ai {
+            ai.ai_move_to_object(target_id, CMD_FROM_AI);
+        }
+
+        self.original_target_pos = target_pos;
+        self.is_tracking_target = true;
+        self.victim_id = target_id;
     }
 
     /// Pre-launch state: disable movement
