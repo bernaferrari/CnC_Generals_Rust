@@ -1,6 +1,7 @@
 use super::draw_module::*;
 use super::w3d_truck_draw::*;
 use crate::common::*;
+use crate::helpers::{TheGameLogic, TheParticleSystemManager};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
@@ -209,6 +210,13 @@ impl Snapshotable for W3DTankTruckDrawModuleData {
 pub struct W3DTankTruckDraw {
     data: W3DTankTruckDrawModuleData,
     base: W3DTruckDraw,
+    tread_uv_offsets: Vec<Real>,
+    last_direction: Coord3D,
+    tread_debris_left: Option<u32>,
+    tread_debris_right: Option<u32>,
+    tread_debris_active: bool,
+    current_velocity: Real,
+    max_velocity: Real,
 }
 
 impl W3DTankTruckDraw {
@@ -216,10 +224,158 @@ impl W3DTankTruckDraw {
         Self {
             base: W3DTruckDraw::new(data.base.clone()),
             data,
+            tread_uv_offsets: Vec::new(),
+            last_direction: Coord3D::new(1.0, 0.0, 0.0),
+            tread_debris_left: None,
+            tread_debris_right: None,
+            tread_debris_active: false,
+            current_velocity: 0.0,
+            max_velocity: 1.0,
         }
     }
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.base.bind_owner_id(owner_id);
+    }
+
+    fn update_tread_objects(&mut self) {
+        self.tread_uv_offsets.clear();
+        // C++ only caches real RenderObj sub-objects named TREADS* whose materials
+        // use LinearOffsetTextureMapper. Until the WGPU/W3D bridge exposes those
+        // sub-objects, keep this empty instead of inventing visual treads.
+    }
+
+    fn update_tread_animation(
+        &mut self,
+        velocity: Real,
+        max_velocity: Real,
+        is_motive: bool,
+        direction: &Coord3D,
+    ) {
+        if self.tread_uv_offsets.is_empty() || self.data.tread_animation_rate == 0.0 {
+            self.last_direction = *direction;
+            return;
+        }
+
+        let speed_fraction = if max_velocity > 0.0 {
+            velocity / max_velocity
+        } else {
+            0.0
+        };
+
+        // C++ W3DTankTruckDraw deliberately disables pivot differential scrolling:
+        // wheel+tread vehicles only scroll treads while driving above the threshold.
+        if is_motive && speed_fraction >= self.data.tread_drive_speed_fraction {
+            let tread_scroll_speed = self.data.tread_animation_rate;
+            for uv_offset in &mut self.tread_uv_offsets {
+                let offset = *uv_offset - tread_scroll_speed;
+                *uv_offset = offset - offset.floor();
+            }
+        }
+
+        self.last_direction = *direction;
+    }
+
+    fn create_tread_emitters(&mut self) {
+        if !self.base.is_visible() {
+            return;
+        }
+        let Some(ps_manager) = TheParticleSystemManager::get() else {
+            return;
+        };
+        let owner_id = self.base.owner_id();
+
+        if self.tread_debris_left.is_none() && !self.data.tread_debris_name_left.is_empty() {
+            if let Some(id) =
+                ps_manager.create_particle_system(Some(self.data.tread_debris_name_left.as_str()))
+            {
+                if let Some(owner_id) = owner_id {
+                    ps_manager.attach_particle_system_to_drawable(id, owner_id);
+                }
+                ps_manager.stop_particle_system(id);
+                self.tread_debris_left = Some(id);
+            }
+        }
+
+        if self.tread_debris_right.is_none() && !self.data.tread_debris_name_right.is_empty() {
+            if let Some(id) =
+                ps_manager.create_particle_system(Some(self.data.tread_debris_name_right.as_str()))
+            {
+                if let Some(owner_id) = owner_id {
+                    ps_manager.attach_particle_system_to_drawable(id, owner_id);
+                }
+                ps_manager.stop_particle_system(id);
+                self.tread_debris_right = Some(id);
+            }
+        }
+    }
+
+    fn toss_tread_emitters(&mut self) {
+        if let Some(ps_manager) = TheParticleSystemManager::get() {
+            for id in [self.tread_debris_left, self.tread_debris_right]
+                .into_iter()
+                .flatten()
+            {
+                ps_manager.destroy_particle_system(id);
+            }
+        }
+        self.tread_debris_left = None;
+        self.tread_debris_right = None;
+        self.tread_debris_active = false;
+    }
+
+    fn start_move_debris(&mut self) {
+        if self.tread_debris_active || !self.base.is_visible() {
+            return;
+        }
+        self.tread_debris_active = true;
+        if let Some(ps_manager) = TheParticleSystemManager::get() {
+            if let Some(id) = self.tread_debris_left {
+                ps_manager.start_particle_system(id);
+            }
+            if let Some(id) = self.tread_debris_right {
+                ps_manager.start_particle_system(id);
+            }
+        }
+    }
+
+    fn stop_move_debris(&mut self) {
+        if !self.tread_debris_active {
+            return;
+        }
+        self.tread_debris_active = false;
+        if let Some(ps_manager) = TheParticleSystemManager::get() {
+            if let Some(id) = self.tread_debris_left {
+                ps_manager.stop_particle_system(id);
+            }
+            if let Some(id) = self.tread_debris_right {
+                ps_manager.stop_particle_system(id);
+            }
+        }
+    }
+
+    fn update_tread_debris(&mut self) {
+        const DEBRIS_THRESHOLD: Real = 0.00001;
+        let velocity_mag_sq = self.current_velocity * self.current_velocity;
+        if velocity_mag_sq > DEBRIS_THRESHOLD && self.base.is_visible() {
+            self.start_move_debris();
+        } else {
+            self.stop_move_debris();
+        }
+
+        let Some(ps_manager) = TheParticleSystemManager::get() else {
+            return;
+        };
+        let vel_mag = self.current_velocity;
+        let x = (0.5 * vel_mag + 0.1).min(1.0);
+        let z = (vel_mag + 0.1).min(1.0);
+        let vel_mult = Coord3D::new(x, x, z);
+        for id in [self.tread_debris_left, self.tread_debris_right]
+            .into_iter()
+            .flatten()
+        {
+            ps_manager.set_particle_system_velocity_multiplier(id, &vel_mult);
+            ps_manager.set_particle_system_burst_count_multiplier(id, z);
+        }
     }
 }
 
@@ -229,11 +385,14 @@ impl Module for W3DTankTruckDraw {
     }
     fn on_drawable_bound_to_object(&mut self) {
         self.base.on_drawable_bound_to_object();
+        self.create_tread_emitters();
+        self.update_tread_objects();
     }
     fn preload_assets(&mut self, time_of_day: TimeOfDay) {
         self.base.preload_assets(time_of_day);
     }
     fn on_delete(&mut self) {
+        self.toss_tread_emitters();
         self.base.on_delete();
     }
     fn get_module_name_key(&self) -> NameKeyType {
@@ -250,6 +409,45 @@ impl Module for W3DTankTruckDraw {
 impl DrawModule for W3DTankTruckDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         self.base.do_draw_module(transform_mtx);
+
+        let mut direction = Coord3D::new(transform_mtx.x_axis.x, transform_mtx.x_axis.y, 0.0);
+        let mut is_motive = false;
+        if let Some(owner_id) = self.base.owner_id() {
+            if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
+                if let Ok(owner_guard) = owner.read() {
+                    let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
+                    if dir_x != 0.0 || dir_y != 0.0 {
+                        direction = Coord3D::new(dir_x, dir_y, 0.0);
+                    }
+                    if let Some(physics) = owner_guard.get_physics() {
+                        if let Ok(physics_guard) = physics.lock() {
+                            let velocity = physics_guard.get_velocity();
+                            self.current_velocity =
+                                (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
+                            is_motive = self.current_velocity > 0.0;
+                        }
+                    }
+                    if let Some(ai) = owner_guard.get_ai_update_interface() {
+                        if let Ok(ai_guard) = ai.lock() {
+                            let locomotor_speed = ai_guard.get_cur_locomotor_speed();
+                            if locomotor_speed > 0.0 {
+                                self.max_velocity = locomotor_speed;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if self.max_velocity <= 0.0 {
+            self.max_velocity = 1.0;
+        }
+        self.update_tread_animation(
+            self.current_velocity,
+            self.max_velocity,
+            is_motive,
+            &direction,
+        );
+        self.update_tread_debris();
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
         self.base.set_shadows_enabled(enable);
@@ -261,10 +459,21 @@ impl DrawModule for W3DTankTruckDraw {
         self.base.allocate_shadows();
     }
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
+        if fully_obscured {
+            self.stop_move_debris();
+        } else {
+            self.create_tread_emitters();
+        }
         self.base.set_fully_obscured_by_shroud(fully_obscured);
     }
     fn set_hidden(&mut self, hidden: bool) {
         DrawModule::set_hidden(&mut self.base, hidden);
+        if hidden {
+            self.stop_move_debris();
+            self.toss_tread_emitters();
+        } else {
+            self.create_tread_emitters();
+        }
     }
     fn is_visible(&self) -> bool {
         self.base.is_visible()
@@ -278,7 +487,10 @@ impl DrawModule for W3DTankTruckDraw {
         self.base
             .react_to_transform_change(old_mtx, old_pos, old_angle);
     }
-    fn react_to_geometry_change(&mut self) {}
+    fn react_to_geometry_change(&mut self) {
+        self.base.react_to_geometry_change();
+        self.update_tread_objects();
+    }
     fn get_object_draw_interface(&self) -> Option<&dyn ObjectDrawInterface> {
         self.base.get_object_draw_interface()
     }
@@ -299,6 +511,69 @@ impl Snapshotable for W3DTankTruckDraw {
         self.base.xfer(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.base.load_post_process()
+        self.base.load_post_process()?;
+        self.toss_tread_emitters();
+        self.update_tread_objects();
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn update_tread_objects_does_not_fabricate_tanktruck_treads() {
+        let mut draw = W3DTankTruckDraw::new(W3DTankTruckDrawModuleData {
+            tread_animation_rate: 1.0,
+            ..W3DTankTruckDrawModuleData::default()
+        });
+        draw.tread_uv_offsets.push(0.0);
+
+        draw.update_tread_objects();
+
+        assert!(draw.tread_uv_offsets.is_empty());
+    }
+
+    #[test]
+    fn tanktruck_treads_scroll_only_when_driving_above_threshold() {
+        let mut draw = W3DTankTruckDraw::new(W3DTankTruckDrawModuleData {
+            tread_animation_rate: 0.25,
+            tread_drive_speed_fraction: 0.3,
+            ..W3DTankTruckDrawModuleData::default()
+        });
+        draw.tread_uv_offsets.push(0.0);
+        let direction = Coord3D::new(1.0, 0.0, 0.0);
+
+        draw.update_tread_animation(2.0, 10.0, true, &direction);
+        assert_eq!(draw.tread_uv_offsets[0], 0.0);
+
+        draw.update_tread_animation(4.0, 10.0, true, &direction);
+        assert_eq!(draw.tread_uv_offsets[0], 0.75);
+    }
+
+    #[test]
+    fn tanktruck_treads_use_uniform_drive_scroll() {
+        let mut draw = W3DTankTruckDraw::new(W3DTankTruckDrawModuleData {
+            tread_animation_rate: 0.25,
+            tread_drive_speed_fraction: 0.0,
+            ..W3DTankTruckDrawModuleData::default()
+        });
+        draw.tread_uv_offsets.extend([0.0, 0.5, 0.9]);
+        let direction = Coord3D::new(1.0, 0.0, 0.0);
+
+        draw.update_tread_animation(1.0, 10.0, true, &direction);
+
+        assert_eq!(draw.tread_uv_offsets, vec![0.75, 0.25, 0.65]);
+    }
+
+    #[test]
+    fn stop_move_debris_clears_active_flag_without_particle_manager() {
+        let mut draw = W3DTankTruckDraw::new(W3DTankTruckDrawModuleData::default());
+        draw.tread_debris_active = true;
+
+        draw.stop_move_debris();
+
+        assert!(!draw.tread_debris_active);
     }
 }
