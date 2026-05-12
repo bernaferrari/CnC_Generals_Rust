@@ -3465,6 +3465,7 @@ impl InGameUI {
         self.expire_hints();
         self.update_floating_texts();
         self.update_superweapon_timers(frame);
+        self.update_military_subtitle();
         self.update_and_draw_world_animations();
     }
 
@@ -3834,6 +3835,91 @@ impl InGameUI {
                 self.current_military_subtitle = None;
             }
         }
+    }
+
+    fn update_military_subtitle(&mut self) {
+        let speed_frames = self.military_caption_speed_frames();
+        let point_size = self.military_caption_point_size;
+        let char_width = self.caption_char_width();
+        let delay_frames = Self::military_caption_delay_frames();
+        Self::update_military_subtitle_state(
+            &mut self.current_military_subtitle,
+            self.current_frame,
+            speed_frames,
+            point_size,
+            char_width,
+            delay_frames,
+        );
+    }
+
+    fn update_military_subtitle_state(
+        current_subtitle: &mut Option<MilitarySubtitle>,
+        current_frame: u32,
+        speed_frames: u32,
+        point_size: i32,
+        char_width: f32,
+        delay_frames: u32,
+    ) {
+        let Some(subtitle) = current_subtitle.as_mut() else {
+            return;
+        };
+
+        if subtitle.lifetime_frame < current_frame {
+            let alpha = (subtitle.color >> 24) as i32;
+            let fade_amount = ((current_frame - subtitle.lifetime_frame) as f32 * 0.1) as i32;
+            if alpha - fade_amount < 0 {
+                *current_subtitle = None;
+            } else {
+                let new_alpha = (alpha - fade_amount) as u32;
+                subtitle.color = (subtitle.color & 0x00FF_FFFF) | (new_alpha << 24);
+            }
+            return;
+        }
+
+        if subtitle.block_begin_frame + 9 < current_frame {
+            subtitle.block_begin_frame = current_frame;
+            subtitle.block_drawn = !subtitle.block_drawn;
+        }
+
+        if subtitle.increment_on_frame >= current_frame {
+            return;
+        }
+
+        let Some(ch) = subtitle.text.chars().nth(subtitle.index) else {
+            subtitle.increment_on_frame = subtitle.lifetime_frame + 1;
+            return;
+        };
+
+        if ch == '\n' {
+            subtitle.block_pos.0 = subtitle.position.0;
+            subtitle.block_pos.1 += point_size.max(1) as f32;
+            subtitle.block_drawn = true;
+            subtitle.increment_on_frame = current_frame + delay_frames;
+        } else {
+            let printed_chars_on_line = subtitle
+                .text
+                .chars()
+                .take(subtitle.index + 1)
+                .fold(0usize, |count, c| if c == '\n' { 0 } else { count + 1 });
+            subtitle.block_pos.0 =
+                subtitle.position.0 + (printed_chars_on_line as f32 * char_width);
+            subtitle.increment_on_frame = current_frame + speed_frames;
+        }
+
+        subtitle.index += 1;
+        if subtitle.index >= subtitle.text.chars().count() {
+            subtitle.increment_on_frame = subtitle.lifetime_frame + 1;
+        }
+    }
+
+    fn caption_char_width(&self) -> f32 {
+        self.military_caption_point_size.max(1) as f32 * 0.6
+    }
+
+    fn military_caption_speed_frames(&self) -> u32 {
+        get_global_language_read()
+            .map(|language| language.military_caption_speed.max(0) as u32)
+            .unwrap_or_else(|| self.military_caption_speed.max(0) as u32)
     }
 
     // ── Popup message system ─────────────────────────────────────────────
@@ -4460,5 +4546,52 @@ mod tests {
         assert_eq!(InGameUI::milliseconds_to_logic_frames(750), 22);
         assert_eq!(InGameUI::milliseconds_to_logic_frames(1000), 30);
         assert_eq!(InGameUI::milliseconds_to_logic_frames(-1), 0);
+    }
+
+    #[test]
+    fn military_caption_update_respects_initial_delay_then_types() {
+        let mut subtitle = Some(MilitarySubtitle {
+            text: "AB".to_string(),
+            index: 0,
+            position: (10.0, 20.0),
+            lifetime_frame: 120,
+            block_drawn: true,
+            block_begin_frame: 0,
+            block_pos: (10.0, 20.0),
+            increment_on_frame: 22,
+            color: 0xFFC8_C81E,
+        });
+
+        InGameUI::update_military_subtitle_state(&mut subtitle, 22, 1, 12, 7.2, 22);
+        let state = subtitle.as_ref().unwrap();
+        assert_eq!(state.index, 0);
+        assert_eq!(state.block_pos, (10.0, 20.0));
+
+        InGameUI::update_military_subtitle_state(&mut subtitle, 23, 1, 12, 7.2, 22);
+        let state = subtitle.as_ref().unwrap();
+        assert_eq!(state.index, 1);
+        assert_eq!(state.increment_on_frame, 24);
+        assert_eq!(state.block_pos.0, 17.2);
+    }
+
+    #[test]
+    fn military_caption_update_fades_after_lifetime_before_removal() {
+        let mut subtitle = Some(MilitarySubtitle {
+            text: "A".to_string(),
+            index: 1,
+            position: (0.0, 0.0),
+            lifetime_frame: 10,
+            block_drawn: true,
+            block_begin_frame: 0,
+            block_pos: (0.0, 0.0),
+            increment_on_frame: 11,
+            color: 0x02C8_C81E,
+        });
+
+        InGameUI::update_military_subtitle_state(&mut subtitle, 15, 1, 12, 7.2, 22);
+        assert_eq!(subtitle.as_ref().unwrap().color >> 24, 2);
+
+        InGameUI::update_military_subtitle_state(&mut subtitle, 40, 1, 12, 7.2, 22);
+        assert!(subtitle.is_none());
     }
 }
