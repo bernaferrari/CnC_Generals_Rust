@@ -109,34 +109,55 @@ fn parse_auto_acquire_field(
     data: &mut WorkerAIUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = INI::parse_bit_string_32(tokens, AUTO_ACQUIRE_ENEMIES_NAMES)?;
+    let values = value_tokens(tokens)?;
+    let value = INI::parse_bit_string_32(&values, AUTO_ACQUIRE_ENEMIES_NAMES)?;
     data.base.set_auto_acquire_enemies_when_idle(value);
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> Result<Vec<&'a str>, INIError> {
+    let values: Vec<_> = tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect();
+    if values.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+    Ok(values)
 }
 
 fn parse_duration_unsigned_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_duration_unsigned_int(token)?);
     Ok(())
 }
 
 fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_bool(token)?);
     Ok(())
 }
 
 fn parse_real_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_real(token)?);
     Ok(())
 }
 
 fn parse_int_field(setter: &mut dyn FnMut(Int), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_int(token)?);
     Ok(())
 }
@@ -145,7 +166,7 @@ fn parse_duration_real_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_duration_real(token)?);
     Ok(())
 }
@@ -154,7 +175,7 @@ fn parse_percent_to_real_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_percent_to_real(token)?);
     Ok(())
 }
@@ -164,11 +185,12 @@ fn parse_locomotor_set_field(
     data: &mut WorkerAIUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.len() < 2 {
+    let values = value_tokens(tokens)?;
+    if values.len() < 2 {
         return Err(INIError::InvalidData);
     }
 
-    let set = match tokens[0] {
+    let set = match values[0] {
         "SET_NORMAL" => crate::common::LocomotorSetType::Normal,
         "SET_NORMAL_UPGRADED" => crate::common::LocomotorSetType::NormalUpgraded,
         "SET_FREEFALL" => crate::common::LocomotorSetType::Freefall,
@@ -185,7 +207,7 @@ fn parse_locomotor_set_field(
     }
 
     let mut entries = Vec::new();
-    for token in tokens.iter().skip(1) {
+    for token in values.iter().skip(1) {
         if token.is_empty() || token.eq_ignore_ascii_case("None") {
             continue;
         }
@@ -203,8 +225,8 @@ fn parse_audio_event(
     data: &mut WorkerAIUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.supplies_depleted_voice = AsciiString::from(*token);
+    let token = required_value(tokens)?;
+    data.supplies_depleted_voice = AsciiString::from(token);
     Ok(())
 }
 
@@ -386,6 +408,65 @@ impl Snapshotable for WorkerAIUpdateModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::LocomotorSetType;
+
+    fn parse_field(data: &mut WorkerAIUpdateModuleData, token: &str, values: &[&str]) {
+        let field = WORKER_AI_UPDATE_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
+    #[test]
+    fn worker_fields_accept_ini_equals_token() {
+        let mut data = WorkerAIUpdateModuleData::default();
+
+        parse_field(
+            &mut data,
+            "AutoAcquireEnemiesWhenIdle",
+            &["=", "YES", "ATTACK_BUILDINGS"],
+        );
+        parse_field(
+            &mut data,
+            "Locomotor",
+            &["=", "SET_NORMAL", "WorkerLocomotor"],
+        );
+        parse_field(&mut data, "MoodAttackCheckRate", &["=", "2000"]);
+        parse_field(&mut data, "SurrenderDuration", &["=", "3000"]);
+        parse_field(&mut data, "ForbidPlayerCommands", &["=", "Yes"]);
+        parse_field(&mut data, "TurretsLinked", &["=", "Yes"]);
+        parse_field(&mut data, "MaxBoxes", &["=", "5"]);
+        parse_field(&mut data, "RepairHealthPercentPerSecond", &["=", "25%"]);
+        parse_field(&mut data, "BoredTime", &["=", "1500"]);
+        parse_field(&mut data, "BoredRange", &["=", "125.5"]);
+        parse_field(&mut data, "SupplyCenterActionDelay", &["=", "1200"]);
+        parse_field(&mut data, "SupplyWarehouseActionDelay", &["=", "900"]);
+        parse_field(&mut data, "SupplyWarehouseScanDistance", &["=", "275.5"]);
+        parse_field(
+            &mut data,
+            "SuppliesDepletedVoice",
+            &["=", "WorkerSupplyEmpty"],
+        );
+        parse_field(&mut data, "UpgradedSupplyBoost", &["=", "3"]);
+
+        assert_ne!(data.base.auto_acquire_enemies_when_idle(), 0);
+        assert!(data.base.has_locomotor_set(LocomotorSetType::Normal));
+        assert_eq!(data.base.mood_attack_check_rate(), 60);
+        assert_eq!(data.base.surrender_duration_frames(), 90);
+        assert!(data.base.forbid_player_commands());
+        assert!(data.base.turrets_linked());
+        assert_eq!(data.max_boxes_data, 5);
+        assert_eq!(data.repair_health_percent_per_second, 0.25);
+        assert_eq!(data.bored_time, 45.0);
+        assert_eq!(data.bored_range, 125.5);
+        assert_eq!(data.center_delay, 36);
+        assert_eq!(data.warehouse_delay, 27);
+        assert_eq!(data.warehouse_scan_distance, 275.5);
+        assert_eq!(data.supplies_depleted_voice.as_str(), "WorkerSupplyEmpty");
+        assert_eq!(data.upgraded_supply_boost, 3);
+    }
 
     #[test]
     fn parse_duration_real_field_accepts_duration_suffixes() {
