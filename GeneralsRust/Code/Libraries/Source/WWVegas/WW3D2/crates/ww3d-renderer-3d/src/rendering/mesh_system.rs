@@ -1553,6 +1553,7 @@ pub struct MeshClass {
     deformed_world_vertices: Option<Vec<Vec3>>,
     bone_palette: Vec<Mat4>,
     bone_palette_version: u64,
+    uv_offset_override: Option<[f32; 2]>,
 }
 
 /// Thread-safe debug ID counter for mesh objects
@@ -1589,6 +1590,7 @@ impl MeshClass {
             deformed_world_vertices: None,
             bone_palette: Vec::new(),
             bone_palette_version: 0,
+            uv_offset_override: None,
             is_decal_instance: false,
         }
     }
@@ -1612,6 +1614,14 @@ impl MeshClass {
                 *model_arc = Arc::new(cloned);
             }
         }
+    }
+
+    pub fn set_uv_offset_override(&mut self, offset: Option<[f32; 2]>) {
+        self.uv_offset_override = offset;
+    }
+
+    pub fn uv_offset_override(&self) -> Option<[f32; 2]> {
+        self.uv_offset_override
     }
 
     /// Install per-vertex bone links on the underlying model geometry.
@@ -2442,6 +2452,7 @@ impl MeshClass {
         new_mesh.collision_type = self.collision_type;
         new_mesh.w3d_attributes = self.w3d_attributes;
         new_mesh.is_decal_instance = self.is_decal_instance;
+        new_mesh.uv_offset_override = self.uv_offset_override;
 
         // Clone the model if it exists
         if let Some(model) = &self.model {
@@ -3833,6 +3844,22 @@ impl MeshRenderManager {
         Ok(())
     }
 
+    fn material_pass_with_uv_offset(
+        pass: &MaterialPassClass,
+        offset: [f32; 2],
+    ) -> MaterialPassClass {
+        let mut pass = pass.clone();
+        // C++ tread draw disables the automatic LinearOffset mapper and pushes
+        // the runtime offset as custom UV state. The shader's static grid mapper
+        // path is the existing per-draw uniform route for an absolute UV offset.
+        pass.set_mapper_id(7);
+        pass.set_mapper_arg(0, 1);
+        pass.set_mapper_arg(1, 1);
+        pass.set_mapper_arg(2, (offset[0] * 1000.0).round() as i32);
+        pass.set_mapper_arg(3, (offset[1] * 1000.0).round() as i32);
+        pass
+    }
+
     fn draw_material_pass(
         &mut self,
         mesh: &MeshClass,
@@ -3843,6 +3870,10 @@ impl MeshRenderManager {
         arena: &mut FrameUniformArena,
         resources: &mut RenderPassResources,
     ) -> W3dResult<()> {
+        let uv_override_pass = mesh
+            .uv_offset_override()
+            .map(|offset| Self::material_pass_with_uv_offset(pass, offset));
+        let pass = uv_override_pass.as_ref().unwrap_or(pass);
         let stage_masks = compute_stage_masks(pass);
 
         let vertex_format = if prepared.is_skinned {

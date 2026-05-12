@@ -1,7 +1,7 @@
 use super::draw_module::*;
 use super::w3d_truck_draw::*;
 use crate::common::*;
-use crate::helpers::{TheGameLogic, TheParticleSystemManager};
+use crate::helpers::{MeshUvOverrideState, TheGameClient, TheGameLogic, TheParticleSystemManager};
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
@@ -211,6 +211,7 @@ pub struct W3DTankTruckDraw {
     data: W3DTankTruckDrawModuleData,
     base: W3DTruckDraw,
     tread_uv_offsets: Vec<Real>,
+    tread_uv_offset: Real,
     last_direction: Coord3D,
     tread_debris_left: Option<u32>,
     tread_debris_right: Option<u32>,
@@ -225,6 +226,7 @@ impl W3DTankTruckDraw {
             base: W3DTruckDraw::new(data.base.clone()),
             data,
             tread_uv_offsets: Vec::new(),
+            tread_uv_offset: 0.0,
             last_direction: Coord3D::new(1.0, 0.0, 0.0),
             tread_debris_left: None,
             tread_debris_right: None,
@@ -251,7 +253,7 @@ impl W3DTankTruckDraw {
         is_motive: bool,
         direction: &Coord3D,
     ) {
-        if self.tread_uv_offsets.is_empty() || self.data.tread_animation_rate == 0.0 {
+        if self.data.tread_animation_rate == 0.0 {
             self.last_direction = *direction;
             return;
         }
@@ -266,13 +268,33 @@ impl W3DTankTruckDraw {
         // wheel+tread vehicles only scroll treads while driving above the threshold.
         if is_motive && speed_fraction >= self.data.tread_drive_speed_fraction {
             let tread_scroll_speed = self.data.tread_animation_rate;
+            self.tread_uv_offset = wrap_uv_offset(self.tread_uv_offset - tread_scroll_speed);
             for uv_offset in &mut self.tread_uv_offsets {
                 let offset = *uv_offset - tread_scroll_speed;
-                *uv_offset = offset - offset.floor();
+                *uv_offset = wrap_uv_offset(offset);
             }
         }
 
         self.last_direction = *direction;
+    }
+
+    fn publish_tread_uv_overrides(&self) {
+        let Some(owner_id) = self.base.owner_id() else {
+            return;
+        };
+        let Some(client) = TheGameClient::get() else {
+            return;
+        };
+        let Some(mut state) = client.get_drawable_model_draw(owner_id) else {
+            return;
+        };
+
+        state.mesh_uv_overrides.push(MeshUvOverrideState {
+            mesh_name_prefix: "TREADS".to_string(),
+            u_offset: self.tread_uv_offset,
+            v_offset: 0.0,
+        });
+        client.set_drawable_model_draw(owner_id, state);
     }
 
     fn create_tread_emitters(&mut self) {
@@ -447,6 +469,7 @@ impl DrawModule for W3DTankTruckDraw {
             is_motive,
             &direction,
         );
+        self.publish_tread_uv_overrides();
         self.update_tread_debris();
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
@@ -516,6 +539,10 @@ impl Snapshotable for W3DTankTruckDraw {
         self.update_tread_objects();
         Ok(())
     }
+}
+
+fn wrap_uv_offset(offset: Real) -> Real {
+    offset - offset.floor()
 }
 
 #[cfg(test)]
