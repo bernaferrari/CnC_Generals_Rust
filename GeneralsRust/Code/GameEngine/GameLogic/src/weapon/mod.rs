@@ -2354,9 +2354,8 @@ impl Weapon {
     /// Weapon.cpp line 2110. Uses 2D distance squared comparison with the same
     /// fudge factor and min-range guard as the C++ original.
     ///
-    /// Note: The C++ version uses `ThePartitionManager->getGoalDistanceSquared`
-    /// which accounts for pathfinding distance. This implementation uses straight-line
-    /// 2D distance as a faithful approximation until the partition manager is integrated.
+    /// C++ uses `FROM_BOUNDINGSPHERE_2D`, which measures 2D boundary distance
+    /// after subtracting source/target bounding circle radii.
     pub fn is_source_object_with_goal_position_within_attack_range(
         &self,
         source_obj: ObjectId,
@@ -2364,10 +2363,17 @@ impl Weapon {
         target_obj: Option<ObjectId>,
         target_pos: Option<&Coord3D>,
     ) -> bool {
-        // Resolve target position
-        let tgt_pos = if let Some(pos) = target_pos {
-            *pos
-        } else if let Some(target_id) = target_obj {
+        let source_radius = crate::object::registry::OBJECT_REGISTRY
+            .get_object(source_obj)
+            .and_then(|source| {
+                source
+                    .read()
+                    .ok()
+                    .map(|guard| guard.get_geometry_info().get_bounding_circle_radius())
+            })
+            .unwrap_or(0.0);
+
+        let (tgt_pos, target_radius) = if let Some(target_id) = target_obj {
             let Some(target) = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
             else {
                 return false;
@@ -2375,15 +2381,23 @@ impl Weapon {
             let Ok(target_guard) = target.read() else {
                 return false;
             };
-            *target_guard.get_position()
+            (
+                *target_guard.get_position(),
+                target_guard
+                    .get_geometry_info()
+                    .get_bounding_circle_radius(),
+            )
+        } else if let Some(pos) = target_pos {
+            (*pos, 0.0)
         } else {
             return false;
         };
 
-        // 2D distance squared from goal position to target position
         let dx = goal_pos.x - tgt_pos.x;
         let dy = goal_pos.y - tgt_pos.y;
-        let dist_sqr = dx * dx + dy * dy;
+        let center_dist = (dx * dx + dy * dy).sqrt();
+        let boundary_dist = (center_dist - source_radius - target_radius).max(0.0);
+        let dist_sqr = boundary_dist * boundary_dist;
 
         let attack_range = self.get_attack_range(source_obj);
         let min_attack_range = self.template.get_minimum_attack_range();
@@ -5201,6 +5215,16 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::OnceLock;
+
+    static WEAPON_RANGE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn weapon_range_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        WEAPON_RANGE_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("weapon range test lock")
+    }
 
     #[test]
     fn test_weapon_bonus() {
@@ -5842,6 +5866,38 @@ mod tests {
         Weapon::new(Arc::new(template), WeaponSlotType::Primary)
     }
 
+    fn registered_test_object_with_radius(
+        id: ObjectId,
+        x: Real,
+        y: Real,
+        radius: Real,
+    ) -> Arc<RwLock<crate::object::Object>> {
+        let template = Arc::new(crate::common::DefaultThingTemplate::new(format!(
+            "WeaponRangeObject{}",
+            id
+        )));
+        let object = crate::object::Object::new_with_id(
+            template,
+            id,
+            crate::common::ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("create test object");
+
+        let mut geometry = crate::common::GeometryInfo::default();
+        geometry.bounds.min = Coord3D::new(-radius, 0.0, 0.0);
+        geometry.bounds.max = Coord3D::new(radius, 0.0, 0.0);
+
+        let mut object_guard = object.write().expect("object write lock");
+        object_guard
+            .set_position(&Coord3D::new(x, y, 0.0))
+            .expect("set object position");
+        object_guard.set_geometry_info(geometry);
+        drop(object_guard);
+
+        object
+    }
+
     // ============================================================================
     // Week 3: Targeting Validation Tests
     // ============================================================================
@@ -5974,6 +6030,58 @@ mod tests {
             !weapon.template.must_travel_pfx,
             "Weapon should not require LOS"
         );
+    }
+
+    #[test]
+    fn goal_position_attack_range_uses_2d_bounding_sphere_distance() {
+        let _guard = weapon_range_test_guard();
+        crate::object::registry::OBJECT_REGISTRY.clear();
+        let mut weapon = create_test_weapon();
+        Arc::make_mut(&mut weapon.template).attack_range = 100.0;
+        Arc::make_mut(&mut weapon.template).minimum_attack_range = 0.0;
+
+        let source = registered_test_object_with_radius(94_001, 0.0, 0.0, 10.0);
+        let target = registered_test_object_with_radius(94_002, 115.0, 0.0, 10.0);
+
+        assert!(
+            weapon.is_source_object_with_goal_position_within_attack_range(
+                94_001,
+                &Coord3D::new(0.0, 0.0, 0.0),
+                Some(94_002),
+                None,
+            )
+        );
+
+        drop(source);
+        drop(target);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(94_001);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(94_002);
+    }
+
+    #[test]
+    fn goal_position_min_attack_range_uses_boundary_distance() {
+        let _guard = weapon_range_test_guard();
+        crate::object::registry::OBJECT_REGISTRY.clear();
+        let mut weapon = create_test_weapon();
+        Arc::make_mut(&mut weapon.template).attack_range = 200.0;
+        Arc::make_mut(&mut weapon.template).minimum_attack_range = 50.0;
+
+        let source = registered_test_object_with_radius(94_003, 0.0, 0.0, 10.0);
+        let target = registered_test_object_with_radius(94_004, 55.0, 0.0, 10.0);
+
+        assert!(
+            !weapon.is_source_object_with_goal_position_within_attack_range(
+                94_003,
+                &Coord3D::new(0.0, 0.0, 0.0),
+                Some(94_004),
+                None,
+            )
+        );
+
+        drop(source);
+        drop(target);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(94_003);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(94_004);
     }
 
     #[test]
