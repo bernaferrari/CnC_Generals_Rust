@@ -133,7 +133,7 @@ impl CleanupHazardUpdate {
 
     pub fn scan_closest_target(&mut self) -> Option<ObjectID> {
         let me_arc = self.object.upgrade()?;
-        let me = me_arc.read().unwrap();
+        let me = me_arc.read().ok()?;
 
         let partition = ThePartitionManager::get()?;
 
@@ -159,15 +159,22 @@ impl CleanupHazardUpdate {
     }
 
     pub fn fire_when_ready(&mut self) {
-        let me_arc = self.object.upgrade().unwrap();
-        let mut me = me_arc.write().unwrap();
+        let Some(me_arc) = self.object.upgrade() else {
+            return;
+        };
+        let Ok(mut me) = me_arc.write() else {
+            return;
+        };
 
         let mut target_id = self.best_target_id;
 
         // Track target and check range if not cleaning an area
         if target_id != INVALID_ID && self.move_range == 0.0 {
             if let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) {
-                let target = target_arc.read().unwrap();
+                let Ok(target) = target_arc.read() else {
+                    self.best_target_id = INVALID_ID;
+                    return;
+                };
                 let fire_range = if let Some(ref template) = self.weapon_template {
                     template.get_attack_range(&Default::default())
                 } else {
@@ -208,8 +215,10 @@ impl CleanupHazardUpdate {
         if target_id != INVALID_ID {
             if let Some(_target_arc) = OBJECT_REGISTRY.get_object(target_id) {
                 if let Some(ai_arc) = me.get_ai() {
-                    let mut ai = ai_arc.lock().unwrap();
-                    if ai.is_idle() || ai.is_busy() {
+                    if let Ok(mut ai) = ai_arc.lock() {
+                        if !(ai.is_idle() || ai.is_busy()) {
+                            return;
+                        }
                         me.set_weapon_lock(
                             self.module_data.weapon_slot,
                             WeaponLockType::LockedTemporarily,
@@ -230,11 +239,15 @@ impl CleanupHazardUpdate {
 
 impl CleanupHazardUpdateInterface for CleanupHazardUpdate {
     fn set_cleanup_area_parameters(&mut self, pos: &Coord3D, range: Real) {
-        let me_arc = self.object.upgrade().unwrap();
-        let me = me_arc.read().unwrap();
-
         self.move_range = range;
         self.pos = *pos;
+
+        let Some(me_arc) = self.object.upgrade() else {
+            return;
+        };
+        let Ok(me) = me_arc.read() else {
+            return;
+        };
 
         if let Some(ai_arc) = me.get_ai() {
             ai_arc.ai_move_to_position(pos, false, CommandSourceType::FromAi);
@@ -244,19 +257,21 @@ impl CleanupHazardUpdateInterface for CleanupHazardUpdate {
 
 impl UpdateModuleInterface for CleanupHazardUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let me_arc = self.object.upgrade().unwrap();
-        let me = me_arc.read().unwrap();
+        let Some(me_arc) = self.object.upgrade() else {
+            return UPDATE_SLEEP_NONE;
+        };
 
         // Handle busy status for area cleanup
         if self.move_range > 0.0 {
-            if let Some(ai_arc) = me.get_ai() {
-                if ai_arc.is_idle() {
-                    ai_arc.ai_busy(CommandSourceType::FromAi);
-                } else if ai_arc.get_last_command_source() != CommandSourceType::FromAi {
-                    // Canceled by user/script (abandon the cleanup)
-                    self.move_range = 0.0;
-                    return UPDATE_SLEEP_NONE;
-                }
+            let Some(ai_arc) = me_arc.read().ok().and_then(|me| me.get_ai()) else {
+                return UPDATE_SLEEP_NONE;
+            };
+            if ai_arc.is_idle() {
+                ai_arc.ai_busy(CommandSourceType::FromAi);
+            } else if ai_arc.get_last_command_source() != CommandSourceType::FromAi {
+                // Canceled by user/script (abandon the cleanup)
+                self.move_range = 0.0;
+                return UPDATE_SLEEP_NONE;
             }
         }
 
@@ -270,17 +285,19 @@ impl UpdateModuleInterface for CleanupHazardUpdate {
         if self.scan_closest_target().is_some() {
             self.fire_when_ready();
         } else if self.move_range > 0.0 {
-            if let Some(ai_arc) = me.get_ai() {
+            if let Some(ai_arc) = me_arc.read().ok().and_then(|me| me.get_ai()) {
                 if ai_arc.is_idle() || ai_arc.is_busy() {
-                    let dist_sqr = ThePartitionManager::get_distance_squared_to_pos(
-                        &me,
-                        &self.pos,
-                        FROM_CENTER_2D,
-                    );
-                    if dist_sqr < 25.0 * 25.0 {
-                        self.move_range = 0.0;
-                    } else {
-                        ai_arc.ai_move_to_position(&self.pos, false, CommandSourceType::FromAi);
+                    if let Ok(me) = me_arc.read() {
+                        let dist_sqr = ThePartitionManager::get_distance_squared_to_pos(
+                            &me,
+                            &self.pos,
+                            FROM_CENTER_2D,
+                        );
+                        if dist_sqr < 25.0 * 25.0 {
+                            self.move_range = 0.0;
+                        } else {
+                            ai_arc.ai_move_to_position(&self.pos, false, CommandSourceType::FromAi);
+                        }
                     }
                 }
             }
@@ -433,5 +450,61 @@ impl CleanupHazardUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(CleanupHazardUpdate::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lost_owner_update() -> CleanupHazardUpdate {
+        CleanupHazardUpdate {
+            object: Weak::new(),
+            module_data: Arc::new(CleanupHazardUpdateModuleData {
+                scan_frames: 7,
+                scan_range: 100.0,
+                ..CleanupHazardUpdateModuleData::default()
+            }),
+            next_call_frame_and_phase: 0,
+            best_target_id: INVALID_ID,
+            next_scan_frames: 0,
+            next_shot_available_in_frames: 0,
+            in_range: false,
+            weapon_template: None,
+            pos: Coord3D::default(),
+            move_range: 0.0,
+        }
+    }
+
+    #[test]
+    fn cleanup_hazard_lost_owner_paths_do_not_panic() {
+        let mut update = lost_owner_update();
+
+        assert_eq!(update.scan_closest_target(), None);
+        update.fire_when_ready();
+        update.set_cleanup_area_parameters(
+            &Coord3D {
+                x: 12.0,
+                y: 34.0,
+                z: 0.0,
+            },
+            50.0,
+        );
+        assert_eq!(update.update_simple(), UPDATE_SLEEP_NONE);
+    }
+
+    #[test]
+    fn cleanup_hazard_set_area_records_parameters_before_owner_lookup() {
+        let mut update = lost_owner_update();
+        let pos = Coord3D {
+            x: 4.0,
+            y: 8.0,
+            z: 1.0,
+        };
+
+        update.set_cleanup_area_parameters(&pos, 64.0);
+
+        assert_eq!(update.pos, pos);
+        assert_eq!(update.move_range, 64.0);
     }
 }
