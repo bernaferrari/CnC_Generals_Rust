@@ -960,6 +960,11 @@ impl Snapshotable for MissileAIUpdate {
             .map_err(|e| format!("MissileAIUpdate xfer max_accel: {:?}", e))?;
         xfer.xfer_bool(&mut self.is_tracking_target)
             .map_err(|e| format!("MissileAIUpdate xfer is_tracking_target: {:?}", e))?;
+        let mut extra_bonus_flags = self.extra_bonus_flags.bits();
+        xfer.xfer_unsigned_int(&mut extra_bonus_flags)
+            .map_err(|e| format!("MissileAIUpdate xfer extra_bonus_flags: {:?}", e))?;
+        self.extra_bonus_flags =
+            crate::common::types::WeaponBonusConditionFlags::from_bits_truncate(extra_bonus_flags);
         xfer.xfer_unsigned_int(&mut self.exhaust_id)
             .map_err(|e| format!("MissileAIUpdate xfer exhaust_id: {:?}", e))?;
         xfer.xfer_real(&mut self.original_target_pos.x)
@@ -985,6 +990,8 @@ impl Snapshotable for MissileAIUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     #[test]
     fn test_missile_state_machine() {
@@ -1051,5 +1058,37 @@ mod tests {
         assert!(missile.is_jammed);
         assert!(!missile.is_tracking_target);
         assert_eq!(missile.victim_id, INVALID_ID);
+    }
+
+    #[test]
+    fn xfer_preserves_extra_bonus_flags() {
+        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let mut saved = MissileAIUpdate::new(data.clone(), 7);
+        saved.extra_bonus_flags = crate::common::types::WeaponBonusConditionFlags::GARRISONED
+            | crate::common::types::WeaponBonusConditionFlags::FRENZY_TWO;
+        saved.exhaust_id = 99;
+        saved.original_target_pos = Coord3D::new(1.0, 2.0, 3.0);
+        saved.frames_till_decoyed = 123;
+        saved.no_damage = true;
+        saved.is_jammed = true;
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 6);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded = MissileAIUpdate::new(data, 0);
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 6);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.extra_bonus_flags, saved.extra_bonus_flags);
+        assert_eq!(loaded.exhaust_id, saved.exhaust_id);
+        assert_eq!(loaded.frames_till_decoyed, saved.frames_till_decoyed);
+        assert_eq!(loaded.no_damage, saved.no_damage);
+        assert_eq!(loaded.is_jammed, saved.is_jammed);
     }
 }
