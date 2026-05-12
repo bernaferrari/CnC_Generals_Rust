@@ -67,6 +67,34 @@ pub enum SliderOrientation {
     Vertical,
 }
 
+/// Draw command emitted by sliders for the UI renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SliderRenderCommand {
+    Track {
+        rect: Rect,
+        color: Color,
+        border_color: Color,
+        border_width: u32,
+    },
+    Fill {
+        rect: Rect,
+        color: Color,
+    },
+    Thumb {
+        rect: Rect,
+        color: Color,
+        border_color: Color,
+        border_width: u32,
+    },
+    FocusOutline {
+        rect: Rect,
+        color: Color,
+    },
+    StepTicks {
+        step_size: i32,
+    },
+}
+
 /// Configuration for slider appearance and behavior
 #[derive(Debug, Clone)]
 pub struct SliderConfig {
@@ -569,6 +597,94 @@ impl SliderBase {
             ThumbState::Pressed => self.style.thumb_pressed_color,
         }
     }
+
+    fn get_track_rect(&self) -> Rect {
+        match self.orientation {
+            SliderOrientation::Horizontal => Rect::new(
+                self.bounds.x,
+                self.bounds.y + (self.bounds.height as i32 - self.style.track_thickness as i32) / 2,
+                self.bounds.width,
+                self.style.track_thickness,
+            ),
+            SliderOrientation::Vertical => Rect::new(
+                self.bounds.x + (self.bounds.width as i32 - self.style.track_thickness as i32) / 2,
+                self.bounds.y,
+                self.style.track_thickness,
+                self.bounds.height,
+            ),
+        }
+    }
+
+    fn get_fill_rect(&self) -> Option<Rect> {
+        if !self.config.show_track_fill {
+            return None;
+        }
+
+        let track_rect = self.get_track_rect();
+        let thumb_bounds = self.get_thumb_bounds();
+        match self.orientation {
+            SliderOrientation::Horizontal => {
+                let fill_width =
+                    (thumb_bounds.x - track_rect.x + thumb_bounds.width as i32 / 2).max(0) as u32;
+                Some(Rect::new(
+                    track_rect.x,
+                    track_rect.y,
+                    fill_width.min(track_rect.width),
+                    track_rect.height,
+                ))
+            }
+            SliderOrientation::Vertical => {
+                let fill_height =
+                    (thumb_bounds.y - track_rect.y + thumb_bounds.height as i32 / 2).max(0) as u32;
+                Some(Rect::new(
+                    track_rect.x,
+                    track_rect.y,
+                    track_rect.width,
+                    fill_height.min(track_rect.height),
+                ))
+            }
+        }
+    }
+
+    fn render_commands(&self, theme: &GadgetTheme) -> Vec<SliderRenderCommand> {
+        if !self.visible {
+            return Vec::new();
+        }
+
+        let mut commands = vec![SliderRenderCommand::Track {
+            rect: self.get_track_rect(),
+            color: self.style.track_color,
+            border_color: self.style.track_border_color,
+            border_width: self.style.track_border_width,
+        }];
+
+        if let Some(fill_rect) = self.get_fill_rect() {
+            commands.push(SliderRenderCommand::Fill {
+                rect: fill_rect,
+                color: self.style.track_fill_color,
+            });
+        }
+
+        commands.push(SliderRenderCommand::Thumb {
+            rect: self.get_thumb_bounds(),
+            color: self.get_thumb_color(),
+            border_color: self.style.thumb_border_color,
+            border_width: self.style.thumb_border_width,
+        });
+
+        if self.focused {
+            commands.push(SliderRenderCommand::FocusOutline {
+                rect: self.bounds,
+                color: theme.focused_color,
+            });
+        }
+
+        if let Some(step_size) = self.config.step_size {
+            commands.push(SliderRenderCommand::StepTicks { step_size });
+        }
+
+        commands
+    }
 }
 
 // ============================================================================
@@ -666,6 +782,11 @@ impl HorizontalSlider {
     /// Set the value range
     pub fn set_range(&mut self, min_value: i32, max_value: i32) {
         self.base.set_range(min_value, max_value);
+    }
+
+    /// Build renderer-facing commands for the current slider state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<SliderRenderCommand> {
+        self.base.render_commands(theme)
     }
 }
 
@@ -785,53 +906,8 @@ impl Gadget for HorizontalSlider {
         self.base.update_animation(delta_time);
     }
 
-    #[allow(unused_variables)]
     fn render(&self, theme: &GadgetTheme) {
-        // Placeholder rendering code
-        println!(
-            "Rendering horizontal slider {} at ({}, {}) {}x{}",
-            self.base.id,
-            self.base.bounds.x,
-            self.base.bounds.y,
-            self.base.bounds.width,
-            self.base.bounds.height
-        );
-
-        println!(
-            "  Value: {} (range: {} to {})",
-            self.base.current_value, self.base.config.min_value, self.base.config.max_value
-        );
-
-        // Track
-        println!(
-            "  Track: {:?}, thickness: {}",
-            self.base.style.track_color, self.base.style.track_thickness
-        );
-
-        if self.base.config.show_track_fill {
-            let fill_width = (self.base.thumb_position as f32 / self.base.get_track_length() as f32
-                * self.base.bounds.width as f32) as u32;
-            println!(
-                "  Track fill: {:?}, width: {}",
-                self.base.style.track_fill_color, fill_width
-            );
-        }
-
-        // Thumb
-        let thumb_bounds = self.base.get_thumb_bounds();
-        let thumb_color = self.base.get_thumb_color();
-        println!(
-            "  Thumb: {:?} at ({}, {}) {}x{}",
-            thumb_color, thumb_bounds.x, thumb_bounds.y, thumb_bounds.width, thumb_bounds.height
-        );
-
-        if self.base.focused {
-            println!("  Focus outline");
-        }
-
-        if let Some(step) = self.base.config.step_size {
-            println!("  Step size: {}", step);
-        }
+        let _commands = self.render_commands(theme);
     }
 
     fn handle_tab(&mut self, _direction: TabDirection) -> bool {
@@ -921,6 +997,11 @@ impl VerticalSlider {
     /// Set the value range
     pub fn set_range(&mut self, min_value: i32, max_value: i32) {
         self.base.set_range(min_value, max_value);
+    }
+
+    /// Build renderer-facing commands for the current slider state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<SliderRenderCommand> {
+        self.base.render_commands(theme)
     }
 }
 
@@ -1040,36 +1121,8 @@ impl Gadget for VerticalSlider {
         self.base.update_animation(delta_time);
     }
 
-    #[allow(unused_variables)]
     fn render(&self, theme: &GadgetTheme) {
-        // Placeholder rendering code
-        println!(
-            "Rendering vertical slider {} at ({}, {}) {}x{}",
-            self.base.id,
-            self.base.bounds.x,
-            self.base.bounds.y,
-            self.base.bounds.width,
-            self.base.bounds.height
-        );
-
-        println!(
-            "  Value: {} (range: {} to {})",
-            self.base.current_value, self.base.config.min_value, self.base.config.max_value
-        );
-
-        // Track
-        println!(
-            "  Track: {:?}, thickness: {}",
-            self.base.style.track_color, self.base.style.track_thickness
-        );
-
-        // Thumb
-        let thumb_bounds = self.base.get_thumb_bounds();
-        let thumb_color = self.base.get_thumb_color();
-        println!(
-            "  Thumb: {:?} at ({}, {}) {}x{}",
-            thumb_color, thumb_bounds.x, thumb_bounds.y, thumb_bounds.width, thumb_bounds.height
-        );
+        let _commands = self.render_commands(theme);
     }
 
     fn handle_tab(&mut self, _direction: TabDirection) -> bool {
@@ -1141,6 +1194,76 @@ mod tests {
         assert_eq!(slider.value(), 128);
         assert_eq!(slider.range(), (0, 255));
         assert_eq!(slider.base.orientation, SliderOrientation::Vertical);
+    }
+
+    #[test]
+    fn horizontal_render_commands_cover_track_fill_thumb_focus_and_steps() {
+        let theme = GadgetTheme::default();
+        let mut slider = HorizontalSlider::new(1, 10, 20, 200, 20)
+            .with_range(0, 100)
+            .with_value(50)
+            .with_step_size(5);
+        slider.set_focus(true);
+
+        assert_eq!(
+            slider.render_commands(&theme),
+            vec![
+                SliderRenderCommand::Track {
+                    rect: Rect::new(10, 28, 200, 4),
+                    color: SliderStyle::default().track_color,
+                    border_color: SliderStyle::default().track_border_color,
+                    border_width: 1,
+                },
+                SliderRenderCommand::Fill {
+                    rect: Rect::new(10, 28, 100, 4),
+                    color: SliderStyle::default().track_fill_color,
+                },
+                SliderRenderCommand::Thumb {
+                    rect: Rect::new(102, 20, 16, 20),
+                    color: SliderStyle::default().thumb_normal_color,
+                    border_color: SliderStyle::default().thumb_border_color,
+                    border_width: 1,
+                },
+                SliderRenderCommand::FocusOutline {
+                    rect: Rect::new(10, 20, 200, 20),
+                    color: theme.focused_color,
+                },
+                SliderRenderCommand::StepTicks { step_size: 5 },
+            ]
+        );
+    }
+
+    #[test]
+    fn vertical_render_commands_use_same_thumb_geometry_and_skip_hidden() {
+        let theme = GadgetTheme::default();
+        let mut slider = VerticalSlider::new(1, 30, 40, 20, 200)
+            .with_range(0, 100)
+            .with_value(50);
+
+        assert_eq!(
+            slider.render_commands(&theme),
+            vec![
+                SliderRenderCommand::Track {
+                    rect: Rect::new(38, 40, 4, 200),
+                    color: SliderStyle::default().track_color,
+                    border_color: SliderStyle::default().track_border_color,
+                    border_width: 1,
+                },
+                SliderRenderCommand::Fill {
+                    rect: Rect::new(38, 40, 4, 100),
+                    color: SliderStyle::default().track_fill_color,
+                },
+                SliderRenderCommand::Thumb {
+                    rect: Rect::new(32, 130, 16, 20),
+                    color: SliderStyle::default().thumb_normal_color,
+                    border_color: SliderStyle::default().thumb_border_color,
+                    border_width: 1,
+                },
+            ]
+        );
+
+        slider.set_visible(false);
+        assert!(slider.render_commands(&theme).is_empty());
     }
 
     #[test]
