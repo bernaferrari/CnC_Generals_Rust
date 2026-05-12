@@ -71,6 +71,51 @@ pub struct GeometryInfo {
     pub is_circular: bool,
 }
 
+impl GeometryInfo {
+    fn expand(&mut self, amount: f32) {
+        self.major_radius += amount;
+        self.minor_radius += amount;
+    }
+
+    fn bounding_circle_radius(&self) -> f32 {
+        if self.is_circular {
+            self.major_radius
+        } else {
+            (self.major_radius * self.major_radius + self.minor_radius * self.minor_radius).sqrt()
+        }
+    }
+}
+
+fn line_segment_count(length: f32, mine_radius: f32) -> u32 {
+    let mine_diameter = mine_radius * 2.0;
+    if length <= 0.0 || mine_diameter <= 0.0 {
+        return 1;
+    }
+    ((length / mine_diameter).ceil() as u32).max(1)
+}
+
+fn circle_mine_count(radius: f32, mine_radius: f32) -> u32 {
+    line_segment_count(2.0 * std::f32::consts::PI * radius, mine_radius)
+}
+
+#[cfg(test)]
+fn smart_border_ring_count(
+    mut bounding_circle_radius: f32,
+    distance: f32,
+    mine_radius: f32,
+) -> u32 {
+    let mine_diameter = mine_radius * 2.0;
+    bounding_circle_radius += mine_radius;
+    let mut rings = 0;
+    loop {
+        rings += 1;
+        if bounding_circle_radius >= distance {
+            return rings;
+        }
+        bounding_circle_radius += mine_diameter;
+    }
+}
+
 /// Configuration data for generate minefield behavior
 #[derive(Debug, Clone)]
 pub struct GenerateMinefieldBehaviorModuleData {
@@ -549,10 +594,12 @@ impl GenerateMinefieldBehavior {
     fn determine_placement_pattern(&self, geometry: &GeometryInfo) -> MinePlacementPattern {
         if self.config.smart_border {
             MinePlacementPattern::SmartBorder
-        } else if self.config.always_circular || geometry.is_circular {
-            MinePlacementPattern::Circular
         } else if self.config.border_only {
-            MinePlacementPattern::Rectangular
+            if self.config.always_circular || geometry.is_circular {
+                MinePlacementPattern::Circular
+            } else {
+                MinePlacementPattern::Rectangular
+            }
         } else {
             MinePlacementPattern::FootprintBased
         }
@@ -566,22 +613,27 @@ impl GenerateMinefieldBehavior {
         mine_template: &str,
         pattern: MinePlacementPattern,
     ) -> BehaviorResult<()> {
+        let mine_radius = self.mine_template_radius(mine_template)?;
+
         match pattern {
             MinePlacementPattern::Circular => {
+                let radius = geometry.major_radius + self.config.distance_around_object;
                 self.place_mines_around_circle(
                     state,
                     &geometry.center,
-                    geometry.major_radius,
+                    radius,
                     mine_template,
+                    mine_radius,
                 )?;
             }
             MinePlacementPattern::Rectangular => {
                 self.place_mines_around_rect(
                     state,
                     &geometry.center,
-                    geometry.major_radius,
-                    geometry.minor_radius,
+                    geometry.major_radius + self.config.distance_around_object,
+                    geometry.minor_radius + self.config.distance_around_object,
                     mine_template,
+                    mine_radius,
                 )?;
             }
             MinePlacementPattern::FootprintBased => {
@@ -594,6 +646,18 @@ impl GenerateMinefieldBehavior {
         Ok(())
     }
 
+    fn mine_template_radius(&self, mine_template: &str) -> BehaviorResult<f32> {
+        Ok(
+            crate::helpers::TheThingFactory::find_template(mine_template)
+                .map(|template| {
+                    template
+                        .get_template_geometry_info()
+                        .get_bounding_circle_radius()
+                })
+                .unwrap_or(1.0),
+        )
+    }
+
     /// Place mines in a circular pattern
     fn place_mines_around_circle(
         &self,
@@ -601,26 +665,24 @@ impl GenerateMinefieldBehavior {
         center: &Coord3D,
         radius: f32,
         mine_template: &str,
+        mine_radius: f32,
     ) -> BehaviorResult<()> {
-        let effective_radius = radius + self.config.distance_around_object;
-        let circumference = 2.0 * std::f32::consts::PI * effective_radius;
-        let mine_spacing = (1.0 / self.config.mines_per_square_foot).sqrt();
-        let num_mines = (circumference / mine_spacing).round() as u32;
+        let num_mines = circle_mine_count(radius, mine_radius);
+        let angle_inc = (2.0 * std::f32::consts::PI) / num_mines as f32;
+        let angle_limit = (2.0 * std::f32::consts::PI) - angle_inc * 0.5;
+        let mine_jitter = mine_radius * self.config.random_jitter;
 
-        for i in 0..num_mines {
-            let angle = (i as f32 / num_mines as f32) * 2.0 * std::f32::consts::PI;
+        let mut angle = 0.0;
+        while angle < angle_limit {
             let mut position = Coord3D::new(
-                center.x + effective_radius * angle.cos(),
-                center.y + effective_radius * angle.sin(),
+                center.x + radius * angle.cos(),
+                center.y + radius * angle.sin(),
                 center.z,
             );
 
-            // Apply random jitter
-            if self.config.random_jitter > 0.0 {
-                position.x +=
-                    self.random_value(-self.config.random_jitter, self.config.random_jitter);
-                position.y +=
-                    self.random_value(-self.config.random_jitter, self.config.random_jitter);
+            if mine_jitter > 0.0 {
+                position.x += self.random_value(-mine_jitter, mine_jitter);
+                position.y += self.random_value(-mine_jitter, mine_jitter);
             }
 
             if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
@@ -628,6 +690,8 @@ impl GenerateMinefieldBehavior {
                     state.mine_list.push(mine_id);
                 }
             }
+
+            angle += angle_inc;
         }
 
         Ok(())
@@ -641,74 +705,43 @@ impl GenerateMinefieldBehavior {
         major_radius: f32,
         minor_radius: f32,
         mine_template: &str,
+        mine_radius: f32,
     ) -> BehaviorResult<()> {
-        let effective_major = major_radius + self.config.distance_around_object;
-        let effective_minor = minor_radius + self.config.distance_around_object;
-        let mine_spacing = (1.0 / self.config.mines_per_square_foot).sqrt();
-
         // Place mines along the four sides of the rectangle
         self.place_mines_along_line(
             state,
-            &Coord3D::new(
-                center.x - effective_major,
-                center.y - effective_minor,
-                center.z,
-            ),
-            &Coord3D::new(
-                center.x + effective_major,
-                center.y - effective_minor,
-                center.z,
-            ),
+            &Coord3D::new(center.x - major_radius, center.y - minor_radius, center.z),
+            &Coord3D::new(center.x + major_radius, center.y - minor_radius, center.z),
             mine_template,
-            mine_spacing,
+            mine_radius,
+            true,
         )?;
 
         self.place_mines_along_line(
             state,
-            &Coord3D::new(
-                center.x + effective_major,
-                center.y - effective_minor,
-                center.z,
-            ),
-            &Coord3D::new(
-                center.x + effective_major,
-                center.y + effective_minor,
-                center.z,
-            ),
+            &Coord3D::new(center.x + major_radius, center.y - minor_radius, center.z),
+            &Coord3D::new(center.x + major_radius, center.y + minor_radius, center.z),
             mine_template,
-            mine_spacing,
+            mine_radius,
+            true,
         )?;
 
         self.place_mines_along_line(
             state,
-            &Coord3D::new(
-                center.x + effective_major,
-                center.y + effective_minor,
-                center.z,
-            ),
-            &Coord3D::new(
-                center.x - effective_major,
-                center.y + effective_minor,
-                center.z,
-            ),
+            &Coord3D::new(center.x + major_radius, center.y + minor_radius, center.z),
+            &Coord3D::new(center.x - major_radius, center.y + minor_radius, center.z),
             mine_template,
-            mine_spacing,
+            mine_radius,
+            true,
         )?;
 
         self.place_mines_along_line(
             state,
-            &Coord3D::new(
-                center.x - effective_major,
-                center.y + effective_minor,
-                center.z,
-            ),
-            &Coord3D::new(
-                center.x - effective_major,
-                center.y - effective_minor,
-                center.z,
-            ),
+            &Coord3D::new(center.x - major_radius, center.y + minor_radius, center.z),
+            &Coord3D::new(center.x - major_radius, center.y - minor_radius, center.z),
             mine_template,
-            mine_spacing,
+            mine_radius,
+            true,
         )?;
 
         Ok(())
@@ -755,14 +788,67 @@ impl GenerateMinefieldBehavior {
         geometry: &GeometryInfo,
         mine_template: &str,
     ) -> BehaviorResult<()> {
-        // Smart border uses more intelligent placement based on terrain and existing objects
-        // For now, use circular pattern as fallback
-        self.place_mines_around_circle(
-            state,
-            &geometry.center,
-            geometry.major_radius,
-            mine_template,
-        )
+        let mine_radius = self.mine_template_radius(mine_template)?;
+        let mine_diameter = mine_radius * 2.0;
+        let mut ring_geometry = if self.config.smart_border_skip_interior {
+            GeometryInfo {
+                center: geometry.center,
+                major_radius: geometry.major_radius,
+                minor_radius: geometry.minor_radius,
+                rotation: geometry.rotation,
+                is_circular: geometry.is_circular,
+            }
+        } else {
+            if let Ok(mine_id) = self.place_mine_at(&geometry.center, mine_template) {
+                if self.config.upgradable {
+                    state.mine_list.push(mine_id);
+                }
+            }
+            GeometryInfo {
+                center: geometry.center,
+                major_radius: mine_radius,
+                minor_radius: mine_radius,
+                rotation: geometry.rotation,
+                is_circular: true,
+            }
+        };
+
+        if self.config.always_circular {
+            let radius = ring_geometry.bounding_circle_radius();
+            ring_geometry.major_radius = radius;
+            ring_geometry.minor_radius = radius;
+            ring_geometry.is_circular = true;
+        }
+
+        ring_geometry.expand(mine_radius);
+
+        loop {
+            if !ring_geometry.is_circular && !self.config.always_circular {
+                self.place_mines_around_rect(
+                    state,
+                    &ring_geometry.center,
+                    ring_geometry.major_radius,
+                    ring_geometry.minor_radius,
+                    mine_template,
+                    mine_radius,
+                )?;
+            } else {
+                self.place_mines_around_circle(
+                    state,
+                    &ring_geometry.center,
+                    ring_geometry.major_radius,
+                    mine_template,
+                    mine_radius,
+                )?;
+            }
+
+            if ring_geometry.bounding_circle_radius() >= self.config.distance_around_object {
+                break;
+            }
+            ring_geometry.expand(mine_diameter);
+        }
+
+        Ok(())
     }
 
     /// Place mines along a line between two points
@@ -772,33 +858,29 @@ impl GenerateMinefieldBehavior {
         start: &Coord3D,
         end: &Coord3D,
         mine_template: &str,
-        spacing: f32,
+        mine_radius: f32,
+        skip_one_at_start: bool,
     ) -> BehaviorResult<()> {
         let distance = start.distance_2d(end);
-        let num_mines = (distance / spacing).round() as u32;
-
-        if num_mines == 0 {
+        if distance <= f32::EPSILON {
             return Ok(());
         }
+        let num_mines = line_segment_count(distance, mine_radius);
+        let spacing = distance / num_mines as f32;
+        let mine_jitter = mine_radius * self.config.random_jitter;
 
-        for i in 0..=num_mines {
-            let t = if num_mines > 0 {
-                i as f32 / num_mines as f32
-            } else {
-                0.0
-            };
+        let mut place = if skip_one_at_start { spacing } else { 0.0 };
+        while place <= distance {
+            let t = place / distance;
             let mut position = Coord3D::new(
                 start.x + (end.x - start.x) * t,
                 start.y + (end.y - start.y) * t,
                 start.z + (end.z - start.z) * t,
             );
 
-            // Apply random jitter
-            if self.config.random_jitter > 0.0 {
-                position.x +=
-                    self.random_value(-self.config.random_jitter, self.config.random_jitter);
-                position.y +=
-                    self.random_value(-self.config.random_jitter, self.config.random_jitter);
+            if mine_jitter > 0.0 {
+                position.x += self.random_value(-mine_jitter, mine_jitter);
+                position.y += self.random_value(-mine_jitter, mine_jitter);
             }
 
             if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
@@ -806,6 +888,8 @@ impl GenerateMinefieldBehavior {
                     state.mine_list.push(mine_id);
                 }
             }
+
+            place += spacing;
         }
 
         Ok(())
@@ -1443,6 +1527,31 @@ mod tests {
         assert!(data.upgradable);
         assert_eq!(data.random_jitter, 0.25);
         assert_eq!(data.skip_if_this_much_under_structure, 0.5);
+    }
+
+    #[test]
+    fn border_spacing_uses_cpp_mine_diameter_counts() {
+        assert_eq!(line_segment_count(95.0, 5.0), 10);
+        assert_eq!(line_segment_count(4.0, 5.0), 1);
+        assert_eq!(circle_mine_count(40.0, 5.0), 26);
+    }
+
+    #[test]
+    fn smart_border_expands_multiple_cpp_mine_rings_until_distance() {
+        let box_bounds = GeometryInfo {
+            center: Coord3D::new(0.0, 0.0, 0.0),
+            major_radius: 10.0,
+            minor_radius: 10.0,
+            rotation: 0.0,
+            is_circular: false,
+        };
+
+        assert!((box_bounds.bounding_circle_radius() - 14.142136).abs() < 0.0001);
+        assert_eq!(
+            smart_border_ring_count(box_bounds.bounding_circle_radius(), 40.0, 5.0),
+            4
+        );
+        assert_eq!(smart_border_ring_count(45.0, 40.0, 5.0), 1);
     }
 
     #[test]
