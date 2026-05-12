@@ -334,7 +334,11 @@ impl DamageInfo {
 
     /// Legacy compatibility shim. C++ code paths mutate input fields and then
     /// call syncFromInput() before application.
-    pub fn sync_from_input(&mut self) {}
+    pub fn sync_from_input(&mut self) {
+        self.output.actual_damage_dealt = self.input.amount;
+        self.output.actual_damage_clipped = self.input.amount;
+        self.output.no_effect = false;
+    }
 }
 
 impl Default for DamageInfo {
@@ -528,6 +532,7 @@ impl DamageCalculator {
             if damage_amount > 0.0 {
                 let mut target_damage = damage_info.clone();
                 target_damage.input.amount = damage_amount;
+                target_damage.sync_from_input();
                 area_damage.push((target_id, target_damage));
             }
         }
@@ -797,12 +802,21 @@ mod tests {
 
     #[test]
     fn test_damage_info_creation() {
-        let damage_info = DamageInfo::with_damage(123, DamageType::Explosion, 50.0);
+        let mut damage_info = DamageInfo::with_damage(123, DamageType::Explosion, 50.0);
 
         assert_eq!(damage_info.input.source_id, 123);
         assert_eq!(damage_info.input.damage_type, DamageType::Explosion);
         assert_eq!(damage_info.input.amount, 50.0);
         assert!(!damage_info.input.kill);
+
+        damage_info.output.actual_damage_dealt = 12.0;
+        damage_info.output.actual_damage_clipped = 7.0;
+        damage_info.output.no_effect = true;
+        damage_info.sync_from_input();
+
+        assert_eq!(damage_info.output.actual_damage_dealt, 50.0);
+        assert_eq!(damage_info.output.actual_damage_clipped, 50.0);
+        assert!(!damage_info.output.no_effect);
     }
 
     #[test]
