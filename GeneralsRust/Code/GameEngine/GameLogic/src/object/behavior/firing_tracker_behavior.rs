@@ -8,11 +8,12 @@ use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData};
 
-use crate::common::{DisabledMaskType, NameKeyType, ObjectID};
+use crate::common::{DisabledMaskType, NameKeyType, ObjectID, INVALID_ID};
 use crate::helpers::{FiringTracker, TheGameLogic};
 use crate::modules::{
     BehaviorModuleInterface, SleepyUpdatePhase, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 
 #[derive(Debug, Clone, Default)]
 pub struct FiringTrackerBehaviorModuleData {
@@ -42,6 +43,7 @@ impl Snapshotable for FiringTrackerBehaviorModuleData {
 pub struct FiringTrackerBehavior {
     object_id: ObjectID,
     tracker: FiringTracker,
+    next_call_frame_and_phase: u32,
 }
 
 impl FiringTrackerBehavior {
@@ -49,6 +51,7 @@ impl FiringTrackerBehavior {
         Self {
             object_id,
             tracker: FiringTracker::new(object_id),
+            next_call_frame_and_phase: 0,
         }
     }
 
@@ -97,7 +100,10 @@ impl Snapshotable for FiringTrackerBehavior {
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("xfer version failed: {e:?}"))?;
+            .map_err(|e| format!("FiringTrackerBehavior xfer version failed: {e:?}"))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|err| format!("FiringTrackerBehavior xfer update module base: {err}"))?;
+        self.tracker.xfer_cpp_runtime_state(xfer)?;
         Ok(())
     }
 
@@ -172,5 +178,36 @@ impl Module for FiringTrackerBehaviorModule {
 impl FiringTrackerBehaviorModule {
     fn object_id(&self) -> ObjectID {
         self.behavior.object_id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    #[test]
+    fn firing_tracker_xfer_preserves_cpp_runtime_fields_only() {
+        let mut saved = FiringTrackerBehavior::new(INVALID_ID);
+        saved.next_call_frame_and_phase = 0x4532;
+        saved.tracker.set_xfer_test_state(4, 77, 900, 1200, 1300);
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded = FiringTrackerBehavior::new(INVALID_ID);
+        loaded.tracker.set_xfer_test_state(0, 0, 0, 55, 66);
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.next_call_frame_and_phase, 0x4532);
+        assert_eq!(loaded.tracker.xfer_test_state(), (4, 77, 900, 55, 66));
     }
 }
