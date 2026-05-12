@@ -3193,6 +3193,11 @@ pub trait DockUpdateInterface: Send + Sync {
     /// Check if the dock is open for business
     fn is_dock_open(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>>;
 
+    /// Supply-warehouse contents, when this dock represents a supply warehouse.
+    fn supply_warehouse_boxes_stored(&self) -> Option<i32> {
+        None
+    }
+
     /// Set whether the dock is open (matches C++ DockUpdateInterface::setDockOpen).
     fn set_dock_open(&mut self, open: Bool);
 

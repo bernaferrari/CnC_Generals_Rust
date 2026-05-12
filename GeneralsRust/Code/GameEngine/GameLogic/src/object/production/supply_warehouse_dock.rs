@@ -287,6 +287,10 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         Ok(!self.is_crippled && self.boxes_stored > 0)
     }
 
+    fn supply_warehouse_boxes_stored(&self) -> Option<i32> {
+        Some(self.get_boxes_stored())
+    }
+
     fn set_dock_open(&mut self, open: Bool) {
         self.base.set_dock_open(open);
     }
@@ -533,6 +537,19 @@ mod tests {
 
         assert_eq!(dock.get_boxes_stored(), 10);
         assert!(!dock.is_crippled);
+    }
+
+    #[test]
+    fn test_supply_warehouse_boxes_exposed_through_dock_interface() {
+        let data = SupplyWarehouseDockUpdateData {
+            starting_boxes: 7,
+            ..Default::default()
+        };
+
+        let pos = Coord3D::new(0.0, 0.0, 0.0);
+        let dock = SupplyWarehouseDockUpdate::new(data, 1, &pos);
+
+        assert_eq!(dock.supply_warehouse_boxes_stored(), Some(7));
     }
 
     #[test]
