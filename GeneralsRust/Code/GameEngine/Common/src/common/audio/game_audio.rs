@@ -322,6 +322,7 @@ pub struct AudioManager {
     audio_requests: Vec<AudioRequest>,
     active_audio_events: HashMap<AudioHandle, AudioEventRts>,
     music_tracks: Vec<AsciiString>,
+    current_music_track: AsciiString,
 
     // Audio event registry
     all_audio_event_info: HashMap<AsciiString, Arc<AudioEventInfo>>,
@@ -376,6 +377,7 @@ impl AudioManager {
             audio_requests: Vec::new(),
             active_audio_events: HashMap::new(),
             music_tracks: Vec::new(),
+            current_music_track: String::new(),
             all_audio_event_info: HashMap::new(),
             audio_handle_pool: 1000, // Start at some reasonable value
             adjusted_volumes: Vec::new(),
@@ -440,6 +442,7 @@ impl AudioManager {
         // Clear out any adjusted volumes
         self.adjusted_volumes.clear();
         self.active_audio_events.clear();
+        self.current_music_track.clear();
 
         // Reset scripted volumes
         self.script_music_volume = 1.0;
@@ -839,6 +842,14 @@ impl AudioManager {
         self.music_tracks.push(track_name);
     }
 
+    pub fn set_music_track_name(&mut self, track_name: String) {
+        self.current_music_track = track_name;
+    }
+
+    pub fn get_music_track_name(&self) -> &str {
+        &self.current_music_track
+    }
+
     pub fn next_track_name(&self, current_track: &str) -> String {
         if let Some(pos) = self.music_tracks.iter().position(|x| x == current_track) {
             let next_pos = (pos + 1) % self.music_tracks.len();
@@ -848,6 +859,18 @@ impl AudioManager {
         } else {
             String::new()
         }
+    }
+
+    pub fn next_music_track(&mut self) -> String {
+        let next_track = self.next_track_name(&self.current_music_track);
+        self.current_music_track = next_track.clone();
+        next_track
+    }
+
+    pub fn prev_music_track(&mut self) -> String {
+        let prev_track = self.prev_track_name(&self.current_music_track);
+        self.current_music_track = prev_track.clone();
+        prev_track
     }
 
     pub fn prev_track_name(&self, current_track: &str) -> String {

@@ -1528,24 +1528,35 @@ fn cycle_music_track(next: bool) -> Option<String> {
     let manager = get_global_audio_manager()?;
     let mut audio = manager.lock().ok()?;
 
+    let mut current = audio.get_music_track_name().to_string();
     let script_engine = get_script_engine();
-    let mut script_guard = script_engine.write().ok()?;
-    let engine = script_guard.as_mut()?;
-    let current = engine.get_current_track_name().to_string();
+    let mut script_guard = script_engine.write().ok();
+    if let Some(engine) = script_guard.as_deref_mut().and_then(Option::as_mut) {
+        let script_current = engine.get_current_track_name();
+        if !script_current.is_empty() {
+            current = script_current.to_string();
+            audio.set_music_track_name(current.clone());
+        }
+    }
+
+    audio.set_music_track_name(current);
     let next_track = if next {
-        audio.next_track_name(&current)
+        audio.next_music_track()
     } else {
-        audio.prev_track_name(&current)
+        audio.prev_music_track()
     };
 
     if next_track.is_empty() {
         return None;
     }
+    drop(audio);
 
-    if let Some(action_handler) = engine.action_handler() {
-        let _ = action_handler.music_set_track(&next_track, false, false);
+    if let Some(engine) = script_guard.as_deref_mut().and_then(Option::as_mut) {
+        if let Some(action_handler) = engine.action_handler() {
+            let _ = action_handler.music_set_track(&next_track, false, false);
+        }
+        engine.set_current_track_name(next_track.clone());
     }
-    engine.set_current_track_name(next_track.clone());
     Some(next_track)
 }
 
@@ -4237,6 +4248,15 @@ mod tests {
             let mut audio = manager.lock().unwrap_or_else(|e| e.into_inner());
             audio.set_on(true, AudioAffect::All);
             audio.set_on(true, AudioAffect::Music);
+            audio.add_track_name("meta_test_track_1".to_string());
+            audio.add_track_name("meta_test_track_2".to_string());
+            audio.set_music_track_name("meta_test_track_1".to_string());
+        }
+        {
+            let script_engine = get_script_engine();
+            if let Ok(mut guard) = script_engine.write() {
+                *guard = None;
+            }
         }
 
         assert_eq!(
@@ -4282,10 +4302,18 @@ mod tests {
             dispatch_map_entry(&alias_record("DEMO_MUSIC_NEXT_TRACK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
+        {
+            let audio = manager.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(audio.get_music_track_name(), "meta_test_track_2");
+        }
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_MUSIC_PREV_TRACK")),
             Some(GameMessageDisposition::DestroyMessage)
         );
+        {
+            let audio = manager.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(audio.get_music_track_name(), "meta_test_track_1");
+        }
     }
 
     #[test]
