@@ -9,7 +9,7 @@ use game_engine::common::system::radar::{
     get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
 };
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
 use std::any::Any;
 use std::sync::Arc;
 
@@ -241,6 +241,17 @@ impl Module for BeaconClientUpdateModule {
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
     }
+
+    fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
+        Some(self)
+    }
+}
+
+impl ClientUpdateInterface for BeaconClientUpdateModule {
+    fn hide_beacon(&mut self) -> bool {
+        BeaconClientUpdateModule::hide_beacon(self);
+        true
+    }
 }
 
 impl Snapshotable for BeaconClientUpdateModule {
@@ -353,5 +364,13 @@ mod tests {
 
         assert_eq!(loaded.particle_system_id, Some(0x1234_5678));
         assert_eq!(loaded.last_radar_pulse, 9876);
+    }
+
+    #[test]
+    fn beacon_client_update_exposes_typed_client_update_interface() {
+        let module_data = Arc::new(BeaconClientUpdateModuleData::default());
+        let mut module = BeaconClientUpdateModule::new(11, module_data, 22);
+
+        assert!(module.get_client_update_interface().is_some());
     }
 }

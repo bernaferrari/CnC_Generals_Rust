@@ -169,6 +169,12 @@ pub trait CreateInterface {
     fn should_do_on_build_complete(&self) -> bool;
 }
 
+pub trait ClientUpdateInterface {
+    fn hide_beacon(&mut self) -> bool {
+        false
+    }
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -225,6 +231,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
 
     /// Get create interface if this module supports creation
     fn get_create_interface(&self) -> Option<&dyn CreateInterface> {
+        None
+    }
+
+    fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
         None
     }
 }
