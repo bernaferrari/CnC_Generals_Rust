@@ -2466,6 +2466,23 @@ impl BasicDrawable {
         }
     }
 
+    fn render_state_from_flags(
+        flags: crate::render_bridge::RenderConditionFlags,
+        opacity: f32,
+        tint: Vector3,
+        selected: bool,
+    ) -> crate::render_bridge::RenderStateOverrides {
+        let mut state = crate::render_bridge::RenderStateOverrides::from_condition_flags(flags);
+        state.opacity = state.opacity.min(opacity);
+        state.emissive_tint = [
+            state.emissive_tint[0].max(tint.x.max(0.0)),
+            state.emissive_tint[1].max(tint.y.max(0.0)),
+            state.emissive_tint[2].max(tint.z.max(0.0)),
+        ];
+        state.selected |= selected;
+        state
+    }
+
     fn matrix4_from_model_draw(matrix: glam::Mat4) -> Matrix4 {
         Matrix4 {
             elements: matrix.to_cols_array_2d(),
@@ -3587,19 +3604,14 @@ impl Drawable for BasicDrawable {
             .as_ref()
             .map(|state| state.animation_time)
             .unwrap_or(0.0);
+        let render_state = Self::render_state_from_flags(condition_flags, opacity, tint, selected);
 
         let submission = crate::render_bridge::DrawSubmission {
             drawable_id: crate::render_bridge::DrawableId(self.id.0),
             model_name,
             world_transform: glam::Mat4::from_cols_array_2d(&world_transform.elements),
             condition_flags,
-            render_state: crate::render_bridge::RenderStateOverrides {
-                opacity,
-                emissive_tint: [tint.x.max(0.0), tint.y.max(0.0), tint.z.max(0.0)],
-                selected,
-                hidden: false,
-                ..Default::default()
-            },
+            render_state: render_state.clone(),
             bone_overrides,
             mesh_uv_overrides,
             animation_name,
@@ -3614,8 +3626,8 @@ impl Drawable for BasicDrawable {
             },
             bounding_box: ww3d_core::AABox::zero(),
             sort_level: 0,
-            opaque: opacity >= 1.0,
-            transparent: opacity < 1.0,
+            opaque: render_state.opacity >= 1.0,
+            transparent: render_state.opacity < 1.0,
             cast_shadow: self.status.has(DrawableStatus::SHADOWS),
         };
 
@@ -5615,6 +5627,28 @@ mod tests {
 
         assert_eq!(render_override.bone_index, 7);
         assert_eq!(render_override.transform, transform);
+    }
+
+    #[test]
+    fn test_render_state_from_flags_preserves_condition_overrides() {
+        use crate::render_bridge::RenderConditionFlags;
+
+        let flags = RenderConditionFlags::NIGHT
+            | RenderConditionFlags::SNOW
+            | RenderConditionFlags::DAMAGED
+            | RenderConditionFlags::PARTIALLY_CONSTRUCTED
+            | RenderConditionFlags::AFLAME;
+
+        let state =
+            BasicDrawable::render_state_from_flags(flags, 0.75, Vector3::new(0.2, 0.8, 0.1), true);
+
+        assert!(state.apply_night_map);
+        assert!(state.apply_snow_map);
+        assert_eq!(state.construction_tint, Some([0.5, 0.5, 0.5]));
+        assert!((state.damage_overlay - 0.5).abs() < f32::EPSILON);
+        assert!((state.opacity - 0.7).abs() < f32::EPSILON);
+        assert!(state.selected);
+        assert_eq!(state.emissive_tint, [1.0, 0.8, 0.1]);
     }
 
     #[test]
