@@ -184,6 +184,12 @@ pub trait ModuleData: AsAny + Send + Sync + std::fmt::Debug + std::any::Any {
     ) -> Option<game_engine::common::thing::module::ActiveShroudUpgradeConfig> {
         None
     }
+
+    fn get_radar_upgrade_config(
+        &self,
+    ) -> Option<game_engine::common::thing::module::RadarUpgradeConfig> {
+        None
+    }
 }
 
 impl dyn ModuleData {
