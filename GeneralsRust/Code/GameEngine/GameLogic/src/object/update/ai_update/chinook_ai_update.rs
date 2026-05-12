@@ -181,16 +181,37 @@ fn parse_auto_acquire_field(
     data: &mut ChinookAIUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let value = INI::parse_bit_string_32(tokens, AUTO_ACQUIRE_ENEMIES_NAMES)?;
+    let values = value_tokens(tokens)?;
+    let value = INI::parse_bit_string_32(&values, AUTO_ACQUIRE_ENEMIES_NAMES)?;
     data.base.set_auto_acquire_enemies_when_idle(value);
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> Result<Vec<&'a str>, INIError> {
+    let values: Vec<_> = tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect();
+    if values.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+    Ok(values)
 }
 
 fn parse_duration_unsigned_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_duration_unsigned_int(token)?);
     Ok(())
 }
@@ -199,7 +220,7 @@ fn parse_unsigned_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_unsigned_int(token)?);
     Ok(())
 }
@@ -209,19 +230,19 @@ fn parse_duration_real_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_duration_real(token)?);
     Ok(())
 }
 
 fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_bool(token)?);
     Ok(())
 }
 
 fn parse_real_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_real(token)?);
     Ok(())
 }
@@ -230,7 +251,7 @@ fn parse_velocity_real_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_real(token)?);
     Ok(())
 }
@@ -239,13 +260,13 @@ fn parse_angular_velocity_real_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_angular_velocity_real(token)?);
     Ok(())
 }
 
 fn parse_int_field(setter: &mut dyn FnMut(Int), tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_int(token)?);
     Ok(())
 }
@@ -254,7 +275,7 @@ fn parse_ascii_string_field(
     setter: &mut dyn FnMut(AsciiString),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(AsciiString::from(token));
     Ok(())
 }
@@ -263,7 +284,8 @@ fn parse_rgb_color_field(
     setter: &mut dyn FnMut(RGBColor),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let (r, g, b) = INI::parse_rgb_color(tokens)?;
+    let values = value_tokens(tokens)?;
+    let (r, g, b) = INI::parse_rgb_color(&values)?;
     let to_u8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
     setter(RGBColor::new(to_u8(r), to_u8(g), to_u8(b)));
     Ok(())
@@ -274,11 +296,12 @@ fn parse_locomotor_set_field(
     data: &mut ChinookAIUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.len() < 2 {
+    let values = value_tokens(tokens)?;
+    if values.len() < 2 {
         return Err(INIError::InvalidData);
     }
 
-    let set = match tokens[0] {
+    let set = match values[0] {
         "SET_NORMAL" => crate::common::LocomotorSetType::Normal,
         "SET_NORMAL_UPGRADED" => crate::common::LocomotorSetType::NormalUpgraded,
         "SET_FREEFALL" => crate::common::LocomotorSetType::Freefall,
@@ -295,7 +318,7 @@ fn parse_locomotor_set_field(
     }
 
     let mut entries = Vec::new();
-    for token in tokens.iter().skip(1) {
+    for token in values.iter().skip(1) {
         if token.is_empty() || token.eq_ignore_ascii_case("None") {
             continue;
         }
@@ -1850,5 +1873,98 @@ impl Snapshotable for ChinookAIUpdateModule {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::LocomotorSetType;
+
+    fn parse_field(data: &mut ChinookAIUpdateModuleData, token: &str, values: &[&str]) {
+        let field = CHINOOK_AI_UPDATE_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
+    #[test]
+    fn chinook_fields_accept_ini_equals_token() {
+        let mut data = ChinookAIUpdateModuleData::default();
+
+        parse_field(
+            &mut data,
+            "AutoAcquireEnemiesWhenIdle",
+            &["=", "YES", "ATTACK_BUILDINGS"],
+        );
+        parse_field(
+            &mut data,
+            "Locomotor",
+            &["=", "SET_NORMAL", "ChinookLocomotor"],
+        );
+        parse_field(&mut data, "MoodAttackCheckRate", &["=", "2000"]);
+        parse_field(&mut data, "SurrenderDuration", &["=", "3000"]);
+        parse_field(&mut data, "ForbidPlayerCommands", &["=", "Yes"]);
+        parse_field(&mut data, "TurretsLinked", &["=", "Yes"]);
+        parse_field(&mut data, "MaxBoxes", &["=", "6"]);
+        parse_field(&mut data, "SupplyCenterActionDelay", &["=", "1200"]);
+        parse_field(&mut data, "SupplyWarehouseActionDelay", &["=", "900"]);
+        parse_field(&mut data, "SupplyWarehouseScanDistance", &["=", "275.5"]);
+        parse_field(
+            &mut data,
+            "SuppliesDepletedVoice",
+            &["=", "ChinookSupplyEmpty"],
+        );
+        parse_field(&mut data, "RappelSpeed", &["=", "55.5"]);
+        parse_field(&mut data, "RopeDropSpeed", &["=", "12.5"]);
+        parse_field(&mut data, "RopeName", &["=", "CombatDropRope"]);
+        parse_field(&mut data, "RopeFinalHeight", &["=", "35.0"]);
+        parse_field(&mut data, "RopeWidth", &["=", "0.75"]);
+        parse_field(&mut data, "RopeWobbleLen", &["=", "16.0"]);
+        parse_field(&mut data, "RopeWobbleAmplitude", &["=", "2.5"]);
+        parse_field(&mut data, "RopeWobbleRate", &["=", "0.35"]);
+        parse_field(&mut data, "RopeColor", &["=", "R:51", "G:102", "B:153"]);
+        parse_field(&mut data, "NumRopes", &["=", "5"]);
+        parse_field(&mut data, "PerRopeDelayMin", &["=", "600"]);
+        parse_field(&mut data, "PerRopeDelayMax", &["=", "900"]);
+        parse_field(&mut data, "MinDropHeight", &["=", "40.0"]);
+        parse_field(&mut data, "WaitForRopesToDrop", &["=", "No"]);
+        parse_field(&mut data, "RotorWashParticleSystem", &["=", "ChinookDust"]);
+        parse_field(&mut data, "UpgradedSupplyBoost", &["=", "4"]);
+
+        assert_ne!(data.base.auto_acquire_enemies_when_idle(), 0);
+        assert!(data.base.has_locomotor_set(LocomotorSetType::Normal));
+        assert_eq!(data.base.mood_attack_check_rate(), 60);
+        assert_eq!(data.base.surrender_duration_frames(), 90);
+        assert!(data.base.forbid_player_commands());
+        assert!(data.base.turrets_linked());
+        assert_eq!(data.max_boxes_data, 6);
+        assert_eq!(data.center_delay, 36);
+        assert_eq!(data.warehouse_delay, 27);
+        assert_eq!(data.warehouse_scan_distance, 275.5);
+        assert_eq!(data.supplies_depleted_voice.as_str(), "ChinookSupplyEmpty");
+        assert_eq!(data.rappel_speed, 55.5);
+        assert_eq!(data.rope_drop_speed, 12.5);
+        assert_eq!(data.rope_name.as_str(), "CombatDropRope");
+        assert_eq!(data.rope_final_height, 35.0);
+        assert_eq!(data.rope_width, 0.75);
+        assert_eq!(data.rope_wobble_len, 16.0);
+        assert_eq!(data.rope_wobble_amp, 2.5);
+        assert_eq!(
+            data.rope_wobble_rate,
+            INI::parse_angular_velocity_real("0.35").unwrap()
+        );
+        assert_eq!(data.rope_color.r, 51);
+        assert_eq!(data.rope_color.g, 102);
+        assert_eq!(data.rope_color.b, 153);
+        assert_eq!(data.num_ropes, 5);
+        assert_eq!(data.per_rope_delay_min, 18);
+        assert_eq!(data.per_rope_delay_max, 27);
+        assert_eq!(data.min_drop_height, 40.0);
+        assert!(!data.wait_for_ropes_to_drop);
+        assert_eq!(data.rotor_wash_particle_system.as_str(), "ChinookDust");
+        assert_eq!(data.upgraded_supply_boost, 4);
     }
 }
