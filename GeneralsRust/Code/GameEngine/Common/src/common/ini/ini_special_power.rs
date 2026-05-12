@@ -343,12 +343,14 @@ impl SpecialPowerTemplate {
 #[derive(Debug)]
 pub struct SpecialPowerStore {
     templates: HashMap<String, SpecialPowerTemplate>,
+    template_order: Vec<String>,
 }
 
 impl SpecialPowerStore {
     pub fn new() -> Self {
         Self {
             templates: HashMap::new(),
+            template_order: Vec::new(),
         }
     }
 
@@ -365,7 +367,11 @@ impl SpecialPowerStore {
     /// Create a new template
     pub fn new_template(&mut self, name: AsciiString) -> &mut SpecialPowerTemplate {
         let template = SpecialPowerTemplate::new(name.clone());
-        self.templates.insert(name.as_str().to_string(), template);
+        let key = name.as_str().to_string();
+        if !self.templates.contains_key(&key) {
+            self.template_order.push(key.clone());
+        }
+        self.templates.insert(key, template);
         self.templates.get_mut(name.as_str()).unwrap()
     }
 
@@ -380,12 +386,18 @@ impl SpecialPowerStore {
     /// Register a template
     pub fn register_template(&mut self, template: SpecialPowerTemplate) {
         let name = template.name.as_str().to_string();
+        if !self.templates.contains_key(&name) {
+            self.template_order.push(name.clone());
+        }
         self.templates.insert(name, template);
     }
 
     /// Get all template names
     pub fn get_template_names(&self) -> Vec<&String> {
-        self.templates.keys().collect()
+        self.template_order
+            .iter()
+            .filter(|name| self.templates.contains_key(name.as_str()))
+            .collect()
     }
 
     /// Get templates by type
@@ -393,20 +405,27 @@ impl SpecialPowerStore {
         &self,
         power_type: &SpecialPowerType,
     ) -> Vec<&SpecialPowerTemplate> {
-        self.templates
-            .values()
+        self.template_order
+            .iter()
+            .filter_map(|name| self.templates.get(name.as_str()))
             .filter(|t| &t.power_type == power_type)
             .collect()
     }
 
     /// Remove a template
     pub fn remove_template(&mut self, name: &AsciiString) -> bool {
-        self.templates.remove(name.as_str()).is_some()
+        let removed = self.templates.remove(name.as_str()).is_some();
+        if removed {
+            self.template_order
+                .retain(|template_name| template_name != name.as_str());
+        }
+        removed
     }
 
     /// Clear all templates
     pub fn clear(&mut self) {
         self.templates.clear();
+        self.template_order.clear();
     }
 
     /// Get template count
@@ -583,6 +602,36 @@ mod tests {
 
         // Count templates
         assert_eq!(store.get_template_count(), 1);
+    }
+
+    #[test]
+    fn special_power_store_enumerates_in_registration_order() {
+        let mut store = SpecialPowerStore::new();
+
+        let mut first = SpecialPowerTemplate::new(AsciiString::from("FirstPower"));
+        first.power_type = SpecialPowerType::Support;
+        let mut second = SpecialPowerTemplate::new(AsciiString::from("SecondPower"));
+        second.power_type = SpecialPowerType::Airstrike;
+        let mut third = SpecialPowerTemplate::new(AsciiString::from("ThirdPower"));
+        third.power_type = SpecialPowerType::Support;
+
+        store.register_template(first);
+        store.register_template(second);
+        store.register_template(third);
+
+        let names: Vec<&str> = store
+            .get_template_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(names, vec!["FirstPower", "SecondPower", "ThirdPower"]);
+
+        let support_names: Vec<&str> = store
+            .get_templates_by_type(&SpecialPowerType::Support)
+            .into_iter()
+            .map(|template| template.name.as_str())
+            .collect();
+        assert_eq!(support_names, vec!["FirstPower", "ThirdPower"]);
     }
 
     #[test]
