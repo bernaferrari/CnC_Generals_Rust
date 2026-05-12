@@ -648,18 +648,30 @@ impl StealthUpdateController {
             return StealthLookType::None;
         }
 
-        if !obj_guard
-            .get_status_bits()
-            .contains(ObjectStatusMaskType::STEALTHED)
-        {
+        let status_bits = obj_guard.get_status_bits();
+        if !status_bits.contains(ObjectStatusMaskType::STEALTHED) {
             return StealthLookType::None;
         }
+        let object_team = obj_guard.get_team();
+        drop(obj_guard);
 
-        // Determine relationship (ally/enemy) - simplified vs C++
-        let is_ally = obj_guard
-            .get_controlling_player_id()
-            .map(|pid| pid as u32 == player_id)
-            .unwrap_or(false);
+        let relationship = player_list()
+            .read()
+            .ok()
+            .and_then(|players| players.get_player(player_id as i32).cloned())
+            .and_then(|player| {
+                let player_guard = player.read().ok()?;
+                if !player_guard.is_player_active() {
+                    return Some(Relationship::Allies);
+                }
+                let default_team = player_guard.get_default_team()?;
+                let default_team_guard = default_team.read().ok()?;
+                let object_team = object_team.as_ref()?;
+                let object_team_guard = object_team.read().ok()?;
+                Some(object_team_guard.get_relationship(&default_team_guard))
+            })
+            .unwrap_or(Relationship::Neutral);
+        let is_ally = relationship == Relationship::Allies;
 
         // Disguise special case (lines 489-495)
         if self.can_disguise() && self.is_disguised() {
@@ -671,10 +683,7 @@ impl StealthUpdateController {
         }
 
         // Detected state (lines 497-503)
-        if obj_guard
-            .get_status_bits()
-            .contains(ObjectStatusMaskType::DETECTED)
-        {
+        if status_bits.contains(ObjectStatusMaskType::DETECTED) {
             if is_ally {
                 return StealthLookType::VisibleFriendlyDetected;
             } else {
@@ -1576,6 +1585,16 @@ const STEALTH_UPDATE_MODULE_FIELDS: &[FieldParse<StealthUpdateModuleData>] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{OnceLock, RwLock};
+
+    static STEALTH_LOOK_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn stealth_look_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        STEALTH_LOOK_TEST_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("stealth look test lock")
+    }
 
     #[test]
     fn test_stealth_constants() {
@@ -1643,5 +1662,102 @@ mod tests {
         );
         assert_eq!(data.black_market_check_frames, 120);
         assert!(data.granted_by_special_power);
+    }
+
+    #[test]
+    fn calc_stealth_look_uses_team_relationship_over_player_identity() {
+        let _guard = stealth_look_test_guard();
+        OBJECT_REGISTRY.clear();
+        player_list().write().expect("player list write").clear();
+
+        let object_team = Arc::new(RwLock::new(crate::team::Team::new(
+            "StealthTeam".into(),
+            71,
+        )));
+        let viewer_team = Arc::new(RwLock::new(crate::team::Team::new("ViewerTeam".into(), 72)));
+        object_team
+            .write()
+            .expect("object team write")
+            .set_controlling_player_id(Some(1));
+        viewer_team
+            .write()
+            .expect("viewer team write")
+            .set_controlling_player_id(Some(2));
+
+        let object_player = Arc::new(RwLock::new(crate::player::Player::new(1)));
+        object_player
+            .write()
+            .expect("object player write")
+            .set_default_team(Some(Arc::clone(&object_team)));
+        let viewer_player = Arc::new(RwLock::new(crate::player::Player::new(2)));
+        viewer_player
+            .write()
+            .expect("viewer player write")
+            .set_default_team(Some(Arc::clone(&viewer_team)));
+
+        {
+            let mut players = player_list().write().expect("player list write");
+            players.add_player(Arc::new(RwLock::new(crate::player::Player::new(0))));
+            players.add_player(Arc::clone(&object_player));
+            players.add_player(Arc::clone(&viewer_player));
+        }
+
+        object_team
+            .write()
+            .expect("object team write")
+            .set_override_team_relationship(72, Relationship::Allies);
+
+        let template = Arc::new(DefaultThingTemplate::new("StealthObject".to_string()));
+        let object = Object::new_with_id(
+            template,
+            93_001,
+            ObjectStatusMaskType::STEALTHED,
+            Some(object_team),
+        )
+        .expect("create stealthed object");
+
+        let controller =
+            StealthUpdateController::new(Arc::new(StealthUpdateModuleData::default()), 93_001, 0);
+
+        assert_eq!(
+            controller.calc_stealth_look_for_player(2),
+            StealthLookType::VisibleFriendly
+        );
+
+        drop(object);
+        OBJECT_REGISTRY.unregister_object(93_001);
+        player_list().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn calc_stealth_look_treats_observer_as_ally() {
+        let _guard = stealth_look_test_guard();
+        OBJECT_REGISTRY.clear();
+        player_list().write().expect("player list write").clear();
+
+        let observer = Arc::new(RwLock::new(crate::player::Player::new(0)));
+        observer.write().expect("observer write").set_observer(true);
+        player_list()
+            .write()
+            .expect("player list write")
+            .add_player(observer);
+
+        let template = Arc::new(DefaultThingTemplate::new(
+            "ObservedStealthObject".to_string(),
+        ));
+        let object = Object::new_with_id(template, 93_002, ObjectStatusMaskType::STEALTHED, None)
+            .expect("create stealthed object");
+
+        let controller =
+            StealthUpdateController::new(Arc::new(StealthUpdateModuleData::default()), 93_002, 0);
+
+        assert_eq!(
+            controller.calc_stealth_look_for_player(0),
+            StealthLookType::VisibleFriendly
+        );
+
+        drop(object);
+        OBJECT_REGISTRY.unregister_object(93_002);
+        player_list().write().expect("player list write").clear();
     }
 }
