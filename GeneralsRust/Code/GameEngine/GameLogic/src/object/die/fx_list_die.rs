@@ -67,6 +67,18 @@ impl FXListDieModuleData {
     }
 }
 
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn value_tokens<'a>(tokens: &'a [&str]) -> impl Iterator<Item = &'a str> + 'a {
+    tokens.iter().copied().filter(|token| *token != "=")
+}
+
 fn parse_die_death_types(
     _ini: &mut INI,
     data: &mut FXListDieModuleData,
@@ -104,7 +116,7 @@ fn parse_starts_active(
     data: &mut FXListDieModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.initially_active = INI::parse_bool(token)?;
     Ok(())
 }
@@ -114,7 +126,7 @@ fn parse_death_fx(
     data: &mut FXListDieModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("None") {
         data.default_death_fx = None;
     } else {
@@ -128,7 +140,7 @@ fn parse_orient_to_object(
     data: &mut FXListDieModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.orient_to_object = INI::parse_bool(token)?;
     Ok(())
 }
@@ -141,10 +153,15 @@ fn parse_triggered_by(
     if tokens.is_empty() {
         return Err(INIError::InvalidData);
     }
-    for token in tokens {
+    let mut parsed_any = false;
+    for token in value_tokens(tokens) {
         data.upgrade_mux_data
             .trigger_upgrade_names
-            .push(AsciiString::from(*token));
+            .push(AsciiString::from(token));
+        parsed_any = true;
+    }
+    if !parsed_any {
+        return Err(INIError::InvalidData);
     }
     Ok(())
 }
@@ -157,10 +174,15 @@ fn parse_conflicts_with(
     if tokens.is_empty() {
         return Err(INIError::InvalidData);
     }
-    for token in tokens {
+    let mut parsed_any = false;
+    for token in value_tokens(tokens) {
         data.upgrade_mux_data
             .conflicting_upgrade_names
-            .push(AsciiString::from(*token));
+            .push(AsciiString::from(token));
+        parsed_any = true;
+    }
+    if !parsed_any {
+        return Err(INIError::InvalidData);
     }
     Ok(())
 }
@@ -173,10 +195,15 @@ fn parse_removes_upgrades(
     if tokens.is_empty() {
         return Err(INIError::InvalidData);
     }
-    for token in tokens {
+    let mut parsed_any = false;
+    for token in value_tokens(tokens) {
         data.upgrade_mux_data
             .removal_upgrade_names
-            .push(AsciiString::from(*token));
+            .push(AsciiString::from(token));
+        parsed_any = true;
+    }
+    if !parsed_any {
+        return Err(INIError::InvalidData);
     }
     Ok(())
 }
@@ -186,7 +213,7 @@ fn parse_requires_all_triggers(
     data: &mut FXListDieModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.upgrade_mux_data.requires_all_triggers = INI::parse_bool(token)?;
     Ok(())
 }
@@ -421,6 +448,15 @@ impl crate::modules::UpgradeModuleInterface for FXListDie {
 mod tests {
     use super::*;
 
+    fn parse_field(data: &mut FXListDieModuleData, token: &str, values: &[&str]) {
+        let field = FX_LIST_DIE_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
     #[test]
     fn test_fx_list_die_module_data_default() {
         let data = FXListDieModuleData::default();
@@ -450,5 +486,48 @@ mod tests {
         let mut data = FXListDieModuleData::default();
         data.orient_to_object = false;
         assert_eq!(data.orient_to_object, false);
+    }
+
+    #[test]
+    fn fx_list_die_fields_accept_ini_equals_token() {
+        let mut data = FXListDieModuleData::default();
+
+        parse_field(&mut data, "StartsActive", &["=", "No"]);
+        parse_field(&mut data, "DeathFX", &["=", "FX_TankExplosion"]);
+        parse_field(&mut data, "OrientToObject", &["=", "No"]);
+        parse_field(&mut data, "TriggeredBy", &["=", "Upgrade_A", "Upgrade_B"]);
+        parse_field(&mut data, "ConflictsWith", &["=", "Upgrade_C"]);
+        parse_field(&mut data, "RemovesUpgrades", &["=", "Upgrade_D"]);
+        parse_field(&mut data, "RequiresAllTriggers", &["=", "Yes"]);
+
+        assert!(!data.initially_active);
+        assert_eq!(data.default_death_fx.as_deref(), Some("FX_TankExplosion"));
+        assert!(!data.orient_to_object);
+        assert_eq!(
+            data.upgrade_mux_data
+                .trigger_upgrade_names
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Upgrade_A", "Upgrade_B"]
+        );
+        assert_eq!(
+            data.upgrade_mux_data.conflicting_upgrade_names[0].as_str(),
+            "Upgrade_C"
+        );
+        assert_eq!(
+            data.upgrade_mux_data.removal_upgrade_names[0].as_str(),
+            "Upgrade_D"
+        );
+        assert!(data.upgrade_mux_data.requires_all_triggers);
+    }
+
+    #[test]
+    fn fx_list_die_death_fx_none_skips_equals_separator() {
+        let mut data = FXListDieModuleData::default();
+
+        parse_field(&mut data, "DeathFX", &["=", "None"]);
+
+        assert!(data.default_death_fx.is_none());
     }
 }
