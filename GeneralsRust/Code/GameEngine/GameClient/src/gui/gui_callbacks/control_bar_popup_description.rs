@@ -5,6 +5,7 @@ use crate::gui::{
     get_display_string_manager, with_window_manager, AnimateWindowManager, AnimationType, GameFont,
     GameWindow, WindowLayout, WindowMsgHandled, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW,
 };
+use crate::helpers::TheInGameUI;
 use game_engine::common::ini::ini_command_button::CommandButton as IniCommandButton;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -388,6 +389,10 @@ fn populate_layout_for_window(layout: &Rc<RefCell<WindowLayout>>, tooltip_window
 }
 
 pub fn show_build_tooltip_layout(cmd_button: Rc<RefCell<GameWindow>>) -> WindowMsgHandled {
+    if TheInGameUI::are_tooltips_disabled() {
+        return WindowMsgHandled::Ignored;
+    }
+
     with_popup_state(|state| {
         let layout = match ensure_layout(state) {
             Some(layout) => layout,
