@@ -28,6 +28,7 @@ use crate::message_stream::game_message::{
 use crate::message_stream::message_stream::append_message_to_stream;
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::ini::get_anim2d_collection;
+use game_engine::common::ini::ini_language::get_global_language_read;
 use gamelogic::action_manager::ActionManager;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
 use gamelogic::common::CommandSourceType;
@@ -3803,10 +3804,20 @@ impl InGameUI {
             block_drawn: true,
             block_begin_frame: self.current_frame,
             block_pos: (pos_x, pos_y),
-            increment_on_frame: self.current_frame
-                + (30 * self.military_caption_speed as u32) / 1000,
+            increment_on_frame: self.current_frame + Self::military_caption_delay_frames(),
             color,
         });
+    }
+
+    fn military_caption_delay_frames() -> u32 {
+        let delay_ms = get_global_language_read()
+            .map(|language| language.military_caption_delay_ms)
+            .unwrap_or(750);
+        Self::milliseconds_to_logic_frames(delay_ms)
+    }
+
+    fn milliseconds_to_logic_frames(milliseconds: i32) -> u32 {
+        (30 * milliseconds.max(0) as u32) / 1000
     }
 
     pub fn remove_military_subtitle(&mut self) {
@@ -4365,6 +4376,7 @@ pub enum CommandHintType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::ini::ini_language::init_global_language;
 
     #[test]
     fn test_selection_box() {
@@ -4435,5 +4447,18 @@ mod tests {
 
         display.update(5000, 100, 150);
         assert!(display.is_power_deficit());
+    }
+
+    #[test]
+    fn military_caption_delay_uses_global_language_default_delay_ms() {
+        init_global_language();
+        assert_eq!(InGameUI::military_caption_delay_frames(), 22);
+    }
+
+    #[test]
+    fn military_caption_milliseconds_convert_to_logic_frames() {
+        assert_eq!(InGameUI::milliseconds_to_logic_frames(750), 22);
+        assert_eq!(InGameUI::milliseconds_to_logic_frames(1000), 30);
+        assert_eq!(InGameUI::milliseconds_to_logic_frames(-1), 0);
     }
 }
