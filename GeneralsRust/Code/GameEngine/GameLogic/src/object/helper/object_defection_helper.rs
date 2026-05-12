@@ -17,6 +17,7 @@
 
 use super::{DisabledMaskType, ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
+use game_engine::common::system::{Snapshotable, Xfer};
 use std::sync::{Arc, RwLock};
 
 /// Maximum defection detection time (10 seconds at 30 FPS)
@@ -194,9 +195,33 @@ impl ObjectHelperInterface for ObjectDefectionHelper {
     }
 }
 
+impl Snapshotable for ObjectDefectionHelper {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_unsigned_int(&mut self.defection_detection_start)
+            .map_err(|err| format!("ObjectDefectionHelper xfer detection_start: {err:?}"))?;
+        xfer.xfer_unsigned_int(&mut self.defection_detection_end)
+            .map_err(|err| format!("ObjectDefectionHelper xfer detection_end: {err:?}"))?;
+        xfer.xfer_real(&mut self.defection_detection_flash_phase)
+            .map_err(|err| format!("ObjectDefectionHelper xfer flash_phase: {err:?}"))?;
+        xfer.xfer_bool(&mut self.do_defector_fx)
+            .map_err(|err| format!("ObjectDefectionHelper xfer do_defector_fx: {err:?}"))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
 
     #[test]
     fn test_defection_helper_creation() {
@@ -295,5 +320,40 @@ mod tests {
         helper.start_defection_timer(300, true, 100, false); // Not undetected
 
         assert_eq!(helper.wake_frame, u32::MAX); // Sleep forever
+    }
+
+    #[test]
+    fn xfer_preserves_detection_timer_state() {
+        let mut saved = ObjectDefectionHelper::new(ObjectDefectionHelperModuleData::new());
+        saved.start_defection_timer(300, true, 100, true);
+        saved.defection_detection_flash_phase = 2.75;
+        saved.wake_frame = 42;
+
+        let mut bytes = Cursor::new(Vec::new());
+        {
+            let mut xfer = XferSave::new(&mut bytes, 1);
+            saved.xfer(&mut xfer).unwrap();
+        }
+
+        bytes.set_position(0);
+        let mut loaded = ObjectDefectionHelper::new(ObjectDefectionHelperModuleData::new());
+        {
+            let mut xfer = XferLoad::new(&mut bytes, 1);
+            loaded.xfer(&mut xfer).unwrap();
+        }
+
+        assert_eq!(
+            loaded.defection_detection_start,
+            saved.defection_detection_start
+        );
+        assert_eq!(
+            loaded.defection_detection_end,
+            saved.defection_detection_end
+        );
+        assert_eq!(
+            loaded.defection_detection_flash_phase,
+            saved.defection_detection_flash_phase
+        );
+        assert_eq!(loaded.do_defector_fx, saved.do_defector_fx);
     }
 }
