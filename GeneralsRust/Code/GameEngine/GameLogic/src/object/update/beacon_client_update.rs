@@ -126,9 +126,16 @@ impl BeaconClientUpdateModule {
             drawable.set_shadows_enabled(false);
         }
 
-        if let Some(system_id) = self.particle_system_id.take() {
-            if let Some(ps_manager) = TheParticleSystemManager::get() {
-                ps_manager.destroy_particle_system(system_id);
+        if let Some(ps_manager) = TheParticleSystemManager::get() {
+            if self.particle_system_id.is_none() {
+                if let Some(drawable) = obj_guard.get_drawable() {
+                    self.particle_system_id =
+                        self.create_particle_system(&drawable, obj_guard.get_indicator_color());
+                }
+            }
+
+            if let Some(system_id) = self.particle_system_id {
+                ps_manager.stop_particle_system(system_id);
             }
         }
     }
