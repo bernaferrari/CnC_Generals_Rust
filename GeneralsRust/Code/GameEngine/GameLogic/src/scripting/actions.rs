@@ -1659,6 +1659,14 @@ pub fn get_float_param(
     }
 }
 
+fn get_bool_param_optional(parameters: &HashMap<String, ScriptValue>, name: &str) -> Option<bool> {
+    match parameters.get(name) {
+        Some(ScriptValue::Bool(value)) => Some(*value),
+        Some(ScriptValue::Int(value)) => Some(*value != 0),
+        _ => None,
+    }
+}
+
 fn get_coord_param_optional(
     parameters: &HashMap<String, ScriptValue>,
     name: &str,
@@ -5565,8 +5573,13 @@ impl ScriptAction for SpeechPlayAction {
         _context: &ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
         let speech_name = get_string_param(parameters, "speech_name")?;
+        let allow_overlap = get_bool_param_optional(parameters, "allow_overlap").unwrap_or(false);
 
-        log::info!("Playing speech '{}'", speech_name);
+        log::info!(
+            "Playing speech '{}' (overlap: {})",
+            speech_name,
+            allow_overlap
+        );
 
         // Matches C++ ScriptActions.cpp:doSpeechPlay line 2743
         // Integration with audio/EVA system (from C++):
@@ -5581,7 +5594,7 @@ impl ScriptAction for SpeechPlayAction {
         if let Ok(engine_guard) = get_script_engine().read() {
             if let Some(ref script_engine) = *engine_guard {
                 if let Some(handler) = script_engine.action_handler() {
-                    if let Err(err) = handler.speech_play(&speech_name, false) {
+                    if let Err(err) = handler.speech_play(&speech_name, allow_overlap) {
                         log::warn!("Script action handler speech_play failed: {}", err);
                     }
                 }
@@ -5604,7 +5617,7 @@ impl ScriptAction for SpeechPlayAction {
     }
 
     fn optional_parameters(&self) -> Vec<String> {
-        vec![]
+        vec!["allow_overlap".to_string()]
     }
 }
 
