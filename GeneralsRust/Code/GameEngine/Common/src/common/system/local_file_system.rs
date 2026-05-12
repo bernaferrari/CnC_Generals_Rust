@@ -15,7 +15,44 @@ use crate::common::system::{
     local_file::LocalFile,
     subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState},
 };
-use regex::Regex;
+
+fn wildcard_match_case_insensitive(candidate: &str, mask: &str) -> bool {
+    let candidate = candidate.to_ascii_lowercase();
+    let mask = mask.to_ascii_lowercase();
+    let candidate_bytes = candidate.as_bytes();
+    let mask_bytes = mask.as_bytes();
+
+    let mut candidate_index = 0usize;
+    let mut mask_index = 0usize;
+    let mut star_index: Option<usize> = None;
+    let mut match_index = 0usize;
+
+    while candidate_index < candidate_bytes.len() {
+        if mask_index < mask_bytes.len()
+            && (mask_bytes[mask_index] == candidate_bytes[candidate_index]
+                || mask_bytes[mask_index] == b'?')
+        {
+            candidate_index += 1;
+            mask_index += 1;
+        } else if mask_index < mask_bytes.len() && mask_bytes[mask_index] == b'*' {
+            star_index = Some(mask_index);
+            match_index = candidate_index;
+            mask_index += 1;
+        } else if let Some(star) = star_index {
+            mask_index = star + 1;
+            match_index += 1;
+            candidate_index = match_index;
+        } else {
+            return false;
+        }
+    }
+
+    while mask_index < mask_bytes.len() && mask_bytes[mask_index] == b'*' {
+        mask_index += 1;
+    }
+
+    mask_index == mask_bytes.len()
+}
 
 /// Local file system backend implementation
 ///
@@ -163,17 +200,7 @@ impl LocalFileSystem {
 
     /// Check if a path matches a search pattern
     fn matches_pattern(filename: &str, pattern: &str) -> bool {
-        // Simple globbing translated to regex semantics
-        let regex_pattern = pattern
-            .replace('.', r"\.")
-            .replace('*', ".*")
-            .replace('?', ".");
-
-        if let Ok(regex) = Regex::new(&format!("^{}$", regex_pattern)) {
-            regex.is_match(filename)
-        } else {
-            filename == pattern || pattern == "*"
-        }
+        wildcard_match_case_insensitive(filename, pattern)
     }
 
     /// Recursively search directory for matching files
@@ -443,6 +470,12 @@ mod tests {
     fn test_pattern_matching() {
         assert!(LocalFileSystem::matches_pattern("test.txt", "*.txt"));
         assert!(LocalFileSystem::matches_pattern("file.ini", "*.ini"));
+        assert!(LocalFileSystem::matches_pattern("file.ini", "*.INI"));
+        assert!(LocalFileSystem::matches_pattern(
+            "AmericaVehicle.INI",
+            "america*.ini"
+        ));
+        assert!(LocalFileSystem::matches_pattern("foo.bar", "f?o.*"));
         assert!(LocalFileSystem::matches_pattern("anything", "*"));
         assert!(!LocalFileSystem::matches_pattern("test.txt", "*.ini"));
         assert!(LocalFileSystem::matches_pattern("test.txt", "test.txt"));
@@ -622,6 +655,45 @@ mod tests {
         );
 
         assert_eq!(filenames.len(), 1);
+
+        fs::remove_dir_all(test_root)?;
+        Ok(())
+    }
+
+    #[test]
+    fn test_directory_listing_matches_case_insensitive_masks(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let test_root = PathBuf::from("test_case_insensitive_mask_listing");
+        let actual_dir = test_root.join("Data").join("INI").join("Object");
+        fs::create_dir_all(&actual_dir)?;
+        fs::write(actual_dir.join("AmericaVehicle.ini"), b"test")?;
+        fs::write(actual_dir.join("AmericaInfantry.INI"), b"test")?;
+        fs::write(actual_dir.join("Readme.txt"), b"test")?;
+
+        let mut fs_backend = LocalFileSystem::new();
+        fs_backend.add_search_path(&test_root);
+
+        let mut filenames = FilenameList::new();
+        fs_backend.get_file_list_in_directory(
+            &AsciiString::from(""),
+            &AsciiString::from("data/ini/object"),
+            &AsciiString::from("*.INI"),
+            &mut filenames,
+            false,
+        );
+
+        let listed = filenames
+            .iter()
+            .map(|name| name.as_str().replace('\\', "/").to_lowercase())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            listed,
+            vec![
+                "data/ini/object/americainfantry.ini".to_string(),
+                "data/ini/object/americavehicle.ini".to_string()
+            ]
+        );
 
         fs::remove_dir_all(test_root)?;
         Ok(())
