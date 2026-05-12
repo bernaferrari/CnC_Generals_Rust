@@ -1970,9 +1970,9 @@ impl ClassicState for AIIdleState {
 
         self.inited = true;
 
-        // Randomize idle countdown to avoid spikes (C++ line 1304)
-        // const IDLE_COUNTDOWN_DELAY = LOGICFRAMES_PER_SECOND * 2
-        self.initial_sleep_offset = (rand::random::<u16>() % 60) as u16; // 60 frames ~= 2 seconds at 30fps
+        // Randomize idle countdown to avoid spikes (C++ AIStates.cpp line 1304).
+        self.initial_sleep_offset =
+            get_game_logic_random_value(0, (LOGICFRAMES_PER_SECOND * 2) as i32) as u16;
 
         if let Some(owner) = self.base.get_machine_owner() {
             if let Ok(owner_guard) = owner.read() {
