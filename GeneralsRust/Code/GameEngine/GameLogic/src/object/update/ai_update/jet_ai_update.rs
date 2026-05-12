@@ -158,25 +158,19 @@ impl Snapshotable for JetAIUpdateModuleData {
 }
 
 fn parse_bool_field(setter: &mut dyn FnMut(Bool), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_bool(token)?);
     Ok(())
 }
 
 fn parse_real_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_real(token)?);
     Ok(())
 }
 
 fn parse_percent_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_percent_to_real(token)?);
     Ok(())
 }
@@ -185,9 +179,7 @@ fn parse_duration_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_duration_unsigned_int(token)?);
     Ok(())
 }
@@ -196,9 +188,7 @@ fn parse_locomotor_set(
     setter: &mut dyn FnMut(LocomotorSetType),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     let index =
         INI::parse_index_list(token, LOCOMOTOR_SET_NAMES).map_err(|_| INIError::InvalidData)?;
     let set = match index {
@@ -217,11 +207,17 @@ fn parse_locomotor_set(
 }
 
 fn parse_angle_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
-        return Err(INIError::InvalidData);
-    };
+    let token = required_value(tokens)?;
     setter(INI::parse_angle_real(token)?);
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 const JET_AI_UPDATE_FIELDS: &[FieldParse<JetAIUpdateModuleData>] = &[
@@ -312,9 +308,7 @@ const JET_AI_UPDATE_FIELDS: &[FieldParse<JetAIUpdateModuleData>] = &[
     FieldParse {
         token: "LockonCursor",
         parse: |_, data, tokens| {
-            let Some(token) = tokens.first().copied() else {
-                return Err(INIError::InvalidData);
-            };
+            let token = required_value(tokens)?;
             data.lockon_cursor = AsciiString::from(token);
             Ok(())
         },
@@ -2336,5 +2330,71 @@ impl Snapshotable for JetAIUpdateModule {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_field(data: &mut JetAIUpdateModuleData, token: &str, values: &[&str]) {
+        let field = JET_AI_UPDATE_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
+    #[test]
+    fn jet_fields_accept_ini_equals_token() {
+        let mut data = JetAIUpdateModuleData::default();
+
+        parse_field(&mut data, "OutOfAmmoDamagePerSecond", &["=", "25%"]);
+        parse_field(&mut data, "NeedsRunway", &["=", "No"]);
+        parse_field(&mut data, "KeepsParkingSpaceWhenAirborne", &["=", "No"]);
+        parse_field(&mut data, "TakeoffDistForMaxLift", &["=", "75%"]);
+        parse_field(&mut data, "TakeoffPause", &["=", "1500"]);
+        parse_field(&mut data, "MinHeight", &["=", "80.5"]);
+        parse_field(&mut data, "ParkingOffset", &["=", "12.25"]);
+        parse_field(&mut data, "SneakyOffsetWhenAttacking", &["=", "33.75"]);
+        parse_field(&mut data, "AttackLocomotorType", &["=", "SET_SUPERSONIC"]);
+        parse_field(&mut data, "AttackLocomotorPersistTime", &["=", "2400"]);
+        parse_field(&mut data, "AttackersMissPersistTime", &["=", "900"]);
+        parse_field(
+            &mut data,
+            "ReturnForAmmoLocomotorType",
+            &["=", "SET_TAXIING"],
+        );
+        parse_field(&mut data, "LockonTime", &["=", "1200"]);
+        parse_field(&mut data, "LockonCursor", &["=", "LaserGuidedMissile"]);
+        parse_field(&mut data, "LockonInitialDist", &["=", "180.0"]);
+        parse_field(&mut data, "LockonFreq", &["=", "0.25"]);
+        parse_field(&mut data, "LockonAngleSpin", &["=", "360"]);
+        parse_field(&mut data, "LockonBlinky", &["=", "Yes"]);
+        parse_field(&mut data, "ReturnToBaseIdleTime", &["=", "3000"]);
+
+        assert_eq!(data.out_of_ammo_damage_per_second, 0.25);
+        assert!(!data.needs_runway);
+        assert!(!data.keeps_parking_space_when_airborne);
+        assert_eq!(data.takeoff_dist_for_max_lift, 0.75);
+        assert_eq!(data.takeoff_pause, 45);
+        assert_eq!(data.min_height, 80.5);
+        assert_eq!(data.parking_offset, 12.25);
+        assert_eq!(data.sneaky_offset_when_attacking, 33.75);
+        assert_eq!(data.attacking_loco, LocomotorSetType::Supersonic);
+        assert_eq!(data.attack_loco_persist_time, 72);
+        assert_eq!(data.attackers_miss_persist_time, 27);
+        assert_eq!(data.returning_loco, LocomotorSetType::Taxiing);
+        assert_eq!(data.lockon_time, 36);
+        assert_eq!(data.lockon_cursor.as_str(), "LaserGuidedMissile");
+        assert_eq!(data.lockon_initial_dist, 180.0);
+        assert_eq!(data.lockon_freq, 0.25);
+        assert_eq!(
+            data.lockon_angle_spin,
+            INI::parse_angle_real("360").unwrap()
+        );
+        assert!(data.lockon_blinky);
+        assert_eq!(data.return_to_base_idle_time, 90);
     }
 }
