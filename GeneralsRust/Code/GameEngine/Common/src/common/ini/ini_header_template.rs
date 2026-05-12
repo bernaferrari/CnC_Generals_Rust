@@ -36,12 +36,14 @@ static HEADER_TEMPLATE_MANAGER: OnceLock<RwLock<HeaderTemplateManager>> = OnceLo
 #[derive(Debug, Clone, Default)]
 pub struct HeaderTemplateManager {
     templates: HashMap<String, HeaderTemplate>,
+    template_order: Vec<String>,
 }
 
 impl HeaderTemplateManager {
     pub fn new() -> Self {
         Self {
             templates: HashMap::new(),
+            template_order: Vec::new(),
         }
     }
 
@@ -58,23 +60,34 @@ impl HeaderTemplateManager {
             point: 0,
             bold: false,
         };
+        if !self.templates.contains_key(&name) {
+            self.template_order.insert(0, name.clone());
+        }
         self.templates.insert(name.clone(), template);
         self.templates.get_mut(&name).unwrap()
     }
 
     /// Add or update a header template
     pub fn add_template(&mut self, template: HeaderTemplate) {
-        self.templates.insert(template.name.clone(), template);
+        let name = template.name.clone();
+        if !self.templates.contains_key(&name) {
+            self.template_order.insert(0, name.clone());
+        }
+        self.templates.insert(name, template);
     }
 
     /// Get all template names
     pub fn get_template_names(&self) -> Vec<&String> {
-        self.templates.keys().collect()
+        self.template_order
+            .iter()
+            .filter(|name| self.templates.contains_key(name.as_str()))
+            .collect()
     }
 
     /// Clear all templates
     pub fn clear(&mut self) {
         self.templates.clear();
+        self.template_order.clear();
     }
 }
 
@@ -212,5 +225,56 @@ mod tests {
         assert_eq!(found.font_name, "Arial");
         assert_eq!(found.point, 12);
         assert!(found.bold);
+    }
+
+    #[test]
+    fn header_template_names_follow_cpp_list_order() {
+        let mut manager = HeaderTemplateManager::new();
+
+        manager.add_template(HeaderTemplate {
+            name: "FirstHeader".to_string(),
+            font_name: "Arial".to_string(),
+            point: 10,
+            bold: false,
+        });
+        manager.add_template(HeaderTemplate {
+            name: "SecondHeader".to_string(),
+            font_name: "Arial".to_string(),
+            point: 12,
+            bold: false,
+        });
+        manager.add_template(HeaderTemplate {
+            name: "ThirdHeader".to_string(),
+            font_name: "Arial".to_string(),
+            point: 14,
+            bold: true,
+        });
+
+        let names: Vec<&str> = manager
+            .get_template_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(names, vec!["ThirdHeader", "SecondHeader", "FirstHeader"]);
+
+        manager.add_template(HeaderTemplate {
+            name: "SecondHeader".to_string(),
+            font_name: "Arial".to_string(),
+            point: 18,
+            bold: true,
+        });
+
+        let names_after_override: Vec<&str> = manager
+            .get_template_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            names_after_override,
+            vec!["ThirdHeader", "SecondHeader", "FirstHeader"]
+        );
+        let second = manager.find_header_template("SecondHeader").unwrap();
+        assert_eq!(second.point, 18);
+        assert!(second.bold);
     }
 }
