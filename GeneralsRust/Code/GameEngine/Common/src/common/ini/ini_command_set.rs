@@ -151,22 +151,8 @@ impl CommandSet {
 
     /// Validate the command set configuration
     pub fn validate(&self) -> INIResult<()> {
-        // Check for duplicate buttons
-        let mut seen_buttons = std::collections::HashSet::new();
-        for button_name in self.get_all_buttons() {
-            if !seen_buttons.insert(button_name) {
-                eprintln!(
-                    "CommandSet {} contains duplicate button: {}",
-                    self.name, button_name
-                );
-                return Err(INIError::InvalidData);
-            }
-        }
-
-        // Additional validation could be added here
-        // - Check if referenced buttons exist
-        // - Validate button positions
-        // - etc.
+        // C++ accepts repeated command buttons in different slots. Retail transport
+        // command sets intentionally repeat exit commands for passenger slots.
 
         Ok(())
     }
@@ -619,10 +605,48 @@ mod tests {
         command_set.add_button("Button2".to_string()).unwrap();
         assert!(command_set.validate().is_ok());
 
-        // Invalid set with duplicates
+        // C++ CommandSet::parseCommandButton stores per-slot pointers and allows
+        // duplicates. Retail transport command sets rely on this for exit slots.
         command_set
             .set_button_at_position(10, "Button1".to_string())
-            .unwrap(); // Duplicate
-        assert!(command_set.validate().is_err());
+            .unwrap();
+        assert!(command_set.validate().is_ok());
+        assert_eq!(command_set.button_count(), 3);
+    }
+
+    #[test]
+    fn parse_fields_accept_duplicate_button_slots() {
+        crate::common::ini::ini_command_button::initialize_control_bar();
+        {
+            let mut control_bar =
+                crate::common::ini::ini_command_button::get_control_bar_mut().unwrap();
+            control_bar.clear();
+            control_bar.new_command_button("Command_TransportExit".to_string());
+        }
+
+        let mut command_set = CommandSet::new("AmericaTransportCommandSet".to_string());
+        let mut ini = INI::new();
+
+        parse_button_1(&mut ini, &mut command_set, &["Command_TransportExit"]).unwrap();
+        parse_button_2(&mut ini, &mut command_set, &["Command_TransportExit"]).unwrap();
+        parse_button_3(&mut ini, &mut command_set, &["Command_TransportExit"]).unwrap();
+
+        assert_eq!(
+            command_set.get_button_at_position(0).map(String::as_str),
+            Some("Command_TransportExit")
+        );
+        assert_eq!(
+            command_set.get_button_at_position(1).map(String::as_str),
+            Some("Command_TransportExit")
+        );
+        assert_eq!(
+            command_set.get_button_at_position(2).map(String::as_str),
+            Some("Command_TransportExit")
+        );
+        assert!(command_set.validate().is_ok());
+
+        crate::common::ini::ini_command_button::get_control_bar_mut()
+            .unwrap()
+            .clear();
     }
 }
