@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::ini::INILoadType;
 
 /// Result type for special power parsing operations
 pub type SpecialPowerResult<T> = Result<T, SpecialPowerError>;
@@ -425,6 +426,41 @@ impl SpecialPowerStore {
         self.templates.insert(name, template);
     }
 
+    pub fn register_definition(
+        &mut self,
+        name: AsciiString,
+        properties: &HashMap<String, String>,
+        load_type: INILoadType,
+    ) -> SpecialPowerResult<()> {
+        let mut template = if let Some(existing) = self.find_template(&name).cloned() {
+            if load_type != INILoadType::CreateOverrides {
+                return Err(SpecialPowerError::ParseError(format!(
+                    "Special power '{}' already exists",
+                    name.as_str()
+                )));
+            }
+            existing
+        } else {
+            let mut template = self
+                .find_template(&AsciiString::from("DefaultSpecialPower"))
+                .cloned()
+                .unwrap_or_else(|| SpecialPowerTemplate::new(name.clone()));
+            template.name = name;
+            template.id = 0;
+            template
+        };
+
+        template.update_from_properties(properties);
+        if !template.is_valid() {
+            return Err(SpecialPowerError::ParseError(
+                "Invalid special power template configuration".to_string(),
+            ));
+        }
+
+        self.register_template(template);
+        Ok(())
+    }
+
     /// Get all template names
     pub fn get_template_names(&self) -> Vec<&String> {
         self.template_order
@@ -569,6 +605,22 @@ impl IniSpecialPower {
         Ok(())
     }
 
+    pub fn register_definition(
+        name: AsciiString,
+        properties: HashMap<String, String>,
+        load_type: INILoadType,
+    ) -> SpecialPowerResult<()> {
+        if name.is_empty() {
+            return Err(SpecialPowerError::InvalidName);
+        }
+
+        initialize_special_power_store();
+
+        let mut store = get_special_power_store_mut()
+            .ok_or_else(|| SpecialPowerError::StoreError("Store not initialized".to_string()))?;
+        store.register_definition(name, &properties, load_type)
+    }
+
     /// Find a special power template by name
     pub fn find_template_by_name(name: &AsciiString) -> Option<SpecialPowerTemplate> {
         if let Some(store) = get_special_power_store() {
@@ -698,6 +750,78 @@ mod tests {
             Some("SecondPower")
         );
         assert!(store.get_template_by_index(4).is_none());
+    }
+
+    #[test]
+    fn special_power_definition_rejects_duplicate_without_override_load() {
+        let mut store = SpecialPowerStore::new();
+        let name = AsciiString::from("ExistingPower");
+        let properties = HashMap::new();
+
+        store
+            .register_definition(name.clone(), &properties, INILoadType::Overwrite)
+            .unwrap();
+
+        let result = store.register_definition(name, &properties, INILoadType::Overwrite);
+        assert!(matches!(result, Err(SpecialPowerError::ParseError(_))));
+        assert_eq!(store.get_template_count(), 1);
+    }
+
+    #[test]
+    fn special_power_override_preserves_existing_id_and_order() {
+        let mut store = SpecialPowerStore::new();
+
+        let first_name = AsciiString::from("FirstPower");
+        let second_name = AsciiString::from("SecondPower");
+        let mut first_properties = HashMap::new();
+        first_properties.insert("Cost".to_string(), "100".to_string());
+        let mut second_properties = HashMap::new();
+        second_properties.insert("Cost".to_string(), "200".to_string());
+
+        store
+            .register_definition(
+                first_name.clone(),
+                &first_properties,
+                INILoadType::Overwrite,
+            )
+            .unwrap();
+        store
+            .register_definition(
+                second_name.clone(),
+                &second_properties,
+                INILoadType::Overwrite,
+            )
+            .unwrap();
+
+        let first_id = store.find_template(&first_name).unwrap().id;
+        let second_id = store.find_template(&second_name).unwrap().id;
+        let mut override_properties = HashMap::new();
+        override_properties.insert("Cost".to_string(), "777".to_string());
+        store
+            .register_definition(
+                first_name.clone(),
+                &override_properties,
+                INILoadType::CreateOverrides,
+            )
+            .unwrap();
+
+        let first = store.find_template(&first_name).unwrap();
+        assert_eq!(first.id, first_id);
+        assert_eq!(first.cost, 777);
+        assert_eq!(store.find_template(&second_name).unwrap().id, second_id);
+        assert_eq!(
+            store
+                .get_template_by_index(0)
+                .map(|template| template.name.as_str()),
+            Some("FirstPower")
+        );
+        assert_eq!(
+            store
+                .get_template_by_index(1)
+                .map(|template| template.name.as_str()),
+            Some("SecondPower")
+        );
+        assert_eq!(store.get_template_count(), 2);
     }
 
     #[test]
