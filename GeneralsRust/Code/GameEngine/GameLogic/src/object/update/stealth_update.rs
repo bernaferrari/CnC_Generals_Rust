@@ -26,6 +26,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object, ObjectScriptStatusBit};
 use crate::object_manager::get_object_manager;
 use crate::player::player_list;
+use crate::system::disguise_manager::get_disguise_manager;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
@@ -530,7 +531,7 @@ impl StealthUpdateController {
     ) {
         if let Some(template) = target_template {
             // Start disguising (lines 919-940)
-            self.disguise_as_template_name = Some(template);
+            self.disguise_as_template_name = Some(template.clone());
             // Use our controlling player as disguise owner until target info is available.
             let disguise_player = if let Some(obj) = OBJECT_REGISTRY.get_object(self.object_id) {
                 if let Ok(guard) = obj.read() {
@@ -548,6 +549,13 @@ impl StealthUpdateController {
             self.disguise_transition_frames = self.data.disguise_transition_frames;
             self.disguise_halfpoint_reached = false;
 
+            if let Ok(mut disguise_manager) = get_disguise_manager().lock() {
+                let _ = disguise_manager.register_object(self.object_id);
+                let _ = disguise_manager.set_disguise(self.object_id, template, disguise_player);
+                let _ = disguise_manager
+                    .start_transition(self.object_id, self.data.disguise_transition_frames);
+            }
+
             trace!(
                 "Object {} starting disguise as {}",
                 self.object_id,
@@ -560,6 +568,10 @@ impl StealthUpdateController {
             self.disguise_transition_frames = self.data.disguise_reveal_transition_frames;
             self.transitioning_to_disguise = false;
             self.disguise_halfpoint_reached = false;
+
+            if let Ok(mut disguise_manager) = get_disguise_manager().lock() {
+                let _ = disguise_manager.unregister_object(self.object_id);
+            }
 
             trace!("Object {} removing disguise", self.object_id);
         }

@@ -46,7 +46,8 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::special_power_template::get_special_power_store;
 use gamelogic::object::update::special_power_update::SpecialPowerCommandOption;
 use gamelogic::object::Object;
-use gamelogic::player::player_list;
+use gamelogic::player::{player_list, Player};
+use gamelogic::system::disguise_manager::get_disguise_manager;
 use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
 
 /// Re-export of the INI settings type from the Common crate's INI parser.
@@ -3952,6 +3953,49 @@ impl InGameUI {
         None
     }
 
+    fn disguise_visible_player_index_for_object(
+        object: &Object,
+        local_player: Option<&Player>,
+    ) -> Option<i32> {
+        let disguised_index = Self::disguised_player_index_for_object(object)?;
+        let local_player = local_player?;
+        if !local_player.is_player_active() {
+            return None;
+        }
+
+        let real_player = object.get_controlling_player()?;
+        let real_player = real_player.read().ok()?;
+        let local_team = local_player.get_default_team()?;
+        let local_team = local_team.read().ok()?;
+        if real_player.get_relationship_with_team(&local_team) == Relationship::Allies {
+            return None;
+        }
+
+        Some(disguised_index)
+    }
+
+    fn mouseover_tooltip_template_for_object(object: &Object) -> String {
+        let local_player = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
+
+        if Self::disguise_visible_player_index_for_object(object, local_player_guard.as_deref())
+            .is_some()
+        {
+            if let Some(template_name) = get_disguise_manager()
+                .lock()
+                .ok()
+                .and_then(|manager| manager.get_disguise(object.get_id()).ok())
+            {
+                return template_name;
+            }
+        }
+
+        object.get_template_name().to_string()
+    }
+
     fn mouseover_tooltip_color_for_object(object: &Object) -> [u8; 4] {
         let mut color = object.get_indicator_color();
         let local_player = player_list()
@@ -3960,37 +4004,16 @@ impl InGameUI {
             .and_then(|list| list.get_local_player().cloned());
         let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
 
-        if let (Some(disguised_index), Some(real_player), Some(local_player)) = (
-            Self::disguised_player_index_for_object(object),
-            object.get_controlling_player(),
-            local_player_guard.as_deref(),
-        ) {
-            let can_see_disguise = if local_player.is_player_active() {
-                real_player
-                    .read()
-                    .ok()
-                    .and_then(|real_player| {
-                        local_player.get_default_team().and_then(|team| {
-                            team.read().ok().map(|team| {
-                                real_player.get_relationship_with_team(&team)
-                                    != Relationship::Allies
-                            })
-                        })
-                    })
-                    .unwrap_or(false)
-            } else {
-                false
-            };
-
-            if can_see_disguise {
-                if let Some(disguised_color) = player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(disguised_index).cloned())
-                    .and_then(|player| player.read().ok().map(|player| player.get_player_color()))
-                {
-                    color = disguised_color;
-                }
+        if let Some(disguised_index) =
+            Self::disguise_visible_player_index_for_object(object, local_player_guard.as_deref())
+        {
+            if let Some(disguised_color) = player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_player(disguised_index).cloned())
+                .and_then(|player| player.read().ok().map(|player| player.get_player_color()))
+            {
+                color = disguised_color;
             }
         }
 
@@ -4718,14 +4741,14 @@ impl InGameUI {
                             Self::mouseover_drawable_id_for_object(draw_id, &guard);
 
                         // C++: TheMouse->setCursorTooltip(displayName, -1, playerColor, widthMult)
-                        // Deferred C++ behaviors: disguised template tooltip text,
-                        // multiplayer player suffix.
+                        // Deferred C++ behavior: multiplayer player suffix.
                         let visible = Self::mouseover_tooltip_visible_for_shroud(
                             guard.get_shrouded_status(self.player_id as i32),
                         );
                         if visible {
+                            let template_name = Self::mouseover_tooltip_template_for_object(&guard);
                             if let Some(mut display_name) =
-                                Self::mouseover_tooltip_for_template(guard.get_template_name())
+                                Self::mouseover_tooltip_for_template(&template_name)
                             {
                                 if let Some(boxes) = Self::supply_warehouse_boxes_for_object(&guard)
                                 {
