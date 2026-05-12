@@ -47,11 +47,10 @@ impl LocalFile {
         if access.contains(FileAccess::TRUNCATE) {
             options.truncate(true);
         }
-        if access.contains(FileAccess::CREATE) {
-            options.create(true);
-        }
         if access.contains(FileAccess::ONLY_NEW) {
             options.create_new(true);
+        } else if access.contains(FileAccess::CREATE) || access.contains(FileAccess::WRITE) {
+            options.create(true);
         }
 
         options
@@ -104,11 +103,13 @@ impl File for LocalFile {
             return Err(err);
         }
 
-        match Self::access_to_open_options(access).open(filename) {
+        let final_access = self.base.get_access();
+
+        match Self::access_to_open_options(final_access).open(filename) {
             Ok(file) => {
                 let mut file = file;
 
-                if access.contains(FileAccess::APPEND) {
+                if final_access.contains(FileAccess::APPEND) {
                     self.current_pos = file.seek(SeekFrom::End(0))?;
                 } else {
                     self.current_pos = file.seek(SeekFrom::Start(0))?;
