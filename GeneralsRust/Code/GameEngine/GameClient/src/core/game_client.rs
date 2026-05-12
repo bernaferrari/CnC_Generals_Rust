@@ -131,8 +131,7 @@ use gamelogic::object::draw::{
 };
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::update::{
-    AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule,
-    BeaconClientUpdateModuleData, SwayClientUpdateModule,
+    AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule, SwayClientUpdateModule,
 };
 use gamelogic::object::Object as GameLogicObject;
 use ww3d_core::w3d_io::{W3DChunk, W3DReader};
@@ -1732,19 +1731,15 @@ impl GameClient {
 
             match entry.name.as_str() {
                 "BeaconClientUpdate" => {
-                    if let Some(data) = entry
-                        .data
-                        .as_any()
-                        .downcast_ref::<BeaconClientUpdateModuleData>()
-                    {
+                    if let Some(module) = BeaconClientUpdateModule::from_module_data(
+                        module_name_key,
+                        Arc::clone(&entry.data),
+                        INVALID_ID,
+                    ) {
                         snapshot_modules.push(Box::new(
                             LogicDrawModuleSnapshotAdapter::client_update_module(
                                 identifier.to_string(),
-                                Box::new(BeaconClientUpdateModule::new(
-                                    module_name_key,
-                                    Arc::new(data.clone()),
-                                    INVALID_ID,
-                                )),
+                                Box::new(module),
                             ),
                         ));
                     }

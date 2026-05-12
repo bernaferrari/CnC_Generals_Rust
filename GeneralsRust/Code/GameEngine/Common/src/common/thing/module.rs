@@ -103,11 +103,20 @@ pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
     fn get_special_power_completion_template(&self) -> Option<&str> {
         None
     }
+    fn get_beacon_client_update_config(&self) -> Option<BeaconClientUpdateConfig> {
+        None
+    }
     fn get_minimum_required_game_lod(&self) -> StaticGameLodLevel {
         StaticGameLodLevel::Low
     }
 
     fn as_any(&self) -> &dyn Any;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BeaconClientUpdateConfig {
+    pub frames_between_radar_pulses: u32,
+    pub radar_pulse_duration: u32,
 }
 
 impl dyn ModuleData {
