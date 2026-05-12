@@ -73,40 +73,52 @@ impl Default for DeliverPayloadData {
     }
 }
 
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
 fn parse_real(tokens: &[&str]) -> Result<Real, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     INI::parse_real(token)
 }
 
 fn parse_int(tokens: &[&str]) -> Result<Int, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     INI::parse_int(token)
 }
 
 fn parse_bool(tokens: &[&str]) -> Result<Bool, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     INI::parse_bool(token)
 }
 
 fn parse_duration(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     INI::parse_duration_unsigned_int(token)
 }
 
 fn parse_ascii(tokens: &[&str]) -> Result<AsciiString, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    Ok(AsciiString::from(*token))
+    Ok(AsciiString::from(required_value(tokens)?))
 }
 
 fn parse_coord3d(tokens: &[&str]) -> Result<Coord3D, INIError> {
-    if tokens.len() >= 3 {
-        let x = INI::parse_real(tokens[0])?;
-        let y = INI::parse_real(tokens[1])?;
-        let z = INI::parse_real(tokens[2])?;
+    let values: Vec<&str> = tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect();
+    if values.len() >= 3 {
+        let x = INI::parse_real(values[0])?;
+        let y = INI::parse_real(values[1])?;
+        let z = INI::parse_real(values[2])?;
         return Ok(Coord3D::new(x, y, z));
     }
 
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     let parts: Vec<&str> = token
         .split(|c: char| c == ',' || c.is_whitespace())
         .filter(|part| !part.is_empty())
@@ -122,7 +134,7 @@ fn parse_coord3d(tokens: &[&str]) -> Result<Coord3D, INIError> {
 }
 
 fn parse_weapon_slot(tokens: &[&str]) -> Result<Option<WeaponSlotType>, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     let value = token.trim();
     if value.eq_ignore_ascii_case("NONE") || value == "-1" {
         return Ok(None);
@@ -138,7 +150,7 @@ fn parse_weapon_slot(tokens: &[&str]) -> Result<Option<WeaponSlotType>, INIError
 }
 
 fn parse_fx_list(tokens: &[&str]) -> Result<Option<Arc<FXList>>, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         return Ok(None);
     }
@@ -146,7 +158,7 @@ fn parse_fx_list(tokens: &[&str]) -> Result<Option<Arc<FXList>>, INIError> {
 }
 
 fn parse_weapon_template(tokens: &[&str]) -> Result<Option<Arc<WeaponTemplate>>, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         return Ok(None);
     }
@@ -160,8 +172,7 @@ fn parse_radius_decal_texture(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.texture_name = AsciiString::from(*token);
+    data.texture_name = AsciiString::from(required_value(tokens)?);
     Ok(())
 }
 
@@ -170,7 +181,12 @@ fn parse_radius_decal_style(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.shadow_type = INI::parse_bit_string_32(tokens, &SHADOW_NAMES)?;
+    let values: Vec<&str> = tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect();
+    data.shadow_type = INI::parse_bit_string_32(&values, &SHADOW_NAMES)?;
     Ok(())
 }
 
@@ -179,7 +195,7 @@ fn parse_radius_decal_opacity_min(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.min_opacity = INI::parse_percent_to_real(token)?;
     data.opacity = data.min_opacity;
     Ok(())
@@ -190,7 +206,7 @@ fn parse_radius_decal_opacity_max(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.max_opacity = INI::parse_percent_to_real(token)?;
     data.opacity = data.max_opacity;
     Ok(())
@@ -201,7 +217,7 @@ fn parse_radius_decal_opacity_throb_time(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.opacity_throb_time = INI::parse_duration_unsigned_int(token)?;
     Ok(())
 }
@@ -211,11 +227,16 @@ fn parse_radius_decal_color(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
+    let values: Vec<&str> = tokens
+        .iter()
+        .copied()
+        .filter(|token| *token != "=")
+        .collect();
+    if values.is_empty() {
         return Err(INIError::InvalidData);
     }
-    if tokens.len() == 1 {
-        if let Ok(value) = tokens[0].parse::<u32>() {
+    if values.len() == 1 {
+        if let Ok(value) = values[0].parse::<u32>() {
             data.color = value;
             return Ok(());
         }
@@ -226,7 +247,7 @@ fn parse_radius_decal_color(
     let mut b: u8 = 0;
     let mut a: u8 = 255;
 
-    for token in tokens {
+    for token in values {
         let (key, value) = match token.split_once(':') {
             Some((k, v)) => (k.trim(), v.trim()),
             None => ("", token.trim()),
@@ -250,7 +271,7 @@ fn parse_radius_decal_only_visible(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.only_visible_to_owning_player = INI::parse_bool(token)?;
     Ok(())
 }
@@ -464,3 +485,68 @@ pub const DELIVER_PAYLOAD_DATA_FIELDS: &[FieldParse<DeliverPayloadData>] = &[
         },
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deliver_payload_fields_accept_ini_equals_token() {
+        let mut data = DeliverPayloadData::default();
+
+        parse_real(&["=", "250.5"])
+            .map(|value| data.dist_to_target = value)
+            .unwrap();
+        parse_int(&["=", "3"])
+            .map(|value| data.max_attempts = value)
+            .unwrap();
+        parse_duration(&["=", "3000"])
+            .map(|value| data.drop_delay = value)
+            .unwrap();
+        parse_bool(&["=", "Yes"])
+            .map(|value| data.self_destruct_object = value)
+            .unwrap();
+        parse_ascii(&["=", "ChinaArtilleryBarrageShell"])
+            .map(|value| data.visible_payload_template_name = value)
+            .unwrap();
+        parse_coord3d(&["=", "1.0", "2.0", "3.0"])
+            .map(|value| data.drop_offset = value)
+            .unwrap();
+
+        assert!((data.dist_to_target - 250.5).abs() < f32::EPSILON);
+        assert_eq!(data.max_attempts, 3);
+        assert_eq!(data.drop_delay, 90);
+        assert!(data.self_destruct_object);
+        assert_eq!(
+            data.visible_payload_template_name.as_str(),
+            "ChinaArtilleryBarrageShell"
+        );
+        assert_eq!(data.drop_offset, Coord3D::new(1.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn delivery_decal_fields_accept_ini_equals_token() {
+        let mut ini = INI::new();
+        let mut decal = RadiusDecalTemplate::default();
+
+        parse_radius_decal_texture(&mut ini, &mut decal, &["=", "SCCArtilleryBarrage_China"])
+            .unwrap();
+        parse_radius_decal_opacity_min(&mut ini, &mut decal, &["=", "25%"]).unwrap();
+        parse_radius_decal_opacity_max(&mut ini, &mut decal, &["=", "50%"]).unwrap();
+        parse_radius_decal_opacity_throb_time(&mut ini, &mut decal, &["=", "500"]).unwrap();
+        parse_radius_decal_color(
+            &mut ini,
+            &mut decal,
+            &["=", "R:255", "G:156", "B:0", "A:255"],
+        )
+        .unwrap();
+        parse_radius_decal_only_visible(&mut ini, &mut decal, &["=", "Yes"]).unwrap();
+
+        assert_eq!(decal.texture_name.as_str(), "SCCArtilleryBarrage_China");
+        assert!((decal.min_opacity - 0.25).abs() < f32::EPSILON);
+        assert!((decal.max_opacity - 0.5).abs() < f32::EPSILON);
+        assert_eq!(decal.opacity_throb_time, 15);
+        assert_eq!(decal.color, 0xff009cff);
+        assert!(decal.only_visible_to_owning_player);
+    }
+}
