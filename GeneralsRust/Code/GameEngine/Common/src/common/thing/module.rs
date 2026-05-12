@@ -115,6 +115,11 @@ pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
     fn get_radar_upgrade_config(&self) -> Option<RadarUpgradeConfig> {
         None
     }
+    fn get_dynamic_shroud_clearing_range_update_config(
+        &self,
+    ) -> Option<DynamicShroudClearingRangeUpdateConfig> {
+        None
+    }
     fn get_minimum_required_game_lod(&self) -> StaticGameLodLevel {
         StaticGameLodLevel::Low
     }
@@ -141,6 +146,32 @@ pub struct ActiveShroudUpgradeConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RadarUpgradeConfig {
     pub is_disable_proof: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DynamicShroudClearingRangeUpdateConfig {
+    pub shrink_delay: u32,
+    pub shrink_time: u32,
+    pub grow_delay: u32,
+    pub grow_time: u32,
+    pub final_vision: f32,
+    pub change_interval: u32,
+    pub grow_interval: u32,
+    pub do_spy_sat_fx: bool,
+    pub grid_decal_template: RadiusDecalTemplateConfig,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RadiusDecalTemplateConfig {
+    pub radius: f32,
+    pub opacity: f32,
+    pub color: u32,
+    pub texture_name: String,
+    pub shadow_type: u32,
+    pub min_opacity: f32,
+    pub max_opacity: f32,
+    pub opacity_throb_time: u32,
+    pub only_visible_to_owning_player: bool,
 }
 
 impl dyn ModuleData {

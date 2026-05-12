@@ -190,6 +190,12 @@ pub trait ModuleData: AsAny + Send + Sync + std::fmt::Debug + std::any::Any {
     ) -> Option<game_engine::common::thing::module::RadarUpgradeConfig> {
         None
     }
+
+    fn get_dynamic_shroud_clearing_range_update_config(
+        &self,
+    ) -> Option<game_engine::common::thing::module::DynamicShroudClearingRangeUpdateConfig> {
+        None
+    }
 }
 
 impl dyn ModuleData {
