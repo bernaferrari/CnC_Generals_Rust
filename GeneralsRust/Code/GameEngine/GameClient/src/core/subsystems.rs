@@ -33,7 +33,7 @@ use game_engine::System::XferVersion;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use gamelogic::commands::command::CommandType;
 use gamelogic::common::audio::AudioEventRts as LogicAudioEventRts;
-use gamelogic::helpers::{TerrainTreeRegistration, TheAudio, TheScriptEngine};
+use gamelogic::helpers::{TerrainTreeRegistration, TheAudio, TheGameLogic, TheScriptEngine};
 use gamelogic::object::draw::W3DTreeDrawModuleData;
 use glam::{Mat4, Vec3};
 use kira::manager::{AudioManager, AudioManagerSettings};
@@ -813,6 +813,7 @@ pub struct InGameUISubsystem {
     command_log: VecDeque<CommandLogEntry>,
     hud_messages: VecDeque<String>,
     military_subtitles: VecDeque<(String, i32)>,
+    tooltips_disabled_until: u32,
     radar_pings: VecDeque<RadarPingEvent>,
     pending_place_template: Option<String>,
     pending_place_source_object_id: ObjectID,
@@ -969,6 +970,22 @@ impl InGameUISubsystem {
         }
         self.military_subtitles
             .push_back((label.to_string(), duration_ms));
+        let duration_frames = ((duration_ms.max(0) as u32).saturating_mul(30)) / 1000;
+        self.disable_tooltips_until(TheGameLogic::get_frame().saturating_add(duration_frames));
+    }
+
+    fn disable_tooltips_until(&mut self, frame_num: u32) {
+        if frame_num > self.tooltips_disabled_until {
+            self.tooltips_disabled_until = frame_num;
+        }
+    }
+
+    fn clear_tooltips_disabled(&mut self) {
+        self.tooltips_disabled_until = 0;
+    }
+
+    fn are_tooltips_disabled(&self) -> bool {
+        TheGameLogic::get_frame() < self.tooltips_disabled_until
     }
 
     fn play_radar_movie(&mut self, movie_name: &str) -> bool {
@@ -1211,6 +1228,7 @@ impl InGameUISubsystem {
         self.command_log.clear();
         self.hud_messages.clear();
         self.military_subtitles.clear();
+        self.tooltips_disabled_until = 0;
         self.radar_pings.clear();
         self.pending_place_template = None;
         self.pending_place_source_object_id = 0;
@@ -1546,6 +1564,25 @@ impl InGameUiHooks for InGameUiHandle {
         if let Ok(mut ui) = self.inner.lock() {
             ui.push_military_subtitle(label, duration_ms);
         }
+    }
+
+    fn disable_tooltips_until(&self, frame_num: u32) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.disable_tooltips_until(frame_num);
+        }
+    }
+
+    fn clear_tooltips_disabled(&self) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.clear_tooltips_disabled();
+        }
+    }
+
+    fn are_tooltips_disabled(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.are_tooltips_disabled())
+            .unwrap_or(false)
     }
 
     fn clear_attack_move_to_mode(&self) {
@@ -2062,6 +2099,7 @@ mod tests {
         ui.hud_messages.push_back("hello".to_string());
         ui.military_subtitles
             .push_back(("SCRIPT:Caption".to_string(), 2000));
+        ui.tooltips_disabled_until = 99;
         ui.radar_pings.push_back(RadarPingEvent {
             position: Coord3D::new(5.0, 6.0, 0.0),
             kind: RadarPingKind::Generic,
@@ -2100,6 +2138,7 @@ mod tests {
         assert!(ui.command_log.is_empty());
         assert!(ui.hud_messages.is_empty());
         assert!(ui.military_subtitles.is_empty());
+        assert_eq!(ui.tooltips_disabled_until, 0);
         assert!(ui.radar_pings.is_empty());
         assert!(ui.pending_place_template.is_none());
         assert_eq!(ui.pending_place_source_object_id, 0);
@@ -2135,6 +2174,22 @@ mod tests {
         ui.set_radius_cursor_none();
         assert!(!ui.radius_cursor_active);
         assert_eq!(ui.radius_cursor_type, "");
+    }
+
+    #[test]
+    fn in_game_ui_military_subtitle_disables_tooltips_until_lifetime() {
+        let mut ui = InGameUISubsystem::default();
+        let current_frame = TheGameLogic::get_frame();
+
+        ui.push_military_subtitle("SCRIPT:Briefing", 2500);
+
+        assert_eq!(ui.military_subtitles.len(), 1);
+        assert_eq!(ui.tooltips_disabled_until, current_frame.saturating_add(75));
+        assert!(ui.are_tooltips_disabled());
+
+        ui.clear_tooltips_disabled();
+        assert_eq!(ui.tooltips_disabled_until, 0);
+        assert!(!ui.are_tooltips_disabled());
     }
 
     #[test]
