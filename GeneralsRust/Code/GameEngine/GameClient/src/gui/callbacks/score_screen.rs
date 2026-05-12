@@ -5,7 +5,9 @@ use crate::core::script_action_handler::{
 };
 use crate::game_text::GameText;
 use crate::gui::callbacks::popup_replay::popup_replay_update;
-use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
+use crate::gui::campaign_manager::{
+    get_campaign_manager, Campaign, GameDifficulty as CampaignDifficulty,
+};
 use crate::gui::challenge_generals::get_challenge_generals;
 use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
 use crate::gui::{
@@ -433,6 +435,15 @@ fn maybe_start_final_victory_movie(state: &mut ScoreScreenState) -> bool {
     false
 }
 
+fn final_victory_movie_to_queue(campaign: &Campaign, use_low_res_movies: bool) -> Option<String> {
+    let final_movie = campaign.get_final_victory_movie().trim();
+    if final_movie.is_empty() || use_low_res_movies {
+        return None;
+    }
+
+    Some(final_movie.to_string())
+}
+
 fn update_final_victory_movie_wait(state: &mut ScoreScreenState) {
     if !state.waiting_for_final_victory_movie {
         return;
@@ -544,13 +555,8 @@ fn finish_single_player_init(state: &mut ScoreScreenState) {
 
             let manager = get_campaign_manager();
             if let Some(campaign) = manager.get_current_campaign() {
-                let final_movie = campaign.get_final_victory_movie().trim();
-                if !campaign.is_challenge_campaign()
-                    && !final_movie.is_empty()
-                    && !prefers_low_res_movies()
-                {
-                    state.pending_final_victory_movie = Some(final_movie.to_string());
-                }
+                state.pending_final_victory_movie =
+                    final_victory_movie_to_queue(campaign, prefers_low_res_movies());
             }
 
             if maybe_start_final_victory_movie(state) {
@@ -1210,4 +1216,35 @@ pub fn score_screen_system(
         }
         _ => WindowMsgHandled::Ignored,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn campaign_with_final_movie(is_challenge_campaign: bool, movie: &str) -> Campaign {
+        let mut campaign = Campaign::new();
+        campaign.is_challenge_campaign = is_challenge_campaign;
+        campaign.final_movie_name = movie.to_string();
+        campaign
+    }
+
+    #[test]
+    fn final_victory_movie_includes_challenge_campaigns_like_cpp() {
+        let campaign = campaign_with_final_movie(true, "USACampaignVictory");
+
+        assert_eq!(
+            final_victory_movie_to_queue(&campaign, false),
+            Some("USACampaignVictory".to_string())
+        );
+    }
+
+    #[test]
+    fn final_victory_movie_respects_empty_and_low_res_cases() {
+        let empty = campaign_with_final_movie(true, "");
+        let normal = campaign_with_final_movie(false, "ChinaCampaignVictory");
+
+        assert_eq!(final_victory_movie_to_queue(&empty, false), None);
+        assert_eq!(final_victory_movie_to_queue(&normal, true), None);
+    }
 }
