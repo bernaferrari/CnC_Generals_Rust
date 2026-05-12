@@ -4,7 +4,9 @@
 //! Author: Colin Day, April 2002 (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{AsciiString, Bool, ModuleData, Real, UnsignedInt, XferVersion};
+use crate::common::{
+    AsciiString, Bool, ModelConditionFlags, ModuleData, Real, UnsignedInt, XferVersion,
+};
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
@@ -12,7 +14,9 @@ use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, RadarUpdateInterface,
+};
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -48,8 +52,7 @@ fn parse_radar_extend_time(
         .copied()
         .find(|t| *t != "=")
         .ok_or(INIError::InvalidData)?;
-    let frames = INI::parse_duration_unsigned_int(token)? as Real;
-    data.radar_extend_time = frames;
+    data.radar_extend_time = INI::parse_duration_real(token)?;
     Ok(())
 }
 
@@ -93,6 +96,12 @@ impl RadarUpdate {
         let current_frame = TheGameLogic::get_frame();
         self.extend_done_frame = current_frame + self.module_data.radar_extend_time as UnsignedInt;
         self.radar_active = true;
+
+        if let Some(object) = self.object.upgrade() {
+            if let Ok(mut object) = object.write() {
+                object.set_model_condition_state(ModelConditionFlags::RADAR_EXTENDING);
+            }
+        }
     }
 
     pub fn is_radar_active(&self) -> Bool {
@@ -135,9 +144,28 @@ impl UpdateModuleInterface for RadarUpdate {
         if current_frame > self.extend_done_frame {
             self.extend_complete = true;
             self.extend_done_frame = 0;
+
+            if let Some(object) = self.object.upgrade() {
+                if let Ok(mut object) = object.write() {
+                    let _ = object.clear_and_set_model_condition_flags(
+                        ModelConditionFlags::RADAR_EXTENDING,
+                        ModelConditionFlags::RADAR_UPGRADED,
+                    );
+                }
+            }
         }
 
         UpdateSleepTime::None
+    }
+}
+
+impl RadarUpdateInterface for RadarUpdate {
+    fn extend_radar(&mut self) {
+        self.extend_radar();
+    }
+
+    fn is_radar_active(&self) -> bool {
+        self.is_radar_active()
     }
 }
 
@@ -210,6 +238,10 @@ impl Module for RadarUpdateModule {
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
     }
+
+    fn get_radar_update_interface(&mut self) -> Option<&mut dyn RadarUpdateInterface> {
+        Some(&mut self.behavior)
+    }
 }
 
 pub struct RadarUpdateFactory;
@@ -219,5 +251,48 @@ impl RadarUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(RadarUpdate::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::ini::INI;
+
+    #[test]
+    fn radar_extend_time_parses_cpp_duration_real() {
+        let mut data = RadarUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        parse_radar_extend_time(&mut ini, &mut data, &["1.5s"]).expect("duration real");
+
+        assert!((data.radar_extend_time - 45.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn radar_update_interface_extends_without_downcast() {
+        let data = Arc::new(RadarUpdateModuleData {
+            radar_extend_time: 10.0,
+            ..Default::default()
+        });
+        let mut module = RadarUpdateModule {
+            behavior: RadarUpdate {
+                object: Weak::new(),
+                module_data: data.clone(),
+                next_call_frame_and_phase: 0,
+                extend_done_frame: 0,
+                extend_complete: false,
+                radar_active: false,
+            },
+            module_name_key: NameKeyGenerator::name_to_key("RadarUpdate"),
+            module_data: data,
+        };
+
+        let radar = module
+            .get_radar_update_interface()
+            .expect("radar update interface");
+        radar.extend_radar();
+
+        assert!(radar.is_radar_active());
     }
 }

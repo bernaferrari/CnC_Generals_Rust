@@ -4365,6 +4365,21 @@ impl Object {
         None
     }
 
+    pub fn with_radar_update_interface<F, R>(&self, func: F) -> Option<R>
+    where
+        F: FnMut(&mut dyn game_engine::common::thing::module::RadarUpdateInterface) -> R,
+    {
+        let mut func = func;
+        for entry in &self.modules {
+            let result =
+                entry.with_module(|module| module.get_radar_update_interface().map(&mut func));
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+
     pub fn get_template_name(&self) -> &str {
         self.thing_template.get_name().as_str()
     }
