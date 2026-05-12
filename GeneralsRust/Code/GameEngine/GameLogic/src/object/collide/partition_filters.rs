@@ -1366,12 +1366,21 @@ impl PartitionFilterGarrisonable {
     }
 }
 
+fn object_has_garrisonable_contain(obj: &crate::object::Object) -> bool {
+    let Some(contain) = obj.get_contain() else {
+        return false;
+    };
+    let Ok(contain_guard) = contain.lock() else {
+        return false;
+    };
+    contain_guard.is_garrisonable()
+}
+
 impl super::partition_manager::PartitionFilter for PartitionFilterGarrisonable {
     fn allow(&self, obj: &dyn GameObject) -> bool {
         if let Some(handle) = obj.as_object_handle() {
             if let Ok(guard) = handle.read() {
-                let garrisonable =
-                    guard.is_kind_of(KindOf::Structure) && !guard.is_kind_of(KindOf::NoGarrison);
+                let garrisonable = object_has_garrisonable_contain(&guard);
                 return garrisonable == self.match_flag;
             }
         }
@@ -1390,10 +1399,9 @@ impl super::partition_manager::PartitionFilter for PartitionFilterGarrisonable {
 /// Accept/reject objects that the specified player can/cannot garrison.
 /// Matches C++ PartitionFilterGarrisonableByPlayer.
 pub struct PartitionFilterGarrisonableByPlayer {
-    #[allow(dead_code)]
     player_id: PlayerId,
     match_flag: bool,
-    _command_source: CommandSourceType,
+    command_source: CommandSourceType,
 }
 
 impl PartitionFilterGarrisonableByPlayer {
@@ -1401,23 +1409,31 @@ impl PartitionFilterGarrisonableByPlayer {
         Self {
             player_id,
             match_flag,
-            _command_source: command_source,
+            command_source,
         }
     }
 }
 
 impl super::partition_manager::PartitionFilter for PartitionFilterGarrisonableByPlayer {
     fn allow(&self, obj: &dyn GameObject) -> bool {
-        // ActionManager integration not yet fully ported.
-        // Approximate: check if the building is garrisonable and the relationship allows it.
-        if let Some(handle) = obj.as_object_handle() {
-            if let Ok(guard) = handle.read() {
-                let garrisonable =
-                    guard.is_kind_of(KindOf::Structure) && !guard.is_kind_of(KindOf::NoGarrison);
-                return garrisonable == self.match_flag;
-            }
-        }
-        !self.match_flag
+        let can_garrison = obj
+            .as_object_handle()
+            .and_then(|handle| {
+                let target_guard = handle.read().ok()?;
+                let player_arc = {
+                    let player_list = ThePlayerList().read().ok()?;
+                    player_list.get_player(self.player_id.0.into()).cloned()?
+                };
+                let player_guard = player_arc.read().ok()?;
+                Some(action_manager::TheActionManager::can_player_garrison(
+                    &player_guard,
+                    &target_guard,
+                    self.command_source,
+                ))
+            })
+            .unwrap_or(false);
+
+        can_garrison == self.match_flag
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1529,5 +1545,68 @@ impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandBu
 
     fn debug_name(&self) -> &'static str {
         "PartitionFilterValidCommandButtonTarget"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::partition_manager::PartitionFilter;
+    use super::*;
+    use crate::common::types::DefaultThingTemplate;
+    use crate::modules::ContainModuleInterface;
+    use crate::object::contain::{GarrisonContain, GarrisonContainModuleData};
+    use crate::object::Object;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    fn structure_object() -> Arc<std::sync::RwLock<Object>> {
+        let mut template = DefaultThingTemplate::new("TestStructure".to_string());
+        let mut fields = HashMap::new();
+        fields.insert("KindOf".to_string(), "STRUCTURE".to_string());
+        template.parse_object_fields_from_ini(&fields);
+
+        Object::new(Arc::new(template), ObjectStatusMaskType::none(), None)
+            .expect("test structure object")
+    }
+
+    fn attach_garrison_contain(object: &Arc<std::sync::RwLock<Object>>) {
+        let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(
+            GarrisonContain::new(
+                Arc::downgrade(object),
+                &GarrisonContainModuleData::default(),
+            )
+            .expect("garrison contain"),
+        ));
+        object
+            .write()
+            .expect("object write lock")
+            .set_contain(Some(contain));
+    }
+
+    #[test]
+    fn garrisonable_filter_uses_contain_interface_not_structure_kind() {
+        let object = structure_object();
+
+        assert!(!PartitionFilterGarrisonable::new(true).allow(&object));
+        assert!(PartitionFilterGarrisonable::new(false).allow(&object));
+
+        attach_garrison_contain(&object);
+
+        assert!(PartitionFilterGarrisonable::new(true).allow(&object));
+        assert!(!PartitionFilterGarrisonable::new(false).allow(&object));
+    }
+
+    #[test]
+    fn garrisonable_by_player_rejects_when_player_is_missing() {
+        let object = structure_object();
+        attach_garrison_contain(&object);
+
+        let filter = PartitionFilterGarrisonableByPlayer::new(
+            PlayerId(u8::MAX),
+            true,
+            CommandSourceType::FromPlayer,
+        );
+
+        assert!(!filter.allow(&object));
     }
 }
