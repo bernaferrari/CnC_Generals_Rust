@@ -140,6 +140,42 @@ fn has_pending_radar_targeting_mode() -> bool {
     false
 }
 
+fn is_known_cursor_name(cursor_name: &str) -> bool {
+    matches!(
+        cursor_name,
+        "ARROW"
+            | "CROSS"
+            | "SELECTING"
+            | "MOVETO"
+            | "ATTACKMOVETO"
+            | "WAYPOINT"
+            | "ATTACK_OBJECT"
+            | "OUTRANGE"
+            | "FORCE_ATTACK_OBJECT"
+            | "FORCE_ATTACK_GROUND"
+            | "GET_REPAIRED"
+            | "DOCK"
+            | "GET_HEALED"
+            | "DO_REPAIR"
+            | "RESUME_CONSTRUCTION"
+            | "ENTER_FRIENDLY"
+            | "ENTER_AGGRESSIVELY"
+            | "DEFECTOR"
+            | "CAPTUREBUILDING"
+            | "HACK"
+            | "GENERIC_INVALID"
+            | "SET_RALLY_POINT"
+            | "PARTICLE_UPLINK_CANNON"
+    )
+}
+
+fn radar_targeting_cursor_name(cursor_name: Option<&str>) -> &str {
+    match cursor_name {
+        Some(name) if is_known_cursor_name(name) => name,
+        _ => "CROSS",
+    }
+}
+
 fn refresh_radar_cursor(msg: WindowMessage) {
     if msg == WindowMessage::MouseLeaving {
         TheInGameUI::set_cursor_arrow();
@@ -147,9 +183,12 @@ fn refresh_radar_cursor(msg: WindowMessage) {
     }
 
     if has_pending_radar_targeting_mode() {
-        // C++ parity fallback: when targeted command cursor metadata is unavailable,
-        // use CROSS while targeting over radar.
-        TheInGameUI::set_cursor_by_name("CROSS");
+        // C++ LeftHUDInput: keep a targeted command cursor over radar, falling
+        // back to CROSS when no valid cursor name is available.
+        let cursor_name = TheInGameUI::get_pending_command()
+            .map(|pending| pending.cursor_name)
+            .filter(|name| !name.is_empty());
+        TheInGameUI::set_cursor_by_name(radar_targeting_cursor_name(cursor_name.as_deref()));
         return;
     }
 
@@ -777,5 +816,24 @@ mod tests {
             beacon_window_input(&window, WindowMessage::Char, b'A' as u32, 0),
             WindowMsgHandled::Ignored
         );
+    }
+
+    #[test]
+    fn radar_targeting_cursor_preserves_valid_pending_cursor() {
+        assert_eq!(
+            radar_targeting_cursor_name(Some("PARTICLE_UPLINK_CANNON")),
+            "PARTICLE_UPLINK_CANNON"
+        );
+        assert_eq!(
+            radar_targeting_cursor_name(Some("ATTACK_OBJECT")),
+            "ATTACK_OBJECT"
+        );
+    }
+
+    #[test]
+    fn radar_targeting_cursor_falls_back_to_cross_for_missing_or_invalid_cursor() {
+        assert_eq!(radar_targeting_cursor_name(None), "CROSS");
+        assert_eq!(radar_targeting_cursor_name(Some("")), "CROSS");
+        assert_eq!(radar_targeting_cursor_name(Some("BogusCursor")), "CROSS");
     }
 }
