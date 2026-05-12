@@ -9,6 +9,7 @@
 //! Converted to Rust
 
 use crate::common::audio::audio_event_rts::{AudioEventRts, TimeOfDay};
+use crate::common::random_value::get_game_client_random_value;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{OnceLock, RwLock};
 
@@ -22,7 +23,7 @@ pub type TimeStamp = u64;
 
 // Constants
 const BASE_DLG_ID: u32 = 5000;
-const BASE_DLG_DIR: &str = "Data\\Audio\\Sounds";
+const BASE_DLG_DIR: &str = "data\\audio\\sounds";
 const BASE_DLG_EXT: &str = "wav";
 const NUM_DLG_PRIORITIES: usize = 5;
 
@@ -776,10 +777,7 @@ impl SpeechManager {
             return String::new();
         }
 
-        // Select a random sample
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let sound_to_play = rng.gen_range(0..num_samples);
+        let sound_to_play = get_game_client_random_value(0, num_samples as Int - 1) as usize;
 
         let filename = if sound_to_play < regular_samples {
             &speech_info.dialog_files[sound_to_play]
