@@ -571,7 +571,9 @@ impl VideoDevice {
         if let Some(surface) = &self.surface {
             let mut surface_config = self.surface_config.lock();
             if let Some(config) = surface_config.as_mut() {
-                config.present_mode = Self::present_mode_for_vsync(vsync);
+                let supported_modes = surface.get_capabilities(&self.wgpu_adapter).present_modes;
+                config.present_mode =
+                    Self::present_mode_for_vsync_with_supported(vsync, &supported_modes);
                 surface.configure(&self.wgpu_device, config);
             }
         }
@@ -650,6 +652,93 @@ impl VideoDevice {
             VSync::Adaptive => PresentMode::FifoRelaxed,
             VSync::Fast => PresentMode::Mailbox,
         }
+    }
+
+    #[cfg(feature = "video")]
+    fn present_mode_for_vsync_with_supported(
+        vsync: VSync,
+        supported_modes: &[PresentMode],
+    ) -> PresentMode {
+        let preferred = Self::present_mode_for_vsync(vsync);
+        if supported_modes.contains(&preferred) {
+            return preferred;
+        }
+
+        let fallback_order = match vsync {
+            VSync::Disabled => [
+                PresentMode::Mailbox,
+                PresentMode::FifoRelaxed,
+                PresentMode::Fifo,
+                PresentMode::Immediate,
+            ],
+            VSync::Enabled => [
+                PresentMode::Fifo,
+                PresentMode::FifoRelaxed,
+                PresentMode::Mailbox,
+                PresentMode::Immediate,
+            ],
+            VSync::Adaptive => [
+                PresentMode::Fifo,
+                PresentMode::Mailbox,
+                PresentMode::Immediate,
+                PresentMode::FifoRelaxed,
+            ],
+            VSync::Fast => [
+                PresentMode::Immediate,
+                PresentMode::Mailbox,
+                PresentMode::FifoRelaxed,
+                PresentMode::Fifo,
+            ],
+        };
+
+        fallback_order
+            .into_iter()
+            .find(|mode| supported_modes.contains(mode))
+            .or_else(|| supported_modes.first().copied())
+            .unwrap_or(PresentMode::Fifo)
+    }
+}
+
+#[cfg(all(test, feature = "video"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn present_mode_prefers_exact_vsync_mapping_when_supported() {
+        let supported = [PresentMode::Fifo, PresentMode::Immediate];
+
+        assert_eq!(
+            VideoDevice::present_mode_for_vsync_with_supported(VSync::Disabled, &supported),
+            PresentMode::Immediate
+        );
+        assert_eq!(
+            VideoDevice::present_mode_for_vsync_with_supported(VSync::Enabled, &supported),
+            PresentMode::Fifo
+        );
+    }
+
+    #[test]
+    fn present_mode_falls_back_to_supported_fifo_for_unsupported_fast_modes() {
+        let supported = [PresentMode::Fifo];
+
+        assert_eq!(
+            VideoDevice::present_mode_for_vsync_with_supported(VSync::Fast, &supported),
+            PresentMode::Fifo
+        );
+        assert_eq!(
+            VideoDevice::present_mode_for_vsync_with_supported(VSync::Adaptive, &supported),
+            PresentMode::Fifo
+        );
+    }
+
+    #[test]
+    fn present_mode_keeps_low_latency_fallback_when_vsync_disabled() {
+        let supported = [PresentMode::Fifo, PresentMode::Mailbox];
+
+        assert_eq!(
+            VideoDevice::present_mode_for_vsync_with_supported(VSync::Disabled, &supported),
+            PresentMode::Mailbox
+        );
     }
 }
 
