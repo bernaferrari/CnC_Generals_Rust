@@ -4,6 +4,7 @@
 //! including trajectory prediction, air resistance, wind effects, and target leading.
 
 use super::{Coord3D, WeaponTemplate};
+use crate::helpers::get_game_logic_random_value_real;
 use crate::{GameLogicError, GameLogicResult};
 
 /// Ballistics trajectory information
@@ -253,13 +254,13 @@ impl BallisticsCalculator {
             point.position.z += wind_effect.z * point.time;
 
             // Add turbulence
-            use rand::Rng;
-            let mut rng = rand::thread_rng();
             if wind.turbulence > 0.0 {
                 let turbulence_factor = wind.turbulence * altitude_factor;
                 if turbulence_factor > 0.0 {
-                    point.position.x += rng.gen_range(-turbulence_factor..=turbulence_factor);
-                    point.position.y += rng.gen_range(-turbulence_factor..=turbulence_factor);
+                    point.position.x +=
+                        get_game_logic_random_value_real(-turbulence_factor, turbulence_factor);
+                    point.position.y +=
+                        get_game_logic_random_value_real(-turbulence_factor, turbulence_factor);
                 }
             }
         }
