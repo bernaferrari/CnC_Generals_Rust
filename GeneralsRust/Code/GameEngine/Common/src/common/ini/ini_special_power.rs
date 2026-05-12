@@ -95,6 +95,7 @@ impl SpecialPowerType {
 #[derive(Debug, Clone)]
 pub struct SpecialPowerTemplate {
     pub name: AsciiString,
+    pub id: u32,
     pub power_type: SpecialPowerType,
     pub prerequisite_science: Vec<AsciiString>,
     pub required_science: Vec<AsciiString>,
@@ -119,6 +120,7 @@ impl SpecialPowerTemplate {
     pub fn new(name: AsciiString) -> Self {
         Self {
             name,
+            id: 0,
             power_type: SpecialPowerType::Custom("Unknown".to_string()),
             prerequisite_science: Vec::new(),
             required_science: Vec::new(),
@@ -344,6 +346,7 @@ impl SpecialPowerTemplate {
 pub struct SpecialPowerStore {
     templates: HashMap<String, SpecialPowerTemplate>,
     template_order: Vec<String>,
+    next_special_power_id: u32,
 }
 
 impl SpecialPowerStore {
@@ -351,11 +354,39 @@ impl SpecialPowerStore {
         Self {
             templates: HashMap::new(),
             template_order: Vec::new(),
+            next_special_power_id: 0,
+        }
+    }
+
+    fn next_template_id(&mut self) -> u32 {
+        self.next_special_power_id += 1;
+        self.next_special_power_id
+    }
+
+    fn assign_id_if_needed(&mut self, template: &mut SpecialPowerTemplate) {
+        if template.id == 0 {
+            template.id = self.next_template_id();
+        } else {
+            self.next_special_power_id = self.next_special_power_id.max(template.id);
         }
     }
 
     /// Find a template by name
     pub fn find_template(&self, name: &AsciiString) -> Option<&SpecialPowerTemplate> {
+        self.templates.get(name.as_str())
+    }
+
+    /// Find a template by C++ SpecialPowerTemplate ID
+    pub fn find_template_by_id(&self, id: u32) -> Option<&SpecialPowerTemplate> {
+        self.template_order
+            .iter()
+            .filter_map(|name| self.templates.get(name.as_str()))
+            .find(|template| template.id == id)
+    }
+
+    /// Get a template by vector index, matching C++ WorldBuilder access.
+    pub fn get_template_by_index(&self, index: usize) -> Option<&SpecialPowerTemplate> {
+        let name = self.template_order.get(index)?;
         self.templates.get(name.as_str())
     }
 
@@ -366,7 +397,8 @@ impl SpecialPowerStore {
 
     /// Create a new template
     pub fn new_template(&mut self, name: AsciiString) -> &mut SpecialPowerTemplate {
-        let template = SpecialPowerTemplate::new(name.clone());
+        let mut template = SpecialPowerTemplate::new(name.clone());
+        self.assign_id_if_needed(&mut template);
         let key = name.as_str().to_string();
         if !self.templates.contains_key(&key) {
             self.template_order.push(key.clone());
@@ -384,7 +416,8 @@ impl SpecialPowerStore {
     }
 
     /// Register a template
-    pub fn register_template(&mut self, template: SpecialPowerTemplate) {
+    pub fn register_template(&mut self, mut template: SpecialPowerTemplate) {
+        self.assign_id_if_needed(&mut template);
         let name = template.name.as_str().to_string();
         if !self.templates.contains_key(&name) {
             self.template_order.push(name.clone());
@@ -426,6 +459,7 @@ impl SpecialPowerStore {
     pub fn clear(&mut self) {
         self.templates.clear();
         self.template_order.clear();
+        self.next_special_power_id = 0;
     }
 
     /// Get template count
@@ -632,6 +666,38 @@ mod tests {
             .map(|template| template.name.as_str())
             .collect();
         assert_eq!(support_names, vec!["FirstPower", "ThirdPower"]);
+    }
+
+    #[test]
+    fn special_power_store_assigns_cpp_ids_and_index_lookup() {
+        let mut store = SpecialPowerStore::new();
+
+        let first = store.new_template(AsciiString::from("FirstPower")).id;
+        let second = store.new_template(AsciiString::from("SecondPower")).id;
+        let mut explicit = SpecialPowerTemplate::new(AsciiString::from("ExplicitPower"));
+        explicit.id = 10;
+        store.register_template(explicit);
+        let after_explicit = store
+            .new_template(AsciiString::from("AfterExplicitPower"))
+            .id;
+
+        assert_eq!(first, 1);
+        assert_eq!(second, 2);
+        assert_eq!(after_explicit, 11);
+
+        assert_eq!(
+            store
+                .find_template_by_id(10)
+                .map(|template| template.name.as_str()),
+            Some("ExplicitPower")
+        );
+        assert_eq!(
+            store
+                .get_template_by_index(1)
+                .map(|template| template.name.as_str()),
+            Some("SecondPower")
+        );
+        assert!(store.get_template_by_index(4).is_none());
     }
 
     #[test]
