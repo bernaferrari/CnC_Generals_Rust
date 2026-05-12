@@ -46,8 +46,8 @@ use super::{MAX_DRAW_DATA, MAX_WINDOWS};
 use crate::game_text::GameText;
 use crate::gui::callbacks::menu_callbacks::MenuCallbacks;
 use crate::gui::callbacks::{
-    challenge_menu_init, challenge_menu_input, challenge_menu_shutdown, challenge_menu_system,
-    challenge_menu_update, difficulty_select_init, difficulty_select_input,
+    beacon_window_input, challenge_menu_init, challenge_menu_input, challenge_menu_shutdown,
+    challenge_menu_system, challenge_menu_update, difficulty_select_init, difficulty_select_input,
     difficulty_select_system, download_menu_init, download_menu_input, download_menu_shutdown,
     download_menu_system, download_menu_update, game_info_window_init, game_info_window_system,
     generals_exp_points_input, generals_exp_points_system, get_control_bar_system,
@@ -2307,8 +2307,10 @@ impl WindowManager {
                 "GameWinDefaultInput" => {
                     window.set_input_callback(default_input_callback);
                 }
-                "BeaconWindowInput"
-                | "DisconnectControlInput"
+                "BeaconWindowInput" => {
+                    window.set_input_callback(beacon_window_input);
+                }
+                "DisconnectControlInput"
                 | "EstablishConnectionsControlInput"
                 | "GadgetCheckBoxInput"
                 | "GadgetComboBoxInput"
