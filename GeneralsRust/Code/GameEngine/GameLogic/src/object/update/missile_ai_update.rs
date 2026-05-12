@@ -13,6 +13,7 @@ use crate::common::{
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::effects::FXList;
 use crate::helpers::{get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic};
+use crate::locomotor::BodyDamageType;
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, PhysicsBehaviorExt, ProjectileUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
@@ -728,6 +729,15 @@ impl MissileAIUpdate {
         };
     }
 
+    fn current_locomotor_pristine_speed(&self) -> Option<Real> {
+        let ai = self.current_ai_interface()?;
+        let locomotor = ai.get_cur_locomotor()?;
+        locomotor
+            .lock()
+            .ok()
+            .map(|guard| guard.get_max_speed_for_condition(BodyDamageType::Pristine))
+    }
+
     /// Kill state: precise terminal guidance to target
     /// Matches C++ MissileAIUpdate::doKillState from MissileAIUpdate.cpp lines 557-611
     fn do_kill_state(&mut self, current_frame: UnsignedInt) {
@@ -743,16 +753,80 @@ impl MissileAIUpdate {
             return;
         }
 
-        // Enable braking mode for precise positioning
-        // obj->setStatus(MAKE_OBJECT_STATUS_MASK(OBJECT_STATUS_BRAKING));
+        if let Some(object) = TheGameLogic::find_object_by_id(self.object_id) {
+            if let Ok(mut guard) = object.write() {
+                guard.set_status(ObjectStatusMaskType::BRAKING, true);
+            }
+        }
 
-        // Enable full turning
-        // curLoco->setMaxAcceleration(m_maxAccel);
-        // curLoco->setMaxTurnRate(BIGNUM);
+        self.set_locomotor_acceleration_and_turn(self.max_accel, BIGNUM);
 
-        // Check if reached target
-        // if (isIdle()) { ... detonate if close enough ... }
-        // Matches C++ lines 585-605
+        if self
+            .current_ai_interface()
+            .map(|ai| ai.is_idle())
+            .unwrap_or(false)
+        {
+            if let Some(goal) = self.current_goal_object() {
+                let close_enough = self.current_locomotor_pristine_speed().unwrap_or(1.0);
+                if self.distance_to_goal_bounding_sphere_3d_squared(&goal)
+                    < close_enough * close_enough
+                {
+                    if let Some(goal_pos) = goal.read().ok().map(|guard| *guard.get_position()) {
+                        if let Some(object) = TheGameLogic::find_object_by_id(self.object_id) {
+                            if let Ok(mut guard) = object.write() {
+                                let _ = guard.set_position(&goal_pos);
+                            }
+                        }
+                    }
+                    self.detonate();
+                } else if let Some(goal_id) = goal.read().ok().map(|guard| guard.get_id()) {
+                    if let Some(ai) = self.current_ai_interface() {
+                        ai.ai_move_to_object(goal_id, CMD_FROM_AI);
+                    }
+                }
+            } else {
+                self.detonate();
+            }
+        }
+
+        if self.is_tracking_target && self.current_goal_object().is_none() {
+            self.airborne_target_gone(current_frame);
+        }
+    }
+
+    fn distance_to_goal_bounding_sphere_3d_squared(
+        &self,
+        goal: &Arc<std::sync::RwLock<Object>>,
+    ) -> Real {
+        let Some(missile) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return Real::MAX;
+        };
+        let Ok(missile_guard) = missile.read() else {
+            return Real::MAX;
+        };
+        let Ok(goal_guard) = goal.read() else {
+            return Real::MAX;
+        };
+
+        let missile_pos = missile_guard.get_position();
+        let goal_pos = goal_guard.get_position();
+        let missile_geom = missile_guard.get_geometry_info();
+        let goal_geom = goal_guard.get_geometry_info();
+        let missile_center_z =
+            missile_pos.z + (missile_geom.bounds.min.z + missile_geom.bounds.max.z) * 0.5;
+        let goal_center_z = goal_pos.z + (goal_geom.bounds.min.z + goal_geom.bounds.max.z) * 0.5;
+        let dx = missile_pos.x - goal_pos.x;
+        let dy = missile_pos.y - goal_pos.y;
+        let dz = missile_center_z - goal_center_z;
+        let center_dist = (dx * dx + dy * dy + dz * dz).sqrt();
+        let radius_sum =
+            missile_geom.get_bounding_sphere_radius() + goal_geom.get_bounding_sphere_radius();
+        let boundary_dist = if center_dist <= radius_sum {
+            0.0
+        } else {
+            center_dist - radius_sum
+        };
+        boundary_dist * boundary_dist
     }
 
     /// Kill self state: delay before final destruction
