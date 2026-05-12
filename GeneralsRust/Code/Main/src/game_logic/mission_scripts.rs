@@ -13,6 +13,24 @@ use gamelogic::team::get_team_factory;
 use gamelogic::{GameLogicError, GameLogicResult};
 use glam::Vec3;
 
+const SPEECH_SUBTITLE_DURATION_MS: i32 = 8000;
+
+fn speech_subtitle_label(name: &str) -> String {
+    format!("DIALOGEVENT:{}Subtitle", name)
+}
+
+fn speech_subtitle_label_if_displayable<F>(name: &str, lookup: F) -> Option<String>
+where
+    F: FnOnce(&str) -> Option<String>,
+{
+    let label = speech_subtitle_label(name);
+    let subtitle = lookup(&label)?;
+    if subtitle.is_empty() || subtitle.starts_with('*') {
+        return None;
+    }
+    Some(label)
+}
+
 #[derive(Debug, Clone)]
 pub struct ObjectiveUpdate {
     pub name: String,
@@ -2633,6 +2651,10 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     fn speech_play(&self, name: &str, _allow_overlap: bool) -> GameLogicResult<()> {
         self.hooks.note_speech_started(name);
         self.hooks.push_sound(name.to_string());
+        if let Some(label) = speech_subtitle_label_if_displayable(name, localization::translate) {
+            self.hooks
+                .push_military_caption(label, SPEECH_SUBTITLE_DURATION_MS);
+        }
         Ok(())
     }
 
@@ -2870,6 +2892,37 @@ mod tests {
         assert_eq!(captions.len(), 1);
         assert_eq!(captions[0].text, "SCRIPT:Briefing");
         assert_eq!(captions[0].duration_ms, 2500);
+    }
+
+    #[test]
+    fn speech_subtitle_label_matches_cpp_dialogevent_shape() {
+        assert_eq!(
+            speech_subtitle_label("USA01Intro"),
+            "DIALOGEVENT:USA01IntroSubtitle"
+        );
+    }
+
+    #[test]
+    fn speech_subtitle_requires_displayable_localized_text() {
+        assert_eq!(
+            speech_subtitle_label_if_displayable("Briefing", |label| {
+                assert_eq!(label, "DIALOGEVENT:BriefingSubtitle");
+                Some("Commander online".to_string())
+            }),
+            Some("DIALOGEVENT:BriefingSubtitle".to_string())
+        );
+        assert_eq!(
+            speech_subtitle_label_if_displayable("Briefing", |_| None),
+            None
+        );
+        assert_eq!(
+            speech_subtitle_label_if_displayable("Briefing", |_| Some(String::new())),
+            None
+        );
+        assert_eq!(
+            speech_subtitle_label_if_displayable("Briefing", |_| Some("* hidden".to_string())),
+            None
+        );
     }
 
     #[test]
