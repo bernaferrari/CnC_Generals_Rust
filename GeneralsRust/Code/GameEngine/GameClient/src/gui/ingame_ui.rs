@@ -37,7 +37,8 @@ use gamelogic::action_manager::ActionManager;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
 use gamelogic::common::CommandSourceType;
 use gamelogic::common::{
-    Coord3D, ICoord2D, IRegion2D, KindOf, ObjectID, ObjectShroudStatus, MAX_PLAYER_COUNT,
+    Coord3D, ICoord2D, IRegion2D, KindOf, ObjectID, ObjectShroudStatus, Relationship,
+    MAX_PLAYER_COUNT,
 };
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::object::production::construction::FoundationValidator;
@@ -3935,16 +3936,65 @@ impl InGameUI {
         Self::ignored_gui_slaver_id_for_object(object).unwrap_or(drawable_id)
     }
 
+    fn disguised_player_index_for_object(object: &Object) -> Option<i32> {
+        if !object.is_kind_of(KindOf::Disguiser) {
+            return None;
+        }
+
+        for behavior in object.get_behavior_modules() {
+            let Ok(behavior) = behavior.lock() else {
+                continue;
+            };
+            if let Some(index) = behavior.get_disguised_player_index() {
+                return Some(index);
+            }
+        }
+        None
+    }
+
     fn mouseover_tooltip_color_for_object(object: &Object) -> [u8; 4] {
         let mut color = object.get_indicator_color();
+        let local_player = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
+
+        if let (Some(disguised_index), Some(real_player), Some(local_player)) = (
+            Self::disguised_player_index_for_object(object),
+            object.get_controlling_player(),
+            local_player_guard.as_deref(),
+        ) {
+            let can_see_disguise = if local_player.is_player_active() {
+                real_player
+                    .read()
+                    .ok()
+                    .and_then(|real_player| {
+                        local_player.get_default_team().and_then(|team| {
+                            team.read().ok().map(|team| {
+                                real_player.get_relationship_with_team(&team)
+                                    != Relationship::Allies
+                            })
+                        })
+                    })
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            if can_see_disguise {
+                if let Some(disguised_color) = player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(disguised_index).cloned())
+                    .and_then(|player| player.read().ok().map(|player| player.get_player_color()))
+                {
+                    color = disguised_color;
+                }
+            }
+        }
 
         if let Some(contain) = object.get_contain() {
-            let local_player = player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_local_player().cloned());
-            let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
-
             if let Ok(contain_guard) = contain.lock() {
                 if contain_guard.is_garrisonable() {
                     if let Some(player) =
@@ -4668,8 +4718,8 @@ impl InGameUI {
                             Self::mouseover_drawable_id_for_object(draw_id, &guard);
 
                         // C++: TheMouse->setCursorTooltip(displayName, -1, playerColor, widthMult)
-                        // Deferred C++ behaviors: Disguiser detection, multiplayer player suffix,
-                        // stealth-garrison player color.
+                        // Deferred C++ behaviors: disguised template tooltip text,
+                        // multiplayer player suffix.
                         let visible = Self::mouseover_tooltip_visible_for_shroud(
                             guard.get_shrouded_status(self.player_id as i32),
                         );
