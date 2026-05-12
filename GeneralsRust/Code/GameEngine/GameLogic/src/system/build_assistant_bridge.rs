@@ -170,6 +170,12 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
             }
         }
     }
+
+    fn get_ground_height(&self, x: f32, y: f32) -> f32 {
+        crate::helpers::TheTerrainLogic::get()
+            .map(|terrain| terrain.get_ground_height(x, y, None))
+            .unwrap_or(0.0)
+    }
 }
 
 pub fn install_build_assistant_backend() {
