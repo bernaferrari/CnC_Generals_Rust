@@ -4819,6 +4819,27 @@ impl Object {
         Relationship::Neutral
     }
 
+    /// Match C++ Object::calculateCountermeasureToDivertTo.
+    pub fn calculate_countermeasure_to_divert_to(&self, victim: &Object) -> ObjectID {
+        if self.get_ai_update_interface().is_none() {
+            return INVALID_ID;
+        }
+
+        let countermeasures_key = NameKeyGenerator::name_to_key("CountermeasuresBehavior");
+        victim
+            .with_friend_module::<
+                crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule,
+                _,
+                _,
+            >(countermeasures_key, |module| {
+                module
+                    .behavior()
+                    .calculate_countermeasure_to_divert_to(victim.get_id())
+                    .unwrap_or(INVALID_ID)
+            })
+            .unwrap_or(INVALID_ID)
+    }
+
     pub fn get_behavior_modules(&self) -> Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> {
         self.behaviors.iter().cloned().collect()
     }
