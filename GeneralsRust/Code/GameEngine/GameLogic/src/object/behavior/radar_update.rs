@@ -5,7 +5,8 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, ModelConditionFlags, ModuleData, Real, UnsignedInt, XferVersion,
+    AsciiString, Bool, LegacyModuleData, ModelConditionFlags, ModuleData, NameKeyType, Real,
+    UnsignedInt, XferVersion,
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
@@ -15,7 +16,7 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData as EngineModuleData, NameKeyType, RadarUpdateInterface,
+    Module, ModuleData as EngineModuleData, RadarUpdateConfig, RadarUpdateInterface,
 };
 use std::sync::{Arc, RwLock, Weak};
 
@@ -34,11 +35,79 @@ impl Default for RadarUpdateModuleData {
     }
 }
 
-crate::impl_behavior_module_data_via_base!(RadarUpdateModuleData, base);
+impl Snapshotable for RadarUpdateModuleData {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.base.load_post_process()
+    }
+}
+
+impl LegacyModuleData for RadarUpdateModuleData {
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        game_engine::common::thing::module::ModuleData::set_module_tag_name_key(
+            &mut self.base,
+            key,
+        );
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        game_engine::common::thing::module::ModuleData::get_module_tag_name_key(&self.base)
+    }
+
+    fn get_radar_update_config(&self) -> Option<RadarUpdateConfig> {
+        Some(self.to_config())
+    }
+}
+
+impl EngineModuleData for RadarUpdateModuleData {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn set_module_tag_name_key(&mut self, key: game_engine::common::thing::module::NameKeyType) {
+        LegacyModuleData::set_module_tag_name_key(self, key);
+    }
+
+    fn get_module_tag_name_key(&self) -> game_engine::common::thing::module::NameKeyType {
+        LegacyModuleData::get_module_tag_name_key(self)
+    }
+
+    fn get_radar_update_config(&self) -> Option<RadarUpdateConfig> {
+        Some(self.to_config())
+    }
+}
+
+impl crate::common::types::ModuleData for RadarUpdateModuleData {
+    fn get_radar_update_config(&self) -> Option<RadarUpdateConfig> {
+        Some(self.to_config())
+    }
+}
 
 impl RadarUpdateModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
         ini.init_from_ini_with_fields(self, RADAR_UPDATE_FIELDS)
+    }
+
+    fn to_config(&self) -> RadarUpdateConfig {
+        RadarUpdateConfig {
+            radar_extend_time: self.radar_extend_time,
+        }
+    }
+
+    fn from_config(config: RadarUpdateConfig, module_tag_name_key: NameKeyType) -> Self {
+        let mut data = Self {
+            base: BehaviorModuleData::default(),
+            radar_extend_time: config.radar_extend_time,
+        };
+        LegacyModuleData::set_module_tag_name_key(&mut data, module_tag_name_key);
+        data
     }
 }
 
@@ -64,7 +133,7 @@ const RADAR_UPDATE_FIELDS: &[FieldParse<RadarUpdateModuleData>] = &[FieldParse {
 #[allow(dead_code)]
 pub struct RadarUpdate {
     object: Weak<RwLock<GameObject>>,
-    module_data: Arc<RadarUpdateModuleData>,
+    module_data: RadarUpdateConfig,
     /// UpdateModule scheduler state serialized by the C++ base class.
     next_call_frame_and_phase: UnsignedInt,
     extend_done_frame: UnsignedInt,
@@ -77,19 +146,25 @@ impl RadarUpdate {
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let specific_data = module_data
-            .as_ref()
-            .downcast_ref::<RadarUpdateModuleData>()
+        let config = module_data
+            .get_radar_update_config()
             .ok_or("Invalid module data")?;
 
-        Ok(Self {
+        Ok(Self::new_with_config(object, config))
+    }
+
+    pub fn new_with_config(
+        object: Arc<RwLock<GameObject>>,
+        module_data: RadarUpdateConfig,
+    ) -> Self {
+        Self {
             object: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
+            module_data,
             next_call_frame_and_phase: 0,
             extend_done_frame: 0,
             extend_complete: false,
             radar_active: false,
-        })
+        }
     }
 
     pub fn extend_radar(&mut self) {
@@ -202,6 +277,23 @@ impl RadarUpdateModule {
     pub fn behavior_mut(&mut self) -> &mut RadarUpdate {
         &mut self.behavior
     }
+
+    pub fn from_module_data(
+        object: Arc<RwLock<GameObject>>,
+        module_name: &AsciiString,
+        module_data: Arc<dyn EngineModuleData>,
+    ) -> Option<Self> {
+        let config = module_data.get_radar_update_config()?;
+        let behavior = RadarUpdate::new_with_config(object, config);
+        Some(Self::new(
+            behavior,
+            module_name,
+            Arc::new(RadarUpdateModuleData::from_config(
+                config,
+                module_data.get_module_tag_name_key(),
+            )),
+        ))
+    }
 }
 
 impl Snapshotable for RadarUpdateModule {
@@ -232,7 +324,7 @@ impl Module for RadarUpdateModule {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_data.get_module_tag_name_key()
+        EngineModuleData::get_module_tag_name_key(self.module_data.as_ref())
     }
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
@@ -275,10 +367,11 @@ mod tests {
             radar_extend_time: 10.0,
             ..Default::default()
         });
+        let config = data.to_config();
         let mut module = RadarUpdateModule {
             behavior: RadarUpdate {
                 object: Weak::new(),
-                module_data: data.clone(),
+                module_data: config,
                 next_call_frame_and_phase: 0,
                 extend_done_frame: 0,
                 extend_complete: false,

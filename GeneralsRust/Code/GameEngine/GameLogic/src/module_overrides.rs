@@ -5022,24 +5022,15 @@ fn radar_update_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<RadarUpdateModuleData>()
-        .expect("RadarUpdateModuleData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("RadarUpdate requires a valid object");
-    let behavior = RadarUpdate::new(object, module_data_arc.clone())
-        .expect("RadarUpdate failed to initialize");
 
     let module_name = AsciiString::from("RadarUpdate");
-    Box::new(RadarUpdateModule::new(
-        behavior,
-        &module_name,
-        module_data_arc,
-    ))
+    Box::new(
+        RadarUpdateModule::from_module_data(object, &module_name, module_data)
+            .expect("RadarUpdateModuleData expected"),
+    )
 }
 
 fn stealth_detector_update_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
