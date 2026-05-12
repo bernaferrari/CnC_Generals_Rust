@@ -120,6 +120,9 @@ pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
     ) -> Option<DynamicShroudClearingRangeUpdateConfig> {
         None
     }
+    fn get_shroud_crate_collide_config(&self) -> Option<ShroudCrateCollideConfig> {
+        None
+    }
     fn get_minimum_required_game_lod(&self) -> StaticGameLodLevel {
         StaticGameLodLevel::Low
     }
@@ -172,6 +175,21 @@ pub struct RadiusDecalTemplateConfig {
     pub max_opacity: f32,
     pub opacity_throb_time: u32,
     pub only_visible_to_owning_player: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShroudCrateCollideConfig {
+    pub required_kind_of: u64,
+    pub forbidden_kind_of: u64,
+    pub is_forbid_owner_player: bool,
+    pub is_building_pickup: bool,
+    pub is_human_only_pickup: bool,
+    pub pickup_science: i32,
+    pub execute_fx: Option<String>,
+    pub execution_animation_template: String,
+    pub execute_animation_display_time_seconds: f32,
+    pub execute_animation_z_rise_per_second: f32,
+    pub execute_animation_fades: bool,
 }
 
 impl dyn ModuleData {

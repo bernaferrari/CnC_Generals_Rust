@@ -196,6 +196,12 @@ pub trait ModuleData: AsAny + Send + Sync + std::fmt::Debug + std::any::Any {
     ) -> Option<game_engine::common::thing::module::DynamicShroudClearingRangeUpdateConfig> {
         None
     }
+
+    fn get_shroud_crate_collide_config(
+        &self,
+    ) -> Option<game_engine::common::thing::module::ShroudCrateCollideConfig> {
+        None
+    }
 }
 
 impl dyn ModuleData {
