@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface};
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    Coord3D, GameResult, KindOf, KindOfMaskType, ModelConditionFlags, ObjectID, PlayerMaskType,
-    UnsignedInt, LOGICFRAMES_PER_SECOND, MODELCONDITION_DOOR_1_CLOSING,
+    Coord3D, GameResult, KindOf, KindOfMaskType, Matrix3D, ModelConditionFlags, ObjectID,
+    PlayerMaskType, TurretType, UnsignedInt, LOGICFRAMES_PER_SECOND, MODELCONDITION_DOOR_1_CLOSING,
     MODELCONDITION_DOOR_1_OPENING,
 };
 use crate::damage::DamageInfo;
@@ -25,6 +25,7 @@ use crate::object::die::{
     parse_death_type_flags_tokens, parse_object_status_mask_tokens,
     parse_veterancy_level_flags_tokens, DieMuxData,
 };
+use crate::object::drawable::DrawableArcExt;
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
@@ -497,6 +498,24 @@ impl OpenContain {
         Ok(())
     }
 
+    fn fire_point_matrix_from_transform(transform: Matrix3D) -> FirePointMatrix {
+        let columns = transform.to_cols_array_2d();
+        [
+            [columns[0][0], columns[1][0], columns[2][0], columns[3][0]],
+            [columns[0][1], columns[1][1], columns[2][1], columns[3][1]],
+            [columns[0][2], columns[1][2], columns[2][2], columns[3][2]],
+        ]
+    }
+
+    fn fire_point_matrix_from_position(pos: Coord3D) -> FirePointMatrix {
+        let transform = Matrix3D::from_translation(pos);
+        Self::fire_point_matrix_from_transform(transform)
+    }
+
+    fn fire_point_position(matrix: &FirePointMatrix) -> Coord3D {
+        Coord3D::new(matrix[0][3], matrix[1][3], matrix[2][3])
+    }
+
     fn contain_want_to_cpp_value(want: ContainWant) -> i32 {
         match want {
             ContainWant::WantsToEnter => 0,
@@ -522,6 +541,7 @@ impl OpenContain {
     /// Update method called once per frame
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
         self.player_who_entered = PlayerMaskType::none();
+        self.monitor_condition_changes()?;
         let countdown = self.door_close_countdown.load(Ordering::Relaxed);
         if countdown > 0 {
             let next = countdown.saturating_sub(1);
@@ -541,6 +561,27 @@ impl OpenContain {
             self.prune_dead_wanters();
         }
         Ok(UpdateSleepTime::None)
+    }
+
+    /// Check art condition changes and redeploy occupants when FIREPOINT bones may have changed.
+    pub fn monitor_condition_changes(&mut self) -> GameResult<()> {
+        let Some(owner) = self.get_object() else {
+            return Ok(());
+        };
+        let curr_condition = owner
+            .read()
+            .ok()
+            .and_then(|owner_guard| owner_guard.get_drawable())
+            .map(|drawable| drawable.get_model_condition_flags());
+
+        let Some(curr_condition) = curr_condition else {
+            return Ok(());
+        };
+        if curr_condition != self.condition_state {
+            self.redeploy_occupants()?;
+            self.condition_state = curr_condition;
+        }
+        Ok(())
     }
 
     /// Check if this container is valid for the given object
@@ -1081,24 +1122,86 @@ impl OpenContain {
 
     /// Redeploy occupants (can be overridden)
     pub fn redeploy_occupants(&mut self) -> GameResult<()> {
+        self.no_fire_points_in_art = false;
+        self.fire_point_start = -1;
+        self.fire_point_next = 0;
+        self.fire_point_size = 0;
+
+        let contained = self.contained_objects.clone();
+        for obj in contained.iter().rev() {
+            self.put_obj_at_next_fire_point(obj)?;
+        }
+        Ok(())
+    }
+
+    fn put_obj_at_next_fire_point(&mut self, obj: &Arc<RwLock<Object>>) -> GameResult<()> {
         let Some(owner) = self.get_object() else {
             return Ok(());
         };
-        let Ok(owner_guard) = owner.read() else {
-            return Ok(());
+
+        if self.fire_point_size == 0 && !self.no_fire_points_in_art {
+            let fire_points = owner
+                .read()
+                .map(|owner_guard| {
+                    owner_guard.get_multi_logical_bone_position("FIREPOINT", MAX_FIRE_POINTS)
+                })
+                .unwrap_or_default();
+
+            self.fire_point_size = fire_points.len() as i32;
+            if self.fire_point_size == 0 {
+                self.no_fire_points_in_art = true;
+            } else {
+                for (index, pos) in fire_points.into_iter().enumerate().take(MAX_FIRE_POINTS) {
+                    self.fire_points[index] = Self::fire_point_matrix_from_position(pos);
+                }
+            }
+        }
+
+        let pos = if self.no_fire_points_in_art {
+            owner
+                .read()
+                .map(|owner_guard| *owner_guard.get_position())
+                .unwrap_or_else(|_| Coord3D::new(0.0, 0.0, 0.0))
+        } else if self.module_data.passengers_in_turret {
+            let firepoint = format!("FIREPOINT{:02}", self.fire_point_next + 1);
+            owner
+                .read()
+                .map(|owner_guard| {
+                    let (_, pos, matrix) = owner_guard.get_single_logical_bone_position_on_turret(
+                        TurretType::Primary,
+                        &firepoint,
+                    );
+                    self.fire_points[self.fire_point_next as usize] =
+                        Self::fire_point_matrix_from_transform(matrix);
+                    pos
+                })
+                .unwrap_or_else(|_| Coord3D::new(0.0, 0.0, 0.0))
+        } else {
+            Self::fire_point_position(&self.fire_points[self.fire_point_next as usize])
         };
-        let owner_pos = *owner_guard.get_position();
-        for obj in &self.contained_objects {
-            if let Ok(mut guard) = obj.write() {
-                if let Err(err) = guard.set_position(&owner_pos) {
+
+        if let Ok(mut guard) = obj.write() {
+            if self.is_enclosing_container_for(&guard) {
+                if let Err(err) = guard.set_position(&pos) {
                     log::warn!(
-                        "OpenContain::redeploy_occupants failed to place object {}: {}",
+                        "OpenContain::put_obj_at_next_fire_point failed to place object {}: {}",
                         guard.get_id(),
                         err
                     );
                 }
+            } else {
+                let matrix = Matrix3D::from_translation(pos);
+                guard.set_transform_matrix(&matrix);
             }
         }
+
+        if self.fire_point_size > 0 {
+            self.fire_point_next += 1;
+            if self.fire_point_next >= self.fire_point_size {
+                self.fire_point_next = 0;
+            }
+        }
+
         Ok(())
     }
 
