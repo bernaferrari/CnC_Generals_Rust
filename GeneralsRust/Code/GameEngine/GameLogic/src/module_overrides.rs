@@ -3422,23 +3422,16 @@ fn radar_upgrade_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<RadarUpgradeModuleData>()
-        .expect("RadarUpgradeModuleData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
     let object_id = thing
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or_default();
     let module_name_key = NameKeyGenerator::name_to_key("RadarUpgrade");
 
-    Box::new(RadarUpgrade::new(
-        module_name_key,
-        module_data_arc,
-        object_id,
-    ))
+    Box::new(
+        RadarUpgrade::from_module_data(module_name_key, module_data, object_id)
+            .expect("RadarUpgradeModuleData expected"),
+    )
 }
 
 fn replace_object_upgrade_module_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
