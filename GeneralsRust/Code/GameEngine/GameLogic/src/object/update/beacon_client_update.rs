@@ -1,7 +1,7 @@
 // BeaconClientUpdate - client-side beacon pulses and smoke.
 // Ported from C++ BeaconClientUpdate.cpp/.h.
 
-use crate::common::{Coord3D, ObjectID, Real, UnsignedInt, LOGICFRAMES_PER_SECOND};
+use crate::common::{Color, Coord3D, ObjectID, Real, UnsignedInt, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{TheGameLogic, TheParticleSystemManager};
 use crate::object::drawable::DrawableArcExt;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -184,16 +184,41 @@ impl BeaconClientUpdateModule {
             return None;
         };
 
-        let rgb = ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32;
-        let template = format!("BeaconSmoke{:06X}", rgb);
+        let (template, tint_color) = Self::resolve_smoke_template(ps_manager, color)?;
         let system_id = ps_manager.create_particle_system(Some(&template))?;
         ps_manager.attach_particle_system_to_drawable(system_id, self.owner_id);
+        if let Some(tint_color) = tint_color {
+            ps_manager.tint_particle_system_all_colors(system_id, tint_color);
+        }
 
         if let Ok(draw_guard) = drawable.read() {
             ps_manager.set_particle_system_position(system_id, &draw_guard.get_position());
         }
 
         Some(system_id)
+    }
+
+    fn resolve_smoke_template(
+        ps_manager: &TheParticleSystemManager,
+        color: Color,
+    ) -> Option<(String, Option<Color>)> {
+        Self::resolve_smoke_template_with_lookup(color, |name| {
+            ps_manager.find_template(name).is_some()
+        })
+    }
+
+    fn resolve_smoke_template_with_lookup(
+        color: Color,
+        mut template_exists: impl FnMut(&str) -> bool,
+    ) -> Option<(String, Option<Color>)> {
+        let rgb = ((color.r as u32) << 16) | ((color.g as u32) << 8) | color.b as u32;
+        let exact = format!("BeaconSmoke{rgb:06X}");
+        if template_exists(&exact) {
+            return Some((exact, None));
+        }
+
+        let fallback = "BeaconSmokeFFFFFF";
+        template_exists(fallback).then(|| (fallback.to_string(), Some(color)))
     }
 }
 
@@ -258,6 +283,41 @@ mod tests {
         parse_radar_pulse_duration(&mut ini, &mut data, &["500ms"]).expect("duration");
         assert_eq!(data.frames_between_radar_pulses, 45);
         assert_eq!(data.radar_pulse_duration, 15);
+    }
+
+    #[test]
+    fn beacon_smoke_uses_exact_house_color_template_when_available() {
+        let color = Color {
+            r: 0x12,
+            g: 0x34,
+            b: 0x56,
+            a: 0xff,
+        };
+        let resolved =
+            BeaconClientUpdateModule::resolve_smoke_template_with_lookup(color, |name| {
+                name == "BeaconSmoke123456"
+            });
+
+        assert_eq!(resolved, Some(("BeaconSmoke123456".to_string(), None)));
+    }
+
+    #[test]
+    fn beacon_smoke_falls_back_to_white_template_with_tint() {
+        let color = Color {
+            r: 0x0a,
+            g: 0xb0,
+            b: 0xff,
+            a: 0xff,
+        };
+        let resolved =
+            BeaconClientUpdateModule::resolve_smoke_template_with_lookup(color, |name| {
+                name == "BeaconSmokeFFFFFF"
+            });
+
+        assert_eq!(
+            resolved,
+            Some(("BeaconSmokeFFFFFF".to_string(), Some(color)))
+        );
     }
 
     #[test]
