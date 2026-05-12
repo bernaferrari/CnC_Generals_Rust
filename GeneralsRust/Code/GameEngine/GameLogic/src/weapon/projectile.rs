@@ -7,7 +7,7 @@ use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::object::{registry::OBJECT_REGISTRY, ObjectId};
 use crate::scripting::engine::get_script_engine;
 use crate::weapon::{
-    BallisticsTrajectory, Coord3D, WeaponBonus, WeaponTemplate, INVALID_OBJECT_ID,
+    BallisticsTrajectory, Coord3D, TrajectoryPoint, WeaponBonus, WeaponTemplate, INVALID_OBJECT_ID,
 };
 use crate::{GameLogicError, GameLogicResult};
 
@@ -222,6 +222,8 @@ pub struct Projectile {
     pub is_rolling: bool,
     /// Rolling friction coefficient
     pub rolling_friction: f32,
+    /// Fragment projectiles produced by this projectile's detonation.
+    pending_fragment_spawns: Vec<FragmentProjectileSpawn>,
 }
 
 impl Projectile {
@@ -294,6 +296,7 @@ impl Projectile {
             },
             is_rolling: false,
             rolling_friction: 0.1,
+            pending_fragment_spawns: Vec::new(),
         }
     }
 
@@ -952,9 +955,12 @@ impl Projectile {
     }
 
     /// Create fragmentation projectiles
-    fn create_fragments(&self) -> GameLogicResult<()> {
+    fn create_fragments(&mut self) -> GameLogicResult<()> {
         use rand::Rng;
         let mut rng = rand::thread_rng();
+
+        self.pending_fragment_spawns
+            .reserve(self.warhead.fragment_count as usize);
 
         for _ in 0..self.warhead.fragment_count {
             let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
@@ -966,11 +972,24 @@ impl Projectile {
                 self.warhead.fragment_velocity * elevation.sin(),
             );
 
-            // Create mini-projectile for fragment
-            // This would integrate with the projectile management system
+            self.pending_fragment_spawns.push(FragmentProjectileSpawn {
+                projectile_type: ProjectileType::Ballistic,
+                weapon_template: Arc::clone(&self.weapon_template),
+                source_object: self.source_object,
+                start_position: self.physics.position,
+                velocity: fragment_velocity,
+                weapon_bonus: self.weapon_bonus.clone(),
+                special_power_template: self.special_power_template.clone(),
+                special_power_creator_id: self.special_power_creator_id,
+                special_power_player_index: self.special_power_player_index,
+            });
         }
 
         Ok(())
+    }
+
+    fn take_pending_fragment_spawns(&mut self) -> Vec<FragmentProjectileSpawn> {
+        std::mem::take(&mut self.pending_fragment_spawns)
     }
 
     // Helper methods (these would integrate with the main game object system)
@@ -1333,6 +1352,19 @@ impl Projectile {
     }
 }
 
+#[derive(Debug, Clone)]
+struct FragmentProjectileSpawn {
+    projectile_type: ProjectileType,
+    weapon_template: Arc<WeaponTemplate>,
+    source_object: ObjectId,
+    start_position: Coord3D,
+    velocity: Coord3D,
+    weapon_bonus: WeaponBonus,
+    special_power_template: Option<String>,
+    special_power_creator_id: ObjectId,
+    special_power_player_index: Option<usize>,
+}
+
 /// Result of projectile update
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectileUpdateResult {
@@ -1440,6 +1472,7 @@ impl ProjectileManager {
     /// Update all projectiles for one frame
     pub fn update_all(&mut self, delta_time: f32) -> GameLogicResult<()> {
         let mut to_remove = Vec::new();
+        let mut fragment_spawns = Vec::new();
 
         for (id, projectile) in &mut self.projectiles {
             match projectile.update(delta_time)? {
@@ -1447,10 +1480,15 @@ impl ProjectileManager {
                     // Continue tracking
                 }
                 ProjectileUpdateResult::Detonated => {
+                    fragment_spawns.extend(projectile.take_pending_fragment_spawns());
                     // Mark for removal
                     to_remove.push(*id);
                 }
             }
+        }
+
+        for spawn in fragment_spawns {
+            self.create_fragment_projectile(spawn);
         }
 
         // Remove detonated projectiles
@@ -1459,6 +1497,50 @@ impl ProjectileManager {
         }
 
         Ok(())
+    }
+
+    fn create_fragment_projectile(&mut self, spawn: FragmentProjectileSpawn) -> ObjectId {
+        let trajectory = BallisticsTrajectory {
+            initial_velocity: spawn.velocity,
+            launch_angle: spawn.velocity.z.atan2(
+                (spawn.velocity.x * spawn.velocity.x + spawn.velocity.y * spawn.velocity.y).sqrt(),
+            ),
+            flight_time: 1.0,
+            max_height: spawn
+                .start_position
+                .z
+                .max(spawn.start_position.z + spawn.velocity.z),
+            range: (spawn.velocity.x * spawn.velocity.x + spawn.velocity.y * spawn.velocity.y)
+                .sqrt(),
+            trajectory_points: vec![TrajectoryPoint {
+                position: spawn.start_position,
+                velocity: spawn.velocity,
+                time: 0.0,
+            }],
+        };
+
+        let id = self.next_id;
+        self.next_id += 1;
+
+        let mut projectile = Projectile::new(
+            id,
+            spawn.projectile_type,
+            spawn.weapon_template,
+            spawn.source_object,
+            None,
+            spawn.start_position,
+            trajectory,
+            spawn.weapon_bonus,
+            spawn.special_power_template,
+            spawn.special_power_creator_id,
+            spawn.special_power_player_index,
+        );
+        projectile.physics.position = spawn.start_position;
+        projectile.physics.velocity = spawn.velocity;
+        projectile.warhead.fragment_count = 0;
+
+        self.projectiles.insert(id, projectile);
+        id
     }
 
     /// Get projectile by ID
@@ -2338,6 +2420,62 @@ mod tests {
 
         projectile.warhead.fragment_count = 8;
         assert_eq!(projectile.warhead.fragment_count, 8);
+    }
+
+    #[test]
+    fn detonating_fragmenting_projectile_spawns_child_projectiles() {
+        let weapon_template = Arc::new(WeaponTemplate::new("ClusterShell".to_string()));
+        let trajectory = BallisticsTrajectory {
+            initial_velocity: Coord3D::new(0.0, 0.0, 0.0),
+            launch_angle: 0.0,
+            flight_time: 1.0,
+            max_height: 0.0,
+            range: 0.0,
+            trajectory_points: vec![crate::weapon::ballistics::TrajectoryPoint {
+                position: Coord3D::new(10.0, 20.0, 30.0),
+                velocity: Coord3D::new(0.0, 0.0, 0.0),
+                time: 0.0,
+            }],
+        };
+
+        let mut manager = ProjectileManager::new();
+        let parent_id = manager.create_projectile(
+            ProjectileType::Artillery,
+            weapon_template,
+            2,
+            None,
+            Coord3D::new(10.0, 20.0, 30.0),
+            trajectory,
+            WeaponBonus::new(),
+            None,
+            INVALID_OBJECT_ID,
+            None,
+        );
+        {
+            let parent = manager.get_projectile_mut(parent_id).unwrap();
+            parent.warhead.fragment_count = 4;
+            parent.warhead.fragment_velocity = 25.0;
+            parent.max_lifetime = Some(0.0);
+        }
+
+        manager.update_all(1.0).unwrap();
+
+        let active = manager.get_active_projectiles();
+        assert_eq!(active.len(), 4);
+        assert!(!active.contains(&parent_id));
+        for id in active {
+            let fragment = manager.get_projectile(id).unwrap();
+            assert_eq!(fragment.source_object, 2);
+            assert_eq!(fragment.projectile_type, ProjectileType::Ballistic);
+            assert_eq!(fragment.warhead.fragment_count, 0);
+            assert!(
+                fragment
+                    .physics
+                    .velocity
+                    .distance(Coord3D::new(0.0, 0.0, 0.0))
+                    > 0.0
+            );
+        }
     }
 
     // ==================== PROJECTILE LIFETIME TESTS ====================
