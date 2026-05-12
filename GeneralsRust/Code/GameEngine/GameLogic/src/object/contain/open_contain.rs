@@ -1349,6 +1349,14 @@ impl ContainModuleInterface for OpenContain {
         self.passes_weapon_bonus_to_passengers()
     }
 
+    fn set_rally_point(&mut self, pos: Coord3D) {
+        OpenContain::set_rally_point(self, pos);
+    }
+
+    fn get_rally_point(&self) -> Option<Coord3D> {
+        OpenContain::get_rally_point(self)
+    }
+
     fn set_passenger_allowed_to_fire(&mut self, allowed: bool) {
         OpenContain::set_passenger_allowed_to_fire(self, allowed);
     }
@@ -1710,5 +1718,19 @@ mod tests {
             Some(&ContainWant::WantsToExit)
         );
         assert!(loaded.module_data.passengers_allowed_to_fire);
+    }
+
+    #[test]
+    fn contain_interface_routes_rally_point_to_open_contain() {
+        let mut contain =
+            OpenContain::new(Weak::new(), &OpenContainModuleData::default()).expect("contain");
+        let rally = Coord3D::new(11.0, 22.0, 33.0);
+
+        ContainModuleInterface::set_rally_point(&mut contain, rally);
+
+        assert_eq!(
+            ContainModuleInterface::get_rally_point(&contain),
+            Some(rally)
+        );
     }
 }

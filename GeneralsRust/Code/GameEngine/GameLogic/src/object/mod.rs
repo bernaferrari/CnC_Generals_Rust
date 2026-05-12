@@ -9692,6 +9692,13 @@ impl Object {
             }
         }
 
+        if let Some(contain) = &self.contain {
+            if let Ok(mut contain_guard) = contain.lock() {
+                contain_guard.set_rally_point(*pos);
+                applied = true;
+            }
+        }
+
         applied
     }
 
