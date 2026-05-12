@@ -870,16 +870,34 @@ impl ParticleSystemManager {
         let mut removed = 0;
 
         // Remove from lowest priority up to (but not including) priority_cap
-        for i in 0..priority_cap as usize {
-            // Note: In a full implementation, we'd need particle lists by priority
-            // For now, just count as removed
+        for priority_index in 1..priority_cap as usize {
             if removed >= count {
                 break;
             }
-            // Would remove from priority list i here
-            removed += 1;
+            let Some(priority) = ParticlePriorityType::from_index(priority_index) else {
+                continue;
+            };
+            let mut system_ids = self
+                .active_systems
+                .iter()
+                .filter_map(|(id, system)| (system.priority() == priority).then_some(*id))
+                .collect::<Vec<_>>();
+            system_ids.sort_unstable();
+
+            for system_id in system_ids {
+                if removed >= count {
+                    break;
+                }
+                let Some(system) = self.active_systems.get_mut(&system_id) else {
+                    continue;
+                };
+                let to_remove = count - removed;
+                removed += system.remove_oldest_particles(to_remove);
+            }
         }
 
+        self.particle_count = self.particle_count.saturating_sub(removed);
+        self.field_particle_count = self.field_particle_count.saturating_sub(removed);
         removed
     }
 
@@ -895,17 +913,17 @@ impl ParticleSystemManager {
             return true;
         }
 
-        // Check particle count limit (C++ lines 1699-1704)
-        if self.particle_count >= self.max_particle_count {
-            let excess = self.particle_count - self.max_particle_count;
-            if self.remove_oldest_particles(excess, priority) != excess {
-                return false;
-            }
-        }
-
         // Check if particles are disabled entirely
         if self.max_particle_count == 0 {
             return false;
+        }
+
+        // Check particle count limit (C++ lines 1699-1704)
+        if self.particle_count >= self.max_particle_count {
+            let needed = self.particle_count - self.max_particle_count + 1;
+            if self.remove_oldest_particles(needed, priority) != needed {
+                return false;
+            }
         }
 
         true
@@ -1539,6 +1557,87 @@ mod tests {
         assert_eq!(
             manager.preloaded_texture_assets(),
             &["EXSmokePuff.tga".to_string()]
+        );
+    }
+
+    #[test]
+    fn remove_oldest_particles_culls_real_low_priority_particles() {
+        let mut manager = ParticleSystemManager::new();
+        let mut template = ParticleSystemTemplate::new("Dust".to_string());
+        template.info_mut().priority = ParticlePriorityType::DustTrail;
+        let template = Arc::new(template);
+        let system_id = manager
+            .create_particle_system(&template, false)
+            .expect("particle system");
+
+        for frame in 0..5 {
+            let particle = crate::effects::particle_system::Particle::new(
+                &crate::effects::particle_system::ParticleInfo::default(),
+                frame,
+                frame,
+            );
+            manager
+                .find_particle_system_mut(system_id)
+                .expect("active system")
+                .push_particle(particle);
+        }
+        manager.particle_count = 5;
+        manager.field_particle_count = 5;
+
+        let removed = manager.remove_oldest_particles(3, ParticlePriorityType::Buildup);
+
+        assert_eq!(removed, 3);
+        assert_eq!(manager.particle_count(), 2);
+        assert_eq!(manager.field_particle_count(), 2);
+        assert_eq!(
+            manager
+                .find_particle_system(system_id)
+                .expect("active system")
+                .particle_count(),
+            2
+        );
+    }
+
+    #[test]
+    fn can_create_particle_frees_slot_when_exactly_at_limit() {
+        let mut manager = ParticleSystemManager::new();
+        manager.set_lod_params(
+            2,
+            2,
+            ParticlePriorityType::WeaponExplosion,
+            ParticlePriorityType::Critical,
+            0,
+        );
+
+        let mut template = ParticleSystemTemplate::new("Dust".to_string());
+        template.info_mut().priority = ParticlePriorityType::DustTrail;
+        let template = Arc::new(template);
+        let system_id = manager
+            .create_particle_system(&template, false)
+            .expect("particle system");
+
+        for frame in 0..2 {
+            let particle = crate::effects::particle_system::Particle::new(
+                &crate::effects::particle_system::ParticleInfo::default(),
+                frame,
+                frame,
+            );
+            manager
+                .find_particle_system_mut(system_id)
+                .expect("active system")
+                .push_particle(particle);
+        }
+        manager.particle_count = 2;
+        manager.field_particle_count = 2;
+
+        assert!(manager.can_create_particle(ParticlePriorityType::Buildup));
+        assert_eq!(manager.particle_count(), 1);
+        assert_eq!(
+            manager
+                .find_particle_system(system_id)
+                .expect("active system")
+                .particle_count(),
+            1
         );
     }
 }
