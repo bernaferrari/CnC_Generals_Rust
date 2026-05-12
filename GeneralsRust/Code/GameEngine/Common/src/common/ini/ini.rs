@@ -164,6 +164,28 @@ fn parse_block_result(result: Result<(), String>) -> INIResult<()> {
     result.map_err(|_| INIError::InvalidData)
 }
 
+fn parse_field_line(line: &str) -> Option<(&str, Vec<&str>)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let key_end = trimmed
+        .find(|c: char| c.is_whitespace() || c == '=')
+        .unwrap_or(trimmed.len());
+    let key = &trimmed[..key_end];
+    if key.is_empty() {
+        return None;
+    }
+
+    let values = trimmed[key_end..]
+        .split(|c: char| c.is_whitespace() || c == '=')
+        .filter(|token| !token.is_empty())
+        .collect();
+
+    Some((key, values))
+}
+
 fn parse_game_data_block(ini: &mut INI) -> INIResult<()> {
     parse_block_result(super::ini_game_data::parse_game_data_definition(ini))
 }
@@ -1672,9 +1694,7 @@ impl INI {
             }
 
             let line = self.buffer.clone();
-            let mut parts = line.split_whitespace();
-
-            let Some(key) = parts.next() else {
+            let Some((key, value_tokens)) = parse_field_line(&line) else {
                 continue;
             };
 
@@ -1682,8 +1702,6 @@ impl INI {
                 break;
             }
 
-            let mut value_tokens: Vec<&str> = parts.collect();
-            value_tokens.retain(|token| *token != "=");
             let mut handled = false;
 
             for field in field_parse_table {
@@ -1716,9 +1734,7 @@ impl INI {
             }
 
             let line = self.buffer.clone();
-            let mut parts = line.split_whitespace();
-
-            let Some(key) = parts.next() else {
+            let Some((key, value_tokens)) = parse_field_line(&line) else {
                 continue;
             };
 
@@ -1726,8 +1742,6 @@ impl INI {
                 break;
             }
 
-            let mut value_tokens: Vec<&str> = parts.collect();
-            value_tokens.retain(|token| *token != "=");
             let mut handled = false;
 
             for field in field_parse_table {
@@ -1890,5 +1904,26 @@ impl INI {
 impl Default for INI {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn field_line_uses_equals_as_separator() {
+        assert_eq!(
+            parse_field_line("TauntSound1 =Taunts_Grainger061"),
+            Some(("TauntSound1", vec!["Taunts_Grainger061"]))
+        );
+        assert_eq!(
+            parse_field_line("Key=Value Other"),
+            Some(("Key", vec!["Value", "Other"]))
+        );
+        assert_eq!(
+            parse_field_line("  StartsEnabled = yes"),
+            Some(("StartsEnabled", vec!["yes"]))
+        );
     }
 }
