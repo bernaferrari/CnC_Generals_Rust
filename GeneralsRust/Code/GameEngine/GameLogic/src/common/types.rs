@@ -3088,6 +3088,8 @@ pub struct DefaultThingTemplate {
     build_cost: Int,
     build_time: Real,
     threat_value: UnsignedInt,
+    crusher_level: u32,
+    crushable_level: u32,
     shroud_reveal_to_all_range: Real,
     occlusion_delay: u32,
     max_health: Real,
@@ -3152,6 +3154,8 @@ impl DefaultThingTemplate {
             build_cost: 0,
             build_time: 0.0,
             threat_value: 0,
+            crusher_level: 0,
+            crushable_level: 255,
             shroud_reveal_to_all_range: 0.0,
             occlusion_delay: global_data::read().default_occlusion_delay,
             max_health: 100.0,
@@ -3211,6 +3215,14 @@ impl DefaultThingTemplate {
 
     pub fn set_threat_value(&mut self, threat_value: UnsignedInt) {
         self.threat_value = threat_value;
+    }
+
+    pub fn set_crusher_level(&mut self, crusher_level: u32) {
+        self.crusher_level = crusher_level.min(u8::MAX as u32);
+    }
+
+    pub fn set_crushable_level(&mut self, crushable_level: u32) {
+        self.crushable_level = crushable_level.min(u8::MAX as u32);
     }
 
     pub fn set_shroud_reveal_to_all_range(&mut self, range: Real) {
@@ -3596,6 +3608,14 @@ impl ThingTemplate for DefaultThingTemplate {
         self.threat_value
     }
 
+    fn get_crusher_level(&self) -> u32 {
+        self.crusher_level
+    }
+
+    fn get_crushable_level(&self) -> u32 {
+        self.crushable_level
+    }
+
     fn get_shroud_reveal_to_all_range(&self) -> Real {
         self.shroud_reveal_to_all_range
     }
@@ -3803,6 +3823,14 @@ impl ThingTemplate for Arc<DefaultThingTemplate> {
 
     fn get_threat_value(&self) -> UnsignedInt {
         (**self).get_threat_value()
+    }
+
+    fn get_crusher_level(&self) -> u32 {
+        (**self).get_crusher_level()
+    }
+
+    fn get_crushable_level(&self) -> u32 {
+        (**self).get_crushable_level()
     }
 
     fn get_shroud_reveal_to_all_range(&self) -> Real {
@@ -4026,6 +4054,14 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
 
     fn get_threat_value(&self) -> UnsignedInt {
         (**self).get_threat_value()
+    }
+
+    fn get_crusher_level(&self) -> u32 {
+        (**self).get_crusher_level()
+    }
+
+    fn get_crushable_level(&self) -> u32 {
+        (**self).get_crushable_level()
     }
 
     fn get_shroud_reveal_to_all_range(&self) -> Real {

@@ -2531,8 +2531,9 @@ impl Locomotor {
     ) -> Result<Option<crate::ai::pathfinding_system::Path>, Box<dyn Error>> {
         use crate::ai::pathfinding_system::{PathRequest, PathResult};
 
-        // Convert locomotor capabilities to pathfinding capabilities
-        let capabilities = self.to_movement_capabilities();
+        // Convert locomotor and requester capabilities to pathfinding capabilities.
+        let capabilities =
+            Self::apply_requester_capabilities(self.to_movement_capabilities(), requester);
 
         // Create path request
         let mut move_allies = false;
@@ -2649,6 +2650,18 @@ impl Locomotor {
             tunneling,
             surface_mask: self.template.surfaces,
         }
+    }
+
+    fn apply_requester_capabilities(
+        mut capabilities: MovementCapabilities,
+        requester: ObjectID,
+    ) -> MovementCapabilities {
+        if let Some(obj) = OBJECT_REGISTRY.get_object(requester) {
+            if let Ok(guard) = obj.read() {
+                capabilities.crusher = guard.get_crusher_level() > 0;
+            }
+        }
+        capabilities
     }
 
     /// Apply locomotor settings to physics state
@@ -3073,6 +3086,14 @@ pub static LOCOMOTOR_STORE: Lazy<Arc<LocomotorStore>> = Lazy::new(|| {
 mod tests {
     use super::*;
 
+    struct RegisteredObjectCleanup(ObjectID);
+
+    impl Drop for RegisteredObjectCleanup {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(self.0);
+        }
+    }
+
     #[test]
     fn test_locomotor_creation() {
         let template = Arc::new(LocomotorTemplate::new_infantry("TestInfantry".to_string()));
@@ -3118,6 +3139,42 @@ mod tests {
         let caps = hover.to_movement_capabilities();
         assert!(caps.amphibious);
         assert_eq!(caps.layer, PathfindLayerEnum::Ground);
+    }
+
+    #[test]
+    fn test_requester_capabilities_include_crusher_level() {
+        let template = Arc::new(LocomotorTemplate::new_tracked("CrusherLoco".to_string()));
+        let loco = Locomotor::new(template);
+        let mut thing_template =
+            crate::common::DefaultThingTemplate::new("CrusherUnit".to_string());
+        thing_template.set_crusher_level(2);
+        assert_eq!(
+            crate::common::ThingTemplate::get_crusher_level(&thing_template),
+            2
+        );
+        let object = crate::object::Object::new_with_id(
+            Arc::new(thing_template),
+            77,
+            crate::common::ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("crusher object");
+        let _object_cleanup = RegisteredObjectCleanup(77);
+        assert_eq!(object.read().expect("object lock").get_crusher_level(), 2);
+        assert_eq!(
+            OBJECT_REGISTRY
+                .get_object(77)
+                .expect("registered object")
+                .read()
+                .expect("registered object lock")
+                .get_crusher_level(),
+            2
+        );
+
+        let caps = Locomotor::apply_requester_capabilities(loco.to_movement_capabilities(), 77);
+
+        assert!(caps.crusher);
+        drop(object);
     }
 
     #[test]
