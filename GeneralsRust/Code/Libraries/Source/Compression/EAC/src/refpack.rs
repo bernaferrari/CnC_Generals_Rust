@@ -80,6 +80,12 @@ impl RefPackEncoder {
         let mut chain_count = 0;
         
         while chain_pos > 0 && chain_count < 32 {
+            if chain_pos >= pos || chain_pos >= self.window.len() {
+                chain_pos = self.hash_chain[chain_pos % HASH_CHAIN_LENGTH] as usize;
+                chain_count += 1;
+                continue;
+            }
+
             let distance = pos - chain_pos;
             if distance > MAX_DISTANCE {
                 break;
@@ -185,7 +191,11 @@ impl RefPackEncoder {
     
     /// Encode a literal byte
     fn encode_literal(&self, output: &mut Vec<u8>, byte: u8) -> Result<()> {
-        output.push(byte);
+        if byte & 0x80 == 0 {
+            output.push(byte);
+        } else {
+            output.extend_from_slice(&[0x80, 0, 0, byte]);
+        }
         Ok(())
     }
     
@@ -254,8 +264,19 @@ impl RefPackDecoder {
                 let length = ((byte & 0x7F) as usize) + MIN_MATCH_LENGTH;
                 let distance = u16::from_le_bytes([input[pos], input[pos + 1]]) as usize;
                 pos += 2;
-                
-                if distance == 0 || distance > self.output_buffer.len() {
+
+                if distance == 0 {
+                    if pos >= input.len() {
+                        return Err(EacError::DecompressionFailed(
+                            "Unexpected end of input while reading escaped literal".to_string(),
+                        ));
+                    }
+                    self.output_buffer.push(input[pos]);
+                    pos += 1;
+                    continue;
+                }
+
+                if distance > self.output_buffer.len() {
                     return Err(EacError::DecompressionFailed(
                         format!("Invalid back reference: distance={}, buffer_len={}", 
                                distance, self.output_buffer.len())
@@ -411,8 +432,8 @@ mod tests {
         fn test_parallel_refpack(input in any::<Vec<u8>>()) {
             if input.len() > 1000 {
                 let compressed_serial = encode(&input).unwrap();
-                let compressed_parallel = encode_parallel(&input, 1000).unwrap();
-                
+                let _compressed_parallel = encode_parallel(&input, 1000).unwrap();
+
                 // Both should be valid (parallel may have different compression ratio)
                 let decompressed_serial = decode(&compressed_serial, input.len()).unwrap();
                 assert_eq!(input, decompressed_serial);
