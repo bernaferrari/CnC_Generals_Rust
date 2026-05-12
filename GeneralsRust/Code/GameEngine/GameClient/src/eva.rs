@@ -390,6 +390,8 @@ impl Eva {
     }
 
     pub fn update(&mut self) {
+        self.sync_enabled_from_logic();
+
         if !self.enabled {
             return;
         }
@@ -426,6 +428,15 @@ impl Eva {
             *flag = false;
         }
         self.enabled = enabled;
+    }
+
+    fn sync_enabled_from_logic(&mut self) {
+        let Ok(enabled) = LogicEva::is_enabled() else {
+            return;
+        };
+        if self.enabled != enabled {
+            self.set_enabled(enabled);
+        }
     }
 
     pub fn new_eva_check_info(&mut self, name: &str) -> Option<&mut EvaCheckInfo> {
@@ -822,5 +833,21 @@ mod tests {
 
         assert!(eva.get_eva_check_info_by_name("EVA_INVALID").is_none());
         assert!(eva.get_eva_check_info_by_name("UNKNOWN").is_none());
+    }
+
+    #[test]
+    fn eva_enabled_state_mirrors_logic_script_toggle() {
+        let _ = LogicEva::set_enabled(true);
+        let mut eva = Eva::new();
+        eva.set_should_play(EvaMessage::BuildingLost);
+
+        let _ = LogicEva::set_enabled(false);
+        eva.sync_enabled_from_logic();
+        assert!(!eva.enabled);
+        assert!(!eva.should_play[EvaMessage::BuildingLost.as_index()]);
+
+        let _ = LogicEva::set_enabled(true);
+        eva.sync_enabled_from_logic();
+        assert!(eva.enabled);
     }
 }
