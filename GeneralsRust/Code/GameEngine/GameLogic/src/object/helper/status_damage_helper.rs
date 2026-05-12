@@ -21,6 +21,7 @@
 use super::{DisabledMaskType, ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
 use crate::helpers::TheGameLogic;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Object status types that can be temporarily applied
@@ -61,6 +62,9 @@ pub struct StatusDamageHelper {
     /// Frame when the status should be cleared
     frame_to_heal: u32,
 
+    /// C++ UpdateModule base state: packed next-call frame and phase.
+    next_call_frame_and_phase: u32,
+
     /// Next wake frame
     wake_frame: u32,
 }
@@ -73,6 +77,7 @@ impl StatusDamageHelper {
             owner_id,
             status_to_heal: ObjectStatusTypes::None,
             frame_to_heal: 0,
+            next_call_frame_and_phase: 0,
             wake_frame: u32::MAX, // Sleep forever initially
         }
     }
@@ -187,6 +192,12 @@ impl Snapshotable for StatusDamageHelper {
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|err| format!("StatusDamageHelper xfer version: {err:?}"))?;
 
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| format!("StatusDamageHelper xfer object helper version: {err:?}"))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|err| format!("StatusDamageHelper xfer update module base: {err}"))?;
+
         let mut status = self.status_to_heal as u32;
         xfer.xfer_unsigned_int(&mut status)
             .map_err(|err| format!("StatusDamageHelper xfer status_to_heal: {err:?}"))?;
@@ -240,6 +251,7 @@ mod tests {
         let mut saved = StatusDamageHelper::new(INVALID_ID, StatusDamageHelperModuleData::new());
         saved.status_to_heal = ObjectStatusTypes::Immobile;
         saved.frame_to_heal = 1234;
+        saved.next_call_frame_and_phase = 0x2234;
         saved.wake_frame = saved.frame_to_heal;
 
         let mut bytes = Cursor::new(Vec::new());
@@ -258,6 +270,10 @@ mod tests {
 
         assert_eq!(loaded.status_to_heal, saved.status_to_heal);
         assert_eq!(loaded.frame_to_heal, saved.frame_to_heal);
+        assert_eq!(
+            loaded.next_call_frame_and_phase,
+            saved.next_call_frame_and_phase
+        );
         assert_eq!(loaded.wake_frame, saved.frame_to_heal);
     }
 }

@@ -23,6 +23,7 @@
 
 use super::{DisabledMaskType, ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::drawable::TintStatus;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
@@ -63,6 +64,9 @@ pub struct TempWeaponBonusHelper {
     /// Frame when the bonus should be removed
     frame_to_remove: u32,
 
+    /// C++ UpdateModule base state: packed next-call frame and phase.
+    next_call_frame_and_phase: u32,
+
     /// Next wake frame
     wake_frame: u32,
 
@@ -78,6 +82,7 @@ impl TempWeaponBonusHelper {
             owner_id,
             current_bonus: WeaponBonusConditionType::Invalid,
             frame_to_remove: 0,
+            next_call_frame_and_phase: 0,
             wake_frame: u32::MAX, // Sleep forever initially
             current_tint: TintStatus::NONE,
         }
@@ -307,6 +312,12 @@ impl Snapshotable for TempWeaponBonusHelper {
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|err| format!("TempWeaponBonusHelper xfer version: {err:?}"))?;
 
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| format!("TempWeaponBonusHelper xfer object helper version: {err:?}"))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|err| format!("TempWeaponBonusHelper xfer update module base: {err}"))?;
+
         let mut bonus = weapon_bonus_to_cpp_value(self.current_bonus);
         xfer.xfer_unsigned_int(&mut bonus)
             .map_err(|err| format!("TempWeaponBonusHelper xfer current_bonus: {err:?}"))?;
@@ -486,6 +497,7 @@ mod tests {
         let mut saved =
             TempWeaponBonusHelper::new(INVALID_ID, TempWeaponBonusHelperModuleData::new());
         saved.do_temp_weapon_bonus(WeaponBonusConditionType::FrenzyTwo, 90, 120);
+        saved.next_call_frame_and_phase = 0x4234;
 
         let mut bytes = Cursor::new(Vec::new());
         {
@@ -504,6 +516,10 @@ mod tests {
 
         assert_eq!(loaded.current_bonus, saved.current_bonus);
         assert_eq!(loaded.frame_to_remove, saved.frame_to_remove);
+        assert_eq!(
+            loaded.next_call_frame_and_phase,
+            saved.next_call_frame_and_phase
+        );
         assert_eq!(loaded.wake_frame, saved.frame_to_remove);
         assert_eq!(loaded.current_tint, TintStatus::FRENZY);
     }
