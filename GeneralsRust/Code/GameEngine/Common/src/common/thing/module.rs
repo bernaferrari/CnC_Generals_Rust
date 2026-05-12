@@ -106,6 +106,9 @@ pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
     fn get_beacon_client_update_config(&self) -> Option<BeaconClientUpdateConfig> {
         None
     }
+    fn get_radar_update_config(&self) -> Option<RadarUpdateConfig> {
+        None
+    }
     fn get_minimum_required_game_lod(&self) -> StaticGameLodLevel {
         StaticGameLodLevel::Low
     }
@@ -117,6 +120,11 @@ pub trait ModuleData: Snapshotable + Send + Sync + std::fmt::Debug + Any {
 pub struct BeaconClientUpdateConfig {
     pub frames_between_radar_pulses: u32,
     pub radar_pulse_duration: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RadarUpdateConfig {
+    pub radar_extend_time: f32,
 }
 
 impl dyn ModuleData {
