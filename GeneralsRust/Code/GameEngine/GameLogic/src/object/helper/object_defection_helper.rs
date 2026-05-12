@@ -17,7 +17,8 @@
 
 use super::{DisabledMaskType, ObjectHelperInterface, UpdateSleepTime};
 use crate::common::*;
-use game_engine::common::system::{Snapshotable, Xfer};
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use std::sync::{Arc, RwLock};
 
 /// Maximum defection detection time (10 seconds at 30 FPS)
@@ -64,6 +65,9 @@ pub struct ObjectDefectionHelper {
     /// Whether to do defector FX (AmericaInfPilot uses defect to become temporarily "invulnerable")
     do_defector_fx: bool,
 
+    /// C++ UpdateModule base state: packed next-call frame and phase.
+    next_call_frame_and_phase: u32,
+
     /// Next wake frame
     wake_frame: u32,
 }
@@ -77,6 +81,7 @@ impl ObjectDefectionHelper {
             defection_detection_end: 0,
             defection_detection_flash_phase: 0.0,
             do_defector_fx: false,
+            next_call_frame_and_phase: 0,
             wake_frame: 0,
         }
     }
@@ -201,6 +206,17 @@ impl Snapshotable for ObjectDefectionHelper {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("ObjectDefectionHelper xfer version: {err:?}"))?;
+
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| format!("ObjectDefectionHelper xfer object helper version: {err:?}"))?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)
+            .map_err(|err| format!("ObjectDefectionHelper xfer update module base: {err}"))?;
+
         xfer.xfer_unsigned_int(&mut self.defection_detection_start)
             .map_err(|err| format!("ObjectDefectionHelper xfer detection_start: {err:?}"))?;
         xfer.xfer_unsigned_int(&mut self.defection_detection_end)
@@ -327,6 +343,7 @@ mod tests {
         let mut saved = ObjectDefectionHelper::new(ObjectDefectionHelperModuleData::new());
         saved.start_defection_timer(300, true, 100, true);
         saved.defection_detection_flash_phase = 2.75;
+        saved.next_call_frame_and_phase = 0x1234;
         saved.wake_frame = 42;
 
         let mut bytes = Cursor::new(Vec::new());
@@ -355,5 +372,9 @@ mod tests {
             saved.defection_detection_flash_phase
         );
         assert_eq!(loaded.do_defector_fx, saved.do_defector_fx);
+        assert_eq!(
+            loaded.next_call_frame_and_phase,
+            saved.next_call_frame_and_phase
+        );
     }
 }
