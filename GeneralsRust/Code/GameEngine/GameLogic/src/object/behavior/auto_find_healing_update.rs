@@ -280,8 +280,16 @@ impl Module for AutoFindHealingUpdateModule {
     }
 }
 
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
 fn parse_duration_frames(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     INI::parse_duration_unsigned_int(token)
 }
 
@@ -299,10 +307,7 @@ fn parse_scan_range(
     data: &mut AutoFindHealingUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.scan_range = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
+    data.scan_range = INI::parse_real(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -311,10 +316,7 @@ fn parse_never_heal(
     data: &mut AutoFindHealingUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.never_heal = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
+    data.never_heal = INI::parse_real(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -323,10 +325,7 @@ fn parse_always_heal(
     data: &mut AutoFindHealingUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.always_heal = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
+    data.always_heal = INI::parse_real(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -357,5 +356,21 @@ mod tests {
     fn parse_duration_frames_accepts_duration_suffixes() {
         assert_eq!(parse_duration_frames(&["1500ms"]).expect("duration"), 45);
         assert_eq!(parse_duration_frames(&["1.5s"]).expect("duration"), 45);
+    }
+
+    #[test]
+    fn parse_fields_accept_ini_equals_token() {
+        let mut ini = INI::new();
+        let mut data = AutoFindHealingUpdateModuleData::default();
+
+        parse_scan_rate(&mut ini, &mut data, &["=", "1500ms"]).expect("scan rate");
+        parse_scan_range(&mut ini, &mut data, &["=", "125.5"]).expect("scan range");
+        parse_never_heal(&mut ini, &mut data, &["=", "0.8"]).expect("never heal");
+        parse_always_heal(&mut ini, &mut data, &["=", "0.2"]).expect("always heal");
+
+        assert_eq!(data.scan_frames, 45);
+        assert!((data.scan_range - 125.5).abs() < f32::EPSILON);
+        assert!((data.never_heal - 0.8).abs() < f32::EPSILON);
+        assert!((data.always_heal - 0.2).abs() < f32::EPSILON);
     }
 }
