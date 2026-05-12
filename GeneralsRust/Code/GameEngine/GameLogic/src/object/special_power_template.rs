@@ -243,6 +243,9 @@ impl SpecialPowerTemplate {
 /// Special power store - manages all special power templates
 #[derive(Debug, Default)]
 pub struct SpecialPowerStore {
+    /// Template IDs in C++ m_specialPowerTemplates insertion order
+    template_order: Vec<u32>,
+
     /// Templates stored by name
     templates_by_name: HashMap<String, SpecialPowerTemplate>,
 
@@ -257,6 +260,7 @@ impl SpecialPowerStore {
     /// Create a new special power store
     pub fn new() -> Self {
         Self {
+            template_order: Vec::new(),
             templates_by_name: HashMap::new(),
             templates_by_id: HashMap::new(),
             next_id: 1,
@@ -275,6 +279,7 @@ impl SpecialPowerStore {
 
     /// Reset the store
     pub fn reset(&mut self) {
+        self.template_order.clear();
         self.templates_by_name.clear();
         self.templates_by_id.clear();
         self.next_id = 1;
@@ -285,6 +290,9 @@ impl SpecialPowerStore {
         let name = template.get_name().to_string();
         let id = template.get_id();
 
+        if !self.templates_by_id.contains_key(&id) {
+            self.template_order.push(id);
+        }
         self.templates_by_name.insert(name, template.clone());
         self.templates_by_id.insert(id, template);
     }
@@ -304,12 +312,13 @@ impl SpecialPowerStore {
         &self,
         index: usize,
     ) -> Option<&SpecialPowerTemplate> {
-        self.templates_by_id.values().nth(index)
+        let id = self.template_order.get(index)?;
+        self.templates_by_id.get(id)
     }
 
     /// Get the number of special powers
     pub fn get_num_special_powers(&self) -> usize {
-        self.templates_by_name.len()
+        self.template_order.len()
     }
 
     /// Get the next available ID
@@ -578,6 +587,35 @@ mod tests {
 
         let found_by_id = store.find_special_power_template_by_id(1);
         assert!(found_by_id.is_some());
+    }
+
+    #[test]
+    fn special_power_store_indexes_in_insertion_order() {
+        let mut store = SpecialPowerStore::new();
+
+        store.add_template(SpecialPowerTemplate::new("FirstPower".to_string(), 20));
+        store.add_template(SpecialPowerTemplate::new("SecondPower".to_string(), 10));
+        store.add_template(SpecialPowerTemplate::new("ThirdPower".to_string(), 30));
+
+        assert_eq!(
+            store
+                .get_special_power_template_by_index(0)
+                .map(SpecialPowerTemplate::get_name),
+            Some("FirstPower")
+        );
+        assert_eq!(
+            store
+                .get_special_power_template_by_index(1)
+                .map(SpecialPowerTemplate::get_name),
+            Some("SecondPower")
+        );
+        assert_eq!(
+            store
+                .get_special_power_template_by_index(2)
+                .map(SpecialPowerTemplate::get_name),
+            Some("ThirdPower")
+        );
+        assert!(store.get_special_power_template_by_index(3).is_none());
     }
 
     #[test]
