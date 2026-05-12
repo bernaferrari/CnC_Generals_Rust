@@ -583,7 +583,7 @@ impl MissileAIUpdate {
 
     /// Attack state: fly toward target with optional turning
     /// Matches C++ MissileAIUpdate::doAttackState from MissileAIUpdate.cpp lines 477-554
-    fn do_attack_state(&mut self, _turn_ok: bool, current_frame: UnsignedInt) {
+    fn do_attack_state(&mut self, turn_ok: bool, current_frame: UnsignedInt) {
         // Check fuel expiration
         if current_frame >= self.fuel_expiration_date {
             if self.data.detonate_on_no_fuel {
@@ -591,21 +591,18 @@ impl MissileAIUpdate {
                 return;
             }
 
-            // Disable propulsion
-            // curLoco->setMaxAcceleration(0);
-            // curLoco->setMaxTurnRate(0);
+            self.set_locomotor_acceleration_and_turn(0.0, 0.0);
             // Toss exhaust
         } else {
-            // Enable propulsion with optional turning
-            // curLoco->setMaxAcceleration(m_maxAccel);
-            // curLoco->setMaxTurnRate(turnOK ? BIGNUM : 0);
+            self.set_locomotor_acceleration_and_turn(
+                self.max_accel,
+                if turn_ok { BIGNUM } else { 0.0 },
+            );
         }
 
         // Check lock distance for terminal guidance
-        if self.data.lock_distance > 0.0 {
-            // Calculate distance to target
-            // If within lock distance, switch to KILL state
-            // Matches C++ lines 506-530
+        if self.handle_lock_distance(current_frame) {
+            return;
         }
 
         // Check dive distance
@@ -619,8 +616,86 @@ impl MissileAIUpdate {
             self.switch_to_state(MissileState::Attack, current_frame);
         }
 
-        // Handle lost airborne target
-        // Matches C++ lines 550-553
+        if self.is_tracking_target && self.current_goal_object().is_none() {
+            self.airborne_target_gone(current_frame);
+        }
+    }
+
+    fn handle_lock_distance(&mut self, current_frame: UnsignedInt) -> bool {
+        let mut lock_distance = self.data.lock_distance;
+        if lock_distance <= 0.0 {
+            return false;
+        }
+
+        let Some(distance_to_target_sq) = self.distance_to_goal_2d_squared() else {
+            return false;
+        };
+
+        if !self.is_tracking_target {
+            lock_distance *= 0.5;
+        }
+
+        if distance_to_target_sq < lock_distance * lock_distance {
+            if !self.is_tracking_target {
+                if let Some(ai) = self.current_ai_interface() {
+                    ai.ai_move_to_position(&self.original_target_pos, false, CMD_FROM_AI);
+                }
+            }
+            self.switch_to_state(MissileState::Kill, current_frame);
+            return true;
+        }
+
+        false
+    }
+
+    fn distance_to_goal_2d_squared(&self) -> Option<Real> {
+        let missile_pos = self.current_object_position()?;
+        let goal_pos = if self.is_tracking_target {
+            self.current_goal_object()
+                .and_then(|goal| goal.read().ok().map(|guard| *guard.get_position()))
+        } else {
+            self.current_ai_interface()
+                .and_then(|ai| ai.get_path_destination())
+                .or(Some(self.original_target_pos))
+        }?;
+
+        let dx = missile_pos.x - goal_pos.x;
+        let dy = missile_pos.y - goal_pos.y;
+        Some(dx * dx + dy * dy)
+    }
+
+    fn current_object_position(&self) -> Option<Coord3D> {
+        TheGameLogic::find_object_by_id(self.object_id)
+            .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
+    }
+
+    fn current_ai_interface(
+        &self,
+    ) -> Option<Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>> {
+        TheGameLogic::find_object_by_id(self.object_id).and_then(|object| {
+            object
+                .read()
+                .ok()
+                .and_then(|guard| guard.get_ai_update_interface())
+        })
+    }
+
+    fn current_goal_object(&self) -> Option<Arc<std::sync::RwLock<Object>>> {
+        self.current_ai_interface()
+            .and_then(|ai| ai.get_goal_object())
+    }
+
+    fn set_locomotor_acceleration_and_turn(&self, acceleration: Real, turn_rate: Real) {
+        let Some(ai) = self.current_ai_interface() else {
+            return;
+        };
+        let Some(locomotor) = ai.get_cur_locomotor() else {
+            return;
+        };
+        if let Ok(mut guard) = locomotor.lock() {
+            guard.set_max_acceleration(acceleration);
+            guard.set_max_turn_rate(turn_rate);
+        };
     }
 
     /// Kill state: precise terminal guidance to target
