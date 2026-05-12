@@ -7,7 +7,7 @@ use crate::helpers::{game_client_random_value_real, TheGameLogic};
 use crate::object::drawable::DrawableArcExt;
 use crate::scripting::engine::{get_script_engine, BreezeInfo};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
 use glam::Mat4;
 use std::any::Any;
 use std::f32::consts::PI;
@@ -131,6 +131,17 @@ impl Module for SwayClientUpdateModule {
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
     }
+
+    fn get_client_update_interface(&mut self) -> Option<&mut dyn ClientUpdateInterface> {
+        Some(self)
+    }
+}
+
+impl ClientUpdateInterface for SwayClientUpdateModule {
+    fn client_update(&mut self) -> bool {
+        SwayClientUpdateModule::client_update(self);
+        true
+    }
 }
 
 impl Snapshotable for SwayClientUpdateModule {
@@ -221,5 +232,13 @@ mod tests {
         assert_eq!(loaded.lean_angle, -0.25);
         assert_eq!(loaded.cur_version, 7);
         assert!(!loaded.swaying);
+    }
+
+    #[test]
+    fn sway_client_update_exposes_typed_client_update_interface() {
+        let module_data = Arc::new(BaseModuleData::new());
+        let mut module = SwayClientUpdateModule::new(11, module_data, 22);
+
+        assert!(module.get_client_update_interface().is_some());
     }
 }

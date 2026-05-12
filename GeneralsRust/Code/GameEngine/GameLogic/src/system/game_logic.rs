@@ -93,10 +93,6 @@ use crate::modules::{SleepyUpdatePhase, UpdateModulePtr, UpdateSleepTime};
 use crate::object::collide::collision_geometry::GeometryInfo as CollisionGeometryInfo;
 use crate::object::collide::collision_response::{CollisionResponseConfig, CollisionResponseType};
 use crate::object::collide::collision_system::with_collision_system_mut;
-use crate::object::update::laser_update::LaserUpdateModule;
-use crate::object::update::{
-    AnimatedParticleSysBoneClientUpdateModule, BeaconClientUpdateModule, SwayClientUpdateModule,
-};
 use crate::object::{registry::OBJECT_REGISTRY, Object, THE_GHOST_OBJECT_MANAGER};
 use crate::player::{player_list, GameDifficulty, Player, PlayerIndex, PlayerType};
 use crate::scripting::engine::{get_script_engine, initialize_script_engine, ScriptEngine};
@@ -2321,36 +2317,11 @@ impl GameLogic {
             };
 
             for module in modules {
-                if module
-                    .with_module_downcast::<LaserUpdateModule, _, _>(|laser_update| {
-                        laser_update.update_mut().client_update();
-                    })
-                    .is_some()
-                {
-                    continue;
-                }
-                if module
-                    .with_module_downcast::<BeaconClientUpdateModule, _, _>(|beacon_update| {
-                        beacon_update.client_update();
-                    })
-                    .is_some()
-                {
-                    continue;
-                }
-                if module
-                    .with_module_downcast::<SwayClientUpdateModule, _, _>(|sway_update| {
-                        sway_update.client_update();
-                    })
-                    .is_some()
-                {
-                    continue;
-                }
-                let _ = module
-                    .with_module_downcast::<AnimatedParticleSysBoneClientUpdateModule, _, _>(
-                        |animated_update| {
-                            animated_update.client_update();
-                        },
-                    );
+                module.with_module(|module| {
+                    if let Some(client_update) = module.get_client_update_interface() {
+                        let _ = client_update.client_update();
+                    }
+                });
             }
         }
     }
