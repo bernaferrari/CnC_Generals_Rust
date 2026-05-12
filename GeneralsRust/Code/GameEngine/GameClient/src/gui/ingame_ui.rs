@@ -3855,6 +3855,21 @@ impl InGameUI {
         )
     }
 
+    fn command_hint_after_shroud_projection(
+        hint_type: CommandHintType,
+        target_shroud: Option<ObjectShroudStatus>,
+    ) -> CommandHintType {
+        if matches!(
+            hint_type,
+            CommandHintType::AttackObject | CommandHintType::AttackObjectAfterMoving
+        ) && target_shroud == Some(ObjectShroudStatus::Shrouded)
+        {
+            CommandHintType::MoveTo
+        } else {
+            hint_type
+        }
+    }
+
     fn military_caption_delay_frames() -> u32 {
         let delay_ms = get_global_language_read()
             .map(|language| language.military_caption_delay_ms)
@@ -4167,6 +4182,24 @@ impl InGameUI {
             return;
         }
 
+        let target_shroud = match hint_type {
+            CommandHintType::AttackObject | CommandHintType::AttackObjectAfterMoving => {
+                if self.moused_over_drawable_id == Self::INVALID_DRAWABLE_ID {
+                    None
+                } else {
+                    OBJECT_REGISTRY
+                        .get_object(self.moused_over_drawable_id)
+                        .and_then(|obj| {
+                            obj.read()
+                                .ok()
+                                .map(|guard| guard.get_shrouded_status(self.player_id as i32))
+                        })
+                }
+            }
+            _ => None,
+        };
+        let hint_type = Self::command_hint_after_shroud_projection(hint_type, target_shroud);
+
         // C++: underWindow — WindowManager not yet ported; no opaque window
         // can cover the game area in the current architecture, so underWindow = false.
         let _under_window = false;
@@ -4251,31 +4284,7 @@ impl InGameUI {
                     }
                     CommandHintType::AttackObject => {
                         // C++: MSG_DO_ATTACK_OBJECT_HINT (InGameUI.cpp:2619-2621)
-                        // C++ downgrades to MoveTo if the target is under shroud for the local player.
-                        let cursor = if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
-                            let shrouded =
-                                match OBJECT_REGISTRY.get_object(self.moused_over_drawable_id) {
-                                    Some(obj) => obj
-                                        .read()
-                                        .map(|g| {
-                                            matches!(
-                                                g.get_shrouded_status(self.player_id as i32),
-                                                ObjectShroudStatus::Shrouded
-                                                    | ObjectShroudStatus::Fogged
-                                            )
-                                        })
-                                        .unwrap_or(false),
-                                    None => false,
-                                };
-                            if shrouded {
-                                MouseCursor::MoveTo
-                            } else {
-                                MouseCursor::AttackObject
-                            }
-                        } else {
-                            MouseCursor::AttackObject
-                        };
-                        self.set_mouse_cursor(cursor);
+                        self.set_mouse_cursor(MouseCursor::AttackObject);
                     }
                     CommandHintType::AttackObjectAfterMoving => {
                         // C++: MSG_DO_ATTACK_OBJECT_AFTER_MOVING_HINT (InGameUI.cpp:2622-2624)
@@ -4753,6 +4762,45 @@ mod tests {
         assert!(!InGameUI::mouseover_tooltip_visible_for_shroud(
             ObjectShroudStatus::Invalid
         ));
+    }
+
+    #[test]
+    fn command_attack_hints_only_downgrade_for_fully_shrouded_targets() {
+        assert_eq!(
+            InGameUI::command_hint_after_shroud_projection(
+                CommandHintType::AttackObject,
+                Some(ObjectShroudStatus::Shrouded)
+            ),
+            CommandHintType::MoveTo
+        );
+        assert_eq!(
+            InGameUI::command_hint_after_shroud_projection(
+                CommandHintType::AttackObjectAfterMoving,
+                Some(ObjectShroudStatus::Shrouded)
+            ),
+            CommandHintType::MoveTo
+        );
+        assert_eq!(
+            InGameUI::command_hint_after_shroud_projection(
+                CommandHintType::AttackObject,
+                Some(ObjectShroudStatus::Fogged)
+            ),
+            CommandHintType::AttackObject
+        );
+        assert_eq!(
+            InGameUI::command_hint_after_shroud_projection(
+                CommandHintType::AttackObjectAfterMoving,
+                Some(ObjectShroudStatus::Fogged)
+            ),
+            CommandHintType::AttackObjectAfterMoving
+        );
+        assert_eq!(
+            InGameUI::command_hint_after_shroud_projection(
+                CommandHintType::ForceAttackObject,
+                Some(ObjectShroudStatus::Shrouded)
+            ),
+            CommandHintType::ForceAttackObject
+        );
     }
 
     #[test]
