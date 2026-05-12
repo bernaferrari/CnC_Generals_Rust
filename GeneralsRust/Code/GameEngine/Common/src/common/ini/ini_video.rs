@@ -351,6 +351,7 @@ impl Video {
 #[derive(Debug)]
 pub struct VideoPlayer {
     videos: HashMap<String, Video>,
+    video_order: Vec<String>,
     current_video: Option<String>,
     is_playing: bool,
     is_paused: bool,
@@ -361,6 +362,7 @@ impl VideoPlayer {
     pub fn new() -> Self {
         Self {
             videos: HashMap::new(),
+            video_order: Vec::new(),
             current_video: None,
             is_playing: false,
             is_paused: false,
@@ -389,6 +391,9 @@ impl VideoPlayer {
     /// Add a video to the player
     pub fn add_video(&mut self, video: Video) {
         let name = video.internal_name.as_str().to_string();
+        if !self.videos.contains_key(&name) {
+            self.video_order.push(name.clone());
+        }
         self.videos.insert(name, video);
     }
 
@@ -470,13 +475,17 @@ impl VideoPlayer {
 
     /// Get all video names
     pub fn get_video_names(&self) -> Vec<&String> {
-        self.videos.keys().collect()
+        self.video_order
+            .iter()
+            .filter(|name| self.videos.contains_key(*name))
+            .collect()
     }
 
     /// Get videos by playback mode
     pub fn get_videos_by_mode(&self, mode: &VideoPlaybackMode) -> Vec<&Video> {
-        self.videos
-            .values()
+        self.video_order
+            .iter()
+            .filter_map(|name| self.videos.get(name))
             .filter(|v| &v.playback_mode == mode)
             .collect()
     }
@@ -490,13 +499,19 @@ impl VideoPlayer {
             }
         }
 
-        self.videos.remove(name.as_str()).is_some()
+        let removed = self.videos.remove(name.as_str()).is_some();
+        if removed {
+            self.video_order
+                .retain(|existing| existing != name.as_str());
+        }
+        removed
     }
 
     /// Clear all videos
     pub fn clear(&mut self) {
         self.stop_video();
         self.videos.clear();
+        self.video_order.clear();
     }
 
     /// Get video count
@@ -730,6 +745,75 @@ mod tests {
 
         // Count videos
         assert_eq!(player.get_video_count(), 1);
+    }
+
+    #[test]
+    fn test_video_player_preserves_cpp_vector_order() {
+        let mut player = VideoPlayer::new();
+        player.add_video(Video::new(AsciiString::from("Intro")));
+        player.add_video(Video::new(AsciiString::from("Campaign")));
+        player.add_video(Video::new(AsciiString::from("Credits")));
+
+        assert_eq!(
+            player
+                .get_video_names()
+                .into_iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["Intro", "Campaign", "Credits"]
+        );
+    }
+
+    #[test]
+    fn test_video_player_replaces_duplicate_in_place() {
+        let mut player = VideoPlayer::new();
+        player.add_video(Video::new(AsciiString::from("Intro")));
+        let mut replacement = Video::new(AsciiString::from("Intro"));
+        replacement.description = AsciiString::from("replacement");
+        player.add_video(replacement);
+        player.add_video(Video::new(AsciiString::from("Credits")));
+
+        assert_eq!(player.get_video_count(), 2);
+        assert_eq!(
+            player
+                .get_video_names()
+                .into_iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec!["Intro", "Credits"]
+        );
+        assert_eq!(
+            player
+                .find_video(&AsciiString::from("Intro"))
+                .expect("video exists")
+                .description
+                .as_str(),
+            "replacement"
+        );
+    }
+
+    #[test]
+    fn test_video_player_mode_filter_preserves_cpp_vector_order() {
+        let mut player = VideoPlayer::new();
+        let mut intro = Video::new(AsciiString::from("Intro"));
+        intro.playback_mode = VideoPlaybackMode::Fullscreen;
+        let mut menu = Video::new(AsciiString::from("Menu"));
+        menu.playback_mode = VideoPlaybackMode::Windowed;
+        let mut credits = Video::new(AsciiString::from("Credits"));
+        credits.playback_mode = VideoPlaybackMode::Fullscreen;
+
+        player.add_video(intro);
+        player.add_video(menu);
+        player.add_video(credits);
+
+        assert_eq!(
+            player
+                .get_videos_by_mode(&VideoPlaybackMode::Fullscreen)
+                .into_iter()
+                .map(|video| video.internal_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Intro", "Credits"]
+        );
     }
 
     #[test]
