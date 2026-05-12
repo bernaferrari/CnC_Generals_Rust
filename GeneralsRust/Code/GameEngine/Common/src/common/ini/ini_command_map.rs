@@ -7,37 +7,119 @@ use crate::common::ini::{ini, FieldParse, INIError, INIResult, LookupListRec, IN
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
-/// Modifier key flags (matching C++ ModifierNames)
+/// Modifier key flags (matching C++ ModifierNames / KEY_STATE_* bits)
 pub const MODIFIER_NONE: i32 = 0;
-pub const MODIFIER_SHIFT: i32 = 1;
-pub const MODIFIER_CTRL: i32 = 2;
-pub const MODIFIER_ALT: i32 = 4;
+pub const MODIFIER_SHIFT: i32 = 0x0010;
+pub const MODIFIER_CTRL: i32 = 0x0004;
+pub const MODIFIER_ALT: i32 = 0x0040;
 
 /// Transition types (matching C++ TransitionNames)
 pub const TRANSITION_DOWN: i32 = 0;
 pub const TRANSITION_UP: i32 = 1;
-pub const TRANSITION_REPEAT: i32 = 2;
+pub const TRANSITION_DOUBLEDOWN: i32 = 2;
+pub const TRANSITION_REPEAT: i32 = TRANSITION_DOUBLEDOWN;
 
 /// Command usable in locations (matching C++ TheCommandUsableInNames)
 pub static COMMAND_USABLE_IN_NAMES: &[&str] = &[
-    "GAME", "SHELL", "ALL", NULL, // terminator
+    "SHELL", "GAME", NULL, // terminator
 ];
 
 const NULL: &str = "\0";
 
 /// Category types (matching C++ CategoryListName)
-pub static CATEGORY_NAMES: &[&str] = &["SELECTION", "INTERFACE", "GAME", "DEBUG", NULL];
+pub static CATEGORY_NAMES: &[&str] = &[
+    "CONTROL",
+    "INFORMATION",
+    "INTERFACE",
+    "SELECTION",
+    "TAUNT",
+    "TEAM",
+    "MISC",
+    "DEBUG",
+    NULL,
+];
 
-/// Key names lookup table (simplified - full table would be much larger)
-/// Matches C++ KeyNames
+/// Key names lookup table (matching C++ KeyNames / DirectInput scan codes)
 pub static KEY_NAMES: &[LookupListRec] = &[
     LookupListRec {
         name: "KEY_NONE",
         value: 0,
     },
     LookupListRec {
+        name: "KEY_ESC",
+        value: 1,
+    },
+    LookupListRec {
         name: "KEY_ESCAPE",
         value: 1,
+    },
+    LookupListRec {
+        name: "KEY_BACKSPACE",
+        value: 14,
+    },
+    LookupListRec {
+        name: "KEY_ENTER",
+        value: 28,
+    },
+    LookupListRec {
+        name: "KEY_RETURN",
+        value: 28,
+    },
+    LookupListRec {
+        name: "KEY_SPACE",
+        value: 57,
+    },
+    LookupListRec {
+        name: "KEY_TAB",
+        value: 15,
+    },
+    LookupListRec {
+        name: "KEY_F1",
+        value: 59,
+    },
+    LookupListRec {
+        name: "KEY_F2",
+        value: 60,
+    },
+    LookupListRec {
+        name: "KEY_F3",
+        value: 61,
+    },
+    LookupListRec {
+        name: "KEY_F4",
+        value: 62,
+    },
+    LookupListRec {
+        name: "KEY_F5",
+        value: 63,
+    },
+    LookupListRec {
+        name: "KEY_F6",
+        value: 64,
+    },
+    LookupListRec {
+        name: "KEY_F7",
+        value: 65,
+    },
+    LookupListRec {
+        name: "KEY_F8",
+        value: 66,
+    },
+    LookupListRec {
+        name: "KEY_F9",
+        value: 67,
+    },
+    LookupListRec {
+        name: "KEY_F10",
+        value: 68,
+    },
+    LookupListRec {
+        name: "KEY_F11",
+        value: 87,
+    },
+    LookupListRec {
+        name: "KEY_F12",
+        value: 88,
     },
     LookupListRec {
         name: "KEY_1",
@@ -81,274 +163,302 @@ pub static KEY_NAMES: &[LookupListRec] = &[
     },
     LookupListRec {
         name: "KEY_A",
-        value: 65,
+        value: 30,
     },
     LookupListRec {
         name: "KEY_B",
-        value: 66,
+        value: 48,
     },
     LookupListRec {
         name: "KEY_C",
-        value: 67,
-    },
-    LookupListRec {
-        name: "KEY_D",
-        value: 68,
-    },
-    LookupListRec {
-        name: "KEY_E",
-        value: 69,
-    },
-    LookupListRec {
-        name: "KEY_F",
-        value: 70,
-    },
-    LookupListRec {
-        name: "KEY_G",
-        value: 71,
-    },
-    LookupListRec {
-        name: "KEY_H",
-        value: 72,
-    },
-    LookupListRec {
-        name: "KEY_I",
-        value: 73,
-    },
-    LookupListRec {
-        name: "KEY_J",
-        value: 74,
-    },
-    LookupListRec {
-        name: "KEY_K",
-        value: 75,
-    },
-    LookupListRec {
-        name: "KEY_L",
-        value: 76,
-    },
-    LookupListRec {
-        name: "KEY_M",
-        value: 77,
-    },
-    LookupListRec {
-        name: "KEY_N",
-        value: 78,
-    },
-    LookupListRec {
-        name: "KEY_O",
-        value: 79,
-    },
-    LookupListRec {
-        name: "KEY_P",
-        value: 80,
-    },
-    LookupListRec {
-        name: "KEY_Q",
-        value: 81,
-    },
-    LookupListRec {
-        name: "KEY_R",
-        value: 82,
-    },
-    LookupListRec {
-        name: "KEY_S",
-        value: 83,
-    },
-    LookupListRec {
-        name: "KEY_T",
-        value: 84,
-    },
-    LookupListRec {
-        name: "KEY_U",
-        value: 85,
-    },
-    LookupListRec {
-        name: "KEY_V",
-        value: 86,
-    },
-    LookupListRec {
-        name: "KEY_W",
-        value: 87,
-    },
-    LookupListRec {
-        name: "KEY_X",
-        value: 88,
-    },
-    LookupListRec {
-        name: "KEY_Y",
-        value: 89,
-    },
-    LookupListRec {
-        name: "KEY_Z",
-        value: 90,
-    },
-    LookupListRec {
-        name: "KEY_F1",
-        value: 112,
-    },
-    LookupListRec {
-        name: "KEY_F2",
-        value: 113,
-    },
-    LookupListRec {
-        name: "KEY_F3",
-        value: 114,
-    },
-    LookupListRec {
-        name: "KEY_F4",
-        value: 115,
-    },
-    LookupListRec {
-        name: "KEY_F5",
-        value: 116,
-    },
-    LookupListRec {
-        name: "KEY_F6",
-        value: 117,
-    },
-    LookupListRec {
-        name: "KEY_F7",
-        value: 118,
-    },
-    LookupListRec {
-        name: "KEY_F8",
-        value: 119,
-    },
-    LookupListRec {
-        name: "KEY_F9",
-        value: 120,
-    },
-    LookupListRec {
-        name: "KEY_F10",
-        value: 121,
-    },
-    LookupListRec {
-        name: "KEY_F11",
-        value: 122,
-    },
-    LookupListRec {
-        name: "KEY_F12",
-        value: 123,
-    },
-    LookupListRec {
-        name: "KEY_SPACE",
-        value: 32,
-    },
-    LookupListRec {
-        name: "KEY_RETURN",
-        value: 13,
-    },
-    LookupListRec {
-        name: "KEY_TAB",
-        value: 9,
-    },
-    LookupListRec {
-        name: "KEY_BACKSPACE",
-        value: 8,
-    },
-    LookupListRec {
-        name: "KEY_INSERT",
-        value: 45,
-    },
-    LookupListRec {
-        name: "KEY_DELETE",
         value: 46,
     },
     LookupListRec {
-        name: "KEY_HOME",
-        value: 36,
+        name: "KEY_D",
+        value: 32,
     },
     LookupListRec {
-        name: "KEY_END",
-        value: 35,
+        name: "KEY_E",
+        value: 18,
     },
     LookupListRec {
-        name: "KEY_PAGEUP",
+        name: "KEY_F",
         value: 33,
     },
     LookupListRec {
-        name: "KEY_PAGEDOWN",
+        name: "KEY_G",
         value: 34,
     },
     LookupListRec {
-        name: "KEY_UP",
-        value: 38,
+        name: "KEY_H",
+        value: 35,
     },
     LookupListRec {
-        name: "KEY_DOWN",
-        value: 40,
+        name: "KEY_I",
+        value: 23,
     },
     LookupListRec {
-        name: "KEY_LEFT",
+        name: "KEY_J",
+        value: 36,
+    },
+    LookupListRec {
+        name: "KEY_K",
         value: 37,
     },
     LookupListRec {
-        name: "KEY_RIGHT",
-        value: 39,
+        name: "KEY_L",
+        value: 38,
     },
     LookupListRec {
-        name: "KEY_SHIFT",
+        name: "KEY_M",
+        value: 50,
+    },
+    LookupListRec {
+        name: "KEY_N",
+        value: 49,
+    },
+    LookupListRec {
+        name: "KEY_O",
+        value: 24,
+    },
+    LookupListRec {
+        name: "KEY_P",
+        value: 25,
+    },
+    LookupListRec {
+        name: "KEY_Q",
         value: 16,
     },
     LookupListRec {
-        name: "KEY_CONTROL",
+        name: "KEY_R",
+        value: 19,
+    },
+    LookupListRec {
+        name: "KEY_S",
+        value: 31,
+    },
+    LookupListRec {
+        name: "KEY_T",
+        value: 20,
+    },
+    LookupListRec {
+        name: "KEY_U",
+        value: 22,
+    },
+    LookupListRec {
+        name: "KEY_V",
+        value: 47,
+    },
+    LookupListRec {
+        name: "KEY_W",
         value: 17,
     },
     LookupListRec {
-        name: "KEY_ALT",
-        value: 18,
+        name: "KEY_X",
+        value: 45,
+    },
+    LookupListRec {
+        name: "KEY_Y",
+        value: 21,
+    },
+    LookupListRec {
+        name: "KEY_Z",
+        value: 44,
+    },
+    LookupListRec {
+        name: "KEY_KP1",
+        value: 79,
+    },
+    LookupListRec {
+        name: "KEY_KP2",
+        value: 80,
+    },
+    LookupListRec {
+        name: "KEY_KP3",
+        value: 81,
+    },
+    LookupListRec {
+        name: "KEY_KP4",
+        value: 75,
+    },
+    LookupListRec {
+        name: "KEY_KP5",
+        value: 76,
+    },
+    LookupListRec {
+        name: "KEY_KP6",
+        value: 77,
+    },
+    LookupListRec {
+        name: "KEY_KP7",
+        value: 71,
+    },
+    LookupListRec {
+        name: "KEY_KP8",
+        value: 72,
+    },
+    LookupListRec {
+        name: "KEY_KP9",
+        value: 73,
+    },
+    LookupListRec {
+        name: "KEY_KP0",
+        value: 82,
+    },
+    LookupListRec {
+        name: "KEY_MINUS",
+        value: 12,
+    },
+    LookupListRec {
+        name: "KEY_EQUAL",
+        value: 13,
+    },
+    LookupListRec {
+        name: "KEY_LBRACKET",
+        value: 26,
+    },
+    LookupListRec {
+        name: "KEY_RBRACKET",
+        value: 27,
+    },
+    LookupListRec {
+        name: "KEY_SEMICOLON",
+        value: 39,
+    },
+    LookupListRec {
+        name: "KEY_APOSTROPHE",
+        value: 40,
+    },
+    LookupListRec {
+        name: "KEY_TICK",
+        value: 41,
+    },
+    LookupListRec {
+        name: "KEY_BACKSLASH",
+        value: 43,
+    },
+    LookupListRec {
+        name: "KEY_COMMA",
+        value: 51,
+    },
+    LookupListRec {
+        name: "KEY_PERIOD",
+        value: 52,
+    },
+    LookupListRec {
+        name: "KEY_SLASH",
+        value: 53,
+    },
+    LookupListRec {
+        name: "KEY_INSERT",
+        value: 210,
+    },
+    LookupListRec {
+        name: "KEY_INS",
+        value: 210,
+    },
+    LookupListRec {
+        name: "KEY_DELETE",
+        value: 211,
+    },
+    LookupListRec {
+        name: "KEY_DEL",
+        value: 211,
+    },
+    LookupListRec {
+        name: "KEY_HOME",
+        value: 199,
+    },
+    LookupListRec {
+        name: "KEY_END",
+        value: 207,
+    },
+    LookupListRec {
+        name: "KEY_PAGEUP",
+        value: 201,
+    },
+    LookupListRec {
+        name: "KEY_PGUP",
+        value: 201,
+    },
+    LookupListRec {
+        name: "KEY_PAGEDOWN",
+        value: 209,
+    },
+    LookupListRec {
+        name: "KEY_PGDN",
+        value: 209,
+    },
+    LookupListRec {
+        name: "KEY_UP",
+        value: 200,
+    },
+    LookupListRec {
+        name: "KEY_DOWN",
+        value: 208,
+    },
+    LookupListRec {
+        name: "KEY_LEFT",
+        value: 203,
+    },
+    LookupListRec {
+        name: "KEY_RIGHT",
+        value: 205,
+    },
+    LookupListRec {
+        name: "KEY_KPSLASH",
+        value: 181,
     },
 ];
 
 /// Transition names lookup
 pub static TRANSITION_NAMES: &[LookupListRec] = &[
     LookupListRec {
-        name: "Down",
+        name: "DOWN",
         value: TRANSITION_DOWN,
     },
     LookupListRec {
-        name: "Up",
+        name: "UP",
         value: TRANSITION_UP,
     },
     LookupListRec {
-        name: "Repeat",
-        value: TRANSITION_REPEAT,
+        name: "DOUBLEDOWN",
+        value: TRANSITION_DOUBLEDOWN,
     },
 ];
 
 /// Modifier names lookup
 pub static MODIFIER_NAMES: &[LookupListRec] = &[
     LookupListRec {
-        name: "None",
+        name: "NONE",
         value: MODIFIER_NONE,
     },
     LookupListRec {
-        name: "Shift",
+        name: "SHIFT",
         value: MODIFIER_SHIFT,
     },
     LookupListRec {
-        name: "Ctrl",
+        name: "CTRL",
         value: MODIFIER_CTRL,
     },
     LookupListRec {
-        name: "Alt",
+        name: "ALT",
         value: MODIFIER_ALT,
     },
     LookupListRec {
-        name: "Shift+Ctrl",
+        name: "SHIFT_CTRL",
         value: MODIFIER_SHIFT | MODIFIER_CTRL,
     },
     LookupListRec {
-        name: "Shift+Alt",
+        name: "SHIFT_ALT",
         value: MODIFIER_SHIFT | MODIFIER_ALT,
     },
     LookupListRec {
-        name: "Ctrl+Alt",
+        name: "CTRL_ALT",
         value: MODIFIER_CTRL | MODIFIER_ALT,
     },
     LookupListRec {
-        name: "Shift+Ctrl+Alt",
+        name: "SHIFT_ALT_CTRL",
         value: MODIFIER_SHIFT | MODIFIER_CTRL | MODIFIER_ALT,
     },
 ];
@@ -356,20 +466,36 @@ pub static MODIFIER_NAMES: &[LookupListRec] = &[
 /// Category names lookup
 pub static CATEGORY_NAMES_LOOKUP: &[LookupListRec] = &[
     LookupListRec {
-        name: "SELECTION",
+        name: "CONTROL",
         value: 0,
     },
     LookupListRec {
-        name: "INTERFACE",
+        name: "INFORMATION",
         value: 1,
     },
     LookupListRec {
-        name: "GAME",
+        name: "INTERFACE",
         value: 2,
     },
     LookupListRec {
-        name: "DEBUG",
+        name: "SELECTION",
         value: 3,
+    },
+    LookupListRec {
+        name: "TAUNT",
+        value: 4,
+    },
+    LookupListRec {
+        name: "TEAM",
+        value: 5,
+    },
+    LookupListRec {
+        name: "MISC",
+        value: 6,
+    },
+    LookupListRec {
+        name: "DEBUG",
+        value: 7,
     },
 ];
 
@@ -549,7 +675,7 @@ mod tests {
     fn test_meta_map_creation() {
         let mut map = MetaMap::new();
         let rec = MetaMapRec {
-            key: 65, // 'A'
+            key: 30,
             transition: TRANSITION_DOWN,
             mod_state: MODIFIER_CTRL,
             usable_in: 0xFFFFFFFF,
@@ -563,14 +689,51 @@ mod tests {
 
         assert!(map.get_mapping("SELECT_ALL").is_some());
         assert!(map
-            .find_action(65, TRANSITION_DOWN, MODIFIER_CTRL)
+            .find_action(30, TRANSITION_DOWN, MODIFIER_CTRL)
             .is_some());
     }
 
     #[test]
-    fn test_lookup_lists() {
-        assert_eq!(INI::parse_lookup_list("KEY_A", KEY_NAMES).unwrap(), 65);
-        assert_eq!(INI::parse_lookup_list("KEY_F1", KEY_NAMES).unwrap(), 112);
+    fn test_lookup_lists_match_cpp_meta_event_tables() {
+        assert_eq!(INI::parse_lookup_list("KEY_A", KEY_NAMES).unwrap(), 30);
+        assert_eq!(INI::parse_lookup_list("KEY_F1", KEY_NAMES).unwrap(), 59);
+        assert_eq!(INI::parse_lookup_list("KEY_KP2", KEY_NAMES).unwrap(), 80);
+        assert_eq!(
+            INI::parse_lookup_list("KEY_KPSLASH", KEY_NAMES).unwrap(),
+            181
+        );
+        assert_eq!(
+            INI::parse_lookup_list("DOWN", TRANSITION_NAMES).unwrap(),
+            TRANSITION_DOWN
+        );
+        assert_eq!(
+            INI::parse_lookup_list("SHIFT_CTRL", MODIFIER_NAMES).unwrap(),
+            MODIFIER_SHIFT | MODIFIER_CTRL
+        );
+        assert_eq!(
+            INI::parse_lookup_list("TEAM", CATEGORY_NAMES_LOOKUP).unwrap(),
+            5
+        );
+    }
+
+    #[test]
+    fn test_command_usable_in_bits_match_cpp_order() {
+        assert_eq!(
+            INI::parse_bit_string_32(&["SHELL"], COMMAND_USABLE_IN_NAMES).unwrap(),
+            1
+        );
+        assert_eq!(
+            INI::parse_bit_string_32(&["GAME"], COMMAND_USABLE_IN_NAMES).unwrap(),
+            2
+        );
+        assert_eq!(
+            INI::parse_bit_string_32(&["GAME", "SHELL"], COMMAND_USABLE_IN_NAMES).unwrap(),
+            3
+        );
+    }
+
+    #[test]
+    fn test_case_insensitive_legacy_names_still_parse() {
         assert_eq!(
             INI::parse_lookup_list("Down", TRANSITION_NAMES).unwrap(),
             TRANSITION_DOWN
