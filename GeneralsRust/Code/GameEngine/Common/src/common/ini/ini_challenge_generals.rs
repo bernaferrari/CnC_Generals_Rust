@@ -948,4 +948,47 @@ mod tests {
         let generals = get_challenge_generals();
         assert_eq!(generals.positions.len(), NUM_GENERALS);
     }
+
+    #[test]
+    fn test_challenge_mode_equals_separator_forms() {
+        {
+            let mut generals = get_challenge_generals_mut();
+            *generals = ChallengeGenerals::new();
+        }
+
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let path = std::env::temp_dir().join(format!("challenge_mode_equals_{unique}.ini"));
+        std::fs::write(
+            &path,
+            r#"
+ChallengeGenerals
+  GeneralPersona0
+    PlayerTemplate=FactionAmericaAirForceGeneral
+    StartsEnabled=yes
+    TauntSound1 =Taunts_Grainger061
+    Campaign = CHALLENGE_0
+  END
+END
+"#,
+        )
+        .unwrap();
+
+        let mut ini = INI::new();
+        let result = ini.load(&path, crate::common::ini::ini::INILoadType::Overwrite);
+        let _ = std::fs::remove_file(&path);
+        result.unwrap();
+
+        let generals = get_challenge_generals();
+        let persona = &generals.positions[0];
+        assert_eq!(
+            persona.player_template_name,
+            "FactionAmericaAirForceGeneral"
+        );
+        assert!(persona.starts_enabled);
+        assert_eq!(persona.taunt_sound1, "Taunts_Grainger061");
+        assert_eq!(persona.campaign, "CHALLENGE_0");
+    }
 }
