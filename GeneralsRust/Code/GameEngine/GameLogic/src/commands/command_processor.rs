@@ -2690,12 +2690,10 @@ impl DefaultCommandHandler {
             Err(_) => return,
         };
         for module in modules {
-            let _ = module.with_module_downcast::<
-                crate::object::update::beacon_client_update::BeaconClientUpdateModule,
-                _,
-                _,
-            >(|beacon_update| {
-                beacon_update.hide_beacon();
+            module.with_module(|module| {
+                if let Some(client_update) = module.get_client_update_interface() {
+                    let _ = client_update.hide_beacon();
+                }
             });
         }
     }
