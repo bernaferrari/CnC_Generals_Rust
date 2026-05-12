@@ -2059,20 +2059,23 @@ impl Team {
     /// Update generic scripts
     ///
     /// Corresponds to C++ Team::updateGenericScripts()
+    ///
+    /// The callback evaluates conditions and executes actions for an available script.
+    /// It returns true when that script should no longer be attempted, matching the
+    /// C++ one-shot-success path.
     pub fn update_generic_scripts<F>(
         &mut self,
         get_script: impl Fn(usize) -> Option<String>,
-        evaluate_and_execute: F,
+        mut evaluate_and_execute: F,
     ) where
         F: FnMut(&str, &mut Team) -> bool,
     {
         for i in 0..MAX_GENERIC_SCRIPTS {
             if self.should_attempt_generic_script[i] {
-                // Get the script for this slot
-                if let Some(_script_name) = get_script(i) {
-                    // In full implementation, would evaluate conditions and execute actions
-                    // For now, placeholder
-                    let _ = evaluate_and_execute;
+                if let Some(script_name) = get_script(i) {
+                    if evaluate_and_execute(&script_name, self) {
+                        self.should_attempt_generic_script[i] = false;
+                    }
                 } else {
                     // No script, mark as not to attempt
                     self.should_attempt_generic_script[i] = false;
@@ -3401,5 +3404,49 @@ mod tests {
         );
 
         assert_eq!(counts, [1, 0]);
+    }
+
+    #[test]
+    fn update_generic_scripts_runs_available_scripts_and_keeps_repeating_slots() {
+        let mut team = Team::with_id("GenericScriptTeam".to_string(), 3);
+        let mut ran_scripts = Vec::new();
+
+        team.update_generic_scripts(
+            |index| (index == 0).then(|| "GenericScript0".to_string()),
+            |script_name, team| {
+                ran_scripts.push((script_name.to_string(), team.id));
+                false
+            },
+        );
+
+        assert_eq!(ran_scripts, vec![("GenericScript0".to_string(), 3)]);
+        assert!(team.should_attempt_generic_script[0]);
+        assert!(!team.should_attempt_generic_script[1]);
+    }
+
+    #[test]
+    fn update_generic_scripts_disables_missing_and_completed_one_shot_slots() {
+        let mut team = Team::with_id("OneShotGenericScriptTeam".to_string(), 4);
+        let mut ran_scripts = Vec::new();
+
+        team.update_generic_scripts(
+            |index| match index {
+                0 => Some("OneShotScript".to_string()),
+                2 => Some("RepeatingScript".to_string()),
+                _ => None,
+            },
+            |script_name, _team| {
+                ran_scripts.push(script_name.to_string());
+                script_name == "OneShotScript"
+            },
+        );
+
+        assert_eq!(
+            ran_scripts,
+            vec!["OneShotScript".to_string(), "RepeatingScript".to_string()]
+        );
+        assert!(!team.should_attempt_generic_script[0]);
+        assert!(!team.should_attempt_generic_script[1]);
+        assert!(team.should_attempt_generic_script[2]);
     }
 }
