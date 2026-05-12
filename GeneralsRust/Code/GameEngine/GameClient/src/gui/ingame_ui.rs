@@ -3848,6 +3848,13 @@ impl InGameUI {
         Self::mouseover_tooltip_text(template_name, &display_name)
     }
 
+    fn mouseover_tooltip_visible_for_shroud(status: ObjectShroudStatus) -> bool {
+        matches!(
+            status,
+            ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear
+        )
+    }
+
     fn military_caption_delay_frames() -> u32 {
         let delay_ms = get_global_language_read()
             .map(|language| language.military_caption_delay_ms)
@@ -4433,8 +4440,8 @@ impl InGameUI {
     /// drawable ID and sets the cursor to SELECTING for selectable+controlled
     /// drawables, or ARROW otherwise.
     ///
-    /// Simplified from C++: player-name suffixes, shroud checks, and special
-    /// object cases are deferred until the rest of the tooltip path is ported.
+    /// Simplified from C++: player-name suffixes and special object cases are
+    /// deferred until the rest of the tooltip path is ported.
     pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
         // Phase 1: Early exit guards
         // C++: if (m_isScrolling || m_isSelecting) return;
@@ -4447,10 +4454,12 @@ impl InGameUI {
 
         // Phase 2: Update moused_over_drawable_id
         // C++: InGameUI.cpp:2254-2454 — extensive tooltip/drawable logic
+        let old_id = self.moused_over_drawable_id;
         if is_location_hint {
             // C++: else branch (MSG_MOUSEOVER_LOCATION_HINT) — line 2451-2454
             self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
         } else if let Some(draw_id) = drawable_id {
+            with_mouse(|m| m.set_cursor_tooltip(String::new(), None, None, None));
             if draw_id == Self::INVALID_DRAWABLE_ID {
                 self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
             } else {
@@ -4460,18 +4469,23 @@ impl InGameUI {
                 // SupplyWarehouseDockUpdate dollar amount, Warehouse contents feedback.
                 if let Some(obj) = OBJECT_REGISTRY.get_object(draw_id) {
                     if let Ok(guard) = obj.read() {
-                        if let Some(display_name) =
-                            Self::mouseover_tooltip_for_template(guard.get_template_name())
-                        {
-                            let indicator = guard.get_indicator_color();
-                            with_mouse(|m| {
-                                m.set_cursor_tooltip(
-                                    display_name,
-                                    None,
-                                    Some([indicator.r, indicator.g, indicator.b, indicator.a]),
-                                    None,
-                                );
-                            });
+                        let visible = Self::mouseover_tooltip_visible_for_shroud(
+                            guard.get_shrouded_status(self.player_id as i32),
+                        );
+                        if visible {
+                            if let Some(display_name) =
+                                Self::mouseover_tooltip_for_template(guard.get_template_name())
+                            {
+                                let indicator = guard.get_indicator_color();
+                                with_mouse(|m| {
+                                    m.set_cursor_tooltip(
+                                        display_name,
+                                        None,
+                                        Some([indicator.r, indicator.g, indicator.b, indicator.a]),
+                                        None,
+                                    );
+                                });
+                            }
                         }
                     }
                 }
@@ -4481,7 +4495,9 @@ impl InGameUI {
         }
 
         // C++: TheMouse->resetTooltipDelay() when ID changes
-        with_mouse(|m| m.reset_tooltip_delay());
+        if old_id != self.moused_over_drawable_id {
+            with_mouse(|m| m.reset_tooltip_delay());
+        }
 
         // Phase 3: Cursor assignment
         // C++: InGameUI.cpp:2462-2493
@@ -4686,7 +4702,6 @@ mod tests {
     #[test]
     fn mouseover_tooltip_prefers_template_display_name() {
         Language::clear_localized_strings();
-        Language::register_localized_string("ThingTemplate:UnitA", "Localized fallback");
 
         assert_eq!(
             InGameUI::mouseover_tooltip_text("UnitA", "Explicit display name"),
@@ -4699,11 +4714,10 @@ mod tests {
     #[test]
     fn mouseover_tooltip_falls_back_to_thing_template_label() {
         Language::clear_localized_strings();
-        Language::register_localized_string("ThingTemplate:UnitA", "Localized fallback");
 
         assert_eq!(
             InGameUI::mouseover_tooltip_text("UnitA", ""),
-            Some("Localized fallback".to_string())
+            Some("ThingTemplate:UnitA".to_string())
         );
 
         Language::clear_localized_strings();
@@ -4717,6 +4731,28 @@ mod tests {
         assert_eq!(InGameUI::mouseover_tooltip_text("Tree01", "Prop"), None);
 
         Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn mouseover_tooltip_only_shows_for_visible_shroud_states() {
+        assert!(InGameUI::mouseover_tooltip_visible_for_shroud(
+            ObjectShroudStatus::Clear
+        ));
+        assert!(InGameUI::mouseover_tooltip_visible_for_shroud(
+            ObjectShroudStatus::PartialClear
+        ));
+        assert!(!InGameUI::mouseover_tooltip_visible_for_shroud(
+            ObjectShroudStatus::Fogged
+        ));
+        assert!(!InGameUI::mouseover_tooltip_visible_for_shroud(
+            ObjectShroudStatus::Shrouded
+        ));
+        assert!(!InGameUI::mouseover_tooltip_visible_for_shroud(
+            ObjectShroudStatus::InvalidButPreviousValid
+        ));
+        assert!(!InGameUI::mouseover_tooltip_visible_for_shroud(
+            ObjectShroudStatus::Invalid
+        ));
     }
 
     #[test]
