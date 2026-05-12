@@ -335,6 +335,10 @@ impl CommandButton {
                 token: "Science",
                 parse: parse_command_field_science,
             },
+            FieldParse {
+                token: "SpecialPower",
+                parse: parse_command_field_special_power,
+            },
         ];
         PARSE_TABLE
     }
@@ -763,6 +767,20 @@ fn parse_command_field_science(
     Ok(())
 }
 
+fn parse_command_field_special_power(
+    _ini: &mut INI,
+    button: &mut CommandButton,
+    values: &[&str],
+) -> INIResult<()> {
+    button.special_power_template = Some(
+        first_non_equals(values)
+            .ok_or(INIError::InvalidData)?
+            .trim_matches('"')
+            .to_string(),
+    );
+    Ok(())
+}
+
 fn parse_command_field_options(
     _ini: &mut INI,
     button: &mut CommandButton,
@@ -776,6 +794,7 @@ fn parse_command_field_options(
 
     if filtered.is_empty() {
         button.options_bits = 0;
+        button.options = CommandButtonOptions::default();
         return Ok(());
     }
 
@@ -826,12 +845,51 @@ fn parse_command_field_options(
     }
 
     button.options_bits = bits;
+    button.options = CommandButtonOptions::from_bits(bits);
     Ok(())
+}
+
+impl CommandButtonOptions {
+    fn from_bits(bits: u32) -> Self {
+        Self {
+            need_special_power_science: has_command_option(bits, "NEED_SPECIAL_POWER_SCIENCE"),
+            contextual_animates: has_command_option(bits, "CONTEXTMODE_COMMAND"),
+            one_shot: has_command_option(bits, "SINGLE_USE_COMMAND"),
+            scripted_only: has_command_option(bits, "SCRIPT_ONLY"),
+            player_upgrade: false,
+            cancel_all: false,
+            not_queueable: has_command_option(bits, "NOT_QUEUEABLE"),
+            ok_for_multi_select: has_command_option(bits, "OK_FOR_MULTI_SELECT"),
+            check_like: has_command_option(bits, "CHECK_LIKE"),
+            toggle_image_on_selection: false,
+            must_be_stopped: has_command_option(bits, "MUST_BE_STOPPED"),
+            cancel_like: false,
+            need_upgrade: has_command_option(bits, "NEED_UPGRADE"),
+            reverse_button_order: false,
+        }
+    }
+}
+
+fn has_command_option(bits: u32, name: &str) -> bool {
+    COMMAND_OPTION_NAMES
+        .iter()
+        .position(|candidate| candidate.eq_ignore_ascii_case(name))
+        .map(|index| (bits & (1u32 << index)) != 0)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn parse_field(button: &mut CommandButton, token: &str, values: &[&str]) {
+        let field = CommandButton::get_field_parse()
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, button, values).expect("field parses");
+    }
 
     #[test]
     fn test_command_button_creation() {
@@ -928,5 +986,61 @@ mod tests {
         assert!(!options.one_shot);
         assert!(!options.scripted_only);
         assert!(!options.cancel_all);
+    }
+
+    #[test]
+    fn parses_special_power_field_with_ini_equals_token() {
+        let mut button = CommandButton::new("Command_A10Strike".to_string());
+
+        parse_field(
+            &mut button,
+            "SpecialPower",
+            &["=", "SuperweaponA10ThunderboltMissileStrike"],
+        );
+
+        assert_eq!(
+            button.get_special_power_template().map(String::as_str),
+            Some("SuperweaponA10ThunderboltMissileStrike")
+        );
+    }
+
+    #[test]
+    fn parsed_options_keep_boolean_view_in_sync() {
+        let mut button = CommandButton::new("Command_A10Strike".to_string());
+
+        parse_field(
+            &mut button,
+            "Options",
+            &[
+                "=",
+                "NEED_SPECIAL_POWER_SCIENCE",
+                "OK_FOR_MULTI_SELECT",
+                "SCRIPT_ONLY",
+                "MUST_BE_STOPPED",
+                "NOT_QUEUEABLE",
+            ],
+        );
+
+        assert_ne!(button.options_bits, 0);
+        assert!(button.options.need_special_power_science);
+        assert!(button.options.ok_for_multi_select);
+        assert!(button.options.scripted_only);
+        assert!(button.options.must_be_stopped);
+        assert!(button.options.not_queueable);
+        assert!(!button.options.one_shot);
+    }
+
+    #[test]
+    fn special_power_command_validates_after_field_parse() {
+        let mut button = CommandButton::new("Command_A10Strike".to_string());
+
+        parse_field(&mut button, "Options", &["=", "NEED_SPECIAL_POWER_SCIENCE"]);
+        parse_field(
+            &mut button,
+            "SpecialPower",
+            &["=", "SuperweaponA10ThunderboltMissileStrike"],
+        );
+
+        assert!(button.validate().is_ok());
     }
 }
