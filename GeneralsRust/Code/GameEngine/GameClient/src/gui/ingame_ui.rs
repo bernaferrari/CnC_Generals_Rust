@@ -3876,6 +3876,41 @@ impl InGameUI {
         *timer > 0
     }
 
+    fn default_command_hint_blocked_by_source(source_locally_controlled: Option<bool>) -> bool {
+        source_locally_controlled == Some(false)
+    }
+
+    fn move_to_cursor_for_context(
+        draw_selectable: bool,
+        target_locally_controlled: bool,
+        target_is_mine: bool,
+        source_is_local_structure: bool,
+    ) -> MouseCursor {
+        if !draw_selectable && source_is_local_structure {
+            MouseCursor::GenericInvalid
+        } else if draw_selectable && target_locally_controlled && !target_is_mine {
+            MouseCursor::Selecting
+        } else {
+            MouseCursor::MoveTo
+        }
+    }
+
+    fn selected_source_id_for_command_hint(&self) -> Option<u32> {
+        let selected = self.get_selection();
+        (selected.len() == 1).then(|| selected[0])
+    }
+
+    fn command_hint_source_context(object_id: u32) -> Option<(bool, bool)> {
+        OBJECT_REGISTRY.get_object(object_id).and_then(|obj| {
+            obj.read().ok().map(|guard| {
+                (
+                    guard.is_locally_controlled(),
+                    guard.is_kind_of(KindOf::Structure),
+                )
+            })
+        })
+    }
+
     fn military_caption_delay_frames() -> u32 {
         let delay_ms = get_global_language_read()
             .map(|language| language.military_caption_delay_ms)
@@ -4224,50 +4259,56 @@ impl InGameUI {
                 // This section only applies when there is no specific cursor mode happening.
                 // C++: if (underWindow || (srcObj && !srcObj->isLocallyControlled()))
                 // underWindow = false (WindowManager not ported; no opaque window covers game area)
-                // srcObj locally-controlled check: look up moused-over drawable if available
-                let src_locally_controlled =
-                    if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
-                        match OBJECT_REGISTRY.get_object(self.moused_over_drawable_id) {
-                            Some(obj) => obj
-                                .read()
-                                .map(|g| g.is_locally_controlled())
-                                .unwrap_or(true),
-                            None => true,
-                        }
-                    } else {
-                        true
-                    };
-                if !src_locally_controlled {
+                let source_context = self
+                    .selected_source_id_for_command_hint()
+                    .and_then(Self::command_hint_source_context);
+                if Self::default_command_hint_blocked_by_source(
+                    source_context.map(|(locally_controlled, _)| locally_controlled),
+                ) {
+                    self.set_mouse_cursor(MouseCursor::Arrow);
                     return;
                 }
 
                 match hint_type {
                     CommandHintType::MoveTo => {
                         // C++: MSG_DO_MOVETO_HINT (InGameUI.cpp:2595-2608)
-                        // If hovering over a selectable, locally-controlled, non-structure drawable,
+                        // If hovering over a selectable, locally-controlled, non-mine drawable,
                         // C++ uses SELECTING cursor instead of MoveTo.
+                        let source_is_local_structure = source_context == Some((true, true));
                         if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
                             if let Some(obj) =
                                 OBJECT_REGISTRY.get_object(self.moused_over_drawable_id)
                             {
                                 if let Ok(guard) = obj.read() {
-                                    if guard.is_selectable()
-                                        && guard.is_locally_controlled()
-                                        && !guard.is_kind_of(KindOf::Structure)
-                                        && !guard.is_kind_of(KindOf::Mine)
-                                    {
-                                        self.set_mouse_cursor(MouseCursor::Selecting);
-                                    } else {
-                                        self.set_mouse_cursor(MouseCursor::MoveTo);
-                                    }
+                                    self.set_mouse_cursor(Self::move_to_cursor_for_context(
+                                        guard.is_selectable(),
+                                        guard.is_locally_controlled(),
+                                        guard.is_kind_of(KindOf::Mine),
+                                        source_is_local_structure,
+                                    ));
                                 } else {
-                                    self.set_mouse_cursor(MouseCursor::MoveTo);
+                                    self.set_mouse_cursor(Self::move_to_cursor_for_context(
+                                        false,
+                                        false,
+                                        false,
+                                        source_is_local_structure,
+                                    ));
                                 }
                             } else {
-                                self.set_mouse_cursor(MouseCursor::MoveTo);
+                                self.set_mouse_cursor(Self::move_to_cursor_for_context(
+                                    false,
+                                    false,
+                                    false,
+                                    source_is_local_structure,
+                                ));
                             }
                         } else {
-                            self.set_mouse_cursor(MouseCursor::MoveTo);
+                            self.set_mouse_cursor(Self::move_to_cursor_for_context(
+                                false,
+                                false,
+                                false,
+                                source_is_local_structure,
+                            ));
                         }
                     }
                     CommandHintType::AttackMoveTo => {
@@ -4834,6 +4875,37 @@ mod tests {
             &mut timer
         ));
         assert_eq!(timer, 0);
+    }
+
+    #[test]
+    fn default_command_hints_are_blocked_by_nonlocal_selected_source() {
+        assert!(InGameUI::default_command_hint_blocked_by_source(Some(
+            false
+        )));
+        assert!(!InGameUI::default_command_hint_blocked_by_source(Some(
+            true
+        )));
+        assert!(!InGameUI::default_command_hint_blocked_by_source(None));
+    }
+
+    #[test]
+    fn move_to_cursor_matches_cpp_source_and_target_context() {
+        assert_eq!(
+            InGameUI::move_to_cursor_for_context(false, false, false, true),
+            MouseCursor::GenericInvalid
+        );
+        assert_eq!(
+            InGameUI::move_to_cursor_for_context(true, true, false, false),
+            MouseCursor::Selecting
+        );
+        assert_eq!(
+            InGameUI::move_to_cursor_for_context(true, true, true, false),
+            MouseCursor::MoveTo
+        );
+        assert_eq!(
+            InGameUI::move_to_cursor_for_context(false, false, false, false),
+            MouseCursor::MoveTo
+        );
     }
 
     #[test]
