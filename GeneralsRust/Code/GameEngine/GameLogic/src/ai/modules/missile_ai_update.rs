@@ -11,10 +11,11 @@
 //! Original C++ Author: Michael S. Booth, December 2001
 //! Rust conversion: 2025
 
-use serde::{Deserialize, Serialize};
-use crate::common::{ObjectID, Real, Coord3D, UnsignedInt, Bool};
 use crate::ai::{AiError, AIUpdateContext, AIModuleState, AIModulePriority,
                AIModuleType, AIUpdateModuleTrait, AIUpdateResult};
+use crate::common::{Bool, Coord3D, ObjectID, Real, UnsignedInt};
+use crate::helpers::get_game_logic_random_value_real;
+use serde::{Deserialize, Serialize};
 
 const BIGNUM: Real = 99999.0;
 const APPROACH_HEIGHT: Real = 10.0;
@@ -437,14 +438,9 @@ impl MissileAIUpdate {
         // Scatter to ground
         let mut scatter_pos = self.original_target_pos;
 
-        // Add random scatter
-        use rand::Rng;
-        let mut rng = rand::thread_rng();
-        let angle = rng.gen::<Real>() * 2.0 * std::f32::consts::PI;
-        let distance = rng.gen::<Real>() * self.data.distance_scatter_when_jammed;
-
-        scatter_pos[0] += distance * angle.cos();
-        scatter_pos[1] += distance * angle.sin();
+        let scatter = self.data.distance_scatter_when_jammed;
+        scatter_pos[0] += get_game_logic_random_value_real(-scatter, scatter);
+        scatter_pos[1] += get_game_logic_random_value_real(-scatter, scatter);
         scatter_pos[2] = 0.0; // Ground level
 
         // Would update goal position here
