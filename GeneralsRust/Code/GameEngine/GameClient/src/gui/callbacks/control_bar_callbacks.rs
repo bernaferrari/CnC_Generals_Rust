@@ -91,18 +91,26 @@ fn is_alternate_mouse_enabled() -> bool {
 }
 
 fn selection_is_empty() -> bool {
+    selection_count() == 0
+}
+
+fn selection_count() -> usize {
     let Ok(list) = ThePlayerList().read() else {
-        return true;
+        return 0;
     };
     let local_index = list.get_local_player_index();
     let selection_manager = get_selection_manager();
     let Ok(manager) = selection_manager.read() else {
-        return true;
+        return 0;
     };
     manager
         .get_player_selection_ref(local_index)
-        .map(|selection| selection.get_selection_count() == 0)
-        .unwrap_or(true)
+        .map(|selection| selection.get_selection_count())
+        .unwrap_or(0)
+}
+
+fn should_submit_beacon_text(is_multiplayer: bool, selection_count: usize) -> bool {
+    is_multiplayer && selection_count == 1
 }
 
 fn clear_local_selection() {
@@ -363,7 +371,7 @@ impl ControlBarCallbacks {
             return;
         }
 
-        if TheGameLogic::is_in_multiplayer_game() && !selection_is_empty() {
+        if should_submit_beacon_text(TheGameLogic::is_in_multiplayer_game(), selection_count()) {
             let text = with_window_manager(|manager| {
                 manager
                     .get_window_by_id(text_id as i32)
@@ -835,5 +843,13 @@ mod tests {
         assert_eq!(radar_targeting_cursor_name(None), "CROSS");
         assert_eq!(radar_targeting_cursor_name(Some("")), "CROSS");
         assert_eq!(radar_targeting_cursor_name(Some("BogusCursor")), "CROSS");
+    }
+
+    #[test]
+    fn beacon_text_submit_matches_cpp_multiplayer_single_selection_gate() {
+        assert!(should_submit_beacon_text(true, 1));
+        assert!(!should_submit_beacon_text(false, 1));
+        assert!(!should_submit_beacon_text(true, 0));
+        assert!(!should_submit_beacon_text(true, 2));
     }
 }
