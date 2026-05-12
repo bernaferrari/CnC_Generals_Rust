@@ -1676,6 +1676,11 @@ impl ParticleSystem {
         self.particle_count
     }
 
+    /// Get system priority for C++-style particle budget culling.
+    pub fn priority(&self) -> ParticlePriorityType {
+        self.template.info().priority
+    }
+
     /// Get personality counter (for creating particles externally, e.g., slave emissions)
     pub fn personality_counter(&self) -> u32 {
         self.personality_counter
@@ -1686,6 +1691,16 @@ impl ParticleSystem {
         self.personality_counter += 1;
         self.particle_count += 1;
         self.particles.push_back(particle);
+    }
+
+    /// Remove oldest particles from the front of this system's queue.
+    pub fn remove_oldest_particles(&mut self, count: usize) -> usize {
+        let remove_count = count.min(self.particle_count).min(self.particles.len());
+        for _ in 0..remove_count {
+            self.particles.pop_front();
+        }
+        self.particle_count -= remove_count;
+        remove_count
     }
 
     /// Get wind angle
@@ -2453,6 +2468,28 @@ mod tests {
 
         system.set_slave(None);
         assert_eq!(system.slave_system_id(), None);
+    }
+
+    #[test]
+    fn remove_oldest_particles_pops_front_without_touching_newer_particles() {
+        let template = Arc::new(ParticleSystemTemplate::new("Budgeted".to_string()));
+        let mut system = ParticleSystem::new(template, 1, false);
+
+        for frame in 0..5 {
+            system.push_particle(Particle::new(&ParticleInfo::default(), frame, frame));
+        }
+
+        assert_eq!(system.remove_oldest_particles(3), 3);
+        assert_eq!(system.particle_count(), 2);
+
+        let remaining_timestamps = system
+            .particles
+            .iter()
+            .map(|particle| particle.create_timestamp)
+            .collect::<Vec<_>>();
+        assert_eq!(remaining_timestamps, vec![3, 4]);
+        assert_eq!(system.remove_oldest_particles(99), 2);
+        assert_eq!(system.particle_count(), 0);
     }
 
     #[test]
