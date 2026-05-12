@@ -527,12 +527,12 @@ fn parse_water_transparency_block(ini: &mut INI) -> INIResult<()> {
 
 fn parse_weapon_block(ini: &mut INI) -> INIResult<()> {
     let (name, properties) = parse_named_property_block(ini)?;
-    let template = super::ini_weapon::IniWeapon::parse_weapon_template_block(
+    super::ini_weapon::IniWeapon::register_definition(
         AsciiString::from(name.as_str()),
         properties,
+        ini.get_load_type(),
     )
     .map_err(|_| INIError::InvalidData)?;
-    super::ini_weapon::IniWeapon::register_template(template).map_err(|_| INIError::InvalidData)?;
     Ok(())
 }
 
