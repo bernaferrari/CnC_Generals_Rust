@@ -113,6 +113,20 @@ impl UpgradeCenter {
         log::debug!("Created veterancy upgrade: {}", level);
     }
 
+    fn store_parsed_template(&mut self, name_key: NameKeyType, template: Arc<UpgradeTemplate>) {
+        self.upgrades.insert(name_key, template.clone());
+
+        if let Some(existing) = self
+            .upgrade_list
+            .iter_mut()
+            .find(|upgrade| upgrade.get_name_key() == name_key)
+        {
+            *existing = template;
+        } else {
+            self.upgrade_list.insert(0, template);
+        }
+    }
+
     /// Find upgrade by name
     /// Matches C++ UpgradeCenter::findUpgrade
     pub fn find_upgrade(&self, name: &str) -> Option<Arc<UpgradeTemplate>> {
@@ -219,16 +233,7 @@ impl UpgradeCenter {
 
         // Store updated template
         let template = Arc::new(template);
-        self.upgrades.insert(name_key, template.clone());
-
-        // Add to list if new
-        if !self
-            .upgrade_list
-            .iter()
-            .any(|t| t.get_name_key() == name_key)
-        {
-            self.upgrade_list.insert(0, template);
-        }
+        self.store_parsed_template(name_key, template);
 
         Ok(())
     }
@@ -365,6 +370,39 @@ mod tests {
                 "Upgrade_Veterancy_VETERAN".to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn parsed_existing_upgrade_refreshes_iteration_entry() {
+        let mut center = UpgradeCenter::new();
+        center.new_upgrade(AsciiString::from("ExistingUpgrade"));
+        center.new_upgrade(AsciiString::from("OtherUpgrade"));
+
+        let mut reparsed = UpgradeTemplate::new(AsciiString::from("ExistingUpgrade"));
+        reparsed.set_cost(777);
+        reparsed.set_build_time(12.5);
+        let name_key = reparsed.get_name_key();
+        center.store_parsed_template(name_key, Arc::new(reparsed));
+
+        assert_eq!(
+            center.find_upgrade("ExistingUpgrade").unwrap().get_cost(),
+            777
+        );
+
+        let listed = center
+            .get_all_upgrades()
+            .iter()
+            .find(|upgrade| upgrade.get_name().as_str() == "ExistingUpgrade")
+            .unwrap();
+        assert_eq!(listed.get_cost(), 777);
+        assert_eq!(listed.get_build_time(), 12.5);
+
+        let names: Vec<_> = center
+            .get_upgrade_names()
+            .into_iter()
+            .map(|name| name.to_string())
+            .collect();
+        assert_eq!(names, vec!["OtherUpgrade", "ExistingUpgrade"]);
     }
 
     #[test]
