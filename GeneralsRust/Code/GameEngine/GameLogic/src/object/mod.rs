@@ -168,6 +168,10 @@ struct ExitInterfaceProxy {
     behavior: Arc<Mutex<dyn BehaviorModuleInterface>>,
 }
 
+struct ContainExitInterfaceProxy {
+    contain: Arc<Mutex<dyn ContainModuleInterface>>,
+}
+
 struct ModuleExitInterfaceProxy {
     entry: Arc<ModuleEntry>,
 }
@@ -1330,6 +1334,59 @@ impl ExitInterface for ExitInterfaceProxy {
             }
         }
         Ok(())
+    }
+}
+
+impl ExitInterface for ContainExitInterfaceProxy {
+    fn can_exit(&self, object_id: ObjectID) -> bool {
+        self.contain
+            .lock()
+            .map(|guard| guard.can_exit(object_id))
+            .unwrap_or(false)
+    }
+
+    fn exit(&mut self, object_id: ObjectID) -> bool {
+        let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
+            return false;
+        };
+        self.exit_object_via_door(&obj, crate::modules::ExitDoorType::Primary)
+            .is_ok()
+    }
+
+    fn get_rally_point(&self) -> Result<Option<Coord3D>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self
+            .contain
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get_rally_point()))
+    }
+
+    fn reserve_door_for_exit(
+        &mut self,
+        spawner: Option<&crate::object::Object>,
+        spawn: Option<&crate::object::Object>,
+    ) -> crate::modules::ExitDoorType {
+        self.contain
+            .lock()
+            .map(|mut guard| guard.reserve_door_for_exit(spawner, spawn))
+            .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE)
+    }
+
+    fn unreserve_door_for_exit(&mut self, door: crate::modules::ExitDoorType) {
+        if let Ok(mut guard) = self.contain.lock() {
+            guard.unreserve_door_for_exit(door);
+        }
+    }
+
+    fn exit_object_via_door(
+        &mut self,
+        obj: &Arc<RwLock<crate::object::Object>>,
+        door: crate::modules::ExitDoorType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.contain
+            .lock()
+            .map_err(|_| "failed to lock contain exit interface".into())
+            .and_then(|mut guard| guard.exit_object_via_door(obj, door))
     }
 }
 
@@ -4782,6 +4839,12 @@ impl Object {
                     behavior: behavior.clone(),
                 })));
             }
+        }
+
+        if let Some(contain) = &self.contain {
+            return Some(Arc::new(Mutex::new(ContainExitInterfaceProxy {
+                contain: Arc::clone(contain),
+            })));
         }
 
         None
