@@ -115,15 +115,9 @@ impl RadarUpgrade {
             );
         }
 
-        // Find the radar update module of this object and extend radar
-        // Matches C++ RadarUpgrade.cpp lines 114-117
-        // C++: RadarUpdate *radarUpdate = (RadarUpdate *)getObject()->findUpdateModule( radarUpdateKey );
-        // if( radarUpdate ) radarUpdate->extendRadar();
-        if let Some(radar_module) = object.find_update_module("RadarUpdate") {
-            let _ = radar_module.with_module_downcast::<crate::object::behavior::radar_update::RadarUpdateModule, _, _>(|module| {
-                module.behavior_mut().extend_radar();
-            });
-        }
+        // Find the radar update module of this object and extend radar.
+        // Matches C++ RadarUpgrade.cpp lines 114-117.
+        let _ = object.with_radar_update_interface(|radar| radar.extend_radar());
     }
 
     /// Handle module deletion
