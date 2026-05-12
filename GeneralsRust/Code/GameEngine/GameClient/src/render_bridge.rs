@@ -374,6 +374,46 @@ pub struct RenderBridgeStats {
     pub bridge_time_s: f32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderObjectStateSummary {
+    pub drawable_id: u32,
+    pub model_name: String,
+    pub layer_name: String,
+    pub transparent: bool,
+    pub sort_level: i32,
+    pub condition_bits: u64,
+    pub opacity_bits: u32,
+    pub damage_overlay_bits: u32,
+    pub selected: bool,
+    pub night: bool,
+    pub snow: bool,
+    pub hidden: bool,
+    pub mesh_uv_override_count: usize,
+    pub bone_override_count: usize,
+    pub animation_name: Option<String>,
+    pub world_translation_bits: [u32; 3],
+    pub bounding_radius_bits: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectileStreamStateSummary {
+    pub drawable_id: u32,
+    pub line_count: usize,
+    pub point_count: usize,
+    pub texture_name: String,
+    pub width_bits: u32,
+    pub tile_factor_bits: u32,
+    pub scroll_rate_bits: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct RenderFrameStateSummary {
+    pub stats: RenderBridgeStats,
+    pub objects: Vec<RenderObjectStateSummary>,
+    pub projectile_streams: Vec<ProjectileStreamStateSummary>,
+    pub fingerprint: u64,
+}
+
 pub struct RenderBridge {
     scene: Scene,
     pending: Vec<DrawSubmission>,
@@ -383,6 +423,7 @@ pub struct RenderBridge {
     asset_manager: AssetManager,
     asset_search_paths: Vec<PathBuf>,
     stats: RenderBridgeStats,
+    last_frame_objects: Vec<RenderObjectStateSummary>,
     render_info: RenderInfo,
     elapsed_time: f32,
 }
@@ -400,6 +441,7 @@ impl RenderBridge {
             asset_manager: AssetManager::new(),
             asset_search_paths: Vec::new(),
             stats: RenderBridgeStats::default(),
+            last_frame_objects: Vec::new(),
             render_info: RenderInfo::new(),
             elapsed_time: 0.0,
         }
@@ -408,6 +450,7 @@ impl RenderBridge {
     pub fn begin_frame(&mut self, camera: &Camera, delta_time: f32) {
         self.pending.clear();
         self.pending_projectile_streams.clear();
+        self.last_frame_objects.clear();
         let mut frame_camera = camera.clone();
         self.elapsed_time += delta_time;
 
@@ -530,6 +573,18 @@ impl RenderBridge {
         stats.transparent_draws = transparent.len();
         stats.rendered = opaque.len() + transparent.len();
 
+        let mut last_frame_objects = Vec::with_capacity(stats.rendered);
+        last_frame_objects.extend(
+            opaque
+                .iter()
+                .map(|s| RenderObjectStateSummary::from_submission(s, "opaque", false)),
+        );
+        last_frame_objects.extend(
+            transparent
+                .iter()
+                .map(|s| RenderObjectStateSummary::from_submission(s, "transparent", true)),
+        );
+
         // Phase 5: Rebuild the scene layers.
         self.scene.clear();
 
@@ -565,6 +620,7 @@ impl RenderBridge {
 
         stats.bridge_time_s = start.elapsed().as_secs_f32();
         self.stats = stats;
+        self.last_frame_objects = last_frame_objects;
     }
 
     fn resolve_model(&mut self, name: &str) -> Option<Arc<dyn RenderObject>> {
@@ -619,6 +675,24 @@ impl RenderBridge {
 
         self.scene.clear();
         result
+    }
+
+    pub fn render_state_summary(&self) -> RenderFrameStateSummary {
+        let objects = self.last_frame_objects.clone();
+        let projectile_streams = self
+            .pending_projectile_streams
+            .iter()
+            .map(ProjectileStreamStateSummary::from_submission)
+            .collect::<Vec<_>>();
+
+        let fingerprint = stable_render_fingerprint(&self.stats, &objects, &projectile_streams);
+
+        RenderFrameStateSummary {
+            stats: self.stats.clone(),
+            objects,
+            projectile_streams,
+            fingerprint,
+        }
     }
 
     pub fn end_frame(&mut self) {}
@@ -693,6 +767,55 @@ impl RenderBridge {
 
     pub fn clear_model_cache(&mut self) {
         self.model_cache.clear();
+    }
+}
+
+impl RenderObjectStateSummary {
+    fn from_submission(
+        submission: &DrawSubmission,
+        layer_name: &str,
+        transparent_layer: bool,
+    ) -> Self {
+        let translation = submission
+            .world_transform
+            .transform_point3(glam::Vec3::ZERO);
+        Self {
+            drawable_id: submission.drawable_id.0,
+            model_name: submission.model_name.clone(),
+            layer_name: layer_name.to_string(),
+            transparent: transparent_layer || submission.transparent,
+            sort_level: submission.sort_level,
+            condition_bits: submission.condition_flags.bits(),
+            opacity_bits: submission.render_state.opacity.to_bits(),
+            damage_overlay_bits: submission.render_state.damage_overlay.to_bits(),
+            selected: submission.render_state.selected,
+            night: submission.render_state.apply_night_map,
+            snow: submission.render_state.apply_snow_map,
+            hidden: submission.render_state.hidden,
+            mesh_uv_override_count: submission.mesh_uv_overrides.len(),
+            bone_override_count: submission.bone_overrides.len(),
+            animation_name: submission.animation_name.clone(),
+            world_translation_bits: [
+                translation.x.to_bits(),
+                translation.y.to_bits(),
+                translation.z.to_bits(),
+            ],
+            bounding_radius_bits: submission.bounding_sphere.radius.to_bits(),
+        }
+    }
+}
+
+impl ProjectileStreamStateSummary {
+    fn from_submission(submission: &ProjectileStreamSubmission) -> Self {
+        Self {
+            drawable_id: submission.drawable_id,
+            line_count: submission.lines.len(),
+            point_count: submission.lines.iter().map(Vec::len).sum(),
+            texture_name: submission.texture_name.clone(),
+            width_bits: submission.width.to_bits(),
+            tile_factor_bits: submission.tile_factor.to_bits(),
+            scroll_rate_bits: submission.scroll_rate.to_bits(),
+        }
     }
 }
 
@@ -776,6 +899,106 @@ fn distance_sq_to_camera(submission: &DrawSubmission, camera: &Camera) -> f32 {
         .transform_point3(glam::Vec3::ZERO);
     let cam_pos = ww_to_game_vec3(camera.position());
     (obj_pos - cam_pos).length_squared()
+}
+
+fn stable_render_fingerprint(
+    stats: &RenderBridgeStats,
+    objects: &[RenderObjectStateSummary],
+    projectile_streams: &[ProjectileStreamStateSummary],
+) -> u64 {
+    let mut hash = Fnv1a64::new();
+    hash.write_usize(stats.submissions_received);
+    hash.write_usize(stats.culled);
+    hash.write_usize(stats.rendered);
+    hash.write_usize(stats.opaque_draws);
+    hash.write_usize(stats.transparent_draws);
+    hash.write_usize(stats.hidden);
+
+    for object in objects {
+        hash.write_u32(object.drawable_id);
+        hash.write_str(&object.model_name);
+        hash.write_str(&object.layer_name);
+        hash.write_bool(object.transparent);
+        hash.write_i32(object.sort_level);
+        hash.write_u64(object.condition_bits);
+        hash.write_u32(object.opacity_bits);
+        hash.write_u32(object.damage_overlay_bits);
+        hash.write_bool(object.selected);
+        hash.write_bool(object.night);
+        hash.write_bool(object.snow);
+        hash.write_bool(object.hidden);
+        hash.write_usize(object.mesh_uv_override_count);
+        hash.write_usize(object.bone_override_count);
+        if let Some(animation_name) = &object.animation_name {
+            hash.write_bool(true);
+            hash.write_str(animation_name);
+        } else {
+            hash.write_bool(false);
+        }
+        for bits in object.world_translation_bits {
+            hash.write_u32(bits);
+        }
+        hash.write_u32(object.bounding_radius_bits);
+    }
+
+    for stream in projectile_streams {
+        hash.write_u32(stream.drawable_id);
+        hash.write_usize(stream.line_count);
+        hash.write_usize(stream.point_count);
+        hash.write_str(&stream.texture_name);
+        hash.write_u32(stream.width_bits);
+        hash.write_u32(stream.tile_factor_bits);
+        hash.write_u32(stream.scroll_rate_bits);
+    }
+
+    hash.finish()
+}
+
+struct Fnv1a64(u64);
+
+impl Fnv1a64 {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+
+    fn new() -> Self {
+        Self(Self::OFFSET)
+    }
+
+    fn write_bytes(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            self.0 ^= u64::from(*byte);
+            self.0 = self.0.wrapping_mul(Self::PRIME);
+        }
+    }
+
+    fn write_bool(&mut self, value: bool) {
+        self.write_bytes(&[value as u8]);
+    }
+
+    fn write_i32(&mut self, value: i32) {
+        self.write_bytes(&value.to_le_bytes());
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.write_bytes(&value.to_le_bytes());
+    }
+
+    fn write_u64(&mut self, value: u64) {
+        self.write_bytes(&value.to_le_bytes());
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+
+    fn write_str(&mut self, value: &str) {
+        self.write_usize(value.len());
+        self.write_bytes(value.as_bytes());
+    }
+
+    fn finish(self) -> u64 {
+        self.0
+    }
 }
 
 #[inline]
@@ -1016,6 +1239,149 @@ mod tests {
         assert!(bridge.is_model_loaded("testmodel"));
         bridge.clear_model_cache();
         assert!(!bridge.is_model_loaded("TestModel"));
+    }
+
+    #[test]
+    fn test_render_state_summary_for_fixed_gameplay_scene() {
+        let mut bridge = RenderBridge::new();
+        let mut camera = Camera::perspective(
+            "fixed_scene".to_string(),
+            60.0_f32.to_radians(),
+            16.0 / 9.0,
+            0.1,
+            1000.0,
+        );
+        camera.set_position(WwVec3::new(0.0, 80.0, -180.0));
+        camera.look_at(WwVec3::new(0.0, 0.0, 0.0), WwVec3::Y);
+
+        bridge.begin_frame(&camera, 1.0 / 30.0);
+
+        let tank_flags = RenderConditionFlags::PRISTINE
+            | RenderConditionFlags::MOVING
+            | RenderConditionFlags::SELECTED
+            | RenderConditionFlags::NIGHT;
+        bridge.submit(DrawSubmission {
+            drawable_id: DrawableId(100),
+            model_name: "AVTank".to_string(),
+            world_transform: GameMat4::from_translation(GameVec3::new(0.0, 0.0, 60.0)),
+            condition_flags: tank_flags,
+            render_state: RenderStateOverrides::from_condition_flags(tank_flags),
+            mesh_uv_overrides: vec![
+                MeshUvOverride {
+                    mesh_name_prefix: "TREADSL".to_string(),
+                    u_offset: 0.25,
+                    v_offset: 0.0,
+                },
+                MeshUvOverride {
+                    mesh_name_prefix: "TREADSR".to_string(),
+                    u_offset: 0.25,
+                    v_offset: 0.0,
+                },
+            ],
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 12.0),
+            bounding_box: AABox::new(WwVec3::new(-6.0, 0.0, -8.0), WwVec3::new(6.0, 8.0, 8.0)),
+            opaque: true,
+            transparent: false,
+            cast_shadow: true,
+            ..Default::default()
+        });
+
+        let damaged_flags = RenderConditionFlags::DAMAGED | RenderConditionFlags::SNOW;
+        bridge.submit(DrawSubmission {
+            drawable_id: DrawableId(101),
+            model_name: "ABPowerPlant".to_string(),
+            world_transform: GameMat4::from_translation(GameVec3::new(40.0, 0.0, 90.0)),
+            condition_flags: damaged_flags,
+            render_state: RenderStateOverrides::from_condition_flags(damaged_flags),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 20.0),
+            opaque: true,
+            transparent: false,
+            cast_shadow: true,
+            ..Default::default()
+        });
+
+        bridge.flush();
+
+        let summary = bridge.render_state_summary();
+        assert_eq!(summary.stats.submissions_received, 2);
+        assert_eq!(summary.stats.rendered, 2);
+        assert_eq!(summary.objects.len(), 2);
+        assert_eq!(summary.projectile_streams.len(), 0);
+        assert_eq!(summary.objects[0].drawable_id, 100);
+        assert_eq!(summary.objects[0].mesh_uv_override_count, 2);
+        assert!(summary.objects[0].selected);
+        assert!(summary.objects[0].night);
+        assert_eq!(summary.objects[1].drawable_id, 101);
+        assert!(summary.objects[1].snow);
+        assert_eq!(summary.fingerprint, 0x953de240a0ed7a5b);
+    }
+
+    #[test]
+    fn test_render_state_summary_tracks_hidden_shroud_and_fx_streams() {
+        let mut bridge = RenderBridge::new();
+        let mut camera = Camera::perspective(
+            "fx_scene".to_string(),
+            60.0_f32.to_radians(),
+            4.0 / 3.0,
+            0.1,
+            1000.0,
+        );
+        camera.set_position(WwVec3::new(0.0, 40.0, -100.0));
+        camera.look_at(WwVec3::new(0.0, 0.0, 0.0), WwVec3::Y);
+
+        bridge.begin_frame(&camera, 1.0 / 30.0);
+
+        let hidden_flags = RenderConditionFlags::AWAITING_CONSTRUCTION;
+        bridge.submit(DrawSubmission {
+            drawable_id: DrawableId(200),
+            model_name: "ShroudCell".to_string(),
+            condition_flags: hidden_flags,
+            render_state: RenderStateOverrides::from_condition_flags(hidden_flags),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 8.0),
+            ..Default::default()
+        });
+
+        let fire_flags = RenderConditionFlags::AFLAME;
+        bridge.submit(DrawSubmission {
+            drawable_id: DrawableId(201),
+            model_name: "FXExplosion".to_string(),
+            world_transform: GameMat4::from_translation(GameVec3::new(-20.0, 0.0, 40.0)),
+            condition_flags: fire_flags,
+            render_state: RenderStateOverrides::from_condition_flags(fire_flags),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 6.0),
+            opaque: false,
+            transparent: true,
+            cast_shadow: false,
+            ..Default::default()
+        });
+
+        bridge.submit_projectile_stream(ProjectileStreamSubmission {
+            drawable_id: 202,
+            lines: vec![
+                vec![GameVec3::new(0.0, 0.0, 0.0), GameVec3::new(8.0, 0.0, 0.0)],
+                vec![GameVec3::new(8.0, 0.0, 0.0), GameVec3::new(12.0, 4.0, 0.0)],
+            ],
+            texture_name: "EXLaser".to_string(),
+            width: 2.5,
+            tile_factor: 1.25,
+            scroll_rate: 0.75,
+        });
+
+        bridge.flush();
+
+        let summary = bridge.render_state_summary();
+        assert_eq!(summary.stats.submissions_received, 2);
+        assert_eq!(summary.stats.hidden, 1);
+        assert_eq!(summary.stats.rendered, 1);
+        assert_eq!(summary.stats.transparent_draws, 1);
+        assert_eq!(summary.objects.len(), 1);
+        assert_eq!(summary.objects[0].drawable_id, 201);
+        assert!(summary.objects[0].transparent);
+        assert_eq!(summary.projectile_streams.len(), 1);
+        assert_eq!(summary.projectile_streams[0].drawable_id, 202);
+        assert_eq!(summary.projectile_streams[0].line_count, 2);
+        assert_eq!(summary.projectile_streams[0].point_count, 4);
+        assert_eq!(summary.fingerprint, 0x549be75a19474244);
     }
 
     #[test]
