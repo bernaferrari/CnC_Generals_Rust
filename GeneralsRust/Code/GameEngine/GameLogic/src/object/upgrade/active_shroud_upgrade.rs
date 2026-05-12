@@ -186,13 +186,11 @@ impl Snapshotable for ActiveShroudUpgrade {
     }
 
     fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        let _ = _xfer.xfer_version(&mut version, 1);
-        crate::object::upgrade::upgrade_module::xfer_upgrade_module_state(
+        crate::object::upgrade::upgrade_module::xfer_upgrade_module_with_version(
             _xfer,
             &mut self.applied,
-        )?;
-        Ok(())
+            std::any::type_name::<Self>(),
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
