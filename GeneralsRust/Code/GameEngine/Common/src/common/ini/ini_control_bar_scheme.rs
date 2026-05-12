@@ -624,6 +624,7 @@ impl ControlBarScheme {
 #[derive(Debug)]
 pub struct ControlBarSchemeManager {
     schemes: HashMap<String, ControlBarScheme>,
+    scheme_order: Vec<String>,
     active_scheme: Option<String>,
     background_marker_pos: ICoord2D,
     foreground_marker_pos: ICoord2D,
@@ -637,6 +638,7 @@ impl ControlBarSchemeManager {
     pub fn new() -> Self {
         Self {
             schemes: HashMap::new(),
+            scheme_order: Vec::new(),
             active_scheme: None,
             background_marker_pos: ICoord2D { x: 0, y: 0 },
             foreground_marker_pos: ICoord2D { x: 0, y: 0 },
@@ -758,6 +760,9 @@ impl ControlBarSchemeManager {
     pub fn new_control_bar_scheme(&mut self, name: String) -> &mut ControlBarScheme {
         let normalized_name = name.trim().to_lowercase();
         let scheme = ControlBarScheme::new(normalized_name.clone());
+        if !self.schemes.contains_key(&normalized_name) {
+            self.scheme_order.push(normalized_name.clone());
+        }
         self.schemes.insert(normalized_name.clone(), scheme);
         self.schemes.get_mut(&normalized_name).unwrap()
     }
@@ -771,7 +776,12 @@ impl ControlBarSchemeManager {
                 self.active_scheme = None;
             }
         }
-        self.schemes.remove(&normalized_name)
+        let removed = self.schemes.remove(&normalized_name);
+        if removed.is_some() {
+            self.scheme_order
+                .retain(|scheme_name| scheme_name != &normalized_name);
+        }
+        removed
     }
 
     /// Set the active control bar scheme
@@ -801,7 +811,7 @@ impl ControlBarSchemeManager {
 
     /// Get all scheme names
     pub fn get_scheme_names(&self) -> Vec<&String> {
-        self.schemes.keys().collect()
+        self.scheme_order.iter().collect()
     }
 
     /// Get the number of schemes
@@ -812,13 +822,18 @@ impl ControlBarSchemeManager {
     /// Clear all schemes
     pub fn clear(&mut self) {
         self.schemes.clear();
+        self.scheme_order.clear();
         self.active_scheme = None;
     }
 
     /// Find the best scheme for a given resolution
     pub fn find_scheme_for_resolution(&self, width: u32, height: u32) -> Option<&ControlBarScheme> {
         // First try to find exact match
-        for scheme in self.schemes.values() {
+        for scheme in self
+            .scheme_order
+            .iter()
+            .filter_map(|name| self.schemes.get(name))
+        {
             if scheme.supports_resolution(width, height) {
                 return Some(scheme);
             }
@@ -829,7 +844,11 @@ impl ControlBarSchemeManager {
         let mut best_scheme = None;
         let mut best_diff = f32::INFINITY;
 
-        for scheme in self.schemes.values() {
+        for scheme in self
+            .scheme_order
+            .iter()
+            .filter_map(|name| self.schemes.get(name))
+        {
             let scheme_aspect = scheme.get_aspect_ratio();
             let diff = (scheme_aspect - target_aspect).abs();
             if diff < best_diff {
@@ -1369,6 +1388,66 @@ mod tests {
         let active = manager.get_active_scheme();
         assert!(active.is_some());
         assert_eq!(active.unwrap().screen_width, 1280);
+    }
+
+    #[test]
+    fn control_bar_scheme_manager_preserves_cpp_list_order() {
+        let mut manager = ControlBarSchemeManager::new();
+
+        manager.new_control_bar_scheme("FirstScheme".to_string());
+        manager.new_control_bar_scheme("SecondScheme".to_string());
+        manager.new_control_bar_scheme("ThirdScheme".to_string());
+
+        let names: Vec<&str> = manager
+            .get_scheme_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(names, vec!["firstscheme", "secondscheme", "thirdscheme"]);
+
+        manager
+            .new_control_bar_scheme("SecondScheme".to_string())
+            .screen_width = 1600;
+        let names_after_overwrite: Vec<&str> = manager
+            .get_scheme_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            names_after_overwrite,
+            vec!["firstscheme", "secondscheme", "thirdscheme"]
+        );
+        assert_eq!(
+            manager
+                .find_scheme("SecondScheme")
+                .map(|scheme| scheme.screen_width),
+            Some(1600)
+        );
+
+        assert!(manager.remove_scheme("FirstScheme").is_some());
+        let names_after_remove: Vec<&str> = manager
+            .get_scheme_names()
+            .into_iter()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(names_after_remove, vec!["secondscheme", "thirdscheme"]);
+    }
+
+    #[test]
+    fn control_bar_scheme_resolution_ties_keep_cpp_list_order() {
+        let mut manager = ControlBarSchemeManager::new();
+
+        let first = manager.new_control_bar_scheme("FirstMatch".to_string());
+        first.screen_width = 1024;
+        first.screen_height = 768;
+
+        let second = manager.new_control_bar_scheme("SecondMatch".to_string());
+        second.screen_width = 1024;
+        second.screen_height = 768;
+
+        let found = manager.find_scheme_for_resolution(1024, 768);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().get_name(), "firstmatch");
     }
 
     #[test]
