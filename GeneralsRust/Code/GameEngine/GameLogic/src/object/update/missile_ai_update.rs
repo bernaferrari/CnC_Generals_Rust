@@ -606,10 +606,7 @@ impl MissileAIUpdate {
         }
 
         // Check dive distance
-        if self.data.dive_distance > 0.0 {
-            // If close enough, disable preferred height
-            // Matches C++ lines 532-543
-        }
+        self.handle_dive_distance();
 
         // Check if traveled far enough to enable turning
         if self.no_turn_dist_left <= 0.0 {
@@ -648,6 +645,28 @@ impl MissileAIUpdate {
         false
     }
 
+    fn handle_dive_distance(&self) {
+        if self.data.dive_distance <= 0.0 {
+            return;
+        }
+        let Some(ai) = self.current_ai_interface() else {
+            return;
+        };
+        let Some(locomotor) = ai.get_cur_locomotor() else {
+            return;
+        };
+        let Some(distance_to_target_sq) = self.distance_to_goal_position_2d_squared() else {
+            return;
+        };
+        if let Ok(mut guard) = locomotor.lock() {
+            if guard.preferred_height > 0.0
+                && distance_to_target_sq < self.data.dive_distance * self.data.dive_distance
+            {
+                guard.set_precise_z_pos(true);
+            }
+        };
+    }
+
     fn distance_to_goal_2d_squared(&self) -> Option<Real> {
         let missile_pos = self.current_object_position()?;
         let goal_pos = if self.is_tracking_target {
@@ -659,6 +678,17 @@ impl MissileAIUpdate {
                 .or(Some(self.original_target_pos))
         }?;
 
+        let dx = missile_pos.x - goal_pos.x;
+        let dy = missile_pos.y - goal_pos.y;
+        Some(dx * dx + dy * dy)
+    }
+
+    fn distance_to_goal_position_2d_squared(&self) -> Option<Real> {
+        let missile_pos = self.current_object_position()?;
+        let goal_pos = self
+            .current_ai_interface()
+            .and_then(|ai| ai.get_path_destination())
+            .or(Some(self.original_target_pos))?;
         let dx = missile_pos.x - goal_pos.x;
         let dy = missile_pos.y - goal_pos.y;
         Some(dx * dx + dy * dy)
