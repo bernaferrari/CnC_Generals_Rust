@@ -12,7 +12,7 @@ use crate::common::{
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::effects::FXList;
-use crate::helpers::TheGameLogic;
+use crate::helpers::{get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic};
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, PhysicsBehaviorExt, ProjectileUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
@@ -665,13 +665,13 @@ impl MissileAIUpdate {
         let scatter = self.data.distance_scatter_when_jammed;
         let mut target_position = self.original_target_pos;
 
-        // Would use game logic random: GameLogicRandomValue(-scatter, scatter)
-        // For now, simple offset
-        target_position.x += scatter * 0.5;
-        target_position.y += scatter * 0.5;
-
-        // Update target to ground position
-        // Would calculate terrain height at new position
+        target_position.x += get_game_logic_random_value_real(-scatter, scatter);
+        target_position.y += get_game_logic_random_value_real(-scatter, scatter);
+        if let Some(terrain) = TheTerrainLogic::get() {
+            let layer = terrain.get_highest_layer_for_destination(&target_position);
+            target_position.z =
+                terrain.get_layer_height(target_position.x, target_position.y, layer);
+        }
 
         // Retarget to scattered position
         // aiMoveToPosition(&targetPosition, CMD_FROM_AI);
@@ -1046,18 +1046,28 @@ mod tests {
 
     #[test]
     fn test_jamming() {
+        let seed = [0x1234, 0x5678, 0x9abc, 0xdef0, 0x1357, 0x2468];
         let data = Arc::new(MissileAIUpdateModuleData {
             distance_scatter_when_jammed: 100.0,
             ..Default::default()
         });
         let mut missile = MissileAIUpdate::new(data, 0);
 
-        missile.original_target_pos = Coord3D::new(100.0, 100.0, 10.0);
+        let original = Coord3D::new(100.0, 100.0, 10.0);
+        crate::helpers::set_game_logic_random_seed(seed);
+        let expected_x = original.x + get_game_logic_random_value_real(-100.0, 100.0);
+        let expected_y = original.y + get_game_logic_random_value_real(-100.0, 100.0);
+
+        crate::helpers::set_game_logic_random_seed(seed);
+        missile.original_target_pos = original;
         missile.projectile_now_jammed();
 
         assert!(missile.is_jammed);
         assert!(!missile.is_tracking_target);
         assert_eq!(missile.victim_id, INVALID_ID);
+        assert!((missile.original_target_pos.x - expected_x).abs() < 0.001);
+        assert!((missile.original_target_pos.y - expected_y).abs() < 0.001);
+        assert_eq!(missile.original_target_pos.z, 0.0);
     }
 
     #[test]
