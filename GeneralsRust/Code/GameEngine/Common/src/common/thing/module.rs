@@ -300,6 +300,11 @@ pub trait ProneControlInterface {
     fn go_prone(&mut self, damage_dealt: i32);
 }
 
+pub trait StickyBombControlInterface {
+    fn init_sticky_bomb(&mut self, target_id: ObjectID, bomber_id: ObjectID);
+    fn detonate(&mut self);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -396,6 +401,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_prone_control_interface(&mut self) -> Option<&mut dyn ProneControlInterface> {
+        None
+    }
+
+    fn get_sticky_bomb_control_interface(&mut self) -> Option<&mut dyn StickyBombControlInterface> {
         None
     }
 }
