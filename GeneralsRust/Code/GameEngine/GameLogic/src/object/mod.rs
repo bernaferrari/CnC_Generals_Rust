@@ -4622,14 +4622,16 @@ impl Object {
     /// Apply a topple force if this object has a ToppleUpdate module.
     /// Mirrors C++ Object::topple() usage.
     pub fn topple(&mut self, topple_direction: &Coord3D, topple_speed: Real, options: u32) {
-        let Some(module) = self.find_update_module("ToppleUpdate") else {
-            return;
-        };
         let Some(object_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.id) else {
             return;
         };
-        let _ = module.with_module_downcast::<crate::object::behavior::topple_update::ToppleUpdateModule, _, _>(|module| {
-            let topple = module.behavior_mut();
+        for behavior in self.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            let Some(topple) = behavior.get_topple_control_interface() else {
+                continue;
+            };
             if topple.is_able_to_be_toppled() {
                 topple.apply_toppling_force_with_object(
                     self,
@@ -4639,7 +4641,8 @@ impl Object {
                     options,
                 );
             }
-        });
+            break;
+        }
     }
 
     pub fn get_health_percentage(&self) -> f32 {

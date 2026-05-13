@@ -103,6 +103,9 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     ) -> Option<&mut dyn game_engine::common::thing::module::StickyBombControlInterface> {
         None
     }
+    fn get_topple_control_interface(&mut self) -> Option<&mut dyn ToppleControlInterface> {
+        None
+    }
     /// Get interface mask (indicating which interfaces this module supports)
     fn get_interface_mask() -> u32
     where
@@ -328,6 +331,18 @@ pub trait BehaviorModule: BehaviorModuleInterface + std::fmt::Debug {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
     /// Called when the object is destroyed
     fn on_destroy(&mut self);
+}
+
+pub trait ToppleControlInterface {
+    fn is_able_to_be_toppled(&self) -> bool;
+    fn apply_toppling_force_with_object(
+        &mut self,
+        obj: &mut crate::object::Object,
+        object_arc: &Arc<RwLock<crate::object::Object>>,
+        topple_direction: &Coord3D,
+        topple_speed: Real,
+        options: u32,
+    );
 }
 
 /// Interface exposed by behaviors that manage timed object-creation lists.

@@ -12,7 +12,8 @@ use crate::effects::FXList;
 use crate::helpers::{TheFXListStore, TheGameLogic, TheThingFactory};
 use crate::modules::UpdateSleepTime;
 use crate::modules::{
-    BehaviorModuleInterface, CollideModuleInterface, PhysicsBehaviorExt, UpdateModuleInterface,
+    BehaviorModuleInterface, CollideModuleInterface, PhysicsBehaviorExt, ToppleControlInterface,
+    UpdateModuleInterface,
 };
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::DrawableArcExt;
@@ -630,6 +631,34 @@ impl BehaviorModuleInterface for ToppleUpdate {
 
     fn get_collide(&mut self) -> Option<&mut dyn CollideModuleInterface> {
         Some(self)
+    }
+
+    fn get_topple_control_interface(&mut self) -> Option<&mut dyn ToppleControlInterface> {
+        Some(self)
+    }
+}
+
+impl ToppleControlInterface for ToppleUpdate {
+    fn is_able_to_be_toppled(&self) -> bool {
+        ToppleUpdate::is_able_to_be_toppled(self)
+    }
+
+    fn apply_toppling_force_with_object(
+        &mut self,
+        obj: &mut GameObject,
+        object_arc: &Arc<RwLock<GameObject>>,
+        topple_direction: &Coord3D,
+        topple_speed: Real,
+        options: u32,
+    ) {
+        ToppleUpdate::apply_toppling_force_with_object(
+            self,
+            obj,
+            object_arc,
+            topple_direction,
+            topple_speed,
+            options,
+        );
     }
 }
 
