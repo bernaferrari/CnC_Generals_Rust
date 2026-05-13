@@ -3487,6 +3487,8 @@ pub trait DrawableArcExt {
     fn get_instance_matrix(&self) -> Matrix3D;
     fn set_instance_matrix(&self, matrix: Option<&Matrix3D>);
     fn set_shadows_enabled(&self, enabled: bool);
+    fn set_terrain_decal(&self, decal_type: TerrainDecalType);
+    fn set_terrain_decal_size(&self, x: Real, y: Real);
     fn set_terrain_decal_fade_target(&self, target: Real, rate: Real);
     fn set_model_condition_state(&self, state: ModelConditionFlags);
     fn set_drawable_hidden(&self, hidden: bool);
@@ -3575,6 +3577,18 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
     fn set_shadows_enabled(&self, enabled: bool) {
         if let Ok(mut guard) = self.write() {
             guard.set_shadows_enabled(enabled);
+        }
+    }
+
+    fn set_terrain_decal(&self, decal_type: TerrainDecalType) {
+        if let Ok(mut guard) = self.write() {
+            guard.set_terrain_decal(decal_type);
+        }
+    }
+
+    fn set_terrain_decal_size(&self, x: Real, y: Real) {
+        if let Ok(mut guard) = self.write() {
+            guard.set_terrain_decal_size(x, y);
         }
     }
 

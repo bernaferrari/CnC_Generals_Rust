@@ -12,7 +12,7 @@ use crate::common::{GameLogicRandomValue, FROM_CENTER_2D, LOGICFRAMES_PER_SECOND
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::draw::draw_module::{DrawModule, TerrainDecalType};
+use crate::object::draw::draw_module::TerrainDecalType;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -496,15 +496,7 @@ impl UpdateModuleInterface for HordeUpdate {
                             }
                         } else {
                             let size = 3.5 * obj.get_geometry_info().get_major_radius();
-                            for module_handle in drawable.get_draw_modules() {
-                                let _ = module_handle.with_module_downcast::<
-                                    crate::object::draw::w3d_model_draw::W3DModelDraw,
-                                    _,
-                                    _,
-                                >(|draw| {
-                                    DrawModule::set_terrain_decal_size(draw, size, size);
-                                });
-                            }
+                            drawable.set_terrain_decal_size(size, size);
                             if has_fanaticism {
                                 TerrainDecalType::HordeWithFanaticismUpgrade
                             } else if has_nationalism {
@@ -514,26 +506,10 @@ impl UpdateModuleInterface for HordeUpdate {
                             }
                         };
 
-                        for module_handle in drawable.get_draw_modules() {
-                            let _ = module_handle.with_module_downcast::<
-                                crate::object::draw::w3d_model_draw::W3DModelDraw,
-                                _,
-                                _,
-                            >(|draw| {
-                                DrawModule::set_terrain_decal(draw, decal_type);
-                            });
-                        }
+                        drawable.set_terrain_decal(decal_type);
                     }
                 } else {
-                    for module_handle in drawable.get_draw_modules() {
-                        let _ = module_handle.with_module_downcast::<
-                            crate::object::draw::w3d_model_draw::W3DModelDraw,
-                            _,
-                            _,
-                        >(|draw| {
-                            DrawModule::set_terrain_decal(draw, TerrainDecalType::None);
-                        });
-                    }
+                    drawable.set_terrain_decal(TerrainDecalType::None);
                 }
 
                 if !was_in_horde && self.in_horde {
