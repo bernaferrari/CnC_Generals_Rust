@@ -12,6 +12,7 @@ use crate::object::behavior::behavior_module::{xfer_update_module_base_state, Be
 use crate::object::{Object as GameObject, INVALID_ID as OBJECT_INVALID_ID};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::HijackerControlInterface;
 use std::sync::{Arc, RwLock, Weak};
 
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
@@ -188,6 +189,18 @@ impl BehaviorModuleInterface for HijackerUpdate {
     }
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
+    }
+
+    fn get_hijacker_control_interface(&mut self) -> Option<&mut dyn HijackerControlInterface> {
+        Some(self)
+    }
+}
+
+impl HijackerControlInterface for HijackerUpdate {
+    fn configure_hijacked_vehicle(&mut self, target_id: ObjectID) {
+        self.set_target_object(target_id);
+        self.set_update(true);
+        self.set_is_in_vehicle(true);
     }
 }
 

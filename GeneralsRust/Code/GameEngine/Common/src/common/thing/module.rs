@@ -316,6 +316,10 @@ pub trait OclUpdateControlInterface {
     fn tick_ocl_update(&mut self);
 }
 
+pub trait HijackerControlInterface {
+    fn configure_hijacked_vehicle(&mut self, target_id: ObjectID);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -424,6 +428,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_ocl_update_control_interface(&mut self) -> Option<&mut dyn OclUpdateControlInterface> {
+        None
+    }
+
+    fn get_hijacker_control_interface(&mut self) -> Option<&mut dyn HijackerControlInterface> {
         None
     }
 }
