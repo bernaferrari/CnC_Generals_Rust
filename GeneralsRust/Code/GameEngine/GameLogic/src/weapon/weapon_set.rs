@@ -544,7 +544,6 @@ impl WeaponSet {
         new_set: Arc<WeaponTemplateSet>,
         object_id: ObjectID,
     ) -> GameLogicResult<()> {
-        let old_set = self.current_weapon_template_set.clone();
         self.current_weapon_template_set = Some(Arc::clone(&new_set));
 
         // C++ WeaponSet.cpp:281-286: If weapon lock is NOT shared across sets,
@@ -573,14 +572,6 @@ impl WeaponSet {
 
                 // C++ WeaponSet.cpp:303: loadAmmoNow - start with full clips
                 new_weapon.load_ammo_now(object_id).ok();
-
-                // Transfer state from old weapon if it exists and conditions allow
-                if let Some(old_weapon) = &self.weapons[slot_index] {
-                    if new_set.is_weapon_lock_shared_across_sets {
-                        // Transfer timing information if weapons are similar enough
-                        // This would be implemented based on game logic requirements
-                    }
-                }
 
                 self.weapons[slot_index] = Some(new_weapon);
                 self.filled_weapon_slot_mask |= 1 << slot_index;
@@ -1337,6 +1328,26 @@ mod tests {
     use game_engine::common::system::kind_of::KindOfMask;
     use game_engine::thing::thing_template::WeaponTemplateSet as EngineWeaponTemplateSet;
 
+    fn test_weapon_template(name: &str, clip_size: i32) -> Arc<WeaponTemplate> {
+        let mut template = WeaponTemplate::new(name.to_string());
+        template.clip_size = clip_size;
+        Arc::new(template)
+    }
+
+    fn test_template_set(
+        primary: Arc<WeaponTemplate>,
+        secondary: Option<Arc<WeaponTemplate>>,
+        shared_lock: bool,
+    ) -> Arc<WeaponTemplateSet> {
+        let mut set = WeaponTemplateSet::new();
+        set.is_weapon_lock_shared_across_sets = shared_lock;
+        set.set_weapon_template(WeaponSlotType::Primary, primary);
+        if let Some(secondary) = secondary {
+            set.set_weapon_template(WeaponSlotType::Secondary, secondary);
+        }
+        Arc::new(set)
+    }
+
     #[test]
     fn engine_weapon_set_conversion_resolves_templates() {
         let mut engine_set = EngineWeaponTemplateSet::new();
@@ -1422,5 +1433,83 @@ mod tests {
         conditions.clear(WeaponSetType::Veteran);
         // Now conditions only have Elite, but template requires Veteran
         assert!(!template_set.matches_conditions(&conditions));
+    }
+
+    #[test]
+    fn weapon_set_switch_shared_lock_keeps_lock_but_reloads_fresh_weapons() {
+        let original_primary = test_weapon_template("OriginalPrimary", 8);
+        let original_secondary = test_weapon_template("OriginalSecondary", 3);
+        let replacement_primary = test_weapon_template("ReplacementPrimary", 5);
+        let replacement_secondary = test_weapon_template("ReplacementSecondary", 7);
+
+        let original_set = test_template_set(original_primary, Some(original_secondary), true);
+        let replacement_set =
+            test_template_set(replacement_primary, Some(replacement_secondary), true);
+
+        let mut weapon_set = WeaponSet::new();
+        weapon_set
+            .switch_weapon_template_set(original_set, 100)
+            .expect("initial weapon set");
+        weapon_set.set_weapon_lock(WeaponSlotType::Secondary, WeaponLockType::LockedPermanently);
+
+        {
+            let primary = weapon_set
+                .get_weapon_in_slot_mut(WeaponSlotType::Primary)
+                .expect("primary weapon");
+            primary.set_clip_percent_full(0.25, true);
+            primary.set_status(WeaponStatus::BetweenFiringShots);
+            primary.set_possible_next_shot_frame(900);
+        }
+
+        weapon_set
+            .switch_weapon_template_set(replacement_set, 100)
+            .expect("replacement weapon set");
+
+        assert_eq!(
+            weapon_set.get_current_weapon_slot(),
+            WeaponSlotType::Secondary
+        );
+        assert_eq!(
+            weapon_set.current_weapon_locked_status,
+            WeaponLockType::LockedPermanently
+        );
+
+        let primary = weapon_set
+            .get_weapon_in_slot(WeaponSlotType::Primary)
+            .expect("replacement primary weapon");
+        assert_eq!(primary.get_name(), "ReplacementPrimary");
+        assert_eq!(primary.get_remaining_ammo(), 5);
+        assert_eq!(primary.get_status(), WeaponStatus::ReadyToFire);
+        assert_ne!(primary.get_possible_next_shot_frame(), 900);
+    }
+
+    #[test]
+    fn weapon_set_switch_without_shared_lock_releases_lock_and_resets_primary() {
+        let original_primary = test_weapon_template("OriginalPrimary", 8);
+        let original_secondary = test_weapon_template("OriginalSecondary", 3);
+        let replacement_primary = test_weapon_template("ReplacementPrimary", 5);
+
+        let original_set = test_template_set(original_primary, Some(original_secondary), true);
+        let replacement_set = test_template_set(replacement_primary, None, false);
+
+        let mut weapon_set = WeaponSet::new();
+        weapon_set
+            .switch_weapon_template_set(original_set, 100)
+            .expect("initial weapon set");
+        weapon_set.set_weapon_lock(WeaponSlotType::Secondary, WeaponLockType::LockedPermanently);
+
+        weapon_set
+            .switch_weapon_template_set(replacement_set, 100)
+            .expect("replacement weapon set");
+
+        assert_eq!(
+            weapon_set.get_current_weapon_slot(),
+            WeaponSlotType::Primary
+        );
+        assert_eq!(
+            weapon_set.current_weapon_locked_status,
+            WeaponLockType::NotLocked
+        );
+        assert!(!weapon_set.is_current_weapon_locked());
     }
 }
