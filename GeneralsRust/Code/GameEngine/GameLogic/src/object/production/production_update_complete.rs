@@ -40,7 +40,9 @@ use crate::system::game_logic;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData, NameKeyType, ProductionControlInterface,
+};
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 
@@ -1256,6 +1258,28 @@ impl ProductionUpdateInterface for ProductionUpdateComplete {
     }
 }
 
+impl ProductionControlInterface for ProductionUpdateComplete {
+    fn can_produce(&self, template_name: &str) -> bool {
+        ProductionUpdateInterface::can_produce(self, template_name)
+    }
+
+    fn is_producing(&self) -> bool {
+        ProductionUpdateInterface::is_producing(self)
+    }
+
+    fn queue_size(&self) -> usize {
+        ProductionUpdateInterface::get_queue_size(self)
+    }
+
+    fn start_production(
+        &mut self,
+        template_name: String,
+        player_id: ObjectID,
+    ) -> Result<(), String> {
+        ProductionUpdateInterface::start_production(self, template_name, player_id)
+    }
+}
+
 impl Snapshotable for ProductionUpdateComplete {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
@@ -1459,6 +1483,10 @@ impl Module for ProductionUpdateCompleteModule {
 
     fn on_delete(&mut self) {
         self.behavior.on_destroy();
+    }
+
+    fn get_production_control_interface(&mut self) -> Option<&mut dyn ProductionControlInterface> {
+        Some(&mut self.behavior)
     }
 }
 
