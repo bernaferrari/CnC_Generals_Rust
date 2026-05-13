@@ -186,15 +186,15 @@ fn appears_to_contain_friendlies(obj: &Object, other: &Object) -> bool {
 
 fn get_special_power_ready_percent(obj: &Object, power_type: SpecialPowerType) -> Option<f32> {
     let mut ready = None;
-    for entry in obj.behavior_modules() {
-        entry
-            .with_module_downcast::<crate::object::special_power_module::SpecialPowerModule, _, _>(
-                |module| {
-                    if module.get_power_type() == power_type as u32 {
-                        ready = Some(module.get_percent_ready());
-                    }
-                },
-            );
+    for behavior in obj.get_behavior_modules() {
+        let Ok(mut behavior) = behavior.lock() else {
+            continue;
+        };
+        if let Some(module) = behavior.get_special_power() {
+            if module.get_power_type() == power_type as u32 {
+                ready = Some(module.get_percent_ready());
+            }
+        }
         if ready.is_some() {
             return ready;
         }
