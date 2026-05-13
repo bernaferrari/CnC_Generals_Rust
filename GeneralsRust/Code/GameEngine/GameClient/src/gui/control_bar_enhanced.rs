@@ -38,7 +38,6 @@ use gamelogic::common::system::kind_of::KindOfMask;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::object::production::queue::BuildQueueEntry;
 use gamelogic::object::special_power_template::SpecialPowerTemplate;
-use gamelogic::object::update::ocl_update::OCLUpdateModule;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{player_list, ThePlayerList, PLAYER_INDEX_INVALID};
@@ -2045,9 +2044,11 @@ impl EnhancedControlBar {
         };
         let mut remaining_frames: u32 = 0;
         let mut has_timer = false;
-        ocl_module.with_module_downcast::<OCLUpdateModule, _>(|module| {
-            remaining_frames = module.remaining_frames();
-            has_timer = true;
+        ocl_module.with_module(|module| {
+            if let Some(ocl) = module.get_ocl_update_control_interface() {
+                remaining_frames = ocl.remaining_frames();
+                has_timer = true;
+            }
         });
         has_timer && remaining_frames > 0
     }
@@ -2826,10 +2827,12 @@ impl EnhancedControlBar {
         let mut remaining_frames: u32 = 0;
         let mut percent: f32 = 0.0;
         let mut has_timer = false;
-        ocl_module.with_module_downcast::<OCLUpdateModule, _>(|module| {
-            remaining_frames = module.remaining_frames();
-            percent = module.countdown_percent();
-            has_timer = true;
+        ocl_module.with_module(|module| {
+            if let Some(ocl) = module.get_ocl_update_control_interface() {
+                remaining_frames = ocl.remaining_frames();
+                percent = ocl.countdown_percent();
+                has_timer = true;
+            }
         });
 
         if !has_timer {
