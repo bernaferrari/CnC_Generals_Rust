@@ -83,8 +83,8 @@ impl NetworkClock {
 #[cfg(test)]
 mod tests {
     use super::{
-        should_keep_logic_running_while_iconic, CnCGameEngine, GameMode, GameState,
-        StartupNewGameDispatch,
+        should_exit_for_smoke_test, should_keep_logic_running_while_iconic, CnCGameEngine,
+        GameMode, GameState, StartupNewGameDispatch,
     };
     use crate::command_line::CommandLineArgs;
     use std::fs;
@@ -143,6 +143,40 @@ mod tests {
         let budget =
             CnCGameEngine::startup_deferred_model_load_budget(GameState::Menu, Some(12), 12);
         assert_eq!(budget, 4);
+    }
+
+    #[test]
+    fn smoke_test_exit_only_after_menu_startup_complete() {
+        assert!(should_exit_for_smoke_test(
+            true,
+            GameState::Menu,
+            1.0,
+            false
+        ));
+        assert!(!should_exit_for_smoke_test(
+            false,
+            GameState::Menu,
+            1.0,
+            false
+        ));
+        assert!(!should_exit_for_smoke_test(
+            true,
+            GameState::Loading,
+            1.0,
+            false
+        ));
+        assert!(!should_exit_for_smoke_test(
+            true,
+            GameState::Menu,
+            0.995,
+            false
+        ));
+        assert!(!should_exit_for_smoke_test(
+            true,
+            GameState::Menu,
+            1.0,
+            true
+        ));
     }
 
     #[test]
@@ -783,6 +817,15 @@ fn update_iconic_state_and_wake_audio(window: &Window, minimized: &mut bool) {
     } else if !was_minimized && *minimized {
         info!("Window entered iconic/minimized state");
     }
+}
+
+fn should_exit_for_smoke_test(
+    smoke_test: bool,
+    state: GameState,
+    startup_progress: f32,
+    exiting_pending: bool,
+) -> bool {
+    smoke_test && matches!(state, GameState::Menu) && startup_progress >= 1.0 && !exiting_pending
 }
 
 // C++ SAGE Engine equivalent modules
@@ -8506,13 +8549,16 @@ pub async fn run_cnc_game(
                 last_render_health_log = frame_started;
             }
 
-            if cmd_args.wants_smoke_test()
-                && matches!(engine.get_state(), GameState::Menu)
-                && engine.startup_last_reported_progress >= 1.0
-                && !engine.is_state_change_pending(GameState::Exiting)
-            {
+            if should_exit_for_smoke_test(
+                cmd_args.wants_smoke_test(),
+                engine.get_state(),
+                engine.startup_last_reported_progress,
+                engine.is_state_change_pending(GameState::Exiting),
+            ) {
                 info!("Smoke test reached main menu; exiting successfully");
-                engine.request_state_change(GameState::Exiting);
+                engine.transition_to_state(GameState::Exiting);
+                elwt.exit();
+                return;
             }
 
             if let Some(bridge) = runtime_host_bridge.as_mut() {
@@ -8818,6 +8864,13 @@ pub async fn run_cnc_game(
                     let runtime_window_suspended = runtime_window_minimized;
                     if runtime_headless_mode {
                         drive_frame(engine, current_window, &mut runtime_host_bridge, true);
+                    } else if cmd_args.wants_smoke_test() {
+                        drive_frame(engine, current_window, &mut runtime_host_bridge, false);
+                        if engine.is_quitting() {
+                            elwt.exit();
+                            return;
+                        }
+                        next_redraw_at = now + STARTUP_POLL_INTERVAL;
                     } else if runtime_window_suspended {
                         if should_keep_logic_running_while_iconic(engine.game_logic.game_mode()) {
                             drive_frame(engine, current_window, &mut runtime_host_bridge, false);

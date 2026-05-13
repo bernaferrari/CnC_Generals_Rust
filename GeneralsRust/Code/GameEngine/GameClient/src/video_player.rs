@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, TryLockError, Weak};
 
 use crate::bink::ensure_bink_provider_registered;
 use crate::video_stream::{VideoStream, VideoStreamInterface};
@@ -415,17 +415,20 @@ fn get_video_stream_provider() -> Option<Arc<dyn VideoStreamProvider>> {
         .clone()
 }
 
-fn notify_video_player_provider_state(now_has_valid: Bool) {
+fn notify_video_player_provider_state(now_has_valid: Bool) -> Bool {
     let Some(player) = get_video_player() else {
-        return;
+        return false;
     };
-    let Ok(mut guard) = player.lock() else {
-        return;
+    let mut guard = match player.try_lock() {
+        Ok(guard) => guard,
+        Err(TryLockError::Poisoned(error)) => error.into_inner(),
+        Err(TryLockError::WouldBlock) => return false,
     };
     let Some(player) = guard.as_mut() else {
-        return;
+        return false;
     };
     player.notify_video_player_of_new_provider(now_has_valid);
+    true
 }
 
 struct ManagedVideoStreamState {
@@ -1056,6 +1059,19 @@ mod tests {
         }
 
         clear_video_stream_provider();
+        shutdown_video_player();
+    }
+
+    #[test]
+    fn provider_notification_skips_locked_global_player() {
+        init_video_player();
+
+        let player = get_video_player().expect("video player singleton should exist");
+        let guard = player.lock().unwrap_or_else(|e| e.into_inner());
+
+        assert!(!notify_video_player_provider_state(true));
+
+        drop(guard);
         shutdown_video_player();
     }
 
