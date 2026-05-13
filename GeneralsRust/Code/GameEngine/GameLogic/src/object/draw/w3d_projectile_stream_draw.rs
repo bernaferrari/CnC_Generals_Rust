@@ -6,9 +6,7 @@
 use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::TheGameClient;
-use crate::object::behavior::projectile_stream_update::{
-    ProjectileStreamUpdateModule, MAX_PROJECTILE_STREAM,
-};
+use crate::object::behavior::projectile_stream_update::MAX_PROJECTILE_STREAM;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
@@ -266,10 +264,18 @@ impl DrawModule for W3DProjectileStreamDraw {
             return;
         };
 
-        let mut update = None;
+        let mut update: Option<Vec<crate::common::Coord3D>> = None;
         if let Some(module) = obj_guard.find_update_module("ProjectileStreamUpdate") {
-            module.with_module_downcast::<ProjectileStreamUpdateModule, _, _>(|module| {
-                update = Some(module.behavior_mut().get_all_points());
+            module.with_module(|module| {
+                if let Some(stream) = module.get_projectile_stream_draw_interface() {
+                    update = Some(
+                        stream
+                            .projectile_stream_points()
+                            .into_iter()
+                            .map(crate::common::Coord3D::from_array)
+                            .collect(),
+                    );
+                }
             });
         }
 
