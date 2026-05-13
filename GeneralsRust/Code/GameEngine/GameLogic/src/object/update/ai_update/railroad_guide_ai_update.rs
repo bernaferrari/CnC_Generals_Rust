@@ -919,12 +919,10 @@ impl RailroadBehavior {
             if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
                 if let Ok(trailer_guard) = trailer.read() {
                     if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                        let _ = module.with_module_downcast::<
-                            crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                            _,
-                            _,
-                        >(|module| {
-                            module.behavior_mut().make_a_wall_out_of_this_train(on);
+                        module.with_module(|module| {
+                            if let Some(train) = module.get_train_control_interface() {
+                                train.set_train_wall(on);
+                            }
                         });
                     }
                 }
@@ -948,12 +946,10 @@ impl RailroadBehavior {
             if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
                 if let Ok(trailer_guard) = trailer.read() {
                     if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                        let _ = module.with_module_downcast::<
-                            crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                            _,
-                            _,
-                        >(|module| {
-                            module.behavior_mut().disembark();
+                        module.with_module(|module| {
+                            if let Some(train) = module.get_train_control_interface() {
+                                train.disembark_passengers();
+                            }
                         });
                     }
                 }
@@ -1366,12 +1362,10 @@ impl RailroadBehavior {
             if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
                 if let Ok(trailer_guard) = trailer.read() {
                     if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                        let _ = module.with_module_downcast::<
-                            crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                            _,
-                            _,
-                        >(|module| {
-                            module.behavior_mut().destroy_whole_train_now();
+                        module.with_module(|module| {
+                            if let Some(train) = module.get_train_control_interface() {
+                                train.destroy_whole_train_now();
+                            }
                         });
                     }
                 }
@@ -2072,6 +2066,18 @@ impl Module for RailroadBehaviorModule {
 impl TrainControlInterface for RailroadBehaviorModule {
     fn set_held(&mut self, held: Bool) {
         self.behavior.set_held(held);
+    }
+
+    fn set_train_wall(&mut self, on: bool) {
+        self.behavior.make_a_wall_out_of_this_train(on);
+    }
+
+    fn disembark_passengers(&mut self) {
+        self.behavior.disembark();
+    }
+
+    fn destroy_whole_train_now(&mut self) {
+        self.behavior.destroy_whole_train_now();
     }
 }
 

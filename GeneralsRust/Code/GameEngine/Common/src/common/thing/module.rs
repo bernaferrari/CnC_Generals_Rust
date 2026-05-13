@@ -300,6 +300,9 @@ pub trait BridgeTowerControlInterface {
 
 pub trait TrainControlInterface {
     fn set_held(&mut self, held: bool);
+    fn set_train_wall(&mut self, on: bool);
+    fn disembark_passengers(&mut self);
+    fn destroy_whole_train_now(&mut self);
 }
 
 pub trait CleanupHazardControlInterface {
