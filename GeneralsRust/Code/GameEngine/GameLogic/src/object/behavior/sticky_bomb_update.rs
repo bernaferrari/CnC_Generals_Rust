@@ -188,24 +188,20 @@ impl StickyBombUpdate {
                 let now = TheGameLogic::get_frame();
                 let mut die_frame = 0;
                 if let Some(module) = obj.find_update_module("LifetimeUpdate") {
-                    let _ = module.with_module_downcast::<
-                        crate::object::behavior::lifetime_update::LifetimeUpdateModule,
-                        _,
-                        _,
-                    >(|module| {
-                        die_frame = module.behavior_mut().get_die_frame();
+                    module.with_module(|module| {
+                        if let Some(lifetime) = module.get_lifetime_control_interface() {
+                            die_frame = lifetime.die_frame();
+                        }
                     });
                 }
                 if die_frame == 0 {
                     for module in obj.behavior_modules() {
-                        let found = module.with_module_downcast::<
-                            crate::object::behavior::lifetime_update::LifetimeUpdateModule,
-                            _,
-                            _,
-                        >(|module| {
-                            die_frame = module.behavior_mut().get_die_frame();
+                        module.with_module(|module| {
+                            if let Some(lifetime) = module.get_lifetime_control_interface() {
+                                die_frame = lifetime.die_frame();
+                            }
                         });
-                        if found.is_some() {
+                        if die_frame != 0 {
                             break;
                         }
                     }

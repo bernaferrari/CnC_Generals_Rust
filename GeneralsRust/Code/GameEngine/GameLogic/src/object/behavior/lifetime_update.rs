@@ -14,8 +14,8 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
-    Thing as ModuleThing,
+    LifetimeControlInterface, Module, ModuleData as EngineModuleData, NameKeyType,
+    Object as ModuleObject, Thing as ModuleThing,
 };
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
@@ -129,6 +129,25 @@ mod tests {
         );
 
         crate::helpers::TheGameLogic::set_hulk_max_lifetime_override(original);
+    }
+
+    #[test]
+    fn lifetime_update_module_exposes_typed_control_interface() {
+        let data = Arc::new(LifetimeUpdateModuleData::default());
+        let behavior = LifetimeUpdate {
+            object: Weak::new(),
+            module_data: data.clone(),
+            next_call_frame_and_phase: 0,
+            die_frame: 123,
+        };
+        let mut module =
+            LifetimeUpdateModule::new(behavior, &AsciiString::from("LifetimeUpdate"), data);
+
+        let control = module
+            .get_lifetime_control_interface()
+            .expect("LifetimeUpdate should expose LifetimeControlInterface");
+
+        assert_eq!(control.die_frame(), 123);
     }
 }
 
@@ -330,6 +349,16 @@ impl Module for LifetimeUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_lifetime_control_interface(&mut self) -> Option<&mut dyn LifetimeControlInterface> {
+        Some(self)
+    }
+}
+
+impl LifetimeControlInterface for LifetimeUpdateModule {
+    fn die_frame(&self) -> u32 {
+        self.behavior.get_die_frame()
     }
 }
 
