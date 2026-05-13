@@ -656,20 +656,27 @@ impl BattlePlanUpdate {
 
     fn apply_search_and_destroy_bonuses(&self) {
         self.with_object_mut(|object| {
-            if self.module_data.strategy_center_search_and_destroy_sight_range_scalar != 1.0 {
-                let scalar = self.module_data.strategy_center_search_and_destroy_sight_range_scalar;
+            if self
+                .module_data
+                .strategy_center_search_and_destroy_sight_range_scalar
+                != 1.0
+            {
+                let scalar = self
+                    .module_data
+                    .strategy_center_search_and_destroy_sight_range_scalar;
                 object.set_vision_range(object.get_vision_range() * scalar);
                 object.set_shroud_clearing_range(object.get_shroud_clearing_range() * scalar);
             }
 
-            if self.module_data.strategy_center_search_and_destroy_detects_stealth {
+            if self
+                .module_data
+                .strategy_center_search_and_destroy_detects_stealth
+            {
                 if let Some(stealth_detector) = object.find_update_module("StealthDetectorUpdate") {
-                    let _ = stealth_detector.with_module_downcast::<
-                        crate::object::behavior::stealth_detector_update::StealthDetectorUpdateModule,
-                        _,
-                        _,
-                    >(|module| {
-                        module.behavior_mut().set_sd_enabled(true);
+                    stealth_detector.with_module(|module| {
+                        if let Some(control) = module.get_stealth_detector_control_interface() {
+                            control.set_sd_enabled(true);
+                        }
                     });
                 }
             }
@@ -679,12 +686,18 @@ impl BattlePlanUpdate {
     fn remove_building_bonuses(&self) {
         self.with_object_mut(|object| match self.plan_affecting_army {
             BattlePlanStatus::HoldTheLine => {
-                if self.module_data.strategy_center_hold_the_line_max_health_scalar != 1.0 {
+                if self
+                    .module_data
+                    .strategy_center_hold_the_line_max_health_scalar
+                    != 1.0
+                {
                     if let Some(body) = object.get_body_module() {
                         if let Ok(mut body_guard) = body.lock() {
                             let current_max = body_guard.get_max_health();
                             let new_max = current_max
-                                / self.module_data.strategy_center_hold_the_line_max_health_scalar;
+                                / self
+                                    .module_data
+                                    .strategy_center_hold_the_line_max_health_scalar;
                             if let Err(_err) = body_guard.set_max_health(
                                 new_max,
                                 self.module_data
@@ -697,20 +710,29 @@ impl BattlePlanUpdate {
                 }
             }
             BattlePlanStatus::SearchAndDestroy => {
-                if self.module_data.strategy_center_search_and_destroy_sight_range_scalar != 1.0 {
-                    let scalar = self.module_data.strategy_center_search_and_destroy_sight_range_scalar;
+                if self
+                    .module_data
+                    .strategy_center_search_and_destroy_sight_range_scalar
+                    != 1.0
+                {
+                    let scalar = self
+                        .module_data
+                        .strategy_center_search_and_destroy_sight_range_scalar;
                     object.set_vision_range(object.get_vision_range() / scalar);
                     object.set_shroud_clearing_range(object.get_shroud_clearing_range() / scalar);
                 }
 
-                if self.module_data.strategy_center_search_and_destroy_detects_stealth {
-                    if let Some(stealth_detector) = object.find_update_module("StealthDetectorUpdate") {
-                        let _ = stealth_detector.with_module_downcast::<
-                            crate::object::behavior::stealth_detector_update::StealthDetectorUpdateModule,
-                            _,
-                            _,
-                        >(|module| {
-                            module.behavior_mut().set_sd_enabled(false);
+                if self
+                    .module_data
+                    .strategy_center_search_and_destroy_detects_stealth
+                {
+                    if let Some(stealth_detector) =
+                        object.find_update_module("StealthDetectorUpdate")
+                    {
+                        stealth_detector.with_module(|module| {
+                            if let Some(control) = module.get_stealth_detector_control_interface() {
+                                control.set_sd_enabled(false);
+                            }
                         });
                     }
                 }

@@ -525,13 +525,11 @@ impl BattlePlanUpdate {
             .strategy_center_search_and_destroy_detects_stealth
         {
             if let Some(stealth_detector) = object.find_update_module("StealthDetectorUpdate") {
-                let _ = stealth_detector.with_module_downcast::<
-                        crate::object::behavior::stealth_detector_update::StealthDetectorUpdateModule,
-                        _,
-                        _,
-                    >(|module| {
-                        module.behavior_mut().set_sd_enabled(true);
-                    });
+                stealth_detector.with_module(|module| {
+                    if let Some(control) = module.get_stealth_detector_control_interface() {
+                        control.set_sd_enabled(true);
+                    }
+                });
             }
         }
     }
@@ -582,12 +580,10 @@ impl BattlePlanUpdate {
                     if let Some(stealth_detector) =
                         object.find_update_module("StealthDetectorUpdate")
                     {
-                        let _ = stealth_detector.with_module_downcast::<
-                            crate::object::behavior::stealth_detector_update::StealthDetectorUpdateModule,
-                            _,
-                            _,
-                        >(|module| {
-                            module.behavior_mut().set_sd_enabled(false);
+                        stealth_detector.with_module(|module| {
+                            if let Some(control) = module.get_stealth_detector_control_interface() {
+                                control.set_sd_enabled(false);
+                            }
                         });
                     }
                 }

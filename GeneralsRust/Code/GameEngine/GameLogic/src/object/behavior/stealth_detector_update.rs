@@ -19,6 +19,7 @@ use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::Thing as ModuleThing;
 use game_engine::common::thing::module::{
     Module, ModuleData as EngineModuleData, NameKeyType as EngineNameKeyType,
+    StealthDetectorControlInterface,
 };
 use std::any::Any;
 use std::sync::{Arc, RwLock, Weak};
@@ -796,6 +797,12 @@ impl BehaviorModuleInterface for StealthDetectorUpdate {
     }
 }
 
+impl StealthDetectorControlInterface for StealthDetectorUpdate {
+    fn set_sd_enabled(&mut self, enabled: bool) {
+        self.set_enabled(enabled);
+    }
+}
+
 /// Glue that exposes StealthDetectorUpdate through the common Module trait.
 pub struct StealthDetectorUpdateModule {
     behavior: StealthDetectorUpdate,
@@ -855,6 +862,12 @@ impl Module for StealthDetectorUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_stealth_detector_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn StealthDetectorControlInterface> {
+        Some(&mut self.behavior)
     }
 }
 

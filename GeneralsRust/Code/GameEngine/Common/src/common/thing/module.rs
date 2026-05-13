@@ -324,6 +324,10 @@ pub trait SpyVisionControlInterface {
     fn set_disabled_until_frame(&mut self, frame: u32);
 }
 
+pub trait StealthDetectorControlInterface {
+    fn set_sd_enabled(&mut self, enabled: bool);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -440,6 +444,12 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_spy_vision_control_interface(&mut self) -> Option<&mut dyn SpyVisionControlInterface> {
+        None
+    }
+
+    fn get_stealth_detector_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn StealthDetectorControlInterface> {
         None
     }
 }

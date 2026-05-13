@@ -20,7 +20,9 @@ use crate::object::Object;
 use crate::player::{player_list, PLAYER_INDEX_INVALID};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData, NameKeyType, StealthDetectorControlInterface,
+};
 use log::{debug, trace, warn};
 use std::sync::{Arc, Mutex};
 
@@ -667,6 +669,20 @@ impl Module for StealthDetectorUpdate {
             "Stealth detector initialized for object {} with range {} and update rate {}",
             self.object_id, self.data.detection_range, self.data.update_rate
         );
+    }
+
+    fn get_stealth_detector_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn StealthDetectorControlInterface> {
+        Some(self)
+    }
+}
+
+impl StealthDetectorControlInterface for StealthDetectorUpdate {
+    fn set_sd_enabled(&mut self, enabled: bool) {
+        if let Ok(mut controller) = self.controller.lock() {
+            controller.set_enabled(enabled);
+        }
     }
 }
 
