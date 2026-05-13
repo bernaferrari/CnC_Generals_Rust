@@ -202,6 +202,26 @@ impl BehaviorModuleInterface for LaserUpdate {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+    fn get_laser_behavior_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn LaserBehaviorControlInterface> {
+        Some(self)
+    }
+}
+
+pub trait LaserBehaviorControlInterface {
+    fn activate_laser(&mut self, target: ObjectID);
+    fn configure_laser(&mut self, damage_per_frame: Real, duration: Real);
+}
+
+impl LaserBehaviorControlInterface for LaserUpdate {
+    fn activate_laser(&mut self, target: ObjectID) {
+        LaserUpdate::activate_laser(self, target);
+    }
+
+    fn configure_laser(&mut self, damage_per_frame: Real, duration: Real) {
+        LaserUpdate::configure_laser(self, damage_per_frame, duration);
+    }
 }
 
 impl Snapshotable for LaserUpdate {

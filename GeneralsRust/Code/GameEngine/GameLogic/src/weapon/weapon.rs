@@ -1364,18 +1364,19 @@ impl Weapon {
             return;
         };
         let _ = laser_guard.set_position(source_guard.get_position());
-        let Some(module) = laser_guard.find_update_module("LaserUpdate") else {
-            return;
-        };
-        let _ = module
-            .with_module_downcast::<crate::object::behavior::laser_update::LaserUpdateModule, _, _>(
-                |module| {
-                    if let Some(victim_id) = victim_id {
-                        module.behavior_mut().activate_laser(victim_id);
-                    }
-                    let _ = victim_pos;
-                },
-            );
+        for behavior in laser_guard.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            let Some(laser_update) = behavior.get_laser_behavior_control_interface() else {
+                continue;
+            };
+            if let Some(victim_id) = victim_id {
+                laser_update.activate_laser(victim_id);
+            }
+            let _ = victim_pos;
+            break;
+        }
     }
 
     pub fn process_request_assistance(
