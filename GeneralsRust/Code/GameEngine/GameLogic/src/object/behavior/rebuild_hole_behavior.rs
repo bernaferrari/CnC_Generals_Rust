@@ -216,14 +216,11 @@ impl RebuildHoleBehavior {
             if let Ok(guard) = obj_arc.write() {
                 if guard.is_kind_of(crate::common::KindOf::Mine) {
                     if let Some(module) = guard.find_update_module("StickyBombUpdate") {
-                        let _ = module.with_module_downcast::<
-                            crate::object::behavior::sticky_bomb_update::StickyBombUpdateModule,
-                            _,
-                            _,
-                        >(|module| {
-                            let update = module.behavior_mut();
-                            if update.get_target() == self.object_id {
-                                update.set_target_object(Some(reconstruction));
+                        module.with_module(|module| {
+                            if let Some(sticky_bomb) = module.get_sticky_bomb_control_interface() {
+                                if sticky_bomb.get_target() == self.object_id {
+                                    sticky_bomb.set_target_object_id(reconstruction.get_id());
+                                }
                             }
                         });
                     }

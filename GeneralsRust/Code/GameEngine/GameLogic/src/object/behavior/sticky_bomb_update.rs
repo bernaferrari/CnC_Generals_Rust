@@ -529,6 +529,14 @@ impl StickyBombControlInterface for StickyBombUpdate {
     fn detonate(&mut self) {
         StickyBombUpdate::detonate(self);
     }
+
+    fn get_target(&self) -> ObjectID {
+        StickyBombUpdate::get_target(self)
+    }
+
+    fn set_target_object_id(&mut self, target_id: ObjectID) {
+        self.target_id = target_id;
+    }
 }
 
 impl Snapshotable for StickyBombUpdate {
@@ -630,6 +638,14 @@ impl StickyBombControlInterface for StickyBombUpdateModule {
 
     fn detonate(&mut self) {
         self.behavior.detonate();
+    }
+
+    fn get_target(&self) -> ObjectID {
+        self.behavior.get_target()
+    }
+
+    fn set_target_object_id(&mut self, target_id: ObjectID) {
+        self.behavior.target_id = target_id;
     }
 }
 
