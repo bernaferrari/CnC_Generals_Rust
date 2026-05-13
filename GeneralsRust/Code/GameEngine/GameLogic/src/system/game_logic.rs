@@ -88,7 +88,7 @@ use crate::common::{
     AsciiString, Bool, Color, Coord3D, DisabledMaskType, Int, KindOf, ObjectID,
     ObjectStatusMaskType, PlayerMaskType, Real, UnsignedInt, UnsignedShort, INVALID_ID,
 };
-use crate::helpers::TheGameClient;
+use crate::helpers::{get_camera_view_bridge, TheGameClient};
 use crate::modules::{SleepyUpdatePhase, UpdateModulePtr, UpdateSleepTime};
 use crate::object::collide::collision_geometry::GeometryInfo as CollisionGeometryInfo;
 use crate::object::collide::collision_response::{CollisionResponseConfig, CollisionResponseType};
@@ -119,6 +119,14 @@ use log::{debug, info, trace, warn};
 use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 use std::time::Instant;
+
+fn should_freeze_time(
+    tactical_frozen: bool,
+    camera_movement_finished: bool,
+    script_frozen: bool,
+) -> bool {
+    (tactical_frozen && !camera_movement_finished) || script_frozen
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Snapshot;
@@ -1746,12 +1754,8 @@ impl GameLogic {
         // -----------------------------------------------------------------------
         // Phase 2: Time Freeze Check (C++ lines 3603-3617)
         // -----------------------------------------------------------------------
-        // C++: Bool freezeTime = TheTacticalView->isTimeFrozen() && ...
+        // C++: Bool freezeTime = TheTacticalView->isTimeFrozen() && !TheTacticalView->isCameraMovementFinished()
         // C++: if (freezeTime) { ... return; }
-        //
-        // In the full implementation, tactical view freeze and script freeze
-        // would prevent all further processing. For now we check the script
-        // engine freeze state.
         if self.is_time_frozen() {
             trace!("GameLogic::update - Time frozen, skipping frame");
             self.is_in_update = false;
@@ -3134,10 +3138,23 @@ impl GameLogic {
     /// the update returns early (unless a MSG_CLEAR_GAME_DATA is in the
     /// command list, which forces an unfreeze).
     fn is_time_frozen(&self) -> bool {
+        if get_camera_view_bridge()
+            .map(|view| {
+                should_freeze_time(
+                    view.is_time_frozen(),
+                    view.is_camera_movement_finished(),
+                    false,
+                )
+            })
+            .unwrap_or(false)
+        {
+            return true;
+        }
+
         // Check script engine freeze state
         if let Ok(engine_guard) = get_script_engine().read() {
             if let Some(engine) = engine_guard.as_ref() {
-                if engine.is_time_frozen() {
+                if should_freeze_time(false, true, engine.is_time_frozen()) {
                     return true;
                 }
             }
@@ -4764,6 +4781,14 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .expect("test state lock poisoned")
+    }
+
+    #[test]
+    fn time_freeze_matches_cpp_tactical_and_script_conditions() {
+        assert!(should_freeze_time(true, false, false));
+        assert!(!should_freeze_time(true, true, false));
+        assert!(should_freeze_time(false, true, true));
+        assert!(!should_freeze_time(false, true, false));
     }
 
     #[test]

@@ -2003,6 +2003,12 @@ pub trait CameraViewBridge: Send + Sync {
     fn camera_mod_final_zoom(&self, zoom: f32, ease_in: f32, ease_out: f32);
     fn camera_mod_freeze_time(&self);
     fn camera_mod_freeze_angle(&self);
+    fn is_time_frozen(&self) -> bool {
+        false
+    }
+    fn is_camera_movement_finished(&self) -> bool {
+        true
+    }
     fn set_default_view(&self, pitch: f32, angle: f32, max_height: f32);
     fn reset_camera(&self, x: f32, y: f32, z: f32, ms: i32, ease_in: f32, ease_out: f32);
     fn look_at(&self, x: f32, y: f32, z: f32);
