@@ -287,6 +287,10 @@ pub trait SupplyWarehouseDockInterface {
     fn set_cash_value(&mut self, cash_value: i32);
 }
 
+pub trait DeletionLifetimeInterface {
+    fn set_lifetime_range(&mut self, min_lifetime: u32, max_lifetime: u32);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -371,6 +375,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     fn get_supply_warehouse_dock_interface(
         &mut self,
     ) -> Option<&mut dyn SupplyWarehouseDockInterface> {
+        None
+    }
+
+    fn get_deletion_lifetime_interface(&mut self) -> Option<&mut dyn DeletionLifetimeInterface> {
         None
     }
 }

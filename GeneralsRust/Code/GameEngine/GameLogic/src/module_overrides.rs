@@ -4508,6 +4508,12 @@ impl<T: crate::modules::BehaviorModuleInterface + 'static> Module for GenericBeh
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.data.get_module_tag_name_key()
     }
+
+    fn get_deletion_lifetime_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::module::DeletionLifetimeInterface> {
+        self.behavior.get_deletion_lifetime_interface()
+    }
 }
 
 impl<T: crate::modules::BehaviorModuleInterface + Snapshotable + 'static> Snapshotable

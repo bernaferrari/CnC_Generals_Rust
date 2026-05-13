@@ -80,6 +80,11 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     fn set_sd_enabled(&mut self, enabled: bool) {
         let _ = enabled;
     }
+    fn get_deletion_lifetime_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::module::DeletionLifetimeInterface> {
+        None
+    }
     /// Get interface mask (indicating which interfaces this module supports)
     fn get_interface_mask() -> u32
     where
