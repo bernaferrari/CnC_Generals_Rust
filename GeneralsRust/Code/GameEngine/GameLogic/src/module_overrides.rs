@@ -4538,6 +4538,12 @@ impl<T: crate::modules::BehaviorModuleInterface + 'static> Module for GenericBeh
     ) -> Option<&mut dyn game_engine::common::thing::module::HijackerControlInterface> {
         self.behavior.get_hijacker_control_interface()
     }
+
+    fn get_spy_vision_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::module::SpyVisionControlInterface> {
+        self.behavior.get_spy_vision_control_interface()
+    }
 }
 
 impl<T: crate::modules::BehaviorModuleInterface + Snapshotable + 'static> Snapshotable
