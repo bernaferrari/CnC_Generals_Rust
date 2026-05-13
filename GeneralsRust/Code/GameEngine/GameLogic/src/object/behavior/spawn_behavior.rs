@@ -511,21 +511,13 @@ impl SpawnBehavior {
         spawned: &Arc<RwLock<Object>>,
         master: &Arc<RwLock<Object>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let module_handle = {
-            let spawn_guard = spawned.read().map_err(|_| "Failed to read spawn")?;
-            spawn_guard.find_update_module("SlavedUpdate")
-        };
-
-        if let Some(module) = module_handle {
-            let handled = module.with_module_downcast::<crate::object::update::slaved_update::SlavedUpdateModule, _, _>(|module| {
-                let _ = module.behavior_mut().on_enslave(master);
-            });
-            if handled.is_some() {
-                return Ok(());
-            }
+        let spawn_guard = spawned.read().map_err(|_| "Failed to read spawn")?;
+        if let Some(result) =
+            spawn_guard.with_slaved_update_interface(|slaved| slaved.on_enslave(master))
+        {
+            return result;
         }
 
-        let spawn_guard = spawned.read().map_err(|_| "Failed to read spawn")?;
         for behavior in spawn_guard.get_behavior_modules() {
             let mut behavior_guard = behavior
                 .lock()
@@ -1139,18 +1131,15 @@ impl DieModuleInterface for SpawnBehavior {
         // Notify all spawns that their master has died
         for &spawn_id in &self.spawn_ids {
             if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
-                let module_handle = {
-                    let spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
-                    spawn_guard.find_update_module("SlavedUpdate")
-                };
-
                 let mut handled = false;
-                if let Some(module) = module_handle {
-                    handled = module
-                        .with_module_downcast::<crate::object::update::slaved_update::SlavedUpdateModule, _, _>(|module| {
-                            let _ = module.behavior_mut().on_slaver_die(Some(damage_info));
-                        })
-                        .is_some();
+                {
+                    let spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
+                    if let Some(result) = spawn_guard.with_slaved_update_interface(|slaved| {
+                        slaved.on_slaver_die(Some(damage_info))
+                    }) {
+                        result?;
+                        handled = true;
+                    }
                 }
 
                 if !handled {
@@ -1210,18 +1199,15 @@ impl DamageModuleInterface for SpawnBehavior {
         // Notify all spawns that their master was damaged
         for &spawn_id in &self.spawn_ids {
             if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
-                let module_handle = {
-                    let spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
-                    spawn_guard.find_update_module("SlavedUpdate")
-                };
-
                 let mut handled = false;
-                if let Some(module) = module_handle {
-                    handled = module
-                        .with_module_downcast::<crate::object::update::slaved_update::SlavedUpdateModule, _, _>(|module| {
-                            let _ = module.behavior_mut().on_slaver_damage(damage_info);
-                        })
-                        .is_some();
+                {
+                    let spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
+                    if let Some(result) = spawn_guard
+                        .with_slaved_update_interface(|slaved| slaved.on_slaver_damage(damage_info))
+                    {
+                        result?;
+                        handled = true;
+                    }
                 }
 
                 if !handled {
