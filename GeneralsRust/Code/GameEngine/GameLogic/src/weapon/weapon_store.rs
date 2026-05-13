@@ -126,6 +126,9 @@ impl WeaponStore {
 
     /// Find weapon template by name
     pub fn find_weapon_template(&self, name: &str) -> Option<&Arc<WeaponTemplate>> {
+        if name.eq_ignore_ascii_case("None") {
+            return None;
+        }
         self.weapon_templates.get(name)
     }
 
@@ -563,6 +566,16 @@ mod tests {
 
         let not_found = store.find_weapon_template("NonExistent");
         assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_none_weapon_template_name_is_missing() {
+        let mut store = WeaponStore::new();
+        store.add_weapon_template(WeaponTemplate::new("None".to_string()));
+
+        assert!(store.find_weapon_template("None").is_none());
+        assert!(store.find_weapon_template("none").is_none());
+        assert!(store.find_weapon_template("NONE").is_none());
     }
 
     #[test]
