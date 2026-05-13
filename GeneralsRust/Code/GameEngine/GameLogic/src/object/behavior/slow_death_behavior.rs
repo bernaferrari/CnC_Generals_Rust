@@ -935,12 +935,11 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
             if obj_write.is_disabled_by_type(DisabledType::Held) {
                 // Matches C++ lines 255-260: Find SlavedUpdate and release via onSlaverDie
                 let mut handled = false;
-                if let Some(module) = obj_write.find_update_module("SlavedUpdate") {
-                    handled = module
-                        .with_module_downcast::<crate::object::update::slaved_update::SlavedUpdateModule, _, _>(|module| {
-                            let _ = module.behavior_mut().on_slaver_die(Some(damage_info));
-                        })
-                        .is_some();
+                if let Some(result) = obj_write
+                    .with_slaved_update_interface(|slaved| slaved.on_slaver_die(Some(damage_info)))
+                {
+                    let _ = result;
+                    handled = true;
                 }
 
                 if !handled {
