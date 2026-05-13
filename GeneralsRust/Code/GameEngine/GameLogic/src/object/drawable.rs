@@ -608,6 +608,22 @@ impl DrawableModuleHandle {
         func(self.entry.data().as_ref())
     }
 
+    pub fn with_object_draw_interface<F, R>(&self, func: F) -> Option<R>
+    where
+        F: FnOnce(&mut dyn ObjectDrawInterface) -> R,
+    {
+        self.entry.with_module(|module| {
+            let mut result = None;
+            let mut func = Some(func);
+            with_object_draw_interface_mut(module, |draw| {
+                if let Some(func) = func.take() {
+                    result = Some(func(draw));
+                }
+            });
+            result
+        })
+    }
+
     pub fn module_name_key(&self) -> NameKeyType {
         self.entry
             .with_module(|module| module.get_module_name_key())
