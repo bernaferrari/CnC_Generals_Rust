@@ -303,12 +303,26 @@ impl PartitionFilterLineOfSight {
 }
 
 impl super::partition_manager::PartitionFilter for PartitionFilterLineOfSight {
-    fn allow(&self, _obj: &dyn GameObject) -> bool {
-        // Line-of-sight checking requires terrain data and the AI pathfinder,
-        // which are not yet accessible from the GameObject trait.
-        // For now, always allow -- full implementation will query terrain LOS
-        // and obstacle blocking once those systems are ported.
-        true
+    fn allow(&self, obj: &dyn GameObject) -> bool {
+        let Some(source_handle) = crate::object::registry::OBJECT_REGISTRY.get_object(self.obj_id)
+        else {
+            return false;
+        };
+        let Ok(source_guard) = source_handle.read() else {
+            return false;
+        };
+
+        let source_raw_pos = source_guard.get_position();
+        let source_pos = Coord3D::new(source_raw_pos.x, source_raw_pos.y, source_raw_pos.z);
+        let target_pos = obj.get_position();
+        let target_id = obj.as_object_handle().as_ref().map(|_| obj.get_id());
+
+        super::partition_manager::PartitionManager::is_clear_line_of_sight_terrain(
+            Some(self.obj_id),
+            &source_pos,
+            target_id,
+            &target_pos,
+        )
     }
 
     fn debug_name(&self) -> &'static str {
@@ -1658,6 +1672,15 @@ mod tests {
         );
 
         assert!(!filter.allow(&object));
+    }
+
+    #[test]
+    fn line_of_sight_filter_rejects_missing_source() {
+        OBJECT_REGISTRY.clear();
+        let target = structure_object();
+        let filter = PartitionFilterLineOfSight::new(93_001);
+
+        assert!(!filter.allow(&target));
     }
 
     #[test]
