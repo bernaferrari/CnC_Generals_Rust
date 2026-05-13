@@ -64,9 +64,9 @@ pub struct TerrainLighting {
 impl Default for TerrainLighting {
     fn default() -> Self {
         Self {
-            ambient: [1.0, 1.0, 1.0],
-            diffuse: [1.0, 1.0, 1.0],
-            light_pos: [0.0, 0.0, 0.0],
+            ambient: [0.0, 0.0, 0.0],
+            diffuse: [0.0, 0.0, 0.0],
+            light_pos: [0.0, 0.0, -1.0],
         }
     }
 }
@@ -424,7 +424,7 @@ impl Default for GlobalData {
             client_retaliation_mode_enabled: true, // C++ line 1060: true
             double_click_attack_move: false,
             right_mouse_always_scrolls: false,
-            camera_pitch: std::f32::consts::FRAC_PI_4,
+            camera_pitch: 0.0,
             camera_yaw: 0.0,
             camera_height: 0.0, // C++ line 801: 0.0
             max_camera_height: 300.0,
@@ -455,7 +455,7 @@ impl Default for GlobalData {
             feather_water: 0,
             downwind_angle: -0.785, // C++ line 606: -0.785 (northeast)
             sky_box_position_z: 0.0,
-            draw_sky_box: true,
+            draw_sky_box: false,
             sky_box_scale: 4.5, // C++ line 657: 4.5
 
             // Vertex water settings (parity: GlobalData.cpp constructor)
@@ -472,15 +472,15 @@ impl Default for GlobalData {
             vertex_water_attenuation_a: [0.0; MAX_WATER_GRID_SETTINGS], // C++ line 646: 0.0
             vertex_water_attenuation_b: [0.0; MAX_WATER_GRID_SETTINGS],
             vertex_water_attenuation_c: [0.0; MAX_WATER_GRID_SETTINGS],
-            vertex_water_attenuation_range: [100.0; MAX_WATER_GRID_SETTINGS],
+            vertex_water_attenuation_range: [0.0; MAX_WATER_GRID_SETTINGS],
 
             // Lighting (parity: GlobalData.cpp constructor)
             terrain_lighting: [[TerrainLighting::default(); MAX_GLOBAL_LIGHTS]; TIME_OF_DAY_COUNT],
             terrain_objects_lighting: [[TerrainLighting::default(); MAX_GLOBAL_LIGHTS];
                 TIME_OF_DAY_COUNT],
-            terrain_ambient: [[1.0, 1.0, 1.0]; MAX_GLOBAL_LIGHTS],
-            terrain_diffuse: [[1.0, 1.0, 1.0]; MAX_GLOBAL_LIGHTS],
-            terrain_light_pos: [[0.0, 0.0, 1000.0]; MAX_GLOBAL_LIGHTS],
+            terrain_ambient: [[0.0, 0.0, 0.0]; MAX_GLOBAL_LIGHTS],
+            terrain_diffuse: [[0.0, 0.0, 0.0]; MAX_GLOBAL_LIGHTS],
+            terrain_light_pos: [[0.0, 0.0, -1.0]; MAX_GLOBAL_LIGHTS],
             infantry_light_scale: [1.5; TIME_OF_DAY_COUNT], // C++ line 723: 1.5
             script_override_infantry_light_scale: -1.0,
             num_global_lights: 3,
@@ -506,18 +506,18 @@ impl Default for GlobalData {
             historic_damage_limit: 0,
 
             // Terrain tracks (parity: GlobalData.cpp constructor)
-            max_terrain_tracks: 100,
+            max_terrain_tracks: 0,
             max_tank_track_edges: 100, // C++ line 668: 100
             max_tank_track_opaque_edges: 25,
             max_tank_track_fade_delay: 300000, // C++ line 670: 300000
 
             // Animations
-            level_gain_animation_name: String::from("FX_LevelGainFX"),
-            level_gain_animation_display_time_seconds: 2.0,
-            level_gain_animation_z_rise_per_second: 5.0,
-            get_healed_animation_name: String::from("FX_EmergencyRepair"),
-            get_healed_animation_display_time_seconds: 1.5,
-            get_healed_animation_z_rise_per_second: 3.0,
+            level_gain_animation_name: String::new(),
+            level_gain_animation_display_time_seconds: 0.0,
+            level_gain_animation_z_rise_per_second: 0.0,
+            get_healed_animation_name: String::new(),
+            get_healed_animation_display_time_seconds: 0.0,
+            get_healed_animation_z_rise_per_second: 0.0,
 
             // Time and weather (parity: GlobalData.cpp constructor)
             time_of_day: TimeOfDay::Afternoon,
@@ -534,47 +534,47 @@ impl Default for GlobalData {
             max_visible_translucent_objects: 512, // C++ line 742: 512
             max_visible_occluder_objects: 512,    // C++ line 743: 512
             max_visible_occludee_objects: 512,    // C++ line 744: 512
-            max_visible_non_occluder_or_occludee_objects: 400,
+            max_visible_non_occluder_or_occludee_objects: 512,
             occluded_luminance_scale: 0.5,
             texture_reduction_factor: -1, // C++ line 609: -1
             enable_behind_building_markers: true,
 
             // Roads
-            max_road_segments: 100,
-            max_road_vertex: 1500,
-            max_road_index: 4500,
-            max_road_types: 8,
+            max_road_segments: 0,
+            max_road_vertex: 0,
+            max_road_index: 0,
+            max_road_types: 0,
 
             // 3D audio settings
             sounds_3d_on: true,
 
             // Particles
             particle_scale: 1.0,
-            max_particle_count: 5000,
-            max_field_particle_count: 500,
+            max_particle_count: 0,
+            max_field_particle_count: 30,
 
             // Auto fire/smoke particles
             auto_fire_particle_small_prefix: String::new(),
             auto_fire_particle_small_system: String::new(),
-            auto_fire_particle_small_max: 10,
+            auto_fire_particle_small_max: 0,
             auto_fire_particle_medium_prefix: String::new(),
             auto_fire_particle_medium_system: String::new(),
-            auto_fire_particle_medium_max: 15,
+            auto_fire_particle_medium_max: 0,
             auto_fire_particle_large_prefix: String::new(),
             auto_fire_particle_large_system: String::new(),
-            auto_fire_particle_large_max: 20,
+            auto_fire_particle_large_max: 0,
             auto_smoke_particle_small_prefix: String::new(),
             auto_smoke_particle_small_system: String::new(),
-            auto_smoke_particle_small_max: 10,
+            auto_smoke_particle_small_max: 0,
             auto_smoke_particle_medium_prefix: String::new(),
             auto_smoke_particle_medium_system: String::new(),
-            auto_smoke_particle_medium_max: 15,
+            auto_smoke_particle_medium_max: 0,
             auto_smoke_particle_large_prefix: String::new(),
             auto_smoke_particle_large_system: String::new(),
-            auto_smoke_particle_large_max: 20,
+            auto_smoke_particle_large_max: 0,
             auto_aflame_particle_prefix: String::new(),
             auto_aflame_particle_system: String::new(),
-            auto_aflame_particle_max: 5,
+            auto_aflame_particle_max: 0,
 
             // Network settings (parity: GlobalData.cpp constructor)
             default_ip: 0,
@@ -594,23 +594,23 @@ impl Default for GlobalData {
 
             // Economy and building (parity: GlobalData.cpp constructor)
             base_value_per_supply_box: 100, // C++ line 733: 100
-            build_speed: 1.0,
-            min_dist_from_edge_of_map_for_build: 10.0,
-            supply_build_border: 40.0,
-            allowed_height_variation_for_building: 3.0,
-            min_low_energy_production_speed: 0.5,
-            max_low_energy_production_speed: 1.0,
-            low_energy_penalty_modifier: 0.5,
-            multiple_factory: 1.0,
+            build_speed: 0.0,
+            min_dist_from_edge_of_map_for_build: 0.0,
+            supply_build_border: 0.0,
+            allowed_height_variation_for_building: 0.0,
+            min_low_energy_production_speed: 0.0,
+            max_low_energy_production_speed: 0.0,
+            low_energy_penalty_modifier: 0.0,
+            multiple_factory: 0.0,
             refund_percent: 0.0, // C++ line 830: 0.0
-            command_center_heal_range: 200.0,
-            command_center_heal_amount: 5.0,
-            max_line_build_objects: 10,
-            max_tunnel_capacity: 50,
+            command_center_heal_range: 0.0,
+            command_center_heal_amount: 0.0,
+            max_line_build_objects: 0,
+            max_tunnel_capacity: 0,
 
             // Veterancy and health
-            health_bonus: [0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0],
-            default_structure_rubble_height: 4.0,
+            health_bonus: [1.0; LEVEL_COUNT],
+            default_structure_rubble_height: 1.0,
 
             // Special settings (parity: GlobalData.cpp constructor)
             pending_file: String::new(),
@@ -641,8 +641,8 @@ impl Default for GlobalData {
             // Selection and audio (parity: GlobalData.cpp constructor)
             group_select_min_select_size: 5, // C++ line 840: 5
             group_select_volume_base: 0.5,   // C++ line 841: 0.5
-            group_select_volume_increment: 0.05,
-            max_unit_select_sounds: 10,
+            group_select_volume_increment: 0.02,
+            max_unit_select_sounds: 8,
             selection_flash_saturation_factor: 0.5, // C++ line 845: 0.5
             selection_flash_house_color: false,     // C++ line 846: false
             group_move_click_to_gather_factor: 1.0,
@@ -650,13 +650,13 @@ impl Default for GlobalData {
             // Graphics options
             anti_alias_box_value: 0,
             language_filter_pref: true, // C++ line 889: true
-            load_screen_render: true,
+            load_screen_render: false,
             disable_render: false,
 
             // Camera shake (parity: GlobalData.cpp constructor)
             shake_subtle_intensity: 0.5,
             shake_normal_intensity: 1.0,
-            shake_strong_intensity: 2.0,
+            shake_strong_intensity: 2.5,
             shake_severe_intensity: 5.0,       // C++ line 854: 5.0
             shake_cine_extreme_intensity: 8.0, // C++ line 855: 8.0
             shake_cine_insane_intensity: 12.0, // C++ line 856: 12.0
@@ -677,7 +677,7 @@ impl Default for GlobalData {
             music_volume_factor: 0.5, // C++ line 950: 0.5
             sfx_volume_factor: 0.5,   // C++ line 951: 0.5
             voice_volume_factor: 0.5, // C++ line 952: 0.5
-            sound_3d_pref: true,
+            sound_3d_pref: false,
 
             // Movement penalties
             movement_penalty_damage_state: 1,
@@ -861,7 +861,7 @@ mod tests {
     fn test_global_data_read_success() {
         // Verify normal read access works
         let data = read();
-        assert_eq!(data.camera_height, 150.0);
+        assert_eq!(data.camera_height, 0.0);
     }
 
     #[test]
@@ -876,7 +876,7 @@ mod tests {
     fn test_global_data_read_safe_success() {
         // Verify safe read API works
         let data = read_safe().expect("read_safe failed");
-        assert!(data.camera_height > 0.0);
+        assert_eq!(data.camera_height, 0.0);
     }
 
     #[test]
@@ -963,12 +963,12 @@ mod tests {
 
     #[test]
     fn test_global_data_default_values() {
-        // Verify default values are sensible
-        let data = read();
-        assert!(data.gravity > 0.0);
-        assert!(data.build_speed > 0.0);
+        // Verify constructor defaults match C++ pre-INI state.
+        let data = GlobalData::default();
+        assert_eq!(data.gravity, -1.0);
+        assert_eq!(data.build_speed, 0.0);
         assert!(data.particle_scale > 0.0);
-        assert!(data.max_particle_count > 0);
+        assert_eq!(data.max_particle_count, 0);
     }
 
     #[test]
@@ -997,7 +997,7 @@ mod tests {
         for i in 0..5 {
             let handle = thread::spawn(move || {
                 let data = read();
-                assert!(data.camera_height > 0.0);
+                assert!(data.camera_height >= 0.0);
                 i
             });
             handles.push(handle);
@@ -1047,7 +1047,7 @@ mod tests {
     fn test_global_data_camera_settings() {
         // Verify camera settings can be read/written
         let data = read();
-        assert!(data.camera_pitch > 0.0);
+        assert_eq!(data.camera_pitch, 0.0);
         assert!(data.min_camera_height < data.max_camera_height);
         assert!(data.min_camera_height > 0.0);
     }
@@ -1064,8 +1064,62 @@ mod tests {
     fn test_global_data_water_settings() {
         // Verify water configuration
         let data = read();
-        assert!(data.water_extent_x > 0.0);
-        assert!(data.water_extent_y > 0.0);
+        assert_eq!(data.water_extent_x, 0.0);
+        assert_eq!(data.water_extent_y, 0.0);
+    }
+
+    #[test]
+    fn test_global_data_constructor_defaults_match_cxx() {
+        let data = GlobalData::default();
+        assert_eq!(data.camera_pitch, 0.0);
+        assert!(!data.draw_sky_box);
+        assert_eq!(
+            data.vertex_water_attenuation_range,
+            [0.0; MAX_WATER_GRID_SETTINGS]
+        );
+        assert_eq!(data.terrain_ambient, [[0.0, 0.0, 0.0]; MAX_GLOBAL_LIGHTS]);
+        assert_eq!(data.terrain_diffuse, [[0.0, 0.0, 0.0]; MAX_GLOBAL_LIGHTS]);
+        assert_eq!(
+            data.terrain_light_pos,
+            [[0.0, 0.0, -1.0]; MAX_GLOBAL_LIGHTS]
+        );
+        assert_eq!(data.max_terrain_tracks, 0);
+        assert!(data.level_gain_animation_name.is_empty());
+        assert_eq!(data.level_gain_animation_display_time_seconds, 0.0);
+        assert!(data.get_healed_animation_name.is_empty());
+        assert_eq!(data.max_visible_non_occluder_or_occludee_objects, 512);
+        assert_eq!(data.max_road_segments, 0);
+        assert_eq!(data.max_road_vertex, 0);
+        assert_eq!(data.max_road_index, 0);
+        assert_eq!(data.max_road_types, 0);
+        assert_eq!(data.max_particle_count, 0);
+        assert_eq!(data.max_field_particle_count, 30);
+        assert_eq!(data.auto_fire_particle_small_max, 0);
+        assert_eq!(data.auto_fire_particle_medium_max, 0);
+        assert_eq!(data.auto_fire_particle_large_max, 0);
+        assert_eq!(data.auto_smoke_particle_small_max, 0);
+        assert_eq!(data.auto_smoke_particle_medium_max, 0);
+        assert_eq!(data.auto_smoke_particle_large_max, 0);
+        assert_eq!(data.auto_aflame_particle_max, 0);
+        assert_eq!(data.build_speed, 0.0);
+        assert_eq!(data.min_dist_from_edge_of_map_for_build, 0.0);
+        assert_eq!(data.supply_build_border, 0.0);
+        assert_eq!(data.allowed_height_variation_for_building, 0.0);
+        assert_eq!(data.min_low_energy_production_speed, 0.0);
+        assert_eq!(data.max_low_energy_production_speed, 0.0);
+        assert_eq!(data.low_energy_penalty_modifier, 0.0);
+        assert_eq!(data.multiple_factory, 0.0);
+        assert_eq!(data.command_center_heal_range, 0.0);
+        assert_eq!(data.command_center_heal_amount, 0.0);
+        assert_eq!(data.max_line_build_objects, 0);
+        assert_eq!(data.max_tunnel_capacity, 0);
+        assert_eq!(data.health_bonus, [1.0; LEVEL_COUNT]);
+        assert_eq!(data.default_structure_rubble_height, 1.0);
+        assert_eq!(data.group_select_volume_increment, 0.02);
+        assert_eq!(data.max_unit_select_sounds, 8);
+        assert!(!data.load_screen_render);
+        assert_eq!(data.shake_strong_intensity, 2.5);
+        assert!(!data.sound_3d_pref);
     }
 
     #[test]
