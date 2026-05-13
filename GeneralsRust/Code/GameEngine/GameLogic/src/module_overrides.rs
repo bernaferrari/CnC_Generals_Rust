@@ -4514,6 +4514,12 @@ impl<T: crate::modules::BehaviorModuleInterface + 'static> Module for GenericBeh
     ) -> Option<&mut dyn game_engine::common::thing::module::DeletionLifetimeInterface> {
         self.behavior.get_deletion_lifetime_interface()
     }
+
+    fn get_bone_fx_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::module::BoneFxControlInterface> {
+        self.behavior.get_bone_fx_control_interface()
+    }
 }
 
 impl<T: crate::modules::BehaviorModuleInterface + Snapshotable + 'static> Snapshotable
