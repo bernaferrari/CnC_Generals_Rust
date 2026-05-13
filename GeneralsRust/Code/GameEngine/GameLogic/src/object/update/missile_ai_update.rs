@@ -1138,6 +1138,14 @@ impl ProjectileUpdateInterface for MissileAIUpdateBehavior {
         }
         self.update.projectile_now_jammed();
     }
+
+    fn set_frames_till_countermeasure_diversion_occurs(
+        &mut self,
+        frames: UnsignedInt,
+        current_frame: UnsignedInt,
+    ) {
+        self.set_frames_till_countermeasure_diversion_occurs(frames, current_frame);
+    }
 }
 
 impl BehaviorModuleInterface for MissileAIUpdateBehavior {
