@@ -630,12 +630,10 @@ impl WeaponTemplate {
             required_mask |= WeaponCollideMask::WALLS;
         }
 
-        // Missile kind-of markers are still being wired globally; use name heuristics for now.
-        let collided_name = collided_guard.get_template_name().to_ascii_lowercase();
-        if collided_name.contains("small_missile") || collided_name.contains("smallmissile") {
+        if collided_guard.is_kind_of(KindOf::SmallMissile) {
             required_mask |= WeaponCollideMask::SMALL_MISSILES;
         }
-        if collided_name.contains("ballistic_missile") || collided_name.contains("ballistic") {
+        if collided_guard.is_kind_of(KindOf::BallisticMissile) {
             required_mask |= WeaponCollideMask::BALLISTIC_MISSILES;
         }
 
@@ -2701,6 +2699,39 @@ fn parse_weapon_prefire_type(s: &str) -> WeaponPrefireType {
 mod tests {
     use super::*;
 
+    fn registered_collision_object(
+        id: ObjectID,
+        name: &str,
+        kind_of: &str,
+    ) -> Arc<RwLock<crate::object::Object>> {
+        let mut template = crate::common::DefaultThingTemplate::new(name.to_string());
+        let properties =
+            std::collections::HashMap::from([("KindOf".to_string(), kind_of.to_string())]);
+        template.parse_object_fields_from_ini(&properties);
+
+        let object = crate::object::Object::new_with_id(
+            Arc::new(template),
+            id,
+            crate::common::ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("create weapon template collision object");
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .register_object(object.clone())
+            .expect("register weapon template collision object");
+        object
+    }
+
+    fn reset_collision_objects() {
+        crate::object::registry::OBJECT_REGISTRY.clear();
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .clear_all_objects();
+    }
+
     #[test]
     fn test_weapon_template_creation() {
         let template = WeaponTemplate::new("TestWeapon".to_string());
@@ -2833,5 +2864,44 @@ mod tests {
 
         let scatter = template.effective_scatter_radius(true);
         assert!((scatter - 35.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn projectile_collision_uses_small_missile_kindof_not_name() {
+        reset_collision_objects();
+        let projectile = registered_collision_object(98_001, "PlainProjectile", "PROJECTILE");
+        let target = registered_collision_object(98_002, "PlainTarget", "PROJECTILE SMALL_MISSILE");
+
+        let mut weapon = WeaponTemplate::new("SmallMissileCollision".to_string());
+        weapon.collide_mask = WeaponCollideMask::new(WeaponCollideMask::SMALL_MISSILES);
+
+        assert!(weapon.should_projectile_collide_with(
+            crate::common::INVALID_ID,
+            projectile.read().unwrap().get_id(),
+            target.read().unwrap().get_id(),
+            crate::common::INVALID_ID,
+        ));
+
+        reset_collision_objects();
+    }
+
+    #[test]
+    fn projectile_collision_uses_ballistic_missile_kindof_not_name() {
+        reset_collision_objects();
+        let projectile = registered_collision_object(98_011, "PlainProjectile", "PROJECTILE");
+        let target =
+            registered_collision_object(98_012, "PlainTarget", "PROJECTILE BALLISTIC_MISSILE");
+
+        let mut weapon = WeaponTemplate::new("BallisticMissileCollision".to_string());
+        weapon.collide_mask = WeaponCollideMask::new(WeaponCollideMask::BALLISTIC_MISSILES);
+
+        assert!(weapon.should_projectile_collide_with(
+            crate::common::INVALID_ID,
+            projectile.read().unwrap().get_id(),
+            target.read().unwrap().get_id(),
+            crate::common::INVALID_ID,
+        ));
+
+        reset_collision_objects();
     }
 }
