@@ -111,10 +111,10 @@ use crate::modules::{
     CountermeasuresBehaviorInterface, CreateModuleInterface, DamageModule, DestroyModuleInterface,
     DieModuleInterface, DockUpdateInterface, ExitInterface, PhysicsBehavior,
     PowerPlantUpdateInterface, ProductionUpdateInterface, ProjectileUpdateInterface,
-    RailedTransportDockUpdateInterface, SleepyUpdatePhase, SpawnBehaviorInterface,
-    SpawnBehaviorInterfaceExt, SpecialAbilityUpdate, SpecialPowerModuleInterface,
-    SpecialPowerModuleInterfaceExt, SpecialPowerUpdateInterface, UpdateModule,
-    UpdateModuleInterface, UpdateModulePtr, UpdateSleepTime, UpgradeModuleInterface,
+    RailedTransportDockUpdateInterface, SlavedUpdateInterface, SleepyUpdatePhase,
+    SpawnBehaviorInterface, SpawnBehaviorInterfaceExt, SpecialAbilityUpdate,
+    SpecialPowerModuleInterface, SpecialPowerModuleInterfaceExt, SpecialPowerUpdateInterface,
+    UpdateModule, UpdateModuleInterface, UpdateModulePtr, UpdateSleepTime, UpgradeModuleInterface,
 };
 use crate::object::behavior::flight_deck_behavior::FlightDeckBehaviorModule;
 use crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehaviorModule;
@@ -791,6 +791,7 @@ enum BehaviorUtilityModuleKindMut<'a> {
     ),
     HordeUpdate(&'a mut crate::object::behavior::horde_update::HordeUpdateModule),
     SpawnBehavior(&'a mut crate::object::behavior::spawn_behavior::SpawnBehaviorModule),
+    SlavedUpdate(&'a mut crate::object::update::slaved_update::SlavedUpdateModule),
     PowerPlantUpdate(&'a mut crate::object::behavior::power_plant_update::PowerPlantUpdateModule),
     Overcharge(&'a mut crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule),
     TechBuilding(
@@ -824,6 +825,13 @@ impl<'a> BehaviorUtilityModuleKindMut<'a> {
     ) -> Option<&'a mut dyn crate::object::behavior::spawn_behavior::SpawnBehaviorInterface> {
         match self {
             Self::SpawnBehavior(module) => Some(module.behavior_mut()),
+            _ => None,
+        }
+    }
+
+    fn into_slaved_update_interface(self) -> Option<&'a mut dyn SlavedUpdateInterface> {
+        match self {
+            Self::SlavedUpdate(module) => Some(module.behavior_mut()),
             _ => None,
         }
     }
@@ -866,6 +874,7 @@ impl<'a> BehaviorUtilityModuleKindMut<'a> {
             Self::FiringTracker(_)
             | Self::HordeUpdate(_)
             | Self::SpawnBehavior(_)
+            | Self::SlavedUpdate(_)
             | Self::PowerPlantUpdate(_) => {}
         }
     }
@@ -930,6 +939,11 @@ fn module_behavior_utility_kind(
         return (module as &mut dyn Any)
             .downcast_mut::<crate::object::behavior::propaganda_tower_behavior::PropagandaTowerBehaviorModule>()
             .map(|m| BehaviorUtilityModuleKindMut::PropagandaTower(m));
+    }
+    if let Some(module) = (module as &mut dyn Any)
+        .downcast_mut::<crate::object::update::slaved_update::SlavedUpdateModule>(
+    ) {
+        return Some(BehaviorUtilityModuleKindMut::SlavedUpdate(module));
     }
 
     None
@@ -4865,6 +4879,26 @@ impl Object {
                 return result;
             }
         }
+        None
+    }
+
+    pub fn with_slaved_update_interface<R, F>(&self, f: F) -> Option<R>
+    where
+        F: FnMut(&mut dyn SlavedUpdateInterface) -> R,
+    {
+        let mut f = f;
+        for entry in &self.modules {
+            let result = entry.with_module(|module| {
+                module_behavior_utility_kind(module)
+                    .and_then(BehaviorUtilityModuleKindMut::into_slaved_update_interface)
+                    .map(&mut f)
+            });
+
+            if result.is_some() {
+                return result;
+            }
+        }
+
         None
     }
 
