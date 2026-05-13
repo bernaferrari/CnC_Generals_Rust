@@ -13,9 +13,7 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::behavior::slow_death_behavior::SlowDeathPhaseType;
-use crate::object::behavior::topple_update::{
-    ToppleUpdate, TOPPLE_OPTIONS_NO_BOUNCE, TOPPLE_OPTIONS_NO_FX,
-};
+use crate::object::behavior::topple_update::{TOPPLE_OPTIONS_NO_BOUNCE, TOPPLE_OPTIONS_NO_FX};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
@@ -426,16 +424,16 @@ impl NeutronMissileSlowDeathUpdate {
             let force_vector = other_pos - missile_pos;
 
             if let Some(module) = other.find_update_module("ToppleUpdate") {
-                let _ = module.with_module_downcast::<
-                    crate::object::behavior::topple_update::ToppleUpdateModule,
-                    _,
-                    _,
-                >(|module| {
-                    module.behavior_mut().apply_toppling_force(
-                        &force_vector,
-                        blast_info.topple_speed,
-                        TOPPLE_OPTIONS_NO_BOUNCE | TOPPLE_OPTIONS_NO_FX,
-                    );
+                module.with_module(|module| {
+                    if let Some(topple) = module.get_topple_control_interface() {
+                        topple.apply_toppling_force(
+                            force_vector.x,
+                            force_vector.y,
+                            force_vector.z,
+                            blast_info.topple_speed,
+                            TOPPLE_OPTIONS_NO_BOUNCE | TOPPLE_OPTIONS_NO_FX,
+                        );
+                    }
                 });
             }
 

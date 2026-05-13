@@ -643,6 +643,15 @@ impl ToppleControlInterface for ToppleUpdate {
         ToppleUpdate::is_able_to_be_toppled(self)
     }
 
+    fn apply_toppling_force(
+        &mut self,
+        topple_direction: &Coord3D,
+        topple_speed: Real,
+        options: u32,
+    ) {
+        ToppleUpdate::apply_toppling_force(self, topple_direction, topple_speed, options);
+    }
+
     fn apply_toppling_force_with_object(
         &mut self,
         obj: &mut GameObject,
@@ -721,6 +730,20 @@ impl Module for ToppleUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_topple_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::module::ToppleControlInterface> {
+        Some(self)
+    }
+}
+
+impl game_engine::common::thing::module::ToppleControlInterface for ToppleUpdateModule {
+    fn apply_toppling_force(&mut self, x: f32, y: f32, z: f32, topple_speed: f32, options: u32) {
+        let direction = Coord3D::new(x, y, z);
+        self.behavior
+            .apply_toppling_force(&direction, topple_speed, options);
     }
 }
 

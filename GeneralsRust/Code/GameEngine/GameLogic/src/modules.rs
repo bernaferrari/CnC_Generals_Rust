@@ -345,6 +345,12 @@ pub trait BehaviorModule: BehaviorModuleInterface + std::fmt::Debug {
 
 pub trait ToppleControlInterface {
     fn is_able_to_be_toppled(&self) -> bool;
+    fn apply_toppling_force(
+        &mut self,
+        topple_direction: &Coord3D,
+        topple_speed: Real,
+        options: u32,
+    );
     fn apply_toppling_force_with_object(
         &mut self,
         obj: &mut crate::object::Object,
