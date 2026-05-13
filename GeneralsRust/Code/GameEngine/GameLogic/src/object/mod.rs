@@ -6012,8 +6012,11 @@ impl Object {
         // If invalid, infer from object properties (C++ lines 6254-6267)
         if priority == RadarPriorityType::Invalid {
             // Garrisonable objects show as structures
-            if self.get_contain().is_some() {
-                // C++ checks isGarrisonable() - simplified here
+            if self
+                .get_contain()
+                .and_then(|contain| contain.lock().ok().map(|guard| guard.is_garrisonable()))
+                .unwrap_or(false)
+            {
                 priority = RadarPriorityType::Structure;
             }
 
@@ -12246,6 +12249,7 @@ impl game_engine::common::rts::player::SkillPointObject for Object {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::RadarPriorityType;
     use std::sync::{Mutex, OnceLock};
 
     fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -12256,6 +12260,41 @@ mod tests {
             .expect("test state lock poisoned")
     }
     use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
+
+    #[derive(Debug)]
+    struct TestContainModule {
+        garrisonable: bool,
+    }
+
+    impl ContainModuleInterface for TestContainModule {
+        fn can_contain(&self, _object_id: ObjectID) -> bool {
+            false
+        }
+
+        fn contain_object(&mut self, _object_id: ObjectID) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn release_object(&mut self, _object_id: ObjectID) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn get_contained_objects(&self) -> &[ObjectID] {
+            &[]
+        }
+
+        fn get_contained_count(&self) -> usize {
+            0
+        }
+
+        fn get_max_capacity(&self) -> usize {
+            0
+        }
+
+        fn is_garrisonable(&self) -> bool {
+            self.garrisonable
+        }
+    }
 
     //=========================================================================
     // TESTS FOR CRITICAL OBJECT METHODS
@@ -12342,6 +12381,27 @@ mod tests {
         assert!(civilian_obj.is_structure());
         assert!(!civilian_obj.is_faction_structure());
         assert!(civilian_obj.is_non_faction_structure());
+    }
+
+    #[test]
+    fn radar_priority_only_treats_garrisonable_contain_as_structure() {
+        let mut transport_obj = Object::new_test(1, 100.0);
+        transport_obj.set_contain(Some(Arc::new(Mutex::new(TestContainModule {
+            garrisonable: false,
+        }))));
+        assert_eq!(
+            transport_obj.get_radar_priority(),
+            RadarPriorityType::Invalid
+        );
+
+        let mut garrison_obj = Object::new_test(2, 100.0);
+        garrison_obj.set_contain(Some(Arc::new(Mutex::new(TestContainModule {
+            garrisonable: true,
+        }))));
+        assert_eq!(
+            garrison_obj.get_radar_priority(),
+            RadarPriorityType::Structure
+        );
     }
 
     #[test]
