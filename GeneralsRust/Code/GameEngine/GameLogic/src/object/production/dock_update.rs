@@ -1028,10 +1028,17 @@ impl DockUpdateInterface for RepairDockUpdate {
     fn action(
         &mut self,
         obj: &Arc<RwLock<Object>>,
-        _drone: Option<&Arc<RwLock<Object>>>,
+        drone: Option<&Arc<RwLock<Object>>>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        // Perform repair action
-        self.repair_unit(obj).map_err(|e| e.into())
+        let keep_docked = self.repair_unit(obj)?;
+        if keep_docked {
+            if let Some(drone) = drone {
+                if let Ok(mut drone_guard) = drone.write() {
+                    let _ = drone_guard.heal_completely();
+                }
+            }
+        }
+        Ok(keep_docked)
     }
 
     fn get_exit_position(
@@ -1560,6 +1567,9 @@ impl Module for SupplyCenterDockUpdateModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
+    use crate::object::body::body_module::BodyModuleInterface;
+    use std::sync::Mutex;
 
     #[test]
     fn parse_time_for_full_heal_accepts_duration_suffixes() {
@@ -1571,5 +1581,42 @@ mod tests {
 
         parse_time_for_full_heal(&mut ini, &mut data, &["1.5s"]).expect("duration");
         assert!((data.frames_for_full_heal - 45.0).abs() < f32::EPSILON);
+    }
+
+    fn test_object_with_health(id: ObjectID, health: f32, max_health: f32) -> Arc<RwLock<Object>> {
+        let mut obj = Object::new_test(id, max_health);
+        let mut module_data = ActiveBodyModuleData::default();
+        module_data.max_health = max_health;
+        module_data.initial_health = health;
+        let body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
+            ActiveBody::new_with_owner(module_data, obj.get_id()),
+        ));
+        obj.set_body_module(Some(body));
+        Arc::new(RwLock::new(obj))
+    }
+
+    #[test]
+    fn repair_dock_action_heals_drone_to_full_while_repair_continues() {
+        let data = RepairDockUpdateData {
+            frames_for_full_heal: 10.0,
+            ..Default::default()
+        };
+        let mut dock = RepairDockUpdate::new(data, 1, &Coord3D::ZERO);
+        let docker = test_object_with_health(2, 50.0, 100.0);
+        let drone = test_object_with_health(3, 10.0, 25.0);
+
+        assert!(dock.action(&docker, Some(&drone)).expect("repair action"));
+        assert_eq!(docker.read().unwrap().get_health(), 55.0);
+        assert_eq!(drone.read().unwrap().get_health(), 25.0);
+    }
+
+    #[test]
+    fn repair_dock_action_leaves_drone_when_docker_repair_is_complete() {
+        let mut dock = RepairDockUpdate::new(RepairDockUpdateData::default(), 1, &Coord3D::ZERO);
+        let docker = test_object_with_health(2, 100.0, 100.0);
+        let drone = test_object_with_health(3, 10.0, 25.0);
+
+        assert!(!dock.action(&docker, Some(&drone)).expect("repair action"));
+        assert_eq!(drone.read().unwrap().get_health(), 10.0);
     }
 }
