@@ -4476,18 +4476,20 @@ impl Weapon {
         let _ = laser_guard.set_position(&end_pos);
         let laser_id = laser_guard.get_id();
 
-        if let Some(module) = laser_guard.find_update_module("LaserUpdate") {
-            let _ = module.with_module_downcast::<crate::object::behavior::laser_update::LaserUpdateModule, _, _>(
-                |module| {
-                    let update = module.behavior_mut();
-                    update.configure_laser(damage_per_frame, duration);
-                    if let Some(target_id) = target_obj_id {
-                        update.activate_laser(target_id);
-                    } else {
-                        update.activate_laser(INVALID_OBJECT_ID);
-                    }
-                },
-            );
+        for behavior in laser_guard.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            let Some(update) = behavior.get_laser_behavior_control_interface() else {
+                continue;
+            };
+            update.configure_laser(damage_per_frame, duration);
+            if let Some(target_id) = target_obj_id {
+                update.activate_laser(target_id);
+            } else {
+                update.activate_laser(INVALID_OBJECT_ID);
+            }
+            break;
         }
 
         let client_modules = laser_guard.client_update_modules();
