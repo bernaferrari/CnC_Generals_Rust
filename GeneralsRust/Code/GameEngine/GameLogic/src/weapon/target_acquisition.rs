@@ -337,33 +337,39 @@ impl WeaponTargetAcquisition {
         &self,
         target_id: ObjectId,
     ) -> GameLogicResult<TargetPriorityClass> {
-        let target_type = self.get_object_type(target_id)?;
+        let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(target_id) else {
+            return Err(GameLogicError::InvalidObject(target_id));
+        };
+        let obj = obj_arc.read().map_err(|_| {
+            GameLogicError::Threading("Failed to lock object for priority".to_string())
+        })?;
 
-        // Map object type to priority class
-        Ok(match target_type.as_str() {
-            // Structures (highest priority)
-            t if t.contains("Building") || t.contains("Structure") => {
-                TargetPriorityClass::Structure
-            }
-            // Siege weapons
-            t if t.contains("Artillery")
-                || t.contains("Tomahawk")
-                || t.contains("Inferno")
-                || t.contains("Scud") =>
-            {
-                TargetPriorityClass::Siege
-            }
-            // Infantry
-            t if t.contains("Infantry") || t.contains("Soldier") => TargetPriorityClass::Infantry,
-            // Armor
-            t if t.contains("Tank") || t.contains("Vehicle") => TargetPriorityClass::Armor,
-            // Aircraft
-            t if t.contains("Aircraft") || t.contains("Plane") || t.contains("Helicopter") => {
-                TargetPriorityClass::Aircraft
-            }
-            // Default
-            _ => TargetPriorityClass::Other,
-        })
+        if obj.is_kind_of(KindOf::Structure) || obj.is_kind_of(KindOf::Building) {
+            return Ok(TargetPriorityClass::Structure);
+        }
+        if obj.is_kind_of(KindOf::Aircraft) || obj.is_airborne_target() {
+            return Ok(TargetPriorityClass::Aircraft);
+        }
+        if obj.is_kind_of(KindOf::Infantry) {
+            return Ok(TargetPriorityClass::Infantry);
+        }
+        if obj.is_kind_of(KindOf::Vehicle)
+            || obj.is_kind_of(KindOf::HugeVehicle)
+            || obj.is_kind_of(KindOf::Hulk)
+        {
+            return Ok(TargetPriorityClass::Armor);
+        }
+
+        let target_type = obj.get_template_name();
+        if target_type.contains("Artillery")
+            || target_type.contains("Tomahawk")
+            || target_type.contains("Inferno")
+            || target_type.contains("Scud")
+        {
+            return Ok(TargetPriorityClass::Siege);
+        }
+
+        Ok(TargetPriorityClass::Other)
     }
 
     /// Check line of sight between shooter and target
@@ -585,17 +591,6 @@ impl WeaponTargetAcquisition {
         }
 
         Ok(ObjectKind::Ground)
-    }
-
-    /// Get object type name
-    fn get_object_type(&self, object_id: ObjectId) -> GameLogicResult<String> {
-        let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) else {
-            return Err(GameLogicError::InvalidObject(object_id));
-        };
-        let obj = obj_arc
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock object for type".to_string()))?;
-        Ok(obj.get_template_name().to_string())
     }
 
     /// Perform raycast for line of sight
@@ -904,6 +899,67 @@ mod tests {
         assert!(acquisition
             .can_weapon_attack_target(&WeaponAntiMask::new(WeaponAntiMask::SMALL_MISSILE), 97_022,)
             .unwrap());
+
+        reset_target_objects();
+    }
+
+    #[test]
+    fn target_priority_uses_kindof_not_template_name_substrings() {
+        reset_target_objects();
+        let acquisition = WeaponTargetAcquisition::new();
+
+        registered_target_object(97_031, "STRUCTURE SELECTABLE", false);
+        registered_target_object(97_032, "VEHICLE SELECTABLE", false);
+        registered_target_object(97_033, "INFANTRY SELECTABLE", false);
+        registered_target_object(97_034, "AIRCRAFT SELECTABLE", false);
+
+        assert_eq!(
+            acquisition.get_target_priority_class(97_031).unwrap(),
+            TargetPriorityClass::Structure
+        );
+        assert_eq!(
+            acquisition.get_target_priority_class(97_032).unwrap(),
+            TargetPriorityClass::Armor
+        );
+        assert_eq!(
+            acquisition.get_target_priority_class(97_033).unwrap(),
+            TargetPriorityClass::Infantry
+        );
+        assert_eq!(
+            acquisition.get_target_priority_class(97_034).unwrap(),
+            TargetPriorityClass::Aircraft
+        );
+
+        reset_target_objects();
+    }
+
+    #[test]
+    fn target_priority_preserves_siege_name_fallback() {
+        reset_target_objects();
+        let acquisition = WeaponTargetAcquisition::new();
+
+        let mut template =
+            crate::common::DefaultThingTemplate::new("GLAVehicleScudLauncher".to_string());
+        let properties =
+            std::collections::HashMap::from([("KindOf".to_string(), "SELECTABLE".to_string())]);
+        template.parse_object_fields_from_ini(&properties);
+        let object = crate::object::Object::new_with_id(
+            Arc::new(template),
+            97_041,
+            crate::common::ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("create siege target object");
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .register_object(object)
+            .expect("register siege target object");
+
+        assert_eq!(
+            acquisition.get_target_priority_class(97_041).unwrap(),
+            TargetPriorityClass::Siege
+        );
 
         reset_target_objects();
     }
