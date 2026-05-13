@@ -330,6 +330,10 @@ pub trait FireSpreadControlInterface {
     fn wake_delay_if_aflame(&mut self, is_aflame: bool) -> Option<u32>;
 }
 
+pub trait OverchargeControlInterface {
+    fn toggle(&mut self) -> Result<(), String>;
+}
+
 pub trait DeletionLifetimeInterface {
     fn set_lifetime_range(&mut self, min_lifetime: u32, max_lifetime: u32);
 }
@@ -541,6 +545,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_fire_spread_control_interface(&mut self) -> Option<&mut dyn FireSpreadControlInterface> {
+        None
+    }
+
+    fn get_overcharge_control_interface(&mut self) -> Option<&mut dyn OverchargeControlInterface> {
         None
     }
 }
