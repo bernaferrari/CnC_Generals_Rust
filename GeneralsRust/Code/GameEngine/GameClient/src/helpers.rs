@@ -1785,6 +1785,12 @@ impl gamelogic::helpers::CameraViewBridge for TacticalViewBridge {
     fn camera_mod_freeze_angle(&self) {
         with_tactical_view(|v| v.camera_mod_freeze_angle());
     }
+    fn is_time_frozen(&self) -> bool {
+        with_tactical_view_ref(|v| v.is_time_frozen())
+    }
+    fn is_camera_movement_finished(&self) -> bool {
+        with_tactical_view_ref(|v| v.is_camera_movement_finished())
+    }
     fn set_default_view(&self, pitch: f32, angle: f32, max_height: f32) {
         with_tactical_view(|v| v.set_default_view(pitch, angle, max_height));
     }
