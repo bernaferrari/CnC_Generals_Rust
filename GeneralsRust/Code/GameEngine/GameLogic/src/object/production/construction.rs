@@ -122,19 +122,23 @@ impl FoundationValidator {
     ) -> Result<(), String> {
         // Approximate BuildAssistant::isLocationLegalToBuild with available systems.
 
-        // Check constraints
+        // C++ rejects off-map builds before option-specific shroud, object, or
+        // terrain checks. This stays unconditional even for relaxed callers.
+        if let Some(terrain) = TheTerrainLogic::get() {
+            let extent = terrain.get_maximum_pathfind_extent();
+            if position.x < extent.lo.x
+                || position.x > extent.hi.x
+                || position.y < extent.lo.y
+                || position.y > extent.hi.y
+            {
+                return Err("Location outside playable area".to_string());
+            }
+        }
 
         // 1. Terrain Check
         if self.check_terrain {
             if let Some(terrain) = TheTerrainLogic::get() {
                 let extent = terrain.get_maximum_pathfind_extent();
-                if position.x < extent.lo.x
-                    || position.x > extent.hi.x
-                    || position.y < extent.lo.y
-                    || position.y > extent.hi.y
-                {
-                    return Err("Location outside playable area".to_string());
-                }
 
                 if terrain.get_highest_layer_for_destination(position) != PathfindLayerEnum::Ground
                 {
@@ -711,6 +715,23 @@ pub fn get_construction_manager() -> Arc<RwLock<ConstructionManager>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::build_assistant::LocalLegalToBuildOptions;
+
+    #[test]
+    fn placement_rejects_off_map_even_without_terrain_option() {
+        let validator = FoundationValidator::from_build_options(LocalLegalToBuildOptions::empty());
+
+        let err = validator
+            .validate_placement(
+                &Coord3D::new(-MAP_XY_FACTOR, MAP_XY_FACTOR, 0.0),
+                "TestStructure",
+                0.0,
+                INVALID_OBJECT_ID,
+            )
+            .expect_err("C++ rejects off-map builds before option-specific checks");
+
+        assert_eq!(err, "Location outside playable area");
+    }
 
     #[test]
     fn test_construction_progress() {
