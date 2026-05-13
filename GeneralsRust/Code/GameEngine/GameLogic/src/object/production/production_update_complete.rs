@@ -1231,6 +1231,10 @@ impl ProductionUpdateInterface for ProductionUpdateComplete {
         entries
     }
 
+    fn has_any_upgrade_in_queue(&self) -> bool {
+        ProductionUpdateComplete::has_any_upgrade_in_queue(self)
+    }
+
     fn get_production_progress(&self) -> f32 {
         self.current_progress()
     }

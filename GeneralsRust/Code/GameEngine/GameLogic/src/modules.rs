@@ -3429,6 +3429,11 @@ pub trait ProductionUpdateInterface: Send + Sync {
         Vec::new()
     }
 
+    /// Check if any queued or active production entry is an upgrade.
+    fn has_any_upgrade_in_queue(&self) -> bool {
+        false
+    }
+
     /// Get production progress (0.0 to 1.0)
     fn get_production_progress(&self) -> f32;
 
