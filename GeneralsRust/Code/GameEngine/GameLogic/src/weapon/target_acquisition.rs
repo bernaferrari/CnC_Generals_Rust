@@ -318,7 +318,9 @@ impl WeaponTargetAcquisition {
             ObjectKind::Ground => Ok(anti_mask.contains(WeaponAntiMask::GROUND)),
             ObjectKind::Projectile => Ok(anti_mask.contains(WeaponAntiMask::PROJECTILE)),
             ObjectKind::SmallMissile => Ok(anti_mask.contains(WeaponAntiMask::SMALL_MISSILE)),
-            ObjectKind::Mine => Ok(anti_mask.contains(WeaponAntiMask::MINE)),
+            ObjectKind::Mine => {
+                Ok(anti_mask.contains(WeaponAntiMask::MINE | WeaponAntiMask::GROUND))
+            }
             ObjectKind::AirborneInfantry => {
                 Ok(anti_mask.contains(WeaponAntiMask::AIRBORNE_INFANTRY))
             }
@@ -554,16 +556,31 @@ impl WeaponTargetAcquisition {
             return Ok(ObjectKind::Unknown);
         };
 
+        if obj.is_kind_of(KindOf::SmallMissile) {
+            return Ok(ObjectKind::SmallMissile);
+        }
+        if obj.is_kind_of(KindOf::BallisticMissile) {
+            return Ok(ObjectKind::BallisticMissile);
+        }
         if obj.is_kind_of(KindOf::Projectile) {
             return Ok(ObjectKind::Projectile);
         }
-        if obj.is_kind_of(KindOf::Mine) {
+        if obj.is_kind_of(KindOf::Mine) || obj.is_kind_of(KindOf::Demotrap) {
             return Ok(ObjectKind::Mine);
         }
-        if obj.is_airborne_target() || obj.is_kind_of(KindOf::Aircraft) {
+        if obj.is_airborne_target() {
+            if obj.is_kind_of(KindOf::Vehicle) {
+                return Ok(ObjectKind::AirborneVehicle);
+            }
             if obj.is_kind_of(KindOf::Infantry) {
                 return Ok(ObjectKind::AirborneInfantry);
             }
+            if obj.is_kind_of(KindOf::Parachute) {
+                return Ok(ObjectKind::Parachute);
+            }
+            return Ok(ObjectKind::Unknown);
+        }
+        if obj.is_kind_of(KindOf::Aircraft) {
             return Ok(ObjectKind::AirborneVehicle);
         }
 
@@ -660,6 +677,46 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn registered_target_object(
+        id: ObjectId,
+        kind_of: &str,
+        airborne: bool,
+    ) -> Arc<RwLock<crate::object::Object>> {
+        let mut template =
+            crate::common::DefaultThingTemplate::new(format!("TargetAcquisitionObject{}", id));
+        let properties =
+            std::collections::HashMap::from([("KindOf".to_string(), kind_of.to_string())]);
+        template.parse_object_fields_from_ini(&properties);
+
+        let object = crate::object::Object::new_with_id(
+            Arc::new(template),
+            id,
+            crate::common::ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("create target acquisition object");
+        if airborne {
+            object
+                .write()
+                .expect("target acquisition object write lock")
+                .set_status(crate::common::ObjectStatusMaskType::AIRBORNE_TARGET, true);
+        }
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .register_object(object.clone())
+            .expect("register target acquisition object");
+        object
+    }
+
+    fn reset_target_objects() {
+        crate::object::registry::OBJECT_REGISTRY.clear();
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .clear_all_objects();
+    }
 
     #[test]
     fn test_priority_class_ordering() {
@@ -764,5 +821,90 @@ mod tests {
         let targets = acquisition.find_best_targets(&params, 100, 0).unwrap();
 
         assert!(targets.is_empty());
+    }
+
+    #[test]
+    fn target_kind_matches_cpp_projectile_priority_order() {
+        reset_target_objects();
+        let acquisition = WeaponTargetAcquisition::new();
+
+        registered_target_object(97_001, "PROJECTILE SMALL_MISSILE", false);
+        registered_target_object(97_002, "PROJECTILE BALLISTIC_MISSILE", false);
+        registered_target_object(97_003, "PROJECTILE", false);
+
+        assert_eq!(
+            acquisition.get_object_kind(97_001).unwrap(),
+            ObjectKind::SmallMissile
+        );
+        assert_eq!(
+            acquisition.get_object_kind(97_002).unwrap(),
+            ObjectKind::BallisticMissile
+        );
+        assert_eq!(
+            acquisition.get_object_kind(97_003).unwrap(),
+            ObjectKind::Projectile
+        );
+
+        reset_target_objects();
+    }
+
+    #[test]
+    fn target_kind_matches_cpp_mine_and_airborne_branches() {
+        reset_target_objects();
+        let acquisition = WeaponTargetAcquisition::new();
+
+        registered_target_object(97_011, "DEMOTRAP", false);
+        registered_target_object(97_012, "PARACHUTE", true);
+        registered_target_object(97_013, "VEHICLE", true);
+        registered_target_object(97_014, "INFANTRY", true);
+
+        assert_eq!(
+            acquisition.get_object_kind(97_011).unwrap(),
+            ObjectKind::Mine
+        );
+        assert_eq!(
+            acquisition.get_object_kind(97_012).unwrap(),
+            ObjectKind::Parachute
+        );
+        assert_eq!(
+            acquisition.get_object_kind(97_013).unwrap(),
+            ObjectKind::AirborneVehicle
+        );
+        assert_eq!(
+            acquisition.get_object_kind(97_014).unwrap(),
+            ObjectKind::AirborneInfantry
+        );
+
+        reset_target_objects();
+    }
+
+    #[test]
+    fn target_anti_mask_matches_cpp_mine_and_missile_semantics() {
+        reset_target_objects();
+        let acquisition = WeaponTargetAcquisition::new();
+
+        registered_target_object(97_021, "DEMOTRAP", false);
+        registered_target_object(97_022, "PROJECTILE SMALL_MISSILE", false);
+
+        assert!(
+            acquisition
+                .can_weapon_attack_target(&WeaponAntiMask::new(WeaponAntiMask::GROUND), 97_021,)
+                .unwrap(),
+            "C++ treats mines and demo traps as mine|ground victims"
+        );
+        assert!(acquisition
+            .can_weapon_attack_target(&WeaponAntiMask::new(WeaponAntiMask::MINE), 97_021)
+            .unwrap());
+        assert!(
+            !acquisition
+                .can_weapon_attack_target(&WeaponAntiMask::new(WeaponAntiMask::PROJECTILE), 97_022,)
+                .unwrap(),
+            "C++ small-missile victims require AntiSmallMissile, not generic AntiProjectile"
+        );
+        assert!(acquisition
+            .can_weapon_attack_target(&WeaponAntiMask::new(WeaponAntiMask::SMALL_MISSILE), 97_022,)
+            .unwrap());
+
+        reset_target_objects();
     }
 }

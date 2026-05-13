@@ -2244,6 +2244,7 @@ pub enum KindOf {
     LandmarkBridge,             // KINDOF_LANDMARK_BRIDGE
     WaveEffect,                 // KINDOF_WAVE_EFFECT
     ClearedByBuild,             // KINDOF_CLEARED_BY_BUILD
+    Parachute,                  // KINDOF_PARACHUTE
 }
 
 impl KindOf {
@@ -2398,6 +2399,7 @@ pub fn kindof_from_name(name: &str) -> Option<KindOf> {
         "LANDMARK_BRIDGE" => Some(KindOf::LandmarkBridge),
         "WAVE_EFFECT" => Some(KindOf::WaveEffect),
         "CLEARED_BY_BUILD" => Some(KindOf::ClearedByBuild),
+        "PARACHUTE" => Some(KindOf::Parachute),
         _ => None,
     }
 }
@@ -2542,6 +2544,7 @@ pub const ALL_KIND_OF: &[KindOf] = &[
     KindOf::LandmarkBridge,
     KindOf::WaveEffect,
     KindOf::ClearedByBuild,
+    KindOf::Parachute,
 ];
 
 /// Team member list type (matching C++ MAKE_DLINK)
@@ -3422,10 +3425,11 @@ impl DefaultThingTemplate {
 
                 // --- KindOf ---
                 "KindOf" => {
-                    // Parse pipe-separated KindOf flags
+                    // Parse KindOf flags. C++ INI accepts whitespace-separated lists;
+                    // existing Rust data also allowed pipe separators.
                     // C++ uses KindOfMaskType::parseFromINI
                     self.kind_of_flags.clear();
-                    for token in trimmed.split('|') {
+                    for token in trimmed.split(|c: char| c == '|' || c.is_ascii_whitespace()) {
                         let t = token.trim();
                         if t.is_empty() {
                             continue;

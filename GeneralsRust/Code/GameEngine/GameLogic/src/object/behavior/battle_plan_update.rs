@@ -1138,6 +1138,7 @@ fn kindof_name(kind: KindOf) -> Option<&'static str> {
         KindOf::LandmarkBridge => Some("LANDMARK_BRIDGE"),
         KindOf::WaveEffect => Some("WAVE_EFFECT"),
         KindOf::ClearedByBuild => Some("CLEARED_BY_BUILD"),
+        KindOf::Parachute => Some("PARACHUTE"),
     }
 }
 
