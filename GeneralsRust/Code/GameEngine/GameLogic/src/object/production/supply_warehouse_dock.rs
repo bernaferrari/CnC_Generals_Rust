@@ -14,7 +14,7 @@ use crate::GameLogicRandomValueReal;
 use game_engine::common::global_data;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData};
+use game_engine::common::thing::module::{Module, ModuleData, SupplyWarehouseDockInterface};
 use std::sync::{Arc, RwLock};
 
 /// Supply warehouse dock configuration data
@@ -518,6 +518,22 @@ impl Module for SupplyWarehouseDockUpdateModule {
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
     }
+
+    fn get_supply_warehouse_dock_interface(
+        &mut self,
+    ) -> Option<&mut dyn SupplyWarehouseDockInterface> {
+        Some(self)
+    }
+}
+
+impl SupplyWarehouseDockInterface for SupplyWarehouseDockUpdateModule {
+    fn boxes_stored(&self) -> i32 {
+        self.behavior.get_boxes_stored()
+    }
+
+    fn set_cash_value(&mut self, cash_value: i32) {
+        self.behavior.set_cash_value(cash_value);
+    }
 }
 
 #[cfg(test)]
@@ -598,5 +614,28 @@ mod tests {
         dock.is_crippled = false;
         dock.boxes_stored = 0;
         assert!(!dock.is_dock_open().unwrap());
+    }
+
+    #[test]
+    fn test_supply_warehouse_module_exposes_typed_interface() {
+        let data = Arc::new(SupplyWarehouseDockUpdateData {
+            starting_boxes: 4,
+            ..Default::default()
+        });
+        let pos = Coord3D::new(0.0, 0.0, 0.0);
+        let behavior = SupplyWarehouseDockUpdate::new((*data).clone(), 1, &pos);
+        let mut module = SupplyWarehouseDockUpdateModule::new(
+            behavior,
+            &AsciiString::from("SupplyWarehouseDockUpdate"),
+            data,
+        );
+
+        let dock = module
+            .get_supply_warehouse_dock_interface()
+            .expect("SupplyWarehouseDockUpdate should expose dock interface");
+        assert_eq!(dock.boxes_stored(), 4);
+
+        dock.set_cash_value(0);
+        assert_eq!(module.behavior.get_boxes_stored(), 0);
     }
 }
