@@ -1966,18 +1966,18 @@ impl WeaponTemplate {
         });
 
         for module in client_modules {
-            let _ = module.with_module_downcast::<crate::object::update::LaserUpdateModule, _, _>(
-                |laser_update| {
-                    laser_update.update_mut().init_laser(
-                        Some(&*source_guard),
-                        target_ref,
+            module.with_module(|module| {
+                if let Some(laser_update) = module.get_laser_update_interface() {
+                    laser_update.init_laser(
+                        Some(source_guard.get_id()),
+                        target_ref.map(|target| target.get_id()),
                         None,
-                        end_pos_ref,
+                        end_pos_ref.map(|pos| pos.to_array()),
                         self.laser_bone_name.clone(),
                         0,
                     );
-                },
-            );
+                }
+            });
         }
 
         Ok(Some(laser_id))

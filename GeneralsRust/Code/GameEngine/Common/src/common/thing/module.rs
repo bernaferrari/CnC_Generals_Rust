@@ -267,6 +267,15 @@ pub trait LaserUpdateInterface {
     fn get_start_pos(&self) -> [f32; 3];
     fn get_end_pos(&self) -> [f32; 3];
     fn get_width_scale(&self) -> f32;
+    fn init_laser(
+        &mut self,
+        parent_id: Option<ObjectID>,
+        target_id: Option<ObjectID>,
+        start_pos: Option<[f32; 3]>,
+        end_pos: Option<[f32; 3]>,
+        parent_bone_name: String,
+        size_delta_frames: i32,
+    );
 }
 
 pub trait RadarUpdateInterface {

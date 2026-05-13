@@ -691,18 +691,21 @@ impl SpecialAbilityUpdate {
         };
 
         for module in client_modules {
-            let _ = module.with_module_downcast::<crate::object::update::laser_update::LaserUpdateModule, _, _>(
-                |laser_update| {
-                    laser_update.update_mut().init_laser(
-                        Some(&*owner_guard),
-                        target_guard.as_deref(),
-                        Some(&start_pos),
-                        Some(&end_pos),
-                        self.module_data.special_object_attach_to_bone_name.as_str().to_string(),
+            module.with_module(|module| {
+                if let Some(laser_update) = module.get_laser_update_interface() {
+                    laser_update.init_laser(
+                        Some(owner_guard.get_id()),
+                        target_guard.as_deref().map(|target| target.get_id()),
+                        Some(start_pos.to_array()),
+                        Some(end_pos.to_array()),
+                        self.module_data
+                            .special_object_attach_to_bone_name
+                            .as_str()
+                            .to_string(),
                         0,
                     );
-                },
-            );
+                }
+            });
         }
 
         true

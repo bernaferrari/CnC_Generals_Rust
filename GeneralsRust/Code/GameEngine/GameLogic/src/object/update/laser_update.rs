@@ -210,6 +210,32 @@ impl LaserUpdateInterface for LaserUpdateModule {
     fn get_width_scale(&self) -> f32 {
         self.update.get_width_scale()
     }
+
+    fn init_laser(
+        &mut self,
+        parent_id: Option<ObjectID>,
+        target_id: Option<ObjectID>,
+        start_pos: Option<[f32; 3]>,
+        end_pos: Option<[f32; 3]>,
+        parent_bone_name: String,
+        size_delta_frames: i32,
+    ) {
+        let parent_arc = parent_id.and_then(TheGameLogic::find_object_by_id);
+        let target_arc = target_id.and_then(TheGameLogic::find_object_by_id);
+        let parent_guard = parent_arc.as_ref().and_then(|arc| arc.read().ok());
+        let target_guard = target_arc.as_ref().and_then(|arc| arc.read().ok());
+        let start_pos = start_pos.map(Coord3D::from_array);
+        let end_pos = end_pos.map(Coord3D::from_array);
+
+        self.update.init_laser(
+            parent_guard.as_deref(),
+            target_guard.as_deref(),
+            start_pos.as_ref(),
+            end_pos.as_ref(),
+            parent_bone_name,
+            size_delta_frames,
+        );
+    }
 }
 
 impl Snapshotable for LaserUpdateModule {
