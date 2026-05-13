@@ -5789,19 +5789,15 @@ impl ScriptActionDispatcher {
                 continue;
             };
 
-            let set_ok = module
-                .with_module_downcast::<
-                    crate::object::update::command_button_hunt_update::CommandButtonHuntUpdateModule,
-                    _,
-                    _,
-                >(|hunt| {
-                    hunt.behavior_mut()
-                        .set_command_button(command_button_name.to_string());
-                })
-                .is_some();
+            let set_ok = module.with_module(|module| {
+                module
+                    .get_command_button_hunt_control_interface()
+                    .map(|hunt| hunt.set_command_button(command_button_name.to_string()))
+                    .is_some()
+            });
             if !set_ok {
                 log::warn!(
-                    "TEAM_HUNT_WITH_COMMAND_BUTTON: failed to downcast hunt module for object {}",
+                    "TEAM_HUNT_WITH_COMMAND_BUTTON: missing hunt control interface for object {}",
                     member_id
                 );
             }

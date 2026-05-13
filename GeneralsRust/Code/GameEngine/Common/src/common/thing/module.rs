@@ -334,6 +334,10 @@ pub trait OverchargeControlInterface {
     fn toggle(&mut self) -> Result<(), String>;
 }
 
+pub trait CommandButtonHuntControlInterface {
+    fn set_command_button(&mut self, button_name: String);
+}
+
 pub trait DeletionLifetimeInterface {
     fn set_lifetime_range(&mut self, min_lifetime: u32, max_lifetime: u32);
 }
@@ -549,6 +553,12 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_overcharge_control_interface(&mut self) -> Option<&mut dyn OverchargeControlInterface> {
+        None
+    }
+
+    fn get_command_button_hunt_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn CommandButtonHuntControlInterface> {
         None
     }
 }
