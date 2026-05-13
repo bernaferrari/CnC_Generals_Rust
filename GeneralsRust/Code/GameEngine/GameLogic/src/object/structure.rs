@@ -350,14 +350,14 @@ impl Structure {
         // Update construction
         self.update_construction(delta_time)?;
 
+        // Update power before gated systems consume their frame.
+        self.update_power_state()?;
+
         // Update production
         self.update_production(delta_time)?;
 
         // Update resource production
         self.update_resource_production(delta_time)?;
-
-        // Update power state
-        self.update_power_state()?;
 
         // Update special powers
         self.update_special_powers(delta_time)?;
@@ -650,9 +650,39 @@ impl Structure {
     }
 
     fn update_power_state(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // This would check with the power management system
-        // For now, assume we have power unless explicitly disabled
-        self.is_powered = true;
+        let Ok(obj_guard) = self.base_object.read() else {
+            self.is_powered = false;
+            return Ok(());
+        };
+
+        if obj_guard.is_disabled_by_type(DisabledType::DisabledUnderpowered)
+            || obj_guard.is_disabled_by_type(DisabledType::DisabledScriptUnderpowered)
+        {
+            self.is_powered = false;
+            return Ok(());
+        }
+
+        let template_power = obj_guard.get_template().get_energy_production();
+        let template_demand = if template_power < 0 {
+            -template_power
+        } else {
+            0
+        };
+        let required_power = self.power_required.max(template_demand);
+        if required_power <= 0 {
+            self.is_powered = true;
+            return Ok(());
+        }
+
+        self.is_powered = obj_guard
+            .get_controlling_player()
+            .and_then(|player| {
+                player
+                    .read()
+                    .ok()
+                    .map(|player_guard| player_guard.get_energy().has_sufficient_power())
+            })
+            .unwrap_or(false);
         Ok(())
     }
 
@@ -982,5 +1012,97 @@ impl CivilianData {
             can_be_captured: true,
             capture_value: 100,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::OnceLock;
+
+    fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
+        static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        TEST_STATE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap()
+    }
+
+    fn owned_test_object(object_id: ObjectID, player_index: PlayerIndex) -> Arc<RwLock<Object>> {
+        let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("PowerTeam{player_index}").into(),
+            object_id + 1000,
+        )));
+        team.write()
+            .unwrap()
+            .set_controlling_player_id(Some(player_index as UnsignedInt));
+        object.write().unwrap().set_team(Some(team)).unwrap();
+        object
+    }
+
+    #[test]
+    fn structure_update_refreshes_power_before_production() {
+        let _guard = test_state_lock();
+        player_list().write().unwrap().clear();
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        player.write().unwrap().adjust_power(-1, true);
+        player_list().write().unwrap().add_player(player);
+
+        let object = owned_test_object(8101, 0);
+        let template = object.read().unwrap().get_template().clone();
+        let mut structure = Structure::new(object, template.as_ref()).unwrap();
+        structure.construction_state = ConstructionState::Complete;
+        structure.is_powered = true;
+        structure.power_required = 1;
+        structure.production_state = ProductionState::Producing;
+        structure.production_queue.push_back(ProductionItem {
+            template_name: "TestTank".to_string(),
+            build_cost: HashMap::new(),
+            build_time: 1.0,
+            progress: 0.0,
+            is_paused: false,
+            priority: 0,
+        });
+
+        structure.update(0.5).unwrap();
+
+        assert!(!structure.is_powered);
+        assert_eq!(structure.production_queue.front().unwrap().progress, 0.0);
+
+        player_list().write().unwrap().clear();
+    }
+
+    #[test]
+    fn structure_power_tracks_underpowered_disabled_flags() {
+        let _guard = test_state_lock();
+        player_list().write().unwrap().clear();
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut player_guard = player.write().unwrap();
+            player_guard.adjust_power(3, true);
+            player_guard.adjust_power(-1, true);
+        }
+        player_list().write().unwrap().add_player(player);
+
+        let object = owned_test_object(8102, 0);
+        let template = object.read().unwrap().get_template().clone();
+        let mut structure = Structure::new(Arc::clone(&object), template.as_ref()).unwrap();
+        structure.construction_state = ConstructionState::Complete;
+        structure.power_required = 1;
+
+        structure.update_power_state().unwrap();
+        assert!(structure.is_powered);
+
+        object
+            .write()
+            .unwrap()
+            .set_disabled(DisabledType::DisabledScriptUnderpowered);
+        structure.update_power_state().unwrap();
+        assert!(!structure.is_powered);
+
+        player_list().write().unwrap().clear();
     }
 }
