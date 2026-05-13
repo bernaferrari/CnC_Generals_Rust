@@ -190,23 +190,19 @@ impl FlammableUpdate {
 
         object.set_model_condition_state(ModelConditionFlag::Aflame);
 
-        // Check for FireSpreadUpdate, then drop object borrow before using ctx again.
+        // Check for FireSpreadUpdate, then schedule the same wake-up through its typed interface.
         let fire_spread = object.find_update_module("FireSpreadUpdate");
 
         if let Some(fire_spread) = fire_spread {
-            let started =
-                fire_spread.with_module_downcast::<
-                    crate::object::update::fire_spread_update::FireSpreadUpdateModule,
-                    _,
-                    _,
-                >(|module| {
-                    module.behavior_mut().start_fire_spreading(ctx);
-                });
-            if started.is_none() {
-                log::debug!(
-                    "FlammableUpdate::try_to_ignite missing FireSpreadUpdateModule downcast for {:?}",
-                    self.thing
-                );
+            let object_id = object.id();
+            let is_aflame = object.get_status_bits().test(ObjectStatus::Aflame);
+            let wake_delay = fire_spread.with_module(|module| {
+                module
+                    .get_fire_spread_control_interface()
+                    .and_then(|fire_spread| fire_spread.wake_delay_if_aflame(is_aflame))
+            });
+            if let Some(delay) = wake_delay {
+                ctx.set_wake_frame(object_id, UpdateSleepTime::Frames(delay));
             }
         }
 

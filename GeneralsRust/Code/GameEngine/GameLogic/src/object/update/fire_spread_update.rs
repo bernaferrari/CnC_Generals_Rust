@@ -9,7 +9,9 @@ use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    FireSpreadControlInterface, Module, ModuleData, NameKeyType,
+};
 use std::sync::Arc;
 
 /// Module data for FireSpreadUpdate
@@ -224,6 +226,10 @@ impl FireSpreadUpdate {
         ctx.set_wake_frame(object.id(), UpdateSleepTime::Frames(delay));
     }
 
+    fn wake_delay_if_aflame(&mut self, is_aflame: bool) -> Option<u32> {
+        is_aflame.then(|| self.calc_next_spread_delay())
+    }
+
     /// Calculate next spread delay with randomization
     /// Matches C++ FireSpreadUpdate.cpp:149-156
     fn calc_next_spread_delay(&self) -> u32 {
@@ -331,6 +337,16 @@ impl Module for FireSpreadUpdateModule {
 
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_fire_spread_control_interface(&mut self) -> Option<&mut dyn FireSpreadControlInterface> {
+        Some(self)
+    }
+}
+
+impl FireSpreadControlInterface for FireSpreadUpdateModule {
+    fn wake_delay_if_aflame(&mut self, is_aflame: bool) -> Option<u32> {
+        self.behavior.wake_delay_if_aflame(is_aflame)
     }
 }
 
