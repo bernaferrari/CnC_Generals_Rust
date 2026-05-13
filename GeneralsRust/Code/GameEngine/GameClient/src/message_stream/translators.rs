@@ -894,17 +894,10 @@ fn closest_spawn_slave_id_for_position(
     pos: &LogicCoord3D,
 ) -> Option<ObjectID> {
     for module in owner.behavior_modules() {
-        let mut closest: Option<ObjectID> = None;
-        module.with_module_downcast::<
-            gamelogic::object::behavior::spawn_behavior::SpawnBehaviorModule,
-            _,
-            _,
-        >(|spawn_module| {
-            closest = gamelogic::object::behavior::spawn_behavior::SpawnBehaviorInterface::get_closest_slave(
-                spawn_module.behavior_mut(),
-                pos,
-            )
-            .and_then(|slave| slave.read().ok().map(|guard| guard.get_id()));
+        let closest = module.with_module(|module| {
+            module
+                .get_spawn_control_interface()
+                .and_then(|spawn| spawn.closest_slave_id_for_position([pos.x, pos.y, pos.z]))
         });
         if closest.is_some() {
             return closest;
