@@ -866,22 +866,6 @@ impl TheActionManager {
             return false;
         }
 
-        if object_to_repair
-            .behavior_modules()
-            .iter()
-            .any(|entry| {
-                let mut found = false;
-                entry.with_module_downcast::<crate::object::behavior::rebuild_hole_behavior::RebuildHoleBehaviorModule, _, _>(
-                    |_module| {
-                        found = true;
-                    },
-                );
-                found
-            })
-        {
-            return false;
-        }
-
         if !obj.is_kind_of(KindOf::Dozer) {
             return false;
         }
