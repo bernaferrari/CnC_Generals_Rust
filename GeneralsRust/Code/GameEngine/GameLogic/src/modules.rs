@@ -3474,6 +3474,14 @@ pub trait ProjectileUpdateInterface {
     fn projectile_now_jammed(&mut self) {
         let _ = self;
     }
+
+    /// Schedule missile diversion after countermeasure decoy delay.
+    fn set_frames_till_countermeasure_diversion_occurs(
+        &mut self,
+        _frames: UnsignedInt,
+        _current_frame: UnsignedInt,
+    ) {
+    }
 }
 
 /// Update module interface for general updates (matching C++ UpdateModuleInterface)

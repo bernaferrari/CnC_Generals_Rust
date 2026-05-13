@@ -21,7 +21,9 @@ use crate::common::{
 use crate::helpers::{
     get_game_logic_random_value_real, TheGameLogic, ThePartitionManager, TheThingFactory,
 };
-use crate::modules::{UpdateModuleInterface, UpdateSleepTime, UpgradeModuleInterface};
+use crate::modules::{
+    ProjectileUpdateInterface, UpdateModuleInterface, UpdateSleepTime, UpgradeModuleInterface,
+};
 use crate::object::{
     registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
 };
@@ -796,27 +798,23 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
                 let Some(missile_arc) = TheGameLogic::find_object_by_id(missile_id) else {
                     return Ok(());
                 };
-                let Ok(missile_guard) = missile_arc.write() else {
+                let Ok(missile_guard) = missile_arc.read() else {
                     return Ok(());
                 };
 
                 let current_frame = self.get_current_frame();
-                let modules = missile_guard.behavior_modules();
-                drop(missile_guard);
+                let modules = missile_guard.get_behavior_modules();
 
                 let mut diverted = false;
-                for module in modules {
-                    let matched = module.with_module_downcast::<
-                        crate::object::update::missile_ai_update::MissileAIUpdateBehavior,
-                        _,
-                        _,
-                    >(|missile| {
-                        missile.set_frames_till_countermeasure_diversion_occurs(
+                for behavior in modules {
+                    let Ok(mut behavior) = behavior.lock() else {
+                        continue;
+                    };
+                    if let Some(projectile) = behavior.get_projectile_update_interface() {
+                        projectile.set_frames_till_countermeasure_diversion_occurs(
                             self.module_data.missile_decoy_frames,
                             current_frame,
                         );
-                    });
-                    if matched.is_some() {
                         diverted = true;
                         break;
                     }
