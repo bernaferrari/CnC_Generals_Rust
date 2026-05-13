@@ -583,16 +583,20 @@ impl ObjectCreationNugget for AttackNugget {
         // Set up delivery decal if specified
         if !self.delivery_decal_template.texture_name.is_empty() && self.delivery_decal_radius > 0.0
         {
-            if let Some(module) = primary_object.find_update_module("RadiusDecalUpdate") {
-                let _ = module.with_module_downcast::<crate::object::behavior::radius_decal_update::RadiusDecalUpdateModule, _, _>(|module| {
-                    let radius_update = module.behavior_mut();
-                    radius_update.create_radius_decal(
-                        &self.delivery_decal_template,
-                        self.delivery_decal_radius,
-                        secondary,
-                    );
-                    radius_update.kill_when_no_longer_attacking(true);
-                });
+            for behavior in primary_object.get_behavior_modules() {
+                let Ok(mut behavior) = behavior.lock() else {
+                    continue;
+                };
+                let Some(radius_update) = behavior.get_radius_decal_update_interface() else {
+                    continue;
+                };
+                radius_update.create_radius_decal(
+                    &self.delivery_decal_template,
+                    self.delivery_decal_radius,
+                    secondary,
+                );
+                radius_update.kill_when_no_longer_attacking(true);
+                break;
             }
         }
 

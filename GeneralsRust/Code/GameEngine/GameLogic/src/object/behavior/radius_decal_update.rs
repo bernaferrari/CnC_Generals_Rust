@@ -198,6 +198,10 @@ impl BehaviorModuleInterface for RadiusDecalUpdate {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+
+    fn get_radius_decal_update_interface(&mut self) -> Option<&mut dyn RadiusDecalUpdateInterface> {
+        Some(self)
+    }
 }
 
 /// Glue that exposes RadiusDecalUpdate through the common Module trait.
