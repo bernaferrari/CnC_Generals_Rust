@@ -166,13 +166,12 @@ impl SabotageSupplyDropzoneCrateCollide {
         let ocl_module_name = AsciiString::from("OCLUpdate");
         if let Some(module) = other_lock.module_by_name(&ocl_module_name) {
             let mut did_reset = false;
-            module
-                .with_module_downcast::<crate::object::update::ocl_update::OCLUpdateModule, _, _>(
-                    |module| {
-                        module.reset_timer();
-                        did_reset = true;
-                    },
-                );
+            module.with_module(|module| {
+                if let Some(ocl_update) = module.get_ocl_update_control_interface() {
+                    ocl_update.reset_timer();
+                    did_reset = true;
+                }
+            });
             if did_reset {
                 return Ok(());
             }
