@@ -47,7 +47,9 @@ use crate::template::ObjectTemplate;
 use crate::MAKE_OBJECT_STATUS_MASK;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, SpawnControlInterface,
+};
 pub type DieMuxData = crate::object::die::DieMuxData;
 use crate::object::die::{
     parse_death_type_flags_tokens, parse_object_status_mask_tokens,
@@ -1750,6 +1752,22 @@ impl Module for SpawnBehaviorModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_spawn_control_interface(&mut self) -> Option<&mut dyn SpawnControlInterface> {
+        Some(self)
+    }
+}
+
+impl SpawnControlInterface for SpawnBehaviorModule {
+    fn closest_slave_id_for_position(&self, pos: [f32; 3]) -> Option<ObjectID> {
+        self.behavior
+            .get_closest_slave(&Coord3D {
+                x: pos[0],
+                y: pos[1],
+                z: pos[2],
+            })
+            .and_then(|slave| slave.read().ok().map(|guard| guard.get_id()))
     }
 }
 

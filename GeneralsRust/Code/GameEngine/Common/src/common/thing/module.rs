@@ -338,6 +338,10 @@ pub trait CommandButtonHuntControlInterface {
     fn set_command_button(&mut self, button_name: String);
 }
 
+pub trait SpawnControlInterface {
+    fn closest_slave_id_for_position(&self, pos: [f32; 3]) -> Option<ObjectID>;
+}
+
 pub trait DeletionLifetimeInterface {
     fn set_lifetime_range(&mut self, min_lifetime: u32, max_lifetime: u32);
 }
@@ -559,6 +563,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     fn get_command_button_hunt_control_interface(
         &mut self,
     ) -> Option<&mut dyn CommandButtonHuntControlInterface> {
+        None
+    }
+
+    fn get_spawn_control_interface(&mut self) -> Option<&mut dyn SpawnControlInterface> {
         None
     }
 }
