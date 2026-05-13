@@ -106,6 +106,10 @@ pub trait BridgeBehaviorInterface: Send + Sync {
     fn get_tower_id(&self, tower_type: BridgeTowerType) -> ObjectID;
     fn create_scaffolding(&mut self);
     fn remove_scaffolding(&mut self);
+    fn try_remove_scaffolding(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.remove_scaffolding();
+        Ok(())
+    }
     fn is_scaffold_in_motion(&self) -> Bool;
     fn is_scaffold_present(&self) -> Bool;
 }
