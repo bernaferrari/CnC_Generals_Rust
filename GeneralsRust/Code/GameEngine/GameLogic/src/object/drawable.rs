@@ -10,7 +10,7 @@ use crate::common::*;
 use crate::helpers::TheAudio;
 use crate::helpers::{TheGameLogic, TheGlobalData};
 use crate::object::body::body_module::BodyDamageType;
-use crate::object::draw::draw_module::{DrawModule, ObjectDrawInterface};
+use crate::object::draw::draw_module::{DrawModule, ObjectDrawInterface, RGBColor};
 use crate::object::draw::TerrainDecalType;
 use crate::player::ThePlayerList;
 use game_engine::bit_flags::create_model_condition_flags;
@@ -545,6 +545,17 @@ where
 {
     with_draw_module_mut(module, |draw| {
         if let Some(interface) = draw.get_object_draw_interface_mut() {
+            func(interface);
+        }
+    });
+}
+
+fn with_rope_draw_interface_mut<F>(module: &mut dyn Module, func: F)
+where
+    F: FnOnce(&mut dyn crate::object::draw::draw_module::RopeDrawInterface),
+{
+    with_draw_module_mut(module, |draw| {
+        if let Some(interface) = draw.get_rope_draw_interface_mut() {
             func(interface);
         }
     });
@@ -3490,6 +3501,17 @@ pub trait DrawableArcExt {
     fn set_terrain_decal(&self, decal_type: TerrainDecalType);
     fn set_terrain_decal_size(&self, x: Real, y: Real);
     fn set_terrain_decal_fade_target(&self, target: Real, rate: Real);
+    fn init_rope_draw_params(
+        &self,
+        length: Real,
+        width: Real,
+        color: RGBColor,
+        wobble_len: Real,
+        wobble_amp: Real,
+        wobble_rate: Real,
+    );
+    fn set_rope_cur_len(&self, length: Real);
+    fn set_rope_speed(&self, cur_speed: Real, max_speed: Real, accel: Real);
     fn set_model_condition_state(&self, state: ModelConditionFlags);
     fn set_drawable_hidden(&self, hidden: bool);
     fn is_drawable_effectively_hidden(&self) -> bool;
@@ -3596,6 +3618,57 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
     fn set_terrain_decal_fade_target(&self, target: Real, rate: Real) {
         if let Ok(mut guard) = self.write() {
             guard.set_terrain_decal_fade_target(target, rate);
+        }
+    }
+
+    fn init_rope_draw_params(
+        &self,
+        length: Real,
+        width: Real,
+        color: RGBColor,
+        wobble_len: Real,
+        wobble_amp: Real,
+        wobble_rate: Real,
+    ) {
+        if let Ok(guard) = self.read() {
+            for module_handle in guard.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+                module_handle.with_module(|module| {
+                    with_rope_draw_interface_mut(module, |rope| {
+                        rope.init_rope_parms(
+                            length,
+                            width,
+                            &color,
+                            wobble_len,
+                            wobble_amp,
+                            wobble_rate,
+                        );
+                    });
+                });
+            }
+        }
+    }
+
+    fn set_rope_cur_len(&self, length: Real) {
+        if let Ok(guard) = self.read() {
+            for module_handle in guard.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+                module_handle.with_module(|module| {
+                    with_rope_draw_interface_mut(module, |rope| {
+                        rope.set_rope_cur_len(length);
+                    });
+                });
+            }
+        }
+    }
+
+    fn set_rope_speed(&self, cur_speed: Real, max_speed: Real, accel: Real) {
+        if let Ok(guard) = self.read() {
+            for module_handle in guard.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+                module_handle.with_module(|module| {
+                    with_rope_draw_interface_mut(module, |rope| {
+                        rope.set_rope_speed(cur_speed, max_speed, accel);
+                    });
+                });
+            }
         }
     }
 
