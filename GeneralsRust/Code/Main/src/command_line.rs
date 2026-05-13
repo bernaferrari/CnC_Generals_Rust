@@ -65,6 +65,7 @@ pub struct CommandLineArgs {
     pub display_debug_overlay: bool,
     pub integration_diagnostics: bool,
     pub dx_stack_dump: bool,
+    pub smoke_test: bool,
     /// Last explicit startup window mode flag from command line order.
     /// `Some(true)` => windowed, `Some(false)` => fullscreen.
     window_mode_override: Option<bool>,
@@ -102,6 +103,7 @@ impl Default for CommandLineArgs {
             display_debug_overlay: false,
             integration_diagnostics: false,
             dx_stack_dump: false,
+            smoke_test: false,
             window_mode_override: None,
         }
     }
@@ -311,6 +313,14 @@ impl CommandLineArgs {
                     "dx" => {
                         parsed.dx_stack_dump = true;
                         Self::store_option_aliases(&mut parsed.options, &["dx"], &value);
+                    }
+                    "smoke-test" | "smoketest" => {
+                        parsed.smoke_test = true;
+                        Self::store_option_aliases(
+                            &mut parsed.options,
+                            &["smoke-test", "smoketest"],
+                            &value,
+                        );
                     }
                     "buildmapcache" | "buildcache" => {
                         Self::store_option_aliases(
@@ -587,6 +597,10 @@ impl CommandLineArgs {
         self.dx_stack_dump
     }
 
+    pub fn wants_smoke_test(&self) -> bool {
+        self.smoke_test
+    }
+
     /// Emit the C++-style DX stack dump and return immediately.
     pub fn emit_dx_stack_dump(&self) {
         Self::emit_dx_stack_dump_from_args(&self.raw_args);
@@ -646,6 +660,7 @@ impl CommandLineArgs {
         println!("    -benchmark             Run in benchmark mode");
         println!("    -displayDebug          Show the legacy debug/diagnostics overlay");
         println!("    -integrationDiagnostics Enable WW3D integration telemetry bridge (requires feature)");
+        println!("    -smoke-test           Boot to the main menu and exit successfully");
         println!("    -server                Run as dedicated server");
         println!("    -client                Run as client");
         println!("    -port <PORT>           Network port (default: 8086)");
@@ -787,6 +802,16 @@ mod tests {
         let parsed = CommandLineArgs::parse_from_args(args).unwrap();
         assert!(parsed.developer_mode);
         assert!(parsed.no_audio);
+    }
+
+    #[test]
+    fn test_smoke_test_flag_parsing() {
+        let args = vec!["generals".to_string(), "--smoke-test".to_string()];
+
+        let parsed = CommandLineArgs::parse_from_args(args).unwrap();
+        assert!(parsed.wants_smoke_test());
+        assert!(parsed.has_option("smoke-test"));
+        assert!(parsed.has_option("smoketest"));
     }
 
     #[test]
