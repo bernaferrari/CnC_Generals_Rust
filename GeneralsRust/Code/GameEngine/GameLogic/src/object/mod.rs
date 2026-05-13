@@ -2999,9 +2999,11 @@ impl Object {
 
             if let Some(module) = update_module {
                 let mut detonated = false;
-                module.with_module_downcast::<crate::object::behavior::sticky_bomb_update::StickyBombUpdateModule, _, _>(|module| {
-                    module.behavior_mut().detonate();
-                    detonated = true;
+                module.with_module(|module| {
+                    if let Some(sticky_bomb) = module.get_sticky_bomb_control_interface() {
+                        sticky_bomb.detonate();
+                        detonated = true;
+                    }
                 });
                 if detonated {
                     return true;

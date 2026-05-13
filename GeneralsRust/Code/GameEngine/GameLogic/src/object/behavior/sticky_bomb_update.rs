@@ -23,7 +23,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
-    Thing as ModuleThing,
+    StickyBombControlInterface, Thing as ModuleThing,
 };
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
@@ -262,6 +262,38 @@ impl StickyBombUpdate {
         }
     }
 
+    pub fn init_sticky_bomb_by_id(&mut self, target_id: ObjectID, bomber_id: ObjectID) {
+        let target = if target_id == OBJECT_INVALID_ID {
+            None
+        } else {
+            TheGameLogic::find_object_by_id(target_id)
+        };
+        let bomber = if bomber_id == OBJECT_INVALID_ID {
+            None
+        } else {
+            TheGameLogic::find_object_by_id(bomber_id)
+        };
+
+        match (target, bomber) {
+            (Some(target), Some(bomber)) => {
+                if let (Ok(target), Ok(bomber)) = (target.read(), bomber.read()) {
+                    self.init_sticky_bomb(Some(&target), Some(&bomber), None);
+                }
+            }
+            (Some(target), None) => {
+                if let Ok(target) = target.read() {
+                    self.init_sticky_bomb(Some(&target), None, None);
+                }
+            }
+            (None, Some(bomber)) => {
+                if let Ok(bomber) = bomber.read() {
+                    self.init_sticky_bomb(None, Some(&bomber), None);
+                }
+            }
+            (None, None) => self.init_sticky_bomb(None, None, None),
+        }
+    }
+
     /// Get the target object this bomb is attached to
     pub fn get_target(&self) -> ObjectID {
         self.target_id
@@ -463,6 +495,10 @@ impl BehaviorModuleInterface for StickyBombUpdate {
         Some(self)
     }
 
+    fn get_sticky_bomb_control_interface(&mut self) -> Option<&mut dyn StickyBombControlInterface> {
+        Some(self)
+    }
+
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let Some(obj_arc) = self.object.upgrade() else {
             return Ok(());
@@ -486,6 +522,16 @@ impl BehaviorModuleInterface for StickyBombUpdate {
             }
         }
         Ok(())
+    }
+}
+
+impl StickyBombControlInterface for StickyBombUpdate {
+    fn init_sticky_bomb(&mut self, target_id: ObjectID, bomber_id: ObjectID) {
+        self.init_sticky_bomb_by_id(target_id, bomber_id);
+    }
+
+    fn detonate(&mut self) {
+        StickyBombUpdate::detonate(self);
     }
 }
 
@@ -574,6 +620,48 @@ impl Module for StickyBombUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_sticky_bomb_control_interface(&mut self) -> Option<&mut dyn StickyBombControlInterface> {
+        Some(self)
+    }
+}
+
+impl StickyBombControlInterface for StickyBombUpdateModule {
+    fn init_sticky_bomb(&mut self, target_id: ObjectID, bomber_id: ObjectID) {
+        self.behavior.init_sticky_bomb_by_id(target_id, bomber_id);
+    }
+
+    fn detonate(&mut self) {
+        self.behavior.detonate();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sticky_bomb_update_exposes_typed_control_interface() {
+        let data = Arc::new(StickyBombUpdateModuleData::default());
+        let behavior = StickyBombUpdate {
+            object: Weak::new(),
+            module_data: data.clone(),
+            next_call_frame_and_phase: 0,
+            target_id: OBJECT_INVALID_ID,
+            die_frame: 0,
+            next_ping_frame: 0,
+        };
+        let mut module =
+            StickyBombUpdateModule::new(behavior, &AsciiString::from("StickyBombUpdate"), data);
+
+        let control = module
+            .get_sticky_bomb_control_interface()
+            .expect("StickyBombUpdate should expose StickyBombControlInterface");
+        control.detonate();
+        control.init_sticky_bomb(OBJECT_INVALID_ID, OBJECT_INVALID_ID);
+
+        assert_eq!(module.behavior.target_id, OBJECT_INVALID_ID);
     }
 }
 

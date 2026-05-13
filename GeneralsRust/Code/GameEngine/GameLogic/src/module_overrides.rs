@@ -4526,6 +4526,12 @@ impl<T: crate::modules::BehaviorModuleInterface + 'static> Module for GenericBeh
     ) -> Option<&mut dyn game_engine::common::thing::module::ProneControlInterface> {
         self.behavior.get_prone_control_interface()
     }
+
+    fn get_sticky_bomb_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::module::StickyBombControlInterface> {
+        self.behavior.get_sticky_bomb_control_interface()
+    }
 }
 
 impl<T: crate::modules::BehaviorModuleInterface + Snapshotable + 'static> Snapshotable

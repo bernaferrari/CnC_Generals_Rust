@@ -1175,21 +1175,22 @@ impl SpecialAbilityUpdate {
                         Err(_) => None,
                     };
                     if let Some(module) = module {
-                        let _ = module.with_module_downcast::<crate::object::behavior::sticky_bomb_update::StickyBombUpdateModule, _, _>(
-                            |module| {
-                                let update = module.behavior_mut();
-                                let Ok(target_guard) = target.read() else {
-                                    return;
-                                };
-                                let Some(owner_obj) = self.get_object() else {
-                                    return;
-                                };
-                                let Ok(owner_guard) = owner_obj.read() else {
-                                    return;
-                                };
-                                update.init_sticky_bomb(Some(&*target_guard), Some(&*owner_guard), None);
-                            },
-                        );
+                        let target_id = target
+                            .read()
+                            .ok()
+                            .map(|target| target.get_id())
+                            .unwrap_or(INVALID_ID);
+                        let owner_id = self
+                            .get_object()
+                            .and_then(|owner| owner.read().ok().map(|owner| owner.get_id()))
+                            .unwrap_or(INVALID_ID);
+                        module.with_module(|module| {
+                            if let Some(sticky_bomb) =
+                                module.get_sticky_bomb_control_interface()
+                            {
+                                sticky_bomb.init_sticky_bomb(target_id, owner_id);
+                            }
+                        });
                     } else {
                         self.kill_special_objects();
                         return;
@@ -1345,12 +1346,14 @@ impl SpecialAbilityUpdate {
                         if let Some(special_object) = TheGameLogic::find_object_by_id(*id) {
                             if let Ok(guard) = special_object.read() {
                                 if let Some(module) = guard.find_update_module("StickyBombUpdate") {
-                                    let _ = module.with_module_downcast::<crate::object::behavior::sticky_bomb_update::StickyBombUpdateModule, _, _>(
-                                        |module| {
-                                            module.behavior_mut().detonate();
-                                        },
-                                    );
-                                    ok_to_lose_stealth = false;
+                                    module.with_module(|module| {
+                                        if let Some(sticky_bomb) =
+                                            module.get_sticky_bomb_control_interface()
+                                        {
+                                            sticky_bomb.detonate();
+                                            ok_to_lose_stealth = false;
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -1366,21 +1369,22 @@ impl SpecialAbilityUpdate {
                             Err(_) => None,
                         };
                         if let Some(module) = module {
-                            let _ = module.with_module_downcast::<crate::object::behavior::sticky_bomb_update::StickyBombUpdateModule, _, _>(
-                                |module| {
-                                    let update = module.behavior_mut();
-                                    let Ok(target_guard) = target.read() else {
-                                        return;
-                                    };
-                                    let Some(owner_obj) = self.get_object() else {
-                                        return;
-                                    };
-                                    let Ok(owner_guard) = owner_obj.read() else {
-                                        return;
-                                    };
-                                    update.init_sticky_bomb(Some(&*target_guard), Some(&*owner_guard), None);
-                                },
-                            );
+                            let target_id = target
+                                .read()
+                                .ok()
+                                .map(|target| target.get_id())
+                                .unwrap_or(INVALID_ID);
+                            let owner_id = self
+                                .get_object()
+                                .and_then(|owner| owner.read().ok().map(|owner| owner.get_id()))
+                                .unwrap_or(INVALID_ID);
+                            module.with_module(|module| {
+                                if let Some(sticky_bomb) =
+                                    module.get_sticky_bomb_control_interface()
+                                {
+                                    sticky_bomb.init_sticky_bomb(target_id, owner_id);
+                                }
+                            });
                         } else {
                             self.kill_special_objects();
                             return;
