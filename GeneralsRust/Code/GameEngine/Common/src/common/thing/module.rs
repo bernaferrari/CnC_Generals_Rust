@@ -283,6 +283,10 @@ pub trait RadarUpdateInterface {
     fn is_radar_active(&self) -> bool;
 }
 
+pub trait ProjectileStreamDrawInterface {
+    fn projectile_stream_points(&mut self) -> Vec<[f32; 3]>;
+}
+
 pub trait TrainControlInterface {
     fn set_held(&mut self, held: bool);
 }
@@ -405,6 +409,12 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_radar_update_interface(&mut self) -> Option<&mut dyn RadarUpdateInterface> {
+        None
+    }
+
+    fn get_projectile_stream_draw_interface(
+        &mut self,
+    ) -> Option<&mut dyn ProjectileStreamDrawInterface> {
         None
     }
 

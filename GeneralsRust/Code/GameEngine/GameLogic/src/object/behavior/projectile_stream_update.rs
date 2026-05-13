@@ -15,7 +15,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
-    Thing as ModuleThing,
+    ProjectileStreamDrawInterface, Thing as ModuleThing,
 };
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
@@ -255,6 +255,15 @@ impl ProjectileStreamUpdateInterface for ProjectileStreamUpdate {
     }
 }
 
+impl ProjectileStreamDrawInterface for ProjectileStreamUpdate {
+    fn projectile_stream_points(&mut self) -> Vec<[f32; 3]> {
+        self.get_all_points()
+            .into_iter()
+            .map(|point| point.to_array())
+            .collect()
+    }
+}
+
 impl Snapshotable for ProjectileStreamUpdate {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
         Ok(())
@@ -348,6 +357,12 @@ impl Module for ProjectileStreamUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_projectile_stream_draw_interface(
+        &mut self,
+    ) -> Option<&mut dyn ProjectileStreamDrawInterface> {
+        Some(&mut self.behavior)
     }
 }
 
