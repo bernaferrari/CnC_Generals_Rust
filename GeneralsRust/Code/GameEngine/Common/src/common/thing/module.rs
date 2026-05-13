@@ -311,6 +311,11 @@ pub trait StickyBombControlInterface {
     fn set_target_object_id(&mut self, target_id: ObjectID);
 }
 
+pub trait OclUpdateControlInterface {
+    fn reset_timer(&mut self);
+    fn tick_ocl_update(&mut self);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -415,6 +420,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_sticky_bomb_control_interface(&mut self) -> Option<&mut dyn StickyBombControlInterface> {
+        None
+    }
+
+    fn get_ocl_update_control_interface(&mut self) -> Option<&mut dyn OclUpdateControlInterface> {
         None
     }
 }

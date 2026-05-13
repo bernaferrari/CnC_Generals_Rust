@@ -18,7 +18,8 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{
-    Module, ModuleData, NameKeyType, Object as ModuleObject, Thing as ModuleThing,
+    Module, ModuleData, NameKeyType, Object as ModuleObject, OclUpdateControlInterface,
+    Thing as ModuleThing,
 };
 use log::warn;
 use std::any::Any;
@@ -559,6 +560,20 @@ impl Module for OCLUpdateModule {
 
     fn get_module_data(&self) -> &dyn ModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_ocl_update_control_interface(&mut self) -> Option<&mut dyn OclUpdateControlInterface> {
+        Some(self)
+    }
+}
+
+impl OclUpdateControlInterface for OCLUpdateModule {
+    fn reset_timer(&mut self) {
+        OCLUpdateModule::reset_timer(self);
+    }
+
+    fn tick_ocl_update(&mut self) {
+        let _ = OCLUpdateModule::update(self);
     }
 }
 

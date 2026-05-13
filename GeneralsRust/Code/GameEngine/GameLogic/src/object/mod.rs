@@ -10405,12 +10405,11 @@ impl Object {
 
         // Update registered module entries that mirror C++ UpdateModule behavior.
         for module in self.modules_with_interface(ModuleInterfaceType::UPDATE) {
-            module
-                .with_module_downcast::<crate::object::update::ocl_update::OCLUpdateModule, _, _>(
-                    |module| {
-                        let _ = module.update();
-                    },
-                );
+            module.with_module(|module| {
+                if let Some(ocl_update) = module.get_ocl_update_control_interface() {
+                    ocl_update.tick_ocl_update();
+                }
+            });
         }
 
         Ok(())
