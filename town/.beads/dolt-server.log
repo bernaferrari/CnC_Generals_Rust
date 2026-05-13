@@ -18344,3 +18344,7 @@ time="2026-03-14T13:33:17-03:00" level=info msg=NewConnection DisableClientMulti
 time="2026-03-14T13:33:17-03:00" level=info msg=ConnectionClosed connectionID=20
 time="2026-03-14T13:33:17-03:00" level=info msg=NewConnection DisableClientMultiStatements=false connectionID=21
 time="2026-03-14T13:33:17-03:00" level=info msg=ConnectionClosed connectionID=21
+Starting server with Config HP="127.0.0.1:13754"|T="28800000"|R="false"|L="warning"
+time="2026-05-13T17:28:00-03:00" level=warning msg="secure_file_priv is set to \"\", which is insecure."
+time="2026-05-13T17:28:00-03:00" level=warning msg="Any user with GRANT FILE privileges will be able to read any file which the sql-server process can read."
+time="2026-05-13T17:28:00-03:00" level=warning msg="Please consider restarting the server with secure_file_priv set to a safe (or non-existent) directory."

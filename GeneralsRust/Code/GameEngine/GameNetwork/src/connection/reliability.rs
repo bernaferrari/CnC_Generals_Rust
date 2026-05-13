@@ -4,7 +4,7 @@
 //! retransmission, duplicate detection, and ordered delivery.
 
 use crate::commands::sequence_validator::{SequenceValidationResult, SequenceValidator};
-use crate::commands::{NetCommand, NetCommandType};
+use crate::commands::{NetCommand, NetCommandType, GameCommandData};
 use crate::error::{NetworkError, NetworkResult};
 use crate::network_metrics::packet_loss_metrics::{
     CongestionLevel, PacketLossMetrics, PacketLossStats,
@@ -467,8 +467,8 @@ impl ReliabilityLayer {
             metrics.record_packet_received();
         }
 
-        // Check for duplicates
-        if self.config.enable_duplicate_detection {
+        // Check for duplicates (skip nil UUIDs - commands that don't require IDs always get processed)
+        if self.config.enable_duplicate_detection && !command.id.is_nil() {
             let mut detector = self.duplicate_detector.write().await;
             if detector.is_duplicate(command.id) {
                 let mut stats = self.stats.write().await;
@@ -838,14 +838,22 @@ mod tests {
     #[tokio::test]
     async fn test_duplicate_detection() {
         let layer = ReliabilityLayer::new();
-        let command = NetCommand::keep_alive(0);
+        // keep_alive creates nil-UUID commands which bypass duplicate detection,
+        // so use game_command which always generates a real UUID
+        let command = NetCommand::game_command(0, 1, GameCommandData {
+            command_type: 0,
+            target_id: None,
+            position: None,
+            parameters: HashMap::new(),
+            checksum: 0,
+        });
 
         // Process message first time
         let result1 = layer.process_incoming(command.clone()).await.unwrap();
         assert_eq!(result1.len(), 1);
 
-        // Process same message again (duplicate)
-        let result2 = layer.process_incoming(command).await.unwrap();
+        // Process same message again (clone retains the same UUID)
+        let result2 = layer.process_incoming(command.clone()).await.unwrap();
         assert_eq!(result2.len(), 0); // Should be filtered out
 
         let stats = layer.get_stats().await;

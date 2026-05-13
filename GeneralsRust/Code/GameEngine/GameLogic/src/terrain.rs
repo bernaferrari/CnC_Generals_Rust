@@ -2468,7 +2468,7 @@ impl TerrainLogic {
                     .max(bottom_left_y);
 
                 let i_min_x = (min_x / MAP_XY_FACTOR).floor() as i32;
-                let i_min_y = (min_y / MAP_XY_FACTOR).floor() as i32;
+                let _i_min_y = (min_y / MAP_XY_FACTOR).floor() as i32;
                 let i_max_x = (max_x / MAP_XY_FACTOR).floor() as i32;
                 let i_max_y = (max_y / MAP_XY_FACTOR).floor() as i32;
 
@@ -2557,7 +2557,7 @@ impl TerrainLogic {
                 let radius = geom.get_major_radius();
                 let radius_sqr = radius * radius;
                 let i_min_x = ((pos.x - radius) / MAP_XY_FACTOR).floor() as i32;
-                let i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
+                let _i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
                 let i_max_x = ((pos.x + radius) / MAP_XY_FACTOR).floor() as i32;
                 let i_max_y = ((pos.y + radius) / MAP_XY_FACTOR).floor() as i32;
 
@@ -2621,7 +2621,7 @@ impl TerrainLogic {
         }
 
         let i_min_x = ((pos.x - radius) / MAP_XY_FACTOR).floor() as i32;
-        let i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
+        let _i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
         let i_max_x = ((pos.x + radius) / MAP_XY_FACTOR).floor() as i32;
         let i_max_y = ((pos.y + radius) / MAP_XY_FACTOR).floor() as i32;
 
