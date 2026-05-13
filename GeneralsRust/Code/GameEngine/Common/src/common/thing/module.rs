@@ -278,6 +278,10 @@ pub trait TrainControlInterface {
     fn set_held(&mut self, held: bool);
 }
 
+pub trait CleanupHazardControlInterface {
+    fn set_cleanup_area_parameters(&mut self, x: f32, y: f32, z: f32, range: f32);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -350,6 +354,12 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_train_control_interface(&mut self) -> Option<&mut dyn TrainControlInterface> {
+        None
+    }
+
+    fn get_cleanup_hazard_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn CleanupHazardControlInterface> {
         None
     }
 }

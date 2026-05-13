@@ -7,7 +7,6 @@ use super::cooldown::CooldownState;
 use super::targeting::TargetingInfo;
 use super::types::*;
 use crate::common::*;
-use crate::modules::CleanupHazardUpdateInterface;
 
 #[derive(Debug, Clone)]
 pub struct CleanupAreaPowerData {
@@ -68,11 +67,16 @@ impl CleanupAreaPower {
 
         let move_range = self.data.cleanup_move_range;
         let mut applied = false;
-        module.with_module_downcast::<crate::object::behavior::cleanup_hazard_update::CleanupHazardUpdateModule, _, _>(|module| {
-            module
-                .behavior_mut()
-                .set_cleanup_area_parameters(&targeting.position, move_range);
-            applied = true;
+        module.with_module(|module| {
+            if let Some(cleanup_hazard) = module.get_cleanup_hazard_control_interface() {
+                cleanup_hazard.set_cleanup_area_parameters(
+                    targeting.position.x,
+                    targeting.position.y,
+                    targeting.position.z,
+                    move_range,
+                );
+                applied = true;
+            }
         });
 
         if !applied {
