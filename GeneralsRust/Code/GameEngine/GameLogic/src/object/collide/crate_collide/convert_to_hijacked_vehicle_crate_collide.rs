@@ -11,7 +11,6 @@ use crate::common::{
 };
 use crate::helpers::{EvaEvent, TheAudio, TheEva, TheGameLogic, TheRadar};
 use crate::modules::AIUpdateInterfaceExt;
-use crate::object::behavior::hijacker_update::HijackerUpdate;
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as LegacyCrateCollide, CrateCollideModuleData as LegacyCrateCollideModuleData,
 };
@@ -240,24 +239,28 @@ impl ConvertToHijackedVehicleCrateCollide {
             let hijacker_guard = hijacker.read().map_err(|_| GameError::LockError)?;
             let configured = hijacker_guard
                 .find_update_module("HijackerUpdate")
-                .and_then(|module| {
-                    module.with_module_downcast::<HijackerUpdate, _, _>(|hijacker_update| {
-                        hijacker_update.set_target_object(target_id);
-                        hijacker_update.set_update(true);
-                        hijacker_update.set_is_in_vehicle(true);
+                .is_some_and(|module| {
+                    module.with_module(|module| {
+                        module
+                            .get_hijacker_control_interface()
+                            .map(|hijacker_update| {
+                                hijacker_update.configure_hijacked_vehicle(target_id)
+                            })
+                            .is_some()
                     })
-                })
-                .is_some();
+                });
 
             if !configured {
-                let _ = hijacker_guard.with_update_behavior_downcast::<HijackerUpdate, _, _>(
-                    "HijackerUpdate",
-                    |hijacker_update| {
-                        hijacker_update.set_target_object(target_id);
-                        hijacker_update.set_update(true);
-                        hijacker_update.set_is_in_vehicle(true);
-                    },
-                );
+                for behavior in hijacker_guard.get_behavior_modules() {
+                    let Ok(mut behavior) = behavior.lock() else {
+                        continue;
+                    };
+                    let Some(hijacker_update) = behavior.get_hijacker_control_interface() else {
+                        continue;
+                    };
+                    hijacker_update.configure_hijacked_vehicle(target_id);
+                    break;
+                }
             }
         }
 
