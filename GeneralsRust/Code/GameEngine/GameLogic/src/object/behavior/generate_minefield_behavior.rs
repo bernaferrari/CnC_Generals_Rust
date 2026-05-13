@@ -21,7 +21,9 @@ use crate::upgrade::center::THE_UPGRADE_CENTER;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, PayloadTargetControlInterface,
+};
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
@@ -1241,6 +1243,16 @@ impl GenerateMinefieldBehavior {
     }
 }
 
+impl PayloadTargetControlInterface for GenerateMinefieldBehavior {
+    fn set_payload_target_position(&mut self, target: [f32; 3]) {
+        self.set_minefield_target(Some(Coord3D {
+            x: target[0],
+            y: target[1],
+            z: target[2],
+        }));
+    }
+}
+
 impl UpdateModuleInterface for GenerateMinefieldBehavior {
     fn update_simple(&mut self) -> UpdateSleepTime {
         match self.update(crate::helpers::TheGameLogic::get_frame()) {
@@ -1419,6 +1431,12 @@ impl Module for GenerateMinefieldBehaviorModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_payload_target_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn PayloadTargetControlInterface> {
+        Some(&mut self.behavior)
     }
 }
 

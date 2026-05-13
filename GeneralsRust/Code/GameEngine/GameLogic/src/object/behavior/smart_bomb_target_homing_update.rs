@@ -19,7 +19,7 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
     Module, ModuleData as EngineModuleData, NameKeyType, Object as ModuleObject,
-    Thing as ModuleThing,
+    PayloadTargetControlInterface, Thing as ModuleThing,
 };
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
@@ -202,6 +202,16 @@ impl SmartBombTargetHomingUpdateInterface for SmartBombTargetHomingUpdate {
     }
 }
 
+impl PayloadTargetControlInterface for SmartBombTargetHomingUpdate {
+    fn set_payload_target_position(&mut self, target: [f32; 3]) {
+        self.set_target_position(&Coord3D {
+            x: target[0],
+            y: target[1],
+            z: target[2],
+        });
+    }
+}
+
 pub struct SmartBombTargetHomingUpdateFactory;
 impl SmartBombTargetHomingUpdateFactory {
     pub fn create_behavior(
@@ -274,6 +284,12 @@ impl Module for SmartBombTargetHomingUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_payload_target_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn PayloadTargetControlInterface> {
+        Some(&mut self.behavior)
     }
 }
 

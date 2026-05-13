@@ -21,10 +21,6 @@ use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt,
     DeliverPayloadAIUpdateInterface,
 };
-use crate::object::behavior::{
-    generate_minefield_behavior::GenerateMinefieldBehavior,
-    smart_bomb_target_homing_update::SmartBombTargetHomingUpdate,
-};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::state_machine::StateReturnType;
@@ -853,24 +849,32 @@ impl DeliverPayloadAIUpdate {
                         if let Some(module) =
                             item_guard.find_update_module("GenerateMinefieldBehavior")
                         {
-                            let _ = module.with_module_downcast::<
-                                crate::object::behavior::generate_minefield_behavior::GenerateMinefieldBehaviorModule,
-                                _,
-                                _,
-                            >(|module| {
-                                module.behavior_mut().set_minefield_target(Some(self.move_to_pos));
+                            module.with_module(|module| {
+                                if let Some(target_control) =
+                                    module.get_payload_target_control_interface()
+                                {
+                                    target_control.set_payload_target_position([
+                                        self.move_to_pos.x,
+                                        self.move_to_pos.y,
+                                        self.move_to_pos.z,
+                                    ]);
+                                }
                             });
                         }
 
                         if let Some(module) =
                             item_guard.find_update_module("SmartBombTargetHomingUpdate")
                         {
-                            let _ = module.with_module_downcast::<
-                                crate::object::behavior::smart_bomb_target_homing_update::SmartBombTargetHomingUpdateModule,
-                                _,
-                                _,
-                            >(|module| {
-                                module.behavior_mut().set_target_position(&self.move_to_pos);
+                            module.with_module(|module| {
+                                if let Some(target_control) =
+                                    module.get_payload_target_control_interface()
+                                {
+                                    target_control.set_payload_target_position([
+                                        self.move_to_pos.x,
+                                        self.move_to_pos.y,
+                                        self.move_to_pos.z,
+                                    ]);
+                                }
                             });
                         }
                     }
