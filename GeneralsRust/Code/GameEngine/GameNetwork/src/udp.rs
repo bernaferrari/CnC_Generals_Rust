@@ -185,7 +185,7 @@ impl Udp {
         let sock2 = unsafe { socket2::Socket::from_raw_fd(fd) };
         let result = sock2.set_recv_buffer_size(bytes);
         // Prevent closing the fd when sock2 is dropped
-        sock2.into_raw_fd();
+        let _ = sock2.into_raw_fd();
         result.is_ok()
     }
 
@@ -207,7 +207,7 @@ impl Udp {
         let sock2 = unsafe { socket2::Socket::from_raw_fd(fd) };
         let result = sock2.set_send_buffer_size(bytes);
         // Prevent closing the fd when sock2 is dropped
-        sock2.into_raw_fd();
+        let _ = sock2.into_raw_fd();
         result.is_ok()
     }
 
@@ -229,7 +229,7 @@ impl Udp {
         let sock2 = unsafe { socket2::Socket::from_raw_fd(fd) };
         let result = sock2.recv_buffer_size().unwrap_or(0);
         // Prevent closing the fd when sock2 is dropped
-        sock2.into_raw_fd();
+        let _ = sock2.into_raw_fd();
         result as i32
     }
 
@@ -251,7 +251,7 @@ impl Udp {
         let sock2 = unsafe { socket2::Socket::from_raw_fd(fd) };
         let result = sock2.send_buffer_size().unwrap_or(0);
         // Prevent closing the fd when sock2 is dropped
-        sock2.into_raw_fd();
+        let _ = sock2.into_raw_fd();
         result as i32
     }
 
