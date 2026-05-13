@@ -289,9 +289,11 @@ pub trait ProjectileStreamDrawInterface {
 
 pub trait BridgeControlInterface {
     fn tower_ids(&self) -> [ObjectID; 4];
+    fn remove_scaffolding(&mut self) -> Result<(), String>;
 }
 
 pub trait BridgeTowerControlInterface {
+    fn bridge_id(&self) -> ObjectID;
     fn set_bridge_id(&mut self, bridge_id: Option<ObjectID>);
     fn set_tower_type_index(&mut self, tower_type_index: usize);
 }

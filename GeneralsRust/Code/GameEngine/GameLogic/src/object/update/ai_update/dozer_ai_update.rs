@@ -1215,18 +1215,13 @@ impl DozerAIUpdate {
     }
 
     fn get_bridge_id_for_tower(tower: &Object) -> ObjectID {
-        let mut bridge_id = INVALID_ID;
         for module_handle in tower.behavior_modules() {
-            let matched = module_handle
-                .with_module_downcast::<
-                    crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule,
-                    _,
-                    _,
-                >(|tower_module| {
-                    bridge_id = tower_module.behavior_mut().get_bridge_id();
-                })
-                .is_some();
-            if matched {
+            let bridge_id = module_handle.with_module(|module| {
+                module
+                    .get_bridge_tower_control_interface()
+                    .map(|tower| tower.bridge_id())
+            });
+            if let Some(bridge_id) = bridge_id {
                 return bridge_id;
             }
         }
@@ -1251,16 +1246,12 @@ impl DozerAIUpdate {
         };
         let mut bridge_id: Option<ObjectID> = None;
         for module_handle in tower_guard.behavior_modules() {
-            let matched = module_handle
-                .with_module_downcast::<
-                    crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule,
-                    _,
-                    _,
-                >(|tower_module| {
-                    bridge_id = Some(tower_module.behavior_mut().get_bridge_id());
-                })
-                .is_some();
-            if matched {
+            bridge_id = module_handle.with_module(|module| {
+                module
+                    .get_bridge_tower_control_interface()
+                    .map(|tower| tower.bridge_id())
+            });
+            if bridge_id.is_some() {
                 break;
             }
         }
@@ -1287,21 +1278,20 @@ impl DozerAIUpdate {
         };
         let mut removed = false;
         for module_handle in bridge_guard.behavior_modules() {
-            let matched = module_handle
-                .with_module_downcast::<
-                    crate::object::behavior::bridge_behavior::BridgeBehaviorModule,
-                    _,
-                    _,
-                >(|bridge_module| {
-                    if let Err(err) = bridge_module.behavior_mut().remove_scaffolding() {
+            let matched = module_handle.with_module(|module| {
+                if let Some(bridge) = module.get_bridge_control_interface() {
+                    if let Err(err) = bridge.remove_scaffolding() {
                         log::debug!(
                             "DozerAIUpdate::remove_bridge_scaffolding failed for bridge {}: {}",
                             bridge_id,
                             err
                         );
                     }
-                })
-                .is_some();
+                    true
+                } else {
+                    false
+                }
+            });
             if matched {
                 removed = true;
                 break;
@@ -1396,28 +1386,16 @@ impl DozerAIUpdate {
 
     fn get_bridge_tower_ids(target: &Object) -> Vec<ObjectID> {
         for module_handle in target.behavior_modules() {
-            let mut ids = Vec::new();
-            let matched = module_handle
-                .with_module_downcast::<
-                    crate::object::behavior::bridge_behavior::BridgeBehaviorModule,
-                    _,
-                    _,
-                >(|bridge_module| {
-                    let bridge = bridge_module.behavior_mut();
-                    for tower_type in [
-                        BridgeTowerType::North,
-                        BridgeTowerType::South,
-                        BridgeTowerType::East,
-                        BridgeTowerType::West,
-                    ] {
-                        let id = bridge.get_tower_id(tower_type);
-                        if id != INVALID_ID {
-                            ids.push(id);
-                        }
-                    }
+            let ids = module_handle.with_module(|module| {
+                module.get_bridge_control_interface().map(|bridge| {
+                    bridge
+                        .tower_ids()
+                        .into_iter()
+                        .filter(|id| *id != INVALID_ID)
+                        .collect::<Vec<_>>()
                 })
-                .is_some();
-            if matched {
+            });
+            if let Some(ids) = ids {
                 return ids;
             }
         }
