@@ -397,6 +397,10 @@ impl BridgeTowerBehaviorInterface for BridgeTowerBehavior {
 }
 
 impl BridgeTowerControlInterface for BridgeTowerBehavior {
+    fn bridge_id(&self) -> ObjectID {
+        self.bridge_id
+    }
+
     fn set_bridge_id(&mut self, bridge_id: Option<ObjectID>) {
         self.bridge_id = bridge_id.unwrap_or(OBJECT_INVALID_ID);
     }

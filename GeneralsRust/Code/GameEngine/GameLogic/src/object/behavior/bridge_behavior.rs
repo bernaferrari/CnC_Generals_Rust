@@ -2006,6 +2006,10 @@ impl BridgeControlInterface for BridgeBehavior {
     fn tower_ids(&self) -> [ObjectID; BRIDGE_MAX_TOWERS] {
         self.tower_id
     }
+
+    fn remove_scaffolding(&mut self) -> Result<(), String> {
+        BridgeBehavior::remove_scaffolding(self).map_err(|err| err.to_string())
+    }
 }
 
 // Implement BehaviorModuleInterface
