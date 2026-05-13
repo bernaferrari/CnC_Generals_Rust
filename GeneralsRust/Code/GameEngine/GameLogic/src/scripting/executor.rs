@@ -4696,8 +4696,10 @@ impl ScriptActionDispatcher {
             let mut supply_value = i32::MAX;
             if let Some(module) = obj.find_update_module("SupplyWarehouseDockUpdate") {
                 let mut boxes = None;
-                module.with_module_downcast::<crate::object::production::SupplyWarehouseDockUpdateModule, _, _>(|module| {
-                    boxes = Some(module.behavior().get_boxes_stored());
+                module.with_module(|module| {
+                    if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
+                        boxes = Some(warehouse.boxes_stored());
+                    }
                 });
                 if let Some(boxes) = boxes {
                     supply_value = boxes.saturating_mul(base_box_value);
@@ -11983,8 +11985,10 @@ impl ScriptActionDispatcher {
                 return Ok(ScriptActionResult::Success);
             };
 
-            module.with_module_downcast::<crate::object::production::SupplyWarehouseDockUpdateModule, _, _>(|module| {
-                module.behavior_mut().set_cash_value(value);
+            module.with_module(|module| {
+                if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
+                    warehouse.set_cash_value(value);
+                }
             });
         }
 
@@ -17913,8 +17917,10 @@ impl ScriptConditionEvaluator {
                     continue;
                 };
                 let mut boxes = None;
-                module.with_module_downcast::<crate::object::production::SupplyWarehouseDockUpdateModule, _, _>(|module| {
-                    boxes = Some(module.behavior().get_boxes_stored());
+                module.with_module(|module| {
+                    if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
+                        boxes = Some(warehouse.boxes_stored());
+                    }
                 });
                 let Some(boxes) = boxes else {
                     continue;
