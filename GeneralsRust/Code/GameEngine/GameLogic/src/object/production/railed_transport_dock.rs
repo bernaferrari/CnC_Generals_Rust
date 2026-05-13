@@ -23,9 +23,18 @@ use std::sync::{Arc, RwLock};
 const UNLOAD_ALL: Int = -1;
 const CLOSE_ENOUGH_PULL: Real = 6.0;
 const CLOSE_ENOUGH_PUSH: Real = 3.0;
+const MIN_NORMALIZE_LENGTH_SQUARED: Real = 0.0001;
 
 fn wrap_err(message: String) -> Box<dyn std::error::Error + Send + Sync> {
     std::io::Error::new(std::io::ErrorKind::Other, message).into()
+}
+
+fn safe_normalized(v: Coord3D) -> Coord3D {
+    if v.length_squared() <= MIN_NORMALIZE_LENGTH_SQUARED {
+        Coord3D::ZERO
+    } else {
+        v.normalize()
+    }
 }
 
 /// Railed transport dock configuration data
@@ -170,7 +179,7 @@ impl RailedTransportDockUpdate {
                 dock_pos.y - docker_pos.y,
                 dock_pos.z - docker_pos.z,
             );
-            v = v.normalize();
+            v = safe_normalized(v);
             v.x *= self.pull_inside_distance_per_frame;
             v.y *= self.pull_inside_distance_per_frame;
             v.x += docker_pos.x;
@@ -241,7 +250,7 @@ impl RailedTransportDockUpdate {
                 dest_pos.y - unloader_pos.y,
                 dest_pos.z - unloader_pos.z,
             );
-            v = v.normalize();
+            v = safe_normalized(v);
             v.x *= self.push_outside_distance_per_frame;
             v.y *= self.push_outside_distance_per_frame;
             v.x += unloader_pos.x;
@@ -762,6 +771,16 @@ mod tests {
         assert_eq!(data.pull_inside_duration_frames, 0);
         assert_eq!(data.push_outside_duration_frames, 0);
         assert_eq!(data.tolerance_distance, 50.0);
+    }
+
+    #[test]
+    fn safe_normalized_keeps_zero_length_vectors_finite() {
+        assert_eq!(safe_normalized(Coord3D::ZERO), Coord3D::ZERO);
+
+        let unit = safe_normalized(Coord3D::new(3.0, 4.0, 0.0));
+        assert!(unit.x.is_finite());
+        assert!(unit.y.is_finite());
+        assert!((unit.length() - 1.0).abs() < f32::EPSILON);
     }
 
     #[test]
