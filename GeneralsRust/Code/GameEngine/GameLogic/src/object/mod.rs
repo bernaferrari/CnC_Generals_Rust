@@ -9187,16 +9187,44 @@ impl Object {
         Ok(Vec::new())
     }
 
-    /// Check if has sufficient power
-    pub fn has_sufficient_power(&self, _amount: f32) -> bool {
-        // Implementation would check power system
-        true // Simplified
+    /// Check if the controlling player's power grid can cover an additional demand.
+    ///
+    /// C++ callers ultimately query `Player::getEnergy()->hasSufficientPower()`.
+    /// The optional amount is a Rust-side helper extension for callers that want
+    /// to test a prospective drain before applying it.
+    pub fn has_sufficient_power(&self, amount: f32) -> bool {
+        let Some(player) = self.get_controlling_player() else {
+            return false;
+        };
+        let Ok(player_guard) = player.read() else {
+            return false;
+        };
+        let energy = player_guard.get_energy();
+        if energy.is_power_sabotaged() {
+            return false;
+        }
+
+        let requested = amount.max(0.0).ceil() as Int;
+        energy.get_power() >= requested
     }
 
     /// Drain power
-    pub fn drain_power(&mut self, _amount: i32) -> bool {
-        // Implementation would interact with power system
-        true // Simplified
+    pub fn drain_power(&mut self, amount: i32) -> bool {
+        if amount <= 0 {
+            return true;
+        }
+        if !self.has_sufficient_power(amount as f32) {
+            return false;
+        }
+
+        let Some(player) = self.get_controlling_player() else {
+            return false;
+        };
+        let Ok(mut player_guard) = player.write() else {
+            return false;
+        };
+        player_guard.adjust_power(-amount, true);
+        true
     }
 
     /// Enable/disable stealth capability.
@@ -12684,6 +12712,39 @@ mod tests {
         let tint_flags = Object::flags_requiring_disabled_tint(flags);
         assert!(tint_flags.test(DisabledType::DisabledEmp));
         assert!(!tint_flags.test(DisabledType::DisabledUnmanned));
+    }
+
+    #[test]
+    fn object_power_helpers_use_controlling_player_energy() {
+        let _guard = test_state_lock();
+        player_list().write().unwrap().clear();
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut player_guard = player.write().unwrap();
+            player_guard.adjust_power(10, true);
+            player_guard.adjust_power(-4, true);
+        }
+        player_list().write().unwrap().add_player(player);
+
+        let team = Arc::new(RwLock::new(Team::new("PowerTeam".into(), 77)));
+        team.write().unwrap().set_controlling_player_id(Some(0));
+
+        let mut object = Object::new_test(707, 100.0);
+        object.set_team(Some(team)).unwrap();
+
+        assert!(object.has_sufficient_power(6.0));
+        assert!(!object.has_sufficient_power(7.0));
+        assert!(object.drain_power(3));
+        assert!(object.has_sufficient_power(3.0));
+        assert!(!object.has_sufficient_power(4.0));
+        assert!(!object.drain_power(4));
+
+        player_list().write().unwrap().clear();
+
+        let mut unowned = Object::new_test(708, 100.0);
+        assert!(!unowned.has_sufficient_power(0.0));
+        assert!(!unowned.drain_power(1));
     }
 }
 
