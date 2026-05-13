@@ -103,6 +103,11 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     ) -> Option<&mut dyn game_engine::common::thing::module::StickyBombControlInterface> {
         None
     }
+    fn get_hijacker_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::module::HijackerControlInterface> {
+        None
+    }
     fn get_topple_control_interface(&mut self) -> Option<&mut dyn ToppleControlInterface> {
         None
     }
