@@ -354,6 +354,10 @@ pub trait StealthDisguiseControlInterface {
     fn disguise_as_template(&mut self, template_name: Option<String>, current_frame: u32);
 }
 
+pub trait PayloadTargetControlInterface {
+    fn set_payload_target_position(&mut self, target: [f32; 3]);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -498,6 +502,12 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     fn get_stealth_disguise_control_interface(
         &mut self,
     ) -> Option<&mut dyn StealthDisguiseControlInterface> {
+        None
+    }
+
+    fn get_payload_target_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn PayloadTargetControlInterface> {
         None
     }
 }
