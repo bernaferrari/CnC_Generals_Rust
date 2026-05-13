@@ -987,28 +987,23 @@ impl RailroadBehavior {
                 None
             }
         } else {
-            ThePartitionManager::get()
-                .and_then(|pm| {
-                    pm.get_closest_object(&my_hitch_loc, max_radius, |candidate| {
-                        if candidate.get_id() == obj_guard.get_id() {
-                            return false;
-                        }
-                        let Some(module) = candidate.find_update_module("RailroadBehavior") else {
-                            return false;
-                        };
-                        module
-                            .with_module_downcast::<
-                                crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                                _,
-                                _,
-                            >(|module| {
-                                !module.behavior_mut().has_ever_been_hitched
-                                    && candidate.get_relationship_to(&*obj_guard)
-                                        == ObjectRelationship::Ally
-                            })
-                            .unwrap_or(false)
+            ThePartitionManager::get().and_then(|pm| {
+                pm.get_closest_object(&my_hitch_loc, max_radius, |candidate| {
+                    if candidate.get_id() == obj_guard.get_id() {
+                        return false;
+                    }
+                    let Some(module) = candidate.find_update_module("RailroadBehavior") else {
+                        return false;
+                    };
+                    module.with_module(|module| {
+                        module.get_train_control_interface().is_some_and(|train| {
+                            !train.has_ever_been_hitched()
+                                && candidate.get_relationship_to(&*obj_guard)
+                                    == ObjectRelationship::Ally
+                        })
                     })
                 })
+            })
         };
 
         let mut template_iter = self.module_data.carriage_template_names.iter();
@@ -1189,17 +1184,13 @@ impl RailroadBehavior {
                         return false;
                     }
                     if let Some(module) = candidate.find_update_module("RailroadBehavior") {
-                        return module
-                            .with_module_downcast::<
-                                crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                                _,
-                                _,
-                            >(|module| {
-                                !module.behavior_mut().has_ever_been_hitched
+                        return module.with_module(|module| {
+                            module.get_train_control_interface().is_some_and(|train| {
+                                !train.has_ever_been_hitched()
                                     && candidate.get_relationship_to(&*obj_guard)
                                         == ObjectRelationship::Ally
                             })
-                            .unwrap_or(false);
+                        });
                     }
                     false
                 })
@@ -2064,6 +2055,10 @@ impl Module for RailroadBehaviorModule {
 }
 
 impl TrainControlInterface for RailroadBehaviorModule {
+    fn has_ever_been_hitched(&self) -> bool {
+        self.behavior.has_ever_been_hitched
+    }
+
     fn set_held(&mut self, held: Bool) {
         self.behavior.set_held(held);
     }
