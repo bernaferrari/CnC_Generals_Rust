@@ -331,38 +331,16 @@ impl DieModuleInterface for RebuildHoleExposeDie {
                     }
                 }
 
-                let mut started = false;
-                for module_handle in hole.behavior_modules() {
-                    let matched = module_handle.with_module_downcast::<
-                        crate::object::behavior::rebuild_hole_behavior::RebuildHoleBehaviorModule,
-                        _,
-                        _,
-                    >(|rebuild_module| {
-                        RebuildHoleBehaviorInterface::start_rebuild_process(
-                            rebuild_module.behavior_mut(),
+                for behavior in hole.get_behavior_modules() {
+                    let Ok(mut behavior_guard) = behavior.lock() else {
+                        continue;
+                    };
+                    if let Some(rebuild) = behavior_guard.get_rebuild_hole_behavior_interface() {
+                        rebuild.start_rebuild_process(
                             Arc::clone(object.get_template()),
                             object.get_id(),
                         );
-                    });
-                    if matched.is_some() {
-                        started = true;
                         break;
-                    }
-                }
-
-                if !started {
-                    for behavior in hole.get_behavior_modules() {
-                        let Ok(mut behavior_guard) = behavior.lock() else {
-                            continue;
-                        };
-                        if let Some(rebuild) = behavior_guard.get_rebuild_hole_behavior_interface()
-                        {
-                            rebuild.start_rebuild_process(
-                                Arc::clone(object.get_template()),
-                                object.get_id(),
-                            );
-                            break;
-                        }
                     }
                 }
             }
