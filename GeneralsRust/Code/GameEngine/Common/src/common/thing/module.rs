@@ -287,6 +287,15 @@ pub trait ProjectileStreamDrawInterface {
     fn projectile_stream_points(&mut self) -> Vec<[f32; 3]>;
 }
 
+pub trait BridgeControlInterface {
+    fn tower_ids(&self) -> [ObjectID; 4];
+}
+
+pub trait BridgeTowerControlInterface {
+    fn set_bridge_id(&mut self, bridge_id: Option<ObjectID>);
+    fn set_tower_type_index(&mut self, tower_type_index: usize);
+}
+
 pub trait TrainControlInterface {
     fn set_held(&mut self, held: bool);
 }
@@ -415,6 +424,16 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     fn get_projectile_stream_draw_interface(
         &mut self,
     ) -> Option<&mut dyn ProjectileStreamDrawInterface> {
+        None
+    }
+
+    fn get_bridge_control_interface(&mut self) -> Option<&mut dyn BridgeControlInterface> {
+        None
+    }
+
+    fn get_bridge_tower_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn BridgeTowerControlInterface> {
         None
     }
 
