@@ -29,7 +29,9 @@ use crate::player::player_list;
 use crate::system::disguise_manager::get_disguise_manager;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData, NameKeyType, StealthDisguiseControlInterface,
+};
 use log::{debug, trace, warn};
 use std::f32::consts::PI;
 use std::sync::{Arc, Mutex};
@@ -1147,6 +1149,20 @@ impl Module for StealthUpdate {
             "Stealth update initialized for object {}, innate={}, disguise={}",
             self.object_id, self.data.innate_stealth, self.data.team_disguised
         );
+    }
+
+    fn get_stealth_disguise_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn StealthDisguiseControlInterface> {
+        Some(self)
+    }
+}
+
+impl StealthDisguiseControlInterface for StealthUpdate {
+    fn disguise_as_template(&mut self, template_name: Option<String>, current_frame: u32) {
+        if let Ok(mut controller) = self.controller.lock() {
+            controller.disguise_as_object(template_name, current_frame);
+        }
     }
 }
 

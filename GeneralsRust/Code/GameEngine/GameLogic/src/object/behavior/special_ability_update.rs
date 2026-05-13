@@ -1410,18 +1410,16 @@ impl SpecialAbilityUpdate {
                 if let Some(template_name) = template_name {
                     if let Ok(obj_guard) = obj.read() {
                         if let Some(module) = obj_guard.find_update_module("StealthUpdate") {
-                            let _ = module.with_module_downcast::<crate::object::update::stealth_update::StealthUpdate, _, _>(
-                                |module| {
-                                    let controller_arc = module.get_controller();
-                                    let controller_lock = controller_arc.lock();
-                                    if let Ok(mut controller) = controller_lock {
-                                        controller.disguise_as_object(
-                                            Some(template_name),
-                                            TheGameLogic::get_frame(),
-                                        );
-                                    }
-                                },
-                            );
+                            module.with_module(|module| {
+                                if let Some(disguise) =
+                                    module.get_stealth_disguise_control_interface()
+                                {
+                                    disguise.disguise_as_template(
+                                        Some(template_name),
+                                        TheGameLogic::get_frame(),
+                                    );
+                                }
+                            });
                         }
                     }
                 }
