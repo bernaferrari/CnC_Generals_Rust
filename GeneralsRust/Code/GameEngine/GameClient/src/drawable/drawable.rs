@@ -2844,8 +2844,10 @@ impl BasicDrawable {
             return;
         };
 
-        // C++ checks obj->testWeaponSetFlag(WEAPONSET_CARBOMB) first
-        if obj_guard.test_weapon_set_flag(gamelogic::weapon::WeaponSetType::CarBomb) {
+        // C++ checks both WEAPONSET_CARBOMB and OBJECT_STATUS_IS_CARBOMB.
+        if obj_guard.test_weapon_set_flag(gamelogic::weapon::WeaponSetType::CarBomb)
+            && obj_guard.test_status(gamelogic::common::ObjectStatusTypes::IsCarBomb)
+        {
             self.overlay_data.show_bombed = true;
             self.overlay_data.bomb_type = 3; // car bomb
             return;
@@ -5743,6 +5745,44 @@ mod tests {
         let loco = drawable.get_loco_info().unwrap();
         assert_near(loco.acceleration_pitch_rate, -2.0);
         assert_near(loco.acceleration_roll_rate, 0.0);
+
+        OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
+    fn draw_bombed_requires_car_bomb_status_for_car_bomb_icon() {
+        use gamelogic::common::{ObjectStatusMaskType, ObjectStatusTypes};
+        use gamelogic::object::Object;
+        use gamelogic::weapon::WeaponSetType;
+        use std::sync::{Arc, RwLock};
+
+        let object_id = 900_002;
+        let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
+        object
+            .write()
+            .unwrap()
+            .set_weapon_set_flag(WeaponSetType::CarBomb);
+        OBJECT_REGISTRY.register_object(object_id, &object);
+
+        let mut drawable = BasicDrawable::new(DrawableId(2));
+        drawable.set_object_id(Some(object_id));
+        drawable.overlay_data.show_bombed = true;
+        drawable.overlay_data.bomb_type = 3;
+
+        drawable.draw_bombed(&IRegion2D::default());
+
+        assert!(!drawable.overlay_data.show_bombed);
+        assert_eq!(drawable.overlay_data.bomb_type, 0);
+
+        object.write().unwrap().set_status(
+            ObjectStatusMaskType::from_status(ObjectStatusTypes::IsCarBomb),
+            true,
+        );
+
+        drawable.draw_bombed(&IRegion2D::default());
+
+        assert!(drawable.overlay_data.show_bombed);
+        assert_eq!(drawable.overlay_data.bomb_type, 3);
 
         OBJECT_REGISTRY.unregister_object(object_id);
     }
