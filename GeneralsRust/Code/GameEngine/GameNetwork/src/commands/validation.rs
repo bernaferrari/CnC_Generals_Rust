@@ -264,10 +264,10 @@ impl CommandValidator {
             self.validate_command(command)?;
         }
 
-        // Check for duplicate command IDs
+        // Check for duplicate command IDs (ignore nil UUIDs for commands that don't require IDs)
         let mut seen_ids = HashSet::new();
         for command in commands {
-            if !seen_ids.insert(command.id) {
+            if !command.id.is_nil() && !seen_ids.insert(command.id) {
                 return Err(NetworkError::invalid_command(
                     "duplicate command ID in frame",
                 ));
