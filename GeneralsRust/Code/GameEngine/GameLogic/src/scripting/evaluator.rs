@@ -744,15 +744,13 @@ impl ScriptEvaluator {
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
-                    if obj_guard.is_effectively_dead() {
-                        continue;
-                    }
                     if types.contains_template(Some(obj_guard.get_template())) {
                         if obj_guard.is_inside_trigger(&trigger) {
-                            // C++ allows crates even though they are "dead"
-                            if !obj_guard.is_kind_of(KindOf::Inert)
-                                || obj_guard.is_kind_of(KindOf::Crate)
-                            {
+                            if Self::counts_for_unit_type_area_condition(
+                                obj_guard.is_effectively_dead(),
+                                obj_guard.is_kind_of(KindOf::Inert),
+                                obj_guard.is_kind_of(KindOf::Crate),
+                            ) {
                                 count += 1;
                             }
                         }
@@ -2018,6 +2016,14 @@ impl ScriptEvaluator {
             return false;
         }
         !obj.is_kind_of(KindOf::Inert)
+    }
+
+    fn counts_for_unit_type_area_condition(
+        is_effectively_dead: bool,
+        is_inert: bool,
+        is_crate: bool,
+    ) -> bool {
+        !(is_effectively_dead || is_inert) || is_crate
     }
 
     fn is_object_inside_trigger(obj: &crate::object::Object, trigger: &PolygonTrigger) -> bool {
@@ -4943,6 +4949,24 @@ mod tests {
             0,
             "C++ withdraws up to available money for negative give-money actions"
         );
+    }
+
+    #[test]
+    fn unit_type_area_condition_counts_dead_or_inert_crates_like_cxx() {
+        assert!(
+            ScriptEvaluator::counts_for_unit_type_area_condition(true, false, true),
+            "C++ includes crates even when they are effectively dead"
+        );
+        assert!(
+            ScriptEvaluator::counts_for_unit_type_area_condition(false, true, true),
+            "C++ includes crates even when they are inert"
+        );
+        assert!(!ScriptEvaluator::counts_for_unit_type_area_condition(
+            true, false, false
+        ));
+        assert!(!ScriptEvaluator::counts_for_unit_type_area_condition(
+            false, true, false
+        ));
     }
 
     #[test]
