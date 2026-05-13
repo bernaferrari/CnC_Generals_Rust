@@ -109,13 +109,11 @@ impl StealthBehavior {
 
         self.power_drain_accumulator += delta_time;
         if self.power_drain_accumulator >= 1.0 {
-            // Drain power every second
-            // Assuming object has power module or interface
-            // For now, assume always sufficient power if no power system connected
             self.power_drain_accumulator = 0.0;
-            return true;
         }
-        true
+
+        !object.is_disabled_by_type(DisabledType::DisabledUnderpowered)
+            && !object.is_disabled_by_type(DisabledType::DisabledScriptUnderpowered)
     }
 
     async fn update_detection(&mut self, _object: &mut Object) -> GameLogicResult<bool> {
@@ -134,6 +132,67 @@ impl StealthBehavior {
         }
 
         Ok(false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::DefaultThingTemplate;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn required_power_blocks_stealth_when_object_is_underpowered() {
+        let template = Arc::new(DefaultThingTemplate::default());
+        let object = Object::new(template, ObjectStatusMaskType::none(), None)
+            .expect("test object should construct");
+        let mut object = object
+            .write()
+            .expect("test object lock should be available");
+        object.set_disabled(DisabledType::DisabledUnderpowered);
+
+        let mut behavior = StealthBehavior::with_config(StealthConfig {
+            requires_power: true,
+            ..StealthConfig::default()
+        });
+
+        assert!(!behavior.update_power(&mut object, 1.0).await);
+    }
+
+    #[tokio::test]
+    async fn required_power_blocks_stealth_when_script_underpowered() {
+        let template = Arc::new(DefaultThingTemplate::default());
+        let object = Object::new(template, ObjectStatusMaskType::none(), None)
+            .expect("test object should construct");
+        let mut object = object
+            .write()
+            .expect("test object lock should be available");
+        object.set_disabled(DisabledType::DisabledScriptUnderpowered);
+
+        let mut behavior = StealthBehavior::with_config(StealthConfig {
+            requires_power: true,
+            ..StealthConfig::default()
+        });
+
+        assert!(!behavior.update_power(&mut object, 1.0).await);
+    }
+
+    #[tokio::test]
+    async fn optional_power_ignores_underpowered_disable() {
+        let template = Arc::new(DefaultThingTemplate::default());
+        let object = Object::new(template, ObjectStatusMaskType::none(), None)
+            .expect("test object should construct");
+        let mut object = object
+            .write()
+            .expect("test object lock should be available");
+        object.set_disabled(DisabledType::DisabledUnderpowered);
+
+        let mut behavior = StealthBehavior::with_config(StealthConfig {
+            requires_power: false,
+            ..StealthConfig::default()
+        });
+
+        assert!(behavior.update_power(&mut object, 1.0).await);
     }
 }
 
