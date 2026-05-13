@@ -1928,26 +1928,24 @@ impl Drawable {
         start_index: usize,
         max_bones: usize,
     ) -> Vec<Matrix3D> {
-        use crate::object::draw::draw_module::ObjectDrawInterface;
-
         let condition = self.model_conditions;
         let mut positions = vec![Coord3D::origin(); max_bones];
         let mut transforms = vec![Matrix3D::IDENTITY; max_bones];
         for module_handle in self.modules() {
-            let count = module_handle
-                .with_module_downcast::<crate::object::draw::w3d_model_draw::W3DModelDraw, _, _>(
-                    |draw_module| {
-                        draw_module.get_pristine_bone_positions(
-                            &condition,
-                            bone_name_prefix,
-                            start_index as i32,
-                            &mut positions,
-                            &mut transforms,
-                            max_bones,
-                        )
-                    },
-                )
-                .unwrap_or(0);
+            let count = module_handle.with_module(|module| {
+                let mut count = 0;
+                with_object_draw_interface_mut(module, |draw_module| {
+                    count = draw_module.get_pristine_bone_positions(
+                        &condition,
+                        bone_name_prefix,
+                        start_index as i32,
+                        &mut positions,
+                        &mut transforms,
+                        max_bones,
+                    );
+                });
+                count
+            });
 
             if count > 0 {
                 return transforms.into_iter().take(count).collect();
@@ -1984,26 +1982,24 @@ impl Drawable {
         start_index: usize,
         max_bones: usize,
     ) -> Vec<Coord3D> {
-        use crate::object::draw::draw_module::ObjectDrawInterface;
-
         let condition = self.model_conditions;
         let mut positions = vec![Coord3D::origin(); max_bones];
         let mut transforms = vec![Matrix3D::IDENTITY; max_bones];
         for module_handle in self.modules() {
-            let count = module_handle
-                .with_module_downcast::<crate::object::draw::w3d_model_draw::W3DModelDraw, _, _>(
-                    |draw_module| {
-                        draw_module.get_pristine_bone_positions(
-                            &condition,
-                            bone_name_prefix,
-                            start_index as i32,
-                            &mut positions,
-                            &mut transforms,
-                            max_bones,
-                        )
-                    },
-                )
-                .unwrap_or(0);
+            let count = module_handle.with_module(|module| {
+                let mut count = 0;
+                with_object_draw_interface_mut(module, |draw_module| {
+                    count = draw_module.get_pristine_bone_positions(
+                        &condition,
+                        bone_name_prefix,
+                        start_index as i32,
+                        &mut positions,
+                        &mut transforms,
+                        max_bones,
+                    );
+                });
+                count
+            });
 
             if count > 0 {
                 return positions.into_iter().take(count).collect();
@@ -3786,9 +3782,6 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
         barrel_index: i32,
         turret_type: TurretType,
     ) -> Option<ProjectileLaunchOffset> {
-        use crate::object::draw::draw_module::ObjectDrawInterface;
-        use crate::object::draw::w3d_model_draw::W3DModelDraw;
-
         if let Ok(guard) = self.read() {
             let condition = guard.model_conditions;
             let mut launch_pos = Matrix3D::IDENTITY;
@@ -3797,10 +3790,10 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
 
             // Iterate through all draw modules and find one that can provide the launch offset
             for module_handle in guard.modules() {
-                // Try downcasting to W3DModelDraw which implements ObjectDrawInterface
-                let found = module_handle
-                    .with_module_downcast::<W3DModelDraw, _, _>(|draw_module| {
-                        draw_module.get_projectile_launch_offset(
+                let found = module_handle.with_module(|module| {
+                    let mut found = false;
+                    with_object_draw_interface_mut(module, |draw_module| {
+                        found = draw_module.get_projectile_launch_offset(
                             &condition,
                             weapon_slot as usize,
                             barrel_index,
@@ -3808,9 +3801,10 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
                             turret_type,
                             &mut turret_rot_pos,
                             &mut turret_pitch_pos,
-                        )
-                    })
-                    .unwrap_or(false);
+                        );
+                    });
+                    found
+                });
 
                 if found {
                     return Some(ProjectileLaunchOffset {
