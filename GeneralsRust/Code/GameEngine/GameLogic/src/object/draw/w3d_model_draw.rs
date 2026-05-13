@@ -2027,6 +2027,10 @@ impl DrawModule for W3DModelDraw {
         self.terrain_decal_opacity = Some(opacity);
     }
 
+    fn update_bones_for_client_particle_systems(&mut self) -> bool {
+        W3DModelDraw::update_bones_for_client_particle_systems(self)
+    }
+
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
         if self.fully_obscured_by_shroud != fully_obscured {
             self.fully_obscured_by_shroud = fully_obscured;
