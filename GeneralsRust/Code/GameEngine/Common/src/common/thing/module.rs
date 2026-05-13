@@ -322,6 +322,10 @@ pub trait ProductionControlInterface {
     ) -> Result<(), String>;
 }
 
+pub trait ToppleControlInterface {
+    fn apply_toppling_force(&mut self, x: f32, y: f32, z: f32, topple_speed: f32, options: u32);
+}
+
 pub trait DeletionLifetimeInterface {
     fn set_lifetime_range(&mut self, min_lifetime: u32, max_lifetime: u32);
 }
@@ -525,6 +529,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_production_control_interface(&mut self) -> Option<&mut dyn ProductionControlInterface> {
+        None
+    }
+
+    fn get_topple_control_interface(&mut self) -> Option<&mut dyn ToppleControlInterface> {
         None
     }
 }
