@@ -14,14 +14,14 @@ use crate::common::{AsciiString, BehaviorModuleData, Int, ObjectID, Real, XferVe
 use crate::damage::{BodyDamageType, DamageInfo};
 use crate::modules::{BehaviorModuleInterface, DamageModuleInterface, DieModuleInterface};
 use crate::object::{
-    behavior::bridge_behavior::BridgeBehaviorModule, registry::OBJECT_REGISTRY,
-    Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
+    registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
 };
 use game_engine::common::ini::{INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::common::thing::module::{
-    Module as EngineModule, ModuleData as EngineModuleData, NameKeyType, Thing as ModuleThing,
+    BridgeTowerControlInterface, Module as EngineModule, ModuleData as EngineModuleData,
+    NameKeyType, Thing as ModuleThing,
 };
 use game_engine::system::Xfer as EngineXfer;
 
@@ -178,12 +178,12 @@ impl BridgeTowerBehavior {
         let mut ids: Option<[ObjectID; BRIDGE_MAX_TOWERS]> = None;
 
         for handle in bridge_read.behavior_modules() {
-            let maybe_ids =
-                handle.with_module_downcast::<BridgeBehaviorModule, _, _>(|bridge_module| {
-                    bridge_module.behavior().tower_id
-                });
-            if let Some(result) = maybe_ids {
-                ids = Some(result);
+            handle.with_module(|module| {
+                if let Some(bridge) = module.get_bridge_control_interface() {
+                    ids = Some(bridge.tower_ids());
+                }
+            });
+            if ids.is_some() {
                 break;
             }
         }
@@ -396,6 +396,22 @@ impl BridgeTowerBehaviorInterface for BridgeTowerBehavior {
     }
 }
 
+impl BridgeTowerControlInterface for BridgeTowerBehavior {
+    fn set_bridge_id(&mut self, bridge_id: Option<ObjectID>) {
+        self.bridge_id = bridge_id.unwrap_or(OBJECT_INVALID_ID);
+    }
+
+    fn set_tower_type_index(&mut self, tower_type_index: usize) {
+        self.tower_type = match tower_type_index {
+            0 => BridgeTowerType::North,
+            1 => BridgeTowerType::South,
+            2 => BridgeTowerType::East,
+            3 => BridgeTowerType::West,
+            _ => BridgeTowerType::North,
+        };
+    }
+}
+
 impl DamageModuleInterface for BridgeTowerBehavior {
     fn receive_damage(&mut self, _object_id: ObjectID, _damage: &DamageInfo) -> Real {
         0.0
@@ -546,6 +562,12 @@ impl EngineModule for BridgeTowerBehaviorModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_bridge_tower_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn BridgeTowerControlInterface> {
+        Some(&mut self.behavior)
     }
 
     fn on_object_created(&mut self) {}

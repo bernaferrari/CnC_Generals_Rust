@@ -29,8 +29,7 @@ use crate::modules::{
     UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::{
-    behavior::behavior_module::xfer_update_module_base_state,
-    behavior::bridge_tower_behavior::BridgeTowerBehaviorModule, drawable::DrawableExt,
+    behavior::behavior_module::xfer_update_module_base_state, drawable::DrawableExt,
     registry::OBJECT_REGISTRY, Object as GameObject, INVALID_ID as OBJECT_INVALID_ID,
 };
 use crate::terrain::THE_TERRAIN_LOGIC;
@@ -40,7 +39,8 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, XferMode};
 use game_engine::common::thing::module::{
-    Module as EngineModule, ModuleData as ThingModuleData, NameKeyType, Thing as ModuleThing,
+    BridgeControlInterface, Module as EngineModule, ModuleData as ThingModuleData, NameKeyType,
+    Thing as ModuleThing,
 };
 use game_engine::system::Xfer as EngineXfer;
 use log::warn;
@@ -575,13 +575,17 @@ impl BridgeBehavior {
             tower_read.behavior_modules()
         };
 
+        let bridge_id = bridge_arc
+            .read()
+            .map(|guard| guard.get_id())
+            .unwrap_or(OBJECT_INVALID_ID);
         for handle in module_handles {
-            let _ =
-                handle.with_module_downcast::<BridgeTowerBehaviorModule, _, _>(|tower_module| {
-                    let behavior = tower_module.behavior_mut();
-                    BridgeTowerBehaviorInterface::set_tower_type(behavior, tower_type);
-                    BridgeTowerBehaviorInterface::set_bridge(behavior, Some(bridge_arc.clone()));
-                });
+            handle.with_module(|module| {
+                if let Some(tower) = module.get_bridge_tower_control_interface() {
+                    tower.set_tower_type_index(tower_type as usize);
+                    tower.set_bridge_id(Some(bridge_id));
+                }
+            });
         }
 
         Ok(())
@@ -604,12 +608,11 @@ impl BridgeBehavior {
             };
 
             for handle in module_handles {
-                let _ = handle.with_module_downcast::<BridgeTowerBehaviorModule, _, _>(
-                    |tower_module| {
-                        let behavior = tower_module.behavior_mut();
-                        BridgeTowerBehaviorInterface::set_bridge(behavior, None);
-                    },
-                );
+                handle.with_module(|module| {
+                    if let Some(tower) = module.get_bridge_tower_control_interface() {
+                        tower.set_bridge_id(None);
+                    }
+                });
             }
         }
 
@@ -1999,6 +2002,12 @@ impl BridgeBehaviorInterface for BridgeBehavior {
     }
 }
 
+impl BridgeControlInterface for BridgeBehavior {
+    fn tower_ids(&self) -> [ObjectID; BRIDGE_MAX_TOWERS] {
+        self.tower_id
+    }
+}
+
 // Implement BehaviorModuleInterface
 impl crate::modules::BehaviorModuleInterface for BridgeBehavior {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
@@ -2072,6 +2081,10 @@ impl EngineModule for BridgeBehaviorModule {
 
     fn get_module_data(&self) -> &dyn ThingModuleData {
         self.module_data.as_ref()
+    }
+
+    fn get_bridge_control_interface(&mut self) -> Option<&mut dyn BridgeControlInterface> {
+        Some(&mut self.behavior)
     }
 
     fn on_object_created(&mut self) {}
