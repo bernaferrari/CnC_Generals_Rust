@@ -462,3 +462,4 @@
 {"id":"int-44f64a39","kind":"field_change","created_at":"2026-05-13T00:58:36.81123Z","actor":"Bernardo Ferrari","issue_id":"hq-yset","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Completed"}}
 {"id":"int-499558ae","kind":"field_change","created_at":"2026-05-13T01:02:04.804296Z","actor":"Bernardo Ferrari","issue_id":"hq-kdr1","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Completed"}}
 {"id":"int-5b98f547","kind":"field_change","created_at":"2026-05-13T01:12:59.711299Z","actor":"Bernardo Ferrari","issue_id":"hq-nmzv","extra":{"field":"status","new_value":"closed","old_value":"open","reason":"Completed"}}
+{"id":"int-9f42f1e1","kind":"field_change","created_at":"2026-05-13T01:30:26.542288Z","actor":"Bernardo Ferrari","issue_id":"hq-jp1u","extra":{"field":"status","new_value":"closed","old_value":"in_progress","reason":"Completed"}}
