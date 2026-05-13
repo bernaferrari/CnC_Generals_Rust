@@ -3191,18 +3191,17 @@ impl AIPlayer {
             for module_handle in obj_guard.behavior_modules() {
                 let mut can_produce = false;
                 let mut is_busy = false;
-                let matched = module_handle.with_module_downcast::<
-                    crate::object::production::production_update_complete::ProductionUpdateCompleteModule,
-                    _,
-                    _,
-                >(|prod_module| {
-                    let prod = prod_module.behavior_mut();
+                let matched = module_handle.with_module(|module| {
+                    let Some(prod) = module.get_production_control_interface() else {
+                        return false;
+                    };
                     if prod.can_produce(thing_template) {
                         can_produce = true;
-                        is_busy = prod.is_producing() || prod.get_queue_size() > 0;
+                        is_busy = prod.is_producing() || prod.queue_size() > 0;
                     }
+                    true
                 });
-                if matched.is_some() {
+                if matched {
                     checked = true;
                     if !can_produce {
                         continue;

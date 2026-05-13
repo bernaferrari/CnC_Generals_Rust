@@ -1019,13 +1019,11 @@ impl FlightDeckBehavior {
             let mut queued = false;
             let mut checked = false;
             for module_handle in owner_guard.behavior_modules() {
-                let matched = module_handle.with_module_downcast::<
-                    crate::object::production::production_update_complete::ProductionUpdateCompleteModule,
-                    _,
-                    _,
-                >(|prod_module| {
-                    let prod = prod_module.behavior_mut();
-                    if prod.get_queue_size() == 0 && !prod.is_producing() {
+                let matched = module_handle.with_module(|module| {
+                    let Some(prod) = module.get_production_control_interface() else {
+                        return false;
+                    };
+                    if prod.queue_size() == 0 && !prod.is_producing() {
                         let player_id =
                             owner_guard.get_controlling_player_id().unwrap_or(0) as ObjectID;
                         if prod
@@ -1035,8 +1033,9 @@ impl FlightDeckBehavior {
                             queued = true;
                         }
                     }
+                    true
                 });
-                if matched.is_some() {
+                if matched {
                     checked = true;
                     break;
                 }

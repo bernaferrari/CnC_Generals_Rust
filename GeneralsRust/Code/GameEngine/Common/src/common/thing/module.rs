@@ -311,6 +311,17 @@ pub trait SupplyWarehouseDockInterface {
     fn set_cash_value(&mut self, cash_value: i32);
 }
 
+pub trait ProductionControlInterface {
+    fn can_produce(&self, template_name: &str) -> bool;
+    fn is_producing(&self) -> bool;
+    fn queue_size(&self) -> usize;
+    fn start_production(
+        &mut self,
+        template_name: String,
+        player_id: ObjectID,
+    ) -> Result<(), String>;
+}
+
 pub trait DeletionLifetimeInterface {
     fn set_lifetime_range(&mut self, min_lifetime: u32, max_lifetime: u32);
 }
@@ -510,6 +521,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     fn get_payload_target_control_interface(
         &mut self,
     ) -> Option<&mut dyn PayloadTargetControlInterface> {
+        None
+    }
+
+    fn get_production_control_interface(&mut self) -> Option<&mut dyn ProductionControlInterface> {
         None
     }
 }
