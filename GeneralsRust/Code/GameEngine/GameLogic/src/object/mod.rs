@@ -11220,6 +11220,37 @@ impl Object {
         crate::object::special_power_interface_cast::module_special_power_interface(module)
     }
 
+    /// Return whether this object owns a special-power module capable of executing `template`.
+    /// Matches the module-presence gate in C++ `Object::getSpecialPowerModule`.
+    pub fn has_special_power_module_for_power(&self, template: &SpecialPowerTemplate) -> bool {
+        for behavior_arc in &self.behaviors {
+            let Ok(behavior_lock) = behavior_arc.lock() else {
+                continue;
+            };
+            if behavior_lock
+                .get_special_power_module_interface_const()
+                .map(|sp_module| sp_module.is_module_for_power(template))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+
+        for module_handle in self.modules_with_interface(ModuleInterfaceType::SPECIAL_POWER) {
+            let mut matched = false;
+            module_handle.with_module(|module| {
+                if let Some(sp_module) = Self::module_special_power_interface(module) {
+                    matched = sp_module.is_module_for_power(template);
+                }
+            });
+            if matched {
+                return true;
+            }
+        }
+
+        false
+    }
+
     /// Get special power module for a given template ID
     /// C++ Reference: Object.cpp - Special power system
     ///

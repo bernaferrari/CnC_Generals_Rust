@@ -328,8 +328,8 @@ impl SpecialPowerStore {
         id
     }
 
-    /// Check if an object can use a special power
-    /// This would integrate with the object and player systems
+    /// Check if an object can use a special power.
+    /// Matches C++ `SpecialPowerStore::canUseSpecialPower`.
     pub fn can_use_special_power(&self, object_id: u32, template: &SpecialPowerTemplate) -> bool {
         use crate::object::registry::OBJECT_REGISTRY;
 
@@ -340,7 +340,7 @@ impl SpecialPowerStore {
             return false;
         };
 
-        if obj_guard.is_disabled() {
+        if !obj_guard.has_special_power_module_for_power(template) {
             return false;
         }
 
@@ -548,6 +548,10 @@ fn build_from_ini_special_power(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::object::Object;
+    use crate::player::{player_list, Player};
+    use std::sync::RwLock;
 
     #[test]
     fn test_special_power_template_creation() {
@@ -587,6 +591,21 @@ mod tests {
 
         let found_by_id = store.find_special_power_template_by_id(1);
         assert!(found_by_id.is_some());
+    }
+
+    #[test]
+    fn can_use_special_power_requires_matching_object_module() {
+        OBJECT_REGISTRY.clear();
+        player_list().write().unwrap().clear();
+
+        let store = SpecialPowerStore::new();
+        let template = SpecialPowerTemplate::new("MissingModulePower".to_string(), 77);
+        let object = Arc::new(RwLock::new(Object::new_test(9001, 100.0)));
+        OBJECT_REGISTRY.register_object(9001, &object);
+
+        assert!(!store.can_use_special_power(9001, &template));
+
+        OBJECT_REGISTRY.clear();
     }
 
     #[test]
