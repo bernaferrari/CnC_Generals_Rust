@@ -1986,6 +1986,10 @@ impl BridgeBehaviorInterface for BridgeBehavior {
         let _ = BridgeBehavior::remove_scaffolding(self);
     }
 
+    fn try_remove_scaffolding(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        BridgeBehavior::remove_scaffolding(self)
+    }
+
     fn is_scaffold_in_motion(&self) -> Bool {
         BridgeBehavior::is_scaffold_in_motion(self)
     }

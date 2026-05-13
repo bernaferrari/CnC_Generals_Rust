@@ -2805,16 +2805,14 @@ impl WorkerAIUpdate {
             return;
         };
         let mut bridge_id: Option<ObjectID> = None;
-        for entry in tower_guard.behavior_modules() {
-            entry.with_module_downcast::<crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule, _, _>(
-                |module| {
-                    bridge_id = Some(
-                        crate::object::behavior::behavior_module::BridgeTowerBehaviorInterface::get_bridge_id(
-                            module.behavior(),
-                        ),
-                    );
-                },
-            );
+        for behavior in tower_guard.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            let Some(tower) = behavior.get_bridge_tower_behavior_interface() else {
+                continue;
+            };
+            bridge_id = Some(tower.get_bridge_id());
             if bridge_id.is_some() {
                 break;
             }
@@ -2828,23 +2826,21 @@ impl WorkerAIUpdate {
         let Ok(bridge_guard) = bridge_obj.read() else {
             return;
         };
-        for entry in bridge_guard.behavior_modules() {
-            let mut removed = false;
-            entry.with_module_downcast::<crate::object::behavior::bridge_behavior::BridgeBehaviorModule, _, _>(
-                |module| {
-                    if let Err(err) = module.behavior_mut().remove_scaffolding() {
-                        log::debug!(
-                            "WorkerAIUpdate::remove_bridge_scaffolding failed for bridge {}: {}",
-                            bridge_id,
-                            err
-                        );
-                    }
-                    removed = true;
-                },
-            );
-            if removed {
-                break;
+        for behavior in bridge_guard.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            let Some(bridge) = behavior.get_bridge_behavior_interface() else {
+                continue;
+            };
+            if let Err(err) = bridge.try_remove_scaffolding() {
+                log::debug!(
+                    "WorkerAIUpdate::remove_bridge_scaffolding failed for bridge {}: {}",
+                    bridge_id,
+                    err
+                );
             }
+            break;
         }
     }
 
