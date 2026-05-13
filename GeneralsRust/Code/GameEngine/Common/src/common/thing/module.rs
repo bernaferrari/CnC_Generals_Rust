@@ -291,6 +291,10 @@ pub trait DeletionLifetimeInterface {
     fn set_lifetime_range(&mut self, min_lifetime: u32, max_lifetime: u32);
 }
 
+pub trait LifetimeControlInterface {
+    fn die_frame(&self) -> u32;
+}
+
 pub trait BoneFxControlInterface {
     fn change_body_damage_state(&mut self, old_state: u32, new_state: u32);
     fn stop_all_bone_fx(&mut self);
@@ -393,6 +397,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_deletion_lifetime_interface(&mut self) -> Option<&mut dyn DeletionLifetimeInterface> {
+        None
+    }
+
+    fn get_lifetime_control_interface(&mut self) -> Option<&mut dyn LifetimeControlInterface> {
         None
     }
 
