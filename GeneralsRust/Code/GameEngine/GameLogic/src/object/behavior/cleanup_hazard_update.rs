@@ -21,7 +21,9 @@ use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType, WeaponTemplat
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    CleanupHazardControlInterface, Module, ModuleData as EngineModuleData, NameKeyType,
+};
 use log::error;
 use std::sync::{Arc, RwLock, Weak};
 
@@ -441,6 +443,19 @@ impl Module for CleanupHazardUpdateModule {
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
     }
+
+    fn get_cleanup_hazard_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn CleanupHazardControlInterface> {
+        Some(self)
+    }
+}
+
+impl CleanupHazardControlInterface for CleanupHazardUpdateModule {
+    fn set_cleanup_area_parameters(&mut self, x: f32, y: f32, z: f32, range: f32) {
+        let pos = Coord3D::new(x, y, z);
+        self.behavior.set_cleanup_area_parameters(&pos, range);
+    }
 }
 
 pub struct CleanupHazardUpdateFactory;
@@ -506,5 +521,27 @@ mod tests {
 
         assert_eq!(update.pos, pos);
         assert_eq!(update.move_range, 64.0);
+    }
+
+    #[test]
+    fn cleanup_hazard_module_exposes_typed_control_hook() {
+        let data = Arc::new(CleanupHazardUpdateModuleData {
+            scan_frames: 7,
+            scan_range: 100.0,
+            ..CleanupHazardUpdateModuleData::default()
+        });
+        let mut module = CleanupHazardUpdateModule::new(
+            lost_owner_update(),
+            &AsciiString::from("CleanupHazardUpdate"),
+            data,
+        );
+
+        let control = module
+            .get_cleanup_hazard_control_interface()
+            .expect("CleanupHazardUpdate module should expose cleanup control");
+        control.set_cleanup_area_parameters(10.0, 20.0, 3.0, 75.0);
+
+        assert_eq!(module.behavior.pos, Coord3D::new(10.0, 20.0, 3.0));
+        assert_eq!(module.behavior.move_range, 75.0);
     }
 }

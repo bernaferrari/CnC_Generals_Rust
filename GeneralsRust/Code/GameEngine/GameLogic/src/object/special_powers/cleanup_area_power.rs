@@ -20,7 +20,7 @@ use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 
 use crate::common::{Coord3D, ObjectID, Real};
 use crate::helpers::TheGameLogic;
-use crate::modules::{BehaviorModuleInterface, CleanupHazardUpdateInterface};
+use crate::modules::BehaviorModuleInterface;
 use crate::object::special_power_module::SpecialPowerModuleData;
 
 /// Module data for CleanupAreaPower.
@@ -131,10 +131,10 @@ impl CleanupAreaPower {
             return Ok(());
         };
 
-        // Delegate to CleanupHazardUpdate::setCleanupAreaParameters(loc, range)
-        // C++: update->setCleanupAreaParameters(loc, data->m_cleanupMoveRange)
-        module.with_module_downcast::<crate::object::behavior::cleanup_hazard_update::CleanupHazardUpdate, _, _>(|behavior| {
-            CleanupHazardUpdateInterface::set_cleanup_area_parameters(behavior, loc, move_range);
+        module.with_module(|module| {
+            if let Some(cleanup_hazard) = module.get_cleanup_hazard_control_interface() {
+                cleanup_hazard.set_cleanup_area_parameters(loc.x, loc.y, loc.z, move_range);
+            }
         });
 
         Ok(())
