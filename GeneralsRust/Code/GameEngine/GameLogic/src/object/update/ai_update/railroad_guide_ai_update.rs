@@ -25,7 +25,7 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TrainControlInterface};
 use glam::{Mat4, Vec3};
 
 const NORMAL_VEL_Z: Real = 0.25;
@@ -2060,8 +2060,18 @@ impl Module for RailroadBehaviorModule {
         self.module_data.as_ref()
     }
 
+    fn get_train_control_interface(&mut self) -> Option<&mut dyn TrainControlInterface> {
+        Some(self)
+    }
+
     fn on_object_created(&mut self) {
         let _ = BehaviorModuleInterface::on_object_created(&mut self.behavior);
+    }
+}
+
+impl TrainControlInterface for RailroadBehaviorModule {
+    fn set_held(&mut self, held: Bool) {
+        self.behavior.set_held(held);
     }
 }
 

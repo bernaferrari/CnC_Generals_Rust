@@ -13373,8 +13373,10 @@ impl ScriptActionDispatcher {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
                 if let Ok(obj_guard) = obj_arc.read() {
                     if let Some(module) = obj_guard.find_update_module("RailroadBehavior") {
-                        let _ = module.with_module_downcast::<crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule, _, _>(|module| {
-                            module.behavior_mut().set_held(held);
+                        module.with_module(|module| {
+                            if let Some(train_control) = module.get_train_control_interface() {
+                                train_control.set_held(held);
+                            }
                         });
                     }
                 }
