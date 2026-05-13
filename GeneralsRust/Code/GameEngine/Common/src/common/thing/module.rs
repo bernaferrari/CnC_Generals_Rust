@@ -296,6 +296,10 @@ pub trait BoneFxControlInterface {
     fn stop_all_bone_fx(&mut self);
 }
 
+pub trait ProneControlInterface {
+    fn go_prone(&mut self, damage_dealt: i32);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -388,6 +392,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_bone_fx_control_interface(&mut self) -> Option<&mut dyn BoneFxControlInterface> {
+        None
+    }
+
+    fn get_prone_control_interface(&mut self) -> Option<&mut dyn ProneControlInterface> {
         None
     }
 }
