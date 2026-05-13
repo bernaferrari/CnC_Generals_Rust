@@ -5,8 +5,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::body::body_module::ArmorSetType;
-use crate::object::draw::draw_module::{DrawModule, TerrainDecalType};
-use crate::object::draw::w3d_model_draw::W3DModelDraw;
+use crate::object::draw::draw_module::TerrainDecalType;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::INVALID_ID;
@@ -245,11 +244,7 @@ impl ArmorUpgradeInner {
         );
         if upgrade_mask.intersects(chemical_suits_mask) {
             if let Some(drawable) = object.get_drawable() {
-                for module_handle in drawable.get_draw_modules() {
-                    let _ = module_handle.with_module_downcast::<W3DModelDraw, _, ()>(|draw| {
-                        DrawModule::set_terrain_decal(draw, TerrainDecalType::ChemSuit);
-                    });
-                }
+                drawable.set_terrain_decal(TerrainDecalType::ChemSuit);
             }
         }
 
