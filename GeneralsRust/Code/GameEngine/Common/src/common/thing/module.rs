@@ -298,8 +298,20 @@ pub trait BridgeTowerControlInterface {
     fn set_tower_type_index(&mut self, tower_type_index: usize);
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct TrainPullInfo {
+    pub direction: f32,
+    pub speed: f32,
+    pub track_distance: f32,
+    pub tow_hitch_position: [f32; 3],
+    pub most_recent_special_point_handle: u32,
+    pub previous_waypoint: u32,
+    pub current_waypoint: u32,
+}
+
 pub trait TrainControlInterface {
     fn has_ever_been_hitched(&self) -> bool;
+    fn get_pulled(&mut self, info: &mut TrainPullInfo);
     fn set_held(&mut self, held: bool);
     fn set_train_wall(&mut self, on: bool);
     fn disembark_passengers(&mut self);
