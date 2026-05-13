@@ -474,15 +474,14 @@ impl SciencePlayerAccess for crate::player::Player {
 }
 
 fn has_upgrade_in_production_queue(obj: &crate::object::Object) -> bool {
-    for entry in obj.behavior_modules() {
-        let found = entry
-            .with_module_downcast::<
-                crate::object::production::production_update_complete::ProductionUpdateCompleteModule,
-                _,
-                _,
-            >(|prod| prod.behavior().has_any_upgrade_in_queue())
-            .unwrap_or(false);
-        if found {
+    for behavior in obj.get_behavior_modules() {
+        let Ok(mut behavior) = behavior.lock() else {
+            continue;
+        };
+        let Some(production) = behavior.get_production_update_interface() else {
+            continue;
+        };
+        if production.has_any_upgrade_in_queue() {
             return true;
         }
     }
