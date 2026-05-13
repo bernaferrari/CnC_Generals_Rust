@@ -20,6 +20,7 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::object::Object;
+use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::player::CMD_FROM_AI;
 use crate::weapon::{WeaponSlotType, WeaponTemplate};
 use crate::GameLogicResult;
@@ -332,11 +333,8 @@ impl MissileAIUpdate {
             return true; // Inert, no collision response
         }
 
-        // Check if hit ground unexpectedly
-        if other.is_none() {
-            // Ground collision logic
-            // Would check if significantly above target
-            // Matches C++ lines 288-303
+        if other.is_none() && self.should_ignore_unexpected_ground_collision() {
+            return true;
         }
 
         // Check if should collide with this specific object
@@ -354,6 +352,7 @@ impl MissileAIUpdate {
 
         // Detonate on collision
         self.detonate();
+        self.set_no_collisions_status();
 
         true
     }
@@ -693,6 +692,30 @@ impl MissileAIUpdate {
         let dx = missile_pos.x - goal_pos.x;
         let dy = missile_pos.y - goal_pos.y;
         Some(dx * dx + dy * dy)
+    }
+
+    fn current_goal_position(&self) -> Coord3D {
+        self.current_ai_interface()
+            .and_then(|ai| ai.get_path_destination())
+            .unwrap_or(self.original_target_pos)
+    }
+
+    fn should_ignore_unexpected_ground_collision(&self) -> bool {
+        let Some(pos) = self.current_object_position() else {
+            return false;
+        };
+        let delta = pos - self.current_goal_position();
+
+        delta.z > PATHFIND_CELL_SIZE_F && delta.length() > 3.0 * PATHFIND_CELL_SIZE_F
+    }
+
+    fn set_no_collisions_status(&self) {
+        let Some(obj_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return;
+        };
+        if let Ok(mut obj_guard) = obj_arc.write() {
+            obj_guard.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
+        };
     }
 
     fn current_object_position(&self) -> Option<Coord3D> {
@@ -1290,6 +1313,64 @@ mod tests {
         missile.is_armed = true;
         missile.projectile_handle_collision(Some(1));
         assert_eq!(missile.state, MissileState::KillSelf);
+    }
+
+    #[test]
+    fn test_missile_ground_collision_above_far_goal_is_ignored() {
+        let _guard = game_logic_test_guard();
+        reset_game_logic_objects();
+
+        let object_id = 1010;
+        let object = register_test_object(object_id);
+        object
+            .write()
+            .unwrap()
+            .set_position(&Coord3D::new(45.0, 0.0, 20.0))
+            .unwrap();
+
+        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let mut missile = MissileAIUpdate::new(data, 0);
+        missile.object_id = object_id;
+        missile.is_armed = true;
+        missile.original_target_pos = Coord3D::new(0.0, 0.0, 0.0);
+
+        assert!(missile.projectile_handle_collision(None));
+        assert_eq!(missile.state, MissileState::PreLaunch);
+        assert!(!object
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::NoCollisions));
+
+        reset_game_logic_objects();
+    }
+
+    #[test]
+    fn test_missile_ground_collision_detonates_and_disables_collisions() {
+        let _guard = game_logic_test_guard();
+        reset_game_logic_objects();
+
+        let object_id = 1011;
+        let object = register_test_object(object_id);
+        object
+            .write()
+            .unwrap()
+            .set_position(&Coord3D::new(0.0, 0.0, 0.0))
+            .unwrap();
+
+        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let mut missile = MissileAIUpdate::new(data, 0);
+        missile.object_id = object_id;
+        missile.is_armed = true;
+        missile.original_target_pos = Coord3D::new(0.0, 0.0, 0.0);
+
+        assert!(missile.projectile_handle_collision(None));
+        assert_eq!(missile.state, MissileState::KillSelf);
+        assert!(object
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::NoCollisions));
+
+        reset_game_logic_objects();
     }
 
     #[test]
