@@ -911,7 +911,7 @@ impl PartitionManager {
                     .ok()
                     .and_then(|pm| pm.get_object_info(id))
                 {
-                    Coord3D::new(p.x, p.y, p.z + geom.get_minor_radius())
+                    Coord3D::new(p.x, p.y, p.z + geom.get_max_height_above_position())
                 } else {
                     *obj_pos
                 }
@@ -930,7 +930,7 @@ impl PartitionManager {
                     .ok()
                     .and_then(|pm| pm.get_object_info(id))
                 {
-                    Coord3D::new(p.x, p.y, p.z + geom.get_minor_radius())
+                    Coord3D::new(p.x, p.y, p.z + geom.get_max_height_above_position())
                 } else {
                     *other_pos
                 }
