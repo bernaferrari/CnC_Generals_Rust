@@ -511,17 +511,17 @@ impl SpecialPowerModule {
                 view_guard.set_shroud_clearing_range(vision_range);
 
                 if let Some(module) = view_guard.find_update_module("DeletionUpdate") {
-                    let _ = module.with_module_downcast::<crate::object::behavior::deletion_update::DeletionUpdate, _, _>(|update| {
-                        update.set_lifetime_range(vision_duration, vision_duration);
+                    module.with_module(|module| {
+                        if let Some(deletion) = module.get_deletion_lifetime_interface() {
+                            deletion.set_lifetime_range(vision_duration, vision_duration);
+                        }
                     });
-                } else {
-                    let _ = view_guard.with_update_behavior_downcast::<
-                        crate::object::behavior::deletion_update::DeletionUpdate,
-                        _,
-                        _,
-                    >("DeletionUpdate", |update| {
-                        update.set_lifetime_range(vision_duration, vision_duration);
-                    });
+                } else if let Some(behavior) = view_guard.find_update_behavior("DeletionUpdate") {
+                    if let Ok(mut behavior) = behavior.lock() {
+                        if let Some(deletion) = behavior.get_deletion_lifetime_interface() {
+                            deletion.set_lifetime_range(vision_duration, vision_duration);
+                        }
+                    }
                 }
             };
         }
