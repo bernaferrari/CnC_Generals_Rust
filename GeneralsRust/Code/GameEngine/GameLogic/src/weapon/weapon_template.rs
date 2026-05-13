@@ -18,7 +18,6 @@ use crate::helpers::{
 };
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::CountermeasuresBehaviorInterface;
-use crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule;
 use crate::system::game_logic::TheObjectFactory;
 use crate::weapon::{
     projectile_launch_cast::{module_projectile_launch_kind, ProjectileLaunchKindMut},
@@ -899,17 +898,15 @@ impl WeaponTemplate {
                 if is_missile {
                     if let Some(victim_arc) = TheGameLogic::find_object_by_id(victim_id) {
                         if let Ok(mut victim_guard) = victim_arc.write() {
-                            for module in victim_guard.behavior_modules() {
-                                if module
-                                    .with_module_downcast::<CountermeasuresBehaviorModule, _, _>(
-                                        |module| {
-                                            let _ = module
-                                                .behavior_mut()
-                                                .report_missile_for_countermeasures(projectile_id);
-                                        },
-                                    )
-                                    .is_some()
+                            for behavior in victim_guard.get_behavior_modules() {
+                                let Ok(mut behavior) = behavior.lock() else {
+                                    continue;
+                                };
+                                if let Some(countermeasures) =
+                                    behavior.get_countermeasures_behavior_interface()
                                 {
+                                    let _ = countermeasures
+                                        .report_missile_for_countermeasures(projectile_id);
                                     break;
                                 }
                             }
