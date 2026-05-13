@@ -2792,11 +2792,13 @@ impl Weapon {
         let Ok(mut stream_guard) = stream_arc.write() else {
             return;
         };
-        let Some(module) = stream_guard.find_update_module("ProjectileStreamUpdate") else {
-            return;
-        };
-        let _ = module.with_module_downcast::<crate::object::behavior::projectile_stream_update::ProjectileStreamUpdateModule, _, _>(|module| {
-            let stream_update = module.behavior_mut();
+        for behavior in stream_guard.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.lock() else {
+                continue;
+            };
+            let Some(stream_update) = behavior.get_projectile_stream_update_interface() else {
+                continue;
+            };
             if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
                 if let Ok(source_guard) = source_arc.read() {
                     let pos = *source_guard.get_position();
@@ -2809,7 +2811,8 @@ impl Weapon {
                 victim_obj.unwrap_or(INVALID_OBJECT_ID),
                 victim_pos,
             );
-        });
+            break;
+        }
     }
 
     /// Get weapon name
