@@ -307,6 +307,8 @@ pub trait ProneControlInterface {
 pub trait StickyBombControlInterface {
     fn init_sticky_bomb(&mut self, target_id: ObjectID, bomber_id: ObjectID);
     fn detonate(&mut self);
+    fn get_target(&self) -> ObjectID;
+    fn set_target_object_id(&mut self, target_id: ObjectID);
 }
 
 pub trait ModuleAny {
