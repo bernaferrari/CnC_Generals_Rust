@@ -8506,6 +8506,15 @@ pub async fn run_cnc_game(
                 last_render_health_log = frame_started;
             }
 
+            if cmd_args.wants_smoke_test()
+                && matches!(engine.get_state(), GameState::Menu)
+                && engine.startup_last_reported_progress >= 1.0
+                && !engine.is_state_change_pending(GameState::Exiting)
+            {
+                info!("Smoke test reached main menu; exiting successfully");
+                engine.request_state_change(GameState::Exiting);
+            }
+
             if let Some(bridge) = runtime_host_bridge.as_mut() {
                 let snapshot = engine.runtime_host_status_snapshot();
                 bridge.publish_runtime(&snapshot);
