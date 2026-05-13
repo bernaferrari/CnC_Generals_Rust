@@ -7688,12 +7688,11 @@ impl AIUpdateInterface for UnitAIUpdate {
             return;
         };
         let damage = damage_info.output.actual_damage_dealt as i32;
-        let _ = module
-            .with_module_downcast::<crate::object::behavior::prone_update::ProneUpdateModule, _, _>(
-                |module| {
-                    module.behavior_mut().go_prone(damage);
-                },
-            );
+        module.with_module(|module| {
+            if let Some(prone) = module.get_prone_control_interface() {
+                prone.go_prone(damage);
+            }
+        });
     }
 }
 
