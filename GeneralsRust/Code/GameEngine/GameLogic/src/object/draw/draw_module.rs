@@ -128,6 +128,11 @@ pub trait DrawModule: Module {
     /// Called when the object's geometry (model, mesh, etc.) changes.
     fn react_to_geometry_change(&mut self);
 
+    /// Update particle systems that are attached to animated bones.
+    fn update_bones_for_client_particle_systems(&mut self) -> bool {
+        false
+    }
+
     /// Check if this is a laser beam
     ///
     /// # Returns

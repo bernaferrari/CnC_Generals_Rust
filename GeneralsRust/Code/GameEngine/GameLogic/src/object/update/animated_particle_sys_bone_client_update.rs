@@ -3,7 +3,6 @@
 
 use crate::common::ObjectID;
 use crate::helpers::TheGameLogic;
-use crate::object::draw::w3d_model_draw::W3DModelDraw;
 use crate::object::drawable::DrawableArcExt;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{ClientUpdateInterface, Module, ModuleData, NameKeyType};
@@ -44,16 +43,7 @@ impl AnimatedParticleSysBoneClientUpdateModule {
             return;
         };
 
-        for module in drawable.get_draw_modules() {
-            let updated = module
-                .with_module_downcast::<W3DModelDraw, _, _>(|model_draw| {
-                    model_draw.update_bones_for_client_particle_systems()
-                })
-                .unwrap_or(false);
-            if updated {
-                break;
-            }
-        }
+        let _ = drawable.update_bones_for_client_particle_systems();
     }
 }
 

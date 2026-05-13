@@ -3512,6 +3512,7 @@ pub trait DrawableArcExt {
     );
     fn set_rope_cur_len(&self, length: Real);
     fn set_rope_speed(&self, cur_speed: Real, max_speed: Real, accel: Real);
+    fn update_bones_for_client_particle_systems(&self) -> bool;
     fn set_model_condition_state(&self, state: ModelConditionFlags);
     fn set_drawable_hidden(&self, hidden: bool);
     fn is_drawable_effectively_hidden(&self) -> bool;
@@ -3670,6 +3671,25 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
                 });
             }
         }
+    }
+
+    fn update_bones_for_client_particle_systems(&self) -> bool {
+        if let Ok(guard) = self.read() {
+            for module_handle in guard.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+                let updated = module_handle.with_module(|module| {
+                    let mut result = false;
+                    with_draw_module_mut(module, |draw| {
+                        result = draw.update_bones_for_client_particle_systems();
+                    });
+                    result
+                });
+                if updated {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 
     /// Set model condition state
