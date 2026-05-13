@@ -85,6 +85,11 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     ) -> Option<&mut dyn game_engine::common::thing::module::DeletionLifetimeInterface> {
         None
     }
+    fn get_bone_fx_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::module::BoneFxControlInterface> {
+        None
+    }
     /// Get interface mask (indicating which interfaces this module supports)
     fn get_interface_mask() -> u32
     where
