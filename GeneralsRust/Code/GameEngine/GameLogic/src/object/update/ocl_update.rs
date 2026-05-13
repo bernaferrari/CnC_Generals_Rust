@@ -575,6 +575,14 @@ impl OclUpdateControlInterface for OCLUpdateModule {
     fn tick_ocl_update(&mut self) {
         let _ = OCLUpdateModule::update(self);
     }
+
+    fn remaining_frames(&mut self) -> u32 {
+        OCLUpdateModule::remaining_frames(self)
+    }
+
+    fn countdown_percent(&mut self) -> f32 {
+        OCLUpdateModule::countdown_percent(self)
+    }
 }
 
 pub fn ocl_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {

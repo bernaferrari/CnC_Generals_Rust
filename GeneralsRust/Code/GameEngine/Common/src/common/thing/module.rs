@@ -369,6 +369,8 @@ pub trait StickyBombControlInterface {
 pub trait OclUpdateControlInterface {
     fn reset_timer(&mut self);
     fn tick_ocl_update(&mut self);
+    fn remaining_frames(&mut self) -> u32;
+    fn countdown_percent(&mut self) -> f32;
 }
 
 pub trait HijackerControlInterface {
