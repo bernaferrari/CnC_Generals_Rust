@@ -314,6 +314,10 @@ impl WeaponCollideMask {
     pub fn remove(&mut self, flag: u32) {
         self.0 &= !flag;
     }
+
+    pub fn bits(&self) -> u32 {
+        self.0
+    }
 }
 
 /// Weapon bonus condition types
@@ -806,18 +810,104 @@ pub struct WeaponTemplate {
 }
 
 impl WeaponTemplate {
-    /// Compatibility helper used by projectile behaviors while collision-mask parity is in progress.
+    /// C++ WeaponTemplate::shouldProjectileCollideWith parity used by projectile behaviors.
     pub fn should_projectile_collide_with(
         &self,
-        _projectile_launcher: ObjectID,
-        _projectile: ObjectID,
+        projectile_launcher: ObjectID,
+        projectile: ObjectID,
         thing_we_collided_with: ObjectID,
         intended_victim_id: ObjectID,
     ) -> bool {
         if intended_victim_id != INVALID_ID && thing_we_collided_with == intended_victim_id {
             return true;
         }
-        true
+
+        let Some(projectile_obj) = TheGameLogic::find_object_by_id(projectile) else {
+            return false;
+        };
+        let Some(collided_obj) = TheGameLogic::find_object_by_id(thing_we_collided_with) else {
+            return false;
+        };
+
+        let Ok(projectile_guard) = projectile_obj.read() else {
+            return false;
+        };
+        let Ok(collided_guard) = collided_obj.read() else {
+            return false;
+        };
+
+        if let Some(launcher_obj) = TheGameLogic::find_object_by_id(projectile_launcher) {
+            if let Ok(launcher_guard) = launcher_obj.read() {
+                if launcher_guard.get_id() == collided_guard.get_id() {
+                    return false;
+                }
+                if launcher_guard.get_contained_by() == Some(collided_guard.get_id()) {
+                    return false;
+                }
+            }
+        }
+
+        if matches!(
+            self.damage_type,
+            DamageType::Flame | DamageType::ParticleBeam
+        ) && collided_guard.test_status(crate::common::ObjectStatusTypes::Burned)
+        {
+            return false;
+        }
+
+        if collided_guard.is_kind_of(KindOf::FSAirfield)
+            && intended_victim_id != INVALID_ID
+            && collided_guard
+                .with_parking_place_behavior(|parking| {
+                    parking.has_reserved_space(intended_victim_id)
+                })
+                .unwrap_or(false)
+        {
+            return false;
+        }
+
+        if let Some(ai) = collided_guard.get_ai() {
+            if let Ok(ai_guard) = ai.lock() {
+                let mut offset = Coord3D::ZERO;
+                if ai_guard.get_sneaky_targeting_offset(&mut offset) {
+                    return false;
+                }
+            }
+        }
+
+        let mut required_mask = 0u32;
+        match projectile_guard.relationship_to(&collided_guard) {
+            Relationship::Allies => required_mask |= WeaponCollideMask::ALLIES,
+            Relationship::Enemies => required_mask |= WeaponCollideMask::ENEMIES,
+            _ => {}
+        }
+
+        if collided_guard.is_kind_of(KindOf::Structure) {
+            if collided_guard.get_controlling_player_id()
+                == projectile_guard.get_controlling_player_id()
+            {
+                required_mask |= WeaponCollideMask::CONTROLLED_STRUCTURES;
+            } else {
+                required_mask |= WeaponCollideMask::STRUCTURES;
+            }
+        }
+        if collided_guard.is_kind_of(KindOf::Shrubbery) {
+            required_mask |= WeaponCollideMask::SHRUBBERY;
+        }
+        if collided_guard.is_kind_of(KindOf::Projectile) {
+            required_mask |= WeaponCollideMask::PROJECTILE;
+        }
+        if collided_guard.is_kind_of(KindOf::Barrier) {
+            required_mask |= WeaponCollideMask::WALLS;
+        }
+        if collided_guard.is_kind_of(KindOf::SmallMissile) {
+            required_mask |= WeaponCollideMask::SMALL_MISSILES;
+        }
+        if collided_guard.is_kind_of(KindOf::BallisticMissile) {
+            required_mask |= WeaponCollideMask::BALLISTIC_MISSILES;
+        }
+
+        (self.collide_mask.bits() & required_mask) != 0
     }
 
     fn projectile_template(&self) -> Option<Arc<dyn crate::common::ThingTemplate>> {
@@ -5896,6 +5986,98 @@ mod tests {
         drop(object_guard);
 
         object
+    }
+
+    fn registered_projectile_collision_object(
+        id: ObjectID,
+        kind_of: &str,
+    ) -> Arc<RwLock<crate::object::Object>> {
+        let mut template =
+            crate::common::DefaultThingTemplate::new(format!("ProjectileCollisionObject{}", id));
+        let properties =
+            std::collections::HashMap::from([("KindOf".to_string(), kind_of.to_string())]);
+        template.parse_object_fields_from_ini(&properties);
+
+        let object = crate::object::Object::new_with_id(
+            Arc::new(template),
+            id,
+            crate::common::ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("create projectile collision object");
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .register_object(object.clone())
+            .expect("register projectile collision object");
+        object
+    }
+
+    fn reset_projectile_collision_objects() {
+        crate::object::registry::OBJECT_REGISTRY.clear();
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .clear_all_objects();
+    }
+
+    #[test]
+    fn projectile_collision_filter_rejects_own_launcher() {
+        let _guard = weapon_range_test_guard();
+        reset_projectile_collision_objects();
+
+        let projectile = registered_projectile_collision_object(95_001, "PROJECTILE");
+        let launcher = registered_projectile_collision_object(95_002, "VEHICLE");
+        let template = WeaponTemplate::new("ProjectileCollisionFilter".to_string());
+
+        assert!(!template.should_projectile_collide_with(95_002, 95_001, 95_002, INVALID_ID));
+
+        drop(projectile);
+        drop(launcher);
+        reset_projectile_collision_objects();
+    }
+
+    #[test]
+    fn projectile_collision_filter_rejects_burned_flame_targets() {
+        let _guard = weapon_range_test_guard();
+        reset_projectile_collision_objects();
+
+        let projectile = registered_projectile_collision_object(95_003, "PROJECTILE");
+        let target = registered_projectile_collision_object(95_004, "STRUCTURE");
+        target
+            .write()
+            .unwrap()
+            .set_status(crate::common::ObjectStatusMaskType::BURNED, true);
+
+        let mut template = WeaponTemplate::new("ProjectileCollisionFlame".to_string());
+        template.damage_type = DamageType::Flame;
+        template.collide_mask = WeaponCollideMask::new(WeaponCollideMask::STRUCTURES);
+
+        assert!(!template.should_projectile_collide_with(INVALID_ID, 95_003, 95_004, INVALID_ID));
+
+        drop(projectile);
+        drop(target);
+        reset_projectile_collision_objects();
+    }
+
+    #[test]
+    fn projectile_collision_filter_applies_collide_mask() {
+        let _guard = weapon_range_test_guard();
+        reset_projectile_collision_objects();
+
+        let projectile = registered_projectile_collision_object(95_005, "PROJECTILE");
+        let target = registered_projectile_collision_object(95_006, "STRUCTURE");
+        let mut template = WeaponTemplate::new("ProjectileCollisionMask".to_string());
+
+        template.collide_mask = WeaponCollideMask::new(WeaponCollideMask::SHRUBBERY);
+        assert!(!template.should_projectile_collide_with(INVALID_ID, 95_005, 95_006, INVALID_ID));
+
+        template.collide_mask = WeaponCollideMask::new(WeaponCollideMask::CONTROLLED_STRUCTURES);
+        assert!(template.should_projectile_collide_with(INVALID_ID, 95_005, 95_006, INVALID_ID));
+
+        drop(projectile);
+        drop(target);
+        reset_projectile_collision_objects();
     }
 
     // ============================================================================
