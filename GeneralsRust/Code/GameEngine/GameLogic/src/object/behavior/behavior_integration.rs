@@ -23,7 +23,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Integrated behavior system that manages both legacy and modern behaviors
-#[derive(Debug)]
 pub struct IntegratedBehaviorSystem {
     /// Behavior managers per object
     behavior_managers: HashMap<ObjectId, BehaviorManager>,
@@ -47,7 +46,6 @@ pub enum BehaviorConfiguration {
 }
 
 /// Bridge adapter that wraps legacy behaviors to work with the async system
-#[derive(Debug)]
 pub struct LegacyBehaviorAdapter {
     behavior_name: String,
     legacy_behavior: Arc<Mutex<Box<dyn crate::modules::BehaviorModuleInterface>>>,
@@ -75,7 +73,7 @@ impl IntegratedBehaviorSystem {
         let position = *object.get_position();
         let mut velocity = [0.0, 0.0, 0.0];
         if let Some(physics) = object.get_physics() {
-            if let Ok(mut guard) = physics.lock() {
+            if let Ok(guard) = physics.lock() {
                 let vel = guard.get_velocity();
                 velocity = [vel.x, vel.y, vel.z];
             }
@@ -196,7 +194,7 @@ impl IntegratedBehaviorSystem {
         &mut self,
         object_id: ObjectId,
         event: &str,
-        data: &[u8],
+        _data: &[u8],
         object: &mut Object,
     ) -> GameLogicResult<()> {
         if let Some(manager) = self.behavior_managers.get_mut(&object_id) {
@@ -316,7 +314,7 @@ impl AdvancedBehavior for LegacyBehaviorAdapter {
         let legacy_behavior = self.legacy_behavior.clone();
         let mut behavior_guard = legacy_behavior
             .lock()
-            .map_err(|e| crate::GameLogicError::System(format!("Failed to lock: {}", e)))?;
+            .map_err(|e| crate::GameLogicError::Threading(format!("Failed to lock: {}", e)))?;
 
         if let Some(update_module) = behavior_guard.get_update() {
             match update_module.update() {
@@ -349,7 +347,7 @@ impl AdvancedBehavior for LegacyBehaviorAdapter {
         let legacy_behavior = self.legacy_behavior.clone();
         let mut behavior_guard = legacy_behavior
             .lock()
-            .map_err(|e| crate::GameLogicError::System(format!("Failed to lock: {}", e)))?;
+            .map_err(|e| crate::GameLogicError::Threading(format!("Failed to lock: {}", e)))?;
 
         match event {
             BehaviorEvent::DamageReceived { amount, .. } => {
@@ -359,7 +357,7 @@ impl AdvancedBehavior for LegacyBehaviorAdapter {
                     damage_info.input.amount = *amount;
                     damage_info.sync_from_input();
                     damage_module.on_damage(&mut damage_info).map_err(|e| {
-                        crate::GameLogicError::Execution(format!(
+                        crate::GameLogicError::ModuleError(format!(
                             "Legacy damage handler failed: {}",
                             e
                         ))
