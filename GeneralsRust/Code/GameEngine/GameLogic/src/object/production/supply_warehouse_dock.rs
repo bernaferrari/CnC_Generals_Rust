@@ -144,6 +144,7 @@ impl SupplyWarehouseDockUpdate {
     /// Set the number of boxes stored (used by create modules).
     pub fn set_boxes_stored(&mut self, boxes: i32) {
         self.boxes_stored = boxes.max(0);
+        self.update_drawable_supply_status();
     }
 
     /// Set the cash value for this warehouse
@@ -153,6 +154,24 @@ impl SupplyWarehouseDockUpdate {
             .unwrap_or(1);
         let boxes = (cash_value as f32 / base_value as f32).ceil() as i32;
         self.boxes_stored = boxes.max(0);
+        self.update_drawable_supply_status();
+    }
+
+    fn update_drawable_supply_status(&self) {
+        let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id())
+        else {
+            return;
+        };
+        let Ok(owner_guard) = owner.read() else {
+            return;
+        };
+        let Some(drawable) = owner_guard.get_drawable() else {
+            return;
+        };
+        let Ok(mut drawable_guard) = drawable.write() else {
+            return;
+        };
+        drawable_guard.update_supply_status(self.data.starting_boxes, self.boxes_stored);
     }
 
     /// Handle supply truck docking and loading.
@@ -221,6 +240,7 @@ impl SupplyWarehouseDockUpdate {
                 }
                 return Ok(false);
             }
+            self.update_drawable_supply_status();
             return Ok(true);
         }
 
@@ -233,21 +253,6 @@ impl BehaviorModuleInterface for SupplyWarehouseDockUpdate {
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Update base dock
         self.base.update()?;
-
-        // Check if warehouse should be destroyed due to being empty
-        if self.data.delete_when_empty && self.boxes_stored <= 0 && !self.is_crippled {
-            log::info!("SupplyWarehouseDock: Warehouse is empty, triggering self-destruction");
-            if let Some(owner) =
-                crate::object::registry::OBJECT_REGISTRY.get_object(self.base.owner_id())
-            {
-                if let Ok(mut _owner_guard) = owner.write() {
-                    // owner_guard.set_status(crate::common::ObjectStatusMaskType::YouAreDead, true);
-                    // Or call a die module?
-                    // For now, identifying the action is sufficient.
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -267,6 +272,7 @@ impl BehaviorModuleInterface for SupplyWarehouseDockUpdate {
 impl BehaviorModule for SupplyWarehouseDockUpdate {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.init()?;
+        self.update_drawable_supply_status();
         log::info!(
             "SupplyWarehouseDockUpdate initialized with {} boxes",
             self.boxes_stored
@@ -492,7 +498,9 @@ impl Snapshotable for SupplyWarehouseDockUpdateModule {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.behavior.base.load_post_process()
+        self.behavior.base.load_post_process()?;
+        self.behavior.update_drawable_supply_status();
+        Ok(())
     }
 }
 
