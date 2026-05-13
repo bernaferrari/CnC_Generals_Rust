@@ -17,7 +17,9 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::AsciiString;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, Thing as ModuleThing};
+use game_engine::common::thing::module::{
+    Module, ModuleData, OverchargeControlInterface, Thing as ModuleThing,
+};
 
 use crate::common::{
     Bool, NameKeyType, ObjectID, Real, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
@@ -494,5 +496,15 @@ impl Module for OverchargeBehaviorModule {
 
     fn on_delete(&mut self) {
         self.behavior.on_delete();
+    }
+
+    fn get_overcharge_control_interface(&mut self) -> Option<&mut dyn OverchargeControlInterface> {
+        Some(self)
+    }
+}
+
+impl OverchargeControlInterface for OverchargeBehaviorModule {
+    fn toggle(&mut self) -> Result<(), String> {
+        OverchargeBehaviorInterface::toggle(&mut self.behavior).map_err(|err| err.to_string())
     }
 }

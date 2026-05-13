@@ -3368,17 +3368,14 @@ impl DefaultCommandHandler {
             };
             let mut toggled = false;
             for module_handle in obj_guard.behavior_modules() {
-                let matched = module_handle
-                    .with_module_downcast::<
-                        crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule,
-                        _,
-                        _,
-                    >(|overcharge_module| {
-                        let _ = crate::object::behavior::behavior_module::OverchargeBehaviorInterface::toggle(
-                            overcharge_module.behavior_mut(),
-                        );
-                    })
-                    .is_some();
+                let matched = module_handle.with_module(|module| {
+                    module
+                        .get_overcharge_control_interface()
+                        .map(|overcharge| {
+                            let _ = overcharge.toggle();
+                        })
+                        .is_some()
+                });
                 if matched {
                     toggled = true;
                     break;
