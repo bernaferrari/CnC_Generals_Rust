@@ -15,6 +15,7 @@ use crate::object::behavior::behavior_module::{
     CaveInterface, LandMineInterface, OverchargeBehaviorInterface, ParkingPlaceBehaviorInterface,
     RebuildHoleBehaviorInterface, TransportPassengerInterface,
 };
+use crate::object::behavior::laser_update::LaserBehaviorControlInterface;
 use crate::object::behavior::projectile_stream_update::ProjectileStreamUpdateInterface;
 use crate::object::behavior::radius_decal_update::RadiusDecalUpdateInterface;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -300,6 +301,11 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     fn get_projectile_stream_update_interface(
         &mut self,
     ) -> Option<&mut dyn ProjectileStreamUpdateInterface> {
+        None
+    }
+    fn get_laser_behavior_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn LaserBehaviorControlInterface> {
         None
     }
 }
