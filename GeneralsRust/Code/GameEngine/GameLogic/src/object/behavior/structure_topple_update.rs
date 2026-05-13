@@ -22,7 +22,6 @@ use crate::object::die::{
 };
 use crate::object::draw::draw_module::ObjectDrawInterface;
 use crate::object::draw::w3d_model_draw::W3DModelDraw;
-use crate::object::update::bone_fx_update::{BoneFXUpdate, BoneFXUpdateModule};
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
@@ -754,16 +753,17 @@ impl StructureToppleUpdate {
         };
 
         if let Some(module) = building.find_update_module("BoneFXUpdate") {
-            let _ = module.with_module_downcast::<BoneFXUpdateModule, _, _>(|module| {
-                module.behavior_mut().stop_all_bone_fx_simple();
+            module.with_module(|module| {
+                if let Some(bone_fx) = module.get_bone_fx_control_interface() {
+                    bone_fx.stop_all_bone_fx();
+                }
             });
-        } else {
-            let _ = building.with_update_behavior_downcast::<BoneFXUpdate, _, _>(
-                "BoneFXUpdate",
-                |bone_fx| {
-                    bone_fx.stop_all_bone_fx_simple();
-                },
-            );
+        } else if let Some(behavior) = building.find_update_behavior("BoneFXUpdate") {
+            if let Ok(mut behavior) = behavior.lock() {
+                if let Some(bone_fx) = behavior.get_bone_fx_control_interface() {
+                    bone_fx.stop_all_bone_fx();
+                }
+            }
         }
 
         let orig_angle = building.get_orientation();
