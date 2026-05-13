@@ -1142,8 +1142,10 @@ impl ScriptEvaluator {
                         continue;
                     };
                     let mut boxes = None;
-                    module.with_module_downcast::<crate::object::production::SupplyWarehouseDockUpdateModule, _, _>(|m| {
-                        boxes = Some(m.behavior().get_boxes_stored());
+                    module.with_module(|module| {
+                        if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
+                            boxes = Some(warehouse.boxes_stored());
+                        }
                     });
                     let Some(boxes) = boxes else {
                         continue;
