@@ -98,8 +98,11 @@ impl StealthBehavior {
     }
 
     fn is_moving(&self, object: &Object) -> bool {
-        let vel = object.get_velocity();
-        (vel.x * vel.x + vel.y * vel.y + vel.z * vel.z) > 0.01
+        object
+            .get_physics()
+            .and_then(|physics| physics.lock().ok().map(|guard| guard.get_velocity()))
+            .map(|vel| (vel.x * vel.x + vel.y * vel.y + vel.z * vel.z) > 0.01)
+            .unwrap_or(false)
     }
 
     async fn update_power(&mut self, object: &mut Object, delta_time: f32) -> bool {
@@ -234,7 +237,10 @@ impl AdvancedBehavior for StealthBehavior {
         // Check power
         if !self.update_power(object, context.delta_time).await {
             self.stealth_state = StealthState::Visible;
-            object.set_stealth_visibility(1.0).await?;
+            object
+                .set_stealth_visibility(1.0)
+                .await
+                .map_err(crate::GameLogicError::ModuleError)?;
             return Ok(BehaviorOutcome::Continue);
         }
 
@@ -267,10 +273,16 @@ impl AdvancedBehavior for StealthBehavior {
                         start_time.elapsed().as_secs_f32() / self.config.stealth_delay.max(0.1);
                     if progress >= 1.0 {
                         self.stealth_state = StealthState::Stealthed;
-                        object.set_stealth_visibility(0.0).await?;
+                        object
+                            .set_stealth_visibility(0.0)
+                            .await
+                            .map_err(crate::GameLogicError::ModuleError)?;
                         log::debug!("Entered stealth mode");
                     } else {
-                        object.set_stealth_visibility(1.0 - progress).await?;
+                        object
+                            .set_stealth_visibility(1.0 - progress)
+                            .await
+                            .map_err(crate::GameLogicError::ModuleError)?;
                     }
                 }
             }
@@ -301,9 +313,15 @@ impl AdvancedBehavior for StealthBehavior {
                         if is_detected {
                             self.stealth_state = StealthState::Detected;
                         }
-                        object.set_stealth_visibility(1.0).await?;
+                        object
+                            .set_stealth_visibility(1.0)
+                            .await
+                            .map_err(crate::GameLogicError::ModuleError)?;
                     } else {
-                        object.set_stealth_visibility(progress).await?;
+                        object
+                            .set_stealth_visibility(progress)
+                            .await
+                            .map_err(crate::GameLogicError::ModuleError)?;
                     }
                 }
             }
@@ -325,7 +343,10 @@ impl AdvancedBehavior for StealthBehavior {
         _context: &BehaviorContext,
     ) -> GameLogicResult<()> {
         // Ensure unit is visible when behavior is removed
-        object.set_stealth_visibility(1.0).await?;
+        object
+            .set_stealth_visibility(1.0)
+            .await
+            .map_err(crate::GameLogicError::ModuleError)?;
         object.enable_stealth_capability(false);
         log::info!("Stealth behavior cleanup completed");
         Ok(())
