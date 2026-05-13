@@ -17,8 +17,6 @@ use crate::modules::{
     UpdateSleepTime,
 };
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
-use crate::object::draw::draw_module::DrawModule;
-use crate::object::draw::w3d_model_draw::W3DModelDraw;
 use crate::object::draw::TerrainDecalType;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::DrawableArcExt;
@@ -162,11 +160,7 @@ impl NeutronBlastBehavior {
             let _ = TheGameLogic::deselect_object(&*target, PLAYERMASK_ALL, true);
 
             if let Some(drawable) = target.get_drawable() {
-                for module_handle in drawable.get_draw_modules() {
-                    let _ = module_handle.with_module_downcast::<W3DModelDraw, _, _>(|draw| {
-                        DrawModule::set_terrain_decal(draw, TerrainDecalType::None);
-                    });
-                }
+                drawable.set_terrain_decal(TerrainDecalType::None);
             }
 
             target.set_team_to_neutral();
