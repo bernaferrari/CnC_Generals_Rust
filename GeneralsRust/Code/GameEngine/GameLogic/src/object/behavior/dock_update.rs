@@ -98,7 +98,7 @@ impl DockQueueEntry {
     pub fn new(unit_id: ObjectID, priority: i32) -> Self {
         Self {
             unit_id,
-            state: DockingState::Approaching,
+            state: DockingState::Waiting,
             dock_index: None,
             dock_start_frame: 0,
             priority,
@@ -481,5 +481,36 @@ mod tests {
         assert_eq!(dock.queue[0].unit_id, 2); // priority 5
         assert_eq!(dock.queue[1].unit_id, 1); // priority 10
         assert_eq!(dock.queue[2].unit_id, 3); // priority 15
+    }
+
+    #[test]
+    fn dock_request_assigns_available_dock_before_approach() {
+        let data = DockUpdateModuleData {
+            service_time: 1,
+            ..Default::default()
+        };
+        let mut dock = DockUpdate::new(data, Coord3D::new(0.0, 0.0, 0.0), 0.0);
+
+        assert!(dock.request_dock(123, 0));
+        assert_eq!(dock.queue[0].state, DockingState::Waiting);
+
+        dock.update(10);
+        assert_eq!(dock.queue[0].state, DockingState::Approaching);
+        assert_eq!(dock.queue[0].dock_index, Some(0));
+        assert!(dock.is_dock_occupied(0));
+
+        dock.update(11);
+        assert_eq!(dock.queue[0].state, DockingState::Docked);
+        assert_eq!(dock.queue[0].dock_start_frame, 11);
+
+        dock.update(12);
+        assert_eq!(dock.queue[0].state, DockingState::Exiting);
+
+        dock.update(13);
+        assert_eq!(dock.queue[0].state, DockingState::Complete);
+
+        dock.update(14);
+        assert_eq!(dock.get_queue_length(), 0);
+        assert!(!dock.is_dock_occupied(0));
     }
 }
