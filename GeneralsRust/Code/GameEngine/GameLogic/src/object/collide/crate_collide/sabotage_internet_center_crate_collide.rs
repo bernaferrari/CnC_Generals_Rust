@@ -254,12 +254,10 @@ fn disable_internet_center_spy_vision(
         let disabled = obj_lock
             .find_update_module("SpyVisionUpdate")
             .and_then(|module| {
-                module.with_module_downcast::<
-                    crate::object::update::spy_vision_update::SpyVisionUpdateModule,
-                    _,
-                    _,
-                >(|spy_module| {
-                    spy_module.behavior_mut().set_disabled_until_frame(frame);
+                module.with_module(|module| {
+                    module.get_spy_vision_control_interface().map(|spy_vision| {
+                        spy_vision.set_disabled_until_frame(frame);
+                    })
                 })
             })
             .is_some();
@@ -267,8 +265,8 @@ fn disable_internet_center_spy_vision(
         if !disabled {
             for module in obj_lock.get_behavior_modules() {
                 if let Ok(mut module_guard) = module.lock() {
-                    if let Some(spy_vision) = module_guard.get_spy_vision_update() {
-                        spy_vision.set_disabled_until_frame(frame)?;
+                    if let Some(spy_vision) = module_guard.get_spy_vision_control_interface() {
+                        spy_vision.set_disabled_until_frame(frame);
                     }
                 }
             }

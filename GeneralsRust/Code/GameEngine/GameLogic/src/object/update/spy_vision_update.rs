@@ -15,7 +15,7 @@ use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData, ModuleData as EngineModuleData, NameKeyType,
+    Module, ModuleData, ModuleData as EngineModuleData, NameKeyType, SpyVisionControlInterface,
 };
 use game_engine::common::thing::KindOfMaskType;
 use log::{debug, warn};
@@ -469,6 +469,10 @@ impl Module for SpyVisionUpdateModule {
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
     }
+
+    fn get_spy_vision_control_interface(&mut self) -> Option<&mut dyn SpyVisionControlInterface> {
+        Some(self.behavior_mut())
+    }
 }
 
 impl UpdateModuleInterface for SpyVisionUpdate {
@@ -516,6 +520,10 @@ impl BehaviorModuleInterface for SpyVisionUpdate {
     ) -> Option<&mut dyn crate::object::behavior::behavior_module::SpyVisionUpdate> {
         Some(self)
     }
+
+    fn get_spy_vision_control_interface(&mut self) -> Option<&mut dyn SpyVisionControlInterface> {
+        Some(self)
+    }
 }
 
 impl crate::object::behavior::behavior_module::SpyVisionUpdate for SpyVisionUpdate {
@@ -529,6 +537,12 @@ impl crate::object::behavior::behavior_module::SpyVisionUpdate for SpyVisionUpda
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         SpyVisionUpdate::set_disabled_until_frame(self, frame);
         Ok(())
+    }
+}
+
+impl SpyVisionControlInterface for SpyVisionUpdate {
+    fn set_disabled_until_frame(&mut self, frame: u32) {
+        SpyVisionUpdate::set_disabled_until_frame(self, frame);
     }
 }
 

@@ -320,6 +320,10 @@ pub trait HijackerControlInterface {
     fn configure_hijacked_vehicle(&mut self, target_id: ObjectID);
 }
 
+pub trait SpyVisionControlInterface {
+    fn set_disabled_until_frame(&mut self, frame: u32);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -432,6 +436,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_hijacker_control_interface(&mut self) -> Option<&mut dyn HijackerControlInterface> {
+        None
+    }
+
+    fn get_spy_vision_control_interface(&mut self) -> Option<&mut dyn SpyVisionControlInterface> {
         None
     }
 }
