@@ -11,6 +11,7 @@ use crate::common::types::WeaponBonusConditionFlags;
 use crate::common::{Coord3D, ObjectID};
 use crate::weapon::{Weapon, WeaponBonus, WeaponSlotType, WeaponTemplate, INVALID_OBJECT_ID};
 use crate::{GameLogicError, GameLogicResult};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 
 /// Delayed damage information for weapons with projectile flight time
 #[derive(Debug, Clone)]
@@ -138,7 +139,11 @@ impl WeaponStore {
     }
 
     /// Add a weapon template to the store
-    pub fn add_weapon_template(&mut self, template: WeaponTemplate) -> Arc<WeaponTemplate> {
+    pub fn add_weapon_template(&mut self, mut template: WeaponTemplate) -> Arc<WeaponTemplate> {
+        if template.name_key == 0 && !template.name.is_empty() {
+            template.name_key = NameKeyGenerator::name_to_key(&template.name);
+        }
+
         let name = template.name.clone();
         let name_key = template.name_key;
 
@@ -576,6 +581,34 @@ mod tests {
         assert!(store.find_weapon_template("None").is_none());
         assert!(store.find_weapon_template("none").is_none());
         assert!(store.find_weapon_template("NONE").is_none());
+    }
+
+    #[test]
+    fn test_add_weapon_template_computes_name_key() {
+        let mut store = WeaponStore::new();
+        let expected_key = NameKeyGenerator::name_to_key("KeyedWeapon");
+
+        let arc_template =
+            store.add_weapon_template(WeaponTemplate::new("KeyedWeapon".to_string()));
+
+        assert_eq!(arc_template.name_key, expected_key);
+        let found = store.find_weapon_template_by_name_key(expected_key);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "KeyedWeapon");
+    }
+
+    #[test]
+    fn test_add_weapon_template_preserves_explicit_name_key() {
+        let mut store = WeaponStore::new();
+        let mut template = WeaponTemplate::new("ExplicitKeyWeapon".to_string());
+        template.name_key = 12345;
+
+        let arc_template = store.add_weapon_template(template);
+
+        assert_eq!(arc_template.name_key, 12345);
+        let found = store.find_weapon_template_by_name_key(12345);
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().name, "ExplicitKeyWeapon");
     }
 
     #[test]
