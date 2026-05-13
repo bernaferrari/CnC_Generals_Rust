@@ -25,7 +25,9 @@ use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TrainControlInterface};
+use game_engine::common::thing::module::{
+    Module, ModuleData, NameKeyType, TrainControlInterface, TrainPullInfo,
+};
 use glam::{Mat4, Vec3};
 
 const NORMAL_VEL_Z: Real = 0.25;
@@ -303,6 +305,28 @@ impl Default for PullInfo {
 }
 
 impl PullInfo {
+    fn to_train_pull_info(&self) -> TrainPullInfo {
+        TrainPullInfo {
+            direction: self.direction,
+            speed: self.speed,
+            track_distance: self.track_distance,
+            tow_hitch_position: self.tow_hitch_position.to_array(),
+            most_recent_special_point_handle: self.most_recent_special_point_handle,
+            previous_waypoint: self.previous_waypoint,
+            current_waypoint: self.current_waypoint,
+        }
+    }
+
+    fn copy_from_train_pull_info(&mut self, info: TrainPullInfo) {
+        self.direction = info.direction;
+        self.speed = info.speed;
+        self.track_distance = info.track_distance;
+        self.tow_hitch_position = Coord3D::from_array(info.tow_hitch_position);
+        self.most_recent_special_point_handle = info.most_recent_special_point_handle;
+        self.previous_waypoint = info.previous_waypoint;
+        self.current_waypoint = info.current_waypoint;
+    }
+
     fn xfer_pull_info(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let xfer_io = |result: std::io::Result<()>| result.map_err(|e| e.to_string());
         let mut version: u32 = 1;
@@ -1238,12 +1262,12 @@ impl RailroadBehavior {
             if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
                 if let Ok(trailer_guard) = trailer.read() {
                     if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                        let _ = module.with_module_downcast::<
-                            crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                            _,
-                            _,
-                        >(|module| {
-                            module.behavior_mut().get_pulled(&mut self.pull_info);
+                        module.with_module(|module| {
+                            if let Some(train) = module.get_train_control_interface() {
+                                let mut pull_info = self.pull_info.to_train_pull_info();
+                                train.get_pulled(&mut pull_info);
+                                self.pull_info.copy_from_train_pull_info(pull_info);
+                            }
                         });
                     }
                 }
@@ -1795,12 +1819,12 @@ impl UpdateModuleInterface for RailroadBehavior {
                 if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
                     if let Ok(trailer_guard) = trailer.read() {
                         if let Some(module) = trailer_guard.find_update_module("RailroadBehavior") {
-                            let _ = module.with_module_downcast::<
-                                crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                                _,
-                                _,
-                            >(|module| {
-                                module.behavior_mut().get_pulled(&mut self.pull_info);
+                            module.with_module(|module| {
+                                if let Some(train) = module.get_train_control_interface() {
+                                    let mut pull_info = self.pull_info.to_train_pull_info();
+                                    train.get_pulled(&mut pull_info);
+                                    self.pull_info.copy_from_train_pull_info(pull_info);
+                                }
                             });
                         }
                     }
@@ -2057,6 +2081,13 @@ impl Module for RailroadBehaviorModule {
 impl TrainControlInterface for RailroadBehaviorModule {
     fn has_ever_been_hitched(&self) -> bool {
         self.behavior.has_ever_been_hitched
+    }
+
+    fn get_pulled(&mut self, info: &mut TrainPullInfo) {
+        let mut pull_info = PullInfo::default();
+        pull_info.copy_from_train_pull_info(info.clone());
+        self.behavior.get_pulled(&mut pull_info);
+        *info = pull_info.to_train_pull_info();
     }
 
     fn set_held(&mut self, held: Bool) {
