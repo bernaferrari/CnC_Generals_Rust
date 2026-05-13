@@ -8331,20 +8331,12 @@ impl ScriptActionDispatcher {
         let Some(module) = module else {
             return false;
         };
-        let Ok(target_guard) = target_obj.read() else {
-            return false;
-        };
-
         let mut initialized = false;
-        let _ = module.with_module_downcast::<
-            crate::object::behavior::sticky_bomb_update::StickyBombUpdateModule,
-            _,
-            _,
-        >(|sticky_module| {
-            sticky_module
-                .behavior_mut()
-                .init_sticky_bomb(Some(&*target_guard), None, None);
-            initialized = true;
+        module.with_module(|module| {
+            if let Some(sticky_bomb) = module.get_sticky_bomb_control_interface() {
+                sticky_bomb.init_sticky_bomb(target_object_id, INVALID_ID);
+                initialized = true;
+            }
         });
 
         initialized
