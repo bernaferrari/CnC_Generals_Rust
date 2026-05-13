@@ -17,6 +17,8 @@ use std::sync::{Arc, RwLock};
 
 const DEFAULT_APPROACH_VECTOR_SIZE: usize = 10;
 const DYNAMIC_APPROACH_VECTOR_FLAG: i32 = -1;
+const SINGLE_DOCK_BONE_START_INDEX: usize = 0;
+const APPROACH_BONE_START_INDEX: usize = 1;
 
 /// Base dock update module data.
 #[derive(Debug, Clone)]
@@ -167,19 +169,19 @@ impl DockUpdate {
 
         if !owner_guard.is_kind_of(KindOf::IgnoreDockingBones) {
             if let Some(pos) = drawable_guard
-                .get_pristine_bone_positions("DockStart", 1, 1)
+                .get_pristine_bone_positions("DockStart", SINGLE_DOCK_BONE_START_INDEX, 1)
                 .first()
             {
                 self.enter_position = *pos;
             }
             if let Some(pos) = drawable_guard
-                .get_pristine_bone_positions("DockAction", 1, 1)
+                .get_pristine_bone_positions("DockAction", SINGLE_DOCK_BONE_START_INDEX, 1)
                 .first()
             {
                 self.dock_position = *pos;
             }
             if let Some(pos) = drawable_guard
-                .get_pristine_bone_positions("DockEnd", 1, 1)
+                .get_pristine_bone_positions("DockEnd", SINGLE_DOCK_BONE_START_INDEX, 1)
                 .first()
             {
                 self.exit_position = *pos;
@@ -187,7 +189,11 @@ impl DockUpdate {
 
             if self.number_approach_positions != DYNAMIC_APPROACH_VECTOR_FLAG {
                 let count = self.approach_positions.len();
-                let positions = drawable_guard.get_pristine_bone_positions("DockWaiting", 1, count);
+                let positions = drawable_guard.get_pristine_bone_positions(
+                    "DockWaiting",
+                    APPROACH_BONE_START_INDEX,
+                    count,
+                );
                 self.number_approach_position_bones = positions.len() as Int;
                 if count == positions.len() {
                     for (slot, pos) in self.approach_positions.iter_mut().zip(positions.iter()) {
@@ -1570,6 +1576,12 @@ mod tests {
     use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
     use crate::object::body::body_module::BodyModuleInterface;
     use std::sync::Mutex;
+
+    #[test]
+    fn dock_bone_start_indices_match_cpp() {
+        assert_eq!(SINGLE_DOCK_BONE_START_INDEX, 0);
+        assert_eq!(APPROACH_BONE_START_INDEX, 1);
+    }
 
     #[test]
     fn parse_time_for_full_heal_accepts_duration_suffixes() {
