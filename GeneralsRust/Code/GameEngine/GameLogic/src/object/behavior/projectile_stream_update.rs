@@ -221,6 +221,38 @@ impl BehaviorModuleInterface for ProjectileStreamUpdate {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+    fn get_projectile_stream_update_interface(
+        &mut self,
+    ) -> Option<&mut dyn ProjectileStreamUpdateInterface> {
+        Some(self)
+    }
+}
+
+pub trait ProjectileStreamUpdateInterface {
+    fn set_position(&mut self, new_position: &crate::common::Coord3D);
+    fn add_projectile(
+        &mut self,
+        source_id: ObjectID,
+        new_id: ObjectID,
+        victim_id: ObjectID,
+        victim_pos: Option<&crate::common::Coord3D>,
+    );
+}
+
+impl ProjectileStreamUpdateInterface for ProjectileStreamUpdate {
+    fn set_position(&mut self, new_position: &crate::common::Coord3D) {
+        ProjectileStreamUpdate::set_position(self, new_position);
+    }
+
+    fn add_projectile(
+        &mut self,
+        source_id: ObjectID,
+        new_id: ObjectID,
+        victim_id: ObjectID,
+        victim_pos: Option<&crate::common::Coord3D>,
+    ) {
+        ProjectileStreamUpdate::add_projectile(self, source_id, new_id, victim_id, victim_pos);
+    }
 }
 
 impl Snapshotable for ProjectileStreamUpdate {
