@@ -68,6 +68,7 @@ const EVA_MESSAGE_NAMES: [&str; 53] = [
 ];
 
 const EVA_COUNT: usize = EVA_MESSAGE_NAMES.len();
+const FOREVER_FRAMES: u32 = 0x3fffffff;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -329,7 +330,11 @@ fn parse_expiration_time(
     let Some(token) = tokens.first() else {
         return Err(INIError::InvalidData);
     };
-    target.frames_to_expire = INI::parse_duration_unsigned_int(token)?;
+    target.frames_to_expire = if *token == "-1" {
+        FOREVER_FRAMES
+    } else {
+        INI::parse_duration_unsigned_int(token)?
+    };
     Ok(())
 }
 
@@ -339,8 +344,113 @@ fn parse_side_sounds_list(
     _tokens: &[&str],
 ) -> INIResult<()> {
     let mut side_sounds = EvaSideSounds::default();
-    ini.init_from_ini_with_fields(&mut side_sounds, EvaSideSounds::field_parse())?;
+    parse_eva_side_sounds_fields(ini, &mut side_sounds)?;
     target.eva_side_sounds.push(side_sounds);
+    Ok(())
+}
+
+fn parse_eva_field_line(line: &str) -> Option<(&str, Vec<&str>)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let key_end = trimmed
+        .find(|c: char| c.is_whitespace() || c == '=')
+        .unwrap_or(trimmed.len());
+    let key = &trimmed[..key_end];
+    if key.is_empty() {
+        return None;
+    }
+
+    let values = trimmed[key_end..]
+        .split(|c: char| c.is_whitespace() || c == '=')
+        .filter(|token| !token.is_empty())
+        .collect();
+
+    Some((key, values))
+}
+
+fn parse_eva_side_sounds_fields(ini: &mut INI, target: &mut EvaSideSounds) -> INIResult<()> {
+    loop {
+        ini.read_line()?;
+        if ini.is_eof() {
+            return Err(INIError::MissingEndToken);
+        }
+
+        let line = ini.get_buffer().to_string();
+        let Some((key, value_tokens)) = parse_eva_field_line(&line) else {
+            continue;
+        };
+
+        if key.eq_ignore_ascii_case("End") {
+            break;
+        }
+
+        if key.eq_ignore_ascii_case("Side") {
+            parse_side(ini, target, &value_tokens)?;
+        } else if key.eq_ignore_ascii_case("Sounds") {
+            parse_sounds(ini, target, &value_tokens)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn parse_eva_check_info_fields(ini: &mut INI, target: &mut EvaCheckInfo) -> INIResult<()> {
+    loop {
+        ini.read_line()?;
+        if ini.is_eof() {
+            return Err(INIError::MissingEndToken);
+        }
+
+        let line = ini.get_buffer().to_string();
+        let Some((key, value_tokens)) = parse_eva_field_line(&line) else {
+            continue;
+        };
+
+        if key.eq_ignore_ascii_case("End") {
+            break;
+        }
+
+        if key.eq_ignore_ascii_case("Priority") {
+            parse_priority(ini, target, &value_tokens)?;
+        } else if key.eq_ignore_ascii_case("TimeBetweenChecksMS") {
+            parse_time_between_checks(ini, target, &value_tokens)?;
+        } else if key.eq_ignore_ascii_case("ExpirationTimeMS") {
+            parse_expiration_time(ini, target, &value_tokens)?;
+        } else if key.eq_ignore_ascii_case("SideSounds") {
+            parse_side_sounds_list(ini, target, &value_tokens)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn skip_eva_event_block(ini: &mut INI) -> INIResult<()> {
+    let mut depth = 0usize;
+
+    loop {
+        ini.read_line()?;
+        if ini.is_eof() {
+            return Err(INIError::MissingEndToken);
+        }
+
+        let line = ini.get_buffer().to_string();
+        let Some((key, _)) = parse_eva_field_line(&line) else {
+            continue;
+        };
+
+        if key.eq_ignore_ascii_case("End") {
+            if depth == 0 {
+                break;
+            }
+            depth -= 1;
+        } else if key.eq_ignore_ascii_case("SideSounds") {
+            depth += 1;
+        }
+    }
+
     Ok(())
 }
 
@@ -749,14 +859,18 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
     let Some(name) = tokens.get(1) else {
         return Err(INIError::InvalidData);
     };
+    if EvaMessage::from_name(name).is_none() {
+        return Err(INIError::InvalidData);
+    }
 
     let ptr = ACTIVE_EVA_MANAGER.with(|p| p.get());
     if !ptr.is_null() {
         let eva = unsafe { &mut *ptr };
         let Some(check) = eva.new_eva_check_info(name) else {
+            skip_eva_event_block(ini)?;
             return Ok(());
         };
-        ini.init_from_ini_with_fields(check, EvaCheckInfo::field_parse())?;
+        parse_eva_check_info_fields(ini, check)?;
         return Ok(());
     }
 
@@ -765,9 +879,10 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
     };
     let mut eva = eva.lock().map_err(|_| INIError::InvalidData)?;
     let Some(check) = eva.new_eva_check_info(name) else {
+        skip_eva_event_block(ini)?;
         return Ok(());
     };
-    ini.init_from_ini_with_fields(check, EvaCheckInfo::field_parse())?;
+    parse_eva_check_info_fields(ini, check)?;
     Ok(())
 }
 
@@ -836,6 +951,30 @@ pub fn set_eva_enabled(enabled: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::{Path, PathBuf};
+
+    fn repo_root() -> Option<PathBuf> {
+        let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        loop {
+            if dir.join("GeneralsMD").is_dir() && dir.join("windows_game").is_dir() {
+                return Some(dir);
+            }
+            if !dir.pop() {
+                return None;
+            }
+        }
+    }
+
+    fn load_eva_file_for_test(eva: &mut Eva, path: &Path) -> INIResult<()> {
+        let _ = register_block_parser("EvaEvent", parse_eva_event);
+        unsafe {
+            set_active_eva_manager(eva as *mut Eva);
+        }
+        let mut ini = INI::new();
+        let result = ini.load(path, INILoadType::Overwrite);
+        clear_active_eva_manager();
+        result
+    }
 
     #[test]
     fn eva_message_names_match_cpp_indices() {
@@ -887,6 +1026,28 @@ mod tests {
 
         assert!(eva.get_eva_check_info_by_name("EVA_INVALID").is_none());
         assert!(eva.get_eva_check_info_by_name("UNKNOWN").is_none());
+    }
+
+    #[test]
+    fn retail_eva_ini_loads_all_events() {
+        let Some(root) = repo_root() else {
+            return;
+        };
+        let path = root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Eva.ini");
+        if !path.exists() {
+            return;
+        }
+
+        let mut eva = Eva::new();
+        load_eva_file_for_test(&mut eva, &path).expect("retail Eva.ini should parse");
+
+        assert_eq!(eva.all_check_infos.len(), 49);
+        assert!(eva
+            .get_eva_check_info_by_name("SuperweaponLaunched_Enemy_GPS_Scrambler")
+            .is_some());
+        assert!(eva
+            .get_eva_check_info_by_name("SuperweaponLaunched_Enemy_Sneak_Attack")
+            .is_some());
     }
 
     #[test]
