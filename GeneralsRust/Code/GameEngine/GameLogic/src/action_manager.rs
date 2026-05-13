@@ -17,9 +17,7 @@ use crate::helpers::TheTerrainLogic;
 use crate::modules::SpecialPowerModuleInterface;
 use crate::object::behavior::spawn_behavior::SpawnBehaviorInterface;
 use crate::object::collide::COLLISION_MANAGER;
-use crate::object::production::supply_warehouse_dock::{
-    SupplyWarehouseDockUpdate, SupplyWarehouseDockUpdateModule,
-};
+use crate::object::production::supply_warehouse_dock::SupplyWarehouseDockUpdate;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::SpecialPowerTemplate;
 use crate::object::special_power_types::SpecialPowerType;
@@ -124,8 +122,10 @@ fn get_supply_warehouse_boxes(warehouse: &Object) -> Option<i32> {
     warehouse
         .find_update_module("SupplyWarehouseDockUpdate")
         .and_then(|module| {
-            module.with_module_downcast::<SupplyWarehouseDockUpdateModule, _, _>(|module| {
-                module.behavior().get_boxes_stored()
+            module.with_module(|module| {
+                module
+                    .get_supply_warehouse_dock_interface()
+                    .map(|warehouse| warehouse.boxes_stored())
             })
         })
 }
