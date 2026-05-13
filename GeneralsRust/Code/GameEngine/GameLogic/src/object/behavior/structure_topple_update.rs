@@ -20,8 +20,6 @@ use crate::object::die::{
     parse_death_type_flags_tokens, parse_object_status_mask_tokens,
     parse_veterancy_level_flags_tokens, DieMuxData, ObjectStatusMask,
 };
-use crate::object::draw::draw_module::ObjectDrawInterface;
-use crate::object::draw::w3d_model_draw::W3DModelDraw;
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
@@ -712,8 +710,8 @@ impl StructureToppleUpdate {
                         let mut found = false;
 
                         for module_handle in drawable.get_draw_modules() {
-                            if let Some(count) = module_handle
-                                .with_module_downcast::<W3DModelDraw, _, _>(|draw_module| {
+                            if let Some(count) =
+                                module_handle.with_object_draw_interface(|draw_module| {
                                     draw_module.get_pristine_bone_positions(
                                         &ModelConditionFlags::PRISTINE,
                                         bone.bone_name.as_str(),
