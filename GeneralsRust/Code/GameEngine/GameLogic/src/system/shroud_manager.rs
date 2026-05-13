@@ -4,7 +4,7 @@
 //! of objects across the game world. The shroud system provides:
 //!
 //! - **Per-Player Visibility Tracking**: Each player has their own view of the world
-//! - **Vision-Range Checking**: Uses weapon system's vision checks for accuracy
+//! - **Shroud-Clearing Range Checking**: Uses the object's shroud-clearing range for fog-of-war
 //! - **Visibility Caching**: Updates every N frames for performance
 //! - **Dynamic Updates**: Reflects changes in unit positions, deaths, and vision upgrades
 //!
@@ -1263,7 +1263,7 @@ impl ShroudManager {
             // Update explored territory from current visibility
             self.update_explored_territory(player_id);
 
-            // Update shroud grid with vision ranges
+            // Update shroud grid with shroud-clearing ranges
             if needs_vision_recalc {
                 self.update_shroud_grid_for_player(player_id as u32, &object_manager);
             }
@@ -1287,7 +1287,7 @@ impl ShroudManager {
     ///
     /// Mirrors C++ Vision::update_shroud_for_player() behavior:
     /// - Identifies player-controlled units via team ownership
-    /// - Checks each unit's vision range and line-of-sight
+    /// - Checks each unit's shroud-clearing range and line-of-sight
     /// - Aggregates visible objects per player
     /// - Updates shroud state for rendering
     ///
@@ -1343,10 +1343,10 @@ impl ShroudManager {
             if let Some(viewer_arc) = object_manager.get_object(viewer_id) {
                 if let Ok(viewer_guard) = viewer_arc.read() {
                     let viewer_pos = viewer_guard.get_position();
-                    let viewer_vision_range = viewer_guard
+                    let viewer_shroud_range = viewer_guard
                         .base
                         .read()
-                        .map(|base| base.get_vision_range())
+                        .map(|base| base.get_shroud_clearing_range())
                         .unwrap_or(0.0);
                     let mut viewer_eye_pos = *viewer_pos;
                     viewer_eye_pos.z += viewer_guard
@@ -1370,11 +1370,11 @@ impl ShroudManager {
                                     .get_geometry_info()
                                     .get_max_height_above_position();
 
-                                // Check if within vision range
+                                // Check if within shroud-clearing range
                                 let dx = viewer_pos.x - target_pos.x;
                                 let dy = viewer_pos.y - target_pos.y;
                                 let distance = (dx * dx + dy * dy).sqrt();
-                                if distance <= viewer_vision_range {
+                                if distance <= viewer_shroud_range {
                                     // Check line-of-sight (basic implementation, can be enhanced with terrain)
                                     if self.check_line_of_sight(
                                         &viewer_eye_pos,
@@ -1621,7 +1621,7 @@ impl ShroudManager {
         }
     }
 
-    /// Update shroud grid with vision ranges for a player
+    /// Update shroud grid with shroud-clearing ranges for a player
     ///
     /// Uses counter-based system to properly track multiple lookers
     fn update_shroud_grid_for_player(
@@ -1641,7 +1641,7 @@ impl ShroudManager {
         // Get all units owned by this player
         let viewer_ids = object_manager.get_objects_owned_by_player(player_id);
 
-        // Add circular reveals for each unit's vision range
+        // Add circular reveals for each unit's shroud-clearing range
         // Using single player mask since this is per-player vision
         let _player_mask = 1 << player_id;
 
@@ -1649,14 +1649,14 @@ impl ShroudManager {
             if let Some(viewer_arc) = object_manager.get_object(viewer_id) {
                 if let Ok(viewer_guard) = viewer_arc.read() {
                     let viewer_pos = viewer_guard.get_position();
-                    let viewer_vision_range = viewer_guard
+                    let viewer_shroud_range = viewer_guard
                         .base
                         .read()
-                        .map(|base| base.get_vision_range())
+                        .map(|base| base.get_shroud_clearing_range())
                         .unwrap_or(0.0);
 
                     // Use do_shroud_reveal with counter-based system
-                    grid.do_shroud_reveal(&viewer_pos, viewer_vision_range, player_id as usize);
+                    grid.do_shroud_reveal(&viewer_pos, viewer_shroud_range, player_id as usize);
                 }
             }
         }
@@ -3264,6 +3264,79 @@ mod tests {
         // 4. Position remains explored
         assert!(manager.is_position_explored(player_id, &unit_pos));
         assert!(!manager.is_position_visible(player_id, &unit_pos));
+    }
+
+    #[test]
+    fn test_fow_uses_shroud_clearing_range_not_vision_range() {
+        let manager_arc = get_object_manager();
+        struct ResetGuard(Arc<RwLock<crate::object_manager::ObjectManager>>);
+        impl Drop for ResetGuard {
+            fn drop(&mut self) {
+                self.0.write().unwrap().reset();
+            }
+        }
+
+        let _reset_guard = ResetGuard(Arc::clone(&manager_arc));
+        manager_arc.write().unwrap().reset();
+
+        let team_player0 = Arc::new(RwLock::new(Team::new("P0".into(), 1)));
+        team_player0
+            .write()
+            .unwrap()
+            .set_controlling_player_id(Some(0));
+
+        let viewer_template = Arc::new(DefaultThingTemplate::new("ShroudViewer".to_string()));
+        let target_template = Arc::new(DefaultThingTemplate::new("ShroudTarget".to_string()));
+
+        let viewer = Arc::new(RwLock::new(
+            GameObjectInstance::new(
+                300,
+                Some(viewer_template),
+                Some(team_player0),
+                ObjectCreationFlags::from_template(),
+            )
+            .expect("failed to create viewer object"),
+        ));
+        {
+            let viewer_guard = viewer.write().unwrap();
+            let mut base = viewer_guard.base.write().unwrap();
+            base.set_vision_range(300.0);
+            base.set_shroud_clearing_range(25.0);
+        }
+
+        let target = Arc::new(RwLock::new(
+            GameObjectInstance::new(
+                301,
+                Some(target_template),
+                None,
+                ObjectCreationFlags::from_template(),
+            )
+            .expect("failed to create target object"),
+        ));
+
+        let viewer_pos = Coord3D::new(0.0, 0.0, 0.0);
+        let target_pos = Coord3D::new(100.0, 0.0, 0.0);
+        {
+            let mut mgr = manager_arc.write().unwrap();
+            mgr.register_object_instance(viewer, viewer_pos).unwrap();
+            mgr.register_object_instance(target, target_pos).unwrap();
+        }
+
+        let mut shroud = ShroudManager::new();
+        shroud.init_shroud_grid(1000.0, 1000.0);
+        shroud.set_update_interval(1);
+        shroud.set_vision_recalc_interval(1);
+        shroud.update(1).unwrap();
+
+        assert!(
+            !shroud.can_see_object(0, 301),
+            "C++ Object::look reveals with getShroudClearingRange(), not vision range"
+        );
+        assert!(
+            !shroud.is_position_visible(0, &target_pos),
+            "grid reveal should also use shroud-clearing range"
+        );
+        assert!(shroud.can_see_object(0, 300));
     }
 
     #[test]
