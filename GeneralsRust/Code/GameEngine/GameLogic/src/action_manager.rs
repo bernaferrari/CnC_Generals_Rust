@@ -1695,22 +1695,16 @@ impl TheActionManager {
         }
 
         if obj.is_kind_of(KindOf::SpawnsAreTheWeapons) {
-            for entry in obj.behavior_modules() {
-                let mut spawn_result = None;
-                entry.with_module_downcast::<crate::object::behavior::spawn_behavior::SpawnBehaviorModule, _, _>(
-                    |module| {
-                        spawn_result = Some(
-                            module
-                                .behavior_mut()
-                                .get_can_any_slaves_attack_specific_target(
-                                    attack_type,
-                                    object_to_attack,
-                                    command_source,
-                                ),
-                        );
-                    },
-                );
-                if let Some(result) = spawn_result {
+            for behavior in obj.get_behavior_modules() {
+                let Ok(mut behavior) = behavior.lock() else {
+                    continue;
+                };
+                if let Some(spawn_behavior) = behavior.get_spawn_behavior_full_interface() {
+                    let result = spawn_behavior.get_can_any_slaves_attack_specific_target(
+                        attack_type,
+                        object_to_attack,
+                        command_source,
+                    );
                     if result != ATTACKRESULT_NOT_POSSIBLE {
                         return result;
                     }
