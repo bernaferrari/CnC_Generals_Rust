@@ -1091,6 +1091,16 @@ mod tests {
 
     #[test]
     fn test_game_slot_ai() {
+        // Initialize game text provider for tests
+        let _ = set_game_text_provider(Arc::new(|key| match key {
+            "GUI:EasyAI" => "Easy AI".to_string(),
+            "GUI:MediumAI" => "Medium AI".to_string(),
+            "GUI:HardAI" => "Hard AI".to_string(),
+            "GUI:Open" => "Open".to_string(),
+            "GUI:Closed" => "Closed".to_string(),
+            other => other.to_string(),
+        }));
+
         let mut slot = GameSlot::new();
         slot.set_state(SlotState::MedAI, String::new(), 0);
 

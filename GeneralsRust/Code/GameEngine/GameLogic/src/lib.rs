@@ -12,6 +12,7 @@
 
 #![allow(missing_docs)]
 #![allow(unused_imports)]
+#![allow(dead_code)]
 #![warn(rust_2018_idioms)]
 
 // Public modules
