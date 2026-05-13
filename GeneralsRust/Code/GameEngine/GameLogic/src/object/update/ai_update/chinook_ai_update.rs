@@ -19,8 +19,7 @@ use crate::helpers::{
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt, SupplyTruckAIInterface,
 };
-use crate::object::draw::draw_module::{RGBColor, RopeDrawInterface};
-use crate::object::draw::w3d_rope_draw::W3DRopeDraw;
+use crate::object::draw::draw_module::RGBColor;
 use crate::object::drawable::{Drawable, DrawableArcExt};
 use crate::object::update::ai_update_interface::AIUpdateModuleData;
 use crate::object::Object;
@@ -674,19 +673,11 @@ impl ChinookAIUpdate {
         wobble_amp: Real,
         wobble_rate: Real,
     ) {
-        for module_handle in drawable.get_draw_modules() {
-            module_handle.with_module_downcast::<W3DRopeDraw, _, _>(|draw| {
-                draw.init_rope_parms(length, width, &color, wobble_len, wobble_amp, wobble_rate);
-            });
-        }
+        drawable.init_rope_draw_params(length, width, color, wobble_len, wobble_amp, wobble_rate);
     }
 
     fn set_rope_cur_len(drawable: &Arc<RwLock<Drawable>>, length: Real) {
-        for module_handle in drawable.get_draw_modules() {
-            module_handle.with_module_downcast::<W3DRopeDraw, _, _>(|draw| {
-                draw.set_rope_cur_len(length);
-            });
-        }
+        drawable.set_rope_cur_len(length);
     }
 
     fn set_rope_speed(
@@ -695,11 +686,7 @@ impl ChinookAIUpdate {
         max_speed: Real,
         accel: Real,
     ) {
-        for module_handle in drawable.get_draw_modules() {
-            module_handle.with_module_downcast::<W3DRopeDraw, _, _>(|draw| {
-                draw.set_rope_speed(cur_speed, max_speed, accel);
-            });
-        }
+        drawable.set_rope_speed(cur_speed, max_speed, accel);
     }
 
     fn start_combat_drop(&mut self) -> bool {
