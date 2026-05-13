@@ -3513,6 +3513,7 @@ pub trait DrawableArcExt {
     fn set_rope_cur_len(&self, length: Real);
     fn set_rope_speed(&self, cur_speed: Real, max_speed: Real, accel: Real);
     fn update_bones_for_client_particle_systems(&self) -> bool;
+    fn get_laser_template_width(&self) -> Option<Real>;
     fn set_model_condition_state(&self, state: ModelConditionFlags);
     fn set_drawable_hidden(&self, hidden: bool);
     fn is_drawable_effectively_hidden(&self) -> bool;
@@ -3690,6 +3691,26 @@ impl DrawableArcExt for Arc<RwLock<Drawable>> {
         }
 
         false
+    }
+
+    fn get_laser_template_width(&self) -> Option<Real> {
+        let guard = self.read().ok()?;
+        for module_handle in guard.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
+            let width = module_handle.with_module(|module| {
+                let mut width = None;
+                with_draw_module_mut(module, |draw| {
+                    if let Some(laser) = draw.get_laser_draw_interface() {
+                        width = Some(laser.get_laser_template_width());
+                    }
+                });
+                width
+            });
+            if width.is_some() {
+                return width;
+            }
+        }
+
+        None
     }
 
     /// Set model condition state
