@@ -395,6 +395,14 @@ pub struct ProductionUpdateComplete {
 }
 
 impl ProductionUpdateComplete {
+    fn production_count(&self) -> usize {
+        self.queue.len() + usize::from(self.current_production.is_some())
+    }
+
+    fn has_queue_capacity(&self) -> bool {
+        self.production_count() < self.data.max_queue_entries
+    }
+
     fn sync_actively_constructing_flag(&mut self) {
         let should_set = self.current_production.is_some() || !self.queue.is_empty();
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
@@ -477,7 +485,7 @@ impl ProductionUpdateComplete {
         player_state: &PlayerBuildState,
     ) -> CanMakeType {
         // Check queue size
-        if self.queue.len() >= self.data.max_queue_entries {
+        if !self.has_queue_capacity() {
             return CanMakeType::QueueFull;
         }
 
@@ -501,7 +509,7 @@ impl ProductionUpdateComplete {
         player_state: &PlayerBuildState,
     ) -> CanMakeType {
         // Check queue size
-        if self.queue.len() >= self.data.max_queue_entries {
+        if !self.has_queue_capacity() {
             return CanMakeType::QueueFull;
         }
 
@@ -536,6 +544,9 @@ impl ProductionUpdateComplete {
         // Check if production is enabled
         if !self.production_enabled {
             return Err("Production is currently disabled".to_string());
+        }
+        if !self.has_queue_capacity() {
+            return Err("Build queue is full".to_string());
         }
 
         // Create queue entry
@@ -586,6 +597,10 @@ impl ProductionUpdateComplete {
         build_time: u32,
         player_id: ObjectID,
     ) -> Result<(), String> {
+        if !self.has_queue_capacity() {
+            return Err("Build queue is full".to_string());
+        }
+
         // Create entry
         let entry = BuildQueueEntry::new(
             upgrade_name,
@@ -1527,5 +1542,28 @@ mod tests {
         assert_eq!(entries[0].queue_index, 0);
         assert_eq!(entries[1].template_name, "TestTank");
         assert_eq!(entries[1].queue_index, 1);
+    }
+
+    #[test]
+    fn max_queue_entries_counts_current_production() {
+        let mut data = ProductionUpdateModuleData::default();
+        data.max_queue_entries = 2;
+        let mut production = ProductionUpdateComplete::new(data, 42);
+
+        production
+            .queue_create_unit("TestInfantry".to_string(), ProductionType::Unit, 100, 30, 0)
+            .expect("first item should start current production");
+        production
+            .queue_create_unit("TestTank".to_string(), ProductionType::Unit, 700, 90, 0)
+            .expect("second item should fill the queue limit");
+
+        let result =
+            production.queue_create_unit("Overflow".to_string(), ProductionType::Unit, 900, 90, 0);
+
+        assert!(
+            result.is_err(),
+            "C++ m_productionCount includes current production plus queued entries"
+        );
+        assert_eq!(ProductionUpdateInterface::get_queue_size(&production), 2);
     }
 }
