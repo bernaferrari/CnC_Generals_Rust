@@ -3,7 +3,6 @@
 // Ported to Rust
 
 use crate::helpers::{TheGameLogic, TheParticleSystemManager};
-use crate::object::draw::w3d_laser_draw::W3DLaserDraw;
 use crate::object::drawable::DrawableArcExt;
 use crate::object::ObjectArcExt;
 use crate::player::ThePlayerList;
@@ -565,14 +564,8 @@ impl LaserUpdate {
                 return 0.0;
             };
 
-            for draw_module in drawable.get_draw_modules() {
-                if let Some(width) =
-                    draw_module.with_module_downcast::<W3DLaserDraw, _, f32>(|laser_draw| {
-                        laser_draw.get_laser_template_width()
-                    })
-                {
-                    return width * self.current_width_scalar;
-                }
+            if let Some(width) = drawable.get_laser_template_width() {
+                return width * self.current_width_scalar;
             }
         }
 
