@@ -6319,8 +6319,7 @@ fn auto_find_healing_update_module_factory(
     let (owner_id, _) = resolve_owner_info(&thing);
     let object = TheGameLogic::find_object_by_id(owner_id)
         .expect("AutoFindHealingUpdate requires a valid object");
-    let behavior = AutoFindHealingUpdate::new(object, module_data_arc.clone())
-        .expect("AutoFindHealingUpdate failed to initialize");
+    let behavior = AutoFindHealingUpdate::new_typed(object, module_data_arc.clone());
 
     let module_name = AsciiString::from("AutoFindHealingUpdate");
     Box::new(AutoFindHealingUpdateModule::new(
