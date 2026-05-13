@@ -2205,6 +2205,17 @@ pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceDa
             };
 
         if _window.get_status().contains(WindowStatus::IMAGE) {
+            // C++ parity: W3DGameWinDefaultDraw ALWAYS draws the color background,
+            // then overlays the image if available. Don't skip the color fill just
+            // because the image is missing.
+            if let Some(entry) = draw_data.first() {
+                if entry.color != WIN_COLOR_UNDEFINED {
+                    renderer.draw_rect(rect, color_to_rgba(entry.color), 0.0);
+                }
+                if entry.border_color != WIN_COLOR_UNDEFINED {
+                    renderer.draw_rect_outline(rect, 1.0, color_to_rgba(entry.border_color), 0.1);
+                }
+            }
             if let Some(entry) = draw_data.first() {
                 if let Some(image) = &entry.image {
                     let _ = ensure_client_mapped_image(&image.name);
@@ -2230,9 +2241,6 @@ pub fn default_draw_callback(_window: &GameWindow, _inst_data: &WindowInstanceDa
                     };
 
                     if let Some((texture, tex_rect)) = texture {
-                        // C++ W3DGameWinDefaultDraw does not multiply image-backed windows by the
-                        // draw-data color. Preserve authored art exactly and reserve draw colors
-                        // for non-image fill paths.
                         renderer.draw_textured_rect(
                             rect,
                             texture,

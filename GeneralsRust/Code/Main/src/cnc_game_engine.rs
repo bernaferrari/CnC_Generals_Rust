@@ -3128,6 +3128,12 @@ impl CnCGameEngine {
         let mut render_pipeline = RenderPipeline::initialize(&graphics_system)?;
         pipeline_timer.finish();
 
+        // C++ parity: BIG archives MUST be initialized BEFORE asset manager so textures/INI can be read
+        info!("📦 Initializing BIG archive file system...");
+        if let Err(err) = crate::assets::archive::init_archive_file_system().await {
+            warn!("BIG archive file system init failed: {err}. Continuing without archive support.");
+        }
+
         // C++ parity: initialize the asset manager during engine setup so startup loading
         // can reuse the live archive/definition caches immediately.
         info!("🎨 Initializing C&C Asset Manager during engine setup...");
