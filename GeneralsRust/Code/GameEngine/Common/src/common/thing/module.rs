@@ -274,6 +274,10 @@ pub trait RadarUpdateInterface {
     fn is_radar_active(&self) -> bool;
 }
 
+pub trait TrainControlInterface {
+    fn set_held(&mut self, held: bool);
+}
+
 pub trait ModuleAny {
     fn module_as_any(&self) -> &dyn Any;
     fn module_as_any_mut(&mut self) -> &mut dyn Any;
@@ -342,6 +346,10 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     }
 
     fn get_radar_update_interface(&mut self) -> Option<&mut dyn RadarUpdateInterface> {
+        None
+    }
+
+    fn get_train_control_interface(&mut self) -> Option<&mut dyn TrainControlInterface> {
         None
     }
 }
