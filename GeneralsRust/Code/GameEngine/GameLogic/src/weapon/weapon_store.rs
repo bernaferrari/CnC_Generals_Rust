@@ -447,7 +447,7 @@ impl WeaponStore {
                 )));
             }
 
-            if template.clip_size <= 0 {
+            if template.clip_size < 0 {
                 return Err(GameLogicError::Configuration(format!(
                     "Template '{}': invalid clip size ({})",
                     template.name, template.clip_size
@@ -582,11 +582,11 @@ mod tests {
     fn test_template_validation() {
         let mut store = WeaponStore::new();
 
-        // Valid template
+        // Valid template. C++ uses ClipSize 0 as unlimited, so zero is valid too.
         let mut valid_template = WeaponTemplate::new("Valid".to_string());
         valid_template.attack_range = 100.0;
         valid_template.minimum_attack_range = 10.0;
-        valid_template.clip_size = 5;
+        valid_template.clip_size = 0;
         store.add_weapon_template(valid_template);
 
         assert!(store.validate_templates().is_ok());
@@ -596,6 +596,16 @@ mod tests {
         invalid_template.attack_range = 50.0;
         invalid_template.minimum_attack_range = 100.0; // Invalid!
         store.add_weapon_template(invalid_template);
+
+        assert!(store.validate_templates().is_err());
+    }
+
+    #[test]
+    fn test_template_validation_rejects_negative_clip_size() {
+        let mut store = WeaponStore::new();
+        let mut template = WeaponTemplate::new("NegativeClip".to_string());
+        template.clip_size = -1;
+        store.add_weapon_template(template);
 
         assert!(store.validate_templates().is_err());
     }

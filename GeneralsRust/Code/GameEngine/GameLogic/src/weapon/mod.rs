@@ -85,6 +85,7 @@ pub use weapon_store::*;
 
 /// Maximum shots limit constant
 pub const NO_MAX_SHOTS_LIMIT: i32 = 0x7fffffff;
+const EFFECTIVELY_UNLIMITED_CLIP_AMMO: u32 = 0x7fffffff;
 
 /// Weapon reload behavior types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2502,7 +2503,7 @@ impl Weapon {
 
     /// Load ammo instantly (for newly created units)
     pub fn load_ammo_now(&mut self, _source: ObjectId) -> GameLogicResult<()> {
-        self.ammo_in_clip = self.template.clip_size as u32;
+        self.ammo_in_clip = ammo_count_for_clip_size(self.template.clip_size);
         self.status = WeaponStatus::ReadyToFire;
         Ok(())
     }
@@ -2519,8 +2520,8 @@ impl Weapon {
         bonus: &WeaponBonus,
         load_instantly: bool,
     ) -> GameLogicResult<()> {
+        self.ammo_in_clip = ammo_count_for_clip_size(self.template.clip_size);
         if load_instantly {
-            self.ammo_in_clip = self.template.clip_size as u32;
             self.status = WeaponStatus::ReadyToFire;
         } else {
             self.status = WeaponStatus::ReloadingClip;
@@ -4698,6 +4699,14 @@ impl Weapon {
     }
 }
 
+fn ammo_count_for_clip_size(clip_size: i32) -> u32 {
+    if clip_size <= 0 {
+        EFFECTIVELY_UNLIMITED_CLIP_AMMO
+    } else {
+        clip_size as u32
+    }
+}
+
 fn weapon_slot_to_u32(slot: WeaponSlotType) -> u32 {
     match slot {
         WeaponSlotType::Primary => 0,
@@ -5355,6 +5364,32 @@ mod tests {
         weapon.load_ammo_now(1).unwrap();
         assert_eq!(weapon.get_status(), WeaponStatus::ReadyToFire);
         assert_eq!(weapon.get_remaining_ammo(), 1);
+    }
+
+    #[test]
+    fn test_weapon_zero_clip_size_loads_unlimited_ammo() {
+        let template = Arc::new(WeaponTemplate::new("UnlimitedWeapon".to_string()));
+        let mut weapon = Weapon::new(template, WeaponSlotType::Primary);
+
+        weapon.load_ammo_now(1).unwrap();
+
+        assert_eq!(weapon.get_status(), WeaponStatus::ReadyToFire);
+        assert_eq!(weapon.get_remaining_ammo(), EFFECTIVELY_UNLIMITED_CLIP_AMMO);
+    }
+
+    #[test]
+    fn test_weapon_reload_sets_ammo_before_reload_delay() {
+        let mut template = WeaponTemplate::new("ReloadingUnlimitedWeapon".to_string());
+        template.clip_size = 0;
+        template.clip_reload_time = 30;
+        let template = Arc::new(template);
+        let mut weapon = Weapon::new(template, WeaponSlotType::Primary);
+
+        weapon.reload_ammo(1).unwrap();
+
+        assert_eq!(weapon.status, WeaponStatus::ReloadingClip);
+        assert_eq!(weapon.ammo_in_clip, EFFECTIVELY_UNLIMITED_CLIP_AMMO);
+        assert_eq!(weapon.get_remaining_ammo(), 0);
     }
 
     #[test]
