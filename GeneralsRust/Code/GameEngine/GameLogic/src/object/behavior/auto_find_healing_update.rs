@@ -55,6 +55,18 @@ pub struct AutoFindHealingUpdate {
 }
 
 impl AutoFindHealingUpdate {
+    pub fn new_typed(
+        object: Arc<RwLock<GameObject>>,
+        module_data: Arc<AutoFindHealingUpdateModuleData>,
+    ) -> Self {
+        Self {
+            object: Arc::downgrade(&object),
+            module_data,
+            next_call_frame_and_phase: 0,
+            next_scan_frames: 0,
+        }
+    }
+
     pub fn new(
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<dyn ModuleData>,
@@ -62,14 +74,9 @@ impl AutoFindHealingUpdate {
         let specific_data = module_data
             .as_ref()
             .downcast_ref::<AutoFindHealingUpdateModuleData>()
-            .ok_or("Invalid module data")?;
+            .ok_or("Invalid AutoFindHealingUpdate module data")?;
 
-        Ok(Self {
-            object: Arc::downgrade(&object),
-            module_data: Arc::new(specific_data.clone()),
-            next_call_frame_and_phase: 0,
-            next_scan_frames: 0,
-        })
+        Ok(Self::new_typed(object, Arc::new(specific_data.clone())))
     }
 }
 
