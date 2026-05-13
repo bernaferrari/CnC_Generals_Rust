@@ -299,6 +299,7 @@ pub trait BridgeTowerControlInterface {
 }
 
 pub trait TrainControlInterface {
+    fn has_ever_been_hitched(&self) -> bool;
     fn set_held(&mut self, held: bool);
     fn set_train_wall(&mut self, on: bool);
     fn disembark_passengers(&mut self);
