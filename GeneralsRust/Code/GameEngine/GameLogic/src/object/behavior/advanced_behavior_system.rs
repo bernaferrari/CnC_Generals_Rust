@@ -49,7 +49,7 @@ pub enum BehaviorState {
     Cancelled,
 }
 
-/// Behavior flags for controlling behavior interactions
+// Behavior flags for controlling behavior interactions
 bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
     pub struct BehaviorFlags: u32 {
@@ -122,7 +122,7 @@ pub enum BehaviorOutcome {
 
 /// Advanced behavior trait with async support
 #[async_trait]
-pub trait AdvancedBehavior: Send + Sync {
+pub trait AdvancedBehavior: Send + Sync + 'static {
     /// Get behavior name
     fn name(&self) -> &str;
 
@@ -233,7 +233,6 @@ pub enum BehaviorEvent {
 }
 
 /// Behavior instance with metadata
-#[derive(Debug)]
 pub struct BehaviorInstance {
     /// Behavior implementation
     pub behavior: Box<dyn AdvancedBehavior>,
@@ -255,7 +254,24 @@ pub struct BehaviorInstance {
     pub data: HashMap<String, Box<dyn Any + Send + Sync>>,
 }
 
+impl std::fmt::Debug for BehaviorInstance {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BehaviorInstance")
+            .field("behavior", &self.behavior.name())
+            .field("state", &self.state)
+            .field("priority", &self.priority)
+            .field("flags", &self.flags)
+            .field("start_time", &self.start_time)
+            .field("execution_time", &self.execution_time)
+            .field("update_count", &self.update_count)
+            .field("last_update", &self.last_update)
+            .field("data_keys", &self.data.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
 /// Behavior manager for a single object
+#[derive(Debug)]
 pub struct BehaviorManager {
     /// Object this manager belongs to
     object_id: ObjectId,
@@ -638,7 +654,7 @@ impl BehaviorManager {
         self.event_listeners
             .entry(event_type)
             .or_insert_with(Vec::new)
-            .push(name.clone());
+            .push(name.to_string());
     }
 
     /// Unregister event listeners for a behavior
@@ -652,7 +668,7 @@ impl BehaviorManager {
     async fn transition_behavior(
         &mut self,
         from_behavior: &str,
-        to_behavior: &str,
+        _to_behavior: &str,
         object: &mut Object,
         context: &BehaviorContext,
     ) -> GameLogicResult<()> {

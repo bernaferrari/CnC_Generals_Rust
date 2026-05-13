@@ -333,15 +333,16 @@ impl FormationBehavior {
         for (i, slot) in self.formation_slots.iter().enumerate() {
             if let Some(obj) = obj_map.get(&slot.unit_id) {
                 let current_pos = obj.get_position();
+                let default_target_pos = Point2::origin();
                 let target_pos = self
                     .target_formation_positions
                     .get(i)
-                    .unwrap_or(&Point2::origin());
+                    .unwrap_or(&default_target_pos);
 
                 let force_vector =
                     Vector2::new(target_pos.x - current_pos.x, target_pos.y - current_pos.y);
 
-                let force_magnitude = force_vector.length() * self.config.cohesion_strength;
+                let force_magnitude = force_vector.norm() * self.config.cohesion_strength;
                 let normalized_force = if force_magnitude > 0.0 {
                     force_vector.normalize() * force_magnitude
                 } else {
@@ -357,7 +358,7 @@ impl FormationBehavior {
         let obj_map: std::collections::HashMap<ObjectId, &Object> =
             objects.iter().map(|obj| (obj.get_id(), *obj)).collect();
 
-        let mut max_distance = 0.0;
+        let mut max_distance: f32 = 0.0;
         for slot in &self.formation_slots {
             if let Some(obj) = obj_map.get(&slot.unit_id) {
                 let pos = obj.get_position();
@@ -374,7 +375,9 @@ impl FormationBehavior {
         for obj in objects.iter_mut() {
             if let Some(force) = self.cohesion_forces.get(&obj.get_id()) {
                 if force.norm() > 0.1 {
-                    obj.apply_movement_force(force.x, force.y, 0.0).await?;
+                    obj.apply_movement_force(force.x, force.y, 0.0)
+                        .await
+                        .map_err(crate::GameLogicError::ModuleError)?;
                 }
             }
         }
@@ -444,28 +447,31 @@ impl AdvancedBehavior for FormationBehavior {
         object: &mut Object,
         _context: &BehaviorContext,
     ) -> GameLogicResult<BehaviorOutcome> {
-        let formation_objects: Vec<&Object> = vec![object];
-        let mut formation_objects_mut: Vec<&mut Object> = vec![object];
-
-        self.update_formation_center(&formation_objects).await?;
+        {
+            let formation_objects: Vec<&Object> = vec![&*object];
+            self.update_formation_center(&formation_objects).await?;
+        }
         self.update_formation_positions();
 
         match self.formation_state {
             FormationState::Forming => {
                 let mut all_in_position = true;
-                for (i, slot) in self.formation_slots.iter().enumerate() {
-                    if let Some(target_pos) = self.target_formation_positions.get(i) {
-                        if let Some(obj) = formation_objects
-                            .iter()
-                            .find(|o| o.get_id() == slot.unit_id)
-                        {
-                            let pos = obj.get_position();
-                            let distance = ((pos.x - target_pos.x).powi(2)
-                                + (pos.y - target_pos.y).powi(2))
-                            .sqrt();
-                            if distance > self.config.unit_spacing * 0.5 {
-                                all_in_position = false;
-                                break;
+                {
+                    let formation_objects: Vec<&Object> = vec![&*object];
+                    for (i, slot) in self.formation_slots.iter().enumerate() {
+                        if let Some(target_pos) = self.target_formation_positions.get(i) {
+                            if let Some(obj) = formation_objects
+                                .iter()
+                                .find(|o| o.get_id() == slot.unit_id)
+                            {
+                                let pos = obj.get_position();
+                                let distance = ((pos.x - target_pos.x).powi(2)
+                                    + (pos.y - target_pos.y).powi(2))
+                                .sqrt();
+                                if distance > self.config.unit_spacing * 0.5 {
+                                    all_in_position = false;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -476,12 +482,20 @@ impl AdvancedBehavior for FormationBehavior {
                 }
             }
             FormationState::InFormation => {
-                if self.is_formation_dispersed(&formation_objects) {
+                let is_dispersed = {
+                    let formation_objects: Vec<&Object> = vec![&*object];
+                    self.is_formation_dispersed(&formation_objects)
+                };
+                if is_dispersed {
                     self.formation_state = FormationState::Dispersed;
                     log::debug!("Formation dispersed");
                 }
                 if self.config.maintain_during_movement || self.config.maintain_during_combat {
-                    self.calculate_cohesion_forces(&formation_objects);
+                    {
+                        let formation_objects: Vec<&Object> = vec![&*object];
+                        self.calculate_cohesion_forces(&formation_objects);
+                    }
+                    let mut formation_objects_mut: Vec<&mut Object> = vec![object];
                     self.apply_cohesion_forces(&mut formation_objects_mut)
                         .await?;
                 }
@@ -497,10 +511,18 @@ impl AdvancedBehavior for FormationBehavior {
                 }
             }
             FormationState::Reforming => {
-                self.calculate_cohesion_forces(&formation_objects);
+                {
+                    let formation_objects: Vec<&Object> = vec![&*object];
+                    self.calculate_cohesion_forces(&formation_objects);
+                }
+                let mut formation_objects_mut: Vec<&mut Object> = vec![object];
                 self.apply_cohesion_forces(&mut formation_objects_mut)
                     .await?;
-                if !self.is_formation_dispersed(&formation_objects) {
+                let is_dispersed = {
+                    let formation_objects: Vec<&Object> = vec![&*object];
+                    self.is_formation_dispersed(&formation_objects)
+                };
+                if !is_dispersed {
                     self.formation_state = FormationState::InFormation;
                     log::debug!("Formation reformed");
                 }
