@@ -18,7 +18,6 @@ use crate::object::die::{
     parse_death_type_flags_tokens, parse_object_status_mask_tokens,
     parse_veterancy_level_flags_tokens, DieMuxData, ObjectStatusMask,
 };
-use crate::object::update::bone_fx_update::{BoneFXUpdate, BoneFXUpdateModule};
 use crate::object::DrawableArcExt;
 use crate::object::Object as GameObject;
 use crate::physics::GRAVITY;
@@ -438,16 +437,17 @@ impl StructureCollapseUpdate {
             return;
         };
         if let Some(module) = obj.find_update_module("BoneFXUpdate") {
-            let _ = module.with_module_downcast::<BoneFXUpdateModule, _, _>(|module| {
-                module.behavior_mut().stop_all_bone_fx_simple();
+            module.with_module(|module| {
+                if let Some(bone_fx) = module.get_bone_fx_control_interface() {
+                    bone_fx.stop_all_bone_fx();
+                }
             });
-        } else {
-            let _ = obj.with_update_behavior_downcast::<BoneFXUpdate, _, _>(
-                "BoneFXUpdate",
-                |bone_fx| {
-                    bone_fx.stop_all_bone_fx_simple();
-                },
-            );
+        } else if let Some(behavior) = obj.find_update_behavior("BoneFXUpdate") {
+            if let Ok(mut behavior) = behavior.lock() {
+                if let Some(bone_fx) = behavior.get_bone_fx_control_interface() {
+                    bone_fx.stop_all_bone_fx();
+                }
+            }
         }
     }
 

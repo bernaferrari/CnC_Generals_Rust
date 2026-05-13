@@ -8,11 +8,11 @@ use crate::damage::DamageInfo;
 use crate::modules::{BehaviorModuleInterface, DamageModuleInterface};
 use crate::object::damage::DamageModuleData;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::update::bone_fx_update::{BoneFXUpdate, BoneFXUpdateModule};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    Module, ModuleData as EngineModuleData, NameKeyType as EngineNameKeyType,
+    BoneFxControlInterface, Module, ModuleData as EngineModuleData,
+    NameKeyType as EngineNameKeyType,
 };
 
 /// Damage module that delegates body damage state changes to BoneFXUpdate.
@@ -27,12 +27,12 @@ impl BoneFXDamage {
     }
 
     pub fn on_object_created(&self) -> Result<(), String> {
-        self.with_bone_fx_update(|_| Ok(()))
+        self.with_bone_fx_control(|_| Ok(()))
     }
 
-    fn with_bone_fx_update<F>(&self, func: F) -> Result<(), String>
+    fn with_bone_fx_control<F>(&self, func: F) -> Result<(), String>
     where
-        F: FnOnce(&mut BoneFXUpdate) -> Result<(), String>,
+        F: FnOnce(&mut dyn BoneFxControlInterface) -> Result<(), String>,
     {
         let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) else {
             return Err(format!("BoneFXDamage: Object {} not found", self.object_id));
@@ -41,20 +41,28 @@ impl BoneFXDamage {
             .read()
             .map_err(|_| "BoneFXDamage: Object lock failed")?;
         if let Some(module) = object_guard.find_update_module("BoneFXUpdate") {
-            let result = module
-                .with_module_downcast::<BoneFXUpdateModule, _, _>(|module| {
-                    func(module.behavior_mut())
-                })
-                .ok_or_else(|| "BoneFXUpdate module type mismatch".to_string())?;
-            return result;
+            let mut func = Some(func);
+            let mut result = None;
+            module.with_module(|module| {
+                if let (Some(bone_fx), Some(func)) =
+                    (module.get_bone_fx_control_interface(), func.take())
+                {
+                    result = Some(func(bone_fx));
+                }
+            });
+            return result.unwrap_or_else(|| Err("BoneFXUpdate module type mismatch".to_string()));
         }
 
-        let Some(result) =
-            object_guard.with_update_behavior_downcast::<BoneFXUpdate, _, _>("BoneFXUpdate", func)
-        else {
+        let Some(behavior) = object_guard.find_update_behavior("BoneFXUpdate") else {
             return Err("BoneFXUpdate type mismatch".to_string());
         };
-        result
+        let mut behavior = behavior
+            .lock()
+            .map_err(|_| "BoneFXDamage: BoneFXUpdate lock failed")?;
+        let Some(bone_fx) = behavior.get_bone_fx_control_interface() else {
+            return Err("BoneFXUpdate type mismatch".to_string());
+        };
+        func(bone_fx)
     }
 }
 
@@ -83,8 +91,8 @@ impl DamageModuleInterface for BoneFXDamage {
         old_state: BodyDamageType,
         new_state: BodyDamageType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.with_bone_fx_update(|bone_fx| {
-            bone_fx.change_body_damage_state_simple(old_state, new_state);
+        self.with_bone_fx_control(|bone_fx| {
+            bone_fx.change_body_damage_state(old_state as u32, new_state as u32);
             Ok(())
         })
         .map_err(|err| err.into())

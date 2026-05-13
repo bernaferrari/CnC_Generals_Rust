@@ -17,7 +17,7 @@ use crate::prelude::*;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
+use game_engine::common::thing::module::{BoneFxControlInterface, Module, ModuleData, NameKeyType};
 
 /// Maximum number of bones that can have FX attached (matches C++ BONE_FX_MAX_BONES = 8).
 pub const BONE_FX_MAX_BONES: usize = 8;
@@ -29,6 +29,16 @@ const STATE_PRISTINE: usize = BodyDamageType::Pristine as usize;
 const STATE_DAMAGED: usize = BodyDamageType::Damaged as usize;
 const STATE_REALLY_DAMAGED: usize = BodyDamageType::ReallyDamaged as usize;
 const STATE_RUBBLE: usize = BodyDamageType::Rubble as usize;
+
+fn body_damage_type_from_index(index: u32) -> Option<BodyDamageType> {
+    match index {
+        0 => Some(BodyDamageType::Pristine),
+        1 => Some(BodyDamageType::Damaged),
+        2 => Some(BodyDamageType::ReallyDamaged),
+        3 => Some(BodyDamageType::Rubble),
+        _ => None,
+    }
+}
 
 /// Location information for a bone.
 #[derive(Debug, Clone)]
@@ -1539,6 +1549,26 @@ impl BehaviorModuleInterface for BoneFXUpdate {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+
+    fn get_bone_fx_control_interface(&mut self) -> Option<&mut dyn BoneFxControlInterface> {
+        Some(self)
+    }
+}
+
+impl BoneFxControlInterface for BoneFXUpdate {
+    fn change_body_damage_state(&mut self, old_state: u32, new_state: u32) {
+        let Some(old_state) = body_damage_type_from_index(old_state) else {
+            return;
+        };
+        let Some(new_state) = body_damage_type_from_index(new_state) else {
+            return;
+        };
+        self.change_body_damage_state_simple(old_state, new_state);
+    }
+
+    fn stop_all_bone_fx(&mut self) {
+        self.stop_all_bone_fx_simple();
+    }
 }
 
 impl Snapshotable for BoneFXUpdate {
@@ -1621,8 +1651,22 @@ impl Module for BoneFXUpdateModule {
         self.module_data.as_ref()
     }
 
+    fn get_bone_fx_control_interface(&mut self) -> Option<&mut dyn BoneFxControlInterface> {
+        Some(self)
+    }
+
     fn on_delete(&mut self) {
         self.behavior.kill_running_particle_systems();
+    }
+}
+
+impl BoneFxControlInterface for BoneFXUpdateModule {
+    fn change_body_damage_state(&mut self, old_state: u32, new_state: u32) {
+        BoneFxControlInterface::change_body_damage_state(&mut self.behavior, old_state, new_state);
+    }
+
+    fn stop_all_bone_fx(&mut self) {
+        self.behavior.stop_all_bone_fx();
     }
 }
 
@@ -1645,5 +1689,35 @@ mod tests {
         )
         .expect("parse should succeed");
         assert!(info.fx.is_none());
+    }
+
+    #[test]
+    fn bone_fx_update_exposes_typed_control_interface() {
+        let data = Arc::new(BoneFXUpdateModuleData::default());
+        let mut module = BoneFXUpdateModule::new(
+            BoneFXUpdate::new(1, data.clone()),
+            &AsciiString::from("BoneFXUpdate"),
+            data,
+        );
+
+        let control = module
+            .get_bone_fx_control_interface()
+            .expect("BoneFXUpdate should expose BoneFxControlInterface");
+        control.change_body_damage_state(
+            BodyDamageType::Pristine as u32,
+            BodyDamageType::Damaged as u32,
+        );
+        assert_eq!(module.behavior.cur_body_state, BodyDamageType::Damaged);
+
+        let control = module
+            .get_bone_fx_control_interface()
+            .expect("BoneFXUpdate should expose BoneFxControlInterface");
+        control.stop_all_bone_fx();
+        assert!(module
+            .behavior
+            .next_fx_frame
+            .iter()
+            .flatten()
+            .all(|frame| *frame == -1));
     }
 }
