@@ -7,6 +7,7 @@ use crate::object::behavior::behavior_module::{xfer_update_module_base_state, Be
 use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use game_engine::common::thing::module::DeletionLifetimeInterface;
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -150,6 +151,16 @@ impl BehaviorModuleInterface for DeletionUpdate {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+
+    fn get_deletion_lifetime_interface(&mut self) -> Option<&mut dyn DeletionLifetimeInterface> {
+        Some(self)
+    }
+}
+
+impl DeletionLifetimeInterface for DeletionUpdate {
+    fn set_lifetime_range(&mut self, min_lifetime: UnsignedInt, max_lifetime: UnsignedInt) {
+        DeletionUpdate::set_lifetime_range(self, min_lifetime, max_lifetime);
+    }
 }
 
 impl Snapshotable for DeletionUpdate {
@@ -181,5 +192,32 @@ impl DeletionUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(DeletionUpdate::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_update() -> DeletionUpdate {
+        DeletionUpdate {
+            object: Weak::new(),
+            module_data: Arc::new(DeletionUpdateModuleData::default()),
+            next_call_frame_and_phase: 0,
+            delete_frame: 0,
+        }
+    }
+
+    #[test]
+    fn deletion_update_exposes_typed_lifetime_interface() {
+        let mut update = test_update();
+        let current_frame = crate::helpers::TheGameLogic::get_frame();
+
+        let deletion = update
+            .get_deletion_lifetime_interface()
+            .expect("DeletionUpdate should expose lifetime control");
+        deletion.set_lifetime_range(5, 5);
+
+        assert_eq!(update.delete_frame, current_frame + 5);
     }
 }
