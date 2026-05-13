@@ -15,6 +15,7 @@ use crate::object::behavior::behavior_module::{
     CaveInterface, LandMineInterface, OverchargeBehaviorInterface, ParkingPlaceBehaviorInterface,
     RebuildHoleBehaviorInterface, TransportPassengerInterface,
 };
+use crate::object::behavior::radius_decal_update::RadiusDecalUpdateInterface;
 use crate::object::registry::OBJECT_REGISTRY;
 pub use crate::object::update::special_power_update::SpecialPowerCommandOption;
 pub type SpecialPowerCommandOptions = SpecialPowerCommandOption;
@@ -290,6 +291,9 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     fn get_cleanup_hazard_update_interface(
         &mut self,
     ) -> Option<&mut dyn CleanupHazardUpdateInterface> {
+        None
+    }
+    fn get_radius_decal_update_interface(&mut self) -> Option<&mut dyn RadiusDecalUpdateInterface> {
         None
     }
 }
