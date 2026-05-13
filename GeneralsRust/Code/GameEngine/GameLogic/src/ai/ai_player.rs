@@ -25,9 +25,7 @@ use crate::helpers::{
 use crate::modules::ProductionUpdateInterface;
 use crate::object::production::build_cost_calculator::{BuildCostCalculator, PlayerBuildModifiers};
 use crate::object::production::construction::FoundationValidator;
-use crate::object::production::supply_warehouse_dock::{
-    SupplyWarehouseDockUpdate, SupplyWarehouseDockUpdateModule,
-};
+use crate::object::production::supply_warehouse_dock::SupplyWarehouseDockUpdate;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
 use crate::object::Object;
@@ -1605,9 +1603,10 @@ impl AIPlayer {
             let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate") else {
                 continue;
             };
-            let mut boxes = None;
-            module.with_module_downcast::<SupplyWarehouseDockUpdateModule, _, _>(|module| {
-                boxes = Some(module.behavior().get_boxes_stored());
+            let boxes = module.with_module(|module| {
+                module
+                    .get_supply_warehouse_dock_interface()
+                    .map(|warehouse| warehouse.boxes_stored())
             });
             let Some(boxes) = boxes else {
                 continue;
