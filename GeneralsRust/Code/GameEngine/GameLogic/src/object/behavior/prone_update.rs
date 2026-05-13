@@ -18,7 +18,9 @@ use crate::object::Object as GameObject;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::module::{
+    Module, ModuleData as EngineModuleData, NameKeyType, ProneControlInterface,
+};
 use std::sync::{Arc, RwLock, Weak};
 
 #[derive(Clone, Debug)]
@@ -142,6 +144,16 @@ impl BehaviorModuleInterface for ProneUpdate {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+
+    fn get_prone_control_interface(&mut self) -> Option<&mut dyn ProneControlInterface> {
+        Some(self)
+    }
+}
+
+impl ProneControlInterface for ProneUpdate {
+    fn go_prone(&mut self, damage_dealt: i32) {
+        ProneUpdate::go_prone(self, damage_dealt);
+    }
 }
 
 impl Snapshotable for ProneUpdate {
@@ -224,6 +236,16 @@ impl Module for ProneUpdateModule {
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
     }
+
+    fn get_prone_control_interface(&mut self) -> Option<&mut dyn ProneControlInterface> {
+        Some(self)
+    }
+}
+
+impl ProneControlInterface for ProneUpdateModule {
+    fn go_prone(&mut self, damage_dealt: i32) {
+        self.behavior.go_prone(damage_dealt);
+    }
 }
 
 /// Interface for ProneUpdate behavior
@@ -234,6 +256,33 @@ pub trait ProneUpdateInterface {
 impl ProneUpdateInterface for ProneUpdate {
     fn go_prone(&mut self, damage_dealt: i32) {
         ProneUpdate::go_prone(self, damage_dealt);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prone_update_exposes_typed_control_interface() {
+        let data = Arc::new(ProneUpdateModuleData {
+            damage_to_frames_ratio: 2.0,
+            ..ProneUpdateModuleData::default()
+        });
+        let behavior = ProneUpdate {
+            object: Weak::new(),
+            module_data: data.clone(),
+            next_call_frame_and_phase: 0,
+            prone_frames: 0,
+        };
+        let mut module = ProneUpdateModule::new(behavior, &AsciiString::from("ProneUpdate"), data);
+
+        let control = module
+            .get_prone_control_interface()
+            .expect("ProneUpdate should expose ProneControlInterface");
+        control.go_prone(5);
+
+        assert_eq!(module.behavior.prone_frames, 10);
     }
 }
 
