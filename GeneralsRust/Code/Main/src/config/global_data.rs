@@ -2,10 +2,14 @@ use super::{ConfigValue, IniParser, LoadMode};
 use anyhow::Result;
 use crc32fast::Hasher;
 use game_engine::common::global_data as runtime_global_data;
+use game_engine::common::ini::{INI, INILoadType};
 use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
+use game_engine::common::system::xfer_crc::XferCRC;
+use game_engine::common::system::xfer_load::XferLoad;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 /// Global game data system - matches C++ GlobalData functionality
@@ -745,8 +749,9 @@ impl ConfigurationSystem {
             self.global_data.load_ini("Data/INI/GameDataDebug.ini").ok();
         }
 
-        // Calculate final CRC
-        self.global_data.ini_crc = self.global_data.calculate_crc();
+        // C++ parity: GameEngine.cpp lines 314-530 — XferCRC wraps all INI loading,
+        // accumulating CRC over every line read, then stores in TheWritableGlobalData->m_iniCRC.
+        self.global_data.ini_crc = self.calculate_xfer_crc();
         self.global_data.sync_runtime_view();
 
         // Validate configuration
@@ -760,6 +765,41 @@ impl ConfigurationSystem {
             self.global_data.ini_crc
         );
         Ok(())
+    }
+
+    /// C++ parity: GameEngine.cpp lines 314-530
+    fn calculate_xfer_crc(&self) -> u32 {
+        let inner = XferLoad::new(Cursor::new(Vec::new()), 1);
+        let xfer_crc = XferCRC::new(inner);
+
+        let mut ini = INI::new();
+        ini.set_xfer(xfer_crc);
+
+        let ini_paths = [
+            "Data/INI/Default/GameData.ini",
+            "Data/INI/GameData.ini",
+            #[cfg(any(debug_assertions, feature = "internal"))]
+            "Data/INI/GameDataDebug.ini",
+        ];
+
+        for path in &ini_paths {
+            if Path::new(path).exists() || Self::resolve_ini_path(Path::new(path)).is_some() {
+                match ini.load(path, INILoadType::Overwrite) {
+                    Ok(()) => debug!("XferCRC INI loaded: {}", path),
+                    Err(err) => debug!("XferCRC INI skipped '{}': {}", path, err),
+                }
+            }
+        }
+
+        let crc = ini.take_xfer().and_then(|mutex| {
+            let mut xfer_crc = mutex.into_inner().ok()?;
+            xfer_crc.close().ok()?;
+            Some(xfer_crc.get_crc())
+        });
+
+        ini.clear_xfer();
+
+        crc.unwrap_or_else(|| self.global_data.calculate_crc())
     }
 
     /// Get global data

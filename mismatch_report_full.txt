@@ -1,0 +1,28 @@
+Analyzing 1139 file pairs...
+  Processed 100/1139 pairs, found 9 issues so far
+  Processed 200/1139 pairs, found 53 issues so far
+  Processed 300/1139 pairs, found 115 issues so far
+  Processed 400/1139 pairs, found 203 issues so far
+  Processed 500/1139 pairs, found 277 issues so far
+  Processed 600/1139 pairs, found 316 issues so far
+  Processed 700/1139 pairs, found 330 issues so far
+  Processed 800/1139 pairs, found 371 issues so far
+  Processed 900/1139 pairs, found 452 issues so far
+  Processed 1000/1139 pairs, found 543 issues so far
+  Processed 1100/1139 pairs, found 610 issues so far
+
+Analysis complete!
+Total pairs analyzed: 1139
+Total mismatches found: 621
+Report saved to: /Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/mismatch_report.json
+
+Summary by Category:
+  initialization: 15
+  global_state: 11
+  state: 572
+  api: 23
+
+Summary by Severity:
+  high: 42
+  critical: 7
+  medium: 572

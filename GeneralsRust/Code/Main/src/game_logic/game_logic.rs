@@ -5405,7 +5405,7 @@ impl GameLogic {
             // C++ parity: TheThingFactory->newThing() creates objects with full modules.
             if let Some(obj) = self.objects.get_mut(&id) {
                 let gl_team = resolve_gamelogic_team(&team);
-                let coord = glam028::Vec3::new(position.x, position.y, position.z);
+                let coord = glam::Vec3::new(position.x, position.y, position.z);
                 let factory_arc = get_object_factory();
                 let result = match factory_arc.write() {
                     Ok(mut factory) => factory.create_object(
@@ -5791,7 +5791,7 @@ impl GameLogic {
         drop(obj_guard);
         drop(factory_guard);
 
-        let coord = glam028::Vec3::new(target.x, target.y, target.z);
+        let coord = glam::Vec3::new(target.x, target.y, target.z);
         ai.ai_move_to_position(&coord, false, CommandSourceType::FromPlayer);
     }
 

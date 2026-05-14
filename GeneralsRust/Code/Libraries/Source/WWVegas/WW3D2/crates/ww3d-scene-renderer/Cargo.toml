@@ -7,4 +7,4 @@ edition = "2021"
 ww3d-renderer-3d = { path = "../ww3d-renderer-3d" }
 ww3d-scene = { path = "../ww3d-scene" }
 ww3d-core = { path = "../ww3d-core" }
-glam = "0.24"
+glam = "0.28"

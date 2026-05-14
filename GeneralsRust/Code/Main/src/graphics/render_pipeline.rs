@@ -4,10 +4,6 @@ use crate::game_logic::{GameLogic, ObjectId as ObjectID};
 use crate::ui::UiTextureId;
 use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
-#[cfg(feature = "game_client")]
-use glam028::Mat4 as GameClientMat4;
-#[cfg(feature = "game_client")]
-use glam028::Vec3 as GameClientVec3;
 use log::{debug, error, info, trace, warn};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::AtomicUsize;
@@ -1036,9 +1032,9 @@ impl RenderPipeline {
         if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
             if let Some(terrain_visual) = guard.as_mut() {
                 let client_view_matrix =
-                    GameClientMat4::from_cols_array_2d(&view_matrix.to_cols_array_2d());
+                    Mat4::from_cols_array_2d(&view_matrix.to_cols_array_2d());
                 let client_projection_matrix =
-                    GameClientMat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
+                    Mat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
                 let terrain_render_started = Instant::now();
                 terrain_visual
                     .render(&client_view_matrix, &client_projection_matrix)
@@ -1773,7 +1769,7 @@ impl RenderPipeline {
                 RenderPass::ForwardOpaque
             };
 
-            let client_transform: GameClientMat4 = submission.world_transform;
+            let client_transform: Mat4 = submission.world_transform;
             let world_matrix = Mat4::from_cols_array_2d(&client_transform.to_cols_array_2d());
             let world_position = Vec3::new(
                 world_matrix.w_axis.x,

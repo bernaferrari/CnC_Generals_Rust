@@ -11,7 +11,7 @@ license = "GPL-3.0"
 wgpu = { version = "27.0.1", features = ["wgsl"] }
 ww3d-gpu = { path = "../WW3D2/crates/ww3d-gpu" }
 bytemuck = { version = "1.14", features = ["derive"] }
-glam = { version = "0.25", features = ["serde"] }
+glam = { version = "0.28", features = ["serde"] }
 bitflags = "2.4"
 
 # String and container utilities

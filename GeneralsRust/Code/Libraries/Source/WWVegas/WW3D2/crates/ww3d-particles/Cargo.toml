@@ -7,7 +7,7 @@ edition = "2021"
 ww3d-core = { path = "../ww3d-core" }
 ww3d-assets = { path = "../ww3d-assets" }
 ww3d-collision = { path = "../ww3d-collision" }
-glam = { version = "0.24", features = ["bytemuck"] }
+glam = { version = "0.28", features = ["bytemuck"] }
 wgpu = "27.0.1"
 winit = "0.29"
 tokio = { version = "1.48", features = ["full"] }
