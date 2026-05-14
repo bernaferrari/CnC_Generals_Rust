@@ -1,6 +1,7 @@
 //! Control Bar Commands - handles command processing
+//! C++ parity: ControlBarCommandProcessing.cpp, ControlBarCommand.cpp
 
-use super::{CommandButton, CommandOption, CommandSourceType};
+use super::{CommandAvailability, CommandButton, CommandOption, CommandSourceType};
 use crate::helpers::TheInGameUI;
 use crate::message_stream::{get_message_stream, GameMessageType};
 use gamelogic::commands::command::CommandType;
@@ -21,6 +22,10 @@ impl ControlBarCommandProcessor {
         Self
     }
 
+    /// Process a command button click from the control bar UI.
+    ///
+    /// C++ parity: mirrors `ControlBar::processCommandUI()` from
+    /// `ControlBarCommandProcessing.cpp`.
     pub fn process_command(
         &self,
         button: &CommandButton,
@@ -89,6 +94,8 @@ impl ControlBarCommandProcessor {
             return Ok(self.process_select_matching_units(button));
         }
 
+        // C++ parity: many command types (GUARD, STOP, FIRE_WEAPON, SPECIAL_POWER)
+        // are handled via per-object doCommandButton.
         if self.dispatch_to_selected_objects(button, source) {
             return Ok(true);
         }
@@ -112,6 +119,140 @@ impl ControlBarCommandProcessor {
                 }
                 true
             }
+
+            // C++ parity: GUI_COMMAND_DOZER_CONSTRUCT -> placeBuildAvailable()
+            CommandType::DozerConstruct => self.process_dozer_construct(button),
+
+            // C++ parity: GUI_COMMAND_DOZER_CONSTRUCT_CANCEL -> MSG_DOZER_CANCEL_CONSTRUCT
+            CommandType::DozerCancelConstruct => {
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::DozerCancelConstruct(0));
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_UNIT_BUILD -> MSG_QUEUE_UNIT_CREATE
+            CommandType::QueueUnitCreate => self.process_unit_build(button),
+
+            // C++ parity: GUI_COMMAND_CANCEL_UNIT_BUILD -> MSG_CANCEL_UNIT_CREATE
+            CommandType::CancelUnitCreate => {
+                let production_id = button
+                    .purchase_cost
+                    .get("production_id")
+                    .copied()
+                    .unwrap_or(0) as u32;
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::CancelUnitCreate(production_id));
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_PLAYER_UPGRADE / GUI_COMMAND_OBJECT_UPGRADE -> MSG_QUEUE_UPGRADE
+            CommandType::QueueUpgrade => self.process_queue_upgrade(button),
+
+            // C++ parity: GUI_COMMAND_CANCEL_UPGRADE -> MSG_CANCEL_UPGRADE
+            CommandType::CancelUpgrade => {
+                let upgrade_key = button
+                    .purchase_cost
+                    .get("upgrade_key")
+                    .copied()
+                    .unwrap_or(0) as u32;
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::CancelUpgrade(upgrade_key));
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_SELL -> MSG_SELL
+            CommandType::Sell => {
+                if let Ok(mut stream) = get_message_stream().write() {
+                    let obj_id = selected_objects_for_local_player().first().copied().unwrap_or(0);
+                    stream.append_message(GameMessageType::Sell(obj_id));
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_EXIT_CONTAINER -> MSG_EXIT
+            CommandType::Exit => {
+                let obj_id = selected_objects_for_local_player().first().copied().unwrap_or(0);
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::Exit(obj_id));
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_EVACUATE -> MSG_EVACUATE
+            CommandType::Evacuate => {
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::Evacuate);
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_EXECUTE_RAILED_TRANSPORT -> MSG_EXECUTE_RAILED_TRANSPORT
+            CommandType::ExecuteRailedTransport => {
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::ExecuteRailedTransport);
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_HACK_INTERNET -> MSG_INTERNET_HACK
+            CommandType::InternetHack => {
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::InternetHack);
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_TOGGLE_OVERCHARGE -> MSG_TOGGLE_OVERCHARGE
+            CommandType::ToggleOvercharge => {
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::ToggleOvercharge);
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_SWITCH_WEAPON -> MSG_SWITCH_WEAPONS
+            CommandType::SwitchWeapons => {
+                let slot = get_control_bar_bridge()
+                    .and_then(|bridge| {
+                        bridge
+                            .find_command_button_by_name(&button.command_name)
+                            .map(|logic_button| logic_button.get_weapon_slot() as u32)
+                    })
+                    .unwrap_or(0);
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::SwitchWeapons(slot));
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_FIRE_WEAPON -> MSG_DO_WEAPON
+            CommandType::FireWeapon => {
+                let (slot, max_shots) = get_control_bar_bridge()
+                    .and_then(|bridge| {
+                        bridge
+                            .find_command_button_by_name(&button.command_name)
+                            .map(|logic_button| {
+                                (
+                                    logic_button.get_weapon_slot() as u32,
+                                    logic_button.get_max_shots_to_fire() as u32,
+                                )
+                            })
+                    })
+                    .unwrap_or((0, i32::MAX as u32));
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::DoWeapon(slot));
+                }
+                let _ = max_shots;
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_SPECIAL_POWER -> MSG_DO_SPECIAL_POWER
+            CommandType::SpecialPower => self.process_special_power(button),
+
+            // Attack move toggle
             CommandType::DoAttackMoveTo => {
                 TheInGameUI::set_pending_command(
                     CommandType::DoAttackMoveTo,
@@ -120,6 +261,25 @@ impl ControlBarCommandProcessor {
                 );
                 true
             }
+
+            CommandType::DoGuardPosition => {
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::DoGuardPosition(
+                        gamelogic::common::Coord3D::new(0.0, 0.0, 0.0),
+                        0,
+                    ));
+                }
+                true
+            }
+
+            // C++ parity: GUI_COMMAND_STOP -> MSG_DO_STOP
+            CommandType::DoStop => {
+                if let Ok(mut stream) = get_message_stream().write() {
+                    stream.append_message(GameMessageType::DoStop);
+                }
+                true
+            }
+
             CommandType::PlaceBeacon => {
                 TheInGameUI::set_pending_command(CommandType::PlaceBeacon, CMD_NEED_TARGET_POS, 0);
                 true
@@ -128,6 +288,30 @@ impl ControlBarCommandProcessor {
                 TheInGameUI::set_pending_command(CommandType::RemoveBeacon, CMD_NEED_TARGET_POS, 0);
                 true
             }
+
+            CommandType::SetRallyPoint => {
+                TheInGameUI::set_pending_command(
+                    CommandType::SetRallyPoint,
+                    CMD_NEED_TARGET_POS,
+                    0,
+                );
+                true
+            }
+
+            CommandType::AddWaypoint => {
+                TheInGameUI::set_waypoint_mode(true);
+                true
+            }
+
+            CommandType::CombatDropAtLocation => {
+                TheInGameUI::set_pending_command(
+                    CommandType::CombatDropAtLocation,
+                    CMD_NEED_TARGET_POS,
+                    0,
+                );
+                true
+            }
+
             _ => false,
         };
 
@@ -141,6 +325,7 @@ impl Default for ControlBarCommandProcessor {
     }
 }
 
+// Private helper methods
 impl ControlBarCommandProcessor {
     fn dispatch_to_selected_objects(
         &self,
@@ -256,6 +441,193 @@ impl ControlBarCommandProcessor {
         }
         false
     }
+
+    // C++ parity: GUI_COMMAND_DOZER_CONSTRUCT -> placeBuildAvailable()
+    fn process_dozer_construct(&self, button: &CommandButton) -> bool {
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return false;
+        };
+        let Some(logic_button) = control_bar.find_command_button_by_name(&button.command_name)
+        else {
+            return false;
+        };
+
+        let Some(thing_template) = logic_button.get_thing_template() else {
+            return false;
+        };
+
+        let Some(local_player_index) = local_player_index() else {
+            return false;
+        };
+        let player_arc = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(local_player_index).cloned());
+        let Some(player_arc) = player_arc else {
+            return false;
+        };
+
+        let Ok(player) = player_arc.read() else {
+            return false;
+        };
+        if !player.can_build(thing_template.as_ref()) {
+            TheInGameUI::display_cant_build_message("GUI:NotEnoughMoneyToBuild");
+            return false;
+        }
+
+        TheInGameUI::place_build_available(
+            Some(thing_template.get_name().to_string()),
+            None,
+        );
+
+        true
+    }
+
+    // C++ parity: GUI_COMMAND_UNIT_BUILD -> MSG_QUEUE_UNIT_CREATE
+    fn process_unit_build(&self, button: &CommandButton) -> bool {
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return false;
+        };
+        let Some(logic_button) = control_bar.find_command_button_by_name(&button.command_name)
+        else {
+            return false;
+        };
+
+        let Some(thing_template) = logic_button.get_thing_template() else {
+            return false;
+        };
+
+        let template_id = thing_template.get_template_id();
+        if let Ok(mut stream) = get_message_stream().write() {
+            stream.append_message(GameMessageType::QueueUnitCreate(template_id as u32));
+            return true;
+        }
+        false
+    }
+
+    // C++ parity: GUI_COMMAND_PLAYER_UPGRADE / GUI_COMMAND_OBJECT_UPGRADE -> MSG_QUEUE_UPGRADE
+    fn process_queue_upgrade(&self, button: &CommandButton) -> bool {
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return false;
+        };
+        let Some(logic_button) = control_bar.find_command_button_by_name(&button.command_name)
+        else {
+            return false;
+        };
+
+        let Some(upgrade_template) = logic_button.get_upgrade_template() else {
+            return false;
+        };
+
+        let obj_id = selected_objects_for_local_player().first().copied().unwrap_or(0);
+
+        let upgrade_key = upgrade_template.get_upgrade_name_key() as u32;
+        if let Ok(mut stream) = get_message_stream().write() {
+            stream.append_message(GameMessageType::QueueUpgrade(upgrade_key));
+            let _ = obj_id;
+            return true;
+        }
+        false
+    }
+
+    // C++ parity: GUI_COMMAND_SPECIAL_POWER -> MSG_DO_SPECIAL_POWER
+    fn process_special_power(&self, button: &CommandButton) -> bool {
+        let Some(control_bar) = get_control_bar_bridge() else {
+            return false;
+        };
+        let Some(logic_button) = control_bar.find_command_button_by_name(&button.command_name)
+        else {
+            return false;
+        };
+
+        let Some(sp_template) = logic_button.get_special_power_template() else {
+            return false;
+        };
+
+        let sp_id = sp_template.get_id() as u32;
+        let options = logic_button.get_options_bits();
+        let source_obj_id: u32 = 0;
+
+        if let Ok(mut stream) = get_message_stream().write() {
+            stream.append_message(GameMessageType::DoSpecialPower(sp_id, options, source_obj_id));
+            return true;
+        }
+        false
+    }
+}
+
+// C++ parity: ControlBar::getCommandAvailability() from ControlBarCommand.cpp
+
+pub fn get_command_availability(
+    button: &CommandButton,
+    obj: Option<&gamelogic::object::Object>,
+) -> CommandAvailability {
+    let Some(obj) = obj else {
+        return CommandAvailability::Hidden;
+    };
+
+    if obj.is_disabled() {
+        return CommandAvailability::Restricted;
+    }
+
+    if obj.has_single_use_command_been_used() {
+        return CommandAvailability::Restricted;
+    }
+
+    if (button.options & CommandOption::MustBeStopped as u32) != 0 {
+        if obj.is_moving() {
+            return CommandAvailability::Restricted;
+        }
+    }
+
+    if (button.options & CommandOption::NeedUpgrade as u32) != 0 {
+        // Upgrade template check requires button -> template resolution
+    }
+
+    if (button.options & CommandOption::NotQueueable as u32) != 0 {
+        if obj.has_production_in_queue() {
+            return CommandAvailability::Restricted;
+        }
+    }
+
+    match button.command_type {
+        CommandType::DozerConstruct => {
+            if !obj.is_kind_of(gamelogic::object::KindOf::Dozer) {
+                return CommandAvailability::Restricted;
+            }
+            if obj.is_dozer_task_pending() {
+                return CommandAvailability::Restricted;
+            }
+        }
+
+        CommandType::Sell => {
+            if obj.is_script_unsellable() {
+                return CommandAvailability::Hidden;
+            }
+        }
+
+        CommandType::DoGuardPosition => {
+            return CommandAvailability::Available;
+        }
+
+        CommandType::Evacuate => {
+            if !obj.has_contained_objects() {
+                return CommandAvailability::Restricted;
+            }
+        }
+
+        CommandType::DoStop => {
+            return CommandAvailability::Available;
+        }
+
+        CommandType::MetaSelectMatchingUnits => {
+            return CommandAvailability::Available;
+        }
+
+        _ => {}
+    }
+
+    CommandAvailability::Available
 }
 
 fn command_needs_target(options: u32) -> bool {

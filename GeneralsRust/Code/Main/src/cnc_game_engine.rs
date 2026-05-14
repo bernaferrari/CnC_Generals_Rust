@@ -2561,6 +2561,20 @@ impl CnCGameEngine {
                     // section is caught by the outer startup worker guard and treated as fatal.
                     game_engine::common::ini::init_rank_info_store();
 
+                    // C++ parity: GameEngine.cpp:398 — load Science.ini (Default + override)
+                    // into the global ScienceStore via the general INI block parser.
+                    {
+                        for sci_path in ["Data/INI/Default/Science.ini", "Data/INI/Science.ini"] {
+                            if let Some(content) = extract_ini_text_from_archives(sci_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                    Ok(()) => info!("Loaded science definitions from {}", sci_path),
+                                    Err(err) => warn!("Failed parsing Science.ini '{}': {}", sci_path, err),
+                                }
+                            }
+                        }
+                    }
+
                     // C++ parity: GameEngine.cpp:427 — load Rank.ini into TheRankInfoStore.
                     // No Default/ prefix variant exists for Rank.ini.
                     {
@@ -2579,6 +2593,19 @@ impl CnCGameEngine {
                             }
                         } else {
                             warn!("Rank.ini not found in archives — continuing without rank data");
+                        }
+                    }
+
+                    // C++ parity: GameEngine.cpp:428 — load PlayerTemplate.ini (Default + override)
+                    {
+                        for pt_path in ["Data/INI/Default/PlayerTemplate.ini", "Data/INI/PlayerTemplate.ini"] {
+                            if let Some(content) = extract_ini_text_from_archives(pt_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                    Ok(()) => info!("Loaded player template definitions from {}", pt_path),
+                                    Err(err) => warn!("Failed parsing PlayerTemplate.ini '{}': {}", pt_path, err),
+                                }
+                            }
                         }
                     }
 
@@ -2609,8 +2636,62 @@ impl CnCGameEngine {
                     }
 
                     let _ = game_engine::common::ini::ini_terrain::initialize_terrain_types();
+                    // C++ parity: GameEngine.cpp:400 — load Terrain.ini (Default + override)
+                    {
+                        for terrain_path in ["Data/INI/Default/Terrain.ini", "Data/INI/Terrain.ini"] {
+                            if let Some(content) = extract_ini_text_from_archives(terrain_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                    Ok(()) => info!("Loaded terrain definitions from {}", terrain_path),
+                                    Err(err) => warn!("Failed parsing Terrain.ini '{}': {}", terrain_path, err),
+                                }
+                            }
+                        }
+                    }
+
                     let _ = game_engine::common::ini::ini_terrain_bridge::initialize_terrain_roads();
+                    // C++ parity: GameEngine.cpp:401 — load Roads.ini (Default + override)
+                    {
+                        for roads_path in ["Data/INI/Default/Roads.ini", "Data/INI/Roads.ini"] {
+                            if let Some(content) = extract_ini_text_from_archives(roads_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                    Ok(()) => info!("Loaded road definitions from {}", roads_path),
+                                    Err(err) => warn!("Failed parsing Roads.ini '{}': {}", roads_path, err),
+                                }
+                            }
+                        }
+                    }
+
                     game_engine::common::ini::ini_special_power::initialize_special_power_store();
+
+                    // C++ parity: GameEngine.cpp:439 — load FXList.ini (Default + override)
+                    {
+                        for fxl_path in ["Data/INI/Default/FXList.ini", "Data/INI/FXList.ini"] {
+                            if let Some(content) = extract_ini_text_from_archives(fxl_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                    Ok(()) => info!("Loaded FX list definitions from {}", fxl_path),
+                                    Err(err) => warn!("Failed parsing FXList.ini '{}': {}", fxl_path, err),
+                                }
+                            }
+                        }
+                    }
+
+                    // C++ parity: GameEngine.cpp:440 — load Weapon.ini into TheWeaponStore.
+                    // No Default/ prefix variant exists for Weapon.ini.
+                    game_engine::common::ini::ini_weapon::initialize_weapon_store();
+                    {
+                        if let Some(content) = extract_ini_text_from_archives("Data/INI/Weapon.ini") {
+                            let mut ini = game_engine::common::ini::INI::new();
+                            match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                Ok(()) => info!("Loaded weapon definitions from Data/INI/Weapon.ini"),
+                                Err(err) => warn!("Failed parsing Weapon.ini: {}", err),
+                            }
+                        } else {
+                            warn!("Weapon.ini not found in archives — continuing without weapon data");
+                        }
+                    }
 
                     // C++ parity: GameEngine.cpp:443 — load SpecialPower.ini (Default + override)
                     // into the global SpecialPowerStore via the general INI block parser.
@@ -2760,6 +2841,20 @@ impl CnCGameEngine {
                         }
                     }
 
+                    // C++ parity: GameEngine.cpp:468 — load Upgrade.ini (Default + override)
+                    game_engine::common::ini::ini_upgrade::initialize_upgrade_center();
+                    {
+                        for upgrade_path in ["Data/INI/Default/Upgrade.ini", "Data/INI/Upgrade.ini"] {
+                            if let Some(content) = extract_ini_text_from_archives(upgrade_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                    Ok(()) => info!("Loaded upgrade definitions from {}", upgrade_path),
+                                    Err(err) => warn!("Failed parsing Upgrade.ini '{}': {}", upgrade_path, err),
+                                }
+                            }
+                        }
+                    }
+
                     // C++ parity: GameEngine.cpp:480 — AIData.ini loaded after Upgrade, before Crate.
                     Self::preload_startup_ai_data_inis();
 
@@ -2813,6 +2908,23 @@ impl CnCGameEngine {
                         }
                         if total_loaded > 0 {
                             info!("Bootstrapped {} object templates from BIG archives", total_loaded);
+                        }
+                    }
+
+                    // C++ parity: GameEngine.cpp:500-501 — load CommandMap.ini (language-specific + fallback).
+                    // C++ loads "Data\{language}\CommandMap.ini" then "Data\INI\CommandMap.ini".
+                    game_engine::common::ini::ini_command_map::init_meta_map();
+                    {
+                        let language = game_engine::common::ini::ini_webpage_url::get_registry_language();
+                        let lang_path = format!("Data/{}/CommandMap.ini", language.as_str());
+                        for cmd_path in &[lang_path.as_str(), "Data/INI/CommandMap.ini"] {
+                            if let Some(content) = extract_ini_text_from_archives(cmd_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                    Ok(()) => info!("Loaded command map from {}", cmd_path),
+                                    Err(err) => warn!("Failed parsing CommandMap.ini '{}': {}", cmd_path, err),
+                                }
+                            }
                         }
                     }
 

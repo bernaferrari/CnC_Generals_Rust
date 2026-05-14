@@ -33,6 +33,8 @@ use crate::state_machine::{
     State, StateConditionInfo, StateExitType, StateImplementation, StateMachine, StateReturnType,
     StateTransitionUserData,
 };
+use game_engine::common::system::snapshot::Snapshotable;
+use game_engine::common::system::xfer::Xfer;
 
 pub type ObjectID = u32;
 pub type PlayerIndex = u32;
@@ -3658,6 +3660,105 @@ impl PlayerSupplyManager {
         if let Some(market) = &mut self.black_market {
             market.upgrade();
         }
+    }
+}
+
+// C++ parity: WorkerAIUpdateModuleData and WorkerAIUpdate save/load
+impl Snapshotable for WorkerAIUpdateData {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+        xfer_io(xfer.xfer_int(&mut self.max_boxes))?;
+        xfer_io(xfer.xfer_real(&mut self.warehouse_scan_distance))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.warehouse_delay))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.center_delay))?;
+        xfer_io(xfer.xfer_real(&mut self.repair_health_percent_per_second))?;
+        xfer_io(xfer.xfer_real(&mut self.bored_time))?;
+        xfer_io(xfer.xfer_real(&mut self.bored_range))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.upgraded_supply_boost))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl Snapshotable for WorkerAIUpdate {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+
+        self.data.xfer(xfer)?;
+
+        let mut state_disc = self.state as u32;
+        xfer_io(xfer.xfer_unsigned_int(&mut state_disc))?;
+        self.state = match state_disc {
+            0 => SupplyTruckState::Idle,
+            1 => SupplyTruckState::Busy,
+            2 => SupplyTruckState::Wanting,
+            3 => SupplyTruckState::Regrouping,
+            _ => SupplyTruckState::Idle,
+        };
+
+        xfer_io(xfer.xfer_int(&mut self.number_boxes))?;
+
+        let mut has_dock = self.preferred_dock.is_some() as u32;
+        xfer_io(xfer.xfer_unsigned_int(&mut has_dock))?;
+        if has_dock != 0 {
+            let mut dock_id = self.preferred_dock.unwrap_or(0);
+            xfer_io(xfer.xfer_unsigned_int(&mut dock_id))?;
+            self.preferred_dock = Some(dock_id);
+        } else {
+            self.preferred_dock = None;
+        }
+
+        xfer_io(xfer.xfer_bool(&mut self.force_wanting_state))?;
+        xfer_io(xfer.xfer_bool(&mut self.force_busy_state))?;
+
+        let mut dozer_action_disc = self.dozer_action_state as u32;
+        xfer_io(xfer.xfer_unsigned_int(&mut dozer_action_disc))?;
+        self.dozer_action_state = match dozer_action_disc {
+            0 => WorkerDozerActionState::PickActionPos,
+            1 => WorkerDozerActionState::MoveToActionPos,
+            2 => WorkerDozerActionState::DoAction,
+            _ => WorkerDozerActionState::PickActionPos,
+        };
+
+        let mut has_task = self.current_task.is_some() as u32;
+        xfer_io(xfer.xfer_unsigned_int(&mut has_task))?;
+        if has_task != 0 {
+            let mut task_disc = self.current_task.map(|t| t as u32).unwrap_or(0);
+            xfer_io(xfer.xfer_unsigned_int(&mut task_disc))?;
+            self.current_task = match task_disc {
+                0 => Some(WorkerDozerTaskSlot::Build),
+                1 => Some(WorkerDozerTaskSlot::Repair),
+                2 => Some(WorkerDozerTaskSlot::Fortify),
+                _ => None,
+            };
+        } else {
+            self.current_task = None;
+        }
+
+        xfer_io(xfer.xfer_unsigned_int(&mut self.object_id))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut self.player_index))?;
+
+        for entry in &mut self.dozer_tasks {
+            xfer_io(xfer.xfer_unsigned_int(&mut entry.target_id))?;
+            xfer_io(xfer.xfer_unsigned_int(&mut entry.order_frame))?;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
