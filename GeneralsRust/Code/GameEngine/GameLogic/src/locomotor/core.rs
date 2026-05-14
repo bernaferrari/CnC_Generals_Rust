@@ -3064,6 +3064,9 @@ impl LocomotorStore {
     pub fn get_terrain_multiplier(&self, appearance: LocomotorAppearance, terrain: u8) -> Real {
         self.terrain_speeds.get_multiplier(appearance, terrain)
     }
+
+    /// Per-frame update - matches C++ LocomotorStore::update() (Locomotor.cpp:540)
+    pub fn update(&self) {}
 }
 
 // Global instance

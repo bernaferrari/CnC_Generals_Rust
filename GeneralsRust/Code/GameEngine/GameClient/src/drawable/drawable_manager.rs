@@ -328,14 +328,6 @@ impl DrawableManager {
                     return Some(id);
                 }
 
-                // Also check for very old drawables that haven't been updated recently
-                // This prevents memory leaks from forgotten temp drawables
-                let frames_alive = self.current_frame.saturating_sub(entry.creation_frame);
-                if frames_alive > 36000 {
-                    // ~10 minutes at 60 FPS
-                    return Some(id);
-                }
-
                 None
             })
             .collect();

@@ -49,11 +49,10 @@ use game_engine::common::ini::get_global_data;
 use game_engine::common::random_value::init_random_with_seed;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::{GAME_NONE, GAME_SHELL};
-use std::cell::{RefCell, UnsafeCell};
+use std::cell::RefCell;
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
@@ -2890,43 +2889,32 @@ impl SubsystemInterface for Shell {
     }
 }
 
-pub struct ShellGuard {
-    ptr: *mut Shell,
-}
-
-impl Deref for ShellGuard {
-    type Target = Shell;
-
-    fn deref(&self) -> &Self::Target {
-        // SAFETY: the shell is thread-local and used as a compatibility singleton.
-        // The legacy C++ shell is re-entrant on the UI thread; a mutex here causes
-        // deadlocks during callbacks like MainMenuInit -> show_shell_map().
-        unsafe { &*self.ptr }
-    }
-}
-
-impl DerefMut for ShellGuard {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        // SAFETY: same reasoning as Deref above.
-        unsafe { &mut *self.ptr }
-    }
-}
-
 thread_local! {
-    static SHELL: &'static UnsafeCell<Shell> =
-        Box::leak(Box::new(UnsafeCell::new(Shell::new())));
+    static SHELL: RefCell<Shell> = const { RefCell::new(Shell::new()) };
     static PENDING_SHELL_SCHEME: RefCell<Option<String>> = const { RefCell::new(None) };
 }
 
 /// Get the global shell instance.
-pub fn get_shell() -> ShellGuard {
-    SHELL.with(|shell| ShellGuard { ptr: shell.get() })
+///
+/// Returns a `RefMut<'static, Shell>` which implements `Deref<Target = Shell>` and
+/// `DerefMut<Target = Shell>`, so all existing call sites that used `ShellGuard`
+/// continue to work unchanged.
+pub fn get_shell() -> std::cell::RefMut<'static, Shell> {
+    SHELL.with(|cell| {
+        // SAFETY: The thread_local SHELL lives for the entire duration of the thread.
+        // This mirrors the C++ TheShell global pointer pattern where the singleton
+        // is alive for the whole process lifetime on the main thread.
+        unsafe {
+            std::mem::transmute::<std::cell::RefMut<'_, Shell>, std::cell::RefMut<'static, Shell>>(
+                cell.borrow_mut(),
+            )
+        }
+    })
 }
 
 pub fn request_shell_menu_scheme(name: &str) {
-    SHELL.with(|lock| {
-        // SAFETY: the shell is thread-local and intentionally re-entrant.
-        unsafe { &mut *lock.get() }.load_scheme(name);
+    SHELL.with(|cell| {
+        cell.borrow_mut().load_scheme(name);
     });
 }
 

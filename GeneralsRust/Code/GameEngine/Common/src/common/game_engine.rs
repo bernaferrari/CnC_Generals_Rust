@@ -10,7 +10,6 @@
 /////////////////////////////////////////////////////////////////////////
 
 use std::collections::HashSet;
-use std::env;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -126,24 +125,31 @@ pub trait NetworkInterface: Send + Sync {
 
 /// Adapter that wraps the async `game_network` crate behind the legacy synchronous interface.
 
-/// Graphics mode detection for fallback systems
-#[derive(Debug, Clone, PartialEq)]
-pub enum GraphicsMode {
-    Headless, // No graphics at all - for servers/CI
-    Software, // Software rendering fallback
-    Hardware, // Full hardware acceleration
-}
-
-/// Game state management for main game flow
-#[derive(Debug, Clone, PartialEq)]
+/// Game state management for main game flow.
+///
+/// Canonical enum shared across the engine.  The Main crate re-exports
+/// this definition instead of maintaining its own copy.
+///
+/// | Variant      | C++ equivalent              |
+/// |--------------|-----------------------------|
+/// | Initializing | early startup, before menu  |
+/// | Menu         | shell / main menu           |
+/// | Loading      | loading screen / map load   |
+/// | InGame       | active gameplay             |
+/// | Paused       | game paused, pause overlay  |
+/// | Victory      | victory / win screen        |
+/// | Defeat       | defeat / loss screen        |
+/// | Exiting      | shutdown in progress        |
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameState {
-    Initializing, // Loading assets and systems
-    MainMenu,     // Main menu/frontend
-    InGame,       // Active gameplay
-    Paused,       // Game paused
-    Victory,      // Victory screen
-    Defeat,       // Defeat screen
-    Exiting,      // Shutting down
+    Initializing,
+    Menu,
+    Loading,
+    InGame,
+    Paused,
+    Victory,
+    Defeat,
+    Exiting,
 }
 
 /// Game Engine Configuration
@@ -374,7 +380,7 @@ impl GameEngine {
         self.last_update = Instant::now();
 
         // Transition to main menu state
-        self.set_game_state(GameState::MainMenu);
+        self.set_game_state(GameState::Menu);
 
         info!("GameEngine initialization completed successfully");
         Ok(())
@@ -733,27 +739,30 @@ impl GameEngine {
 
         // Handle state transition logic
         match new_state {
-            GameState::MainMenu => {}
+            GameState::Menu => {}
+            GameState::Loading => {}
             GameState::InGame => {
                 info!("Starting gameplay session");
-                // Reset performance metrics for gameplay
-                // In production this would load map/scenario; here we rely on host to trigger map load.
             }
+            GameState::Paused => {}
+            GameState::Victory | GameState::Defeat => {}
+            GameState::Initializing => {}
             GameState::Exiting => {
                 info!("Game exiting - initiating shutdown");
                 self.quitting = true;
             }
-            _ => {}
         }
     }
 
     fn update_game_state(&mut self) {
-        // Handle automatic state transitions based on conditions
         match self.current_state {
-            GameState::MainMenu => {}
+            GameState::Initializing => {}
+            GameState::Menu => {}
+            GameState::Loading => {}
             GameState::InGame => {}
+            GameState::Paused => {}
             GameState::Victory | GameState::Defeat => {}
-            _ => {}
+            GameState::Exiting => {}
         }
     }
 
@@ -818,10 +827,6 @@ impl GameEngine {
                 "-test" | "--test" => {
                     self.config.test_mode = true;
                     info!("Test mode enabled");
-                }
-                "-headless" => {
-                    env::set_var("HEADLESS", "1");
-                    info!("Headless mode forced");
                 }
                 "-max-runtime" => {
                     if i + 1 < self.command_args.len() {
@@ -1347,34 +1352,10 @@ impl GameEngine {
             }
         }
 
-        // Detect graphics capability and create appropriate stub client when no real
-        // bootstrap has been registered by the host runtime.
-        let graphics_mode = self.detect_graphics_mode().await;
-        info!("Detected graphics mode: {:?}", graphics_mode);
-
-        match graphics_mode {
-            GraphicsMode::Headless => {
-                info!("Initializing headless game client (no graphics)");
-                let mut game_client = Box::new(HeadlessGameClient::new());
-                game_client.init()?;
-                self.game_client = Some(game_client);
-            }
-            GraphicsMode::Software => {
-                info!("Initializing software-rendered game client");
-                let mut game_client = Box::new(SoftwareGameClient::new(self.config.resolution));
-                game_client.init()?;
-                self.game_client = Some(game_client);
-            }
-            GraphicsMode::Hardware => {
-                info!("Initializing hardware-accelerated game client");
-                let mut game_client = Box::new(HardwareGameClient::new());
-                game_client.init()?;
-                self.game_client = Some(game_client);
-            }
-        }
-
-        info!("Game client system initialized successfully");
-        Ok(())
+        return Err(SubsystemError::InitializationFailed(
+            "No game client factory registered. Call register_game_client_factory() before init."
+                .into(),
+        ));
     }
 
     fn service_os(&mut self) {
@@ -1425,295 +1406,7 @@ impl GameEngine {
         false
     }
 
-    /// Detect available graphics mode to prevent hanging on headless systems
-    async fn detect_graphics_mode(&self) -> GraphicsMode {
-        // Check environment variables first
-        if env::var("NO_GRAPHICS").is_ok() || env::var("HEADLESS").is_ok() {
-            return GraphicsMode::Headless;
-        }
-
-        if env::var("SOFTWARE_RENDERING").is_ok() {
-            return GraphicsMode::Software;
-        }
-
-        // Try to detect display capability
-        match self.try_create_minimal_graphics().await {
-            Ok(true) => GraphicsMode::Hardware,
-            Ok(false) => GraphicsMode::Software,
-            Err(_) => GraphicsMode::Headless,
-        }
-    }
-
-    /// Test if we can create graphics without blocking
-    async fn try_create_minimal_graphics(
-        &self,
-    ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        #[cfg(feature = "graphics")]
-        {
-            // Use a timeout to prevent hanging
-            let timeout_duration = Duration::from_millis(3000); // 3 second timeout
-
-            let graphics_test = async {
-                // Try to create a minimal wgpu instance
-                let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-                    backends: wgpu::Backends::PRIMARY,
-                    ..Default::default()
-                });
-
-                // Try to get an adapter without a surface (headless)
-                let adapter = instance
-                    .request_adapter(&wgpu::RequestAdapterOptions {
-                        power_preference: wgpu::PowerPreference::LowPower,
-                        compatible_surface: None,
-                        force_fallback_adapter: true,
-                    })
-                    .await;
-
-                Ok(adapter.is_ok())
-            };
-
-            // Use tokio timeout to prevent hanging
-            match tokio::time::timeout(timeout_duration, graphics_test).await {
-                Ok(result) => result,
-                Err(_) => {
-                    warn!("Graphics detection timed out - assuming headless mode");
-                    Ok(false)
-                }
-            }
-        }
-
-        #[cfg(not(feature = "graphics"))]
-        {
-            info!("Graphics support disabled at compile time");
-            Ok(false)
-        }
-    }
-}
-
-/// Headless game client - no graphics, just simulation
-pub struct HeadlessGameClient {
-    active: bool,
-    frame_count: u64,
-}
-
-impl HeadlessGameClient {
-    pub fn new() -> Self {
-        Self {
-            active: true,
-            frame_count: 0,
-        }
-    }
-}
-
-impl GameClientInterface for HeadlessGameClient {
-    fn init(&mut self) -> SubsystemResult<()> {
-        info!("HeadlessGameClient initialized - no graphics output");
-        Ok(())
-    }
-
-    fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
-        self.frame_count += 1;
-        if self.frame_count % 300 == 0 {
-            debug!("Headless client - frame {}", self.frame_count);
-        }
-        Ok(())
-    }
-
-    fn render(&mut self) -> SubsystemResult<()> {
-        // No rendering in headless mode
-        Ok(())
-    }
-
-    fn reset(&mut self) -> SubsystemResult<()> {
-        self.frame_count = 0;
-        Ok(())
-    }
-
-    fn shutdown(&mut self) -> SubsystemResult<()> {
-        info!(
-            "HeadlessGameClient shutting down - rendered {} frames",
-            self.frame_count
-        );
-        Ok(())
-    }
-
-    fn get_state(&self) -> SubsystemState {
-        SubsystemState::Running
-    }
-
-    fn is_active(&self) -> bool {
-        self.active
-    }
-
-    fn set_active(&mut self, active: bool) {
-        self.active = active;
-    }
-}
-
-/// Software-rendered game client - basic graphics fallback
-pub struct SoftwareGameClient {
-    active: bool,
-    frame_count: u64,
-    canvas_size: (u32, u32),
-    framebuffer: Vec<u32>,
-}
-
-impl SoftwareGameClient {
-    pub fn new(canvas_size: (u32, u32)) -> Self {
-        let buffer_len = (canvas_size.0 * canvas_size.1) as usize;
-        Self {
-            active: true,
-            frame_count: 0,
-            canvas_size,
-            framebuffer: vec![0; buffer_len],
-        }
-    }
-}
-
-impl GameClientInterface for SoftwareGameClient {
-    fn init(&mut self) -> SubsystemResult<()> {
-        info!("SoftwareGameClient initialized - software rendering mode");
-        Ok(())
-    }
-
-    fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
-        if !self.active {
-            return Ok(());
-        }
-        self.frame_count += 1;
-        if self.frame_count % 300 == 0 {
-            debug!("Software client - frame {}", self.frame_count);
-        }
-        Ok(())
-    }
-
-    fn render(&mut self) -> SubsystemResult<()> {
-        if self.framebuffer.is_empty() {
-            let buffer_len = (self.canvas_size.0 * self.canvas_size.1) as usize;
-            self.framebuffer.resize(buffer_len, 0);
-        }
-
-        let color = ((self.frame_count as u32) & 0xFF) << 16;
-        for pixel in &mut self.framebuffer {
-            *pixel = color;
-        }
-
-        if self.frame_count % 60 == 0 {
-            debug!("Software rendering frame {}", self.frame_count);
-        }
-        Ok(())
-    }
-
-    fn reset(&mut self) -> SubsystemResult<()> {
-        self.frame_count = 0;
-        Ok(())
-    }
-
-    fn shutdown(&mut self) -> SubsystemResult<()> {
-        info!(
-            "SoftwareGameClient shutting down - rendered {} frames",
-            self.frame_count
-        );
-        Ok(())
-    }
-
-    fn get_state(&self) -> SubsystemState {
-        SubsystemState::Running
-    }
-
-    fn is_active(&self) -> bool {
-        self.active
-    }
-
-    fn set_active(&mut self, active: bool) {
-        self.active = active;
-    }
-}
-
-/// Hardware-accelerated game client - full graphics
-pub struct HardwareGameClient {
-    active: bool,
-    frame_count: u64,
-    graphics_initialized: bool,
-}
-
-impl HardwareGameClient {
-    pub fn new() -> Self {
-        Self {
-            active: true,
-            frame_count: 0,
-            graphics_initialized: false,
-        }
-    }
-}
-
-impl GameClientInterface for HardwareGameClient {
-    fn init(&mut self) -> SubsystemResult<()> {
-        info!("HardwareGameClient initializing - attempting hardware graphics");
-
-        // For now, treat initialization as successful after a brief wait to simulate GPU bring-up.
-        std::thread::sleep(Duration::from_millis(10));
-        self.graphics_initialized = true;
-        info!("HardwareGameClient initialized successfully");
-        Ok(())
-    }
-
-    fn update(&mut self, _delta_time: Duration) -> SubsystemResult<()> {
-        if !self.graphics_initialized {
-            return Ok(());
-        }
-
-        self.frame_count += 1;
-        if self.frame_count % 300 == 0 {
-            debug!("Hardware client - frame {}", self.frame_count);
-        }
-        Ok(())
-    }
-
-    fn render(&mut self) -> SubsystemResult<()> {
-        if !self.graphics_initialized {
-            return Ok(());
-        }
-
-        // No-op until full render path is integrated at this layer; render is handled in Main.
-        if self.frame_count % 60 == 0 {
-            debug!("Hardware rendering frame {}", self.frame_count);
-        }
-        Ok(())
-    }
-
-    fn reset(&mut self) -> SubsystemResult<()> {
-        self.frame_count = 0;
-        Ok(())
-    }
-
-    fn shutdown(&mut self) -> SubsystemResult<()> {
-        info!(
-            "HardwareGameClient shutting down - rendered {} frames",
-            self.frame_count
-        );
-        self.graphics_initialized = false;
-        Ok(())
-    }
-
-    fn get_state(&self) -> SubsystemState {
-        if self.graphics_initialized {
-            SubsystemState::Running
-        } else {
-            SubsystemState::Error
-        }
-    }
-
-    fn is_active(&self) -> bool {
-        self.active && self.graphics_initialized
-    }
-
-    fn set_active(&mut self, active: bool) {
-        self.active = active;
-    }
-}
-
-/// Global game engine instance (matching C++ TheGameEngine)
+    fn service_os(&mut self) { (matching C++ TheGameEngine)
 static GAME_ENGINE_INSTANCE: OnceLock<Mutex<Option<Arc<Mutex<GameEngine>>>>> = OnceLock::new();
 
 fn game_engine_slot() -> &'static Mutex<Option<Arc<Mutex<GameEngine>>>> {
