@@ -342,6 +342,14 @@ impl DamageTypeFlags {
     }
 }
 
+/// C++ parity: Initialize global damage type flags.
+/// In C++, this sets DAMAGE_TYPE_FLAGS_ALL via SET_ALL_DAMAGE_TYPE_BITS macro.
+/// In Rust, the all-flag is a compile-time constant; this call is a no-op but preserved
+/// for API parity and potential future mutable state.
+pub fn init_damage_type_flags() {
+    // No-op: Damage type flags are constants in Rust.
+}
+
 /// Veterancy level names for parsing
 pub const VETERANCY_NAMES: &[&str] = &["REGULAR", "VETERAN", "ELITE", "HERO"];
 

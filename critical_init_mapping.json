@@ -1,0 +1,146 @@
+[
+  {
+    "cpp_source": "Source/Common/GameEngine.cpp",
+    "rust_mapped": "Common/src/game_engine.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/game_engine.rs",
+    "kind": "",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Source/Common/GameMain.cpp",
+    "rust_mapped": "Common/src/game_main.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Source/Common/GameMain.cpp",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/game_main.rs",
+    "kind": "",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Source/Common/System/Snapshot.cpp",
+    "rust_mapped": "Common/src/system/snapshot.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Source/Common/System/Snapshot.cpp",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/snapshot.rs",
+    "kind": "",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Source/Common/System/SubsystemInterface.cpp",
+    "rust_mapped": "Common/src/system/subsystem_interface.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Source/Common/System/SubsystemInterface.cpp",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/subsystem_interface.rs",
+    "kind": "",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Source/Common/System/Xfer.cpp",
+    "rust_mapped": "Common/src/system/xfer.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Source/Common/System/Xfer.cpp",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/xfer.rs",
+    "kind": "",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Source/Common/System/XferCRC.cpp",
+    "rust_mapped": "Common/src/system/xfer_crc.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Source/Common/System/XferCRC.cpp",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/xfer_crc.rs",
+    "kind": "",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Source/Common/System/XferLoad.cpp",
+    "rust_mapped": "Common/src/system/xfer_load.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Source/Common/System/XferLoad.cpp",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/xfer_load.rs",
+    "kind": "",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Source/Common/System/XferSave.cpp",
+    "rust_mapped": "Common/src/system/xfer_save.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Source/Common/System/XferSave.cpp",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/xfer_save.rs",
+    "kind": "",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Include/Common/GameEngine.h",
+    "rust_mapped": "Common/src/game_engine.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Include/Common/GameEngine.h",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/game_engine.rs",
+    "kind": "Include",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Include/Common/Snapshot.h",
+    "rust_mapped": "Common/src/system/snapshot.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Include/Common/Snapshot.h",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/snapshot.rs",
+    "kind": "Include",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Include/Common/SubsystemInterface.h",
+    "rust_mapped": "Common/src/system/subsystem_interface.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Include/Common/SubsystemInterface.h",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/subsystem_interface.rs",
+    "kind": "Include",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Include/Common/Xfer.h",
+    "rust_mapped": "Common/src/system/xfer.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Include/Common/Xfer.h",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/xfer.rs",
+    "kind": "Include",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Include/Common/XferCRC.h",
+    "rust_mapped": "Common/src/system/xfer_crc.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Include/Common/XferCRC.h",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/xfer_crc.rs",
+    "kind": "Include",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Include/Common/XferDeepCRC.h",
+    "rust_mapped": "Common/src/xfer_deep_crc.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Include/Common/XferDeepCRC.h",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/xfer_deep_crc.rs",
+    "kind": "Include",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Include/Common/XferLoad.h",
+    "rust_mapped": "Common/src/system/xfer_load.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Include/Common/XferLoad.h",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/xfer_load.rs",
+    "kind": "Include",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  },
+  {
+    "cpp_source": "Include/Common/XferSave.h",
+    "rust_mapped": "Common/src/system/xfer_save.rs",
+    "cpp_full": "GeneralsMD/Code/GameEngine/Include/Common/XferSave.h",
+    "rust_full": "GeneralsRust/Code/GameEngine/Common/src/system/xfer_save.rs",
+    "kind": "Include",
+    "status": "FOUND",
+    "notes": "subsystem=Common"
+  }
+]

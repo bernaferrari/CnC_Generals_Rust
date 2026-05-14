@@ -281,7 +281,28 @@ impl SubsystemManager {
 
     /// Async-friendly wrapper around [`init_all`].
     pub async fn init_all_async(&mut self) -> SubsystemResult<()> {
-        self.init_all()
+        self.init_all()?;
+        // C++ parity: After all subsystems initialize, call postProcessLoadAll()
+        // to allow subsystems to perform second-pass initialization (resolve
+        // cross-references, prime shared resources, etc.).
+        self.post_process_load_all()?;
+        Ok(())
+    }
+
+    /// Call post_process_load on all registered subsystems in order.
+    /// This matches C++'s TheSubsystemList->postProcessLoadAll().
+    pub fn post_process_load_all(&mut self) -> SubsystemResult<()> {
+        for name in &self.initialization_order {
+            let index = self
+                .index_map
+                .get(name)
+                .expect("initialization order references unknown subsystem");
+            let subsystem = &mut self.entries[*index].subsystem;
+            subsystem
+                .post_process_load()
+                .map_err(|e| SubsystemError::OperationFailed(format!("postProcessLoad failed for '{}': {}", name, e)))?;
+        }
+        Ok(())
     }
 
     /// Update all subsystems

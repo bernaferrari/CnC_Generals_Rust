@@ -1,0 +1,612 @@
+================================================================================
+BEHAVIORAL COMPARISON: GameEngine::init()
+C++ vs Rust
+================================================================================
+
+SCOPE:
+- C++: GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp,
+       GameEngine::init(int argc, char* argv[])   [lines 227-680]
+- Rust: GeneralsRust/Code/GameEngine/Common/src/common/game_engine.rs,
+       GameEngine::init(&mut self, args: Vec<String>) [lines 326-374]
+
+================================================================================
+1. OVERALL ARCHITECTURE DIFFERENCE
+================================================================================
+
+C++: init() executes ALL subsystem initialization inline, using a global
+     TheSubsystemList to register each subsystem via initSubsystem() macro.
+     Order is rigidly defined. 47 initSubsystem calls are made directly.
+
+Rust: init() is minimal. It calls individual init_*() helper methods and then
+      self.subsystem_manager.init_all_async(). The SubsystemManager is local to
+      GameEngine and only the ScienceSubsystem is explicitly registered before
+      init_all_async() (at line 987 inside init_asset_system). All other
+      subsystems are initialized later (Main layer, GameClient init, global
+      singleton patterns, or not yet ported). No initSubsystem pattern exists.
+
+================================================================================
+2. EXACT CALL SEQUENCE COMPARISON
+================================================================================
+
+--------------------------------------
+C++ SEQUENCE (selected, with line #s)
+--------------------------------------
+Line 271  m_maxFPS = DEFAULT_MAX_FPS;
+Line 273  TheSubsystemList = MSGNEW SubsystemInterfaceList;
+Line 275  TheSubsystemList->addSubsystem(this);
+Line 278  InitRandom();
+Line 281  TheFileSystem = createFileSystem();
+Line 287  DeleteFile("Data\\INI\\INIZH.big");
+Line 290  TheNameKeyGenerator = MSGNEW NameKeyGenerator;
+Line 291  TheNameKeyGenerator->init();
+Line 303  TheCommandList = MSGNEW CommandList;
+Line 304  TheCommandList->init();
+Line 314  XferCRC xferCRC; xferCRC.open("lightCRC");
+
+-- FileSystem + GlobalData bootstrap --
+Line 318  initSubsystem(TheLocalFileSystem,    ...);
+Line 329  initSubsystem(TheArchiveFileSystem,   ...);
+Line 339  initSubsystem(TheWritableGlobalData,  ...);
+Line 351  #ifdef _DEBUG/_INTERNAL ini.load("GameDataDebug.ini");
+Line 357  parseCommandLine(argc, argv);
+Line 360  TheGameLODManager = MSGNEW GameLODManager;
+Line 361  TheGameLODManager->init();
+Line 364  if (m_shouldUpdateTGAToDDS) updateTGAtoDDS();
+Line 370  ini.load("Data\\INI\\Default\\Water.ini", ...);
+Line 371  ini.load("Data\\INI\\Water.ini", ...);
+Line 372  ini.load("Data\\INI\\Default\\Weather.ini", ...);
+Line 373  ini.load("Data\\INI\\Weather.ini", ...);
+Line 386  #ifdef DEBUG_CRC initSubsystem(TheDeepCRCSanityCheck, ...);
+Line 388  initSubsystem(TheGameText, ...);
+
+-- Big block of initSubsystem calls --
+Line 398  initSubsystem(TheScienceStore,         ...);
+Line 399  initSubsystem(TheMultiplayerSettings,  ...);
+Line 400  initSubsystem(TheTerrainTypes,         ...);
+Line 401  initSubsystem(TheTerrainRoads,         ...);
+Line 402  initSubsystem(TheGlobalLanguageData,   ...);
+Line 403  initSubsystem(TheCDManager,            ...);
+Line 410  initSubsystem(TheAudio,                ...);
+Line 422  initSubsystem(TheFunctionLexicon,       ...);
+Line 423  initSubsystem(TheModuleFactory,         ...);
+Line 424  initSubsystem(TheMessageStream,         ...);
+Line 425  initSubsystem(TheSidesList,             ...);
+Line 426  initSubsystem(TheCaveSystem,            ...);
+Line 427  initSubsystem(TheRankInfoStore,         ...);
+Line 428  initSubsystem(ThePlayerTemplateStore,   ...);
+Line 429  initSubsystem(TheParticleSystemManager, ...);
+Line 439  initSubsystem(TheFXListStore,           ...);
+Line 440  initSubsystem(TheWeaponStore,           ...);
+Line 441  initSubsystem(TheObjectCreationListStore, ...);
+Line 442  initSubsystem(TheLocomotorStore,        ...);
+Line 443  initSubsystem(TheSpecialPowerStore,     ...);
+Line 444  initSubsystem(TheDamageFXStore,         ...);
+Line 445  initSubsystem(TheArmorStore,            ...);
+Line 446  initSubsystem(TheBuildAssistant,        ...);
+Line 458  initSubsystem(TheThingFactory,          ...);
+Line 468  initSubsystem(TheUpgradeCenter,         ...);
+Line 469  initSubsystem(TheGameClient,            ...);
+Line 480  initSubsystem(TheAI,                    ...);
+Line 481  initSubsystem(TheGameLogic,             ...);
+Line 482  initSubsystem(TheTeamFactory,           ...);
+Line 483  initSubsystem(TheCrateSystem,           ...);
+Line 484  initSubsystem(ThePlayerList,            ...);
+Line 485  initSubsystem(TheRecorder,              ...);
+Line 486  initSubsystem(TheRadar,                 ...);
+Line 487  initSubsystem(TheVictoryConditions,     ...);
+Line 501  initSubsystem(TheMetaMap,               ...);
+Line 512  initSubsystem(TheActionManager,         ...);
+Line 514  initSubsystem(TheGameStateMap,          ...);
+Line 515  initSubsystem(TheGameState,             ...);
+Line 518  initSubsystem(TheGameResultsQueue,      ...);
+
+-- Post-initSubsystem processing --
+Line 529  xferCRC.close();
+Line 530  TheWritableGlobalData->m_iniCRC = xferCRC.getCRC();
+Line 533  TheSubsystemList->postProcessLoadAll();
+Line 535  setFramesPerSecondLimit(TheGlobalData->m_framesPerSecondLimit);
+Line 537-540  Audio setOn for Music, Sounds, Sounds3D, Speech (4 calls).
+Line 543  TheNetwork = NULL;
+
+Line 581  TheMapCache = MSGNEW MapCache;
+Line 583  TheMapCache->updateCache();
+
+-- Startup file handling & shell map checks --
+Lines 605-630: handle .map/.rep startup
+Lines 633-643: validate shell map
+
+Line 674  initKindOfMasks();
+Line 675  initDisabledMasks();
+Line 676  initDamageTypeFlags();
+
+Line 678  TheSubsystemList->resetAll();
+Line 679  HideControlBar();
+
+--------------------------------------
+RUST SEQUENCE (GameEngine::init only)
+--------------------------------------
+Line 326  pub async fn init(&mut self, args: Vec<String>) -> SubsystemResult<()>
+Line 333  self.command_args = args;
+Line 336  NameKeyGenerator::init();                     // static init
+Line 337  self.bootstrap_global_data_from_ini();
+Line 338  self.parse_command_line()?;
+Line 342  self.init_asset_system().await?;              // registers ScienceSubsystem
+Line 345  self.init_file_system().await?;               // no-op, just ensure FS exists
+Line 346  self.init_audio_system().await?;              // initializes global audio manager
+Line 347  init_cd_manager();                            // global CD manager init (no subsystem reg)
+Line 348  self.init_network_system().await?;            // sets network_interface = None
+Line 349  self.init_game_client().await?;              // external: creates Headless/Software/Hardware client
+Line 350  self.init_game_logic().await?;               // external: possibly sets game_logic from outside
+Line 353  self.subsystem_manager.init_all_async().await?;
+Line 361  handle_initial_file_startup();
+Line 362  sync_after_intro_when_intro_disabled();
+Line 364  self.subsystem_manager.reset_all()?;
+Line 366  self.initialized = true;
+
+================================================================================
+3. EARLY SETUP DIFFERENCES
+================================================================================
+
+A) NameKeyGenerator
+--------------------
+C++ Line 290-291:
+    TheNameKeyGenerator = MSGNEW NameKeyGenerator;
+    TheNameKeyGenerator->init();
+   => Creates a heap instance via MSGNEW (likely new) and calls non-static init()
+      on that instance. Assigns to global TheNameKeyGenerator.
+
+Rust Line 336:
+    NameKeyGenerator::init();
+   => Calls a static init() function. No separate object allocation made here.
+   => Behavioral difference: allocation pattern differs; assumptions about
+      singleton storage differ. If C++ expects a specific singleton instance
+      registered with SubsystemList, Rust does not add it to GameEngine's
+      subsystem_manager at all.
+
+Mismatch: C++ also adds TheNameKeyGenerator to TheSubsystemList via initSubsystem?
+No, TheNameKeyGenerator is NOT in the long initSubsystem list. It is created
+separately (lines 290-291) outside initSubsystem. It's not in the subsystem
+list and won't be reset by resetAll (comment says "not part of the subsystem
+list, because it should normally never be reset!"). Rust does not create such
+an object at all; NameKeyGenerator is a module with static state. This is a
+BEHAVIORAL DIFFERENCE: C++ has a persistent key generator object that could
+in theory be reset only via special handling (it's not in resetAll). Rust relies
+on module-level lazy_statics. But both provide global name key generation.
+
+Status: Different mechanism, goal achieved. Not a bug unless TheNameKeyGenerator
+state needs explicit reset. Comment says "should normally never be reset!" so
+this may be acceptable.
+
+B) GlobalData bootstrapping
+----------------------------
+C++:
+ - Line 339: initSubsystem(TheWritableGlobalData, ...) loads
+   "Data\\INI\\Default\\GameData.ini" then "Data\\INI\\GameData.ini".
+ - Line 351-354: #[_DEBUG/_INTERNAL] optionally loads "GameDataDebug.ini".
+
+Rust:
+ - Line 337: self.bootstrap_global_data_from_ini() loads
+   "Data/INI/Default/GameData.ini" and "Data/INI/GameData.ini" (same order).
+ - Inside that function, #[cfg(any(debug_assertions, feature="internal"))]
+   loads "Data/INI/GameDataDebug.ini" with INILoadType::Overwrite.
+   Order: C++ loads debug INI after GameData.ini with INI_LOAD_OVERWRITE.
+   Rust loads it after default, with MultiFile for GameData.ini and
+   Overwrite for default, then MultiFile for debug - likely equivalent.
+
+Status: Equivalent data loading.
+
+C) Command-line parsing
+-----------------------
+C++: Line 357: parseCommandLine(argc, argv);
+   - Called AFTER GlobalData bootstrap
+   - Also sets m_maxFPS via setFramesPerSecondLimit separately at line 535.
+
+Rust: Line 338: self.parse_command_line()?;
+   - Called RIGHT AFTER bootstrap (line 337) and BEFORE most init.
+   - Also calls self.set_frames_per_second_limit based on parsed data (line 766).
+   - Also handles -nonetwork, -test, -headless, -max-runtime, resolution,
+     audio flag combination, and adds mod_dir/mod_big paths.
+
+Status: CALL ORDER EQUIVALENT (early after GlobalData). Behavior appears aligned.
+Minor: C++ also extracts mod path via command line separately; Rust does within
+parse_command_line.
+
+D) CommandList
+--------------
+C++: Lines 303-304: creates and init() TheCommandList global. Not in initSubsystem.
+Rust: No equivalent in GameEngine::init nor any call to CommandList init anywhere.
+     CommandList handling likely deferred to Main or handled by CommandLineParser.
+
+Mismatch: C++ creates and initializes a separate CommandList object. Rust
+GameEngine::init does not initialize anything equivalent.
+
+E) XferCRC
+----------
+C++: Line 314: Creates XferCRC xferCRC; opens "lightCRC". Then passes &xferCRC
+     to every initSubsystem that loads assets. Finally at line 529 xferCRC.close()
+     and line 530 writes CRC into GlobalData. This validates asset integrity.
+
+Rust: No XferCRC at all in Rust GameEngine::init. CRC validation is absent or
+     performed differently elsewhere (maybe in asset loading layer).
+
+Mismatch: C++ uses XferCRC wrapper to validate INI/asset loads during init.
+Rust does not appear to have direct equivalent in this function.
+
+================================================================================
+4. SUBSYSTEM INITIALIZATION MISMATCHES
+================================================================================
+
+C++ performs 44 distinct initSubsystem calls from lines 318-518. Rust's
+GameEngine::init only registers 1 subsystem (ScienceSubsystem) via
+self.subsystem_manager.register_subsystem() inside init_asset_system() (line 987).
+Then self.subsystem_manager.init_all_async() initializes that single registered
+subsystem.
+
+The following C++ initSubsystem calls have NO equivalent in
+Rust GameEngine::init (listed by name with C++ line #):
+
+File system / archive:
+  Line 318  TheLocalFileSystem
+  Line 329  TheArchiveFileSystem
+  Line 339  TheWritableGlobalData  (Rust's bootstrap_global_data_from_ini is
+                                 different approach: loads GlobalData; but
+                                 the initSubsystem registration itself missing)
+=> Note: TheWritableGlobalData in C++ is both a subsystem and loaded from INI.
+   In Rust, GlobalData is built via lazy_static/singleton, not as a registered
+   subsystem within GameEngine. The behavioral role may be replaced elsewhere.
+
+Game text / stores / settings:
+  Line 388  TheGameText
+  Line 398  TheScienceStore   → partially present: ScienceSubsystem registered
+                                   in Rust's init_asset_system, but via
+                                   subsystem_manager, not direct call.
+  Line 399  TheMultiplayerSettings
+  Line 400  TheTerrainTypes
+  Line 401  TheTerrainRoads
+  Line 402  TheGlobalLanguageData
+  Line 403  TheCDManager        (CDManager::init_cd_manager() called in Rust at
+                                 line 347, but BEFORE; inline init would differ
+                                 from being in the reset flow)
+  Line 410  TheAudio             (Rust: init_audio_system at line 346; OK diff-timing)
+  Line 422  TheFunctionLexicon
+  Line 423  TheModuleFactory
+  Line 424  TheMessageStream     (Rust has its own message stream; Rust later
+                                 calls handle_initial_file_startup which uses
+                                 get_message_stream(), but the subsystem
+                                 registration is missing)
+  Line 425  TheSidesList
+  Line 426  TheCaveSystem        (likely not registered at all in Rust init)
+  Line 427  TheRankInfoStore
+  Line 428  ThePlayerTemplateStore
+  Line 429  TheParticleSystemManager
+
+FX / weapon / object / locomotor / special power / damage / armor:
+  Line 439  TheFXListStore
+  Line 440  TheWeaponStore
+  Line 441  TheObjectCreationListStore
+  Line 442  TheLocomotorStore
+  Line 443  TheSpecialPowerStore
+  Line 444  TheDamageFXStore
+  Line 445  TheArmorStore
+  Line 446  TheBuildAssistant   (BuildAssistant appears as MSGNEW; Rust doesn't
+                                 seem to have equivalent registered)
+  Line 458  TheThingFactory
+  Line 468  TheUpgradeCenter
+
+Core gameplay:
+  Line 469  TheGameClient        (Rust: init_game_client at line 349; OK, but client
+                                 may not itself register these many subsystems.)
+  Line 480  TheAI
+  Line 481  TheGameLogic         (Rust: init_game_logic line 350; OK)
+  Line 482  TheTeamFactory
+  Line 483  TheCrateSystem
+  Line 484  ThePlayerList
+  Line 485  TheRecorder
+  Line 486  TheRadar
+  Line 487  TheVictoryConditions
+
+UI / gameplay state:
+  Line 501  TheMetaMap    (CommandMap.ini related)
+  Line 512  TheActionManager
+  Line 514  TheGameStateMap
+  Line 515  TheGameState
+  Line 518  TheGameResultsQueue
+
+Conditional:
+  Line 386  TheDeepCRCSanityCheck (DEBUG_CRC only)  — missing in Rust.
+
+Comments:
+- C++ lines 469-487 show a cluster of gameplay subsystems: GameClient, AI,
+  GameLogic, TeamFactory, CrateSystem, PlayerList, Recorder, Radar,
+  VictoryConditions. In Rust, these may be initialized in init_game_logic,
+  init_game_client, or elsewhere, but they are NOT explicitly registered as
+  subsystems in GameEngine::init's subsystem_manager; they likely become
+  accessible via other means (singleton globals like THE_GAME_LOGIC, etc.).
+  However, this diverges from the C++ pattern of registering all in one global
+  TheSubsystemList.
+
+- The subsystem count: C++ lists ~44 main initSubsystem entries. Including
+  TheSubsystemList itself, TheNameKeyGenerator, and TheCommandList and
+  TheGameLODManager we get ~47 total objects initialized before the three
+  mask calls. This matches "All 47 C++ initSubsystem calls" notion if we count
+  those non-SubsystemInterface objects too (some are not "initSubsystem" but
+  are initializations). The task description says "All 47 C++ initSubsystem
+  calls", meaning 47 calls to initSubsystem (or initializations including those
+  that aren't via macro). Our list shows 44 or 45; a few lines might have
+  been cut off in the provided range. Regardless, the Rust GameEngine::init
+  only does 1 subsystem registration.
+
+================================================================================
+5. THE THREE FINAL INIT CALLS BEFORE resetAll
+================================================================================
+
+C++ (lines 674-676):
+  initKindOfMasks();
+  initDisabledMasks();
+  initDamageTypeFlags();
+  TheSubsystemList->resetAll();
+
+Rust (lines 353, 362, 364):
+  self.subsystem_manager.init_all_async().await?;
+  sync_after_intro_when_intro_disabled();
+  self.subsystem_manager.reset_all()?;
+
+The three C++ mask init calls are COMPLETELY MISSING from Rust GameEngine::init.
+They are instead called from the Main layer (cnc_game_engine.rs), specifically:
+
+  cnc_game_engine.rs:3464  Self::initialize_cpp_startup_masks();
+  cnc_game_engine.rs:3695  fn initialize_cpp_startup_masks() {
+        game_engine::common::system::kind_of::init_kind_of_masks();
+        Self::init_disabled_masks();
+        gamelogic::damage::init_damage_type_flags();
+  }
+
+Thus, these three are delayed until later in the overall startup, not within
+GameEngine::init itself.
+
+Mismatch: The behavioural ordering differs. After `init_all_async`, Rust calls
+`reset_all` immediately, whereas C++ calls the mask init functions first. As
+those three initialize global static bitmasks/flags, if any subsystem's
+init/assume-available relies on them being set before resetAll, Rust may have
+a subtle behavioural difference if init_all or resetAll touch those flags.
+(Note: the mask init functions are mostly no-ops or constants in Rust but the
+order relative to resetAll differs.)
+
+================================================================================
+6. OTHER MISSING / EXTRA CALLS IN RUST GameEngine::init
+================================================================================
+
+Missing (C++ calls without Rust equivalent in this method):
+--------------------------------------------------------------------
+  TheNameKeyGenerator object creation line 290-291   [Rust: static init only]
+  TheCommandList        line 303-304                 [Rust: no equiv.]
+  TheGameLODManager     line 360-361                 [Rust: missing]
+  updateTGAtoDDS()      line 364-367                 [Rust: missing]
+  Water INI loads       line 370-373                 [Rust: missing]
+  Debug INI loads (GameDataDebug) after GameData line 351-354  [Rust: done but via bootstrap_global_data_from_ini? - covered]
+  CommandMapDebug/Demo lines 503-509                  [Rust: missing]
+  TheSubsystemList->postProcessLoadAll() line 533      [Rust: missing]
+  Audio setOn calls (4×) lines 537-540                [Rust: audio state set elsewhere e.g., init_audio_system]
+  TheMapCache creation and update lines 581-583       [Rust: map cache refresh done later in Main at line 3248]
+  Fingerprinting SEC check lines 557-578              [Rust: missing]
+  HideControlBar() line 679                          [Rust: missing]
+  setQuitting(TRUE) logic for audio failure lines 411-412
+                                                       [Rust: audio failure handled differently]
+
+Extra (Rust calls not matching a C++ GameEngine::init call):
+--------------------------------------------------------------------
+  self.init_asset_system().await?                    [C++: asset loading integrated]
+  self.init_file_system().await?                     [C++: done inline initSubsystem]
+  self.init_audio_system().await?                    [C++: done via initSubsystem(TheAudio) inline]
+  init_cd_manager()                                   [C++: done via initSubsystem(TheCDManager) inline]
+  self.init_network_system().await?                  [C++: TheNetwork = NULL manually]
+  self.init_game_client().await?                     [C++: done via initSubsystem(TheGameClient) inline]
+  self.init_game_logic().await?                      [C++: done via initSubsystem(TheGameLogic) inline]
+  handle_initial_file_startup() and sync_after_intro_when_intro_disabled()
+                                                      [C++: similar logic inline lines 605-646 & 671-672]
+  self.subsystem_manager.init_all_async().await?     [C++: initSubsystem calls are direct]
+  self.subsystem_manager.reset_all()?                [C++: TheSubsystemList->resetAll() inline]
+  ScienceSubsystem registration via init_asset_system:987
+                                                      [C++ uses initSubsystem(TheScienceStore) at line 398]
+
+Note: Rust's `init_*` methods are new abstractions; C++ does inline work. But
+they are not direct 1:1 translations; they represent replicated behavior
+splitted across layers.
+
+================================================================================
+7. OTHER ORDER / BEHAVIOR DIFFERENCES
+================================================================================
+
+Order of NameKeyGenerator & CommandList:
+  C++: NameKeyGenerator created (290), then CommandList (303).
+  Rust: Only NameKeyGenerator static init at 336; no CommandList.
+
+Location of parseCommandLine:
+  C++: line 357 (after GlobalData and TGA upgrader, before LODManager)
+  Rust: line 338 (right after GlobalData and before asset/file/audio).
+  Effect: C++ runs TGA updater before command-line, but that seems okay.
+  Similarly C++ runs LODManager init before water; Rust runs logic later.
+  Order difference is close enough; command-line overrides must happen before
+  any subsystem consumes GlobalData, and Rust does parse before all init_*.
+
+Location of Water.ini/Weather.ini loading:
+  C++: line 370-373 after GameLODManager init.
+  Rust: not in GameEngine::init (presumably loaded within subsystems, like the
+        WaterSystem or WeatherSystem during their init in Main layer).
+  Risk: If any code expects these INIs to be loaded before other subs init,
+        parity could diverge. But likely C++ loads them early for the benefit
+        of GameClient that might query water settings during its init.
+
+Location of audio state configuration (setOn):
+  C++: lines 537-540 after TheAudio init and postProcessLoadAll, before
+       TheNetwork init.
+  Rust: Audio initialization sets up audio but setOn appears done later maybe
+        by Main or within audio subsystem on startup.
+  Potential divergence if audio relies on GlobalData flags before main.
+
+Availability of TheGameLODManager before GameClient:
+  C++: line 360-361 creates TheGameLODManager before GameClient init (line 469).
+  Rust: Not present at all. LODManager may be folded into GameClient/Graphics.
+  Likely not-critical.
+
+Usage of XferCRC:
+  C++ validates asset CRC on each initSubsystem that loads INI data.
+  Rust does not appear to use a unified CRC during GameEngine init.
+
+CRITICAL: C++ runs TheSubsystemList->postProcessLoadAll() after all
+subsystems have been initialized and sets the CRC. Rust does not have a
+corresponding post-process load phase in GameEngine::init. Instead, subsystem
+`post_process_load` is defined in the SubsystemInterface but never invoked by
+SubsystemManager. This might be called elsewhere or not needed.
+
+CRITICAL ORDER: C++ sequence:
+   (1) All initSubsystem calls
+   (2) postProcessLoadAll()
+   (3) setFramesPerSecondLimit + audio setOn
+   (4) TheNetwork = NULL
+   (5) TheMapCache init
+   (6) Startup file handling
+   (7) initKindOfMasks + initDisabledMasks + initDamageTypeFlags
+   (8) TheSubsystemList->resetAll()
+Rust sequence:
+   (1) ... (calls a few individual init inits)
+   (2) self.subsystem_manager.init_all_async()
+   (3) handle_initial_file_startup + sync_after_intro_when_intro_disabled
+   (4) self.subsystem_manager.reset_all()
+
+The three mask init calls are performed between 3 and 4 in C++, but in Rust
+they happen much later, not in this scope at all. And `postProcessLoadAll`
+is absent. Also `TheSubsystemList->postProcessLoadAll()` is presumably
+called on all subsystems; in Rust we don't see a loop over anything.
+
+================================================================================
+8. SUMMARY TABLE OF MISMATCHES
+================================================================================
+
+#  C++ Operation                                   Line    Rust eq?           Status
+1  TheNameKeyGenerator instantiation & init       290-291  NameKeyGenerator::init()  DIFF: allocation vs static
+2  TheCommandList creating & init                 303-304  NONE                          MISSING
+3  XferCRC open                                   314      NONE                          MISSING
+4  initSubsystem(TheLocalFileSystem)              318      via init_file_system (no reg)  MISSING registration
+5  initSubsystem(TheArchiveFileSystem)            329      via init_file_system (no reg)  MISSING registration
+6  initSubsystem(TheWritableGlobalData)           339      bootstrap_global_data_from_ini  PARTIAL (data loaded, no subsystem entry)
+7  DEBUG_CRC initSubsystem(TheDeepCRCSanityCheck) 386      NONE                          MISSING (debug only but still)
+8  initSubsystem(TheGameText)                     388      NONE                          MISSING
+9  initSubsystem(TheScienceStore)                 398      ScienceSubsystem register      OK (via init_asset_system:987)
+10 initSubsystem(TheMultiplayerSettings)          399      NONE                          MISSING
+11 initSubsystem(TheTerrainTypes)                 400      NONE                          MISSING
+12 initSubsystem(TheTerrainRoads)                 401      NONE                          MISSING
+13 initSubsystem(TheGlobalLanguageData)           402      NONE                          MISSING
+14 initSubsystem(TheCDManager)                    403      init_cd_manager()             OK (but before init_asset_system)
+15 initSubsystem(TheAudio)                        410      init_audio_system()           OK (called at line 346)
+16 initSubsystem(TheFunctionLexicon)              422      NONE                          MISSING
+17 initSubsystem(TheModuleFactory)                423      NONE                          MISSING
+18 initSubsystem(TheMessageStream)                424      NONE (message stream exists)  MISSING registration
+19 initSubsystem(TheSidesList)                    425      NONE                          MISSING
+20 initSubsystem(TheCaveSystem)                   426      NONE                          MISSING
+21 initSubsystem(TheRankInfoStore)                427      NONE                          MISSING
+22 initSubsystem(ThePlayerTemplateStore)          428      NONE                          MISSING
+23 initSubsystem(TheParticleSystemManager)        429      NONE                          MISSING
+24 initSubsystem(TheFXListStore)                  439      NONE                          MISSING
+25 initSubsystem(TheWeaponStore)                  440      NONE                          MISSING
+26 initSubsystem(TheObjectCreationListStore)      441      NONE                          MISSING
+27 initSubsystem(TheLocomotorStore)               442      NONE                          MISSING
+28 initSubsystem(TheSpecialPowerStore)            443      NONE                          MISSING
+29 initSubsystem(TheDamageFXStore)                444      NONE                          MISSING
+30 initSubsystem(TheArmorStore)                   445      NONE                          MISSING
+31 initSubsystem(TheBuildAssistant)               446      NONE                          MISSING
+32 initSubsystem(TheThingFactory)                 458      NONE                          MISSING
+33 initSubsystem(TheUpgradeCenter)                468      NONE                          MISSING
+34 initSubsystem(TheGameClient)                   469      init_game_client()            OK (called at line 349)
+35 initSubsystem(TheAI)                           480      NONE                          MISSING
+36 initSubsystem(TheGameLogic)                    481      init_game_logic()             OK (called at line 350)
+37 initSubsystem(TheTeamFactory)                  482      NONE                          MISSING
+38 initSubsystem(TheCrateSystem)                  483      NONE                          MISSING
+39 initSubsystem(ThePlayerList)                   484      NONE                          MISSING
+40 initSubsystem(TheRecorder)                     485      NONE (recorder used later)    MISSING
+41 initSubsystem(TheRadar)                        486      NONE (radar elsewhere)       MISSING
+42 initSubsystem(TheVictoryConditions)            487      NONE                          MISSING
+43 initSubsystem(TheMetaMap)                      501      NONE                          MISSING
+44 initSubsystem(TheActionManager)                512      NONE                          MISSING
+45 initSubsystem(TheGameStateMap)                 514      NONE                          MISSING
+46 initSubsystem(TheGameState)                    515      NONE                          MISSING
+47 initSubsystem(TheGameResultsQueue)             518      NONE                          MISSING
+
+Post-init ops:
+- TheSubsystemList->postProcessLoadAll()          533      NONE          MISSING
+- setFramesPerSecondLimit()                       535      done inside parse_command_line   OK (earlier)
+- Audio setOn (4 calls)                           537-540  audio init sets enables via config   DIFF timing
+- TheNetwork = NULL                               543      network init via init_network_system line 348  OK but timing
+- TheMapCache init                                581-583  map cache refresh later in Main   MISSING here
+- Fingerprint SEC files                           557-578  NONE          MISSING
+- Startup file handling (main)                    605-630  handled by handle_initial_file_startup line 361   OK
+- Shell map validation                            633-643  done later?                      DIFF
+- initDisabledMasks (commented) line 648          N/A      NONE          UNUSED in C++ too?
+- initKindOfMasks                                674      missing entirely  MISSING
+- initDisabledMasks                              675      missing entirely  MISSING
+- initDamageTypeFlags                            676      missing entirely  MISSING
+- resetAll                                       678      reset_all line 364     OK but preceded by masks in C++
+- HideControlBar                                 679      NONE          MISSING
+
+Water/Weather INI loads (370-373)                 MISSING
+CommandMapDebug/Demo (503-509)                    MISSING
+TheGameLODManager creation/init (360-361)         MISSING
+updateTGAtoDDS (364-367)                          MISSING
+
+Extra in Rust (not present in C++ GameEngine::init):
+- self.init_asset_system()           (C++ inline)
+- self.init_file_system()            (C++ inline)
+- self.init_audio_system()           (C++ inline)
+- init_cd_manager()                  (C++ inline)
+- self.init_network_system()         (C++: manual TheNetwork = NULL)
+- self.init_game_client()            (C++: inline via initSubsystem but more logic)
+- self.init_game_logic()             (C++: inline via initSubsystem)
+- self.subsystem_manager.init_all_async()
+
+These "extra" calls are just factored-out helpers; they represent operations
+that are still performed in C++ but inlined. So they are not truly extra,
+just structural differences.
+
+================================================================================
+9. FINAL COUNT OF MISMATCHES
+================================================================================
+
+Missing explicit subsystem registrations in Rust GameEngine::init (relative
+to C++ GameEngine::init's inline 47 subsystem initializations):
+
+- Approximately 44 of 47 initSubsystem registrations are absent.
+- Only ScienceSubsystem (via init_asset_system) and Audio (via init_audio_system)
+  and CDManager (via init_cd_manager) and GameClient (via init_game_client)
+  and GameLogic (via init_game_logic) are covered, but not as part of the
+  subsystem manager; they are separate references.
+- In addition, the three mask inits before resetAll are completely absent
+  within GameEngine::init.
+
+The path forward to achieve parity would involve either:
+ - Moving subsystem registration into GameEngine::init to mirror C++ order; or
+ - Ensuring init_all_async registers/initializes all those subsystems before
+   being called (currently it does not).
+
+================================================================================
+10. REFERENCES
+================================================================================
+
+C++ source:
+  GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp
+  Method: GameEngine::init (line 227 start, body up to line 680)
+
+Rust source:
+  GeneralsRust/Code/GameEngine/Common/src/common/game_engine.rs
+  Method: GameEngine::init (lines 326-374)
+
+Additional Rust sources referenced:
+  - SubsystemManager: subsystem_interface.rs
+  - init_cd_manager: Common/src/common/system/cd_manager.rs:225
+  - init_kind_of_masks: Common/src/common/system/kind_of.rs:411
+  - init_disabled_masks: Common/src/common/system/disabled_types.rs:397
+  - init_damage_type_flags: GameLogic/src/damage.rs:743
+  - The three mask functions called later: Main/src/cnc_game_engine.rs:3696-3698
+
+================================================================================
+END OF COMPARISON
+================================================================================

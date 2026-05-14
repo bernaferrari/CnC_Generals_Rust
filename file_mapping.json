@@ -1,0 +1,167 @@
+[
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Common/version.h",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/version.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Common/simpleplayer.h",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/common/audio/simpleplayer.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Common/crc.h",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/xfer_deep_crc.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Common/file.h",
+    "rust": "GeneralsRust/Code/GameEngine/Common/tests/local_file_system_parity_tests.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Common/GameEngine.h",
+    "rust": "GeneralsRust/Code/GameEngine/Common/tests/local_file_system_parity_tests.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Common/urllaunch.h",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/common/audio/urllaunch.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Common/Module.h",
+    "rust": "GeneralsRust/Code/GameEngine/src/GameClient/Module/animated_particle_sys_bone_client_update.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Common/encrypt.h",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/system/encrypt.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Common/string.h",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/system/unicode_string.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/GameClient/Shell.h",
+    "rust": "GeneralsRust/Code/GameEngine/src/GameClient/GUI/Shell/challenge_generals.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/GameClient/ControlBar.h",
+    "rust": "GeneralsRust/Code/GameEngine/src/GameClient/GUI/ControlBar/types.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/GameClient/GameClient.h",
+    "rust": "GeneralsRust/Code/GameEngine/GameClient/tests/test_cinematic_camera.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/GameClient/HotKey.h",
+    "rust": "GeneralsRust/Code/GameEngine/GameClient/HotKey.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/GameNetwork/networkutil.h",
+    "rust": "GeneralsRust/Code/GameEngine/GameNetwork/src/networkutil.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/GameNetwork/udp.h",
+    "rust": "GeneralsRust/Code/GameEngine/GameNetwork/tests/udp_transport_tests.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/GameLogic/GameLogic.h",
+    "rust": "GeneralsRust/Code/GameEngine/GameLogic/tests/create_modules_test.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Include/Precompiled/PreRTS.h",
+    "rust": "GeneralsRust/Code/GameEngine/Precompiled/PreRTS.rs",
+    "type": "header"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/Common/crc.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/xfer_deep_crc.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/Common/version.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/version.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/Common/Thing/Module.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/src/GameClient/Module/animated_particle_sys_bone_client_update.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/Common/System/encrypt.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/system/encrypt.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/Common/System/registry.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/memory/registry.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/Common/Audio/urllaunch.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/common/audio/urllaunch.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/Common/Audio/simpleplayer.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/Common/src/common/audio/simpleplayer.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/Common/GameEngine.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/Common/examples/memory_pool_demo.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/GameClient/GameClient.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/GameClient/HotKey.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/GameClient/MessageStream/HotKey.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/GameClient/HotKey.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/Shell/Shell.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/src/GameClient/GUI/Shell/challenge_generals.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/GameClient/GUI/ControlBar/ControlBar.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/src/GameClient/GUI/ControlBar/types.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/GameNetwork/Network.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/GameNetwork/examples/cpp_compat_usage.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/GameNetwork/udp.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/GameNetwork/src/transport_udp.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/GameLogic/System/GameLogic.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/GameLogic/examples/ai_basic_usage.rs",
+    "type": "source"
+  },
+  {
+    "cpp": "GeneralsMD/Code/GameEngine/Source/Precompiled/PreRTS.cpp",
+    "rust": "GeneralsRust/Code/GameEngine/Precompiled/PreRTS.rs",
+    "type": "source"
+  }
+]
