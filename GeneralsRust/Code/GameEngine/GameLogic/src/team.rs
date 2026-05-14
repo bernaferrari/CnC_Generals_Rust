@@ -261,6 +261,9 @@ pub struct Team {
     // Relationship overrides
     team_relations: Option<TeamRelationMap>,
     player_relations: Option<HashMap<Int, Relationship>>,
+
+    // Singleton flag (from TeamPrototype at creation time)
+    is_singleton: Bool,
 }
 
 impl Team {
@@ -295,6 +298,7 @@ impl Team {
             should_attempt_generic_script: [true; MAX_GENERIC_SCRIPTS],
             team_relations: None,
             player_relations: None,
+            is_singleton: false,
         }
     }
 
@@ -1879,6 +1883,18 @@ impl Team {
         // Teams share radar if they are allied
         // Full implementation would also check if controlling players have radar
         self.is_allied_with(that_team)
+    }
+
+    /// Check if this team is a singleton (only one instance allowed)
+    /// Reference: C++ Team::GetIsSingleton()
+    pub fn is_singleton(&self) -> Bool {
+        self.is_singleton
+    }
+
+    /// Set singleton flag on team instance
+    /// Reference: C++ Team::SetIsSingleton()
+    pub fn set_singleton(&mut self, singleton: Bool) {
+        self.is_singleton = singleton;
     }
 }
 
