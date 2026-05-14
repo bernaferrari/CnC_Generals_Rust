@@ -360,6 +360,13 @@ impl GameEngine {
 
         handle_initial_file_startup();
         sync_after_intro_when_intro_disabled();
+
+        // C++ parity: Three mask-initialization functions called before resetAll.
+        // They initialize global static bitmasks used by numerous systems.
+        crate::common::system::kind_of::init_kind_of_masks();
+        crate::common::system::disabled_types::init_disabled_masks();
+        crate::common::damage_fx::init_damage_type_flags();
+
         // C++ parity: TheSubsystemList->resetAll() is invoked at the end of init.
         self.subsystem_manager.reset_all()?;
 
