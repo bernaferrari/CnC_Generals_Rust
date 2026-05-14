@@ -8,6 +8,7 @@ use crate::terrain::{TerrainError, TerrainResult};
 use glam::{Mat4, Vec3};
 use nalgebra::{Point2, Vector2};
 use std::collections::HashMap;
+use wgpu::RenderPass;
 
 /// Unique identifier for water bodies
 pub type WaterBodyId = u32;
@@ -1309,6 +1310,34 @@ impl WaterManager {
                 )));
             }
         }
+        Ok(())
+    }
+
+    /// Submit GPU draw calls for water surfaces.
+    ///
+    /// Caller must set the water pipeline and camera bind group (group 0) first.
+    /// `mesh_fn` returns (vertex_slice, index_slice, index_count) for the global water plane.
+    /// Iterates all enabled segments with geometry and submits draw_indexed per surface.
+    pub fn render_pass_draw<'a, FMesh>(
+        &self,
+        render_pass: &mut RenderPass<'a>,
+        mut mesh_fn: FMesh,
+    ) -> TerrainResult<()>
+    where
+        FMesh: FnMut() -> Option<(wgpu::BufferSlice<'a>, wgpu::BufferSlice<'a>, u32)>,
+    {
+        if !self.enabled {
+            return Ok(());
+        }
+
+        let Some((vertex_slice, index_slice, index_count)) = mesh_fn() else {
+            return Ok(());
+        };
+
+        render_pass.set_vertex_buffer(0, vertex_slice);
+        render_pass.set_index_buffer(index_slice, wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..index_count, 0, 0..1);
+
         Ok(())
     }
 

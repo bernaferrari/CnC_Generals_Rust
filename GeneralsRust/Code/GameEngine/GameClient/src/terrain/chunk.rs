@@ -854,6 +854,47 @@ impl ChunkManager {
         )
     }
 
+    /// Submit GPU draw calls for all visible chunks.
+    ///
+    /// Caller must set the terrain pipeline and camera bind group (group 0) first.
+    /// `bind_group_fn` returns per-chunk texture bind group (group 1). `mesh_fn`
+    /// returns (vertex_slice, index_slice, index_count).
+    pub fn render_pass_draw<'a, FBindGroup, FMesh>(
+        &'a self,
+        render_pass: &mut RenderPass<'a>,
+        mut bind_group_fn: FBindGroup,
+        mut mesh_fn: FMesh,
+    ) -> TerrainResult<()>
+    where
+        FBindGroup: FnMut(ChunkId) -> Option<wgpu::BindGroup<'a>>,
+        FMesh: FnMut(ChunkId) -> Option<(wgpu::BufferSlice<'a>, wgpu::BufferSlice<'a>, u32)>,
+    {
+        self.render(
+            &self.view_frustum.view_matrix,
+            &self.view_frustum.projection_matrix,
+        )?;
+
+        for chunk in self
+            .chunks
+            .values()
+            .filter(|chunk| chunk.visible && !chunk.vertices.is_empty() && !chunk.indices.is_empty())
+        {
+            if let Some(bg) = bind_group_fn(chunk.id) {
+                render_pass.set_bind_group(1, &bg, &[]);
+            }
+
+            let Some((vertex_slice, index_slice, index_count)) = mesh_fn(chunk.id) else {
+                continue;
+            };
+
+            render_pass.set_vertex_buffer(0, vertex_slice);
+            render_pass.set_index_buffer(index_slice, wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..index_count, 0, 0..1);
+        }
+
+        Ok(())
+    }
+
     /// Number of visible chunks with generated geometry.
     pub fn renderable_chunk_count(&self) -> usize {
         self.chunks

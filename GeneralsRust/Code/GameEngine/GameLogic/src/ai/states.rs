@@ -1907,12 +1907,25 @@ impl AIIdleState {
                                 if !ultra_accurate {
                                     let pos = owner_guard.get_position();
                                     if pos.x != 0.0 || pos.y != 0.0 || pos.z != 0.0 {
-                                        // C++ calls TheAI->pathfinder()->updateGoal(obj, &goalPos, obj->getLayer())
-                                        // then pathfinder()->goalPosition(obj, &goalPos) to snap to grid
-                                        // then either setPosition or setFinalPosition depending on frame
-                                        // This requires the pathfinder's update_goal/goal_position API
-                                        // which is wired through Path::update_goal_for_object
-                                        let _ = pos; // consumed below when pathfinder API is called
+                                        let _ = crate::ai::pathfind::update_goal_for_object(
+                                            &owner,
+                                            &pos,
+                                            crate::ai::pathfind::PathfindLayerEnum::Ground,
+                                        );
+                                        if let Some(snapped) = crate::ai::pathfind::goal_position(&pos) {
+                                            let frame = TheGameLogic::get_frame();
+                                            if frame <= 1 {
+                                                drop(owner_guard);
+                                                if let Ok(mut obj_w) = owner.write() {
+                                                    obj_w.set_position(&snapped);
+                                                }
+                                            }
+                                            let _ = crate::ai::pathfind::update_goal_for_object(
+                                                &owner,
+                                                &snapped,
+                                                crate::ai::pathfind::PathfindLayerEnum::Ground,
+                                            );
+                                        }
                                     }
                                 }
                             }

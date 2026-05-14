@@ -8,6 +8,7 @@ use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
 use glam::{Mat4, Vec3};
 use nalgebra::Point2;
 use std::collections::HashMap;
+use wgpu::RenderPass;
 
 /// Unique identifier for roads
 pub type RoadId = u32;
@@ -1648,6 +1649,30 @@ impl RoadManager {
                 )?;
             }
         }
+        Ok(())
+    }
+
+    /// Submit GPU draw calls for all visible road surfaces.
+    ///
+    /// Caller must set the road pipeline and camera bind group (group 0) first.
+    /// `mesh_iter` yields (vertex_slice, index_slice, index_count) per road mesh in
+    /// priority order.
+    pub fn render_pass_draw<'a, FMeshes>(
+        &self,
+        render_pass: &mut RenderPass<'a>,
+        mut mesh_iter: FMeshes,
+    ) -> TerrainResult<()>
+    where
+        FMeshes: FnMut() -> Option<(wgpu::BufferSlice<'a>, wgpu::BufferSlice<'a>, u32)>,
+    {
+        self.render(&Mat4::IDENTITY, &Mat4::IDENTITY)?;
+
+        while let Some((vertex_slice, index_slice, index_count)) = mesh_iter() {
+            render_pass.set_vertex_buffer(0, vertex_slice);
+            render_pass.set_index_buffer(index_slice, wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..index_count, 0, 0..1);
+        }
+
         Ok(())
     }
 

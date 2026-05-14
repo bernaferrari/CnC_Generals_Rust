@@ -470,15 +470,61 @@ impl Default for Camera {
 }
 
 impl Camera {
-    /// Update view matrix from position, target, and up vectors
+    /// Update view matrix from position, target, and up vectors.
+    ///
+    /// Computes a proper look-at (right-handed) view matrix matching the C++ behavior
+    /// where the view matrix is the inverse of the camera's world-space transform.
+    /// C++: `Transform.Get_Inverse(CameraInvTransform)` — forward is -Z in view space.
+    #[cfg(feature = "w3d")]
     pub fn update_view_matrix(&mut self) {
-        // Simplified view matrix calculation
-        // In a real implementation, this would use proper 3D math library
+        let eye = glam::Vec3::from(self.position);
+        let target = glam::Vec3::from(self.target);
+        let up = glam::Vec3::from(self.up);
+        let view = glam::Mat4::look_at_rh(eye, target, up);
+        self.view_matrix = view.to_cols_array_2d();
+    }
+
+    /// Fallback view matrix calculation without glam (feature-gated).
+    /// Uses a manual look-at computation matching right-handed conventions.
+    #[cfg(not(feature = "w3d"))]
+    pub fn update_view_matrix(&mut self) {
+        let eye = self.position;
+        let target = self.target;
+        let up = self.up;
+
+        // forward = normalize(target - eye), but C++ convention: forward is -Z in view space
+        let f = [
+            target[0] - eye[0],
+            target[1] - eye[1],
+            target[2] - eye[2],
+        ];
+        let f_len = (f[0] * f[0] + f[1] * f[1] + f[2] * f[2]).sqrt();
+        let f = [f[0] / f_len, f[1] / f_len, f[2] / f_len];
+
+        // side = normalize(cross(forward, up))
+        let s = [
+            f[1] * up[2] - f[2] * up[1],
+            f[2] * up[0] - f[0] * up[2],
+            f[0] * up[1] - f[1] * up[0],
+        ];
+        let s_len = (s[0] * s[0] + s[1] * s[1] + s[2] * s[2]).sqrt();
+        let s = [s[0] / s_len, s[1] / s_len, s[2] / s_len];
+
+        // recompute up = cross(side, forward)
+        let u = [
+            s[1] * f[2] - s[2] * f[1],
+            s[2] * f[0] - s[0] * f[2],
+            s[0] * f[1] - s[1] * f[0],
+        ];
+
         self.view_matrix = [
-            [1.0, 0.0, 0.0, -self.position[0]],
-            [0.0, 1.0, 0.0, -self.position[1]],
-            [0.0, 0.0, 1.0, -self.position[2]],
-            [0.0, 0.0, 0.0, 1.0],
+            [s[0], u[0], -f[0], 0.0],
+            [s[1], u[1], -f[1], 0.0],
+            [s[2], u[2], -f[2], 0.0],
+            [-(s[0] * eye[0] + s[1] * eye[1] + s[2] * eye[2]),
+             -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]),
+             f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2],
+             1.0],
         ];
     }
 
