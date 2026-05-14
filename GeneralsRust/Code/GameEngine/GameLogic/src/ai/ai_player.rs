@@ -16,15 +16,9 @@ use crate::ai::{AiError, AiGroup, AttitudeType, ScienceType, AI, THE_AI};
 use crate::common::xfer::{Xfer, XferExt};
 use crate::common::Snapshot;
 use crate::common::{
-<<<<<<< Updated upstream
     AsciiString, ControlBarInterface, Coord2D, Coord3D, CoordOrigin, KindOf, ObjectID,
     ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Real, Relationship, TeamId, ThingTemplate,
-    UnsignedInt,
-=======
-    AsciiString, ControlBarInterface, Coord2D, Coord3D, KindOf, ObjectID, ObjectStatusMaskType,
-    ObjectStatusTypes, PlayerId, Real, Relationship, TeamId, ThingTemplate, UnsignedInt,
-    INVALID_ID,
->>>>>>> Stashed changes
+    UnsignedInt, INVALID_ID,
 };
 use crate::control_bar::get_control_bar_bridge;
 use crate::helpers::{
@@ -281,7 +275,7 @@ impl TeamInQueue {
 
         log::debug!("{} - team disbanded, build time expired.", team_name);
 
-        let Ok(factory) = get_team_factory().lock() else {
+        let Ok(mut factory) = get_team_factory().lock() else {
             self.work_orders.clear();
             return Ok(());
         };
@@ -333,7 +327,7 @@ impl TeamInQueue {
         // PARITY_NOTE: C++ calls m_team->deleteInstance() if !getIsSingleton().
         // In Rust, delete_team destroys all remaining members and marks the team for cleanup.
         // Since units were already transferred, the team should have no remaining members.
-        if !team_guard.is_singleton() {
+        if !(*team_guard).is_singleton() {
             team_guard.delete_team(false);
         }
 

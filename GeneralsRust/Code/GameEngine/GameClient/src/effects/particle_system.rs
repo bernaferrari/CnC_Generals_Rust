@@ -1268,27 +1268,31 @@ pub struct ParticleSystem {
     wind_angle: f32,
     wind_angle_change: f32,
     wind_motion_moving_to_end_angle: bool,
+    wind_motion_start_angle: f32,
+    wind_motion_start_angle_min: f32,
+    wind_motion_start_angle_max: f32,
+    wind_motion_end_angle: f32,
+    wind_motion_end_angle_min: f32,
+    wind_motion_end_angle_max: f32,
 
-    // Emission volume overrides
+    // Shroud/visibility state (C++ ParticleSystem::m_isShrouded)
+    is_shrouded: bool,
+
+    // Parent transform override for attached systems
+    parent_transform: Option<Matrix3<f32>>,
+
+    // Particle scale multiplier
+    particle_scale: f32,
+
+    // Emission overrides
     emission_volume_override: Option<EmissionVolume>,
     emission_volume_type_override: Option<EmissionVolumeType>,
 
-<<<<<<< Updated upstream
     // Slave emission buffer: during emit_particles, if a slave system is present,
     // the emitted particle count is recorded here so the manager can create
     // corresponding slave particles in a separate pass (avoids double-&mut borrow).
     // Matches C++ ParticleSystem::update lines 2004-2009.
     slave_emission_count: u32,
-=======
-    // C++ parity: ParticleSys.cpp lines 1854-1906 (isShrouded flag)
-    is_shrouded: bool,
-
-    // C++ parity: ParticleSys.cpp lines 1847-1932 (parentXfrm)
-    parent_transform: Option<Matrix3<f32>>,
-
-    // C++ parity: ParticleSys.cpp lines 1782-1783, 1518-1520, 1644-1646
-    particle_scale: f32,
->>>>>>> Stashed changes
 }
 
 impl ParticleSystem {
@@ -1345,17 +1349,21 @@ impl ParticleSystem {
             wind_angle: info.wind_angle,
             wind_angle_change: info.wind_angle_change,
             wind_motion_moving_to_end_angle: false,
+            wind_motion_start_angle: info.wind_motion_start_angle_min,
+            wind_motion_start_angle_min: info.wind_motion_start_angle_min,
+            wind_motion_start_angle_max: info.wind_motion_start_angle_max,
+            wind_motion_end_angle: info.wind_motion_end_angle_min,
+            wind_motion_end_angle_min: info.wind_motion_end_angle_min,
+            wind_motion_end_angle_max: info.wind_motion_end_angle_max,
+
+            is_shrouded: false,
+            parent_transform: None,
+            particle_scale: 1.0,
 
             emission_volume_override: None,
             emission_volume_type_override: None,
 
-<<<<<<< Updated upstream
             slave_emission_count: 0,
-=======
-            is_shrouded: false,
-            parent_transform: None,
-            particle_scale: Self::read_particle_scale_from_global_data(),
->>>>>>> Stashed changes
         };
 
         // Initialize wind motion
@@ -1591,10 +1599,10 @@ impl ParticleSystem {
     }
 
     fn read_particle_scale_from_global_data() -> f32 {
-        game_engine::common::ini::ini_game_data::get_global_data()
-            .and_then(|gd| gd.read().ok())
-            .map(|gd| gd.particle_scale)
-            .unwrap_or(1.0)
+        match game_engine::common::ini::ini_game_data::get_global_data() {
+            Some(arc) => arc.read().particle_scale,
+            None => 1.0,
+        }
     }
 
     /// Get velocity multiplier
@@ -1717,7 +1725,6 @@ impl ParticleSystem {
         self.particle_count
     }
 
-<<<<<<< Updated upstream
     /// Get system priority for C++-style particle budget culling.
     pub fn priority(&self) -> ParticlePriorityType {
         self.template.info().priority
@@ -1743,18 +1750,6 @@ impl ParticleSystem {
         }
         self.particle_count -= remove_count;
         remove_count
-=======
-    /// Remove the oldest particle (front of VecDeque). Returns true if a particle was removed.
-    /// C++ parity: ParticleSystemManager::removeOldestParticles calls deleteInstance on m_allParticlesHead[i],
-    /// which is the oldest particle in each priority bucket.
-    pub fn remove_oldest_particle(&mut self) -> bool {
-        if self.particles.pop_front().is_some() {
-            self.particle_count = self.particle_count.saturating_sub(1);
-            true
-        } else {
-            false
-        }
->>>>>>> Stashed changes
     }
 
     /// Get wind angle

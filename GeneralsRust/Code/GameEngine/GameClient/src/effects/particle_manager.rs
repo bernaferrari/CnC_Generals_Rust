@@ -870,7 +870,6 @@ impl ParticleSystemManager {
     ) -> usize {
         let mut removed = 0;
 
-<<<<<<< Updated upstream
         // Remove from lowest priority up to (but not including) priority_cap
         for priority_index in 1..priority_cap as usize {
             if removed >= count {
@@ -900,34 +899,6 @@ impl ParticleSystemManager {
 
         self.particle_count = self.particle_count.saturating_sub(removed);
         self.field_particle_count = self.field_particle_count.saturating_sub(removed);
-=======
-        while removed < count {
-            let mut did_remove = false;
-
-            for system in self.active_systems.values_mut() {
-                if system.template().info().priority < priority_cap && system.particle_count() > 0 {
-                    if system.remove_oldest_particle() {
-                        removed += 1;
-                        did_remove = true;
-                        if removed >= count {
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if !did_remove {
-                break;
-            }
-        }
-
-        self.particle_count = self
-            .active_systems
-            .values()
-            .map(|s| s.particle_count())
-            .sum();
-
->>>>>>> Stashed changes
         removed
     }
 
