@@ -143,10 +143,10 @@ impl W3DPropDraw {
         1
     }
 
-    /// Post-load processing
-    pub fn load_post_process(&mut self) {
-        // C++ parity: calls DrawModule::loadPostProcess()
-    }
+    /// Post-load processing.
+    /// C++ parity: `W3DPropDraw::loadPostProcess()` — calls `DrawModule::loadPostProcess()`
+    /// which is a no-op. No additional post-load logic for props.
+    pub fn load_post_process(&mut self) {}
 }
 
 impl Default for W3DPropDraw {

@@ -87,8 +87,19 @@ impl W3DOverlordTankDraw {
     pub fn set_shadows_enabled(&mut self, enable: bool) {
         self.shadow_enabled = enable;
     }
+
+    /// C++ parity: Inherited via `W3DTankDraw -> W3DModelDraw::releaseShadows()` — releases
+    /// shadow via `m_shadow->release()` and sets `m_shadow = NULL`.
+    // PARITY_NOTE: Would call W3DModelDraw::releaseShadows() in C++ (removes shadow from scene).
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn release_shadows(&mut self) {}
+
+    /// C++ parity: Inherited via `W3DTankDraw -> W3DModelDraw::allocateShadows()` — creates
+    /// shadow from ThingTemplate info if no shadow exists, render object exists, and shadow type != SHADOW_NONE.
+    // PARITY_NOTE: Would call W3DModelDraw::allocateShadows() in C++.
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn allocate_shadows(&mut self) {}
+
     pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
         self.fully_obscured_by_shroud = fully_obscured;
     }
@@ -99,6 +110,9 @@ impl W3DOverlordTankDraw {
         _old_angle: f32,
     ) {
     }
+
+    /// C++ parity: Inherited from `W3DModelDraw::reactToGeometryChange() { }` — no override
+    /// in W3DOverlordTankDraw.h. Geometry bounds implicitly updated via render object transforms.
     pub fn react_to_geometry_change(&mut self) {}
 
     pub fn is_visible(&self) -> bool {
@@ -111,7 +125,15 @@ impl W3DOverlordTankDraw {
     pub fn xfer(&self) -> u32 {
         1
     }
-    pub fn load_post_process(&mut self) {}
+    /// C++ parity: `W3DOverlordTankDraw::loadPostProcess()` — calls
+    /// `W3DTankDraw::loadPostProcess()` which calls `W3DModelDraw::loadPostProcess()`
+    /// then `tossEmitters()` + `createEmitters()` (re-creates tread debris particle systems).
+    pub fn load_post_process(&mut self) {
+        // PARITY_NOTE: C++ chain: W3DOverlordTankDraw -> W3DTankDraw::loadPostProcess()
+        //   -> W3DModelDraw::loadPostProcess()
+        //   -> tossEmitters() + createEmitters() (tread debris)
+        // Requires particle system infrastructure to be wired.
+    }
 }
 
 impl Default for W3DOverlordTankDraw {

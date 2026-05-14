@@ -510,7 +510,7 @@ impl W3DView {
     /// Pass order:
     ///   1. Terrain (HeightMapMesh + shroud overlay)
     ///   2. Scene objects (render hooks / mesh draw)
-    ///   3. Particles (stub — particle bridge not yet wired)
+    ///   3. Particles (WthreeDParticleSys billboards)
     ///   4. Segmented lines (additive overlay)
     ///   5. 2D UI overlay (Render2DPipeline flush — on top of everything)
     pub fn render_scene(
@@ -647,21 +647,22 @@ impl W3DView {
             // Pass 3: Particles
             // C++ renders particles through ParticleSystem/ParticleRenderer
             // after opaque objects and before the 2D overlay.
-            // PARITY_NOTE: The particle renderer bridge is not yet wired.
-            // When ParticleRenderer is implemented, call
-            //   particle_renderer.render_particles(&mut render_pass)
-            // here.
+            // The WthreeDParticleSys bridge renders particle billboards
+            // using the active render pass with the camera VP matrix.
+            // PARITY_NOTE: The advanced GameClient ParticleRenderer (instanced,
+            // multi-shader) is a separate pass that must be invoked outside
+            // this render pass due to its own encoder/render_pass creation.
             // ----------------------------------------------------------------
-
             if let Some(particle_system) = particle_system {
                 let vp: [[f32; 4]; 4] = self.view_projection_matrix.into();
                 particle_system.render_with_camera(&mut render_pass, Some(&vp));
             }
 
-            if let Some(ref mut pipeline_2d) = render_2d {
-                pipeline_2d.flush(&mut render_pass);
-            }
-
+            // ----------------------------------------------------------------
+            // Pass 4: Segmented lines (additive overlay)
+            // C++ renders debug lines and projectile streams after world
+            // objects and particles but before the 2D UI overlay.
+            // ----------------------------------------------------------------
             if let Some(renderer) = self.line_renderer.as_mut() {
                 let mut camera_dir = self.camera.look_at - self.camera.position;
                 if camera_dir.magnitude2() > 0.0 {
@@ -678,6 +679,15 @@ impl W3DView {
                     scene,
                     &self.textures,
                 )?;
+            }
+
+            // ----------------------------------------------------------------
+            // Pass 5: 2D UI overlay (Render2DPipeline flush)
+            // C++ draws the GUI/HUD layer on top of everything via
+            // W3DDisplay::draw() → GameClientDisplay draw overlays.
+            // ----------------------------------------------------------------
+            if let Some(ref mut pipeline_2d) = render_2d {
+                pipeline_2d.flush(&mut render_pass);
             }
         }
 

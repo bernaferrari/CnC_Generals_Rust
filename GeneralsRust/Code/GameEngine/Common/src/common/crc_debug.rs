@@ -84,6 +84,10 @@ struct CrcDebugBuffer {
     debug_strings: Vec<String>,
     next_debug_string: usize,
     num_debug_strings: usize,
+    /// Separate circular buffer for dump lines (uncommented from C++ DumpStrings).
+    dump_strings: Vec<String>,
+    next_dump_string: usize,
+    num_dump_strings: usize,
     dumped: bool,
     last_crc_debug_frame: i32,
     last_crc_debug_index: i32,
@@ -96,6 +100,9 @@ impl Default for CrcDebugBuffer {
             debug_strings: vec![String::new(); MAX_STRINGS],
             next_debug_string: 0,
             num_debug_strings: 0,
+            dump_strings: vec![String::new(); MAX_STRINGS],
+            next_dump_string: 0,
+            num_dump_strings: 0,
             dumped: false,
             last_crc_debug_frame: 0,
             last_crc_debug_index: 0,
@@ -279,6 +286,11 @@ impl CrcDebugBuffer {
         }
         self.next_debug_string = 0;
         self.num_debug_strings = 0;
+        for entry in &mut self.dump_strings {
+            entry.clear();
+        }
+        self.next_dump_string = 0;
+        self.num_dump_strings = 0;
         self.dumped = false;
         self.last_crc_debug_frame = 0;
         self.last_crc_debug_index = 0;
@@ -648,10 +660,30 @@ pub fn output_crc_debug_lines() {
     }
 }
 
-/// Output CRC dump lines (placeholder)
+/// Output CRC dump lines — iterates the dump buffer and logs each entry.
+/// Mirrors the commented-out C++ `outputCRCDumpLines()` body.
 #[cfg(feature = "debug_crc")]
 pub fn output_crc_dump_lines() {
-    // This was commented out in the original C++ code
+    let state = crc_state();
+    let buffer = state.buffer().lock();
+
+    let start = if buffer.num_dump_strings >= MAX_STRINGS {
+        buffer.next_dump_string.wrapping_sub(MAX_STRINGS)
+    } else {
+        0
+    };
+    let end = buffer.next_dump_string;
+
+    for i in start..end {
+        let index = (i + MAX_STRINGS) % MAX_STRINGS;
+        let line = &buffer.dump_strings[index];
+        event!(
+            target: "crc_debug",
+            Level::DEBUG,
+            line = line.as_str(),
+            "crc_dump"
+        );
+    }
 }
 
 /// Get filename from full path
@@ -710,10 +742,27 @@ pub fn add_crc_gen_line(message: &str) {
     add_crc_debug_line(message);
 }
 
-/// Add CRC dump line (placeholder)
+/// Add CRC dump line — writes to the separate dump circular buffer.
+/// Mirrors the commented-out C++ `addCRCDumpLine()` body.
 #[cfg(feature = "debug_crc")]
-pub fn add_crc_dump_line(_message: &str) {
-    // This was commented out in the original C++ code
+pub fn add_crc_dump_line(message: &str) {
+    let state = crc_state();
+
+    if !is_frame_ok_to_log() {
+        return;
+    }
+
+    let mut buffer = state.buffer().lock();
+
+    if buffer.dumped {
+        return;
+    }
+
+    let cleaned = message.replace('\r', " ").replace('\n', " ");
+    let index = buffer.next_dump_string;
+    buffer.dump_strings[index] = cleaned;
+    buffer.next_dump_string = (index + 1) % MAX_STRINGS;
+    buffer.num_dump_strings = buffer.num_dump_strings.saturating_add(1);
 }
 
 /// Dump Vector3 for CRC debugging

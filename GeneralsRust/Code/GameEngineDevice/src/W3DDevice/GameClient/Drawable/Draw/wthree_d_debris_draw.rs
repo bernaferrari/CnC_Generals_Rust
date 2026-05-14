@@ -287,6 +287,21 @@ impl W3DDebrisDraw {
         // PARITY_NOTE: m_shadow->enableShadowInvisible(fullyObscured)
     }
 
+    /// C++ parity: `virtual void releaseShadows(void) {};` — inline no-op in W3DDebrisDraw.h.
+    /// Despite having a `m_shadow` field created in `setModelName()`, the DebrisDraw header
+    /// declares releaseShadows as an empty inline. The shadow is cleaned up in the destructor
+    /// via on_delete() instead of through this method.
+    pub fn release_shadows(&mut self) {}
+
+    /// C++ parity: `virtual void allocateShadows(void) {};` — inline no-op in W3DDebrisDraw.h.
+    /// Despite W3DDebrisDraw creating shadows in `setModelName()`, the header declares
+    /// allocateShadows as an empty inline. Shadow creation happens during model setup, not here.
+    pub fn allocate_shadows(&mut self) {}
+
+    /// C++ parity: `virtual void reactToGeometryChange() { }` — inline no-op in W3DDebrisDraw.h.
+    /// Debris geometry is managed by the physics simulation; no draw-side geometry update needed.
+    pub fn react_to_geometry_change(&mut self) {}
+
     pub fn set_hidden(&mut self, hidden: bool) {
         self.hidden = hidden;
     }
@@ -348,6 +363,9 @@ impl W3DDebrisDraw {
     pub fn crc(&self) -> u32 {
         0
     }
+
+    /// C++ parity: `W3DDebrisDraw::loadPostProcess()` — calls `DrawModule::loadPostProcess()`.
+    /// No additional post-load logic for debris.
     pub fn load_post_process(&mut self) {}
 
     fn on_delete(&mut self) {

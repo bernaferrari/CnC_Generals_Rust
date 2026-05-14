@@ -247,8 +247,19 @@ impl W3DTankTruckDraw {
     pub fn set_shadows_enabled(&mut self, enable: bool) {
         self.shadow_enabled = enable;
     }
+
+    /// C++ parity: Inherited from `W3DModelDraw::releaseShadows()` — releases shadow
+    /// via `m_shadow->release()` and sets `m_shadow = NULL`.
+    // PARITY_NOTE: Would call W3DModelDraw::releaseShadows() in C++ (removes shadow from scene).
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn release_shadows(&mut self) {}
+
+    /// C++ parity: Inherited from `W3DModelDraw::allocateShadows()` — creates shadow from
+    /// ThingTemplate info if no shadow exists, render object exists, and shadow type != SHADOW_NONE.
+    // PARITY_NOTE: Would call W3DModelDraw::allocateShadows() in C++.
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn allocate_shadows(&mut self) {}
+
     pub fn react_to_transform_change(
         &mut self,
         _old_mtx: &Matrix4<f32>,
@@ -256,7 +267,11 @@ impl W3DTankTruckDraw {
         _old_angle: f32,
     ) {
     }
+
+    /// C++ parity: `virtual void reactToGeometryChange() { }` — explicit empty override
+    /// in W3DTankTruckDraw.h. Tank-truck geometry bounds are implicitly updated via render object transforms.
     pub fn react_to_geometry_change(&mut self) {}
+
     pub fn is_visible(&self) -> bool {
         !self.hidden && !self.fully_obscured_by_shroud
     }
@@ -266,7 +281,16 @@ impl W3DTankTruckDraw {
     pub fn xfer(&self) -> u32 {
         1
     }
-    pub fn load_post_process(&mut self) {}
+    /// C++ parity: `W3DTankTruckDraw::loadPostProcess()` (W3DTankTruckDraw.cpp line 754):
+    ///   1. Calls `W3DModelDraw::loadPostProcess()`
+    ///   2. `tossEmitters()` — releases dust/dirt/powerslide particle systems (no re-create;
+    ///      emitters are created on-demand in doDrawModule via enableEmitters)
+    pub fn load_post_process(&mut self) {
+        // PARITY_NOTE: C++ calls tossEmitters() only (unlike TankDraw which also calls createEmitters()).
+        // tossEmitters: releases m_dustEffect, m_dirtEffect, m_powerslideEffect particle systems.
+        // Emitters are re-created lazily when enableEmitters(true) is called during doDrawModule.
+        // Requires particle system infrastructure to be wired.
+    }
 
     fn get_rotation_speed_multiplier(&self) -> f32 {
         0.0

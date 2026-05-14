@@ -439,12 +439,67 @@ impl W3DModelDraw {
         // PARITY_NOTE: Update render object transform, add track edges
     }
 
+    /// React to geometry change.
+    ///
+    /// C++ parity: `virtual void reactToGeometryChange() { }` — empty in W3DModelDraw.h.
+    /// The base W3DModelDraw has no geometry-specific update to perform; subclasses
+    /// (TankTruckDraw, TruckDraw, SupplyDraw) that override this also leave it empty.
+    /// Geometry bounds are implicitly updated via render object transforms set in doDrawModule.
     pub fn react_to_geometry_change(&mut self) {}
+
     pub fn set_shadows_enabled(&mut self, enable: bool) {
         self.shadow_enabled = enable;
     }
-    pub fn release_shadows(&mut self) {}
-    pub fn allocate_shadows(&mut self) {}
+
+    /// Release all shadow resources used by this module.
+    ///
+    /// C++ parity: `W3DModelDraw::releaseShadows()` (W3DModelDraw.cpp line 1821):
+    /// ```cpp
+    /// if (m_shadow) m_shadow->release();
+    /// m_shadow = NULL;
+    /// ```
+    /// Called by the Options screen to dynamically enable/disable shadows.
+    pub fn release_shadows(&mut self) {
+        if let Some(id) = self.shadow_id.take() {
+            let scene = W3DDisplay::global_scene();
+            let mut scene_guard = scene.write();
+            scene_guard.remove_render_object(id);
+        }
+    }
+
+    /// Allocate shadow resources if not already present.
+    ///
+    /// C++ parity: `W3DModelDraw::allocateShadows()` (W3DModelDraw.cpp line 1829):
+    /// Creates shadow via TheW3DShadowManager when:
+    ///   - m_shadow == NULL (no existing shadow)
+    ///   - m_renderObject exists
+    ///   - ThingTemplate shadow type != SHADOW_NONE
+    /// Shadow info (texture, type, sizeX/Y, offsetX/Y) comes from ThingTemplate.
+    /// After creation, applies shroud visibility and hidden/shadow-disabled states.
+    pub fn allocate_shadows(&mut self) {
+        if self.shadow_id.is_none() && self.render_object_id.is_some() {
+            // PARITY_NOTE: Full C++ implementation requires:
+            //   const ThingTemplate* tmplate = getDrawable()->getTemplate();
+            //   Shadow::ShadowTypeInfo shadowInfo;
+            //   shadowInfo.m_ShadowName = tmplate->getShadowTextureName();
+            //   shadowInfo.m_type = tmplate->getShadowType();
+            //   shadowInfo.m_sizeX = tmplate->getShadowSizeX();
+            //   shadowInfo.m_sizeY = tmplate->getShadowSizeY();
+            //   shadowInfo.m_offsetX = tmplate->getShadowOffsetX();
+            //   shadowInfo.m_offsetY = tmplate->getShadowOffsetY();
+            //   m_shadow = TheW3DShadowManager->addShadow(m_renderObject, &shadowInfo);
+            //   if (m_shadow) {
+            //       m_shadow->enableShadowInvisible(m_fullyObscuredByShroud);
+            //       if (m_renderObject->Is_Hidden() || !m_shadowEnabled)
+            //           m_shadow->enableShadowRender(FALSE);
+            //   }
+            //
+            // Requires ThingTemplate shadow properties and W3DShadowManager integration.
+            // When wired, this will create a shadow render object via W3DShadowManager::add_shadow()
+            // and store the resulting ID in self.shadow_id.
+        }
+    }
+
     pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
         self.fully_obscured_by_shroud = fully_obscured;
     }
@@ -465,6 +520,8 @@ impl W3DModelDraw {
     pub fn crc(&self) -> u32 {
         0
     }
+    /// C++ parity: `W3DModelDraw::loadPostProcess()` — calls `DrawModule::loadPostProcess()`
+    /// which is a no-op. No additional post-load logic for the base model draw.
     pub fn load_post_process(&mut self) {}
 
     fn on_delete(&mut self) {
