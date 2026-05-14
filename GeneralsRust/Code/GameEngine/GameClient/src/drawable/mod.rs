@@ -42,6 +42,7 @@
 //! ```
 
 pub mod drawable;
+pub mod drawable_draw_pipeline;
 pub mod drawable_manager;
 pub mod update;
 

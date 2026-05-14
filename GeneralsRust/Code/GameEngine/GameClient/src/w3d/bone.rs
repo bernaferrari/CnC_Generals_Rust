@@ -1,154 +1,191 @@
-use cgmath::{Matrix4, Vector3};
+//! W3D Bone Hierarchy — delegates to ww3d-animation's HTreeClass.
+//!
+//! This module provides the GameClient-facing skeleton type used by the
+//! rendering pipeline. It wraps `HTreeClass` from the `ww3d-animation`
+//! crate and converts bone transforms to the `cgmath` matrices expected
+//! by the rest of the GameClient W3D layer.
+//!
+//! C++ Reference: HTreeClass in htree.h / htree.cpp
 
-/// A single bone node in the skeletal hierarchy used by the W3D bone pipeline.
-/// This mirrors the C++ PivotClass/PivotAnim structure used by the parity layer.
+use cgmath::Matrix4;
+use glam::{Mat4, Quat, Vec3};
+use ww3d_animation::HTreeClass;
+
+/// Maximum bones supported by the GPU shader (BoneUniform array size).
+pub const MAX_GPU_BONES: usize = 64;
+
+/// Bone hierarchy populated from W3D pivot data, delegating to `HTreeClass`.
+///
+/// This replaces the previous hardcoded 8-bone skeleton with a proper
+/// hierarchy that can be populated from loaded W3D files.
 #[derive(Debug, Clone)]
-pub struct BoneNode {
-    pub name: String,
-    pub parent_index: Option<usize>,
-    pub base_transform: Matrix4<f32>,
-    pub transform: Matrix4<f32>,
-    pub cap_transform: Matrix4<f32>,
-    pub is_captured: bool,
-    pub world_space_translation: bool,
+pub struct W3DHTree {
+    inner: HTreeClass,
 }
 
-/// Hierarchy container for bones with simple capture/control plumbing.
-#[derive(Debug, Clone)]
-pub struct HTree {
-    pub bones: Vec<BoneNode>,
-    pub scale_factor: f32,
-}
-
-impl HTree {
+impl W3DHTree {
+    /// Create an empty hierarchy (no bones).
     pub fn new() -> Self {
-        // Initialize a small, default bone tree sufficient for parity wiring.
-        // We expose a fixed 8-bone skeleton to cover turret and recoil bones used by parity layer.
-        let mut bones: Vec<BoneNode> = Vec::new();
-        for i in 0..8 {
-            bones.push(BoneNode {
-                name: format!("bone{}", i),
-                parent_index: None,
-                base_transform: Matrix4::from_scale(1.0),
-                transform: Matrix4::from_scale(1.0),
-                cap_transform: Matrix4::from_translation(Vector3::new(0.0, 0.0, 0.0)),
-                is_captured: false,
-                world_space_translation: false,
-            });
-        }
-        HTree {
-            bones,
-            scale_factor: 1.0,
+        Self {
+            inner: HTreeClass::new(),
         }
     }
 
-    pub fn capture_bone(&mut self, index: usize) {
-        if let Some(b) = self.bones.get_mut(index) {
-            b.is_captured = true;
-        }
+    /// Create a hierarchy with just a root transform.
+    pub fn with_root() -> Self {
+        let mut inner = HTreeClass::new();
+        inner.init_default();
+        Self { inner }
     }
 
-    pub fn release_bone(&mut self, index: usize) {
-        if let Some(b) = self.bones.get_mut(index) {
-            b.is_captured = false;
-        }
+    /// Build a hierarchy from an existing `HTreeClass` (e.g. loaded from W3D).
+    pub fn from_htree_class(htree: HTreeClass) -> Self {
+        Self { inner: htree }
     }
 
-    pub fn control_bone(
-        &mut self,
-        index: usize,
-        relative_tm: Matrix4<f32>,
-        world_space_translation: bool,
-    ) {
-        if let Some(b) = self.bones.get_mut(index) {
-            b.cap_transform = relative_tm;
-            b.world_space_translation = world_space_translation;
-        }
+    /// Access the underlying `HTreeClass` for animation evaluation.
+    pub fn inner(&self) -> &HTreeClass {
+        &self.inner
     }
 
-    pub fn is_bone_captured(&self, index: usize) -> bool {
-        self.bones
-            .get(index)
-            .map(|b| b.is_captured)
-            .unwrap_or(false)
+    /// Access the underlying `HTreeClass` mutably for animation updates.
+    pub fn inner_mut(&mut self) -> &mut HTreeClass {
+        &mut self.inner
     }
 
-    /// Basic base update: recompute transforms relative to parents.
-    fn base_update(&mut self) {
-        for i in 1..self.bones.len() {
-            if let Some(parent) = self.bones[i].parent_index {
-                let parent_transform = self.bones[parent].transform;
-                let base = self.bones[i].base_transform;
-                self.bones[i].transform = parent_transform * base;
-            } else {
-                self.bones[i].transform = self.bones[i].base_transform;
-            }
-        }
+    /// Add a bone from translation + rotation.
+    pub fn add_bone(&mut self, name: &str, parent_idx: i32, translation: Vec3, rotation: Quat) {
+        self.inner.add_pivot(name, parent_idx, translation, rotation);
     }
 
-    /// Capture_Update placeholder: apply CapTransform to the current transform.
-    fn capture_update(&mut self, index: usize) {
-        if let Some(b) = self.bones.get_mut(index) {
-            // In the real parity path we'd handle WorldSpaceTranslation specially.
-            // For now, simply post-multiply by CapTransform to carry overrides forward.
-            b.transform = b.transform * b.cap_transform;
-        }
+    /// Add a bone providing the base transform directly.
+    pub fn add_bone_from_base(&mut self, name: &str, parent_idx: i32, base_transform: Mat4) {
+        self.inner.add_pivot_from_base(name, parent_idx, base_transform);
     }
 
-    /// Convenience lookup by bone name (case-insensitive).
+    /// Get number of bones in the hierarchy.
+    pub fn bone_count(&self) -> usize {
+        self.inner.num_pivots()
+    }
+
+    /// Look up a bone index by name (case-insensitive).
     pub fn get_bone_index(&self, name: &str) -> Option<usize> {
-        self.bones
-            .iter()
-            .position(|b| b.name.eq_ignore_ascii_case(name))
+        self.inner.find_pivot_index(name)
     }
 
-    /// Retrieve final bone transform for uploading to the GPU.
+    /// Get the bone name at the given index.
+    pub fn get_bone_name(&self, index: usize) -> Option<&str> {
+        self.inner.get_bone_name(index)
+    }
+
+    /// Compute the base pose transforms (no animation).
+    /// C++ Reference: HTreeClass::Base_Update
+    pub fn base_update(&mut self) {
+        self.inner.base_update(Mat4::IDENTITY);
+    }
+
+    /// Capture a bone for external control (turret, recoil, etc.).
+    pub fn capture_bone(&mut self, index: usize) {
+        self.inner.capture_bone(index);
+    }
+
+    /// Release a captured bone.
+    pub fn release_bone(&mut self, index: usize) {
+        self.inner.release_bone(index);
+    }
+
+    /// Control a captured bone with a custom transform.
+    pub fn control_bone(&mut self, index: usize, relative_tm: Mat4) {
+        self.inner.control_bone(index, relative_tm);
+    }
+
+    /// Check whether a bone is captured.
+    pub fn is_bone_captured(&self, index: usize) -> bool {
+        self.inner.is_bone_captured(index)
+    }
+
+    /// Retrieve the final bone transform as a `glam::Mat4`.
+    pub fn get_bone_transform_glam(&self, index: usize) -> Mat4 {
+        self.inner.get_transform(index).unwrap_or(Mat4::IDENTITY)
+    }
+
+    /// Retrieve the final bone transform as a `cgmath::Matrix4<f32>`.
+    /// For compatibility with the rest of the GameClient W3D layer.
     pub fn get_bone_transform(&self, index: usize) -> Matrix4<f32> {
-        self.bones
-            .get(index)
-            .map(|b| b.transform)
-            .unwrap_or_else(|| Matrix4::from_scale(1.0))
+        glam_to_cgmath(self.get_bone_transform_glam(index))
     }
 
-    /// Convert all bone transforms to a flat f32 array suitable for WGPU uniform buffer upload.
-    /// Each bone produces 16 f32 values (4x4 column-major matrix).
+    /// Convert all bone transforms to a flat `f32` array suitable for
+    /// WGPU uniform buffer upload. Each bone produces 16 f32 values
+    /// (4x4 column-major matrix). Pads to `MAX_GPU_BONES`.
     pub fn to_uniform_data(&self) -> Vec<f32> {
-        let mut data = Vec::with_capacity(self.bones.len() * 16);
-        for bone in &self.bones {
-            let m: &[[f32; 4]; 4] = bone.transform.as_ref();
-            for col in m {
-                for &val in col {
-                    data.push(val);
-                }
-            }
+        let num_bones = self.inner.num_pivots();
+        let mut data = Vec::with_capacity(MAX_GPU_BONES * 16);
+
+        for i in 0..num_bones.min(MAX_GPU_BONES) {
+            let m = self.inner.get_transform(i).unwrap_or(Mat4::IDENTITY);
+            data.extend_from_slice(&m.to_cols_array());
         }
+
+        // Pad remaining slots with identity matrices
+        let identity_cols = Mat4::IDENTITY.to_cols_array();
+        while data.len() < MAX_GPU_BONES * 16 {
+            data.extend_from_slice(&identity_cols);
+        }
+
         data
     }
 
-    /// Perform a full update: base pose + capture overrides.
-    /// C++ Reference: HTreeClass::Base_Update (htree.cpp) + Capture_Update per captured bone.
-    pub fn full_update(&mut self) {
-        self.base_update();
-        for i in 0..self.bones.len() {
-            if self.bones[i].is_captured {
-                self.capture_update(i);
-            }
+    /// Build skinning matrices (bone_transform * inverse_bind_pose)
+    /// using the provided inverse bind matrices.
+    /// Returns flat f32 array padded to MAX_GPU_BONES.
+    pub fn to_skinning_uniform(&self, inverse_bind_matrices: &[Mat4]) -> Vec<f32> {
+        let num_bones = self.inner.num_pivots().min(MAX_GPU_BONES);
+        let mut data = Vec::with_capacity(MAX_GPU_BONES * 16);
+
+        for i in 0..num_bones {
+            let bone_tm = self.inner.get_transform(i).unwrap_or(Mat4::IDENTITY);
+            let inv_bind = inverse_bind_matrices.get(i).copied().unwrap_or(Mat4::IDENTITY);
+            let skinning = bone_tm * inv_bind;
+            data.extend_from_slice(&skinning.to_cols_array());
         }
+
+        let identity_cols = Mat4::IDENTITY.to_cols_array();
+        while data.len() < MAX_GPU_BONES * 16 {
+            data.extend_from_slice(&identity_cols);
+        }
+
+        data
     }
 
     /// Expand the bone array to hold at least `count` bones.
-    /// New bones are initialized with identity transforms.
     pub fn ensure_bone_count(&mut self, count: usize) {
-        while self.bones.len() < count {
-            self.bones.push(BoneNode {
-                name: format!("bone{}", self.bones.len()),
-                parent_index: None,
-                base_transform: Matrix4::from_scale(1.0),
-                transform: Matrix4::from_scale(1.0),
-                cap_transform: Matrix4::from_scale(1.0),
-                is_captured: false,
-                world_space_translation: false,
-            });
+        while self.inner.num_pivots() < count {
+            let idx = self.inner.num_pivots();
+            self.inner.add_pivot_from_base(
+                &format!("bone{idx}"),
+                if idx == 0 { -1 } else { 0 },
+                Mat4::IDENTITY,
+            );
         }
     }
+}
+
+impl Default for W3DHTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Convert a `glam::Mat4` to a `cgmath::Matrix4<f32>`.
+fn glam_to_cgmath(m: Mat4) -> Matrix4<f32> {
+    let cols = m.to_cols_array();
+    // cgmath Matrix4 uses column-major storage in `x`, `y`, `z`, `w` fields
+    // where each field is a Vector4 (column).
+    Matrix4::new(
+        cols[0], cols[1], cols[2], cols[3],   // col 0
+        cols[4], cols[5], cols[6], cols[7],   // col 1
+        cols[8], cols[9], cols[10], cols[11], // col 2
+        cols[12], cols[13], cols[14], cols[15], // col 3
+    )
 }

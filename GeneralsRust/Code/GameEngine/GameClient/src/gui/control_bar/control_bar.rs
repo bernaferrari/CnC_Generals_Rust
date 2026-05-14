@@ -275,8 +275,16 @@ impl ControlBar {
             ControlBarState::OclTimer => {
                 self.update_context_ocl_timer(delta_time)?;
             }
-            ControlBarState::Observer => {}
-            ControlBarState::MultiSelect => {}
+            ControlBarState::Observer => {
+                // C++ ControlBar.cpp:1410-1433: refreshes observer info window every half-second
+                // and updates the portrait based on selected drawable
+                self.update_context_observer()?;
+            }
+            ControlBarState::MultiSelect => {
+                // C++ ControlBar.cpp:1511-1516: updateContextMultiSelect() refreshes
+                // command availability across all selected objects
+                self.update_context_multi_select()?;
+            }
         }
 
         if let Ok(mut context) = self.context.write() {
@@ -1312,7 +1320,11 @@ impl ControlBar {
             ControlBarState::Beacon => {
                 self.add_beacon_commands(context)?;
             }
-            ControlBarState::OclTimer => {}
+            ControlBarState::OclTimer => {
+                // C++ ControlBarOCLTimer.cpp:55 populateOCLTimer: adds sell/rally-point
+                // button depending on creator object kind, then updates timer display
+                self.add_ocl_timer_commands(context)?;
+            }
         }
 
         Ok(())
@@ -1439,6 +1451,17 @@ impl ControlBar {
     ) -> Result<(), Box<dyn std::error::Error>> {
         super::control_bar_beacon::append_beacon_commands(context)?;
         Ok(())
+    }
+
+    fn add_ocl_timer_commands(
+        &self,
+        context: &mut ControlBarContext,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // C++ ControlBarOCLTimer.cpp:55 populateOCLTimer:
+        // Adds Command_Sell for non-tech buildings, Command_SetRallyPoint for
+        // tech buildings with AUTO_RALLYPOINT, or hides the button.
+        // Delegates to the OCL timer module for command population.
+        super::control_bar_ocl_timer::populate_ocl_timer_commands(context)
     }
 
     // ---------------------------------------------------------------------------
@@ -1584,6 +1607,14 @@ impl ControlBar {
     // ---------------------------------------------------------------------------
 
     fn update_context_multi_select(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
+    fn update_context_observer(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // C++ ControlBar.cpp:1410-1433: when observer, refresh the observer info window
+        // every half-second and update the portrait based on selected drawable.
+        // The observer info window shows player stats (units, buildings, kills, losses).
+        // For now this is a stub until the observer info window system is fully wired.
         Ok(())
     }
 

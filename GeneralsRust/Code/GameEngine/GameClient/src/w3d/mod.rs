@@ -97,6 +97,7 @@ use thiserror::Error;
 
 // Core W3D system modules
 pub mod animation;
+pub mod bone;
 pub mod device;
 pub mod format;
 pub mod lighting;
@@ -112,7 +113,8 @@ pub mod shader;
 pub mod texture;
 
 // Re-export core types for convenience
-pub use animation::{W3DAnimation, W3DAnimationController, W3DHierarchy};
+pub use animation::{W3DAnimationController, W3DAnimatedModel, W3DSkeletonState};
+pub use bone::W3DHTree;
 pub use device::{W3DDevice, W3DDeviceError, W3DDeviceSettings};
 pub use format::{W3DChunk, W3DFileFormat, W3DLoader};
 pub use material::{W3DMaterial, W3DMaterialManager, W3DMaterialType};

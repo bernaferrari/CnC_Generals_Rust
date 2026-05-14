@@ -1308,6 +1308,22 @@ impl W3DRenderer {
         Ok(())
     }
 
+    pub fn update_bone_matrices(&mut self, skinning_matrices_flat: &[f32]) {
+        if skinning_matrices_flat.is_empty() {
+            return;
+        }
+        let max_bytes = self.bone_buffer.size() as usize;
+        let write_bytes = (skinning_matrices_flat.len() * std::mem::size_of::<f32>()).min(max_bytes);
+        let write_f32s = write_bytes / std::mem::size_of::<f32>();
+        if write_f32s > 0 {
+            self.queue.write_buffer(
+                &self.bone_buffer,
+                0,
+                bytemuck::cast_slice(&skinning_matrices_flat[..write_f32s]),
+            );
+        }
+    }
+
     /// End frame
     pub fn end_frame(&mut self, _frame_data: &mut W3DFrameData) -> W3DResult<()> {
         self.current_pass = None;
