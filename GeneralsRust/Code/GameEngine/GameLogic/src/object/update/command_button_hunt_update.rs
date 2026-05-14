@@ -77,7 +77,14 @@ impl Snapshotable for CommandButtonHuntUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.scan_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.scan_range)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

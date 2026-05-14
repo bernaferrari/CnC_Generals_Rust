@@ -308,7 +308,34 @@ impl Snapshotable for DieModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("DieModuleData xfer version: {e:?}"))?;
+
+        let mut death_types = self.die_mux_data.death_types;
+        xfer.xfer_unsigned_int(&mut death_types)
+            .map_err(|e| format!("DieModuleData death_types: {e:?}"))?;
+        self.die_mux_data.death_types = death_types;
+
+        let mut veterancy_levels = self.die_mux_data.veterancy_levels;
+        xfer.xfer_unsigned_int(&mut veterancy_levels)
+            .map_err(|e| format!("DieModuleData veterancy_levels: {e:?}"))?;
+        self.die_mux_data.veterancy_levels = veterancy_levels;
+
+        let mut exempt_status = self.die_mux_data.exempt_status.bits();
+        xfer.xfer_unsigned_int(&mut exempt_status)
+            .map_err(|e| format!("DieModuleData exempt_status: {e:?}"))?;
+        self.die_mux_data.exempt_status = ObjectStatusMask::from_bits_truncate(exempt_status);
+
+        let mut required_status = self.die_mux_data.required_status.bits();
+        xfer.xfer_unsigned_int(&mut required_status)
+            .map_err(|e| format!("DieModuleData required_status: {e:?}"))?;
+        self.die_mux_data.required_status = ObjectStatusMask::from_bits_truncate(required_status);
+
+        xfer.xfer_unsigned_int(&mut self.module_tag_name_key)
+            .map_err(|e| format!("DieModuleData module_tag_name_key: {e:?}"))?;
+
         Ok(())
     }
 

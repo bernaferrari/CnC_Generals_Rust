@@ -60,7 +60,30 @@ impl Snapshotable for SquishCollideModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("SquishCollideModuleData xfer version: {e:?}"))?;
+
+        xfer.xfer_unsigned_int(&mut self.module_tag_name_key)
+            .map_err(|e| format!("SquishCollideModuleData module_tag_name_key: {e:?}"))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl Snapshotable for SquishCollide {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1);
         Ok(())
     }
 

@@ -438,8 +438,16 @@ impl AIState for AIMoveToState {
         }
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        // Stop movement sounds, cleanup
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
+                    }
+                }
+            }
+        }
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -666,7 +674,17 @@ impl AIState for AIMoveAndDeleteState {
         StateReturnType::Continue
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
+                    }
+                }
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::MoveAndDelete
@@ -729,7 +747,18 @@ impl AIState for AIFollowPathState {
         StateReturnType::Continue
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.set_can_path_through_units(false);
+                        ai_guard.destroy_path();
+                    }
+                }
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::FollowPath
@@ -842,7 +871,13 @@ impl AIState for AIDeadState {
         }
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(mut owner) = owner_arc.write() {
+                owner.clear_model_condition_state(ModelConditionFlags::DYING);
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::Dead
@@ -1144,7 +1179,24 @@ impl AIState for AIExitState {
         }
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Some(container_arc) = owner_arc.read().ok().and_then(|g| g.get_contained_by()) {
+                if let Ok(container_guard) = container_arc.read() {
+                    if let Some(contain) = container_guard.get_contain() {
+                        if let Ok(mut contain_guard) = contain.lock() {
+                            if let Ok(owner_guard) = owner_arc.read() {
+                                let _ = contain_guard.on_object_wants_to_enter_or_exit(
+                                    &*owner_guard,
+                                    ContainWant::WantsNeither,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::Exit
@@ -1216,7 +1268,17 @@ impl AIState for AIPickUpCrateState {
         }
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
+                    }
+                }
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::PickUpCrate
@@ -1468,7 +1530,20 @@ impl AIState for AIRappelIntoState {
         StateReturnType::Success
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(mut owner) = owner_arc.write() {
+                owner.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+            }
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.set_desired_speed(f32::MAX);
+                    }
+                }
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::RappelInto
@@ -1626,7 +1701,24 @@ impl AIState for AIExitInstantlyState {
         StateReturnType::Success
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Some(container_arc) = owner_arc.read().ok().and_then(|g| g.get_contained_by()) {
+                if let Ok(container_guard) = container_arc.read() {
+                    if let Some(contain) = container_guard.get_contain() {
+                        if let Ok(mut contain_guard) = contain.lock() {
+                            if let Ok(owner_guard) = owner_arc.read() {
+                                let _ = contain_guard.on_object_wants_to_enter_or_exit(
+                                    &*owner_guard,
+                                    ContainWant::WantsNeither,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::ExitInstantly
@@ -2312,8 +2404,16 @@ impl AIState for AIFollowWaypointPathState {
         StateReturnType::Continue
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        // Cleanup waypoint following
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
+                    }
+                }
+            }
+        }
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -2450,7 +2550,17 @@ impl AIState for AIWanderState {
         StateReturnType::Continue
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
+                    }
+                }
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::Wander
@@ -2560,7 +2670,18 @@ impl AIState for AIWanderInPlaceState {
         StateReturnType::Continue
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
+                        ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
+                    }
+                }
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::WanderInPlace
@@ -3071,9 +3192,16 @@ impl AIState for AIMoveAndTightenState {
         }
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        // Cleanup when leaving tighten state
-        // Matches C++ cleanup behavior
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
+                    }
+                }
+            }
+        }
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -3214,8 +3342,20 @@ impl AIState for AIMoveAwayFromRepulsorsState {
         }
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
-        // C++ clears panicking model condition here; locomotor reset is handled elsewhere.
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(mut owner) = owner_arc.write() {
+                owner.clear_model_condition_state(ModelConditionFlags::PANICKING);
+            }
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
+                        ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
+                    }
+                }
+            }
+        }
     }
 
     fn get_state_type(&self) -> AIStateType {

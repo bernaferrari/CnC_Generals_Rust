@@ -31,6 +31,8 @@ use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_engine::common::rts::science::get_science_store;
 use game_engine::common::rts::{Money, ScienceAccess, ScienceType, SCIENCE_INVALID};
+use game_engine::common::system::snapshot::Snapshotable;
+use game_engine::common::system::xfer::{Xfer, XferMode, XferVersion};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
@@ -3410,6 +3412,682 @@ impl Player {
                 }
             }
         }
+    }
+}
+
+/// Save/load support for Player.
+/// Matches C++ Player::xfer (Player.cpp:3975, version 8).
+impl Snapshotable for Player {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 8;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        // Money
+        let mut money_amount = self.money.amount;
+        xfer.xfer_u32(&mut (money_amount as u32))
+            .map_err(|e| e.to_string())?;
+
+        // Upgrade count
+        let mut upgrade_count = self.upgrade_list.len() as u16;
+        xfer.xfer_unsigned_short(&mut upgrade_count)
+            .map_err(|e| e.to_string())?;
+
+        // Radar info
+        xfer.xfer_int(&mut self.radar_count)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_player_dead)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.disable_proof_radar_count)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.radar_disabled)
+            .map_err(|e| e.to_string())?;
+
+        // Energy (inline, matching C++ Energy::xfer v3)
+        let mut energy_version: XferVersion = 3;
+        xfer.xfer_version(&mut energy_version, 3)
+            .map_err(|e| e.to_string())?;
+        let mut owning_player_index = self.player_index;
+        xfer.xfer_int(&mut owning_player_index)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_u32(&mut self.energy.power_sabotaged_till_frame)
+            .map_err(|e| e.to_string())?;
+
+        // Sciences
+        xfer.xfer_science_vec(&mut self.sciences)
+            .map_err(|e| e.to_string())?;
+
+        // Rank/skill
+        xfer.xfer_int(&mut self.rank_level).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.skill_points)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.science_purchase_points)
+            .map_err(|e| e.to_string())?;
+        let mut level_up: Int = 0;
+        xfer.xfer_int(&mut level_up).map_err(|e| e.to_string())?;
+        let mut level_down: Int = 0;
+        xfer.xfer_int(&mut level_down).map_err(|e| e.to_string())?;
+        let mut general_name = self.general_name.clone();
+        xfer.xfer_ascii_string(&mut general_name)
+            .map_err(|e| e.to_string())?;
+
+        // Relations
+        xfer.xfer_bool(&mut self.can_build_units)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.can_build_base)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_observer)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.skill_points_modifier)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.list_in_score_screen)
+            .map_err(|e| e.to_string())?;
+
+        // Attacked by
+        for i in 0..MAX_PLAYER_COUNT {
+            let mut val = self.attacked_by[i];
+            xfer.xfer_bool(&mut val).map_err(|e| e.to_string())?;
+        }
+
+        xfer.xfer_real(&mut self.cash_bounty_percent)
+            .map_err(|e| e.to_string())?;
+
+        // Battle plan counts
+        xfer.xfer_int(&mut self.bombard_battle_plans)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.hold_the_line_battle_plans)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.search_and_destroy_battle_plans)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.units_should_hunt)
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ Player::xfer version 8
+        let current_version: XferVersion = 8;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        // Money (inline, matching C++ Money::xfer v1: just the amount)
+        {
+            let mut money_version: XferVersion = 1;
+            xfer.xfer_version(&mut money_version, 1)
+                .map_err(|e| e.to_string())?;
+            let mut money_amount = self.money.amount as u32;
+            xfer.xfer_u32(&mut money_amount).map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.money.amount = money_amount as Int;
+            }
+        }
+
+        // Upgrade list count
+        let mut upgrade_count = self.upgrade_list.len() as u16;
+        xfer.xfer_unsigned_short(&mut upgrade_count)
+            .map_err(|e| e.to_string())?;
+
+        // Version 7: preorder
+        if version >= 7 {
+            xfer.xfer_bool(&mut self.is_preorder)
+                .map_err(|e| e.to_string())?;
+        }
+
+        // Version 8: disabled/hidden science vectors
+        if version >= 8 {
+            xfer.xfer_science_vec(&mut self.sciences_disabled)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_science_vec(&mut self.sciences_hidden)
+                .map_err(|e| e.to_string())?;
+        }
+
+        // Upgrade instances
+        if xfer.get_xfer_mode() == XferMode::Save {
+            for upgrade in &mut self.upgrade_list {
+                let mut upgrade_name = upgrade.get_template().get_name().to_string();
+                xfer.xfer_ascii_string(&mut upgrade_name)
+                    .map_err(|e| e.to_string())?;
+                upgrade.xfer(xfer)?;
+            }
+        } else {
+            self.upgrade_list.clear();
+            for _ in 0..upgrade_count {
+                let mut upgrade_name = String::new();
+                xfer.xfer_ascii_string(&mut upgrade_name)
+                    .map_err(|e| e.to_string())?;
+
+                let template = crate::upgrade::center::get_upgrade_center()
+                    .read()
+                    .ok()
+                    .and_then(|center| center.find_upgrade(&upgrade_name));
+                if template.is_none() {
+                    log::warn!(
+                        "Player::xfer - Unable to find upgrade '{}'",
+                        upgrade_name
+                    );
+                    // Skip the upgrade data by reading a dummy
+                    let mut dummy_upgrade = crate::upgrade::Upgrade::new(Arc::new(
+                        crate::upgrade::UpgradeTemplate::new(
+                            crate::common::AsciiString::from("__dummy__"),
+                        ),
+                    ));
+                    dummy_upgrade.xfer(xfer)?;
+                    continue;
+                }
+
+                let template_arc = template.unwrap();
+                let mut upgrade = crate::upgrade::Upgrade::new(template_arc);
+                upgrade.xfer(xfer)?;
+                self.upgrade_list.push(upgrade);
+            }
+        }
+
+        // Radar info
+        xfer.xfer_int(&mut self.radar_count)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_player_dead)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.disable_proof_radar_count)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.radar_disabled)
+            .map_err(|e| e.to_string())?;
+
+        // Upgrade masks
+        {
+            let mut in_progress = self.upgrades_in_progress.to_bits();
+            xfer.xfer_u128(&mut in_progress).map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.upgrades_in_progress = UpgradeMaskType::from_bits_truncate(in_progress);
+            }
+        }
+        {
+            let mut completed = self.upgrades_completed.to_bits();
+            xfer.xfer_u128(&mut completed).map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.upgrades_completed = UpgradeMaskType::from_bits_truncate(completed);
+            }
+        }
+
+        // Energy (inline, matching C++ Energy::xfer v3)
+        {
+            let mut energy_version: XferVersion = 3;
+            xfer.xfer_version(&mut energy_version, 3)
+                .map_err(|e| e.to_string())?;
+            if energy_version < 2 {
+                let mut production: Int = self.energy.production;
+                xfer.xfer_int(&mut production).map_err(|e| e.to_string())?;
+                let mut consumption: Int = self.energy.consumption;
+                xfer.xfer_int(&mut consumption).map_err(|e| e.to_string())?;
+                if xfer.get_xfer_mode() == XferMode::Load {
+                    self.energy.production = 0; // rebuilt from objects
+                    self.energy.consumption = 0; // rebuilt from objects
+                }
+            }
+            let mut owning_player_index = self.player_index;
+            xfer.xfer_int(&mut owning_player_index)
+                .map_err(|e| e.to_string())?;
+            if energy_version >= 3 {
+                xfer.xfer_u32(&mut self.energy.power_sabotaged_till_frame)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
+        // Team prototypes (count + IDs, resolved on load via TeamFactory)
+        {
+            let mut prototype_count = self.player_team_prototypes.len() as u16;
+            xfer.xfer_unsigned_short(&mut prototype_count)
+                .map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Save {
+                for prototype in &self.player_team_prototypes {
+                    let mut proto_id = prototype.get_id();
+                    xfer.xfer_u32(&mut proto_id).map_err(|e| e.to_string())?;
+                }
+            } else {
+                self.player_team_prototypes.clear();
+                let factory = crate::team::get_team_factory();
+                let Ok(factory_guard) = factory.lock() else {
+                    return Err("Player::xfer - cannot lock TeamFactory".to_string());
+                };
+                for _ in 0..prototype_count {
+                    let mut proto_id: UnsignedInt = 0;
+                    xfer.xfer_u32(&mut proto_id).map_err(|e| e.to_string())?;
+                    if let Some(prototype) = factory_guard.find_team_prototype_by_id(proto_id) {
+                        self.player_team_prototypes.push(prototype);
+                    }
+                }
+            }
+        }
+
+        // Build list info (present bool + optional snapshot)
+        {
+            let has_build_list = self.build_list.is_some();
+            let mut has_bl = has_build_list;
+            xfer.xfer_bool(&mut has_bl).map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.build_list = None; // build list reconstruction deferred
+            }
+        }
+
+        // AI player data (present bool only, AI state not serialized here)
+        {
+            let mut ai_present = false;
+            xfer.xfer_bool(&mut ai_present).map_err(|e| e.to_string())?;
+        }
+
+        // Resource gathering manager (present bool; fields reconstructed from map state)
+        {
+            let has_rgm = self.resource_manager.is_some();
+            let mut rgm_present = has_rgm;
+            xfer.xfer_bool(&mut rgm_present).map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.resource_manager = if rgm_present {
+                    Some(ResourceGatheringManager::new())
+                } else {
+                    None
+                };
+            }
+        }
+
+        // Tunnel tracker (present bool; fields reconstructed from map state)
+        {
+            let has_tunnel = self.tunnel_tracker.is_some();
+            let mut tunnel_present = has_tunnel;
+            xfer.xfer_bool(&mut tunnel_present).map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.tunnel_tracker = if tunnel_present {
+                    Some(TunnelTracker::new())
+                } else {
+                    None
+                };
+            }
+        }
+
+        // Default team ID
+        {
+            let mut team_id: UnsignedInt = self
+                .default_team
+                .as_ref()
+                .and_then(|t| t.read().ok().map(|g| g.get_id()))
+                .unwrap_or(crate::team::TEAM_ID_INVALID);
+            xfer.xfer_u32(&mut team_id).map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                let factory = crate::team::get_team_factory();
+                if let Ok(mut factory_guard) = factory.lock() {
+                    self.default_team = factory_guard.find_team_by_id(team_id);
+                }
+            }
+        }
+
+        // Sciences (version >= 5)
+        if version >= 5 {
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.sciences.clear();
+            }
+            xfer.xfer_science_vec(&mut self.sciences)
+                .map_err(|e| e.to_string())?;
+        }
+
+        // Rank/skill
+        xfer.xfer_int(&mut self.rank_level).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.skill_points)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.science_purchase_points)
+            .map_err(|e| e.to_string())?;
+
+        // Level up/down (C++ has these, Rust may not track them separately)
+        let mut level_up: Int = 0;
+        xfer.xfer_int(&mut level_up).map_err(|e| e.to_string())?;
+        let mut level_down: Int = 0;
+        xfer.xfer_int(&mut level_down).map_err(|e| e.to_string())?;
+
+        // General name (C++ uses UnicodeString, we use String)
+        xfer.xfer_ascii_string(&mut self.general_name)
+            .map_err(|e| e.to_string())?;
+
+        // Player relations (inline, matching C++ PlayerRelationMap::xfer v1)
+        {
+            let mut rel_version: XferVersion = 1;
+            xfer.xfer_version(&mut rel_version, 1)
+                .map_err(|e| e.to_string())?;
+            let mut rel_count = self.player_relations.map.len() as u16;
+            xfer.xfer_unsigned_short(&mut rel_count)
+                .map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Save {
+                for (&pidx, &rel) in &self.player_relations.map {
+                    let mut player_idx = pidx;
+                    let mut rel_raw = rel as Int;
+                    xfer.xfer_int(&mut player_idx).map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut rel_raw).map_err(|e| e.to_string())?;
+                }
+            } else {
+                self.player_relations.map.clear();
+                for _ in 0..rel_count {
+                    let mut player_idx: Int = 0;
+                    let mut rel_raw: Int = 0;
+                    xfer.xfer_int(&mut player_idx).map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut rel_raw).map_err(|e| e.to_string())?;
+                    let rel = match rel_raw {
+                        0 => Relationship::Enemies,
+                        1 => Relationship::Neutral,
+                        2 => Relationship::Allies,
+                        _ => Relationship::Neutral,
+                    };
+                    self.player_relations.map.insert(player_idx, rel);
+                }
+            }
+        }
+
+        // Team relations (inline, matching C++ TeamRelationMap::xfer v1)
+        {
+            let mut rel_version: XferVersion = 1;
+            xfer.xfer_version(&mut rel_version, 1)
+                .map_err(|e| e.to_string())?;
+            let mut rel_count = self
+                .team_relations
+                .as_ref()
+                .map(|r| r.map.len() as u16)
+                .unwrap_or(0);
+            xfer.xfer_unsigned_short(&mut rel_count)
+                .map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Save {
+                if let Some(ref relations) = self.team_relations {
+                    for (&tid, &rel) in &relations.map {
+                        let mut team_id_val = tid;
+                        let mut rel_raw = rel as Int;
+                        xfer.xfer_u32(&mut team_id_val).map_err(|e| e.to_string())?;
+                        xfer.xfer_int(&mut rel_raw).map_err(|e| e.to_string())?;
+                    }
+                }
+            } else {
+                self.team_relations = None;
+                if rel_count > 0 {
+                    let mut map = crate::team::TeamRelationMap::new();
+                    for _ in 0..rel_count {
+                        let mut team_id_val: UnsignedInt = 0;
+                        let mut rel_raw: Int = 0;
+                        xfer.xfer_u32(&mut team_id_val).map_err(|e| e.to_string())?;
+                        xfer.xfer_int(&mut rel_raw).map_err(|e| e.to_string())?;
+                        let rel = match rel_raw {
+                            0 => Relationship::Enemies,
+                            1 => Relationship::Neutral,
+                            2 => Relationship::Allies,
+                            _ => Relationship::Neutral,
+                        };
+                        map.map.insert(team_id_val, rel);
+                    }
+                    self.team_relations = Some(map);
+                }
+            }
+        }
+
+        // Build flags
+        xfer.xfer_bool(&mut self.can_build_units)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.can_build_base)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_observer)
+            .map_err(|e| e.to_string())?;
+
+        // Version 2: skill points modifier
+        if version >= 2 {
+            xfer.xfer_real(&mut self.skill_points_modifier)
+                .map_err(|e| e.to_string())?;
+        }
+
+        // Version 3: list in score screen
+        if version >= 3 {
+            xfer.xfer_bool(&mut self.list_in_score_screen)
+                .map_err(|e| e.to_string())?;
+        }
+
+        // Attacked by array (raw bytes matching C++ xferUser)
+        for i in 0..MAX_PLAYER_COUNT {
+            let mut val = self.attacked_by[i];
+            xfer.xfer_bool(&mut val).map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.attacked_by[i] = val;
+            }
+        }
+
+        // Cash bounty percent
+        xfer.xfer_real(&mut self.cash_bounty_percent)
+            .map_err(|e| e.to_string())?;
+
+        // ScoreKeeper (inline, matching C++ ScoreKeeper::xfer v1)
+        {
+            let mut sk_version: XferVersion = 1;
+            xfer.xfer_version(&mut sk_version, 1)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut self.score_keeper.supplies_collected)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut self.score_keeper.supplies_spent)
+                .map_err(|e| e.to_string())?;
+            // units destroyed per player (C++ has array, we skip)
+            let mut _dummy: Int;
+            for _ in 0..MAX_PLAYER_COUNT {
+                _dummy = 0;
+                xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
+            }
+            xfer.xfer_int(&mut self.score_keeper.units_built)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut self.score_keeper.units_lost)
+                .map_err(|e| e.to_string())?;
+            // buildings destroyed per player
+            for _ in 0..MAX_PLAYER_COUNT {
+                _dummy = 0;
+                xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
+            }
+            xfer.xfer_int(&mut self.score_keeper.buildings_built)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut self.score_keeper.buildings_lost)
+                .map_err(|e| e.to_string())?;
+            // tech buildings captured, faction buildings captured, current score, player index
+            _dummy = 0;
+            xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut _dummy).map_err(|e| e.to_string())?;
+            // objects built map (count + entries)
+            {
+                let mut obj_map_count: u16 = 0;
+                xfer.xfer_unsigned_short(&mut obj_map_count)
+                    .map_err(|e| e.to_string())?;
+                for _ in 0..obj_map_count {
+                    let mut _key: u32 = 0;
+                    let mut _val: Int = 0;
+                    xfer.xfer_u32(&mut _key).map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut _val).map_err(|e| e.to_string())?;
+                }
+            }
+            // objects destroyed per-player array
+            let mut destroyed_array_size = MAX_PLAYER_COUNT as u16;
+            xfer.xfer_unsigned_short(&mut destroyed_array_size)
+                .map_err(|e| e.to_string())?;
+            for _ in 0..destroyed_array_size {
+                let mut obj_map_count: u16 = 0;
+                xfer.xfer_unsigned_short(&mut obj_map_count)
+                    .map_err(|e| e.to_string())?;
+                for _ in 0..obj_map_count {
+                    let mut _key: u32 = 0;
+                    let mut _val: Int = 0;
+                    xfer.xfer_u32(&mut _key).map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut _val).map_err(|e| e.to_string())?;
+                }
+            }
+            // objects lost, objects captured
+            for _ in 0..2 {
+                let mut obj_map_count: u16 = 0;
+                xfer.xfer_unsigned_short(&mut obj_map_count)
+                    .map_err(|e| e.to_string())?;
+                for _ in 0..obj_map_count {
+                    let mut _key: u32 = 0;
+                    let mut _val: Int = 0;
+                    xfer.xfer_u32(&mut _key).map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut _val).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+
+        // KindOf percent production change list
+        {
+            let mut change_count = self.kind_of_percent_production_change_list.len() as u16;
+            xfer.xfer_unsigned_short(&mut change_count)
+                .map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Save {
+                for entry in &self.kind_of_percent_production_change_list {
+                    let mut kind_of_raw = entry.kind_of;
+                    xfer.xfer_u64(&mut kind_of_raw).map_err(|e| e.to_string())?;
+                    let mut percent = entry.percent;
+                    xfer.xfer_real(&mut percent).map_err(|e| e.to_string())?;
+                    let mut refs = entry.refs;
+                    xfer.xfer_u32(&mut refs).map_err(|e| e.to_string())?;
+                }
+            } else {
+                self.kind_of_percent_production_change_list.clear();
+                for _ in 0..change_count {
+                    let mut kind_of_raw: u64 = 0;
+                    xfer.xfer_u64(&mut kind_of_raw).map_err(|e| e.to_string())?;
+                    let mut percent: Real = 0.0;
+                    xfer.xfer_real(&mut percent).map_err(|e| e.to_string())?;
+                    let mut refs: UnsignedInt = 0;
+                    xfer.xfer_u32(&mut refs).map_err(|e| e.to_string())?;
+                    self.kind_of_percent_production_change_list
+                        .push(KindOfPercentProductionChange {
+                            kind_of: kind_of_raw,
+                            percent,
+                            refs,
+                        });
+                }
+            }
+        }
+
+        // Version 4+: special power ready timer list
+        if version >= 4 {
+            let mut timer_count: u16 = 0;
+            if let Ok(timers) = self.special_power_ready_timers.read() {
+                timer_count = timers.len() as u16;
+            }
+            xfer.xfer_unsigned_short(&mut timer_count)
+                .map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Save {
+                if let Ok(timers) = self.special_power_ready_timers.read() {
+                    for timer in timers.iter() {
+                        let mut template_id = timer.template_id;
+                        let mut ready_frame = timer.ready_frame;
+                        xfer.xfer_u32(&mut template_id).map_err(|e| e.to_string())?;
+                        xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
+                    }
+                }
+            } else if let Ok(mut timers) = self.special_power_ready_timers.write() {
+                timers.clear();
+                for _ in 0..timer_count {
+                    let mut template_id: UnsignedInt = 0;
+                    let mut ready_frame: UnsignedInt = 0;
+                    xfer.xfer_u32(&mut template_id).map_err(|e| e.to_string())?;
+                    xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
+                    timers.push(SpecialPowerReadyTimer {
+                        template_id,
+                        ready_frame,
+                    });
+                }
+            }
+        }
+
+        // Squads
+        {
+            let mut squad_count = NUM_HOTKEY_SQUADS as u16;
+            xfer.xfer_unsigned_short(&mut squad_count)
+                .map_err(|e| e.to_string())?;
+            if squad_count as usize != NUM_HOTKEY_SQUADS {
+                return Err("Player::xfer - squad count mismatch".to_string());
+            }
+            for slot in &mut self.squads {
+                if slot.is_none() {
+                    *slot = Some(Squad::new());
+                }
+                if let Some(ref mut squad) = slot {
+                    squad.xfer(xfer)?;
+                }
+            }
+        }
+
+        // Current selection (present bool + snapshot)
+        {
+            let mut selection_present = self.current_selection.is_some();
+            xfer.xfer_bool(&mut selection_present)
+                .map_err(|e| e.to_string())?;
+            if selection_present {
+                if self.current_selection.is_none() {
+                    self.current_selection = Some(Squad::new());
+                }
+                if let Some(ref mut selection) = self.current_selection {
+                    selection.xfer(xfer)?;
+                }
+            } else {
+                self.current_selection = None;
+            }
+        }
+
+        // Battle plan bonuses
+        {
+            let mut has_bonus = self.battle_plan_bonuses.is_some();
+            xfer.xfer_bool(&mut has_bonus).map_err(|e| e.to_string())?;
+            if xfer.get_xfer_mode() == XferMode::Load {
+                self.battle_plan_bonuses = None;
+                if has_bonus {
+                    self.battle_plan_bonuses = Some(BattlePlanBonuses {
+                    armor_scalar: 1.0,
+                    sight_range_scalar: 1.0,
+                    bombardment: 0,
+                    hold_the_line: 0,
+                    search_and_destroy: 0,
+                    valid_kind_of: crate::common::KIND_OF_MASK_NONE,
+                    invalid_kind_of: crate::common::KIND_OF_MASK_NONE,
+                });
+                }
+            }
+            if let Some(ref mut bonuses) = self.battle_plan_bonuses {
+                xfer.xfer_real(&mut bonuses.armor_scalar)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_real(&mut bonuses.sight_range_scalar)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_int(&mut bonuses.bombardment)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_int(&mut bonuses.hold_the_line)
+                    .map_err(|e| e.to_string())?;
+                xfer.xfer_int(&mut bonuses.search_and_destroy)
+                    .map_err(|e| e.to_string())?;
+                let mut valid_kind_of = bonuses.valid_kind_of;
+                xfer.xfer_u64(&mut valid_kind_of).map_err(|e| e.to_string())?;
+                bonuses.valid_kind_of = valid_kind_of;
+                let mut invalid_kind_of = bonuses.invalid_kind_of;
+                xfer.xfer_u64(&mut invalid_kind_of).map_err(|e| e.to_string())?;
+                bonuses.invalid_kind_of = invalid_kind_of;
+            }
+        }
+
+        // Battle plan counts
+        xfer.xfer_int(&mut self.bombard_battle_plans)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.hold_the_line_battle_plans)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.search_and_destroy_battle_plans)
+            .map_err(|e| e.to_string())?;
+
+        // Version 6: units_should_hunt
+        if version >= 6 {
+            xfer.xfer_bool(&mut self.units_should_hunt)
+                .map_err(|e| e.to_string())?;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 

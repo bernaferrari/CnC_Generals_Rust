@@ -145,7 +145,15 @@ impl Weapon {
             return true;
         };
 
-        let delta = *target_guard.get_position() - *source_guard.get_position();
+        let src_pos = source_guard.get_position();
+        let dst_pos = target_guard.get_position();
+
+        const ACCEPTABLE_DZ: f32 = 10.0;
+        if (dst_pos.z - src_pos.z).abs() < ACCEPTABLE_DZ {
+            return true;
+        }
+
+        let delta = *dst_pos - *src_pos;
         let horizontal = (delta.x * delta.x + delta.y * delta.y).sqrt();
         let pitch = delta.z.atan2(horizontal.max(f32::MIN_POSITIVE));
 
@@ -1070,25 +1078,52 @@ impl Weapon {
 
     pub fn is_source_object_with_goal_position_within_attack_range(
         &self,
-        _source_id: ObjectID,
+        source_id: ObjectID,
         goal_pos: &Coord3D,
         target_id: Option<ObjectID>,
         target_pos: Option<&Coord3D>,
         bonus: &WeaponBonus,
     ) -> bool {
-        if let Some(target_id) = target_id {
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
-                return false;
-            };
-            let Ok(target_guard) = target_arc.read() else {
-                return false;
-            };
-            self.is_goal_pos_within_attack_range(goal_pos, target_guard.get_position(), bonus)
-        } else if let Some(target_pos) = target_pos {
-            self.is_goal_pos_within_attack_range(goal_pos, target_pos, bonus)
-        } else {
-            false
+        let mut attack_range = self.template.get_attack_range(bonus);
+        let mut min_attack_range = self.template.get_minimum_attack_range();
+
+        if let Some(source_arc) = OBJECT_REGISTRY.get_object(source_id) {
+            if let Ok(source_guard) = source_arc.read() {
+                attack_range += source_guard
+                    .get_geometry_info()
+                    .get_bounding_circle_radius();
+            }
         }
+
+        let target_pos_resolved: Coord3D;
+        let resolved_pos: &Coord3D = if let Some(target_id) = target_id {
+            if let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) {
+                if let Ok(target_guard) = target_arc.read() {
+                    attack_range += target_guard
+                        .get_geometry_info()
+                        .get_bounding_circle_radius();
+                    target_pos_resolved = *target_guard.get_position();
+                    &target_pos_resolved
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        } else if let Some(pos) = target_pos {
+            pos
+        } else {
+            return false;
+        };
+
+        let dist_sqr = Self::distance_squared(goal_pos, resolved_pos);
+        let attack_range_sqr = attack_range * attack_range;
+        let min_range_sqr = min_attack_range * min_attack_range;
+
+        if dist_sqr < min_range_sqr - 0.5 {
+            return false;
+        }
+        dist_sqr <= attack_range_sqr
     }
 
     /// Get remaining ammo (returns 0 if currently reloading)

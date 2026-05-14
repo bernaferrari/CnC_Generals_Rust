@@ -312,6 +312,41 @@ pub struct MeshHandle {
     pub id: u64,
 }
 
+/// Extracted mesh data for shadow geometry construction.
+/// C++: MeshModelClass data accessed via Peek_Model()
+#[derive(Debug, Clone, Default)]
+pub struct MeshData {
+    pub verts: Vec<Vec3>,
+    pub polygons: Vec<TriIndex>,
+    pub is_alpha: bool,
+    pub is_translucent: bool,
+    pub is_skin: bool,
+    pub cast_shadow: bool,
+}
+
+/// HLOD mesh iteration result with render-object index.
+#[derive(Debug, Clone)]
+pub struct HlodMeshEntry {
+    pub data: MeshData,
+    pub robj_index: i32,
+}
+
+impl RenderObject {
+    /// Extract meshes from HLOD top LOD.
+    /// Returns empty until RenderObject is extended with HLOD mesh access.
+    pub fn get_hlod_meshes(&self) -> Vec<HlodMeshEntry> {
+        let _ = self;
+        Vec::new()
+    }
+
+    /// Extract single mesh data.
+    /// Returns None until RenderObject is extended with mesh access.
+    pub fn get_single_mesh_data(&self) -> Option<MeshData> {
+        let _ = self;
+        None
+    }
+}
+
 /// Shadow geometry for a render object
 /// C++: class W3DShadowGeometry
 #[derive(Debug)]
@@ -339,31 +374,116 @@ impl ShadowGeometry {
 
     /// Initialize from HLOD render object
     /// C++: Int W3DShadowGeometry::initFromHLOD(RenderObjClass *robj)
-    pub fn init_from_hlod(&mut self, _robj: &RenderObject) -> bool {
-        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:603 initFromHLOD
-        // Requires W3D HLodClass, MeshClass, ShdMeshClass, MeshModelClass infrastructure:
-        // 1. Cast robj to HLodClass, get top LOD index
-        // 2. Iterate hlod->Get_Lod_Model_Count(top), filtering CLASSID_MESH and CLASSID_SHDMESH
-        // 3. Skip alpha/translucent meshes without CAST_SHADOW flag, skip SKIN meshes
-        // 4. For each mesh: copy vertex array, polygon array, find duplicate vertices
-        //    (O(n^2) comparison, set vertParent[k]=j for duplicates, decrement newVertexCount)
-        // 5. Build parent_verts mapping, accumulate m_numTotalsVerts
-        // 6. Return TRUE if m_meshCount > 0
-        // Requires: HLodClass::Get_LOD_Count, Peek_Lod_Model, MeshClass vertex/polygon access
-        self.mesh_count > 0
+    pub fn init_from_hlod(&mut self, robj: &RenderObject) -> bool {
+        self.mesh_count = 0;
+        self.num_total_verts = 0;
+        self.mesh_list.clear();
+
+        let entries = robj.get_hlod_meshes();
+
+        for entry in entries {
+            if self.mesh_count >= MAX_SHADOW_CASTER_MESHES {
+                break;
+            }
+
+            let md = &entry.data;
+            // C++: skip alpha/translucent without CAST_SHADOW, skip SKIN
+            if (md.is_alpha || md.is_translucent) && !md.cast_shadow {
+                continue;
+            }
+            if md.is_skin {
+                continue;
+            }
+
+            if let Some(geom_mesh) = Self::build_mesh_entry(
+                &md.verts,
+                &md.polygons,
+                None,
+                entry.robj_index,
+            ) {
+                self.num_total_verts += geom_mesh.num_verts;
+                self.mesh_list.push(geom_mesh);
+                self.mesh_count += 1;
+            } else {
+                return false;
+            }
+        }
+
+        self.mesh_count != 0
     }
 
     /// Initialize from mesh render object
     /// C++: Int W3DShadowGeometry::initFromMesh(RenderObjClass *robj)
-    pub fn init_from_mesh(&mut self, _robj: &RenderObject) -> bool {
-        // PARITY_NOTE: C++ W3DVolumetricShadow.cpp:763 initFromMesh
-        // Same logic as initFromHLOD but for a single MeshClass (no HLOD wrapper).
-        // 1. Get MeshModelClass from mesh via Peek_Model()
-        // 2. Copy vertex/polygon arrays, find duplicate vertices (same O(n^2) algorithm)
-        // 3. Build parent_verts mapping, set m_parentGeometry
-        // 4. Return TRUE if m_meshCount > 0
-        // Requires: MeshClass, MeshModelClass vertex/polygon access
+    pub fn init_from_mesh(&mut self, robj: &RenderObject) -> bool {
+        self.mesh_count = 0;
+        self.num_total_verts = 0;
+        self.mesh_list.clear();
+
+        if let Some(md) = robj.get_single_mesh_data() {
+            if (md.is_alpha || md.is_translucent) && !md.cast_shadow {
+                return false;
+            }
+
+            if let Some(geom_mesh) = Self::build_mesh_entry(
+                &md.verts,
+                &md.polygons,
+                None,
+                -1,
+            ) {
+                self.num_total_verts = geom_mesh.num_verts;
+                self.mesh_list.push(geom_mesh);
+                self.mesh_count = 1;
+            } else {
+                return false;
+            }
+        }
+
         self.mesh_count > 0
+    }
+
+    /// Build a ShadowGeometryMesh from raw vertex and polygon arrays.
+    /// C++: O(n²) duplicate vertex detection with parent_verts mapping.
+    fn build_mesh_entry(
+        verts: &[Vec3],
+        polygons: &[TriIndex],
+        mesh_handle: Option<MeshHandle>,
+        robj_index: i32,
+    ) -> Option<ShadowGeometryMesh> {
+        if verts.len() > MAX_SHADOW_VOLUME_VERTS {
+            return None;
+        }
+
+        let num_verts = verts.len();
+        let mut vert_parent = vec![0xFFFFu16; num_verts];
+        let mut new_vertex_count = num_verts;
+
+        for j in 0..num_verts {
+            if vert_parent[j] != 0xFFFF {
+                continue;
+            }
+            let v_curr = verts[j];
+            for k in (j + 1)..num_verts {
+                let diff = v_curr - verts[k];
+                if diff.length_squared() == 0.0 {
+                    vert_parent[k] = j as u16;
+                    new_vertex_count -= 1;
+                }
+            }
+            vert_parent[j] = j as u16;
+        }
+
+        Some(ShadowGeometryMesh {
+            mesh: mesh_handle,
+            mesh_robj_index: robj_index,
+            verts: verts.to_vec(),
+            polygon_normals: Vec::new(),
+            num_verts: new_vertex_count,
+            num_polygons: polygons.len(),
+            polygons: polygons.to_vec(),
+            parent_verts: vert_parent,
+            poly_neighbors: Vec::new(),
+            parent_geometry: None,
+        })
     }
 
     /// Get mesh by index

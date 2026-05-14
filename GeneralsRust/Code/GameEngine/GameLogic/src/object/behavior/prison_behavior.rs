@@ -90,7 +90,19 @@ impl Snapshotable for PrisonBehaviorModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        self.base.xfer(xfer)?;
+        xfer.xfer_bool(&mut self.show_prisoners)
+            .map_err(|e| e.to_string())?;
+        let mut prefix = self.prison_yard_bone_prefix.to_string();
+        xfer.xfer_ascii_string(&mut prefix)
+            .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
+            self.prison_yard_bone_prefix = AsciiString::from(prefix.as_str());
+        }
         Ok(())
     }
 
@@ -555,7 +567,45 @@ impl Snapshotable for PrisonBehavior {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // Matches C++ PrisonBehavior::xfer (version 1)
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+
+        // extend OpenContain base class
+        self.contain.xfer(xfer)?;
+
+        // visual list count and data
+        let mut visual_count = self.visuals.len() as u16;
+        xfer.xfer_unsigned_short(&mut visual_count)
+            .map_err(|e| e.to_string())?;
+
+        if xfer.is_reading() {
+            self.visuals.clear();
+            for _ in 0..visual_count {
+                let mut object_id: ObjectID = 0;
+                xfer.xfer_object_id(&mut object_id)
+                    .map_err(|e| e.to_string())?;
+                let mut drawable_id: crate::common::DrawableID = 0;
+                xfer.xfer_unsigned_int(&mut drawable_id)
+                    .map_err(|e| e.to_string())?;
+                self.visuals.push(PrisonVisual {
+                    object_id,
+                    drawable_id,
+                });
+            }
+        } else {
+            for visual in &self.visuals {
+                let mut object_id = visual.object_id;
+                xfer.xfer_object_id(&mut object_id)
+                    .map_err(|e| e.to_string())?;
+                let mut drawable_id = visual.drawable_id;
+                xfer.xfer_unsigned_int(&mut drawable_id)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
         Ok(())
     }
 
