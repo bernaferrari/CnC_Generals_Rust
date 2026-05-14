@@ -398,6 +398,8 @@ pub struct UIRenderContext {
     pub mouse_position: (i32, i32),
     pub font_manager: Arc<Mutex<FontManager>>,
     pub texture_manager: Arc<Mutex<TextureManager>>,
+    /// Accumulated draw commands produced by `Renderable::render` implementations.
+    pub draw_commands: Vec<UIRenderCommand>,
 }
 
 impl Default for UIRenderContext {
@@ -414,7 +416,80 @@ impl UIRenderContext {
             mouse_position: (0, 0),
             font_manager: Arc::new(Mutex::new(FontManager::new())),
             texture_manager: Arc::new(Mutex::new(TextureManager::new())),
+            draw_commands: Vec::new(),
         }
+    }
+
+    /// Push a filled-rectangle draw command.
+    pub fn draw_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) {
+        let vertices = vec![
+            Vertex { position: [x, y, 0.0], color, tex_coords: [0.0, 0.0] },
+            Vertex { position: [x + w, y, 0.0], color, tex_coords: [1.0, 0.0] },
+            Vertex { position: [x + w, y + h, 0.0], color, tex_coords: [1.0, 1.0] },
+            Vertex { position: [x, y + h, 0.0], color, tex_coords: [0.0, 1.0] },
+        ];
+        let indices = vec![0, 1, 2, 0, 2, 3];
+        self.draw_commands.push(UIRenderCommand {
+            vertices,
+            indices,
+            texture_id: None,
+            blend_mode: BlendMode::Alpha,
+            primitive_type: PrimitiveType::Triangles,
+            clip_rect: None,
+        });
+    }
+
+    pub fn draw_text(&mut self, text: &str, x: f32, y: f32, font_size: f32, color: [f32; 4]) {
+        let pixel = (font_size.max(8.0) / 8.0).max(1.0);
+        let advance = pixel * 8.0 + pixel;
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        let mut cursor_x = x;
+        let cursor_y = y - font_size;
+
+        for ch in text.chars() {
+            let glyph = font8x8::UnicodeFonts::get(&font8x8::BASIC_FONTS, ch)
+                .or_else(|| font8x8::UnicodeFonts::get(&font8x8::BASIC_FONTS, '?'));
+            let Some(bitmap) = glyph else {
+                cursor_x += advance;
+                continue;
+            };
+
+            for (row, bits) in bitmap.iter().enumerate() {
+                for col in 0..8u32 {
+                    if (bits >> col) & 1 == 0 {
+                        continue;
+                    }
+                    let px = cursor_x + col as f32 * pixel;
+                    let py = cursor_y + row as f32 * pixel;
+                    let base = vertices.len() as u16;
+
+                    vertices.push(Vertex { position: [px, py, 0.0], color, tex_coords: [0.0, 0.0] });
+                    vertices.push(Vertex { position: [px + pixel, py, 0.0], color, tex_coords: [1.0, 0.0] });
+                    vertices.push(Vertex { position: [px + pixel, py + pixel, 0.0], color, tex_coords: [1.0, 1.0] });
+                    vertices.push(Vertex { position: [px, py + pixel, 0.0], color, tex_coords: [0.0, 1.0] });
+                    indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                }
+            }
+
+            cursor_x += advance;
+        }
+
+        if !vertices.is_empty() {
+            self.draw_commands.push(UIRenderCommand {
+                vertices,
+                indices,
+                texture_id: None,
+                blend_mode: BlendMode::Alpha,
+                primitive_type: PrimitiveType::Triangles,
+                clip_rect: None,
+            });
+        }
+    }
+
+    /// Drain all accumulated draw commands.
+    pub fn drain_draw_commands(&mut self) -> Vec<UIRenderCommand> {
+        std::mem::take(&mut self.draw_commands)
     }
 }
 

@@ -29,8 +29,8 @@ pub use wthree_d_volumetric_shadow::{
 };
 
 pub use wthree_d_projected_shadow::{
-    the_projected_shadow_manager, the_w3d_projected_shadow_manager, ShadowDecalVertex,
-    ShadowVolumeVertex, TextureHandle, W3DProjectedShadow, W3DProjectedShadowManager,
-    W3DShadowTexture, W3DShadowTextureManager, DEFAULT_RENDER_TARGET_HEIGHT,
-    DEFAULT_RENDER_TARGET_WIDTH,
+    the_projected_shadow_manager, the_w3d_projected_shadow_manager, CameraHandle,
+    RenderContextHandle, ShadowDecalVertex, ShadowVolumeVertex, TexProjectHandle, TextureHandle,
+    W3DProjectedShadow, W3DProjectedShadowManager, W3DShadowTexture, W3DShadowTextureManager,
+    DEFAULT_RENDER_TARGET_HEIGHT, DEFAULT_RENDER_TARGET_WIDTH,
 };

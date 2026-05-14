@@ -281,6 +281,7 @@ impl UIManager {
             mouse_position: self.mouse_position,
             font_manager: self.font_manager.clone(),
             texture_manager: self.texture_manager.clone(),
+            draw_commands: Vec::new(),
         };
 
         // Render current screen

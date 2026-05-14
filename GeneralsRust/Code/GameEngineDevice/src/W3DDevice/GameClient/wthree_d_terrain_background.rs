@@ -144,6 +144,23 @@ pub trait TerrainHeightMapAccess {
     /// Get static diffuse color at cell (x, y).
     /// C++: `TheTerrainRenderObject->getStaticDiffuse(i,j)`
     fn get_static_diffuse(&self, x: i32, y: i32) -> u32;
+
+    /// Get tile pixel data for terrain texture creation.
+    /// C++ reads RGB data from WorldHeightMap via `getRGBTileData()`.
+    /// Returns RGBA bytes for a tile region starting at (x, y) with the given
+    /// pixel resolution per grid cell (`pixels_per_grid`).
+    /// The returned Vec has size `(width * pixels_per_grid) * (height * pixels_per_grid) * 4`.
+    /// If no tile data is available, returns None (fallback to diffuse coloring).
+    fn get_tile_pixel_data(
+        &self,
+        _x: i32,
+        _y: i32,
+        _width: i32,
+        _height: i32,
+        _pixels_per_grid: i32,
+    ) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 // =============================================================================
@@ -545,12 +562,8 @@ impl W3DTerrainBackground {
         self.cur_num_terrain_indices = cur_num_terrain_indices;
         self.bounds = bounds;
 
-        // PARITY_NOTE: Texture creation is deferred. C++ creates TerrainTextureClass
-        // from m_map->getFlatTexture(). Since the flat texture pipeline is not yet
-        // ported, textures are allocated as placeholders. They will be replaced
-        // when the terrain texture system is connected.
         if self.terrain_texture.is_none() {
-            self.create_placeholder_texture(device, queue);
+            self.create_terrain_texture(device, queue, ht_map);
         }
     }
 
@@ -884,9 +897,8 @@ impl W3DTerrainBackground {
         } else if min_dist_sqr < mip2x_dist_sqr {
             self.tex_multiplier = TexMultiplier::Tex2X;
         } else {
-            // PARITY_NOTE: C++ releases 2x/4x textures and sets LOD on base texture
-            // when tile is far away. Texture LOD management is deferred until
-            // terrain texture pipeline is connected.
+            // C++ releases 2x/4x textures and sets LOD on base texture
+            // when tile is far away.
             self.terrain_texture_4x = None;
             self.terrain_texture_4x_view = None;
             self.terrain_texture_2x = None;
@@ -898,9 +910,7 @@ impl W3DTerrainBackground {
     /// C++ W3DTerrainBackground.cpp lines 705-732.
     ///
     /// Creates higher-resolution textures for nearby tiles (2x, 4x).
-    /// PARITY_NOTE: Actual texture creation from getFlatTexture() is deferred
-    /// until the terrain texture pipeline is connected.
-    pub fn update_texture(&mut self, _device: &Device, _queue: &Queue) {
+    pub fn update_texture(&mut self, device: &Device, queue: &Queue, ht_map: &dyn TerrainHeightMapAccess) {
         if self.cull_status == CullStatus::Invisible {
             self.terrain_texture_2x = None;
             self.terrain_texture_2x_view = None;
@@ -909,9 +919,49 @@ impl W3DTerrainBackground {
             return;
         }
 
-        // PARITY_NOTE: C++ creates 2x/4x textures via m_map->getFlatTexture()
+        // C++ creates 2x/4x textures via m_map->getFlatTexture()
         // with 2*PIXELS_PER_GRID and 4*PIXELS_PER_GRID respectively.
-        // These are placeholder stubs until the texture pipeline is connected.
+        match self.tex_multiplier {
+            TexMultiplier::Tex4X => {
+                if self.terrain_texture_4x.is_none() {
+                    let (tex, view) = Self::create_lod_texture(
+                        device, queue, ht_map,
+                        self.x_origin, self.y_origin, self.width,
+                        PIXELS_PER_GRID * 4,
+                    );
+                    self.terrain_texture_4x = Some(tex);
+                    self.terrain_texture_4x_view = Some(view);
+                }
+                if self.terrain_texture_2x.is_none() {
+                    let (tex, view) = Self::create_lod_texture(
+                        device, queue, ht_map,
+                        self.x_origin, self.y_origin, self.width,
+                        PIXELS_PER_GRID * 2,
+                    );
+                    self.terrain_texture_2x = Some(tex);
+                    self.terrain_texture_2x_view = Some(view);
+                }
+            }
+            TexMultiplier::Tex2X => {
+                self.terrain_texture_4x = None;
+                self.terrain_texture_4x_view = None;
+                if self.terrain_texture_2x.is_none() {
+                    let (tex, view) = Self::create_lod_texture(
+                        device, queue, ht_map,
+                        self.x_origin, self.y_origin, self.width,
+                        PIXELS_PER_GRID * 2,
+                    );
+                    self.terrain_texture_2x = Some(tex);
+                    self.terrain_texture_2x_view = Some(view);
+                }
+            }
+            TexMultiplier::Tex1X => {
+                self.terrain_texture_4x = None;
+                self.terrain_texture_4x_view = None;
+                self.terrain_texture_2x = None;
+                self.terrain_texture_2x_view = None;
+            }
+        }
     }
 
     /// Check if this tile is culled (not visible).
@@ -968,15 +1018,51 @@ impl W3DTerrainBackground {
         }
     }
 
-    /// Create a placeholder 1x1 texture for the tile.
-    /// PARITY_NOTE: C++ creates textures from m_map->getFlatTexture().
-    /// This is a placeholder until the terrain texture system is connected.
-    fn create_placeholder_texture(&mut self, device: &Device, queue: &Queue) {
+    /// Create terrain texture from tile data, falling back to diffuse-colored if no tile data.
+    /// C++ creates TerrainTextureClass from m_map->getFlatTexture().
+    fn create_terrain_texture(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        ht_map: &dyn TerrainHeightMapAccess,
+    ) {
+        let (tex, view) = Self::create_lod_texture(
+            device, queue, ht_map,
+            self.x_origin, self.y_origin, self.width,
+            PIXELS_PER_GRID,
+        );
+        self.terrain_texture = Some(tex);
+        self.terrain_texture_view = Some(view);
+    }
+
+    /// Create a wgpu texture for a tile region at a given LOD (pixels per grid cell).
+    /// C++ reads tile RGB data via WorldHeightMap::getFlatTexture() and uploads to D3D texture.
+    /// If `get_tile_pixel_data` returns None (no tile texture baked yet), generate RGBA from
+    /// per-cell static diffuse colors.
+    fn create_lod_texture(
+        device: &Device,
+        queue: &Queue,
+        ht_map: &dyn TerrainHeightMapAccess,
+        x_origin: i32,
+        y_origin: i32,
+        tile_width: i32,
+        pixels_per_grid: i32,
+    ) -> (Texture, TextureView) {
+        let tex_dim = (tile_width * pixels_per_grid) as u32;
+        let tex_dim = tex_dim.max(1);
+
+        let rgba_data = match ht_map.get_tile_pixel_data(
+            x_origin, y_origin, tile_width, tile_width, pixels_per_grid,
+        ) {
+            Some(data) => data,
+            None => Self::generate_diffuse_texture_data(ht_map, x_origin, y_origin, tile_width, pixels_per_grid),
+        };
+
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Terrain Background Texture"),
             size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
+                width: tex_dim,
+                height: tex_dim,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -987,6 +1073,7 @@ impl W3DTerrainBackground {
             view_formats: &[],
         });
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         queue.write_texture(
             wgpu::ImageCopyTexture {
                 texture: &texture,
@@ -994,20 +1081,62 @@ impl W3DTerrainBackground {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &[128, 128, 128, 255], // Neutral gray placeholder
+            &rgba_data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: Some(1),
+                bytes_per_row: Some(4 * tex_dim),
+                rows_per_image: Some(tex_dim),
             },
             wgpu::Extent3d {
-                width: 1,
-                height: 1,
+                width: tex_dim,
+                height: tex_dim,
                 depth_or_array_layers: 1,
             },
         );
-        self.terrain_texture = Some(texture);
-        self.terrain_texture_view = Some(view);
+
+        (texture, view)
+    }
+
+    /// Generate RGBA texture data from per-cell static diffuse colors.
+    /// Each cell is filled with a flat block of `pixels_per_grid` x `pixels_per_grid` pixels
+    /// in the color returned by `get_static_diffuse`.
+    fn generate_diffuse_texture_data(
+        ht_map: &dyn TerrainHeightMapAccess,
+        x_origin: i32,
+        y_origin: i32,
+        tile_width: i32,
+        pixels_per_grid: i32,
+    ) -> Vec<u8> {
+        let tex_dim = (tile_width * pixels_per_grid) as usize;
+        let mut data = vec![0u8; tex_dim * tex_dim * 4];
+
+        let limit_x = ht_map.get_x_extent() - 1;
+        let limit_y = ht_map.get_y_extent() - 1;
+
+        for cell_y in 0..tile_width {
+            for cell_x in 0..tile_width {
+                let map_x = (x_origin + cell_x).min(limit_x);
+                let map_y = (y_origin + cell_y).min(limit_y);
+                let diffuse = ht_map.get_static_diffuse(map_x, map_y);
+                let r = (diffuse & 0xFF) as u8;
+                let g = ((diffuse >> 8) & 0xFF) as u8;
+                let b = ((diffuse >> 16) & 0xFF) as u8;
+
+                for py in 0..pixels_per_grid {
+                    for px in 0..pixels_per_grid {
+                        let pixel_x = (cell_x as usize) * (pixels_per_grid as usize) + (px as usize);
+                        let pixel_y = (cell_y as usize) * (pixels_per_grid as usize) + (py as usize);
+                        let offset = (pixel_y * tex_dim + pixel_x) * 4;
+                        data[offset] = r;
+                        data[offset + 1] = g;
+                        data[offset + 2] = b;
+                        data[offset + 3] = 255;
+                    }
+                }
+            }
+        }
+
+        data
     }
 
     /// Get the width of this tile. Useful for FlatHeightMap integration.
@@ -1255,7 +1384,7 @@ impl FlatHeightMapRenderObj {
     /// - IDLE: do nothing
     /// - MOVING: transition to MOVING2
     /// - MOVING2: update textures on all tiles, transition to IDLE
-    pub fn on_frame_update(&mut self, device: &Device, queue: &Queue) {
+    pub fn on_frame_update(&mut self, device: &Device, queue: &Queue, ht_map: &dyn TerrainHeightMapAccess) {
         match self.update_state {
             FlatHeightMapState::Idle => {}
             FlatHeightMapState::Moving => {
@@ -1266,15 +1395,13 @@ impl FlatHeightMapRenderObj {
                     for i in 0..self.tiles_width {
                         let tile_idx = (j * self.tiles_width + i) as usize;
                         if tile_idx < self.tiles.len() {
-                            self.tiles[tile_idx].update_texture(device, queue);
+                            self.tiles[tile_idx].update_texture(device, queue, ht_map);
                         }
                     }
                 }
                 self.update_state = FlatHeightMapState::Idle;
             }
             FlatHeightMapState::UpdateTextures => {
-                // C++ doesn't explicitly handle this state in On_Frame_Update,
-                // but it exists in the enum. Treat same as Idle.
             }
         }
     }

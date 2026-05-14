@@ -92,6 +92,20 @@ impl Display {
                 None
             }
         };
+
+        // Initialize the drawable draw pipeline (for units/buildings geometry)
+        if let Ok(drawable_pipeline) =
+            crate::drawable::drawable_draw_pipeline::DrawableDrawPipeline::new(
+                graphics.device_arc(),
+                graphics.queue_arc(),
+                surface_format,
+            )
+        {
+            let drawable_pipeline = Arc::new(Mutex::new(drawable_pipeline));
+            crate::drawable::drawable_draw_pipeline::register_drawable_pipeline(drawable_pipeline);
+        } else {
+            error!("Failed to initialize drawable draw pipeline");
+        }
         Self {
             graphics,
             particle_renderer,

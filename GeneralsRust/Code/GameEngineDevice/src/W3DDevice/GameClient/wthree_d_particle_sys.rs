@@ -37,6 +37,12 @@ impl ParticleVertex {
     }
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct ParticleUniforms {
+    view_proj: [[f32; 4]; 4],
+}
+
 #[derive(Debug, Default)]
 pub struct ParticleSystem {
     pub particles: Vec<Particle>,
@@ -44,6 +50,9 @@ pub struct ParticleSystem {
     pub pipeline: Option<wgpu::RenderPipeline>,
     pub vertex_buffer: Option<wgpu::Buffer>,
     surface_format: Option<wgpu::TextureFormat>,
+    uniform_buffer: Option<wgpu::Buffer>,
+    bind_group_layout: Option<wgpu::BindGroupLayout>,
+    bind_group: Option<wgpu::BindGroup>,
 }
 
 pub type WthreeDParticleSys = ParticleSystem;
@@ -105,6 +114,17 @@ impl ParticleSystem {
     }
 
     pub fn render<'pass>(&'pass mut self, render_pass: &mut wgpu::RenderPass<'pass>) {
+        self.render_with_camera(render_pass, None);
+    }
+
+    /// Render particles with an optional view-projection matrix.
+    /// When `view_proj` is provided, particles are properly transformed through the camera.
+    /// When `None`, particles render in screen-space (legacy behavior).
+    pub fn render_with_camera<'pass>(
+        &'pass mut self,
+        render_pass: &mut wgpu::RenderPass<'pass>,
+        view_proj: Option<&[[f32; 4]; 4]>,
+    ) {
         if self.particles.is_empty() {
             self.vertex_buffer = None;
             return;
@@ -114,11 +134,17 @@ impl ParticleSystem {
             return;
         };
 
-        self.ensure_pipeline();
+        let surface_format = self.surface_format.unwrap_or(DEFAULT_SURFACE_FORMAT);
+        self.ensure_pipeline(device, surface_format);
 
         let Some(pipeline) = self.pipeline.as_ref() else {
             return;
         };
+
+        // Upload view-projection uniform if provided
+        if let Some(vp) = view_proj {
+            self.ensure_uniforms(device, vp);
+        }
 
         let vertices = self.build_vertex_data();
         if vertices.is_empty() {
@@ -139,38 +165,104 @@ impl ParticleSystem {
         };
 
         render_pass.set_pipeline(pipeline);
+
+        if let Some(ref bg) = self.bind_group {
+            render_pass.set_bind_group(0, bg, &[]);
+        }
+
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         render_pass.draw(0..vertices.len() as u32, 0..1);
     }
 
-    fn ensure_pipeline(&mut self) {
+    fn ensure_uniforms(&mut self, device: &wgpu::Device, view_proj: &[[f32; 4]; 4]) {
+        let uniforms = ParticleUniforms {
+            view_proj: *view_proj,
+        };
+
+        match (&self.uniform_buffer, &self.bind_group) {
+            (Some(ub), Some(_)) => {
+                device.queue().write_buffer(ub, 0, bytemuck::bytes_of(&uniforms));
+            }
+            _ => {
+                let ub = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Particle Uniforms"),
+                    contents: bytemuck::bytes_of(&uniforms),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+                let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Particle Uniform Layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+                let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Particle Uniform Bind Group"),
+                    layout: &bgl,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: ub.as_entire_binding(),
+                    }],
+                });
+
+                self.uniform_buffer = Some(ub);
+                self.bind_group_layout = Some(bgl);
+                self.bind_group = Some(bg);
+
+                // Pipeline must be recreated with bind group layout
+                self.pipeline = None;
+            }
+        }
+    }
+
+    fn ensure_pipeline(&mut self, device: &wgpu::Device, surface_format: wgpu::TextureFormat) {
         if self.pipeline.is_some() {
             return;
         }
-
-        let Some(device) = self.device.as_ref() else {
-            return;
-        };
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Particle System Shader"),
             source: wgpu::ShaderSource::Wgsl(PARTICLE_SHADER.into()),
         });
 
+        let has_camera = self.bind_group_layout.is_some();
+        let layouts: Vec<&wgpu::BindGroupLayout> = if let Some(ref bgl) = self.bind_group_layout {
+            vec![bgl]
+        } else {
+            vec![]
+        };
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Particle System Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &layouts,
             push_constant_ranges: &[],
         });
 
-        let surface_format = self.surface_format.unwrap_or(DEFAULT_SURFACE_FORMAT);
+        let depth_stencil = Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        });
+
+        let entry_point = if has_camera { "vs_camera" } else { "vs_screen" };
+
         self.pipeline = Some(
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Particle System Pipeline"),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
-                    entry_point: Some("vs"),
+                    entry_point: Some(entry_point),
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                     buffers: &[ParticleVertex::desc()],
                 },
@@ -193,7 +285,7 @@ impl ParticleSystem {
                     unclipped_depth: false,
                     conservative: false,
                 },
-                depth_stencil: None,
+                depth_stencil,
                 multisample: wgpu::MultisampleState::default(),
                 multiview: None,
                 cache: None,
@@ -269,8 +361,13 @@ fn pseudo_random_direction(seed: u32) -> Vec3 {
 }
 
 const PARTICLE_SHADER: &str = r#"
+struct Uniforms {
+    view_proj: mat4x4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
 struct VertexInput {
-    @builtin(vertex_index) idx: u32,
     @location(0) pos: vec3f,
     @location(1) color: vec4f,
     @location(2) size: f32,
@@ -281,11 +378,20 @@ struct VertexOutput {
     @location(0) color: vec4f,
 };
 
+// Camera-transformed vertex shader: applies view-projection matrix
 @vertex
-fn vs(input: VertexInput) -> VertexOutput {
+fn vs_camera(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    let size_bias = input.size * 0.0 + f32(input.idx) * 0.0;
-    output.position = vec4f(input.pos.x + size_bias, input.pos.y, input.pos.z, 1.0);
+    output.position = uniforms.view_proj * vec4f(input.pos, 1.0);
+    output.color = input.color;
+    return output;
+}
+
+// Screen-space vertex shader: legacy fallback without camera transform
+@vertex
+fn vs_screen(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = vec4f(input.pos.x, input.pos.y, input.pos.z, 1.0);
     output.color = input.color;
     return output;
 }

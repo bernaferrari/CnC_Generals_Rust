@@ -624,7 +624,8 @@ impl W3DView {
             // ----------------------------------------------------------------
 
             if let Some(particle_system) = particle_system {
-                particle_system.render(&mut render_pass);
+                let vp: [[f32; 4]; 4] = self.view_projection_matrix.into();
+                particle_system.render_with_camera(&mut render_pass, Some(&vp));
             }
 
             if let Some(ref mut pipeline_2d) = render_2d {
