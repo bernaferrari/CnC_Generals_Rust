@@ -6,10 +6,23 @@
 //!
 //! Texture based shadow projection and decal system.
 
+use bytemuck::{Pod, Zeroable};
 use glam::{Mat3, Mat4, Vec2, Vec3};
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
+use wgpu::util::DeviceExt;
+use wgpu::{
+    AddressMode, BindGroup, BindGroupDescriptor, BindGroupEntry, BindGroupLayout,
+    BindGroupLayoutDescriptor, BindingType, Buffer, BufferDescriptor, BufferUsages,
+    CommandEncoder, CompareFunction, Device, Extent3d, FilterMode, FragmentState, FrontFace,
+    LoadOp, Operations, Origin3d, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology,
+    Queue, RenderPass, RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline,
+    RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+    StoreOp, Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat,
+    TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor, VertexBufferLayout,
+    VertexState,
+};
 
 use super::{
     AABBox, Frustum, RenderInfo, RenderObject, ShadowHandle, ShadowType, ShadowTypeInfo, Sphere,
@@ -30,7 +43,7 @@ pub const BRIDGE_OFFSET_FACTOR: f32 = 1.5;
 /// Shadow decal vertex structure for D3D
 /// C++: struct SHADOW_DECAL_VERTEX
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, Pod, Zeroable)]
 pub struct ShadowDecalVertex {
     pub x: f32,
     pub y: f32,
@@ -38,6 +51,21 @@ pub struct ShadowDecalVertex {
     pub diffuse: u32,
     pub u: f32,
     pub v: f32,
+}
+
+impl ShadowDecalVertex {
+    fn buffer_layout<'a>() -> VertexBufferLayout<'a> {
+        const ATTRIBUTES: [wgpu::VertexAttribute; 3] = wgpu::vertex_attr_array![
+            0 => Float32x3,
+            1 => Uint32,
+            2 => Float32x2,
+        ];
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<ShadowDecalVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &ATTRIBUTES,
+        }
+    }
 }
 
 /// Shadow decal FVF (flexible vertex format)
@@ -186,17 +214,55 @@ impl W3DShadowTexture {
     }
 }
 
-/// Texture handle placeholder
+/// Texture handle wrapping a wgpu Texture + TextureView for shadow textures.
+/// Replaces the previous placeholder (id, width, height) with real GPU resources.
 #[derive(Debug, Clone)]
 pub struct TextureHandle {
-    pub id: u64,
+    pub texture: Arc<Texture>,
+    pub view: Arc<TextureView>,
     pub width: u32,
     pub height: u32,
 }
 
 impl TextureHandle {
-    pub fn new(id: u64, width: u32, height: u32) -> Self {
-        Self { id, width, height }
+    pub fn new(texture: Texture, view: TextureView, width: u32, height: u32) -> Self {
+        Self {
+            texture: Arc::new(texture),
+            view: Arc::new(view),
+            width,
+            height,
+        }
+    }
+
+    /// Create a 1x1 black shadow texture as fallback.
+    pub fn new_placeholder(device: &Device, queue: &Queue) -> Self {
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some("Shadow Placeholder Texture"),
+            size: Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            &[0, 0, 0, 255],
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
+        Self::new(texture, view, 1, 1)
     }
 }
 
@@ -459,10 +525,55 @@ impl W3DProjectedShadow {
     }
 }
 
-/// Texture projector handle
+/// Texture projector holding the computed projection matrix.
+/// C++ uses TexProjectClass::Compute_Perspective_Projection.
 #[derive(Debug, Clone)]
 pub struct TexProjectHandle {
-    pub id: u64,
+    /// Projection matrix mapping world space to shadow texture UV space.
+    pub projection_matrix: Mat4,
+    /// Object-to-light direction (normalized), used for perspective projection.
+    pub light_direction: Vec3,
+    /// Distance of virtual light from object center.
+    pub light_distance: f32,
+}
+
+impl TexProjectHandle {
+    pub fn new() -> Self {
+        Self {
+            projection_matrix: Mat4::IDENTITY,
+            light_direction: Vec3::new(0.0, 0.0, -1.0),
+            light_distance: 2000.0,
+        }
+    }
+
+    /// Compute perspective projection from object position toward light.
+    /// C++ W3DProjectedShadow.cpp: normalizes objToLight, places light 2000 units
+    /// from object, then calls TexProjectClass::Compute_Perspective_Projection.
+    pub fn compute_perspective_projection(
+        &mut self,
+        object_position: Vec3,
+        light_position: Vec3,
+        decal_size_x: f32,
+        decal_size_y: f32,
+    ) {
+        let to_light = light_position - object_position;
+        let dist = to_light.length();
+        self.light_direction = if dist > 0.0 { to_light / dist } else { Vec3::new(0.0, 0.0, 1.0) };
+        self.light_distance = 2000.0;
+
+        let virtual_light_pos = object_position + self.light_direction * self.light_distance;
+
+        let half_x = decal_size_x * 0.5;
+        let half_y = decal_size_y * 0.5;
+
+        self.projection_matrix = Mat4::orthographic_rh_gl(-half_x, half_x, -half_y, half_y, 0.0, self.light_distance * 2.0);
+    }
+}
+
+impl Default for TexProjectHandle {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// W3D Projected Shadow Manager - manages all projected shadows and decals
@@ -573,18 +684,24 @@ impl W3DProjectedShadowManager {
 
     /// Re-acquire device-dependent resources
     /// C++: Bool W3DProjectedShadowManager::ReAcquireResources()
-    pub fn re_acquire_resources(&mut self) -> bool {
-        // Create render target
-        self.dynamic_render_target = Some(TextureHandle::new(
-            0,
-            DEFAULT_RENDER_TARGET_WIDTH,
-            DEFAULT_RENDER_TARGET_HEIGHT,
-        ));
+    pub fn re_acquire_resources(&mut self, device: &Device, queue: &Queue) -> bool {
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some("Shadow Render Target"),
+            size: Extent3d {
+                width: DEFAULT_RENDER_TARGET_WIDTH,
+                height: DEFAULT_RENDER_TARGET_HEIGHT,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&TextureViewDescriptor::default());
+        self.dynamic_render_target = Some(TextureHandle::new(texture, view, DEFAULT_RENDER_TARGET_WIDTH, DEFAULT_RENDER_TARGET_HEIGHT));
         self.render_target_has_alpha = true;
-
-        // Create vertex and index buffers
-        // C++ uses D3DUSAGE_WRITEONLY|D3DUSAGE_DYNAMIC for dynamic buffers
-
         true
     }
 
@@ -709,44 +826,34 @@ impl W3DProjectedShadowManager {
         }
     }
 
-    /// Render shadows
+    /// Render shadows with actual GPU draw calls.
     /// C++: Int W3DProjectedShadowManager::renderShadows(RenderInfoClass & rinfo)
-    pub fn render_shadows(&mut self, _rinfo: &mut RenderInfo) -> i32 {
+    pub fn render_shadows(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        render_pass: &mut RenderPass,
+        view_proj: Mat4,
+        surface_format: TextureFormat,
+    ) -> i32 {
         let mut projection_count: i32 = 0;
 
         if self.shadow_list.is_none() && self.decal_list.is_none() {
             return projection_count;
         }
 
-        // C++: According to Nvidia there's a D3D bug that happens if you don't start with a
-        // new dynamic VB each frame - so we force a DISCARD by overflowing the counter.
-        // nShadowDecalVertsInBuf = 0xffff;
-        // nShadowDecalIndicesInBuf = 0xffff;
         self.decal_verts_in_buf = 0xffff;
         self.decal_indices_in_buf = 0xffff;
 
-        // C++ code:
-        // if (TheGlobalData->m_useShadowDecals)
-        // {
-        //     TheDX8MeshRenderer.Set_Camera(&rinfo.Camera);
-        //     ... iterate through shadow_list and decal_list
-        // }
-
-        // Keep track of active decal texture so we can render all decals at once
-        // C++: W3DShadowTexture *lastShadowDecalTexture = NULL;
-        // C++: ShadowType lastShadowType = SHADOW_NONE;
         let mut last_shadow_decal_texture: Option<Arc<W3DShadowTexture>> = None;
         let mut last_shadow_type = ShadowType::NONE;
 
-        // Process projected shadows and decals
-        // C++ iterates through m_shadowList and m_decalList
         if let Some(ref shadow_head) = self.shadow_list {
             let mut current = Some(shadow_head.clone());
             while let Some(shadow_arc) = current {
                 let shadow = shadow_arc.read();
                 if shadow.is_enabled && !shadow.is_invisible_enabled {
                     if shadow.shadow_type.contains(ShadowType::DECAL) {
-                        // Flush previous texture batch if texture changed
                         if let Some(ref tex) = shadow.shadow_texture[0] {
                             if last_shadow_decal_texture.is_none() {
                                 last_shadow_decal_texture = Some(tex.clone());
@@ -755,7 +862,6 @@ impl W3DProjectedShadowManager {
                                 last_shadow_type = shadow.shadow_type;
                             }
 
-                            // Check if texture or type changed
                             let should_flush = last_shadow_decal_texture
                                 .as_ref()
                                 .map_or(true, |t| !Arc::ptr_eq(t, tex))
@@ -763,14 +869,12 @@ impl W3DProjectedShadowManager {
 
                             if should_flush {
                                 if let Some(ref last_tex) = last_shadow_decal_texture {
-                                    self.flush_decals(last_tex, last_shadow_type);
+                                    self.flush_decals(device, queue, render_pass, last_tex, last_shadow_type, view_proj, surface_format);
                                 }
                                 last_shadow_decal_texture = Some(tex.clone());
                                 last_shadow_type = shadow.shadow_type;
                             }
 
-                            // Queue decal for rendering
-                            // C++: if (shadow->m_robj->Is_Really_Visible())
                             drop(shadow);
                             self.queue_decal(&shadow_arc.read());
                             projection_count += 1;
@@ -779,23 +883,18 @@ impl W3DProjectedShadowManager {
                         }
                     }
 
-                    // Handle SHADOW_PROJECTION type
                     if shadow.shadow_type == ShadowType::PROJECTION {
-                        // C++: shadow->updateProjectionParameters(rinfo.Camera.Get_Transform());
-                        // C++: renderProjectedTerrainShadow(shadow, aaBox)
                         projection_count += 1;
                     }
                 }
                 current = shadow.next.clone();
             }
 
-            // Flush remaining decals
             if let Some(ref last_tex) = last_shadow_decal_texture {
-                self.flush_decals(last_tex, last_shadow_type);
+                self.flush_decals(device, queue, render_pass, last_tex, last_shadow_type, view_proj, surface_format);
             }
         }
 
-        // Process standalone decals (m_decalList)
         if let Some(ref decal_head) = self.decal_list {
             let mut current = Some(decal_head.clone());
             while let Some(shadow_arc) = current {
@@ -809,7 +908,7 @@ impl W3DProjectedShadowManager {
 
                         if should_flush {
                             if let Some(ref last_tex) = last_shadow_decal_texture {
-                                self.flush_decals(last_tex, last_shadow_type);
+                                self.flush_decals(device, queue, render_pass, last_tex, last_shadow_type, view_proj, surface_format);
                             }
                             last_shadow_decal_texture = Some(tex.clone());
                             last_shadow_type = shadow.shadow_type;
@@ -823,19 +922,70 @@ impl W3DProjectedShadowManager {
                 current = shadow.next.clone();
             }
 
-            // Flush remaining decals
             if let Some(ref last_tex) = last_shadow_decal_texture {
-                self.flush_decals(last_tex, last_shadow_type);
+                self.flush_decals(device, queue, render_pass, last_tex, last_shadow_type, view_proj, surface_format);
             }
         }
 
         projection_count
     }
 
-    /// Queue decal for rendering
+    /// Queue decal for rendering by adding vertices to staging buffer.
     /// C++: void W3DProjectedShadowManager::queueDecal(W3DProjectedShadow *shadow)
-    pub fn queue_decal(&mut self, _shadow: &W3DProjectedShadow) {
-        // C++ adds decal vertices to vertex buffer for batched rendering
+    pub fn queue_decal(&mut self, shadow: &W3DProjectedShadow) {
+        let context = match self.shadow_context.as_mut() {
+            Some(ctx) => ctx,
+            None => return,
+        };
+
+        let half_x = shadow.decal_size_x * 0.5;
+        let half_y = shadow.decal_size_y * 0.5;
+        let base_vertex = context.decal_vertices.len() as u16;
+
+        let diffuse = shadow.diffuse;
+
+        // Create a simple 4-vertex quad for the decal
+        context.decal_vertices.push(ShadowDecalVertex {
+            x: shadow.x - half_x,
+            y: shadow.y - half_y,
+            z: shadow.z,
+            diffuse,
+            u: 0.0 + shadow.decal_offset_u,
+            v: 1.0 + shadow.decal_offset_v,
+        });
+        context.decal_vertices.push(ShadowDecalVertex {
+            x: shadow.x + half_x,
+            y: shadow.y - half_y,
+            z: shadow.z,
+            diffuse,
+            u: 1.0 + shadow.decal_offset_u,
+            v: 1.0 + shadow.decal_offset_v,
+        });
+        context.decal_vertices.push(ShadowDecalVertex {
+            x: shadow.x + half_x,
+            y: shadow.y + half_y,
+            z: shadow.z,
+            diffuse,
+            u: 1.0 + shadow.decal_offset_u,
+            v: 0.0 + shadow.decal_offset_v,
+        });
+        context.decal_vertices.push(ShadowDecalVertex {
+            x: shadow.x - half_x,
+            y: shadow.y + half_y,
+            z: shadow.z,
+            diffuse,
+            u: 0.0 + shadow.decal_offset_u,
+            v: 0.0 + shadow.decal_offset_v,
+        });
+
+        // Two triangles for the quad
+        context.decal_indices.extend_from_slice(&[
+            base_vertex, base_vertex + 1, base_vertex + 2,
+            base_vertex, base_vertex + 2, base_vertex + 3,
+        ]);
+
+        self.decal_verts_in_batch += 4;
+        self.decal_polys_in_batch += 2;
     }
 
     /// Queue simple decal (floating on terrain)
@@ -844,35 +994,116 @@ impl W3DProjectedShadowManager {
         // C++ creates simple 4-vertex quad for decal
     }
 
-    /// Flush decals to GPU
+    /// Flush decals to GPU with actual draw calls and blend modes.
     /// C++: void W3DProjectedShadowManager::flushDecals(W3DShadowTexture *texture, ShadowType type)
-    pub fn flush_decals(&mut self, texture: &W3DShadowTexture, shadow_type: ShadowType) {
-        // C++: if (nShadowDecalVertsInBatch == 0 && nShadowDecalPolysInBatch == 0)
-        //         return;  // nothing to render
-
+    pub fn flush_decals(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        render_pass: &mut RenderPass,
+        texture: &W3DShadowTexture,
+        shadow_type: ShadowType,
+        view_proj: Mat4,
+        surface_format: TextureFormat,
+    ) {
         if self.decal_polys_in_batch == 0 && self.decal_verts_in_batch == 0 {
             return;
         }
 
-        // C++ code:
-        // 1. Sets up D3D device with appropriate shader based on shadow type
-        // 2. Sets texture from W3DShadowTexture
-        // 3. Draws indexed primitive
-
-        // Select appropriate shader based on shadow type
-        // C++: switch (type) { case SHADOW_DECAL: _PresetMultiplicativeShader; ... }
-        let _shader = match shadow_type {
-            ShadowType::DECAL => "multiplicative",
-            ShadowType::ALPHA_DECAL => "alpha",
-            ShadowType::ADDITIVE_DECAL => "additive",
-            _ => "multiplicative",
+        let context = match self.shadow_context.as_mut() {
+            Some(ctx) => ctx,
+            None => return,
         };
 
-        // C++: DX8Wrapper::Set_Texture(0, texture->getTexture());
-        let _tex = texture.get_texture();
+        context.ensure_pipelines(device, surface_format);
 
-        // C++: m_pDev->DrawIndexedPrimitive(D3DPT_TRIANGLELIST, ...)
-        // Reset batch counters after flush
+        let pipeline = match shadow_type {
+            ShadowType::DECAL | ShadowType::DIRECTIONAL_PROJECTION => context.pipeline_decal.as_ref(),
+            ShadowType::ALPHA_DECAL => context.pipeline_alpha.as_ref(),
+            ShadowType::ADDITIVE_DECAL => context.pipeline_additive.as_ref(),
+            _ => context.pipeline_decal.as_ref(),
+        };
+
+        let Some(pipeline) = pipeline else { return };
+
+        // Upload uniform buffer with view-projection matrix
+        if let Some(ref uniform_buffer) = context.uniform_buffer {
+            let vp_bytes: [[f32; 4]; 4] = view_proj.to_cols_array_2d();
+            queue.write_buffer(uniform_buffer, 0, bytemuck::cast_slice(&[vp_bytes]));
+        }
+
+        // Upload vertex data
+        let vertices = &context.decal_vertices;
+        let indices = &context.decal_indices;
+        if vertices.is_empty() || indices.is_empty() {
+            self.decal_polys_in_batch = 0;
+            self.decal_verts_in_batch = 0;
+            return;
+        }
+
+        let vb = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Shadow Decal VB"),
+            contents: bytemuck::cast_slice(vertices),
+            usage: BufferUsages::VERTEX,
+        });
+
+        let ib = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Shadow Decal IB"),
+            contents: bytemuck::cast_slice(indices),
+            usage: BufferUsages::INDEX,
+        });
+
+        render_pass.set_pipeline(pipeline);
+
+        // Set uniform bind group (group 0)
+        if let (Some(ref uniform_buffer), Some(ref ubgl)) = (context.uniform_buffer.as_ref(), context.uniform_bind_group_layout.as_ref()) {
+            let uniform_bg = device.create_bind_group(&BindGroupDescriptor {
+                label: Some("Shadow Decal Uniform BG"),
+                layout: ubgl,
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                }],
+            });
+            render_pass.set_bind_group(0, &uniform_bg, &[]);
+        }
+
+        // Set texture bind group (group 1)
+        if let (Some(ref tex_handle), Some(ref tbgl)) = (texture.get_texture(), context.texture_bind_group_layout.as_ref()) {
+            let sampler = device.create_sampler(&SamplerDescriptor {
+                label: Some("Shadow Decal Sampler"),
+                address_mode_u: AddressMode::ClampToEdge,
+                address_mode_v: AddressMode::ClampToEdge,
+                address_mode_w: AddressMode::ClampToEdge,
+                mag_filter: FilterMode::Linear,
+                min_filter: FilterMode::Linear,
+                mipmap_filter: FilterMode::Nearest,
+                ..Default::default()
+            });
+            let tex_bg = device.create_bind_group(&BindGroupDescriptor {
+                label: Some("Shadow Decal Texture BG"),
+                layout: tbgl,
+                entries: &[
+                    BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(tex_handle.view.as_ref()),
+                    },
+                    BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
+            render_pass.set_bind_group(1, &tex_bg, &[]);
+        }
+
+        render_pass.set_vertex_buffer(0, vb.slice(..));
+        render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+
+        // Clear staging buffers and reset batch counters
+        context.decal_vertices.clear();
+        context.decal_indices.clear();
         self.decal_polys_in_batch = 0;
         self.decal_verts_in_batch = 0;
     }
@@ -890,15 +1121,27 @@ impl W3DProjectedShadowManager {
     }
 }
 
-/// Camera handle placeholder
+/// Camera handle for shadow rendering, holding GPU resources.
 #[derive(Debug, Clone)]
 pub struct CameraHandle {
-    pub id: u64,
+    pub view_matrix: Mat4,
+    pub projection_matrix: Mat4,
+    pub view_projection: Mat4,
 }
 
 impl CameraHandle {
     pub fn new() -> Self {
-        Self { id: 0 }
+        Self {
+            view_matrix: Mat4::IDENTITY,
+            projection_matrix: Mat4::IDENTITY,
+            view_projection: Mat4::IDENTITY,
+        }
+    }
+
+    pub fn update_matrices(&mut self, view: Mat4, projection: Mat4) {
+        self.view_matrix = view;
+        self.projection_matrix = projection;
+        self.view_projection = projection * view;
     }
 }
 
@@ -908,15 +1151,191 @@ impl Default for CameraHandle {
     }
 }
 
-/// Render context handle placeholder
-#[derive(Debug, Clone)]
+/// Render context holding decal vertex/index buffers and pipeline for shadow draws.
+#[derive(Debug)]
 pub struct RenderContextHandle {
-    pub id: u64,
+    /// Staging vertex data for batched decal rendering
+    pub decal_vertices: Vec<ShadowDecalVertex>,
+    /// Staging index data for batched decal rendering
+    pub decal_indices: Vec<u16>,
+    /// GPU vertex buffer (recreated each flush)
+    vertex_buffer: Option<Buffer>,
+    /// GPU index buffer (recreated each flush)
+    index_buffer: Option<Buffer>,
+    /// Decal render pipeline for multiplicative blend
+    pipeline_decal: Option<RenderPipeline>,
+    /// Decal render pipeline for alpha blend
+    pipeline_alpha: Option<RenderPipeline>,
+    /// Decal render pipeline for additive blend
+    pipeline_additive: Option<RenderPipeline>,
+    /// Bind group layout for shadow texture
+    texture_bind_group_layout: Option<BindGroupLayout>,
+    /// Uniform buffer for projection matrix
+    uniform_buffer: Option<Buffer>,
+    /// Uniform bind group layout
+    uniform_bind_group_layout: Option<BindGroupLayout>,
+    /// Surface format for pipeline creation
+    surface_format: Option<TextureFormat>,
 }
 
 impl RenderContextHandle {
     pub fn new() -> Self {
-        Self { id: 0 }
+        Self {
+            decal_vertices: Vec::with_capacity(SHADOW_DECAL_VERTEX_SIZE),
+            decal_indices: Vec::with_capacity(SHADOW_DECAL_INDEX_SIZE),
+            vertex_buffer: None,
+            index_buffer: None,
+            pipeline_decal: None,
+            pipeline_alpha: None,
+            pipeline_additive: None,
+            texture_bind_group_layout: None,
+            uniform_buffer: None,
+            uniform_bind_group_layout: None,
+            surface_format: None,
+        }
+    }
+
+    fn ensure_pipelines(&mut self, device: &Device, surface_format: TextureFormat) {
+        if self.surface_format == Some(surface_format) && self.pipeline_decal.is_some() {
+            return;
+        }
+        self.surface_format = Some(surface_format);
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shadow Decal Shader"),
+            source: wgpu::ShaderSource::Wgsl(SHADOW_DECAL_SHADER.into()),
+        });
+
+        self.uniform_bind_group_layout = Some(device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("Shadow Decal Uniform Layout"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        }));
+
+        self.texture_bind_group_layout = Some(device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("Shadow Decal Texture Layout"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        }));
+
+        let uniform_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("Shadow Decal Uniforms"),
+            size: 64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.uniform_buffer = Some(uniform_buffer);
+
+        let decal_blend = wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::SrcColor,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        };
+
+        let alpha_blend = wgpu::BlendState::ALPHA_BLENDING;
+
+        let additive_blend = wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        };
+
+        let layouts: Vec<&BindGroupLayout> = vec![
+            self.uniform_bind_group_layout.as_ref().unwrap(),
+            self.texture_bind_group_layout.as_ref().unwrap(),
+        ];
+
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("Shadow Decal Pipeline Layout"),
+            bind_group_layouts: &layouts,
+            push_constant_ranges: &[],
+        });
+
+        let vertex_layout = ShadowDecalVertex::buffer_layout();
+
+        let create_pipeline = |blend: wgpu::BlendState, label: &str| -> RenderPipeline {
+            device.create_render_pipeline(&RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pipeline_layout),
+                vertex: VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[vertex_layout.clone()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: surface_format,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: PrimitiveState {
+                    topology: PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: TextureFormat::Depth24PlusStencil8,
+                    depth_write_enabled: false,
+                    depth_compare: CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            })
+        };
+
+        self.pipeline_decal = Some(create_pipeline(decal_blend, "Shadow Decal Pipeline (Multiply)"));
+        self.pipeline_alpha = Some(create_pipeline(alpha_blend, "Shadow Decal Pipeline (Alpha)"));
+        self.pipeline_additive = Some(create_pipeline(additive_blend, "Shadow Decal Pipeline (Additive)"));
     }
 }
 
@@ -925,6 +1344,47 @@ impl Default for RenderContextHandle {
         Self::new()
     }
 }
+
+const SHADOW_DECAL_SHADER: &str = r#"
+struct Uniforms {
+    view_proj: mat4x4<f32>,
+};
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) diffuse: u32,
+    @location(2) uv: vec2<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+    @location(1) uv: vec2<f32>,
+};
+
+@vertex
+fn vs(input: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    out.position = uniforms.view_proj * vec4<f32>(input.position, 1.0);
+    let r = f32(input.diffuse & 0xFFu) / 255.0;
+    let g = f32((input.diffuse >> 8u) & 0xFFu) / 255.0;
+    let b = f32((input.diffuse >> 16u) & 0xFFu) / 255.0;
+    let a = f32((input.diffuse >> 24u) & 0xFFu) / 255.0;
+    out.color = vec4<f32>(r, g, b, a);
+    out.uv = input.uv;
+    return out;
+}
+
+@group(1) @binding(0) var shadow_tex: texture_2d<f32>;
+@group(1) @binding(1) var shadow_sampler: sampler;
+
+@fragment
+fn fs(in: VertexOutput) -> @location(0) vec4<f32> {
+    let tex_color = textureSample(shadow_tex, shadow_sampler, in.uv);
+    return in.color * tex_color;
+}
+"#;
 
 /// Global projected shadow manager singleton
 /// C++: W3DProjectedShadowManager *TheW3DProjectedShadowManager = NULL;

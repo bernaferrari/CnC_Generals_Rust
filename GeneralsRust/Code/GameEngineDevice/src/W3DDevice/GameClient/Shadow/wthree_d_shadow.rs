@@ -190,10 +190,9 @@ impl W3DShadowManager {
 
     /// One-time initialization of shadow systems
     /// C++: Bool W3DShadowManager::init()
-    pub fn init(&mut self) -> bool {
+    pub fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
         let mut result = true;
 
-        // Initialize volumetric shadow manager
         if let Some(ref vol_manager) = self.volumetric_manager {
             let mut mgr = vol_manager.write();
             if mgr.init() && mgr.re_acquire_resources() {
@@ -201,10 +200,9 @@ impl W3DShadowManager {
             }
         }
 
-        // Initialize projected shadow manager
         if let Some(ref proj_manager) = self.projected_manager {
             let mut mgr = proj_manager.write();
-            if mgr.init() && mgr.re_acquire_resources() {
+            if mgr.init() && mgr.re_acquire_resources(device, queue) {
                 result = true;
             }
         }
@@ -225,7 +223,7 @@ impl W3DShadowManager {
 
     /// Re-acquire device-dependent resources
     /// C++: Bool W3DShadowManager::ReAcquireResources()
-    pub fn re_acquire_resources(&mut self) -> bool {
+    pub fn re_acquire_resources(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
         let mut result = true;
 
         if let Some(ref vol_manager) = self.volumetric_manager {
@@ -234,7 +232,7 @@ impl W3DShadowManager {
             }
         }
         if let Some(ref proj_manager) = self.projected_manager {
-            if !proj_manager.write().re_acquire_resources() {
+            if !proj_manager.write().re_acquire_resources(device, queue) {
                 result = false;
             }
         }

@@ -9,7 +9,6 @@ use super::{
 };
 use crate::game_logic::GameMode;
 use crate::localization;
-use log::trace;
 
 /// Main menu state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -572,32 +571,15 @@ impl Interactive for MainMenu {
 
 impl Renderable for MainMenu {
     fn render(&self, context: &mut UIRenderContext) {
-        // Menu drawing currently routes through the shared UI render context logging path.
-
-        // For now, just print what would be rendered
-        let title = self.get_menu_title();
-        let header = localization::localize_with_args(
-            "menu.log.header",
-            "=== {title} ===",
-            &[("title", title.as_str())],
-        );
-        trace!("{header}");
-
-        // Render background
         self.render_background(context);
-
-        // Render logo
         self.render_logo(context);
 
-        // Render menu buttons
         for button in &self.buttons {
             self.render_button(button, context);
         }
 
-        // Render version text
         self.render_version_text(context);
 
-        // Render credits if in credits mode
         if self.state == MainMenuState::Credits {
             self.render_credits(context);
         }
@@ -613,118 +595,136 @@ impl Renderable for MainMenu {
 }
 
 impl MainMenu {
-    fn render_background(&self, _context: &mut UIRenderContext) {
-        // Keep deterministic backdrop timing until particle background pass is wired.
-        let time_str = format!("{:.2}", self.background_time);
-        let background_log = localization::localize_with_args(
-            "menu.log.render_background",
-            "Rendering menu background (time: {time})",
-            &[("time", time_str.as_str())],
-        );
-        trace!("{background_log}");
+    fn render_background(&self, context: &mut UIRenderContext) {
+        let (sw, sh) = (context.screen_size.0 as f32, context.screen_size.1 as f32);
+        let t = self.background_time;
+
+        let r = 0.02 + (t * 0.3).sin() * 0.01;
+        let g = 0.04 + (t * 0.2).sin() * 0.01;
+        let b = 0.08 + (t * 0.25).sin() * 0.02;
+        context.draw_rect(0.0, 0.0, sw, sh, [r, g, b, 1.0]);
     }
 
-    fn render_logo(&self, _context: &mut UIRenderContext) {
+    fn render_logo(&self, context: &mut UIRenderContext) {
+        let (sw, sh) = (context.screen_size.0 as f32, context.screen_size.1 as f32);
         let pulse_scale = 1.0 + (self.logo_pulse_time.sin() * 0.05);
-        let scale_str = format!("{:.2}", pulse_scale);
-        let logo_log = localization::localize_with_args(
-            "menu.log.render_logo",
-            "Rendering logo (pulse scale: {scale})",
-            &[("scale", scale_str.as_str())],
-        );
-        trace!("{logo_log}");
+        let logo_w = 400.0 * pulse_scale;
+        let logo_h = 80.0 * pulse_scale;
+        let logo_x = (sw - logo_w) * 0.5;
+        let logo_y = sh * 0.15 - logo_h * 0.5;
+
+        context.draw_rect(logo_x, logo_y, logo_w, logo_h, [0.05, 0.1, 0.2, 0.9]);
+
+        let title = self.get_menu_title();
+        let font_size = 28.0 * pulse_scale;
+        let approx_w = title.len() as f32 * font_size * 0.65;
+        let text_x = (sw - approx_w) * 0.5;
+        context.draw_text(&title, text_x, logo_y + logo_h * 0.7, font_size, [0.9, 0.85, 0.5, 1.0]);
     }
 
-    fn render_button(&self, button: &MenuButton, _context: &mut UIRenderContext) {
-        let pressed_label = localization::localize("menu.log.button_state_pressed", "pressed");
-        let hovered_label = localization::localize("menu.log.button_state_hovered", "hovered");
-        let normal_label = localization::localize("menu.log.button_state_normal", "normal");
-        let disabled_label = localization::localize("menu.log.button_state_disabled", "disabled");
-
-        let state = if button.pressed {
-            pressed_label.as_str()
-        } else if button.hovered {
-            hovered_label.as_str()
-        } else if button.enabled {
-            normal_label.as_str()
-        } else {
-            disabled_label.as_str()
-        };
-
+    fn render_button(&self, button: &MenuButton, context: &mut UIRenderContext) {
         let scale = button.click_scale();
-        let (x, y, _, _) = utils::scale_rect_center(
-            (
-                button.position.0,
-                button.position.1,
-                button.size.0,
-                button.size.1,
-            ),
+        let (bx, by, bw, bh) = utils::scale_rect_center(
+            (button.position.0, button.position.1, button.size.0, button.size.1),
             scale,
         );
-        let x_str = format!("{:.1}", x);
-        let y_str = format!("{:.1}", y);
-        let button_log = localization::localize_with_args(
-            "menu.log.button_render",
-            "Button '{text}' at ({x}, {y}) - state: {state}",
-            &[
-                ("text", button.text.as_str()),
-                ("x", x_str.as_str()),
-                ("y", y_str.as_str()),
-                ("state", state),
-            ],
-        );
-        trace!("{button_log}");
+
+        let bg_color = if !button.enabled {
+            [0.15, 0.15, 0.2, 0.8]
+        } else if button.pressed {
+            [0.3, 0.3, 0.1, 0.95]
+        } else if button.hovered {
+            let p = button.get_hover_progress();
+            let base = 0.12;
+            let hover = 0.25;
+            [base + (hover - base) * p, base + (hover - base) * p, base * 0.5, 0.95]
+        } else {
+            [0.12, 0.12, 0.18, 0.9]
+        };
+        context.draw_rect(bx, by, bw, bh, bg_color);
 
         if button.hovered {
-            let hover_progress = button.get_hover_progress();
-            let hover_text = localization::localize_with_args(
-                "menu.log.hover_animation",
-                "  Hover animation: {progress}",
-                &[("progress", format!("{:.2}", hover_progress).as_str())],
-            );
-            trace!("{hover_text}");
+            let p = button.get_hover_progress();
+            let border_alpha = 0.3 + 0.7 * p;
+            let thickness = 2.0;
+            context.draw_rect(bx, by, bw, thickness, [0.75, 0.7, 0.2, border_alpha]);
+            context.draw_rect(bx, by + bh - thickness, bw, thickness, [0.75, 0.7, 0.2, border_alpha]);
+            context.draw_rect(bx, by, thickness, bh, [0.75, 0.7, 0.2, border_alpha]);
+            context.draw_rect(bx + bw - thickness, by, thickness, bh, [0.75, 0.7, 0.2, border_alpha]);
         }
+
+        let text_color = if !button.enabled {
+            [0.35, 0.35, 0.4, 1.0]
+        } else if button.hovered {
+            [0.95, 0.92, 0.3, 1.0]
+        } else {
+            [0.8, 0.8, 0.85, 1.0]
+        };
+
+        let font_size = 16.0;
+        let approx_w = button.text.len() as f32 * font_size * 0.65;
+        let text_x = bx + (bw - approx_w) * 0.5;
+        let text_y = by + (bh + font_size * 0.42) * 0.5;
+        context.draw_text(
+            &format!("{}", button.text),
+            text_x + 1.0,
+            text_y + 1.0,
+            font_size,
+            [0.0, 0.0, 0.0, 0.6],
+        );
+        context.draw_text(&button.text, text_x, text_y, font_size, text_color);
     }
 
-    fn render_version_text(&self, _context: &mut UIRenderContext) {
-        let version_x = 10;
-        let version_y = self.screen_size.1 as i32 - 30;
-        let version_log = localization::localize_with_args(
-            "menu.log.version_text",
-            "Version text '{text}' at ({x}, {y})",
-            &[
-                ("text", self.version_text.as_str()),
-                ("x", version_x.to_string().as_str()),
-                ("y", version_y.to_string().as_str()),
-            ],
+    fn render_version_text(&self, context: &mut UIRenderContext) {
+        let version_x = 10.0;
+        let version_y = context.screen_size.1 as f32 - 20.0;
+        context.draw_text(
+            &self.version_text,
+            version_x + 1.0,
+            version_y + 1.0,
+            12.0,
+            [0.0, 0.0, 0.0, 0.5],
         );
-        trace!("{version_log}");
+        context.draw_text(&self.version_text, version_x, version_y, 12.0, [0.6, 0.6, 0.65, 0.8]);
     }
 
-    fn render_credits(&self, _context: &mut UIRenderContext) {
-        trace!(
-            "{}",
-            localization::localize("menu.credits.header", "=== CREDITS ===")
-        );
-        trace!(
-            "{}",
-            localization::localize(
-                "menu.credits.original",
-                "Command & Conquer Generals Zero Hour"
-            )
-        );
-        trace!(
-            "{}",
-            localization::localize("menu.credits.developer", "Originally by EA Los Angeles")
-        );
-        trace!(
-            "{}",
-            localization::localize("menu.credits.rust_port", "Rust conversion by the community")
-        );
-        trace!(
-            "{}",
-            localization::localize("menu.credits.footer", "===============")
-        );
+    fn render_credits(&self, context: &mut UIRenderContext) {
+        let (sw, sh) = (context.screen_size.0 as f32, context.screen_size.1 as f32);
+        let overlay_w = sw * 0.6;
+        let overlay_h = sh * 0.5;
+        let ox = (sw - overlay_w) * 0.5;
+        let oy = (sh - overlay_h) * 0.5;
+        context.draw_rect(ox, oy, overlay_w, overlay_h, [0.02, 0.03, 0.06, 0.95]);
+
+        let lines = [
+            "=== CREDITS ===",
+            "Command & Conquer Generals Zero Hour",
+            "Originally by EA Los Angeles",
+            "Rust conversion by the community",
+            "===============",
+        ];
+        let font_size = 18.0;
+        let line_spacing = font_size * 1.6;
+        let start_y = oy + line_spacing;
+        for (i, line) in lines.iter().enumerate() {
+            let y = start_y + i as f32 * line_spacing;
+            let approx_w = line.len() as f32 * font_size * 0.65;
+            let x = ox + (overlay_w - approx_w) * 0.5;
+            let is_header = i == 0 || i == lines.len() - 1;
+            let color = if is_header {
+                [0.9, 0.85, 0.5, 1.0]
+            } else {
+                [0.8, 0.8, 0.85, 1.0]
+            };
+            context.draw_text(
+                line,
+                x + 1.0,
+                y + 1.0,
+                font_size,
+                [0.0, 0.0, 0.0, 0.5],
+            );
+            context.draw_text(line, x, y, font_size, color);
+        }
     }
 }
 

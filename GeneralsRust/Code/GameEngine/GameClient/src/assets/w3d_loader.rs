@@ -761,6 +761,9 @@ impl W3DLoader {
             let influences_raw: &[W3DVertexInfluence] =
                 cast_slice(&chunk_data[offset..offset + influence_bytes]);
             for (vertex_index, inf) in influences_raw.iter().enumerate() {
+                if vertex_index >= mesh.vertices.len() {
+                    break;
+                }
                 let primary_weight = f32::from(inf.bone_inf) / 65535.0;
                 if primary_weight > 0.0 {
                     mesh.vertex_influences.push(VertexInfluence {
@@ -778,6 +781,38 @@ impl W3DLoader {
                         weight: secondary_weight,
                     });
                 }
+
+                // Apply influences directly to vertex bone data in 4-bone format.
+                // W3D stores up to 2 bones per vertex; pad remaining slots.
+                let vertex = &mut mesh.vertices[vertex_index];
+                vertex.bone_indices = [0u8; 4];
+                vertex.bone_weights = [0.0f32; 4];
+
+                if primary_weight > 0.0 {
+                    vertex.bone_indices[0] = inf.bone_idx as u8;
+                    vertex.bone_weights[0] = primary_weight;
+                }
+
+                if secondary_weight > 0.0 {
+                    vertex.bone_indices[1] = inf.xtra_idx as u8;
+                    vertex.bone_weights[1] = secondary_weight;
+                }
+
+                // If no weights were assigned, bind to bone 0 with full weight
+                // so the shader still produces a valid skinned position.
+                if primary_weight <= 0.0 && secondary_weight <= 0.0 {
+                    vertex.bone_indices[0] = 0;
+                    vertex.bone_weights[0] = 1.0;
+                }
+
+                // Normalize weights so they sum to 1.0 for the shader.
+                let total: f32 = vertex.bone_weights.iter().sum();
+                if total > 0.0 && (total - 1.0).abs() > f32::EPSILON {
+                    let scale = 1.0 / total;
+                    for w in vertex.bone_weights.iter_mut() {
+                        *w *= scale;
+                    }
+                }
             }
         }
 
@@ -788,15 +823,97 @@ impl W3DLoader {
     async fn parse_hierarchy_chunk(
         &self,
         cursor: &mut Cursor<&[u8]>,
-        _size: u32,
+        size: u32,
     ) -> Result<W3DHierarchy, W3DError> {
-        // Simplified hierarchy parsing
+        if size < std::mem::size_of::<W3DHierarchyHeader>() as u32 {
+            return Ok(W3DHierarchy {
+                name: "default_hierarchy".to_string(),
+                bones: Vec::new(),
+                bone_name_lookup: HashMap::new(),
+                bind_pose: Vec::new(),
+                inverse_bind_pose: Vec::new(),
+            });
+        }
+
+        let mut header_data = vec![0u8; std::mem::size_of::<W3DHierarchyHeader>()];
+        cursor.read_exact(&mut header_data)?;
+        let header: W3DHierarchyHeader = *from_bytes(&header_data);
+
+        let name = parse_fixed_ascii(&header.name);
+        let num_pivots = header.num_pivots as usize;
+
+        let pivot_bytes = num_pivots.saturating_mul(std::mem::size_of::<W3DPivot>());
+        let remaining = size as usize - std::mem::size_of::<W3DHierarchyHeader>();
+        let actual_pivot_count = if pivot_bytes <= remaining {
+            num_pivots
+        } else {
+            remaining / std::mem::size_of::<W3DPivot>()
+        };
+
+        let mut pivot_data = vec![0u8; actual_pivot_count * std::mem::size_of::<W3DPivot>()];
+        cursor.read_exact(&mut pivot_data)?;
+        let pivots_raw: &[W3DPivot] = cast_slice(&pivot_data);
+
+        let mut bones = Vec::with_capacity(actual_pivot_count);
+        let mut bone_name_lookup = HashMap::new();
+        let mut bind_pose = Vec::with_capacity(actual_pivot_count);
+        let mut inverse_bind_pose = Vec::with_capacity(actual_pivot_count);
+
+        for (i, pivot) in pivots_raw.iter().enumerate() {
+            let bone_name = parse_fixed_ascii(&pivot.name);
+            bone_name_lookup.insert(bone_name.clone(), i);
+
+            let translation = Vector3::new(
+                pivot.translation[0],
+                pivot.translation[1],
+                pivot.translation[2],
+            );
+
+            let rotation = Quaternion::new(
+                pivot.rotation[3], // w
+                pivot.rotation[0], // x
+                pivot.rotation[1], // y
+                pivot.rotation[2], // z
+            );
+
+            let parent_index = if pivot.parent_idx >= 0 && (pivot.parent_idx as usize) < i {
+                Some(pivot.parent_idx as usize)
+            } else {
+                None
+            };
+
+            let transform = Matrix4::new_translation(&translation)
+                * Matrix4::from(rotation);
+
+            bind_pose.push(transform);
+            inverse_bind_pose.push(transform.try_inverse().unwrap_or(Matrix4::identity()));
+
+            bones.push(Bone {
+                name: bone_name,
+                parent_index,
+                children: Vec::new(),
+                translation,
+                rotation,
+                scale: Vector3::new(1.0, 1.0, 1.0),
+                transform,
+            });
+        }
+
+        // Populate children lists from parent references
+        for i in 0..bones.len() {
+            if let Some(parent_idx) = bones[i].parent_index {
+                if parent_idx < bones.len() {
+                    bones[parent_idx].children.push(i);
+                }
+            }
+        }
+
         Ok(W3DHierarchy {
-            name: "default_hierarchy".to_string(),
-            bones: Vec::new(),
-            bone_name_lookup: HashMap::new(),
-            bind_pose: Vec::new(),
-            inverse_bind_pose: Vec::new(),
+            name,
+            bones,
+            bone_name_lookup,
+            bind_pose,
+            inverse_bind_pose,
         })
     }
 
