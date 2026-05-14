@@ -1632,6 +1632,41 @@ pub fn update_goal_for_object(
     Ok(())
 }
 
+/// Snap a world position to the nearest pathfind grid cell center.
+/// Matches C++ Pathfinder::goalPosition() — returns the grid-snapped position
+/// and whether snapping actually changed the position.
+///
+/// C++ reference (AIStates.cpp:1347):
+///   if (TheAI->pathfinder()->goalPosition(obj, &goalPos)) { ... }
+///
+/// The C++ version looks up the object's registered goal in the pathfinder's
+/// internal goal map and returns the grid-cell-center position.  In this port
+/// we compute it directly from the world→grid→world round-trip.
+pub fn goal_position(pos: &Coord3D) -> Option<Coord3D> {
+    let ai = THE_AI.read().ok()?;
+    let pf_arc = ai.pathfinder()?;
+    let pf = pf_arc.read().ok()?;
+
+    let grid = pf.world_to_grid(pos);
+    let mut snapped = pf.grid_to_world(&grid);
+
+    // Preserve Z from terrain (C++ does this via the layer/terrain query)
+    if let Ok(terrain) = get_terrain_logic().read() {
+        snapped.z = terrain.get_ground_height(snapped.x, snapped.y, None);
+    } else {
+        snapped.z = pos.z;
+    }
+
+    // Only return Some if snapping actually moved the position
+    let dx = snapped.x - pos.x;
+    let dy = snapped.y - pos.y;
+    if dx.abs() > 0.001 || dy.abs() > 0.001 {
+        Some(snapped)
+    } else {
+        None
+    }
+}
+
 /// PARITY_NOTE: C++ uses full A* pathfind map (AIPathfind.cpp). Rust uses simplified
 /// direct path with terrain height sampling until the full pathfind map is ported.
 pub fn find_path(start: Coord3D, end: Coord3D, obj: Option<ObjectID>) -> Option<Vec<Coord3D>> {
