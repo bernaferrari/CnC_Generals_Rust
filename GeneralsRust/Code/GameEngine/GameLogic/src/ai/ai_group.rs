@@ -11,7 +11,7 @@ use std::sync::{Arc, RwLock};
 use crate::common::{Coord2D, Coord3D, KindOf, ObjectID, Real};
 use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::ai::{AiError, GuardMode, AI, AttitudeType, AiCommandInterface, AiData, AiCommandParams, AiCommandType};
+use crate::ai::{AiError, GuardMode, AI, AttitudeType, AiCommandInterface, AiData, AiCommandParams, AiCommandType, THE_AI};
 
 /// Formation types for group movement
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -953,24 +953,115 @@ impl AiGroup {
     }
 
     /// Calculate group pathfinding (single path for group)
+    /// C++ reference: AIGroup.cpp line 614 — findGroundPath for the group center,
+    /// then distribute formation positions along the path.
     fn calculate_group_pathfinding(&mut self, destination: Coord3D) -> Result<(), AiError> {
-        // This would use the pathfinding system to calculate a path
-        // For now, create a simple direct path
+        let unit_ids: Vec<ObjectID> = self.members.keys().copied().collect();
+        if unit_ids.is_empty() {
+            self.current_path = Some(vec![self.current_position, destination]);
+            return Ok(());
+        }
+
+        let mut unit_positions = HashMap::new();
+        for (&id, member) in &self.members {
+            unit_positions.insert(id, member.last_known_position);
+        }
+
+        let formation = self.formation_to_group_formation();
+
+        if let Ok(mut group_pf) = self.create_group_pathfinder() {
+            if let Some(ai_guard) = THE_AI.read().ok() {
+                if let Some(pf_system) = ai_guard.pathfinding_system() {
+                    if let Ok(pf_sys) = pf_system.read() {
+                        let paths = group_pf.find_group_paths(
+                            &pf_sys,
+                            &unit_ids,
+                            &unit_positions,
+                            destination,
+                            formation,
+                            super::pathfind_complete::SURFACE_GROUND,
+                            false,
+                            self.formation.unit_spacing,
+                        );
+
+                        let leader_id = self.coordination.leader_id.unwrap_or(unit_ids[0]);
+                        if let Some(leader_result) = paths.get(&leader_id) {
+                            if leader_result.success && !leader_result.waypoints.is_empty() {
+                                self.current_path = Some(leader_result.waypoints.clone());
+                                return Ok(());
+                            }
+                        }
+
+                        for result in paths.values() {
+                            if result.success && !result.waypoints.is_empty() {
+                                self.current_path = Some(result.waypoints.clone());
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         self.current_path = Some(vec![self.current_position, destination]);
         Ok(())
     }
 
-    /// Calculate individual pathfinding for each member
+    /// C++ reference: AIGroup.cpp friend_moveInfantryToPos / friend_moveToPos —
+    /// each member gets its own path to its formation slot at the destination.
     fn calculate_individual_pathfinding(&mut self, destination: Coord3D) -> Result<(), AiError> {
-        // Each member calculates its own path to its formation position at destination
-        for (_, member) in &mut self.members {
-            // Calculate member's target position in formation
-            let member_destination = self.calculate_member_destination(destination, member)?;
-            
-            // This would request pathfinding for this member
-            // For now, we'll just store the destination
+        let unit_ids: Vec<ObjectID> = self.members.keys().copied().collect();
+        if unit_ids.is_empty() {
+            return Ok(());
         }
-        
+
+        let mut unit_positions = HashMap::new();
+        for (&id, member) in &self.members {
+            unit_positions.insert(id, member.last_known_position);
+        }
+
+        let formation = self.formation_to_group_formation();
+
+        if let Ok(mut group_pf) = self.create_group_pathfinder() {
+            if let Some(ai_guard) = THE_AI.read().ok() {
+                if let Some(pf_system) = ai_guard.pathfinding_system() {
+                    if let Ok(pf_sys) = pf_system.read() {
+                        let paths = group_pf.find_group_paths(
+                            &pf_sys,
+                            &unit_ids,
+                            &unit_positions,
+                            destination,
+                            formation,
+                            super::pathfind_complete::SURFACE_GROUND,
+                            false,
+                            self.formation.unit_spacing,
+                        );
+
+                        let leader_id = self.coordination.leader_id.unwrap_or(unit_ids[0]);
+                        if let Some(leader_result) = paths.get(&leader_id) {
+                            if leader_result.success && !leader_result.waypoints.is_empty() {
+                                self.current_path = Some(leader_result.waypoints.clone());
+                            }
+                        }
+
+                        for (&member_id, member) in &mut self.members {
+                            if let Some(result) = paths.get(&member_id) {
+                                if result.success && !result.waypoints.is_empty() {
+                                    member.last_known_position = result.waypoints[result.waypoints.len() - 1];
+                                }
+                            }
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        for (_, member) in &mut self.members {
+            let member_destination = self.calculate_member_destination(destination, member)?;
+            member.last_known_position = member_destination;
+        }
+
         Ok(())
     }
 
@@ -983,6 +1074,26 @@ impl AiGroup {
             group_destination[1] + formation_offset[1],
             group_destination[2],
         ])
+    }
+
+    fn formation_to_group_formation(&self) -> super::group_pathfinding::FormationType {
+        match self.formation.formation_type {
+            FormationType::None => super::group_pathfinding::FormationType::None,
+            FormationType::Line => super::group_pathfinding::FormationType::Line,
+            FormationType::Column => super::group_pathfinding::FormationType::Column,
+            FormationType::Wedge => super::group_pathfinding::FormationType::Wedge,
+            FormationType::Diamond | FormationType::Square => super::group_pathfinding::FormationType::Box,
+            FormationType::Circle | FormationType::Custom => super::group_pathfinding::FormationType::Scatter,
+        }
+    }
+
+    fn create_group_pathfinder(&self) -> Result<super::group_pathfinding::GroupPathfinder, AiError> {
+        let spacing = self.formation.unit_spacing.max(10.0);
+        let mut gp = super::group_pathfinding::GroupPathfinder::new(spacing);
+        if let Some(leader_id) = self.coordination.leader_id {
+            gp.set_leader(leader_id);
+        }
+        Ok(gp)
     }
 
     /// Calculate formation positions for movement

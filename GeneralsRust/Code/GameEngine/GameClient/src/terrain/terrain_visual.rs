@@ -2825,10 +2825,47 @@ impl TerrainVisualImpl {
         Ok(())
     }
 
-    pub fn record_chunk_draws<'pass>(&self, pass: &mut RenderPass<'pass>) {
+    pub fn record_chunk_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
         if !self.enabled {
             return;
         }
+
+        self.record_skybox_background_draw(pass);
+
+        if let Some(pipeline) = &self.terrain_pipeline {
+            pass.set_pipeline(pipeline);
+            if let Some(camera_bg) = &self.terrain_camera_bind_group {
+                pass.set_bind_group(0, camera_bg, &[]);
+            }
+
+            let chunk_meshes = &self.chunk_meshes;
+            let chunk_texture_bindings = &self.chunk_texture_bindings;
+            let visible_chunk_ids = self.visible_chunk_ids_for_draw_area();
+
+            let _ = self.chunk_manager.render_pass_draw(
+                pass,
+                |chunk_id| {
+                    chunk_texture_bindings
+                        .get(&chunk_id)
+                        .map(|binding| binding.bind_group.clone())
+                },
+                |chunk_id| {
+                    let mesh = chunk_meshes.get(&chunk_id)?;
+                    if !visible_chunk_ids.contains(&chunk_id) {
+                        return None;
+                    }
+                    Some((
+                        mesh.vertex_buffer.slice(..),
+                        mesh.index_buffer.slice(..),
+                        mesh.index_count,
+                    ))
+                },
+            );
+        }
+
+        self.record_road_draws(pass);
+        self.record_water_draws(pass);
+    }
 
         self.record_skybox_background_draw(pass);
 
@@ -2875,7 +2912,7 @@ impl TerrainVisualImpl {
         pass.draw(0..3, 0..1);
     }
 
-    fn record_water_draws<'pass>(&self, pass: &mut RenderPass<'pass>) {
+    fn record_water_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
         let (Some(water_plane), Some(water_pipeline), Some(camera_bg)) = (
             self.water_plane.as_ref(),
             self.water_pipeline.as_ref(),
@@ -2886,15 +2923,17 @@ impl TerrainVisualImpl {
 
         pass.set_pipeline(water_pipeline);
         pass.set_bind_group(0, camera_bg, &[]);
-        pass.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
-        pass.set_index_buffer(
-            water_plane.index_buffer.slice(..),
-            wgpu::IndexFormat::Uint32,
-        );
-        pass.draw_indexed(0..water_plane.index_count, 0, 0..1);
+
+        let vertex_buffer = &water_plane.vertex_buffer;
+        let index_buffer = &water_plane.index_buffer;
+        let index_count = water_plane.index_count;
+
+        let _ = self.water_system.render_pass_draw(pass, || {
+            Some((vertex_buffer.slice(..), index_buffer.slice(..), index_count))
+        });
     }
 
-    fn record_road_draws<'pass>(&self, pass: &mut RenderPass<'pass>) {
+    fn record_road_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
         let (Some(road_pipeline), Some(camera_bg)) = (
             self.road_pipeline.as_ref(),
             self.terrain_camera_bind_group.as_ref(),
@@ -2907,11 +2946,14 @@ impl TerrainVisualImpl {
 
         pass.set_pipeline(road_pipeline);
         pass.set_bind_group(0, camera_bg, &[]);
-        for mesh in &self.road_meshes {
-            pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-        }
+
+        let road_meshes = &self.road_meshes;
+        let mut mesh_index = 0;
+        let _ = self.road_system.render_pass_draw(pass, || {
+            let mesh = road_meshes.get(mesh_index)?;
+            mesh_index += 1;
+            Some((mesh.vertex_buffer.slice(..), mesh.index_buffer.slice(..), mesh.index_count))
+        });
     }
 
     fn sync_global_water_plane(&mut self, device: &wgpu::Device) -> TerrainResult<()> {
