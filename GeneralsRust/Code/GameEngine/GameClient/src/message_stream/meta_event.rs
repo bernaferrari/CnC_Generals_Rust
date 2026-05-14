@@ -1964,19 +1964,19 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DEMO_DESHROUD") {
         reveal_local_player_map_permanently();
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_DESHROUD") {
         if !TheGameLogic::is_in_multiplayer_game() {
             reveal_local_player_map_permanently();
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_ENSHROUD") {
         shroud_local_player_map();
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_DUMP_ASSETS") {
@@ -2008,12 +2008,12 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DEMO_BEGIN_ADJUST_FOV") {
         set_demo_fov_adjusting(true);
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_END_ADJUST_FOV") {
         set_demo_fov_adjusting(false);
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if let Some(extent_adjust) = parse_extent_adjust_alias(&record.name) {
@@ -2027,7 +2027,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     {
         let value = adjust_skate_distance_override(0.25);
         TheInGameUI::message(&format!("Skate Distance Override is now {value:.6}"));
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record
@@ -2036,7 +2036,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     {
         let value = adjust_skate_distance_override(-0.25);
         TheInGameUI::message(&format!("Skate Distance Override is now {value:.6}"));
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record
@@ -2052,7 +2052,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             });
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record
@@ -2068,7 +2068,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             });
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_HURT_ME_MODE") {
@@ -2081,7 +2081,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             });
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_DEBUG_SELECTION") {
@@ -2108,7 +2108,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 player.get_money_mut().deposit_money(10_000);
             });
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_ADDCASH") {
@@ -2117,7 +2117,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 player.get_money_mut().deposit_money(10_000);
             });
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_INSTANT_BUILD") {
@@ -2130,7 +2130,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             }
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_INSTANT_BUILD") {
@@ -2174,7 +2174,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             TheInGameUI::message("Adding a SciencePurchasePoint");
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record
@@ -2203,7 +2203,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             TheInGameUI::message("Granting all sciences!");
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("CHEAT_SWITCH_TEAMS") {
@@ -2213,7 +2213,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             }
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_GIVE_ALL_SCIENCES") {
@@ -2267,9 +2267,8 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     if record.name.eq_ignore_ascii_case("CHEAT_KILL_SELECTION") {
         if !TheGameLogic::is_in_multiplayer_game() {
             kill_local_player_selection();
-            return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_KILL_SELECTION") {
@@ -2337,7 +2336,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if let Some((is_cheat_alias, script_index)) = parse_runscript_alias(&record.name) {
         if is_cheat_alias && TheGameLogic::is_in_multiplayer_game() {
-            return None;
+            return Some(GameMessageDisposition::DestroyMessage);
         }
         run_key_script_alias(script_index);
         return Some(GameMessageDisposition::DestroyMessage);
@@ -2482,7 +2481,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             let mut global = global_data.write();
             global.disable_render = !global.disable_render;
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record
@@ -2667,7 +2666,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 "Show Object Extents OFF"
             });
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record
@@ -2683,7 +2682,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 "Show AudioLocations OFF"
             });
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_SHOW_HEALTH") {
@@ -2696,7 +2695,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 "Object Health OFF"
             });
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_METRICS") {
@@ -2704,7 +2703,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             let mut global = global_data.write();
             global.show_metrics = !global.show_metrics;
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_DEBUG_STATS") {
@@ -2733,7 +2732,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         .eq_ignore_ascii_case("DEBUG_OBJECT_ID_PERFORMANCE")
     {
         report_object_id_lookup_performance();
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record
@@ -2741,7 +2740,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         .eq_ignore_ascii_case("DEBUG_DRAWABLE_ID_PERFORMANCE")
     {
         report_drawable_id_lookup_performance();
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record
@@ -2750,7 +2749,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     {
         let count = TheGameLogic::get_number_sleepy_updates();
         TheInGameUI::message(&format!("Number of Sleepy Modules: {count}."));
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_NETWORK") {
@@ -2820,7 +2819,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             "Statistics dump made on frame: {}",
             TheGameLogic::get_frame()
         ));
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_WIN") {
@@ -2898,7 +2897,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                 });
             }
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record
@@ -2912,7 +2911,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             }
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_MESSAGE_TEXT") {
@@ -2939,7 +2938,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
             }
             return Some(GameMessageDisposition::DestroyMessage);
         }
-        return None;
+        return Some(GameMessageDisposition::DestroyMessage);
     }
 
     // C++ consumes these command-map keybinds by appending the corresponding

@@ -492,6 +492,7 @@ impl W3DView {
         )?);
         self.mesh_renderer = Some(MeshRenderer::new(
             &device,
+            &queue,
             self.surface_config.as_ref().unwrap().format,
         )?);
         self.initialized = true;
@@ -606,9 +607,38 @@ impl W3DView {
                 mesh_renderer.bind(&mut render_pass);
 
                 for obj in scene.iter_render_objects() {
-                    if obj.is_really_visible() {
-                        mesh_renderer.set_world_transform(queue, obj.world_transform);
-                        obj.render(&render_info, Some(&mut render_pass), asset_manager);
+                    if !obj.is_really_visible() {
+                        continue;
+                    }
+                    mesh_renderer.set_world_transform(queue, obj.world_transform);
+
+                    let Some(asset_mgr) = asset_manager else { continue };
+                    let Some(meshes) = obj.prototype_meshes(asset_mgr) else {
+                        if let Some(hook) = &obj.render_hook {
+                            hook.render(&render_info);
+                        }
+                        continue;
+                    };
+
+                    for mesh in meshes {
+                        let (Some(vb), Some(ib)) = (&mesh.vertex_buffer, &mesh.index_buffer)
+                        else {
+                            continue;
+                        };
+
+                        let tex_name = mesh.texture_names.first().map(|s| s.as_str());
+                        mesh_renderer.bind_mesh_material(
+                            device,
+                            queue,
+                            &mut render_pass,
+                            tex_name,
+                            obj.opacity,
+                            asset_mgr,
+                        );
+
+                        render_pass.set_vertex_buffer(0, vb.slice(..));
+                        render_pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                     }
                 }
             }
@@ -1402,20 +1432,65 @@ struct MeshUniform {
     world: [[f32; 4]; 4],
 }
 
+/// Per-frame scene lighting uniforms (group 0, binding 1).
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct SceneLightingUniform {
+    light_direction: [f32; 4],
+    light_color: [f32; 4],
+    ambient_color: [f32; 4],
+}
+
+/// Per-material uniforms (group 1, binding 2).
+/// Matches C++ W3DMeshMatInfoClass material properties.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
+struct MeshMaterialUniform {
+    ambient_color: [f32; 4],
+    diffuse_color: [f32; 4],
+    emissive_color: [f32; 4],
+    shininess: f32,
+    opacity: f32,
+    has_texture: f32,
+    pad: f32,
+}
+
+impl Default for MeshMaterialUniform {
+    fn default() -> Self {
+        Self {
+            ambient_color: [0.2, 0.2, 0.2, 0.0],
+            diffuse_color: [1.0, 1.0, 1.0, 0.0],
+            emissive_color: [0.0, 0.0, 0.0, 0.0],
+            shininess: 0.0,
+            opacity: 1.0,
+            has_texture: 0.0,
+            pad: 0.0,
+        }
+    }
+}
+
 struct MeshRenderer {
     pipeline: RenderPipeline,
     uniform_buffer: Buffer,
-    bind_group: BindGroup,
+    lighting_buffer: Buffer,
+    bind_group_0: BindGroup,
+    material_layout: BindGroupLayout,
+    default_material_bind_group: BindGroup,
+    default_material_buffer: Buffer,
+    sampler: Sampler,
+    material_cache: HashMap<String, BindGroup>,
 }
 
 impl std::fmt::Debug for MeshRenderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MeshRenderer").finish()
+        f.debug_struct("MeshRenderer")
+            .field("material_cache_len", &self.material_cache.len())
+            .finish()
     }
 }
 
 impl MeshRenderer {
-    fn new(device: &Device, target_format: wgpu::TextureFormat) -> Result<Self> {
+    fn new(device: &Device, queue: &Queue, target_format: wgpu::TextureFormat) -> Result<Self> {
         let shader = device.create_shader_module(ShaderModuleDescriptor {
             label: Some("w3d_mesh_shader"),
             source: ShaderSource::Wgsl(include_str!("wthree_d_mesh.wgsl").into()),
@@ -1428,32 +1503,182 @@ impl MeshRenderer {
             mapped_at_creation: false,
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: Some("w3d_mesh_uniform_layout"),
-            entries: &[BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
+        let lighting_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("w3d_mesh_lighting"),
+            size: std::mem::size_of::<SceneLightingUniform>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
 
-        let bind_group = device.create_bind_group(&BindGroupDescriptor {
-            label: Some("w3d_mesh_uniform_bind_group"),
-            layout: &bind_group_layout,
-            entries: &[BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
+        // Default lighting: sun from upper-left, warm white, moderate ambient
+        let default_lighting = SceneLightingUniform {
+            light_direction: [-0.5, -0.7071, 0.5, 0.0],
+            light_color: [1.0, 0.95, 0.85, 0.0],
+            ambient_color: [0.3, 0.3, 0.35, 0.0],
+        };
+        queue.write_buffer(
+            &lighting_buffer,
+            0,
+            bytemuck::bytes_of(&default_lighting),
+        );
+
+        // Group 0: uniform buffer + lighting buffer
+        let bind_group_0_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("w3d_mesh_group0_layout"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let bind_group_0 = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("w3d_mesh_group0"),
+            layout: &bind_group_0_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: lighting_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        // Group 1: diffuse texture + sampler + material uniform
+        let material_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("w3d_mesh_material_layout"),
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("w3d_mesh_sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        // 1×1 white default texture (vertex-color fallback)
+        let white_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("w3d_mesh_white_texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let white_view = white_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &white_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255, 255, 255, 255],
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let default_material_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("w3d_mesh_default_material"),
+            size: std::mem::size_of::<MeshMaterialUniform>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let default_material = MeshMaterialUniform::default();
+        queue.write_buffer(
+            &default_material_buffer,
+            0,
+            bytemuck::bytes_of(&default_material),
+        );
+
+        let default_material_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("w3d_mesh_default_material_group"),
+            layout: &material_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&white_view),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: default_material_buffer.as_entire_binding(),
+                },
+            ],
         });
 
         let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             label: Some("w3d_mesh_pipeline_layout"),
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: &[&bind_group_0_layout, &material_layout],
             push_constant_ranges: &[],
         });
 
@@ -1497,7 +1722,13 @@ impl MeshRenderer {
         Ok(Self {
             pipeline,
             uniform_buffer,
-            bind_group,
+            lighting_buffer,
+            bind_group_0,
+            material_layout,
+            default_material_bind_group,
+            default_material_buffer,
+            sampler,
+            material_cache: HashMap::new(),
         })
     }
 
@@ -1511,7 +1742,81 @@ impl MeshRenderer {
 
     fn bind<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
         render_pass.set_pipeline(&self.pipeline);
-        render_pass.set_bind_group(0, &self.bind_group, &[]);
+        render_pass.set_bind_group(0, &self.bind_group_0, &[]);
+    }
+
+    fn bind_default_material<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>) {
+        render_pass.set_bind_group(1, &self.default_material_bind_group, &[]);
+    }
+
+    fn bind_mesh_material<'a>(
+        &'a mut self,
+        device: &Device,
+        queue: &Queue,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        texture_name: Option<&str>,
+        opacity: f32,
+        asset_manager: &WthreeDAssetManager,
+    ) {
+        let Some(tex_name) = texture_name else {
+            self.bind_default_material(render_pass);
+            return;
+        };
+
+        let cache_key = if opacity < 1.0 {
+            format!("{}:o{}", tex_name, opacity)
+        } else {
+            tex_name.to_string()
+        };
+
+        if let Some(bg) = self.material_cache.get(&cache_key) {
+            render_pass.set_bind_group(1, bg, &[]);
+            return;
+        }
+
+        let tex_view = asset_manager
+            .find_texture(tex_name, 0)
+            .and_then(|t| t.wgpu_view.as_ref());
+
+        let Some(view) = tex_view else {
+            self.bind_default_material(render_pass);
+            return;
+        };
+
+        let mat_buf = device.create_buffer(&BufferDescriptor {
+            label: Some("w3d_mesh_per_material"),
+            size: std::mem::size_of::<MeshMaterialUniform>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mat = MeshMaterialUniform {
+            has_texture: 1.0,
+            opacity,
+            ..MeshMaterialUniform::default()
+        };
+        queue.write_buffer(&mat_buf, 0, bytemuck::bytes_of(&mat));
+
+        let bg = device.create_bind_group(&BindGroupDescriptor {
+            label: Some("w3d_mesh_material_group"),
+            layout: &self.material_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(view),
+                },
+                BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                BindGroupEntry {
+                    binding: 2,
+                    resource: mat_buf.as_entire_binding(),
+                },
+            ],
+        });
+
+        render_pass.set_bind_group(1, &bg, &[]);
+        self.material_cache.insert(cache_key, bg);
     }
 
     fn set_world_transform(&self, queue: &Queue, world_transform: Matrix4<f32>) {

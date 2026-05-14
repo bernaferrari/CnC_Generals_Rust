@@ -249,6 +249,10 @@ pub struct WthreeDAssetManager {
 
     /// Preload report flag (C++ TheGlobalData->m_preloadReport)
     preload_report: bool,
+
+    /// Texture search paths for resolving texture filenames.
+    /// C++ uses WW3D texture manager search paths (Art/Textures, Data/Art/Textures, etc.)
+    texture_search_paths: Vec<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -267,6 +271,7 @@ impl WthreeDAssetManager {
             missing_asset_warnings: 0,
             loaded_files: HashMap::new(),
             preload_report: false,
+            texture_search_paths: default_texture_search_paths(),
         }
     }
 
@@ -297,6 +302,18 @@ impl WthreeDAssetManager {
     pub fn set_wgpu_resources(&mut self, device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) {
         self.device = Some(device);
         self.queue = Some(queue);
+    }
+
+    /// Set texture search paths for file resolution.
+    pub fn set_texture_search_paths(&mut self, paths: Vec<PathBuf>) {
+        self.texture_search_paths = paths;
+    }
+
+    /// Add a texture search path.
+    pub fn add_texture_search_path(&mut self, path: PathBuf) {
+        if !self.texture_search_paths.contains(&path) {
+            self.texture_search_paths.push(path);
+        }
     }
 }
 
@@ -804,21 +821,267 @@ impl WthreeDAssetManager {
     }
 
     fn try_load_texture(&mut self, name: &str, _allow_reduction: bool) -> bool {
-        // PARITY_NOTE: C++ creates TextureClass from file, which opens TGA/DDS,
-        // uploads to GPU, and inserts into TextureHash.
-        // The Rust port would use image crate + WGPU texture creation.
-        // For now, create a placeholder.
+        // C++ parity: TextureClass::Init from file, uploads to GPU.
+        // Step 1: resolve the texture file on disk
+        let resolved = match self.resolve_texture_file(name) {
+            Some(p) => p,
+            None => {
+                log::debug!("Texture '{}' not found on disk, creating placeholder", name);
+                return self.create_placeholder_texture(name);
+            }
+        };
+
+        // Step 2: read file bytes
+        let bytes = match std::fs::read(&resolved) {
+            Ok(b) => b,
+            Err(e) => {
+                log::warn!("Failed to read texture '{}': {}", resolved.display(), e);
+                return self.create_placeholder_texture(name);
+            }
+        };
+
+        // Step 3: decode based on format
+        let lower_name = name.to_ascii_lowercase();
+        if lower_name.ends_with(".dds") {
+            self.load_dds_texture(name, &bytes)
+        } else {
+            // TGA, PNG, BMP, JPEG — use the `image` crate
+            self.load_image_texture(name, &bytes)
+        }
+    }
+
+    /// Create a 1x1 magenta placeholder texture (fallback for missing textures).
+    fn create_placeholder_texture(&mut self, name: &str) -> bool {
+        let (wgpu_texture, wgpu_view, width, height) = if let (Some(device), Some(queue)) =
+            (&self.device, &self.queue)
+        {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(&format!("placeholder_{}", name)),
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let pixel: [u8; 4] = [255, 0, 255, 255]; // magenta
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &pixel,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4),
+                    rows_per_image: Some(1),
+                },
+                wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            );
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            (Some(Arc::new(texture)), Some(Arc::new(view)), 1, 1)
+        } else {
+            (None, None, 0, 0)
+        };
+
         let tex = AssetTexture {
             name: name.to_string(),
-            wgpu_texture: None,
-            wgpu_view: None,
+            wgpu_texture,
+            wgpu_view,
             ref_count: 1,
-            width: 0,
-            height: 0,
+            width,
+            height,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
         };
         self.textures.insert(name.to_string(), tex);
         true
+    }
+
+    /// Load a standard image (TGA/PNG/BMP/JPEG) using the `image` crate and upload to GPU.
+    fn load_image_texture(&mut self, name: &str, bytes: &[u8]) -> bool {
+        let img = match image::load_from_memory(bytes) {
+            Ok(i) => i,
+            Err(e) => {
+                log::warn!("Failed to decode texture '{}': {}", name, e);
+                return self.create_placeholder_texture(name);
+            }
+        };
+
+        let (width, height) = img.dimensions();
+        let rgba = img.to_rgba8();
+        let mip_level_count = calculate_mip_levels(width, height);
+
+        let (wgpu_texture, wgpu_view) = if let (Some(device), Some(queue)) =
+            (&self.device, &self.queue)
+        {
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(&format!("texture_{}", name)),
+                size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                mip_level_count,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            });
+
+            // Upload mip level 0 (full resolution)
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &rgba,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * width),
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            );
+
+            // Generate and upload remaining mip levels
+            upload_mip_levels(&texture, &rgba, width, height, device, queue);
+
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            (Some(Arc::new(texture)), Some(Arc::new(view)))
+        } else {
+            (None, None)
+        };
+
+        let tex = AssetTexture {
+            name: name.to_string(),
+            wgpu_texture,
+            wgpu_view,
+            ref_count: 1,
+            width,
+            height,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        };
+        self.textures.insert(name.to_string(), tex);
+        true
+    }
+
+    /// Load a DDS texture with DXT/BCn compressed data and upload to GPU.
+    fn load_dds_texture(&mut self, name: &str, bytes: &[u8]) -> bool {
+        let dds = match DdsTexture::parse(bytes) {
+            Ok(d) => d,
+            Err(e) => {
+                log::warn!("Failed to parse DDS texture '{}': {}", name, e);
+                return self.create_placeholder_texture(name);
+            }
+        };
+
+        let (wgpu_texture, wgpu_view) = if let (Some(device), Some(queue)) =
+            (&self.device, &self.queue)
+        {
+            let mip_level_count = calculate_mip_levels(dds.width, dds.height)
+                .min(dds.mip_level_count.max(1));
+
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(&format!("dds_texture_{}", name)),
+                size: wgpu::Extent3d { width: dds.width, height: dds.height, depth_or_array_layers: 1 },
+                mip_level_count,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: dds.wgpu_format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+
+            // Upload each available mip level from the DDS data
+            let mut offset = dds.data_offset;
+            let mut mip_w = dds.width;
+            let mut mip_h = dds.height;
+
+            for mip in 0..mip_level_count {
+                let mip_size = dds.mip_data_size(mip_w, mip_h);
+                if offset + mip_size > bytes.len() {
+                    break;
+                }
+                let mip_data = &bytes[offset..offset + mip_size];
+                let (bytes_per_row, rows_per_image) = dds.mip_layout(mip_w, mip_h);
+
+                queue.write_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: &texture,
+                        mip_level: mip,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    mip_data,
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(bytes_per_row),
+                        rows_per_image: Some(rows_per_image),
+                    },
+                    wgpu::Extent3d { width: mip_w, height: mip_h, depth_or_array_layers: 1 },
+                );
+
+                offset += mip_size;
+                mip_w = (mip_w + 1) / 2;
+                mip_h = (mip_h + 1) / 2;
+            }
+
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            (Some(Arc::new(texture)), Some(Arc::new(view)))
+        } else {
+            (None, None)
+        };
+
+        let tex = AssetTexture {
+            name: name.to_string(),
+            wgpu_texture,
+            wgpu_view,
+            ref_count: 1,
+            width: dds.width,
+            height: dds.height,
+            format: dds.wgpu_format,
+        };
+        self.textures.insert(name.to_string(), tex);
+        true
+    }
+
+    /// Resolve a texture name to a file path using search paths.
+    fn resolve_texture_file(&self, name: &str) -> Option<PathBuf> {
+        // Try the name as-is first
+        let p = Path::new(name);
+        if p.exists() {
+            return Some(p.to_path_buf());
+        }
+
+        // Try each search path with the name as-is
+        for base in &self.texture_search_paths {
+            let candidate = base.join(name);
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+
+        // Try with common texture extensions if the name has no extension
+        let stem = Path::new(name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(name);
+
+        let extensions = ["tga", "dds", "png", "bmp", "jpg"];
+        for base in &self.texture_search_paths {
+            for ext in &extensions {
+                let candidate = base.join(format!("{}.{}", stem, ext));
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+        }
+
+        None
     }
 
     /// Find a house-color tinted texture (C++ Find_Texture with color).
@@ -1151,6 +1414,183 @@ fn hash_name(name: &str) -> u64 {
 /// Check if a string starts with an uppercase prefix (case-insensitive on first 3 chars).
 fn upper_starts_with(s: &str, prefix: &str) -> bool {
     s.len() >= prefix.len() && s[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
+/// Calculate number of mip levels for a given texture size.
+fn calculate_mip_levels(width: u32, height: u32) -> u32 {
+    let max_dim = width.max(height);
+    if max_dim == 0 { 1 } else { 32 - max_dim.leading_zeros() }
+}
+
+/// Generate and upload mip levels 1..N from the base RGBA image data.
+fn upload_mip_levels(
+    texture: &wgpu::Texture,
+    base_rgba: &image::RgbaImage,
+    base_width: u32,
+    base_height: u32,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) {
+    let total_mips = calculate_mip_levels(base_width, base_height);
+    if total_mips <= 1 {
+        return;
+    }
+
+    let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("mip_upload_encoder"),
+    });
+
+    // Generate each mip level by downscaling with the `image` crate
+    let mut prev_img = base_rgba.clone();
+    let mut mip_w = base_width;
+    let mut mip_h = base_height;
+
+    for mip in 1..total_mips {
+        mip_w = (mip_w + 1) / 2;
+        mip_h = (mip_h + 1) / 2;
+        if mip_w == 0 || mip_h == 0 {
+            break;
+        }
+
+        let mip_img = image::imageops::resize(
+            &prev_img,
+            mip_w,
+            mip_h,
+            image::imageops::FilterType::Triangle,
+        );
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture,
+                mip_level: mip,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &mip_img,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * mip_w),
+                rows_per_image: Some(mip_h),
+            },
+            wgpu::Extent3d { width: mip_w, height: mip_h, depth_or_array_layers: 1 },
+        );
+
+        prev_img = mip_img;
+    }
+
+    drop(encoder);
+}
+
+/// Default texture search paths matching C++ WW3D texture manager paths.
+fn default_texture_search_paths() -> Vec<PathBuf> {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    vec![
+        cwd.join("Art/Textures"),
+        cwd.join("Data/Art/Textures"),
+        cwd.join("Textures"),
+        cwd.join("Data/Textures"),
+        cwd.join("assets/Textures"),
+        cwd.join("assets/Art/Textures"),
+        cwd.clone(),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// DDS texture parsing
+// ---------------------------------------------------------------------------
+
+/// DDS pixel format flags
+const DDPF_FOURCC: u32 = 0x4;
+const DDPF_RGB: u32 = 0x40;
+
+/// Minimal parsed DDS texture header + metadata.
+struct DdsTexture {
+    width: u32,
+    height: u32,
+    mip_level_count: u32,
+    wgpu_format: wgpu::TextureFormat,
+    block_size: u32,
+    data_offset: usize,
+}
+
+impl DdsTexture {
+    /// Parse a DDS header from raw bytes. Supports DXT1/BC1, DXT3/BC2, DXT5/BC3, and uncompressed RGBA.
+    fn parse(bytes: &[u8]) -> Result<Self, String> {
+        if bytes.len() < 128 {
+            return Err("DDS file too small".to_string());
+        }
+
+        // Validate magic number "DDS "
+        if &bytes[0..4] != b"DDS " {
+            return Err("Invalid DDS magic number".to_string());
+        }
+
+        // DDS_HEADER fields (offset 4)
+        let height = u32_from_le(&bytes[12..16]);
+        let width = u32_from_le(&bytes[16..20]);
+        let mip_level_count = u32_from_le(&bytes[28..32]).max(1);
+
+        // DDS_PIXELFORMAT (offset 76 within header, offset 80 from file start)
+        let pf_size = u32_from_le(&bytes[76..80]);
+        if pf_size != 32 {
+            return Err(format!("Unexpected DDS pixel format size: {}", pf_size));
+        }
+        let pf_flags = u32_from_le(&bytes[80..84]);
+        let fourcc = &bytes[84..88];
+
+        let (wgpu_format, block_size) = if pf_flags & DDPF_FOURCC != 0 {
+            match fourcc {
+                b"DXT1" => (wgpu::TextureFormat::Bc1RgbaUnormSrgb, 8),
+                b"DXT3" => (wgpu::TextureFormat::Bc2RgbaUnormSrgb, 16),
+                b"DXT5" => (wgpu::TextureFormat::Bc3RgbaUnormSrgb, 16),
+                b"BC4U" | b"ATI1" => (wgpu::TextureFormat::Bc4RUnorm, 8),
+                b"BC5U" | b"ATI2" => (wgpu::TextureFormat::Bc5RgUnorm, 16),
+                _ => return Err(format!("Unsupported DDS FourCC: {:?}", std::str::from_utf8(fourcc).unwrap_or("????"))),
+            }
+        } else if pf_flags & DDPF_RGB != 0 {
+            // Uncompressed RGBA
+            (wgpu::TextureFormat::Rgba8UnormSrgb, 0)
+        } else {
+            return Err("Unsupported DDS pixel format".to_string());
+        };
+
+        let data_offset = 128; // magic(4) + header(124)
+
+        Ok(Self {
+            width,
+            height,
+            mip_level_count,
+            wgpu_format,
+            block_size,
+            data_offset,
+        })
+    }
+
+    /// Calculate the byte size of compressed mip data for given dimensions.
+    fn mip_data_size(&self, width: u32, height: u32) -> usize {
+        if self.block_size == 0 {
+            // Uncompressed RGBA
+            return (width * height * 4) as usize;
+        }
+        let blocks_x = (width + 3) / 4;
+        let blocks_y = (height + 3) / 4;
+        (blocks_x * blocks_y * self.block_size) as usize
+    }
+
+    /// Calculate bytes_per_row and rows_per_image for a mip level.
+    fn mip_layout(&self, width: u32, height: u32) -> (u32, u32) {
+        if self.block_size == 0 {
+            return (width * 4, height);
+        }
+        let blocks_x = (width + 3) / 4;
+        let blocks_y = (height + 3) / 4;
+        (blocks_x * self.block_size, blocks_y)
+    }
+}
+
+/// Read a little-endian u32 from a byte slice.
+fn u32_from_le(bytes: &[u8]) -> u32 {
+    u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]])
 }
 
 // ---------------------------------------------------------------------------
