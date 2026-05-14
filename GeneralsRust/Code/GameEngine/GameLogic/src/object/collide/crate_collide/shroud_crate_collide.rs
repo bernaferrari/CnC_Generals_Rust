@@ -129,7 +129,65 @@ impl Snapshotable for ShroudCrateCollideModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("ShroudCrateCollideModuleData xfer version: {e:?}"))?;
+
+        xfer.xfer_unsigned_int(&mut self.module_tag_name_key)
+            .map_err(|e| format!("ShroudCrateCollideModuleData module_tag_name_key: {e:?}"))?;
+
+        // KindOfMaskType is u64; transfer as two u32 words (low, high)
+        let mut rko_low = (self.crate_data.required_kind_of & 0xFFFFFFFF) as u32;
+        let mut rko_high = (self.crate_data.required_kind_of >> 32) as u32;
+        xfer.xfer_unsigned_int(&mut rko_low)
+            .map_err(|e| format!("ShroudCrateCollideModuleData required_kind_of low: {e:?}"))?;
+        xfer.xfer_unsigned_int(&mut rko_high)
+            .map_err(|e| format!("ShroudCrateCollideModuleData required_kind_of high: {e:?}"))?;
+        self.crate_data.required_kind_of = ((rko_high as u64) << 32) | (rko_low as u64);
+
+        let mut fko_low = (self.crate_data.forbidden_kind_of & 0xFFFFFFFF) as u32;
+        let mut fko_high = (self.crate_data.forbidden_kind_of >> 32) as u32;
+        xfer.xfer_unsigned_int(&mut fko_low)
+            .map_err(|e| format!("ShroudCrateCollideModuleData forbidden_kind_of low: {e:?}"))?;
+        xfer.xfer_unsigned_int(&mut fko_high)
+            .map_err(|e| format!("ShroudCrateCollideModuleData forbidden_kind_of high: {e:?}"))?;
+        self.crate_data.forbidden_kind_of = ((fko_high as u64) << 32) | (fko_low as u64);
+
+        xfer.xfer_bool(&mut self.crate_data.is_forbid_owner_player)
+            .map_err(|e| format!("ShroudCrateCollideModuleData forbid_owner: {e:?}"))?;
+        xfer.xfer_bool(&mut self.crate_data.is_building_pickup)
+            .map_err(|e| format!("ShroudCrateCollideModuleData building_pickup: {e:?}"))?;
+        xfer.xfer_bool(&mut self.crate_data.is_human_only_pickup)
+            .map_err(|e| format!("ShroudCrateCollideModuleData human_only: {e:?}"))?;
+
+        let mut pickup_science = self.crate_data.pickup_science as u32;
+        xfer.xfer_unsigned_int(&mut pickup_science)
+            .map_err(|e| format!("ShroudCrateCollideModuleData pickup_science: {e:?}"))?;
+        self.crate_data.pickup_science = pickup_science as crate::common::science::ScienceType;
+
+        let mut has_fx = self.crate_data.execute_fx.is_some();
+        xfer.xfer_bool(&mut has_fx)
+            .map_err(|e| format!("ShroudCrateCollideModuleData has_fx: {e:?}"))?;
+        if has_fx {
+            let mut fx = self.crate_data.execute_fx.take().unwrap_or_default();
+            xfer.xfer_ascii_string(&mut fx)
+                .map_err(|e| format!("ShroudCrateCollideModuleData execute_fx: {e:?}"))?;
+            self.crate_data.execute_fx = Some(fx);
+        } else {
+            self.crate_data.execute_fx = None;
+        }
+
+        xfer.xfer_ascii_string(&mut self.crate_data.execution_animation_template)
+            .map_err(|e| format!("ShroudCrateCollideModuleData anim_template: {e:?}"))?;
+
+        xfer.xfer_real(&mut self.crate_data.execute_animation_display_time_seconds)
+            .map_err(|e| format!("ShroudCrateCollideModuleData anim_time: {e:?}"))?;
+        xfer.xfer_real(&mut self.crate_data.execute_animation_z_rise_per_second)
+            .map_err(|e| format!("ShroudCrateCollideModuleData anim_z_rise: {e:?}"))?;
+        xfer.xfer_bool(&mut self.crate_data.execute_animation_fades)
+            .map_err(|e| format!("ShroudCrateCollideModuleData anim_fades: {e:?}"))?;
+
         Ok(())
     }
 

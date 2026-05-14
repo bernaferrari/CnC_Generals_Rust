@@ -57,7 +57,18 @@ impl Snapshotable for GrantStealthBehaviorModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.start_radius)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.final_radius)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.radius_grow_rate)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.kind_of)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -94,7 +94,54 @@ impl Snapshotable for SlavedUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.guard_max_range)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.guard_wander_range)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.attack_range)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.attack_wander_range)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.scout_range)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.scout_wander_range)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.dist_to_target_to_grant_range_bonus)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.repair_range)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.repair_min_altitude)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.repair_max_altitude)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.repair_rate_per_second)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.repair_when_health_below_percentage)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.min_ready_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.max_ready_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.min_weld_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.max_weld_frames)
+            .map_err(|e| e.to_string())?;
+        let mut welding_sys = self.welding_sys_name.to_string();
+        xfer.xfer_ascii_string(&mut welding_sys)
+            .map_err(|e| e.to_string())?;
+        let mut welding_bone = self.welding_fx_bone.to_string();
+        xfer.xfer_ascii_string(&mut welding_bone)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.stay_on_same_layer_as_master)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            self.welding_sys_name = crate::common::AsciiString::from(welding_sys.as_str());
+            self.welding_fx_bone = crate::common::AsciiString::from(welding_bone.as_str());
+        }
         Ok(())
     }
 

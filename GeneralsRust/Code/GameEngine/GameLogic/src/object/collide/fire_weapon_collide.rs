@@ -98,7 +98,46 @@ impl Snapshotable for FireWeaponCollideModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("FireWeaponCollideModuleData xfer version: {e:?}"))?;
+
+        xfer.xfer_unsigned_int(&mut self.module_tag_name_key)
+            .map_err(|e| format!("FireWeaponCollideModuleData module_tag_name_key: {e:?}"))?;
+
+        let mut has_name = self.collide_weapon_template_name.is_some();
+        xfer.xfer_bool(&mut has_name)
+            .map_err(|e| format!("FireWeaponCollideModuleData has_name: {e:?}"))?;
+        if has_name {
+            let mut name = self.collide_weapon_template_name.take().unwrap_or_default();
+            xfer.xfer_ascii_string(&mut name)
+                .map_err(|e| format!("FireWeaponCollideModuleData template_name: {e:?}"))?;
+            self.collide_weapon_template_name = Some(name);
+        } else {
+            self.collide_weapon_template_name = None;
+        }
+
+        xfer.xfer_bool(&mut self.fire_once)
+            .map_err(|e| format!("FireWeaponCollideModuleData fire_once: {e:?}"))?;
+
+        // ObjectStatusMask is u64; transfer as two u32 words (low, high)
+        let mut req_low = (self.required_status.0 & 0xFFFFFFFF) as u32;
+        let mut req_high = (self.required_status.0 >> 32) as u32;
+        xfer.xfer_unsigned_int(&mut req_low)
+            .map_err(|e| format!("FireWeaponCollideModuleData required_status low: {e:?}"))?;
+        xfer.xfer_unsigned_int(&mut req_high)
+            .map_err(|e| format!("FireWeaponCollideModuleData required_status high: {e:?}"))?;
+        self.required_status = ObjectStatusMask(((req_high as u64) << 32) | (req_low as u64));
+
+        let mut fbd_low = (self.forbidden_status.0 & 0xFFFFFFFF) as u32;
+        let mut fbd_high = (self.forbidden_status.0 >> 32) as u32;
+        xfer.xfer_unsigned_int(&mut fbd_low)
+            .map_err(|e| format!("FireWeaponCollideModuleData forbidden_status low: {e:?}"))?;
+        xfer.xfer_unsigned_int(&mut fbd_high)
+            .map_err(|e| format!("FireWeaponCollideModuleData forbidden_status high: {e:?}"))?;
+        self.forbidden_status = ObjectStatusMask(((fbd_high as u64) << 32) | (fbd_low as u64));
+
         Ok(())
     }
 

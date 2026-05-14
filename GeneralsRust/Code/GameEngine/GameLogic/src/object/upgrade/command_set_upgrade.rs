@@ -110,9 +110,9 @@ impl Snapshotable for CommandSetUpgrade {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         crate::object::upgrade::upgrade_module::xfer_upgrade_module_with_version(
-            _xfer,
+            xfer,
             &mut self.applied,
             std::any::type_name::<Self>(),
         )

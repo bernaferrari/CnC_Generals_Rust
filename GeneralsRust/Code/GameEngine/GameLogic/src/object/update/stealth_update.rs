@@ -148,7 +148,54 @@ impl Snapshotable for StealthUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut hint_bits = self.hint_detectable_states.bits();
+        xfer.xfer_u64(&mut hint_bits)
+            .map_err(|e| e.to_string())?;
+        let mut required_bits = self.required_status.bits();
+        xfer.xfer_u64(&mut required_bits)
+            .map_err(|e| e.to_string())?;
+        let mut forbidden_bits = self.forbidden_status.bits();
+        xfer.xfer_u64(&mut forbidden_bits)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_reading() {
+            self.hint_detectable_states = ObjectStatusMaskType::from_bits_truncate(hint_bits);
+            self.required_status = ObjectStatusMaskType::from_bits_truncate(required_bits);
+            self.forbidden_status = ObjectStatusMaskType::from_bits_truncate(forbidden_bits);
+        }
+        xfer.xfer_real(&mut self.stealth_speed)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.friendly_opacity_min)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.friendly_opacity_max)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.reveal_distance_from_target)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.disguise_transition_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.disguise_reveal_transition_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.pulse_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.stealth_delay)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.stealth_level)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.black_market_check_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.innate_stealth)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.order_idle_enemies_to_attack_upon_reveal)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.team_disguised)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.use_rider_stealth)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.granted_by_special_power)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

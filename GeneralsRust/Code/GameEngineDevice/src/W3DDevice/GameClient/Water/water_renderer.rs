@@ -991,6 +991,26 @@ impl WaterRenderer {
         self.rebuild_texture_bind_group();
     }
 
+    /// Load the three default water textures (TWWater01.tga, bump map, caustics)
+    /// via a caller-provided resolver.  Resolver receives a filename and returns
+    /// `Some((rgba_data, width, height))` or `None`.  Missing textures keep
+    /// their placeholders.
+    /// C++ parity: W3DWaterRenderer::init() loading via WW3DAssetManager.
+    pub fn load_default_water_textures(
+        &mut self,
+        resolve: &dyn Fn(&str) -> Option<(Vec<u8>, u32, u32)>,
+    ) {
+        let water = resolve("TWWater01.tga");
+        let normal_map = resolve("TWWaterBump.tga");
+        let caustics = resolve("caust01.tga");
+
+        self.load_textures_from_rgba(
+            water.as_ref().map(|(data, w, h)| (data.as_slice(), *w, *h)),
+            normal_map.as_ref().map(|(data, w, h)| (data.as_slice(), *w, *h)),
+            caustics.as_ref().map(|(data, w, h)| (data.as_slice(), *w, *h)),
+        );
+    }
+
     /// Replace all three water textures from BIG-archive RGBA data.
     /// `None` entries keep the current texture unchanged.
     pub fn load_textures_from_rgba(

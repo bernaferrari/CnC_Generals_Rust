@@ -478,21 +478,99 @@ impl W3DProjectedShadow {
     /// Update shadow texture and projection
     /// C++: void W3DProjectedShadow::update()
     pub fn update(&mut self) {
-        // PARITY_NOTE: C++ W3DProjectedShadow.cpp:2215 W3DProjectedShadow::update
-        // 1. If light position changed (getLightPosHistory != current light pos):
-        //    call updateTexture(lightPos) to re-render shadow texture
-        // 2. If object position changed (m_lastObjPosition != robj->Get_Position()):
-        //    a. For SHADOW_PROJECTION type: compute perspective projection
-        //       (normalize objToLight, place light 2000 units from object,
-        //        call m_shadowProjector->Compute_Perspective_Projection)
-        //    b. Call setObjPosHistory with new position
-        // Requires: W3DShadowManager (getLightPosWorld), TexProjectClass, RenderObjClass
+        let light_pos = super::wthree_d_shadow::get_light_pos_world(0);
+
+        if let Some(ref shadow_tex) = self.shadow_texture[0] {
+            if shadow_tex.get_light_pos_history() != light_pos {
+                self.update_texture(light_pos);
+            }
+        }
+
+        if let Some(ref robj) = self.robj {
+            if self.last_obj_position != robj.position {
+                if self.shadow_type == ShadowType::PROJECTION {
+                    if let Some(ref mut projector) = self.shadow_projector {
+                        let obj_to_light = light_pos - robj.position;
+                        let dist = obj_to_light.length();
+                        let normalized = if dist > 0.0 {
+                            obj_to_light / dist
+                        } else {
+                            Vec3::new(0.0, 0.0, 1.0)
+                        };
+                        let virtual_light_pos =
+                            robj.position + normalized * 2000.0;
+                        projector.compute_perspective_projection(
+                            robj.position,
+                            virtual_light_pos,
+                            self.decal_size_x,
+                            self.decal_size_y,
+                        );
+                    }
+                }
+                self.last_obj_position = robj.position;
+            }
+        }
     }
 
     /// Update shadow texture image
     /// C++: void updateTexture(Vector3 &lightPos)
-    pub fn update_texture(&mut self, _light_pos: Vec3) {
-        // C++ renders object to shadow texture
+    pub fn update_texture(&mut self, light_pos: Vec3) {
+        if self.shadow_type == ShadowType::PROJECTION {
+            if let Some(ref robj) = self.robj {
+                if robj.position == Vec3::ZERO {
+                    return;
+                }
+                if let Some(ref mut projector) = self.shadow_projector {
+                    let obj_to_light = light_pos - robj.position;
+                    let dist = obj_to_light.length();
+                    let normalized = if dist > 0.0 {
+                        obj_to_light / dist
+                    } else {
+                        Vec3::new(0.0, 0.0, 1.0)
+                    };
+                    let virtual_light_pos = robj.position + normalized * 2000.0;
+                    projector.compute_perspective_projection(
+                        robj.position,
+                        virtual_light_pos,
+                        self.decal_size_x,
+                        self.decal_size_y,
+                    );
+                }
+            }
+        } else if self.shadow_type == ShadowType::DECAL {
+            if let Some(ref robj) = self.robj {
+                let obj_pos = robj.position;
+                let object_to_light = if self.flags & 0x10 != 0 {
+                    let mut dir = light_pos - obj_pos;
+                    dir.z = 0.0;
+                    let len = dir.length();
+                    if len > 0.0 { dir / len } else { Vec3::new(1.0, 0.0, 0.0) }
+                } else {
+                    Vec3::new(1.0, 0.0, 0.0)
+                };
+
+                const DECAL_TEXELS_PER_WORLD_UNIT: f32 = 64.0 / 20.0;
+
+                if let Some(ref shadow_tex_arc) = self.shadow_texture[0] {
+                    let tex_width = 64.0f32;
+                    let tex_height = 64.0f32;
+
+                    let u_vec = object_to_light * DECAL_TEXELS_PER_WORLD_UNIT / tex_width;
+                    let rotated = Vec3::new(object_to_light.y, -object_to_light.x, 0.0);
+                    let v_vec = rotated * DECAL_TEXELS_PER_WORLD_UNIT / tex_height;
+
+                    if let Some(tex) = Arc::get_mut(shadow_tex_arc) {
+                        tex.set_decal_uv_axis(u_vec, v_vec);
+                    }
+                }
+            }
+        }
+
+        if let Some(ref shadow_tex) = self.shadow_texture[0] {
+            if let Some(tex) = Arc::get_mut(shadow_tex) {
+                tex.set_light_pos_history(light_pos);
+            }
+        }
     }
 
     /// Update projection parameters

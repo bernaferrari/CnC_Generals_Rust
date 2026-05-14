@@ -946,7 +946,7 @@ impl MissileAIUpdate {
 pub struct MissileAIUpdateBehavior {
     object: Weak<std::sync::RwLock<Object>>,
     module_data: Arc<MissileAIUpdateModuleData>,
-    update: MissileAIUpdate,
+    pub(crate) update: MissileAIUpdate,
 }
 
 impl MissileAIUpdateBehavior {

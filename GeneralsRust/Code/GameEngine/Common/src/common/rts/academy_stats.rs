@@ -1013,56 +1013,162 @@ impl Default for AcademyStats {
 // Based on C++ AcademyStats.cpp:1087-1245
 
 impl AcademyStats {
-    /// Calculate CRC for network synchronization
-    /// Based on C++ AcademyStats.cpp:1087-1090
     pub fn crc(&self) -> u32 {
-        // C++ implementation is empty, so we return 0
-        // When full CRC system is available, this should compute
-        // a checksum over all stats fields
         0
     }
 
-    /// Serialize/deserialize academy stats
-    /// Based on C++ AcademyStats.cpp:1097-1237
-    ///
-    /// This would be used for save/load functionality.
-    /// In the C++ version, this uses an Xfer object that handles
-    /// bidirectional serialization (can read or write).
-    ///
-    /// Fields are serialized in version 1 format (C++ line 1101-1102).
-    /// All statistics are saved to preserve player advice state across
-    /// game sessions.
-    ///
-    /// When a full serialization system is available, implement:
-    /// - Version header (currentVersion = 1)
-    /// - All tier 1, tier 2, and tier 3 statistics
-    /// - Frame counters and timestamps
-    /// - Boolean flags
     pub fn serialize(&self) -> Vec<u8> {
-        // Placeholder for serialization
-        // When implemented, should serialize all fields in order:
-        // 1. Version number
-        // 2. m_nextUpdateFrame, m_firstUpdate, m_unknownSide
-        // 3. All Tier 1 stats (lines 1117-1158)
-        // 4. All Tier 2 stats (lines 1164-1186)
-        // 5. All Tier 3 stats (lines 1204-1235)
-        Vec::new()
+        let mut data = Vec::new();
+        let version: u8 = 1;
+
+        // Version header
+        data.extend_from_slice(&version.to_le_bytes());
+
+        // Core state
+        data.extend_from_slice(&self.next_update_frame.to_le_bytes());
+        data.extend_from_slice(&(self.first_update as u8).to_le_bytes());
+        data.extend_from_slice(&(self.unknown_side as u8).to_le_bytes());
+
+        // Tier 1 (Basic advice)
+        data.extend_from_slice(&(self.spent_cash_before_building_supply_center as u8).to_le_bytes());
+        data.extend_from_slice(&self.supply_centers_built.to_le_bytes());
+        data.extend_from_slice(&self.supply_center_cost.to_le_bytes());
+        data.extend_from_slice(&(self.researched_radar as u8).to_le_bytes());
+        data.extend_from_slice(&self.peons_built.to_le_bytes());
+        data.extend_from_slice(&self.structures_captured.to_le_bytes());
+        data.extend_from_slice(&self.generals_points_spent.to_le_bytes());
+        data.extend_from_slice(&self.special_powers_used.to_le_bytes());
+        data.extend_from_slice(&self.structures_garrisoned.to_le_bytes());
+        data.extend_from_slice(&self.idle_building_units_max_frames.to_le_bytes());
+        data.extend_from_slice(&self.last_unit_built_frame.to_le_bytes());
+        data.extend_from_slice(&self.drag_select_units.to_le_bytes());
+        data.extend_from_slice(&self.upgrades_purchased.to_le_bytes());
+        data.extend_from_slice(&self.power_out_max_frames.to_le_bytes());
+        data.extend_from_slice(&self.oldest_power_out_frame.to_le_bytes());
+        data.extend_from_slice(&(self.had_power_last_check as u8).to_le_bytes());
+        data.extend_from_slice(&self.gatherers_built.to_le_bytes());
+        data.extend_from_slice(&self.heroes_built.to_le_bytes());
+
+        // Tier 2 (Intermediate advice)
+        data.extend_from_slice(&(self.had_a_strategy_center as u8).to_le_bytes());
+        data.extend_from_slice(&(self.chose_a_strategy_for_center as u8).to_le_bytes());
+        data.extend_from_slice(&self.units_entered_tunnel_network.to_le_bytes());
+        data.extend_from_slice(&(self.had_a_tunnel_network as u8).to_le_bytes());
+        data.extend_from_slice(&self.control_groups_used.to_le_bytes());
+        data.extend_from_slice(&self.secondary_income_units_built.to_le_bytes());
+        data.extend_from_slice(&self.cleared_garrisoned_buildings.to_le_bytes());
+        data.extend_from_slice(&self.salvage_collected.to_le_bytes());
+        data.extend_from_slice(&self.guard_ability_used_count.to_le_bytes());
+
+        // Tier 3 (Advanced advice)
+        data.extend_from_slice(&self.double_click_attack_move_orders_given.to_le_bytes());
+        data.extend_from_slice(&(self.built_barracks_within_five_minutes as u8).to_le_bytes());
+        data.extend_from_slice(&(self.built_war_factory_within_ten_minutes as u8).to_le_bytes());
+        data.extend_from_slice(&(self.built_tech_structure_within_fifteen_minutes as u8).to_le_bytes());
+        data.extend_from_slice(&self.last_income_frame.to_le_bytes());
+        data.extend_from_slice(&self.max_frames_between_income.to_le_bytes());
+
+        // Neutral player stats
+        data.extend_from_slice(&self.mines.to_le_bytes());
+        data.extend_from_slice(&self.mines_cleared.to_le_bytes());
+        data.extend_from_slice(&self.vehicles_recovered.to_le_bytes());
+        data.extend_from_slice(&self.vehicles_sniped.to_le_bytes());
+        data.extend_from_slice(&self.disguisable_vehicles_built.to_le_bytes());
+        data.extend_from_slice(&self.vehicles_disguised.to_le_bytes());
+        data.extend_from_slice(&self.firestorms_created.to_le_bytes());
+
+        data
     }
 
-    /// Deserialize academy stats from bytes
-    /// Based on C++ AcademyStats.cpp:1097-1237
-    pub fn deserialize(&mut self, _data: &[u8]) {
-        // Placeholder for deserialization
-        // When implemented, should restore all fields from serialized data
+    pub fn deserialize(&mut self, data: &[u8]) {
+        if data.len() < 2 {
+            return;
+        }
+
+        let mut offset = 0;
+
+        // Version header
+        let version = data[offset];
+        offset += 1;
+        if version < 1 {
+            return;
+        }
+
+        // Helper to read u32
+        let read_u32 = |data: &[u8], off: &mut usize| -> u32 {
+            if *off + 4 > data.len() {
+                *off = data.len();
+                return 0;
+            }
+            let val = u32::from_le_bytes([data[*off], data[*off + 1], data[*off + 2], data[*off + 3]]);
+            *off += 4;
+            val
+        };
+
+        let read_bool = |data: &[u8], off: &mut usize| -> bool {
+            if *off >= data.len() {
+                return false;
+            }
+            let val = data[*off] != 0;
+            *off += 1;
+            val
+        };
+
+        // Core state
+        self.next_update_frame = read_u32(data, &mut offset);
+        self.first_update = read_bool(data, &mut offset);
+        self.unknown_side = read_bool(data, &mut offset);
+
+        // Tier 1
+        self.spent_cash_before_building_supply_center = read_bool(data, &mut offset);
+        self.supply_centers_built = read_u32(data, &mut offset);
+        self.supply_center_cost = read_u32(data, &mut offset);
+        self.researched_radar = read_bool(data, &mut offset);
+        self.peons_built = read_u32(data, &mut offset);
+        self.structures_captured = read_u32(data, &mut offset);
+        self.generals_points_spent = read_u32(data, &mut offset);
+        self.special_powers_used = read_u32(data, &mut offset);
+        self.structures_garrisoned = read_u32(data, &mut offset);
+        self.idle_building_units_max_frames = read_u32(data, &mut offset);
+        self.last_unit_built_frame = read_u32(data, &mut offset);
+        self.drag_select_units = read_u32(data, &mut offset);
+        self.upgrades_purchased = read_u32(data, &mut offset);
+        self.power_out_max_frames = read_u32(data, &mut offset);
+        self.oldest_power_out_frame = read_u32(data, &mut offset);
+        self.had_power_last_check = read_bool(data, &mut offset);
+        self.gatherers_built = read_u32(data, &mut offset);
+        self.heroes_built = read_u32(data, &mut offset);
+
+        // Tier 2
+        self.had_a_strategy_center = read_bool(data, &mut offset);
+        self.chose_a_strategy_for_center = read_bool(data, &mut offset);
+        self.units_entered_tunnel_network = read_u32(data, &mut offset);
+        self.had_a_tunnel_network = read_bool(data, &mut offset);
+        self.control_groups_used = read_u32(data, &mut offset);
+        self.secondary_income_units_built = read_u32(data, &mut offset);
+        self.cleared_garrisoned_buildings = read_u32(data, &mut offset);
+        self.salvage_collected = read_u32(data, &mut offset);
+        self.guard_ability_used_count = read_u32(data, &mut offset);
+
+        // Tier 3
+        self.double_click_attack_move_orders_given = read_u32(data, &mut offset);
+        self.built_barracks_within_five_minutes = read_bool(data, &mut offset);
+        self.built_war_factory_within_ten_minutes = read_bool(data, &mut offset);
+        self.built_tech_structure_within_fifteen_minutes = read_bool(data, &mut offset);
+        self.last_income_frame = read_u32(data, &mut offset);
+        self.max_frames_between_income = read_u32(data, &mut offset);
+
+        // Neutral player stats
+        self.mines = read_u32(data, &mut offset);
+        self.mines_cleared = read_u32(data, &mut offset);
+        self.vehicles_recovered = read_u32(data, &mut offset);
+        self.vehicles_sniped = read_u32(data, &mut offset);
+        self.disguisable_vehicles_built = read_u32(data, &mut offset);
+        self.vehicles_disguised = read_u32(data, &mut offset);
+        self.firestorms_created = read_u32(data, &mut offset);
     }
 
-    /// Post-process after loading from save file
-    /// Based on C++ AcademyStats.cpp:1242-1245
-    pub fn load_post_process(&mut self) {
-        // C++ implementation is empty
-        // This hook is available for any initialization needed
-        // after deserializing from a save file
-    }
+    pub fn load_post_process(&mut self) {}
 }
 
 #[cfg(test)]

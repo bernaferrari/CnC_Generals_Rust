@@ -491,21 +491,21 @@ impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> ContainModuleDataAdapte
 impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> Snapshotable
     for ContainModuleDataAdapter<T>
 {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.base.load_post_process()
     }
 }
 
 impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> ModuleData
-    for ContainModuleDataAdapter<T>
+for ContainModuleDataAdapter<T>
 {
     fn as_any(&self) -> &dyn Any {
         self
@@ -595,16 +595,28 @@ impl Module for ContainBindingModule {
 }
 
 impl Snapshotable for ContainBindingModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if let Ok(contain) = self.contain.lock() {
+            contain.crc(xfer)
+        } else {
+            Ok(())
+        }
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if let Ok(mut contain) = self.contain.lock() {
+            contain.xfer(xfer)
+        } else {
+            Ok(())
+        }
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        if let Ok(mut contain) = self.contain.lock() {
+            contain.load_post_process()
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -689,16 +701,28 @@ impl Module for CaveContainBindingModule {
 }
 
 impl Snapshotable for CaveContainBindingModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if let Ok(contain) = self.contain.lock() {
+            contain.crc(xfer)
+        } else {
+            Ok(())
+        }
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if let Ok(mut contain) = self.contain.lock() {
+            contain.xfer(xfer)
+        } else {
+            Ok(())
+        }
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        if let Ok(mut contain) = self.contain.lock() {
+            contain.load_post_process()
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -740,16 +764,16 @@ impl Default for InactiveBodyModuleData {
 crate::impl_legacy_module_data_via_base!(InactiveBodyModuleData, base);
 
 impl Snapshotable for InactiveBodyModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.crc(xfer)
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.base.load_post_process()
     }
 }
 
@@ -2045,16 +2069,28 @@ impl Module for SquishCollideModule {
 }
 
 impl Snapshotable for SquishCollideModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if let Ok(collide) = self.collide.lock() {
+            collide.crc(xfer)
+        } else {
+            Ok(())
+        }
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if let Ok(mut collide) = self.collide.lock() {
+            collide.xfer(xfer)
+        } else {
+            Ok(())
+        }
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        if let Ok(mut collide) = self.collide.lock() {
+            collide.load_post_process()
+        } else {
+            Ok(())
+        }
     }
 }
 

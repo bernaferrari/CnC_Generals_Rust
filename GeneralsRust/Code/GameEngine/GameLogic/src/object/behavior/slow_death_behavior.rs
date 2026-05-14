@@ -106,7 +106,36 @@ impl Snapshotable for SlowDeathBehaviorModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.sink_rate)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.probability_modifier)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.modifier_bonus_per_overkill_percent)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.sink_delay)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.sink_delay_variance)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.destruction_altitude)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.destruction_delay)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.destruction_delay_variance)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.fling_force)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.fling_force_variance)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.fling_pitch)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.fling_pitch_variance)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_byte(&mut self.mask_of_loaded_effects)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
