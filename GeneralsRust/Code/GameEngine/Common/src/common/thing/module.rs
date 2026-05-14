@@ -228,17 +228,14 @@ impl ModuleData for BaseModuleData {
 
 impl Snapshotable for BaseModuleData {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // CRC implementation
         Ok(())
     }
 
     fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Serialization implementation
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Post-load processing
         Ok(())
     }
 }
@@ -620,17 +617,19 @@ impl Module for BaseModule {
 
 impl Snapshotable for BaseModule {
     fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Base CRC implementation
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Base serialization implementation
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ Module.cpp lines 68-76: version only
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("BaseModule::xfer version failed: {}", e))?;
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Base post-load processing
         Ok(())
     }
 }

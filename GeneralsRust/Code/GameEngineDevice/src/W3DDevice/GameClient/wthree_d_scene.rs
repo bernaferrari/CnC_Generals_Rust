@@ -1086,8 +1086,37 @@ impl W3D2DScene {
         self.objects.retain(|&obj_id| obj_id != id);
     }
 
-    pub fn render(&self, _rinfo: &RenderInfo) {
-        // Render 2D overlay objects
+    /// Render 2D overlay objects.
+    ///
+    /// # C++ Reference
+    ///
+    /// Matches `RTS2DScene::Customized_Render` (W3DScene.cpp lines 1744-1750)
+    /// which calls `SimpleSceneClass::Customized_Render(rinfo)` to iterate all
+    /// render objects in the scene. Each render object's `Render()` is called,
+    /// which queues draw primitives. After all objects are processed, the 2D
+    /// pipeline is flushed.
+    ///
+    /// In C++, `RTS2DScene::draw()` triggers `WW3D::Render(this, m_camera)`
+    /// which walks the render object list and calls each object's render method.
+    /// The Rust equivalent iterates object IDs, looks them up in the parent
+    /// scene's render object map, and calls `RenderObject::render()`.
+    pub fn render<'a>(
+        &'a self,
+        rinfo: &RenderInfo,
+        render_pass: Option<&mut RenderPass<'a>>,
+        scene: &'a W3DScene,
+    ) {
+        for &obj_id in &self.objects {
+            if let Some(obj) = scene.render_objects.get(&obj_id) {
+                if obj.visible && !obj.hidden {
+                    obj.render(rinfo, render_pass.as_deref_mut(), None);
+                }
+            }
+        }
+    }
+
+    pub fn iter_objects(&self) -> impl Iterator<Item = &RenderObjectId> {
+        self.objects.iter()
     }
 }
 
@@ -1106,8 +1135,36 @@ impl W3DInterfaceScene {
         self.objects.push(id);
     }
 
-    pub fn render(&self, _rinfo: &RenderInfo) {
-        // Render interface elements
+    pub fn remove_object(&mut self, id: RenderObjectId) {
+        self.objects.retain(|&obj_id| obj_id != id);
+    }
+
+    /// # C++ Reference
+    ///
+    /// Matches `RTS3DInterfaceScene::Customized_Render` (W3DScene.cpp lines
+    /// 1812-1817) which delegates to `SimpleSceneClass::Customized_Render(rinfo)`.
+    /// That walks the render list calling each object's `Render()` method.
+    ///
+    /// Interface scene objects are rendered on top of everything else (3D world,
+    /// 2D overlay) to provide in-world UI elements like health bars, selection
+    /// indicators, rally-point markers, and similar decorations.
+    pub fn render<'a>(
+        &'a self,
+        rinfo: &RenderInfo,
+        render_pass: Option<&mut RenderPass<'a>>,
+        scene: &'a W3DScene,
+    ) {
+        for &obj_id in &self.objects {
+            if let Some(obj) = scene.render_objects.get(&obj_id) {
+                if obj.visible && !obj.hidden {
+                    obj.render(rinfo, render_pass.as_deref_mut(), None);
+                }
+            }
+        }
+    }
+
+    pub fn iter_objects(&self) -> impl Iterator<Item = &RenderObjectId> {
+        self.objects.iter()
     }
 }
 

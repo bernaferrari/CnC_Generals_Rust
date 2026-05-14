@@ -891,13 +891,27 @@ impl Snapshotable for ModuleFactory {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Module factory serialization
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ ModuleFactory.cpp lines 690-702
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("ModuleFactory::xfer version failed: {}", e))?;
+
+        for module_data in &mut self.module_data_list {
+            if let Some(data) = Arc::get_mut(module_data) {
+                data.xfer(xfer)?;
+            }
+        }
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        // Post-load processing if needed
+        for module_data in &mut self.module_data_list {
+            if let Some(data) = Arc::get_mut(module_data) {
+                data.load_post_process()?;
+            }
+        }
         Ok(())
     }
 }

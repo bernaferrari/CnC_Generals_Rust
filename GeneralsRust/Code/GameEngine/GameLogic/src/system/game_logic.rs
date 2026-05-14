@@ -1361,6 +1361,7 @@ pub struct GameLogic {
 
     // Game state
     game_mode: Int,
+    game_paused: Bool,
     loading_map: Bool,
     loading_save: Bool,
     is_scoring_enabled: Bool,
@@ -1452,6 +1453,7 @@ impl Default for GameLogic {
             radar_updates: Vec::new(),
             objects_changed_trigger_areas: VecDeque::new(),
             game_mode: GAME_NONE,
+            game_paused: false,
             loading_map: false,
             loading_save: false,
             is_scoring_enabled: true,
@@ -1598,6 +1600,7 @@ impl GameLogic {
         self.command_queue.clear();
         self.radar_updates.clear();
         self.game_mode = GAME_NONE;
+        self.game_paused = false;
         self.loading_map = false;
         self.loading_save = false;
         crate::helpers::TheGameLogic::clear_start_new_game_request();
@@ -1766,6 +1769,12 @@ impl GameLogic {
         // C++: if (freezeTime) { ... return; }
         if self.is_time_frozen() {
             trace!("GameLogic::update - Time frozen, skipping frame");
+            self.is_in_update = false;
+            return Ok(());
+        }
+
+        // C++: if (m_gamePaused) { return; } — paused game skips simulation
+        if self.game_paused {
             self.is_in_update = false;
             return Ok(());
         }
@@ -4486,11 +4495,16 @@ impl GameLogic {
 
     /// PARITY_NOTE: GameLogic::isGamePaused() C++ line 4157.
     pub fn is_game_paused(&self) -> bool {
-        false
+        self.game_paused
     }
 
     /// PARITY_NOTE: GameLogic::setGamePaused(Bool, Bool) C++ line 4164.
-    pub fn set_game_paused(&mut self, _paused: bool, _pause_music: bool) {}
+    pub fn set_game_paused(&mut self, paused: bool, _pause_music: bool) {
+        if paused == self.game_paused {
+            return;
+        }
+        self.game_paused = paused;
+    }
 
     // =========================================================================
     // C++ Parity: loadPostProcess
