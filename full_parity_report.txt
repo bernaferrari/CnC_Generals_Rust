@@ -1,0 +1,68 @@
+========================================================================================================================
+GAMECLIENT PARITY ANALYSIS
+========================================================================================================================
+
+WARNING: Audio/Eva.cpp not found in C++
+C++ File                                           Rust File                                                    Status        C++ Fns Rust Fns Diff
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+GameClient.cpp                                     src/lib.rs                                                   DIFFERENT           5        0 Missing: 2, Extra: 0
+GameClientDispatch.cpp                             src/message_stream/message_stream.rs                         OK                  0        0 
+Display.cpp                                        src/display_string_manager.rs                                OK                  0        0 
+DisplayString.cpp                                  NA                                                           MISSING             0        0 
+DisplayStringManager.cpp                           src/display_string_manager.rs                                OK                  0        0 
+Drawable.cpp                                       NA                                                           MISSING            31        0 
+DrawableManager.cpp                                src/drawable_manager.rs                                      OK                  0        0 
+InGameUI.cpp                                       src/in_game_ui.rs                                            DIFFERENT          12        0 Missing: 2, Extra: 0
+Input/Keyboard.cpp                                 NA                                                           MISSING             1        0 Missing: 2, Extra: 0
+Input/Mouse.cpp                                    NA                                                           MISSING             0        0 Missing: 2, Extra: 0
+GUI/GameWindowManager.cpp                          src/gui/game_window_manager.rs                               DIFFERENT          10        0 Missing: 1, Extra: 0
+GUI/GameWindow.cpp                                 NA                                                           MISSING             3        0 Missing: 1, Extra: 0
+GUI/LoadScreen.cpp                                 src/gui/load_screen.rs                                       OK                  0        0 
+GUI/ControlBar/ControlBar.cpp                      NA                                                           MISSING            23        0 
+GUI/Shell/Shell.cpp                                NA                                                           MISSING             2        0 
+MessageStream/CommandXlat.cpp                      NA                                                           MISSING            20        0 
+MessageStream/GUICommandTranslator.cpp             NA                                                           MISSING             0        0 
+MessageStream/SelectionXlat.cpp                    NA                                                           MISSING             4        0 
+System/CampaignManager.cpp                         NA                                                           MISSING             0        0 
+VideoPlayer.cpp                                    src/video_player.rs                                          DIFFERENT           3        0 Missing: 1, Extra: 0
+
+
+DETAILED DIFFERENCES:
+========================================================================================================================
+
+GameClient.cpp -> src/lib.rs
+  Missing C++ functions: ['for', 'if']...
+
+DisplayString.cpp -> NA
+
+Drawable.cpp -> NA
+
+InGameUI.cpp -> src/in_game_ui.rs
+  Missing C++ functions: ['for', 'if']...
+
+Input/Keyboard.cpp -> NA
+  Missing C++ functions: ['for', 'if']...
+
+Input/Mouse.cpp -> NA
+  Missing C++ functions: ['for', 'if']...
+
+GUI/GameWindowManager.cpp -> src/gui/game_window_manager.rs
+  Missing C++ functions: ['for']...
+
+GUI/GameWindow.cpp -> NA
+  Missing C++ functions: ['for']...
+
+GUI/ControlBar/ControlBar.cpp -> NA
+
+GUI/Shell/Shell.cpp -> NA
+
+MessageStream/CommandXlat.cpp -> NA
+
+MessageStream/GUICommandTranslator.cpp -> NA
+
+MessageStream/SelectionXlat.cpp -> NA
+
+System/CampaignManager.cpp -> NA
+
+VideoPlayer.cpp -> src/video_player.rs
+  Missing C++ functions: ['if']...

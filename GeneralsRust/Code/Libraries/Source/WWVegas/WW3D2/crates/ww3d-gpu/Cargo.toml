@@ -17,7 +17,7 @@ lazy_static = "1.5"
 log = "0.4"
 
 [dependencies.glam]
-version = "0.24"
+version = "0.28"
 features = ["bytemuck"]
 
 [features]

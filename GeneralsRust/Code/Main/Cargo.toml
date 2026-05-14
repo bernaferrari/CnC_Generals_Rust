@@ -84,8 +84,7 @@ async-trait = "0.1"
 libc = "0.2"
 
 # Math
-glam = { version = "0.24", features = ["serde"] }
-glam028 = { package = "glam", version = "0.28", features = ["serde"] }
+glam = { version = "0.28", features = ["serde", "bytemuck"] }
 
 # Additional dependencies for complete integration
 ww3d_renderer_3d = { package = "ww3d-renderer-3d", path = "../Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d" }

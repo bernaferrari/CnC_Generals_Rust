@@ -83,11 +83,13 @@ impl ObjectRegistry {
     pub fn get_all_objects(&self) -> Vec<Arc<RwLock<Object>>> {
         if let Ok(mut guard) = self.store.write() {
             guard.objects.retain(|_, handle| handle.strong_count() > 0);
-            guard
+            let mut result: Vec<Arc<RwLock<Object>>> = guard
                 .objects
                 .values()
                 .filter_map(|weak| weak.upgrade())
-                .collect()
+                .collect();
+            result.sort_by_key(|obj| obj.read().map(|o| o.get_id()).unwrap_or(0));
+            result
         } else {
             Vec::new()
         }

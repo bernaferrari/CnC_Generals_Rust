@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-glam = { version = "0.24", features = ["bytemuck"] }
+glam = { version = "0.28", features = ["bytemuck"] }
 bitflags = "2.10.0"
 ww3d-core = { path = "../ww3d-core" }
 fastrand = "2.3"

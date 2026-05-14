@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 ww3d-assets = { path = "../ww3d-assets" }
 ww3d-core = { path = "../ww3d-core" }
-glam = { version = "0.24", features = ["bytemuck"] }
+glam = { version = "0.28", features = ["bytemuck"] }
 configparser = "1.0"
 log = "0.4"
 binrw = "0.11"

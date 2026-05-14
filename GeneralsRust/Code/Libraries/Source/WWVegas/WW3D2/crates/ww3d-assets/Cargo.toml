@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 ww3d-core = { path = "../ww3d-core" }
 ww3d-gpu = { path = "../ww3d-gpu" }
-glam = { version = "0.24", features = ["bytemuck"] }
+glam = { version = "0.28", features = ["bytemuck"] }
 binrw = "0.11"
 tokio = { version = "1.48", features = ["full"] }
 thiserror = "1.0"

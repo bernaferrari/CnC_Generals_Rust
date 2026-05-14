@@ -144,8 +144,6 @@ pub enum CrcMode {
     Recalc,
 }
 
-pub const REPLAY_CRC_INTERVAL: UnsignedInt = 100;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameMode {
     Skirmish,
@@ -1442,7 +1440,7 @@ impl Default for GameLogic {
             is_in_update: false,
             random_seed: 0,
             crc_cache: 0,
-            crc_interval: REPLAY_CRC_INTERVAL,
+            crc_interval: game_engine::common::crc_debug::replay_crc_interval() as UnsignedInt,
             next_object_id: 1,
             all_objects: Vec::new(),
             dead_objects: Vec::new(),
@@ -1787,7 +1785,8 @@ impl GameLogic {
         // Phase 3b: CRC Calculation (C++ lines 3625-3654)
         // -----------------------------------------------------------------------
         // C++: m_CRC = getCRC(CRC_RECALC); msg->appendIntegerArgument(m_CRC);
-        if self.frame > 0 && self.frame % self.crc_interval == 0 {
+        let current_crc_interval = game_engine::common::crc_debug::replay_crc_interval() as UnsignedInt;
+        if self.frame > 0 && self.frame % current_crc_interval == 0 {
             self.crc_cache = self.compute_crc();
         }
 
@@ -2307,14 +2306,17 @@ impl GameLogic {
     /// handle; this bridge keeps per-frame stealth state transitions active.
     fn process_stealth_controllers(&mut self, delta_time: f32) -> Result<(), GameLogicError> {
         let mut handles = Vec::new();
-        for (object_id, object_ref) in &self.objects {
+        for &object_id in &self.all_objects {
+            let Some(object_ref) = self.objects.get(&object_id) else {
+                continue;
+            };
             let Ok(object_guard) = object_ref.read() else {
                 continue;
             };
             let Some(stealth) = object_guard.get_stealth() else {
                 continue;
             };
-            handles.push((*object_id, stealth));
+            handles.push((object_id, stealth));
         }
 
         for (object_id, handle) in handles {
@@ -2335,7 +2337,11 @@ impl GameLogic {
     /// Mirrors the client-side drawable update phase where ClientUpdateModule
     /// instances run once per frame.
     fn process_client_updates(&mut self) {
-        for obj_ref in self.objects.values() {
+        let object_ids = self.all_objects.clone();
+        for obj_id in object_ids {
+            let Some(obj_ref) = self.objects.get(&obj_id) else {
+                continue;
+            };
             let modules = match obj_ref.read() {
                 Ok(obj_guard) => obj_guard.client_update_modules(),
                 Err(_) => {
@@ -3266,9 +3272,15 @@ impl GameLogic {
         use crate::helpers::get_game_logic_random_seed_crc;
         let mut crc: u32 = 0;
         crc = crc.wrapping_add(get_game_logic_random_seed_crc());
-        for (&obj_id, obj_arc) in &self.objects {
+        // Deterministic iteration: collect keys, sort, then iterate.
+        // C++ uses std::map (sorted by ObjectID), so we must match that order
+        // to produce identical CRC values across all machines.
+        let mut sorted_ids: Vec<_> = self.objects.keys().copied().collect();
+        sorted_ids.sort();
+        for obj_id in &sorted_ids {
+            let obj_arc = self.objects.get(obj_id).unwrap();
             if let Ok(obj) = obj_arc.read() {
-                let id_crc = obj_id as u32;
+                let id_crc = *obj_id as u32;
                 let pos = &obj.position;
                 let pos_bytes: [u8; 12] = unsafe {
                     std::mem::transmute([pos.x.to_bits(), pos.y.to_bits(), pos.z.to_bits()])

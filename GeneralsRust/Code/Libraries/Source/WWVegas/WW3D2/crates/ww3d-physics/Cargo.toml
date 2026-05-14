@@ -6,4 +6,4 @@ description = "WW3D physics facade built on the original collision/physics integ
 
 [dependencies]
 ww3d-collision = { path = "../ww3d-collision" }
-glam = "0.24"
+glam = "0.28"

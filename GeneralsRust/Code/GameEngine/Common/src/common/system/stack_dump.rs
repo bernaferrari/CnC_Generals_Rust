@@ -30,21 +30,85 @@ pub struct StackDump {
 }
 
 impl StackDump {
-    /// Capture current stack trace
+    /// Capture current stack trace using `std::backtrace`
     pub fn capture() -> Self {
         let backtrace = Backtrace::capture();
         let mut frames = Vec::new();
 
-        if backtrace.status() == BacktraceStatus::Captured {
-            // Note: Rust's Backtrace doesn't provide direct access to frames
-            // In a real implementation, you might use external crates like 'backtrace'
-            // For now, we'll create a placeholder
-            frames.push(StackFrame {
-                function_name: Some("capture_stack".to_string()),
-                file_name: Some("stack_dump.rs".to_string()),
-                line_number: Some(42),
-                address: 0x1000,
-            });
+        match backtrace.status() {
+            BacktraceStatus::Captured => {
+                // std::backtrace output lines:
+                //   0: function_name
+                //       at /path/to/file.rs:123
+                //   or:
+                //   0: 0xaddress
+                let bt_str = backtrace.to_string();
+                for line in bt_str.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() {
+                        continue;
+                    }
+                    if let Some(colon_pos) = trimmed.find(':') {
+                        let idx_part = &trimmed[..colon_pos];
+                        if idx_part.trim().parse::<usize>().is_ok() {
+                            let rest = trimmed[colon_pos + 1..].trim();
+                            if rest.starts_with("0x") {
+                                if let Ok(addr) = usize::from_str_radix(rest.trim_start_matches("0x"), 16) {
+                                    frames.push(StackFrame {
+                                        function_name: None,
+                                        file_name: None,
+                                        line_number: None,
+                                        address: addr,
+                                    });
+                                }
+                            } else {
+                                frames.push(StackFrame {
+                                    function_name: Some(rest.to_string()),
+                                    file_name: None,
+                                    line_number: None,
+                                    address: 0,
+                                });
+                            }
+                        } else if trimmed.starts_with("at ") || trimmed.starts_with('/') {
+                            let file_line = if trimmed.starts_with("at ") {
+                                &trimmed[3..]
+                            } else {
+                                trimmed
+                            };
+                            if let Some(last_frame) = frames.last_mut() {
+                                if let Some(colon_pos) = file_line.rfind(':') {
+                                    let file_part = &file_line[..colon_pos];
+                                    let line_part = &file_line[colon_pos + 1..];
+                                    if let Ok(line_num) = line_part.trim().parse::<u32>() {
+                                        last_frame.file_name = Some(file_part.trim().to_string());
+                                        last_frame.line_number = Some(line_num);
+                                    } else {
+                                        last_frame.file_name = Some(file_line.trim().to_string());
+                                    }
+                                } else {
+                                    last_frame.file_name = Some(file_line.trim().to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            BacktraceStatus::Disabled => {
+                frames.push(StackFrame {
+                    function_name: Some("<backtrace disabled - set RUST_BACKTRACE=1>".to_string()),
+                    file_name: None,
+                    line_number: None,
+                    address: 0,
+                });
+            }
+            _ => {
+                frames.push(StackFrame {
+                    function_name: Some("<backtrace unavailable>".to_string()),
+                    file_name: None,
+                    line_number: None,
+                    address: 0,
+                });
+            }
         }
 
         Self {
