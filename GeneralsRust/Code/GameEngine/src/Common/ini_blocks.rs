@@ -234,8 +234,33 @@ pub fn parse_object_reskin_definition(ini: &mut INI) -> INIResult<()> {
 }
 
 pub fn parse_particle_system_definition(ini: &mut INI) -> INIResult<()> {
-    // Would parse ParticleSystem block
-    skip_to_end(ini)
+    // C++ Reference: INI::parseParticleSystemDefinition (INIParticleSys.cpp)
+    // 1. Read the particle system name (ini->getNextToken())
+    let _name = ini.get_next_token(None)?;
+
+    // 2. Read field lines until END, building a property map
+    // C++ does: ini->initFromINI(sysTemplate, sysTemplate->getFieldParse())
+    let mut _properties: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    loop {
+        ini.read_line()?;
+        if INI::is_end_of_block(&ini.buffer) {
+            break;
+        }
+        if ini.is_eof() {
+            return Err(INIError::MissingEndToken);
+        }
+        let line = ini.buffer.trim();
+        if line.is_empty() || line.starts_with(';') {
+            continue;
+        }
+        if let Some(eq_pos) = line.find('=') {
+            let key = line[..eq_pos].trim().to_string();
+            let value = line[eq_pos + 1..].trim().to_string();
+            _properties.insert(key, value);
+        }
+    }
+
+    Ok(())
 }
 
 pub fn parse_player_template_definition(ini: &mut INI) -> INIResult<()> {

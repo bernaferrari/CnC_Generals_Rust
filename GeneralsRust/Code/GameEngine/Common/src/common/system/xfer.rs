@@ -48,29 +48,29 @@ pub enum XferMode {
     Crc = 3,
 }
 
-/// Xfer status enumeration - matches C++ Xfer.h lines 46-70
+/// Xfer status - values must match C++ Xfer.h exactly (binary save/load compat).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum XferStatus {
     Invalid = 0,
-    Ok,                // all is green and good
-    Eof,               // end of file encountered
-    FileNotFound,      // requested file does not exist
-    FileNotOpen,       // file was not open
-    FileAlreadyOpen,   // this xfer is already open
-    ReadError,         // error reading from file
-    WriteError,        // error writing to file
-    ModeUnknown,       // unknown xfer mode
-    SkipError,         // error skipping file
-    BeginEndMismatch,  // mismatched pair calls of begin/end block
-    OutOfMemory,       // out of memory
-    StringError,       // error with strings
-    InvalidVersion,    // invalid version encountered
-    InvalidParameters, // invalid parameters
-    InvalidData,       // invalid data encountered
-    ListNotEmpty,      // trying to xfer into a list that should be empty, but isn't
-    UnknownString,     // unrecognized string value
-    ErrorUnknown,      // unknown error (isn't that useful!)
+    Ok,
+    Eof,
+    FileNotFound,
+    FileNotOpen,
+    FileAlreadyOpen,
+    ReadError,
+    WriteError,
+    ModeUnknown,
+    SkipError,
+    BeginEndMismatch,
+    OutOfMemory,
+    StringError,
+    InvalidVersion,
+    InvalidParameters,
+    ListNotEmpty,
+    UnknownString,
+    ErrorUnknown,
+    InvalidData, // Rust-only, NOT in C++
 }
 
 impl From<io::Error> for XferStatus {

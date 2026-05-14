@@ -44,33 +44,6 @@ use winit::{
     window::{Fullscreen, Window, WindowAttributes},
 };
 
-/// Game state machine - matches C++ GameEngine states
-/// These states control the main game loop flow and determine which
-/// subsystems are active and how input/rendering is handled.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GameState {
-    /// Initial state - showing main menu, no game loaded
-    /// Subsystems: UI, Input, Audio (menu music)
-    Menu,
-
-    /// Loading game assets and initializing game session
-    /// Shows loading screen, loads map data, initializes game systems
-    /// Subsystems: All systems initializing
-    Loading,
-
-    /// Active gameplay - game logic running, player can interact
-    /// All subsystems active, game logic updating, network syncing
-    Playing,
-
-    /// Game paused - logic frozen, UI overlay showing pause menu
-    /// Subsystems: UI active, GameLogic frozen, Network idle
-    Paused,
-
-    /// Shutting down - cleaning up resources before exit
-    /// All subsystems shutting down in reverse order
-    Exiting,
-}
-
 /// Frame timing state - matches C++ GameEngine frame limiter
 /// Tracks timing information for frame rate limiting and delta time calculation
 pub struct FrameTimer {
