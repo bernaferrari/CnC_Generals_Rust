@@ -4531,6 +4531,20 @@
       "cpp_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsMD/Code/GameEngine/Include/GameClient/Drawable.h",
       "rust_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable.rs",
       "category": "api",
+      "cpp_behavior": "void rest(void)",
+      "rust_deviation": "fn rest(&mut self) -> ",
+      "severity": "high",
+      "suggested_fix": "Synchronize function signature",
+      "details": {
+        "function": "rest",
+        "cpp_sig": "void rest(void)",
+        "rust_sig": "fn rest(&mut self) -> "
+      }
+    },
+    {
+      "cpp_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsMD/Code/GameEngine/Include/GameClient/Drawable.h",
+      "rust_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable.rs",
+      "category": "api",
       "cpp_behavior": "ask MLorenzen\n\tvoid sustain(void)",
       "rust_deviation": "fn sustain(&mut self) -> ",
       "severity": "high",
@@ -4553,20 +4567,6 @@
         "function": "release",
         "cpp_sig": "void release(void)",
         "rust_sig": "fn release(&mut self) -> "
-      }
-    },
-    {
-      "cpp_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsMD/Code/GameEngine/Include/GameClient/Drawable.h",
-      "rust_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsRust/Code/GameEngine/GameClient/src/drawable/drawable.rs",
-      "category": "api",
-      "cpp_behavior": "void rest(void)",
-      "rust_deviation": "fn rest(&mut self) -> ",
-      "severity": "high",
-      "suggested_fix": "Synchronize function signature",
-      "details": {
-        "function": "rest",
-        "cpp_sig": "void rest(void)",
-        "rust_sig": "fn rest(&mut self) -> "
       }
     },
     {
@@ -4923,20 +4923,6 @@
       "cpp_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsMD/Code/GameEngine/Include/GameClient/VideoPlayer.h",
       "rust_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsRust/Code/GameEngine/GameClient/src/video_player.rs",
       "category": "api",
-      "cpp_behavior": "Set the x and y buffer offset\n\t\tUnsignedInt width( void )",
-      "rust_deviation": "fn width(&self) -> Int",
-      "severity": "high",
-      "suggested_fix": "Synchronize function signature",
-      "details": {
-        "function": "width",
-        "cpp_sig": "Set the x and y buffer offset\n\t\tUnsignedInt width( void )",
-        "rust_sig": "fn width(&self) -> Int"
-      }
-    },
-    {
-      "cpp_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsMD/Code/GameEngine/Include/GameClient/VideoPlayer.h",
-      "rust_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsRust/Code/GameEngine/GameClient/src/video_player.rs",
-      "category": "api",
       "cpp_behavior": "Returns pixel width of visible texture\n\t\tUnsignedInt height( void )",
       "rust_deviation": "fn height(&self) -> Int",
       "severity": "high",
@@ -4945,6 +4931,20 @@
         "function": "height",
         "cpp_sig": "Returns pixel width of visible texture\n\t\tUnsignedInt height( void )",
         "rust_sig": "fn height(&self) -> Int"
+      }
+    },
+    {
+      "cpp_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsMD/Code/GameEngine/Include/GameClient/VideoPlayer.h",
+      "rust_path": "/Users/bernardoferrari/Downloads/CnC_Generals_Zero_Hour-main/GeneralsRust/Code/GameEngine/GameClient/src/video_player.rs",
+      "category": "api",
+      "cpp_behavior": "Set the x and y buffer offset\n\t\tUnsignedInt width( void )",
+      "rust_deviation": "fn width(&self) -> Int",
+      "severity": "high",
+      "suggested_fix": "Synchronize function signature",
+      "details": {
+        "function": "width",
+        "cpp_sig": "Set the x and y buffer offset\n\t\tUnsignedInt width( void )",
+        "rust_sig": "fn width(&self) -> Int"
       }
     },
     {

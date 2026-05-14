@@ -73,7 +73,7 @@ impl Default for CrcDebugConfig {
             client_deep_crc: false,
             log_object_crcs: false,
             net_crc_interval: 1,
-            replay_crc_interval: 1,
+            replay_crc_interval: 100,
         }
     }
 }
@@ -944,7 +944,7 @@ pub static DEBUG_IGNORE_SYNC_ERRORS: AtomicBool = AtomicBool::new(false);
 pub static NET_CRC_INTERVAL: AtomicI32 = AtomicI32::new(1);
 #[cfg(not(feature = "debug_crc"))]
 #[allow(dead_code)] // Conditional compilation: only compiled when debug_crc feature is OFF
-pub static REPLAY_CRC_INTERVAL: AtomicI32 = AtomicI32::new(1);
+pub static REPLAY_CRC_INTERVAL: AtomicI32 = AtomicI32::new(100);
 
 #[cfg(feature = "debug_crc")]
 pub fn set_debug_ignore_sync_errors(enabled: bool) {

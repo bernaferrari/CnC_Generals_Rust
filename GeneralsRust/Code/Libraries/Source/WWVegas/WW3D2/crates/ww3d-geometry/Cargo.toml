@@ -6,7 +6,7 @@ description = "WW3D Geometry Engine - Mesh geometry, collision detection, and sp
 
 [dependencies]
 ww3d-core = { path = "../ww3d-core" }
-glam = { version = "0.24", features = ["bytemuck"] }
+glam = { version = "0.28", features = ["bytemuck"] }
 bytemuck = { version = "1.24", features = ["derive"] }
 thiserror = "1.0"
 bitflags = "2.10"

@@ -13,7 +13,7 @@ ww3d-geometry = { path = "../ww3d-geometry" }
 ww3d-particles = { path = "../ww3d-particles" }
 ww3d-animation = { path = "../ww3d-animation" }
 math_utilities = { path = "../../../WWMath" }
-glam = { version = "0.24", features = ["bytemuck"] }
+glam = { version = "0.28", features = ["bytemuck"] }
 wgpu = "27.0.1"
 pollster = "0.3"
 bytemuck = { version = "1.24", features = ["derive"] }

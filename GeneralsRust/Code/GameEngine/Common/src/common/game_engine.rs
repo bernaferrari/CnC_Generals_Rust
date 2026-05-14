@@ -107,6 +107,41 @@ fn create_registered_game_client() -> Option<SubsystemResult<Box<dyn GameClientI
     Some(factory())
 }
 
+// ---------------------------------------------------------------------------
+// CommandList init callback — C++ parity: GameEngine.cpp lines 302-304
+//
+// TheCommandList is created and initialised *before* the subsystem list.
+// C++ comment: "not part of the subsystem list, because it should normally
+// never be reset!"
+//
+// Common cannot depend on GameClient (where THE_COMMAND_LIST lives), so we
+// use the same factory/registration pattern as the game-client bridge.
+// ---------------------------------------------------------------------------
+
+type CommandListInitFn = dyn Fn() + Send + Sync + 'static;
+
+static COMMAND_LIST_INIT_FN: OnceLock<Option<Box<CommandListInitFn>>> = OnceLock::new();
+
+/// Register a closure that initialises the global CommandList.
+///
+/// Call this *before* `GameEngine::init()`.  The closure typically touches
+/// `game_client::message_stream::command_list::THE_COMMAND_LIST`.
+pub fn register_command_list_init(init_fn: impl Fn() + Send + Sync + 'static) {
+    let _ = COMMAND_LIST_INIT_FN.set(Some(Box::new(init_fn)));
+}
+
+/// Invoked by `GameEngine::init()` right after `NameKeyGenerator::init()`.
+///
+/// If no callback was registered (e.g. in unit tests without GameClient),
+/// this is a silent no-op — the lazy_static will auto-init on first access.
+pub fn init_command_list() {
+    if let Some(Some(init_fn)) = COMMAND_LIST_INIT_FN.get() {
+        init_fn();
+    } else {
+        debug!("No CommandList init callback registered — skipping explicit init");
+    }
+}
+
 pub trait AudioManagerInterface: Send + Sync {
     fn init(&mut self) -> SubsystemResult<()>;
     fn update(&mut self, delta_time: Duration) -> SubsystemResult<()>;
@@ -340,6 +375,12 @@ impl GameEngine {
 
         // Align with legacy startup: seed the global name-key generator before subsystems request keys.
         NameKeyGenerator::init();
+
+        // C++ parity: GameEngine.cpp lines 302-304
+        // TheCommandList is created and initialized before the subsystem list.
+        // "not part of the subsystem list, because it should normally never be reset!" (C++ comment)
+        init_command_list();
+
         self.bootstrap_global_data_from_ini();
         self.parse_command_line()?;
 

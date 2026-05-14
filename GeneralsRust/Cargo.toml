@@ -110,7 +110,7 @@ lazy_static = "1.5"
 # Math & Random
 rand = "0.8"
 fastrand = "2.3"
-glam = { version = "0.24", features = ["serde"] }
+glam = { version = "0.28", features = ["serde", "bytemuck"] }
 
 # UI and Graphics
 egui = "0.33.2"

@@ -443,7 +443,7 @@ impl Object {
     fn read_engine_position(engine_id: u32) -> Option<Vec3> {
         let obj = gamelogic::object::registry::OBJECT_REGISTRY.get_object(engine_id)?;
         let guard = obj.read().ok()?;
-        let pos = guard.get_position(); // Coord3D is glam028::Vec3, convert to glam 0.24
+        let pos = guard.get_position(); // Coord3D is glam::Vec3
         Some(Vec3::new(pos.x, pos.y, pos.z))
     }
 

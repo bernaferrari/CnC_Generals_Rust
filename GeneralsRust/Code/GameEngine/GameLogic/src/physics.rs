@@ -685,7 +685,10 @@ impl PhysicsEngine {
         let mut objects_to_remove = Vec::new();
 
         // Update each physics object
-        for (&object_id, physics_state) in &self.physics_objects {
+        let mut sorted_ids: Vec<_> = self.physics_objects.keys().copied().collect();
+        sorted_ids.sort();
+        for object_id in &sorted_ids {
+            let physics_state = self.physics_objects.get(object_id).unwrap();
             if let Ok(mut state) = physics_state.write() {
                 if !state.enabled {
                     continue;
@@ -706,7 +709,7 @@ impl PhysicsEngine {
                 if state.max_lifetime > 0 {
                     state.lifetime += 1;
                     if state.lifetime >= state.max_lifetime {
-                        objects_to_remove.push(object_id);
+                        objects_to_remove.push(*object_id);
                         continue;
                     }
                 }

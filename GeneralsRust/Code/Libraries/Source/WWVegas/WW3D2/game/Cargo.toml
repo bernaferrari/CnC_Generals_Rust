@@ -10,7 +10,7 @@ ww3d-particles = { path = "../crates/ww3d-particles" }
 ww3d-geometry = { path = "../crates/ww3d-geometry" }
 ww3d-physics = { path = "../crates/ww3d-physics" }
 ww3d-engine = { path = "../crates/ww3d-engine" }
-glam = { version = "0.24", features = ["bytemuck"] }
+glam = { version = "0.28", features = ["bytemuck"] }
 bytemuck = { version = "1.14", features = ["derive"] }
 winit = "0.29"
 wgpu = "27.0.1"

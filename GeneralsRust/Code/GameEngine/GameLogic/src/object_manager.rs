@@ -1234,8 +1234,10 @@ impl ObjectManager {
     where
         F: FnMut(ObjectID, Arc<RwLock<GameObjectInstance>>),
     {
-        for (&id, obj_arc) in &self.objects {
-            f(id, obj_arc.clone());
+        for &id in &self.update_order {
+            if let Some(obj_arc) = self.objects.get(&id) {
+                f(id, obj_arc.clone());
+            }
         }
     }
 
@@ -1261,15 +1263,15 @@ impl ObjectManager {
     pub fn get_objects_owned_by_player(&self, player_id: UnsignedInt) -> Vec<ObjectID> {
         let mut owned_objects = Vec::new();
 
-        for (&obj_id, obj_arc) in &self.objects {
-            // Get object's team
-            if let Ok(obj_guard) = obj_arc.read() {
-                if let Some(team_arc) = obj_guard.get_team() {
-                    // Check if team is controlled by this player
-                    if let Ok(team_guard) = team_arc.read() {
-                        if let Some(controlling_player) = team_guard.get_controlling_player_id() {
-                            if controlling_player == player_id {
-                                owned_objects.push(obj_id);
+        for &obj_id in &self.update_order {
+            if let Some(obj_arc) = self.objects.get(&obj_id) {
+                if let Ok(obj_guard) = obj_arc.read() {
+                    if let Some(team_arc) = obj_guard.get_team() {
+                        if let Ok(team_guard) = team_arc.read() {
+                            if let Some(controlling_player) = team_guard.get_controlling_player_id() {
+                                if controlling_player == player_id {
+                                    owned_objects.push(obj_id);
+                                }
                             }
                         }
                     }

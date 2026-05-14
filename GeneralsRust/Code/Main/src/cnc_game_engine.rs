@@ -32,7 +32,7 @@ use crate::ui::{
 use crate::util::profiler::InitTimer;
 use ::game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
 use anyhow::Result;
-use game_engine::common::game_engine::{register_game_client_factory, GameClientInterface, GameState};
+use game_engine::common::game_engine::{register_command_list_init, register_game_client_factory, GameClientInterface, GameState};
 pub use game_engine::common::game_engine::GameState;
 use game_engine::common::system::subsystem_interface::{
     SubsystemError, SubsystemResult, SubsystemState,
@@ -1383,8 +1383,14 @@ impl GameClientInterface for RegisteredGameClientBridge {
 }
 
 #[cfg(feature = "game_client")]
-fn register_real_game_client_bootstrap() {
-    register_game_client_factory(|| Ok(Box::new(RegisteredGameClientBridge::new()?)));
+fn register_command_list_bootstrap() {
+    use game_client::message_stream::command_list::get_command_list;
+    use game_engine::common::message_stream::SubsystemInterface;
+    register_command_list_init(|| {
+        if let Ok(mut cl) = get_command_list().write() {
+            let _ = cl.init();
+        }
+    });
 }
 
 #[cfg(not(feature = "game_client"))]
@@ -1923,6 +1929,11 @@ impl CnCGameEngine {
                         "Failed to load ShellGameLoadScreen.wnd: {:?}, loading screen unavailable",
                         e
                     );
+                    error!(
+                        "ShellGameLoadScreen.wnd could not be loaded — the loading overlay will not be visible. \
+                         Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
+                         The game will continue without a loading screen."
+                    );
                     return;
                 }
 
@@ -1999,6 +2010,11 @@ impl CnCGameEngine {
                     }
                     Err(e) => {
                         warn!("Failed to load MainMenu.wnd: {:?}", e);
+                        error!(
+                            "MainMenu.wnd could not be loaded — the main menu will not be visible. \
+                             Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
+                             The game will continue without a main menu."
+                        );
                     }
                 }
             });

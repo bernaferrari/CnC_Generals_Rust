@@ -289,7 +289,10 @@ impl SubsystemInterface for GlobalDataSubsystem {
             global_data.load_ini("Data/INI/GameDataDebug.ini").ok(); // Allow failure
         }
 
-        self.ini_crc = global_data.calculate_crc();
+        // C++ parity: GameEngine.cpp lines 314-530
+        // XferCRC wraps INI loading, accumulating CRC over every line.
+        let xfer_crc = self.calculate_xfer_crc();
+        self.ini_crc = xfer_crc.unwrap_or_else(|| global_data.calculate_crc());
         global_data.ini_crc = self.ini_crc;
         global_data.sync_runtime_view();
 
@@ -298,6 +301,41 @@ impl SubsystemInterface for GlobalDataSubsystem {
             self.ini_crc
         );
         Ok(())
+    }
+
+    fn calculate_xfer_crc(&self) -> Option<u32> {
+        use game_engine::common::ini::{INI, INILoadType};
+        use game_engine::common::system::xfer_crc::XferCRC;
+        use game_engine::common::system::xfer_load::XferLoad;
+        use std::io::Cursor;
+
+        let inner = XferLoad::new(Cursor::new(Vec::new()), 1);
+        let xfer_crc = XferCRC::new(inner);
+
+        let mut ini = INI::new();
+        ini.set_xfer(xfer_crc);
+
+        let ini_paths = [
+            "Data/INI/Default/GameData.ini",
+            "Data/INI/GameData.ini",
+            #[cfg(any(debug_assertions, feature = "internal"))]
+            "Data/INI/GameDataDebug.ini",
+        ];
+
+        for path in &ini_paths {
+            if std::path::Path::new(path).exists() {
+                match ini.load(path, INILoadType::Overwrite) {
+                    Ok(()) => debug!("XferCRC INI loaded: {}", path),
+                    Err(err) => debug!("XferCRC INI skipped '{}': {}", path, err),
+                }
+            }
+        }
+
+        ini.take_xfer().and_then(|mutex| {
+            let mut xfer_crc = mutex.into_inner().ok()?;
+            xfer_crc.close().ok()?;
+            Some(xfer_crc.get_crc())
+        })
     }
 
     fn reset(&mut self) -> Result<()> {

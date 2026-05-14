@@ -29,7 +29,7 @@ winit = "0.29"
 # 3D Graphics and Rendering  
 wgpu = "27.0.1"
 bytemuck = { version = "1.20", features = ["derive"] }
-glam = "0.29"
+glam = "0.28"
 three-d = "0.18"
 bevy_ecs = "0.15"
 lyon = "1.0"

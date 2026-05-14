@@ -10,6 +10,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::common::ascii_string::AsciiString;
 use crate::common::system::file::FileAccess;
 use crate::common::system::file_system::get_file_system;
+use crate::common::system::xfer::Xfer;
+use crate::common::system::xfer_crc::XferCRC;
+use crate::common::system::xfer_load::XferLoad;
+use std::io::Cursor;
 
 /// INI constant defines
 pub const INI_MAX_CHARS_PER_LINE: usize = 1028;
@@ -156,6 +160,8 @@ pub struct INI {
     seps_quote: &'static str,
     block_end_token: &'static str,
     end_of_file: bool,
+    /// C++ parity: INI.cpp line 48 - static Xfer *s_xfer
+    xfer: Option<std::sync::Mutex<XferCRC<XferLoad<Cursor<Vec<u8>>>>>>,
     #[cfg(debug_assertions)]
     cur_block_start: String,
 }
@@ -876,9 +882,23 @@ impl INI {
             seps_quote: "\"\n=",
             block_end_token: "END",
             end_of_file: false,
+            xfer: None,
             #[cfg(debug_assertions)]
             cur_block_start: String::new(),
         }
+    }
+
+    /// C++ parity: INI.cpp line 48, 331
+    pub fn set_xfer(&mut self, xfer: XferCRC<XferLoad<Cursor<Vec<u8>>>>) {
+        self.xfer = Some(std::sync::Mutex::new(xfer));
+    }
+
+    pub fn clear_xfer(&mut self) {
+        self.xfer = None;
+    }
+
+    pub fn take_xfer(&mut self) -> Option<std::sync::Mutex<XferCRC<XferLoad<Cursor<Vec<u8>>>>>> {
+        self.xfer.take()
     }
 
     /// Check if a filename is a valid INI filename
@@ -1111,6 +1131,15 @@ impl INI {
             }
         } else {
             return Err(INIError::FileNotOpen);
+        }
+
+        // C++ parity: INI.cpp lines 458-463
+        // if (s_xfer) { s_xfer->xferUser(m_buffer, sizeof(char) * strlen(m_buffer)); }
+        if let Some(ref xfer_mutex) = self.xfer {
+            if let Ok(mut xfer) = xfer_mutex.lock() {
+                let mut buf = self.buffer.clone();
+                let _ = xfer.xfer_ascii_string(&mut buf);
+            }
         }
 
         Ok(())
