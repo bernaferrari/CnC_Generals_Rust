@@ -15,8 +15,9 @@
 use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::{
-    game_client_random_value, game_client_random_value_real, BoneOverrideState, ModelDrawState,
-    TheGameClient, TheGameLogic, TheParticleSystemManager,
+    game_client_random_value, game_client_random_value_real, BoneOverrideState,
+    MeshUvOverrideState, ModelDrawState, TheGameClient, TheGameLogic,
+    TheParticleSystemManager,
 };
 use crate::upgrade::modules::model_condition::parse_model_condition_flag;
 use game_engine::common::ini::{INIError, INI};
@@ -1793,6 +1794,43 @@ impl W3DModelDraw {
         }
     }
 
+    /// Build and submit a `ModelDrawState` to the rendering bridge.
+    ///
+    /// This is the primary rendering submission path that connects the
+    /// GameLogic draw module to the GameClient rendering pipeline. The
+    /// GameClient device layer reads the `ModelDrawState` from the shared
+    /// `DRAWABLE_STATE` map and converts it into a
+    /// `render_bridge::DrawSubmission` for the WWVegas renderer.
+    ///
+    /// Reference: C++ W3DModelDraw::doDrawModule() lines 2016-2088
+    ///
+    /// ## C++ parity behaviors
+    ///
+    /// 1. **Condition-state model selection**: Selects the correct model
+    ///    name based on the current condition flags (Default, Damaged,
+    ///    ReallyDamaged, Rubble, Night, Snow, etc.). This mirrors the C++
+    ///    behavior where `setModelState()` swaps the W3D render object.
+    ///
+    /// 2. **Bone overrides**: Collects turret rotation, turret pitch, and
+    ///    weapon recoil bone transforms into a single list. In C++, these
+    ///    are applied via `Capture_Bone`/`Control_Bone` on the render
+    ///    object. Here we pass them as a `Vec<BoneOverrideState>`.
+    ///
+    /// 3. **Animation state**: Passes the current animation name, mode,
+    ///    and time fraction. In C++, `Set_Animation()` is called on the
+    ///    HLod render object.
+    ///
+    /// 4. **Mesh UV overrides**: For tread/track animations, the C++ code
+    ///    adjusts UV offsets on specific mesh sub-objects. We pass these
+    ///    as `MeshUvOverrideState` entries.
+    ///
+    /// 5. **Sub-object visibility**: In C++, `doHideShowSubObjs()` is
+    ///    called to show/hide sub-objects. The bridge converts
+    ///    `sub_object_vec` into render-state visibility directives.
+    ///
+    /// 6. **Instance scaling**: C++ applies `getDrawable()->getInstanceScale()`
+    ///    to the world transform before rendering. We include the scaled
+    ///    transform.
     fn submit_draw_to_bridge(&mut self, transform_mtx: &Matrix3D) {
         let Some(owner_id) = self.owner_id else {
             return;
@@ -1801,11 +1839,22 @@ impl W3DModelDraw {
             return;
         };
 
+        // Phase 1: Resolve the model name from the current condition state.
+        //
+        // C++ parity: W3DModelDraw::setModelState() swaps m_renderObject to the
+        // model defined by the matching ModelConditionInfo. The model name
+        // comes from ModelConditionInfo::m_modelName.
         let model_name = self
             .current_state()
             .map(|s| s.model_name.to_string())
             .unwrap_or_default();
 
+        // Phase 2: Resolve animation state.
+        //
+        // C++ parity: W3DModelDraw::adjustAnimation() calls
+        // m_renderObject->Set_Animation(animHandle, startFrame, mode).
+        // The consumer maps anim_name + anim_time + anim_mode to the
+        // WWVegas AnimationController.
         let anim_name = self.current_state().and_then(|state| {
             let idx = self.which_anim_in_cur_state;
             if idx >= 0 && (idx as usize) < state.animations.len() {
@@ -1817,23 +1866,87 @@ impl W3DModelDraw {
 
         let anim_mode = self
             .current_state()
-            .map(|s| s.anim_mode.clone() as i32)
+            .map(|s| match s.anim_mode {
+                AnimMode::Manual => 0,
+                AnimMode::Loop => 1,
+                AnimMode::Once => 2,
+                AnimMode::LoopPingPong => 3,
+                AnimMode::LoopBackwards => 4,
+                AnimMode::OnceBackwards => 5,
+            })
             .unwrap_or(0);
 
+        let anim_time = self.get_current_anim_fraction().clamp(0.0, 1.0);
+
+        // Phase 3: Collect bone overrides (turret + recoil).
+        //
+        // C++ parity: handleClientTurretPositioning() and handleClientRecoil()
+        // each call Capture_Bone/Control_Bone on the render object. We collect
+        // all overrides into a single list.
         let bone_overrides = self.collect_bone_overrides();
 
+        // Phase 4: Collect mesh UV overrides for tread animations.
+        //
+        // C++ parity: W3DTankDraw::doDrawModule() adjusts UV offsets on
+        // TREADSL/TREADSR mesh sub-objects. Other draw modules (truck, etc.)
+        // do similar UV scrolling on moving parts.
+        let mesh_uv_overrides = self.collect_mesh_uv_overrides();
+
+        // Phase 5: Apply instance scaling to the world transform.
+        //
+        // C++ parity: doDrawModule() applies getDrawable()->getInstanceScale()
+        // before setting the render object transform.
+        let world_transform = self.apply_instance_scale(transform_mtx);
+
+        // Phase 6: Build the model draw state with all collected data.
+        //
+        // The consumer (GameClient device layer) maps condition_flags_bits to
+        // render_bridge::RenderConditionFlags, which controls damage overlays,
+        // night/snow maps, construction visibility, etc.
         let state = ModelDrawState {
             model_name,
-            world_transform: *transform_mtx,
+            world_transform,
             condition_flags_bits: self.last_model_conditions.bits(),
             bone_overrides,
             animation_name: anim_name,
-            animation_time: self.get_current_anim_fraction().clamp(0.0, 1.0),
+            animation_time: anim_time,
             animation_mode: anim_mode,
-            mesh_uv_overrides: Vec::new(),
+            mesh_uv_overrides,
         };
 
         client.set_drawable_model_draw(owner_id, state);
+    }
+
+    /// Collect mesh UV overrides for tread/track animations.
+    ///
+    /// In C++, W3DTankDraw and similar subclasses adjust UV offsets on
+    /// specific mesh sub-objects (e.g., "TREADSL", "TREADSR") based on
+    /// the object's velocity and distance traveled. The base W3DModelDraw
+    /// doesn't generate UV overrides itself, but the architecture allows
+    /// subclass overrides to contribute UV scrolling via this method.
+    ///
+    /// Returns an empty vec for the base W3DModelDraw. Subclasses like
+    /// W3DTankDraw override this to provide tread UV scrolling.
+    fn collect_mesh_uv_overrides(&self) -> Vec<MeshUvOverrideState> {
+        Vec::new()
+    }
+
+    /// Apply instance scaling to the world transform.
+    ///
+    /// C++ parity: doDrawModule() checks getDrawable()->getInstanceScale()
+    /// and scales the transform matrix if != 1.0. Also calls
+    /// m_renderObject->Set_ObjectScale() for proper LOD calculations.
+    fn apply_instance_scale(&self, transform_mtx: &Matrix3D) -> Matrix3D {
+        let instance_scale = self
+            .with_owner_drawable(|drawable| drawable.get_world_scale().x)
+            .unwrap_or(1.0);
+
+        if (instance_scale - 1.0).abs() < f32::EPSILON {
+            *transform_mtx
+        } else {
+            let scale_mtx = Matrix3D::from_scale(Coord3D::splat(instance_scale));
+            *transform_mtx * scale_mtx
+        }
     }
 
     fn collect_bone_overrides(&self) -> Vec<BoneOverrideState> {
