@@ -13,10 +13,18 @@ use crate::ai::modules::{
     ThreatAssessmentSystem,
 };
 use crate::ai::{AiError, AiGroup, AttitudeType, ScienceType, AI, THE_AI};
+use crate::common::xfer::{Xfer, XferExt};
+use crate::common::Snapshot;
 use crate::common::{
+<<<<<<< Updated upstream
     AsciiString, ControlBarInterface, Coord2D, Coord3D, CoordOrigin, KindOf, ObjectID,
     ObjectStatusMaskType, ObjectStatusTypes, PlayerId, Real, Relationship, TeamId, ThingTemplate,
     UnsignedInt,
+=======
+    AsciiString, ControlBarInterface, Coord2D, Coord3D, KindOf, ObjectID, ObjectStatusMaskType,
+    ObjectStatusTypes, PlayerId, Real, Relationship, TeamId, ThingTemplate, UnsignedInt,
+    INVALID_ID,
+>>>>>>> Stashed changes
 };
 use crate::control_bar::get_control_bar_bridge;
 use crate::helpers::{
@@ -121,14 +129,86 @@ impl WorkOrder {
         self.factory_id.is_none() && self.num_completed < self.num_required
     }
 
-    /// Validate that factory ID still refers to an active object
-    pub fn validate_factory(&mut self, _player_id: u32) -> Result<(), AiError> {
-        if let Some(_factory_id) = self.factory_id {
-            // Check if factory still exists and is owned by player
-            // This would use your object management system
-            // For now, we'll assume it's valid
+    /// Validate that factory ID still refers to an active object.
+    ///
+    /// Matches C++ AIPlayer.cpp:3688 WorkOrder::validateFactory.
+    /// Checks if the factory object still exists, is alive (not destroyed),
+    /// and is still owned by the specified player. If any check fails,
+    /// the factory_id is cleared to INVALID_ID.
+    pub fn validate_factory(&mut self, player_id: u32) -> Result<(), AiError> {
+        if self.factory_id.is_none() {
+            // C++ parity: if m_factoryID == INVALID_ID, return immediately (valid)
+            return Ok(());
         }
+        let factory_id = self.factory_id.unwrap();
+
+        // C++ parity: TheGameLogic->findObjectByID(m_factoryID)
+        let Some(factory_arc) = OBJECT_REGISTRY.get_object(factory_id) else {
+            // C++ parity: factory == NULL -> m_factoryID = INVALID_ID
+            self.factory_id = None;
+            return Ok(());
+        };
+
+        let Ok(factory_guard) = factory_arc.read() else {
+            self.factory_id = None;
+            return Ok(());
+        };
+
+        // C++ parity: factory->getControllingPlayer() != thisPlayer
+        if factory_guard.get_controlling_player_id() != Some(player_id as UnsignedInt) {
+            self.factory_id = None;
+        }
+
         Ok(())
+    }
+
+    pub fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+
+        let mut thing_template = self.thing_template.clone();
+        let _ = xfer.xfer_ascii_string(&mut thing_template);
+        if xfer.is_loading() {
+            self.thing_template = thing_template;
+        }
+
+        let mut factory_id = self.factory_id.unwrap_or(INVALID_ID);
+        xfer.xfer_object_id(&mut factory_id);
+        if xfer.is_loading() {
+            self.factory_id = if factory_id == INVALID_ID {
+                None
+            } else {
+                Some(factory_id)
+            };
+        }
+
+        let mut num_completed = self.num_completed;
+        let _ = xfer.xfer_int(&mut num_completed);
+        if xfer.is_loading() {
+            self.num_completed = num_completed;
+        }
+
+        let mut num_required = self.num_required;
+        let _ = xfer.xfer_int(&mut num_required);
+        if xfer.is_loading() {
+            self.num_required = num_required;
+        }
+
+        let mut required = self.required;
+        let _ = xfer.xfer_bool(&mut required);
+        if xfer.is_loading() {
+            self.required = required;
+        }
+
+        let mut is_resource_gatherer = self.is_resource_gatherer;
+        let _ = xfer.xfer_bool(&mut is_resource_gatherer);
+        if xfer.is_loading() {
+            self.is_resource_gatherer = is_resource_gatherer;
+        }
+    }
+
+    pub fn crc(&self, xfer: &mut dyn Xfer) {
+        let _ = xfer;
     }
 }
 
@@ -188,9 +268,75 @@ impl TeamInQueue {
             .all(|order| order.factory_id.is_none() || order.num_completed >= order.num_required)
     }
 
-    /// Disband the team (move units to default team)
+    /// Disbands the team: transfers units to the default team, deletes non-singleton teams.
+    ///
+    /// Matches C++ AIPlayer.cpp:3554 TeamInQueue::disband.
+    /// PARITY_NOTE: Rust TeamInQueue stores team_name (String) rather than a Team* pointer.
+    /// We look up the team by name via TheTeamFactory to perform the transfer.
     pub fn disband(&mut self) -> Result<(), AiError> {
-        // Implementation would move all completed units to default team
+        let Some(team_name) = &self.team_name else {
+            self.work_orders.clear();
+            return Ok(());
+        };
+
+        log::debug!("{} - team disbanded, build time expired.", team_name);
+
+        let Ok(factory) = get_team_factory().lock() else {
+            self.work_orders.clear();
+            return Ok(());
+        };
+
+        let Some(team_arc) = factory.find_team(team_name) else {
+            self.work_orders.clear();
+            return Ok(());
+        };
+
+        let Ok(mut team_guard) = team_arc.write() else {
+            self.work_orders.clear();
+            return Ok(());
+        };
+
+        let Some(controlling_player_id) = team_guard.get_controlling_player_id() else {
+            self.work_orders.clear();
+            return Ok(());
+        };
+
+        let default_team = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_player(controlling_player_id as i32).cloned())
+            .and_then(|player_arc| player_arc.read().ok().and_then(|p| p.get_default_team()));
+
+        let Some(default_team_arc) = default_team else {
+            self.work_orders.clear();
+            return Ok(());
+        };
+
+        if team_guard.get_id()
+            == default_team_arc
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(0)
+        {
+            self.work_orders.clear();
+            return Ok(());
+        }
+
+        let Ok(mut default_team_guard) = default_team_arc.write() else {
+            self.work_orders.clear();
+            return Ok(());
+        };
+
+        team_guard.transfer_units_to(&mut default_team_guard);
+
+        // PARITY_NOTE: C++ calls m_team->deleteInstance() if !getIsSingleton().
+        // In Rust, delete_team destroys all remaining members and marks the team for cleanup.
+        // Since units were already transferred, the team should have no remaining members.
+        if !team_guard.is_singleton() {
+            team_guard.delete_team(false);
+        }
+
         self.work_orders.clear();
         Ok(())
     }
@@ -198,6 +344,80 @@ impl TeamInQueue {
     /// Stop queueing new units, just finish current ones
     pub fn stop_queueing(&mut self) {
         self.stop_queueing = true;
+    }
+
+    pub fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+
+        let mut work_order_count = self.work_orders.len() as u16;
+        let _ = xfer.xfer_unsigned_short(&mut work_order_count);
+        if xfer.is_loading() {
+            self.work_orders.clear();
+            for _ in 0..work_order_count {
+                let mut order = WorkOrder::new(String::new());
+                order.xfer(xfer);
+                self.work_orders.push(order);
+            }
+        } else {
+            for order in &mut self.work_orders {
+                order.xfer(xfer);
+            }
+        }
+
+        let mut priority_build = self.priority_build;
+        let _ = xfer.xfer_bool(&mut priority_build);
+        if xfer.is_loading() {
+            self.priority_build = priority_build;
+        }
+
+        let mut team_name = self.team_name.clone().unwrap_or_default();
+        let _ = xfer.xfer_ascii_string(&mut team_name);
+        if xfer.is_loading() {
+            self.team_name = if team_name.is_empty() {
+                None
+            } else {
+                Some(team_name)
+            };
+        }
+
+        let mut frame_started = self.frame_started as i32;
+        let _ = xfer.xfer_int(&mut frame_started);
+        if xfer.is_loading() {
+            self.frame_started = frame_started as u32;
+        }
+
+        let mut sent_to_start_location = self.sent_to_start_location;
+        let _ = xfer.xfer_bool(&mut sent_to_start_location);
+        if xfer.is_loading() {
+            self.sent_to_start_location = sent_to_start_location;
+        }
+
+        let mut stop_queueing = self.stop_queueing;
+        let _ = xfer.xfer_bool(&mut stop_queueing);
+        if xfer.is_loading() {
+            self.stop_queueing = stop_queueing;
+        }
+
+        let mut reinforcement = self.reinforcement;
+        let _ = xfer.xfer_bool(&mut reinforcement);
+        if xfer.is_loading() {
+            self.reinforcement = reinforcement;
+        }
+
+        let mut reinforcement_id = self.reinforcement_id.unwrap_or(INVALID_ID);
+        xfer.xfer_object_id(&mut reinforcement_id);
+        if xfer.is_loading() {
+            self.reinforcement_id = if reinforcement_id == INVALID_ID {
+                None
+            } else {
+                Some(reinforcement_id)
+            };
+        }
+    }
+
+    pub fn crc(&self, xfer: &mut dyn Xfer) {
+        let _ = xfer;
     }
 }
 
@@ -3910,6 +4130,244 @@ impl AIPlayer {
         }
         Ok(cash)
     }
+}
+
+impl Snapshot for AIPlayer {
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        let mut ready_to_build_team = self.ready_to_build_team;
+        let _ = xfer.xfer_bool(&mut ready_to_build_team);
+
+        let mut ready_to_build_structure = self.ready_to_build_structure;
+        let _ = xfer.xfer_bool(&mut ready_to_build_structure);
+
+        let mut team_timer = self.team_timer as i32;
+        let _ = xfer.xfer_int(&mut team_timer);
+
+        let mut structure_timer = self.structure_timer as i32;
+        let _ = xfer.xfer_int(&mut structure_timer);
+
+        let mut build_delay = self.build_delay as i32;
+        let _ = xfer.xfer_int(&mut build_delay);
+
+        let mut team_delay = self.team_delay as i32;
+        let _ = xfer.xfer_int(&mut team_delay);
+
+        let mut team_seconds = self.team_seconds;
+        let _ = xfer.xfer_real(&mut team_seconds);
+
+        let mut cur_warehouse_id = self.current_warehouse_id.unwrap_or(INVALID_ID);
+        xfer.xfer_object_id(&mut cur_warehouse_id);
+
+        let mut frame_last_building_built = self.frame_last_building_built as i32;
+        let _ = xfer.xfer_int(&mut frame_last_building_built);
+
+        let mut difficulty = self.difficulty as i32;
+        let _ = xfer.xfer_int(&mut difficulty);
+
+        let mut skillset_selector = self.skillset_selector;
+        let _ = xfer.xfer_int(&mut skillset_selector);
+
+        let mut base_center = self.base_center;
+        xfer.xfer_coord3d(&mut base_center);
+
+        let mut base_center_set = self.base_center_set;
+        let _ = xfer.xfer_bool(&mut base_center_set);
+
+        let mut base_radius = self.base_radius;
+        let _ = xfer.xfer_real(&mut base_radius);
+
+        for i in 0..MAX_STRUCTURES_TO_REPAIR {
+            let mut id = self.structures_to_repair[i].unwrap_or(INVALID_ID);
+            xfer.xfer_object_id(&mut id);
+        }
+
+        let mut repair_dozer = self.repair_dozer.unwrap_or(INVALID_ID);
+        xfer.xfer_object_id(&mut repair_dozer);
+
+        let mut structures_in_queue = self.structures_in_queue;
+        let _ = xfer.xfer_int(&mut structures_in_queue);
+
+        let mut dozer_queued_for_repair = self.dozer_queued_for_repair;
+        let _ = xfer.xfer_bool(&mut dozer_queued_for_repair);
+
+        let mut dozer_is_repairing = self.dozer_is_repairing;
+        let _ = xfer.xfer_bool(&mut dozer_is_repairing);
+
+        let mut bridge_timer = self.bridge_timer as i32;
+        let _ = xfer.xfer_int(&mut bridge_timer);
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+
+        let mut team_build_queue_count = self.team_build_queue.len() as u16;
+        let _ = xfer.xfer_unsigned_short(&mut team_build_queue_count);
+        if xfer.is_loading() {
+            self.team_build_queue.clear();
+            for _ in 0..team_build_queue_count {
+                let mut team = TeamInQueue::new();
+                team.xfer(xfer);
+                self.team_build_queue.push_back(team);
+            }
+        } else {
+            for team in &mut self.team_build_queue {
+                team.xfer(xfer);
+            }
+        }
+
+        let mut team_ready_queue_count = self.team_ready_queue.len() as u16;
+        let _ = xfer.xfer_unsigned_short(&mut team_ready_queue_count);
+        if xfer.is_loading() {
+            self.team_ready_queue.clear();
+            for _ in 0..team_ready_queue_count {
+                let mut team = TeamInQueue::new();
+                team.xfer(xfer);
+                self.team_ready_queue.push_back(team);
+            }
+        } else {
+            for team in &mut self.team_ready_queue {
+                team.xfer(xfer);
+            }
+        }
+
+        let mut player_index = self.player_id as i32;
+        let _ = xfer.xfer_int(&mut player_index);
+
+        let mut ready_to_build_team = self.ready_to_build_team;
+        let _ = xfer.xfer_bool(&mut ready_to_build_team);
+        if xfer.is_loading() {
+            self.ready_to_build_team = ready_to_build_team;
+        }
+
+        let mut ready_to_build_structure = self.ready_to_build_structure;
+        let _ = xfer.xfer_bool(&mut ready_to_build_structure);
+        if xfer.is_loading() {
+            self.ready_to_build_structure = ready_to_build_structure;
+        }
+
+        let mut team_timer = self.team_timer as i32;
+        let _ = xfer.xfer_int(&mut team_timer);
+        if xfer.is_loading() {
+            self.team_timer = team_timer as u32;
+        }
+
+        let mut structure_timer = self.structure_timer as i32;
+        let _ = xfer.xfer_int(&mut structure_timer);
+        if xfer.is_loading() {
+            self.structure_timer = structure_timer as u32;
+        }
+
+        let mut build_delay = self.build_delay as i32;
+        let _ = xfer.xfer_int(&mut build_delay);
+        if xfer.is_loading() {
+            self.build_delay = build_delay as u32;
+        }
+
+        let mut team_delay = self.team_delay as i32;
+        let _ = xfer.xfer_int(&mut team_delay);
+        if xfer.is_loading() {
+            self.team_delay = team_delay as u32;
+        }
+
+        let mut team_seconds = self.team_seconds;
+        let _ = xfer.xfer_real(&mut team_seconds);
+        if xfer.is_loading() {
+            self.team_seconds = team_seconds;
+        }
+
+        let mut cur_warehouse_id = self.current_warehouse_id.unwrap_or(INVALID_ID);
+        xfer.xfer_object_id(&mut cur_warehouse_id);
+        if xfer.is_loading() {
+            self.current_warehouse_id = if cur_warehouse_id == INVALID_ID {
+                None
+            } else {
+                Some(cur_warehouse_id)
+            };
+        }
+
+        let mut frame_last_building_built = self.frame_last_building_built as i32;
+        let _ = xfer.xfer_int(&mut frame_last_building_built);
+        if xfer.is_loading() {
+            self.frame_last_building_built = frame_last_building_built as u32;
+        }
+
+        let mut difficulty = self.difficulty as i32;
+        let _ = xfer.xfer_int(&mut difficulty);
+        if xfer.is_loading() {
+            self.difficulty = match difficulty {
+                0 => GameDifficulty::Easy,
+                1 => GameDifficulty::Normal,
+                2 => GameDifficulty::Hard,
+                3 => GameDifficulty::Brutal,
+                _ => GameDifficulty::Normal,
+            };
+        }
+
+        let mut skillset_selector = self.skillset_selector;
+        let _ = xfer.xfer_int(&mut skillset_selector);
+        if xfer.is_loading() {
+            self.skillset_selector = skillset_selector;
+        }
+
+        xfer.xfer_coord3d(&mut self.base_center);
+
+        let mut base_center_set = self.base_center_set;
+        let _ = xfer.xfer_bool(&mut base_center_set);
+        if xfer.is_loading() {
+            self.base_center_set = base_center_set;
+        }
+
+        let mut base_radius = self.base_radius;
+        let _ = xfer.xfer_real(&mut base_radius);
+        if xfer.is_loading() {
+            self.base_radius = base_radius;
+        }
+
+        for i in 0..MAX_STRUCTURES_TO_REPAIR {
+            let mut id = self.structures_to_repair[i].unwrap_or(INVALID_ID);
+            xfer.xfer_object_id(&mut id);
+            if xfer.is_loading() {
+                self.structures_to_repair[i] = if id == INVALID_ID { None } else { Some(id) };
+            }
+        }
+
+        let mut repair_dozer = self.repair_dozer.unwrap_or(INVALID_ID);
+        xfer.xfer_object_id(&mut repair_dozer);
+        if xfer.is_loading() {
+            self.repair_dozer = if repair_dozer == INVALID_ID {
+                None
+            } else {
+                Some(repair_dozer)
+            };
+        }
+
+        let mut structures_in_queue = self.structures_in_queue;
+        let _ = xfer.xfer_int(&mut structures_in_queue);
+        if xfer.is_loading() {
+            self.structures_in_queue = structures_in_queue;
+        }
+
+        let mut dozer_queued_for_repair = self.dozer_queued_for_repair;
+        let _ = xfer.xfer_bool(&mut dozer_queued_for_repair);
+        if xfer.is_loading() {
+            self.dozer_queued_for_repair = dozer_queued_for_repair;
+        }
+
+        let mut dozer_is_repairing = self.dozer_is_repairing;
+        let _ = xfer.xfer_bool(&mut dozer_is_repairing);
+        if xfer.is_loading() {
+            self.dozer_is_repairing = dozer_is_repairing;
+        }
+
+        let mut bridge_timer = self.bridge_timer as i32;
+        let _ = xfer.xfer_int(&mut bridge_timer);
+        if xfer.is_loading() {
+            self.bridge_timer = bridge_timer as u32;
+        }
+    }
+
+    fn load_post_process(&mut self) {}
 }
 
 #[cfg(test)]
