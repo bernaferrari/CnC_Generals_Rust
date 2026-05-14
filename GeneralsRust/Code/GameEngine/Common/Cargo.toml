@@ -93,7 +93,7 @@ winit = { version = "0.29", optional = true }
 
 
 [features]
-default = ["async", "graphics"]
+default = ["async", "graphics", "audio"]
 async = ["tokio", "async-trait", "futures"]
 audio = ["cpal", "symphonia", "realfft", "rubato"]
 compression = ["lz4", "zstd"]

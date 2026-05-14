@@ -79,7 +79,7 @@ proptest = "1.9"
 env_logger = "0.10"
 
 [features]
-default = ["async", "ai", "scripting", "legacy_port"]
+default = ["async", "ai", "scripting", "legacy_port", "allow_surrender"]
 # Compatibility flags mirroring legacy build defines for conditional code paths.
 internal = []
 count_script_usage = []

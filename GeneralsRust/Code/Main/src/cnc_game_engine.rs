@@ -679,6 +679,17 @@ mod tests {
     }
 
     #[test]
+    fn startup_ai_data_preload_paths_match_cpp_order() {
+        assert_eq!(
+            CnCGameEngine::startup_ai_data_ini_paths(),
+            [
+                "Data/INI/Default/AIData.ini",
+                "Data/INI/AIData.ini",
+            ]
+        );
+    }
+
+    #[test]
     fn startup_audio_failure_quits_only_when_audio_is_enabled() {
         assert!(CnCGameEngine::startup_audio_should_quit(false, false));
         assert!(!CnCGameEngine::startup_audio_should_quit(true, false));
@@ -2549,11 +2560,113 @@ impl CnCGameEngine {
                     // These bootstrap calls are required for startup parity. Any panic in this
                     // section is caught by the outer startup worker guard and treated as fatal.
                     game_engine::common::ini::init_rank_info_store();
+
+                    // C++ parity: GameEngine.cpp:427 — load Rank.ini into TheRankInfoStore.
+                    // No Default/ prefix variant exists for Rank.ini.
+                    {
+                        if let Some(content) = extract_ini_text_from_archives("Data/INI/Rank.ini") {
+                            let mut ini = game_engine::common::ini::INI::new();
+                            match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                Ok(()) => {
+                                    let store = game_engine::common::ini::ini_rank::get_rank_info_store();
+                                    if store.is_empty() {
+                                        warn!("Rank.ini loaded 0 rank definitions — continuing without rank data");
+                                    }
+                                }
+                                Err(err) => {
+                                    warn!("Failed parsing Rank.ini: {}", err);
+                                }
+                            }
+                        } else {
+                            warn!("Rank.ini not found in archives — continuing without rank data");
+                        }
+                    }
+
+                    // C++ parity: GameEngine.cpp:399 — load Multiplayer.ini (Default + override)
+                    // into the global MULTIPLAYER_SETTINGS OnceCell.
+                    {
+                        let mut loaded_any_multiplayer = false;
+                        for mp_path in [
+                            "Data/INI/Default/Multiplayer.ini",
+                            "Data/INI/Multiplayer.ini",
+                        ] {
+                            if let Some(content) = extract_ini_text_from_archives(mp_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                    Ok(()) => {
+                                        loaded_any_multiplayer = true;
+                                        info!("Loaded {}", mp_path);
+                                    }
+                                    Err(err) => {
+                                        warn!("Failed parsing {}: {}", mp_path, err);
+                                    }
+                                }
+                            }
+                        }
+                        if !loaded_any_multiplayer {
+                            warn!("No Multiplayer.ini found in archives — continuing without multiplayer settings");
+                        }
+                    }
+
                     let _ = game_engine::common::ini::ini_terrain::initialize_terrain_types();
                     let _ = game_engine::common::ini::ini_terrain_bridge::initialize_terrain_roads();
                     game_engine::common::ini::ini_special_power::initialize_special_power_store();
+
+                    // C++ parity: GameEngine.cpp:443 — load SpecialPower.ini (Default + override)
+                    // into the global SpecialPowerStore via the general INI block parser.
+                    {
+                        let mut loaded_any_special_power = false;
+                        for sp_path in [
+                            "Data/INI/Default/SpecialPower.ini",
+                            "Data/INI/SpecialPower.ini",
+                        ] {
+                            if let Some(content) = extract_ini_text_from_archives(sp_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| {
+                                    ini.parse_file()
+                                }) {
+                                    Ok(()) => {
+                                        loaded_any_special_power = true;
+                                    }
+                                    Err(err) => {
+                                        warn!(
+                                            "Failed parsing special power definitions from '{}': {}",
+                                            sp_path, err
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        if !loaded_any_special_power {
+                            warn!("SpecialPower.ini bootstrap loaded 0 templates — continuing without special power INI data");
+                        }
+                    }
+
                     game_engine::common::ini::ini_damage_fx::init_global_damage_fx_store();
                     game_engine::common::damage_fx::initialize_damage_fx_store();
+
+                    // C++ parity: GameEngine.cpp:444 — load DamageFX.ini into TheDamageFXStore.
+                    // No Default/ prefix variant exists for DamageFX.ini.
+                    {
+                        if let Some(content) = extract_ini_text_from_archives("Data/INI/DamageFX.ini") {
+                            let mut ini = game_engine::common::ini::INI::new();
+                            match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                Ok(()) => {
+                                    if let Some(store) = game_engine::common::ini::ini_damage_fx::get_damage_fx_store() {
+                                        if store.get_damage_fx_names().is_empty() {
+                                            warn!("DamageFX.ini loaded 0 definitions — continuing without damage FX data");
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    warn!("Failed parsing DamageFX.ini: {}", err);
+                                }
+                            }
+                        } else {
+                            warn!("DamageFX.ini not found in archives — continuing without damage FX data");
+                        }
+                    }
+
                     game_engine::common::system::build_assistant::init_build_assistant();
 
                     // C++ parity: bootstrap OCL/Armor from archive-backed INI content, not just
@@ -2620,6 +2733,58 @@ impl CnCGameEngine {
                         }
                     }
 
+                    // C++ parity: GameEngine.cpp:442 — TheLocomotorStore loads
+                    // Default/Locomotor.ini then Locomotor.ini from archives.
+                    {
+                        let mut loaded_any_locomotor = false;
+                        for loco_path in [
+                            "Data/INI/Default/Locomotor.ini",
+                            "Data/INI/Locomotor.ini",
+                        ] {
+                            if let Some(content) = extract_ini_text_from_archives(loco_path) {
+                                match game_engine::common::ini::ini_locomotor::load_locomotors_from_str(&content) {
+                                    Ok(count) => {
+                                        loaded_any_locomotor |= count > 0;
+                                    }
+                                    Err(load_err) => {
+                                        warn!(
+                                            "Failed parsing locomotor templates from '{}': {}",
+                                            loco_path, load_err
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        if !loaded_any_locomotor {
+                            warn!("Locomotor bootstrap loaded 0 templates from archives — relying on hardcoded defaults");
+                        }
+                    }
+
+                    // C++ parity: GameEngine.cpp:480 — AIData.ini loaded after Upgrade, before Crate.
+                    Self::preload_startup_ai_data_inis();
+
+                    // C++ parity: GameEngine.cpp:483 — load Crate.ini (Default + override) into ParsedCrateSystem.
+                    {
+                        for crate_ini_path in &[
+                            "Data/INI/Default/Crate.ini",
+                            "Data/INI/Crate.ini",
+                        ] {
+                            if let Some(content) = extract_ini_text_from_archives(crate_ini_path) {
+                                let mut ini = game_engine::common::ini::INI::new();
+                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                    Ok(()) => {
+                                        info!("Loaded crate definitions from '{}'", crate_ini_path);
+                                    }
+                                    Err(err) => {
+                                        warn!("Failed parsing '{}': {}", crate_ini_path, err);
+                                    }
+                                }
+                            } else {
+                                warn!("'{}' not found in archives — skipping crate definitions from this file", crate_ini_path);
+                            }
+                        }
+                    }
+
                     if let Err(err) = game_engine::common::thing::init_thing_system() {
                         warn!("Thing system init failed during startup bootstrap: {err}. Continuing without thing system.");
                     }
@@ -2630,8 +2795,7 @@ impl CnCGameEngine {
                                 match manager_arc.lock() {
                                     Ok(mgr) => mgr.list_all_files().into_iter().filter(|p| {
                                         let lower = p.to_ascii_lowercase().replace('\\', "/");
-                                        (lower.starts_with("data/ini/object/") && lower.ends_with(".ini"))
-                                            || lower == "data/ini/crate.ini"
+                                        lower.starts_with("data/ini/object/") && lower.ends_with(".ini")
                                     }).collect(),
                                     Err(_) => Vec::new(),
                                 }
@@ -3721,6 +3885,30 @@ impl CnCGameEngine {
                 Ok(()) => info!("Preloaded startup INI: {}", path),
                 Err(err) => warn!(
                     "Failed to preload startup INI '{}' during init; continuing: {}",
+                    path, err
+                ),
+            }
+        }
+    }
+
+    /// C++ parity: GameEngine.cpp:480 — AIData.ini load paths.
+    /// Loaded after Upgrade, before Crate.
+    fn startup_ai_data_ini_paths() -> [&'static str; 2] {
+        [
+            "Data/INI/Default/AIData.ini",
+            "Data/INI/AIData.ini",
+        ]
+    }
+
+    /// Load AIData.ini (Default + override) into the AI data store.
+    /// C++ parity: GameEngine.cpp:480 initSubsystem(TheAI, ..., "Data\\INI\\Default\\AIData.ini", "Data\\INI\\AIData.ini")
+    fn preload_startup_ai_data_inis() {
+        let mut ini = game_engine::common::ini::INI::new();
+        for path in Self::startup_ai_data_ini_paths() {
+            match ini.load(path, game_engine::common::ini::INILoadType::Overwrite) {
+                Ok(()) => info!("Preloaded AIData INI: {}", path),
+                Err(err) => warn!(
+                    "Failed to preload AIData INI '{}' during init; continuing: {}",
                     path, err
                 ),
             }
