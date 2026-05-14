@@ -71,8 +71,19 @@ impl W3DScienceModelDraw {
     }
 
     pub fn set_shadows_enabled(&mut self, _enable: bool) {}
+
+    /// C++ parity: Inherited from `W3DModelDraw::releaseShadows()` — releases shadow
+    /// via `m_shadow->release()` and sets `m_shadow = NULL`.
+    // PARITY_NOTE: Would call W3DModelDraw::releaseShadows() in C++ (removes shadow from scene).
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn release_shadows(&mut self) {}
+
+    /// C++ parity: Inherited from `W3DModelDraw::allocateShadows()` — creates shadow from
+    /// ThingTemplate info if no shadow exists, render object exists, and shadow type != SHADOW_NONE.
+    // PARITY_NOTE: Would call W3DModelDraw::allocateShadows() in C++.
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn allocate_shadows(&mut self) {}
+
     pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
         self.fully_obscured_by_shroud = fully_obscured;
     }
@@ -83,6 +94,9 @@ impl W3DScienceModelDraw {
         _old_angle: f32,
     ) {
     }
+
+    /// C++ parity: Inherited from `W3DModelDraw::reactToGeometryChange() { }` — no override
+    /// in W3DScienceModelDraw.h. No geometry-specific update for science-gated models.
     pub fn react_to_geometry_change(&mut self) {}
 
     pub fn set_hidden(&mut self, hidden: bool) {
@@ -103,6 +117,8 @@ impl W3DScienceModelDraw {
     pub fn xfer(&self) -> u32 {
         1
     }
+    /// C++ parity: `W3DScienceModelDraw::loadPostProcess()` — calls
+    /// `W3DModelDraw::loadPostProcess()`. No additional post-load logic.
     pub fn load_post_process(&mut self) {}
 }
 

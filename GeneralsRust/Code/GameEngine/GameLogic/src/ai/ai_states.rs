@@ -828,7 +828,10 @@ impl AIState for AIWaitState {
         }
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // C++ AIWaitState has no onExit() override -- inherits empty base class default.
+        // No temporary state to clean up; wake_frame is recalculated on next on_enter().
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::Wait
@@ -1400,7 +1403,14 @@ impl AIState for AIHackInternetState {
         }
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // C++ HackInternetState::onExit clears MODELCONDITION_FIRING_A on the owner.
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(mut owner) = owner_arc.write() {
+                owner.clear_model_condition_state(ModelConditionFlags::FIRING_A);
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::HackInternet
@@ -1447,7 +1457,9 @@ impl AIState for AIFaceObjectState {
         StateReturnType::Success
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // C++ AIFaceState::onExit() is genuinely empty -- orientation is set in onEnter/update only.
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::FaceObject
@@ -1487,7 +1499,9 @@ impl AIState for AIFacePositionState {
         StateReturnType::Success
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // C++ AIFaceState::onExit() is genuinely empty -- same class as FaceObject, no cleanup needed.
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::FacePosition
@@ -1586,7 +1600,15 @@ impl AIState for AICombatDropState {
         StateReturnType::Success
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // C++ ChinookCombatDropState::onExit clears DISABLED_HELD, sets flight status to FLYING,
+        // idles any rappellers if the owner died, and expires rope drawables.
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(mut owner) = owner_arc.write() {
+                owner.clear_disabled(crate::common::DisabledType::Held);
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::CombatDrop
@@ -1639,7 +1661,9 @@ impl AIState for AIBusyState {
         }
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // C++ AIBusyState::onExit() is genuinely empty -- inline in AIStateMachine.h line 325.
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::Busy
@@ -1767,7 +1791,19 @@ impl AIState for AIGetRepairedState {
         StateReturnType::Continue
     }
 
-    fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {}
+    fn on_exit(&mut self, context: &mut AIStateMachineContext, _exit_type: StateExitType) {
+        // C++ has no AIGetRepairedState class -- GetRepaired delegates to AIDockState/landing states.
+        // Destroy any path that may have been computed for the repair depot approach.
+        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+            if let Ok(owner) = owner_arc.read() {
+                if let Some(ai) = owner.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.destroy_path();
+                    }
+                }
+            }
+        }
+    }
 
     fn get_state_type(&self) -> AIStateType {
         AIStateType::GetRepaired

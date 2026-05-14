@@ -140,9 +140,21 @@ impl W3DTreeDraw {
     }
 
     pub fn set_shadows_enabled(&mut self, _enable: bool) {}
+
+    /// C++ parity: `virtual void releaseShadows(void) {};` — inline no-op in W3DTreeDraw.h.
+    /// Trees don't manage their own shadow objects; tree rendering is handled entirely
+    /// by the terrain system (TheTerrainRenderObject).
     pub fn release_shadows(&mut self) {}
+
+    /// C++ parity: `virtual void allocateShadows(void) {};` — inline no-op in W3DTreeDraw.h.
+    /// Trees don't manage their own shadow objects; tree rendering is handled entirely
+    /// by the terrain system (TheTerrainRenderObject).
     pub fn allocate_shadows(&mut self) {}
+
     pub fn set_fully_obscured_by_shroud(&mut self, _fully_obscured: bool) {}
+
+    /// C++ parity: `virtual void reactToGeometryChange() { }` — inline no-op in W3DTreeDraw.h.
+    /// Tree geometry is managed by the terrain system, not by this draw module.
     pub fn react_to_geometry_change(&mut self) {}
 
     pub fn set_hidden(&mut self, hidden: bool) {
@@ -163,6 +175,8 @@ impl W3DTreeDraw {
     pub fn xfer(&self) -> u32 {
         1
     }
+    /// C++ parity: `W3DTreeDraw::loadPostProcess()` — calls `DrawModule::loadPostProcess()`
+    /// which is a no-op. No additional post-load logic for trees.
     pub fn load_post_process(&mut self) {}
 }
 

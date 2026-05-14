@@ -82,16 +82,34 @@ impl W3DSupplyDraw {
 
     pub fn do_draw_module(&mut self, _transform_mtx: &Matrix4<f32>) {}
     pub fn set_shadows_enabled(&mut self, enable: bool) { self.shadow_enabled = enable; }
+
+    /// C++ parity: Inherited from `W3DModelDraw::releaseShadows()` — releases shadow
+    /// via `m_shadow->release()` and sets `m_shadow = NULL`.
+    // PARITY_NOTE: Would call W3DModelDraw::releaseShadows() in C++ (removes shadow from scene).
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn release_shadows(&mut self) {}
+
+    /// C++ parity: Inherited from `W3DModelDraw::allocateShadows()` — creates shadow from
+    /// ThingTemplate info if no shadow exists, render object exists, and shadow type != SHADOW_NONE.
+    // PARITY_NOTE: Would call W3DModelDraw::allocateShadows() in C++.
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn allocate_shadows(&mut self) {}
+
     pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) { self.fully_obscured_by_shroud = fully_obscured; }
     pub fn react_to_transform_change(&mut self, _old_mtx: &Matrix4<f32>, _old_pos: &cgmath::Point3<f32>, _old_angle: f32) {}
+
+    /// C++ parity: `virtual void reactToGeometryChange() { }` — explicit empty override
+    /// in W3DSupplyDraw.h. The supply draw has no geometry-specific update.
     pub fn react_to_geometry_change(&mut self) {}
+
     pub fn set_hidden(&mut self, hidden: bool) { self.hidden = hidden; }
     pub fn is_visible(&self) -> bool { !self.hidden && !self.fully_obscured_by_shroud }
     pub fn get_module_data(&self) -> &W3DSupplyDrawModuleData { &self.module_data }
     pub fn crc(&self) -> u32 { 0 }
     pub fn xfer(&self) -> u32 { 1 }
+
+    /// C++ parity: `W3DSupplyDraw::loadPostProcess()` — calls `W3DModelDraw::loadPostProcess()`.
+    /// No additional post-load logic for supply draw.
     pub fn load_post_process(&mut self) {}
 }
 
