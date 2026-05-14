@@ -703,7 +703,22 @@ impl RenderBridge {
         }
     }
 
-    pub fn end_frame(&mut self) {}
+    pub fn end_frame(&mut self) {
+        if !self.pending.is_empty() {
+            self.flush();
+        }
+
+        if self.camera.is_some() {
+            for i in 0..self.scene.layer_count() {
+                if let Some(layer) = self.scene.get_layer_mut(i) {
+                    let _ = layer.render(&self.render_info);
+                }
+            }
+        }
+
+        self.pending.clear();
+        self.pending_projectile_streams.clear();
+    }
 
     pub fn scene(&self) -> &Scene {
         &self.scene

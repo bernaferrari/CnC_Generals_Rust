@@ -296,6 +296,12 @@ pub trait SoundManager: Send + Sync {
     fn notify_of_3d_sample_completion(&mut self);
     fn get_available_samples(&self) -> Int;
     fn get_available_3d_samples(&self) -> Int;
+    fn stop_all_sounds(&mut self) {
+        // Default: no-op. Concrete implementations should clear their playing sound lists.
+    }
+    fn cleanup_completed_sounds(&mut self) {
+        // Default: no-op. Concrete implementations should prune finished sounds.
+    }
 }
 
 /// The main audio manager - the life of audio
@@ -439,24 +445,32 @@ impl AudioManager {
     }
 
     pub fn reset(&mut self) {
+        // Stop all actively playing sounds through the backend before clearing bookkeeping.
+        let handles: Vec<AudioHandle> = self.active_audio_events.keys().copied().collect();
+        for handle in handles {
+            let _ = with_sound_playback_hook(|hook| hook.stop(handle));
+        }
+
         // Clear out any adjusted volumes
         self.adjusted_volumes.clear();
         self.active_audio_events.clear();
+        self.audio_requests.clear();
         self.current_music_track.clear();
 
-        // Reset scripted volumes
+        // Reset scripted volumes (C++ resets to 1.0)
         self.script_music_volume = 1.0;
         self.script_sound_volume = 1.0;
         self.script_sound_3d_volume = 1.0;
         self.script_speech_volume = 1.0;
 
-        // Restore the final values
+        // Restore the final values to system defaults
         self.music_volume = self.system_music_volume;
         self.sound_volume = self.system_sound_volume;
         self.sound_3d_volume = self.system_sound_3d_volume;
         self.speech_volume = self.system_speech_volume;
 
         self.disallow_speech = false;
+        self.volume_has_changed = true;
 
         if let Some(sound_mgr) = &mut self.sound_manager {
             sound_mgr.reset();

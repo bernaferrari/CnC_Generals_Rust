@@ -259,8 +259,19 @@ impl W3DTankDraw {
     pub fn set_shadows_enabled(&mut self, enable: bool) {
         self.shadow_enabled = enable;
     }
+
+    /// C++ parity: Inherited from `W3DModelDraw::releaseShadows()` — releases shadow
+    /// via `m_shadow->release()` and sets `m_shadow = NULL`.
+    // PARITY_NOTE: Would call W3DModelDraw::releaseShadows() in C++ (removes shadow from scene).
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn release_shadows(&mut self) {}
+
+    /// C++ parity: Inherited from `W3DModelDraw::allocateShadows()` — creates shadow from
+    /// ThingTemplate info if no shadow exists, render object exists, and shadow type != SHADOW_NONE.
+    // PARITY_NOTE: Would call W3DModelDraw::allocateShadows() in C++.
+    // This struct lacks shadow_id; when full W3DModelDraw state is composed in, delegate to parent.
     pub fn allocate_shadows(&mut self) {}
+
     pub fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
         if fully_obscured {
             self.debris_active = false;
@@ -274,7 +285,11 @@ impl W3DTankDraw {
         _old_angle: f32,
     ) {
     }
+
+    /// C++ parity: Inherited from `W3DModelDraw::reactToGeometryChange() { }` — no override
+    /// in W3DTankDraw.h. Tank geometry bounds are implicitly updated via render object transforms.
     pub fn react_to_geometry_change(&mut self) {}
+
     pub fn is_visible(&self) -> bool {
         !self.hidden && !self.fully_obscured_by_shroud
     }
@@ -288,8 +303,17 @@ impl W3DTankDraw {
     pub fn xfer(&self) -> u32 {
         1
     }
+    /// C++ parity: `W3DTankDraw::loadPostProcess()` (W3DTankDraw.cpp line 418):
+    ///   1. Calls `W3DModelDraw::loadPostProcess()`
+    ///   2. `tossEmitters()` — releases tread debris particle systems
+    ///   3. `createEmitters()` — re-creates tread debris from moduleData names
     pub fn load_post_process(&mut self) {
-        // PARITY_NOTE: tossEmitters() + createEmitters()
+        // PARITY_NOTE: C++ calls tossEmitters() then createEmitters().
+        // tossEmitters: releases m_treadDebrisLeft and m_treadDebrisRight particle systems
+        // createEmitters: creates new particle systems from moduleData:
+        //   m_treadDebrisLeft = TheParticleSystem->createSystem(moduleData->m_treadDebrisNameLeft)
+        //   m_treadDebrisRight = TheParticleSystem->createSystem(moduleData->m_treadDebrisNameRight)
+        // Requires particle system infrastructure to be wired.
     }
 
     pub fn get_tread_count(&self) -> usize {
