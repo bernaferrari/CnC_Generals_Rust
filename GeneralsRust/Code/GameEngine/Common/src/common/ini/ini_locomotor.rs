@@ -799,6 +799,101 @@ pub fn parse_locomotor_template_definition(
     Ok(template)
 }
 
+/// Error type for bulk locomotor INI loading.
+#[derive(Debug)]
+pub enum LocomotorLoadError {
+    Parse { line: usize, message: String },
+}
+
+impl std::fmt::Display for LocomotorLoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LocomotorLoadError::Parse { line, message } => {
+                write!(f, "Locomotor parse error at line {}: {}", line, message)
+            }
+        }
+    }
+}
+
+impl std::error::Error for LocomotorLoadError {}
+
+/// Load locomotor templates from raw INI text content.
+///
+/// Parses the `Locomotor <Name> ... End` block format and populates the
+/// global `LocomotorStore` via `get_locomotor_store_mut()`.
+///
+/// Matches C++ `TheLocomotorStore->load()` / `INIParser::loadFromData()`
+/// used at `GameEngine.cpp:442`.
+///
+/// Returns the number of templates successfully loaded.
+pub fn load_locomotors_from_str(content: &str) -> Result<usize, LocomotorLoadError> {
+    let mut count = 0usize;
+    let mut current_name: Option<String> = None;
+    let mut current_props: HashMap<String, String> = HashMap::new();
+
+    for (idx, raw_line) in content.lines().enumerate() {
+        let line_no = idx + 1;
+        // Strip comments (everything after ';')
+        let line = raw_line.split(';').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Detect "Locomotor <Name>" block header
+        if let Some(rest) = line.strip_prefix("Locomotor ") {
+            let name = rest.trim();
+            if name.is_empty() {
+                return Err(LocomotorLoadError::Parse {
+                    line: line_no,
+                    message: "Missing locomotor name after 'Locomotor' keyword".into(),
+                });
+            }
+            if current_name.is_some() {
+                return Err(LocomotorLoadError::Parse {
+                    line: line_no,
+                    message: format!("Nested Locomotor block encountered (still inside '{}')", current_name.as_deref().unwrap_or("?")),
+                });
+            }
+            current_name = Some(name.to_string());
+            current_props.clear();
+            continue;
+        }
+
+        // Detect "End" to close the current block
+        if line.eq_ignore_ascii_case("End") {
+            if let Some(name) = current_name.take() {
+                match parse_locomotor_template_definition(&name, &current_props) {
+                    Ok(template) => {
+                        get_locomotor_store_mut().add_template(template).ok();
+                        count += 1;
+                    }
+                    Err(e) => {
+                        return Err(LocomotorLoadError::Parse {
+                            line: line_no,
+                            message: format!("Failed to parse locomotor '{}': {}", name, e),
+                        });
+                    }
+                }
+                current_props.clear();
+            }
+            // stray "End" outside a block is tolerated (matches C++ behavior)
+            continue;
+        }
+
+        // Inside a block: parse "Key = Value" lines
+        if current_name.is_some() {
+            if let Some(eq_pos) = line.find('=') {
+                let key = line[..eq_pos].trim().to_string();
+                let value = line[eq_pos + 1..].trim().to_string();
+                current_props.insert(key, value);
+            }
+            // Lines without '=' inside a block are silently ignored
+        }
+    }
+
+    Ok(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

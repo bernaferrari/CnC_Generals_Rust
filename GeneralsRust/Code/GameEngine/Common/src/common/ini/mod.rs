@@ -166,9 +166,10 @@ pub use ini_language::{
     parse_language_definition, FontDesc, GlobalLanguage, LANGUAGE_FIELD_PARSE_TABLE,
 };
 pub use ini_locomotor::{
-    get_locomotor_store, get_locomotor_store_mut, parse_locomotor_template_definition,
-    LocomotorAppearance, LocomotorBehaviorZ, LocomotorError, LocomotorPriority, LocomotorResult,
-    LocomotorStore, LocomotorSurfaceTypeMask, LocomotorTemplate,
+    get_locomotor_store, get_locomotor_store_mut, load_locomotors_from_str,
+    parse_locomotor_template_definition, LocomotorAppearance, LocomotorBehaviorZ, LocomotorError,
+    LocomotorLoadError, LocomotorPriority, LocomotorResult, LocomotorStore,
+    LocomotorSurfaceTypeMask, LocomotorTemplate,
 };
 pub use ini_rank::{
     get_rank_info_store, get_rank_info_store_mut, init_rank_info_store, parse_rank_definition,
