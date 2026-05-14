@@ -154,15 +154,48 @@ impl GhostObjectManager {
         object: &Arc<RwLock<Object>>,
         partition_data: Option<PartitionData>,
     ) -> Option<Arc<RwLock<GhostObject>>> {
-        let _ = object;
-        let _ = partition_data;
-        // C++ implementation returns NULL in this codebase.
-        None
+        // Respect the lock flag — C++ uses this during map border resizing.
+        if self.lock_ghost_objects {
+            return None;
+        }
+
+        let (position, angle, geometry_type, is_small, major_radius, minor_radius) = {
+            match object.read() {
+                Ok(obj) => {
+                    let geom = obj.get_geometry_info();
+                    (
+                        *obj.get_position(),
+                        obj.get_orientation(),
+                        geom.get_geometry_type(),
+                        geom.get_is_small(),
+                        geom.get_major_radius(),
+                        geom.get_minor_radius(),
+                    )
+                }
+                Err(_) => return None,
+            }
+        };
+
+        let ghost = GhostObject {
+            parent_object: Some(object.clone()),
+            parent_position: position,
+            parent_angle: angle,
+            parent_geometry_type: geometry_type,
+            parent_geometry_is_small: is_small,
+            parent_geometry_major_radius: major_radius,
+            parent_geometry_minor_radius: minor_radius,
+            partition_data,
+        };
+
+        let arc = Arc::new(RwLock::new(ghost));
+        self.ghost_objects.push(arc.clone());
+        Some(arc)
     }
 
     pub fn remove_ghost_object(&mut self, ghost: &Arc<RwLock<GhostObject>>) {
-        let _ = ghost;
-        // C++ implementation is empty in this codebase.
+        // Find and remove by pointer identity (Arc::ptr_eq).
+        self.ghost_objects
+            .retain(|g| !Arc::ptr_eq(g, ghost));
     }
 
     pub fn update_orphaned_objects(&mut self, _player_index_list: &[Int]) {

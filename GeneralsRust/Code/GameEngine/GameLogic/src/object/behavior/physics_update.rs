@@ -332,7 +332,22 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.mass
     }
 
-    fn apply_angular_velocity(&mut self, _angular_velocity: &Vec3) {}
+    fn apply_angular_velocity(&mut self, angular_velocity: &Vec3) {
+        // C++ applies angular rates via Rotate_X/Y/Z with pitchRollYawFactor scaling.
+        // angular_velocity.x = roll rate, .y = pitch rate, .z = yaw rate (per frame).
+        let factor = self.module_data.pitch_roll_yaw_factor;
+        self.state.roll_angle += angular_velocity.x * factor;
+        self.state.pitch_angle += angular_velocity.y * factor;
+        self.state.yaw_angle += angular_velocity.z * factor;
+        self.update_pitch_roll_yaw_flag();
+        if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
+            if let Some(obj) = self.object.upgrade() {
+                if let Ok(obj) = obj.read() {
+                    TheGameLogic::set_wake_frame(obj.get_id(), UPDATE_SLEEP_NONE);
+                }
+            }
+        }
+    }
 
     fn apply_motive_force(&mut self, force: &Vec3) {
         let prev = self.state.motive_force_expires;

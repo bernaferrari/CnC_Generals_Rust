@@ -364,40 +364,49 @@ impl Energy {
     pub fn xfer(&mut self, xfer: &mut dyn Xfer) {
         // C++ Energy.cpp lines 236-238: Version management
         const CURRENT_VERSION: u8 = 3;
-        let version = CURRENT_VERSION;
+        let mut version = CURRENT_VERSION;
 
-        // Version header would be transferred here
-        // xfer.xfer_version(&version, CURRENT_VERSION);
+        // C++ Energy.cpp line 238: xferVersion
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("Energy::xfer version failed: {}", e))
+            .ok();
 
         // C++ Energy.cpp lines 243-249: Production and consumption
         // NOTE: As of version 2, these are NOT saved because they are reconstructed
         // when buildings are loaded. The C++ comment says:
         // "It is actually incorrect to save these, as they are reconstructed when the buildings are loaded"
-        //
-        // if version < 2 {
-        //     xfer.xfer_int(&mut self.energy_production);
-        //     xfer.xfer_int(&mut self.energy_consumption);
-        // }
+        if version < 2 {
+            xfer.xfer_int(&mut self.energy_production)
+                .map_err(|e| format!("Energy::xfer production failed: {}", e))
+                .ok();
+            xfer.xfer_int(&mut self.energy_consumption)
+                .map_err(|e| format!("Energy::xfer consumption failed: {}", e))
+                .ok();
+        }
 
         // C++ Energy.cpp lines 252-256: Owning player index
-        // Note: In Rust, we store PlayerHandle directly, but for serialization
-        // we would need to convert to/from player index
         match xfer.get_xfer_mode() {
             XferMode::Save => {
-                let _owning_player_index = self.owner.value() as i32;
-                // xfer.xfer_int(&owning_player_index);
+                let mut owning_player_index = self.owner.value() as i32;
+                xfer.xfer_int(&mut owning_player_index)
+                    .map_err(|e| format!("Energy::xfer owner failed: {}", e))
+                    .ok();
             }
             XferMode::Load => {
-                // let mut owning_player_index = 0i32;
-                // xfer.xfer_int(&mut owning_player_index);
-                // self.owner = PlayerHandle::new(owning_player_index.max(0) as u32);
+                let mut owning_player_index: i32 = 0;
+                xfer.xfer_int(&mut owning_player_index)
+                    .map_err(|e| format!("Energy::xfer owner failed: {}", e))
+                    .ok();
+                self.owner = PlayerHandle::new(owning_player_index.max(0) as u32);
             }
             XferMode::Crc | XferMode::Invalid => {}
         }
 
         // C++ Energy.cpp lines 259-262: Power sabotage (version 3+)
         if version >= 3 {
-            // xfer.xfer_unsigned_int(&mut self.power_sabotaged_till_frame);
+            xfer.xfer_unsigned_int(&mut self.power_sabotaged_till_frame)
+                .map_err(|e| format!("Energy::xfer sabotage failed: {}", e))
+                .ok();
         }
     }
 

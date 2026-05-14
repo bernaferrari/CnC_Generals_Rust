@@ -37,7 +37,19 @@
 //! - **UNIFORM_LENGTH**: Texture stretched length-wise
 //! - **TILED**: Tiled continuously over line
 
+use bytemuck::{Pod, Zeroable};
 use glam::{Mat3, Mat4, Vec2, Vec3, Vec4};
+use std::sync::Arc;
+use wgpu::{
+    Buffer, BufferDescriptor, BufferUsages, ColorTargetState, ColorWrites, Device, FragmentState,
+    PipelineLayout, PipelineLayoutDescriptor, PrimitiveState, PrimitiveTopology, Queue,
+    RenderPass, RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
+    SamplerDescriptor, ShaderModule, ShaderModuleDescriptor, ShaderSource, ShaderStages, Texture,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureSampleType, TextureUsages,
+    TextureView, TextureViewDescriptor, TextureViewDimension, VertexAttribute, VertexBufferLayout,
+    VertexFormat, VertexState, VertexStepMode,
+};
+use wgpu::util::DeviceExt;
 use ww3d_core::ww3d::WW3D;
 
 /// Maximum subdivision levels allowed (must be ≤ 7 to avoid excessive chunk sizes)
@@ -186,16 +198,46 @@ impl Default for SegLineFlags {
 
 /// Vertex format for segment line rendering
 /// C++ Reference: Matches VertexFormatXYZDUV1 structure
-#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct SegLineVertex {
     pub position: Vec3,
     pub diffuse: Vec4,
     pub uv: Vec2,
 }
 
+impl SegLineVertex {
+    const ATTRIBUTES: &'static [VertexAttribute] = &[
+        VertexAttribute {
+            offset: 0,
+            shader_location: 0,
+            format: VertexFormat::Float32x3,
+        },
+        VertexAttribute {
+            offset: std::mem::size_of::<Vec3>() as u64,
+            shader_location: 1,
+            format: VertexFormat::Float32x4,
+        },
+        VertexAttribute {
+            offset: (std::mem::size_of::<Vec3>() + std::mem::size_of::<Vec4>()) as u64,
+            shader_location: 2,
+            format: VertexFormat::Float32x2,
+        },
+    ];
+
+    pub fn vertex_layout<'a>() -> VertexBufferLayout<'a> {
+        VertexBufferLayout {
+            array_stride: std::mem::size_of::<SegLineVertex>() as u64,
+            step_mode: VertexStepMode::Vertex,
+            attributes: Self::ATTRIBUTES,
+        }
+    }
+}
+
 /// Triangle index structure
 /// C++ Reference: Matches TriIndex structure
-#[derive(Debug, Clone, Copy)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct TriIndex {
     pub i: u16,
     pub j: u16,
@@ -1430,6 +1472,362 @@ impl SegLineRenderer {
 impl Default for SegLineRenderer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// WGSL shader for segmented line rendering (mirrors wthree_d_segmented_line.wgsl)
+// ---------------------------------------------------------------------------
+
+const SEGLINE_SHADER_SOURCE: &str = r#"
+struct Uniforms {
+    view_proj : mat4x4<f32>,
+};
+
+@group(0) @binding(0)
+var<uniform> uniforms : Uniforms;
+
+@group(1) @binding(0)
+var line_texture : texture_2d<f32>;
+
+@group(1) @binding(1)
+var line_sampler : sampler;
+
+struct VSInput {
+    @location(0) position : vec3<f32>,
+    @location(1) color : vec4<f32>,
+    @location(2) uv : vec2<f32>,
+};
+
+struct VSOutput {
+    @builtin(position) position : vec4<f32>,
+    @location(0) color : vec4<f32>,
+    @location(1) uv : vec2<f32>,
+};
+
+@vertex
+fn vs_main(input : VSInput) -> VSOutput {
+    var output : VSOutput;
+    output.position = uniforms.view_proj * vec4<f32>(input.position, 1.0);
+    output.color = input.color;
+    output.uv = input.uv;
+    return output;
+}
+
+@fragment
+fn fs_main(input : VSOutput) -> @location(0) vec4<f32> {
+    let tex = textureSample(line_texture, line_sampler, input.uv);
+    return tex * input.color;
+}
+"#;
+
+// ---------------------------------------------------------------------------
+// SegLineGpuPipeline — wgpu render pipeline + buffers for segmented lines
+// ---------------------------------------------------------------------------
+
+/// GPU-side pipeline and buffers for rendering segmented lines.
+///
+/// Created once from a `Device`/`Queue` pair, then reused across frames.
+/// Call [`SegLineGpuPipeline::draw`] each frame with the vertices/indices
+/// produced by [`SegLineRenderer::render`].
+pub struct SegLineGpuPipeline {
+    device: Arc<Device>,
+    queue: Arc<Queue>,
+
+    pipeline: RenderPipeline,
+    _pipeline_layout: PipelineLayout,
+    _shader_module: ShaderModule,
+
+    /// White 1×1 texture used when no texture is bound.
+    white_texture: Texture,
+    white_texture_view: TextureView,
+    white_sampler: Sampler,
+
+    vertex_buffer: Buffer,
+    index_buffer: Buffer,
+    vertex_capacity: usize,
+    index_capacity: usize,
+}
+
+/// Maximum vertices the line GPU buffers can hold before needing reallocation.
+const INITIAL_LINE_VERTEX_CAPACITY: usize = 4096;
+const INITIAL_LINE_INDEX_CAPACITY: usize = 8192;
+
+impl SegLineGpuPipeline {
+    /// Create the GPU pipeline from a device, queue, and surface format.
+    ///
+    /// The `surface_format` determines the render target pixel format for the
+    /// fragment shader output.
+    pub fn new(
+        device: Arc<Device>,
+        queue: Arc<Queue>,
+        surface_format: TextureFormat,
+    ) -> Self {
+        let shader_module = device.create_shader_module(ShaderModuleDescriptor {
+            label: Some("SegLine Shader"),
+            source: ShaderSource::Wgsl(SEGLINE_SHADER_SOURCE.into()),
+        });
+
+        // Bind group 0: view-proj uniform
+        let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("SegLine Uniform BGL"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        // Bind group 1: texture + sampler
+        let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("SegLine Texture BGL"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
+            label: Some("SegLine Pipeline Layout"),
+            bind_group_layouts: &[&uniform_bgl, &texture_bgl],
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
+            label: Some("SegLine Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: VertexState {
+                module: &shader_module,
+                entry_point: Some("vs_main"),
+                buffers: &[SegLineVertex::vertex_layout()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(FragmentState {
+                module: &shader_module,
+                entry_point: Some("fs_main"),
+                targets: &[Some(ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: PrimitiveState {
+                topology: PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                unclipped_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        // White 1×1 texture for untextured lines
+        let white_texture = device.create_texture(&TextureDescriptor {
+            label: Some("SegLine White Texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let white_texture_view = white_texture.create_view(&TextureViewDescriptor::default());
+        queue.write_texture(
+            white_texture.as_image_copy(),
+            &[255u8, 255, 255, 255],
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let white_sampler = device.create_sampler(&SamplerDescriptor {
+            label: Some("SegLine Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let vertex_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("SegLine Vertex Buffer"),
+            size: (INITIAL_LINE_VERTEX_CAPACITY * std::mem::size_of::<SegLineVertex>()) as u64,
+            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let index_buffer = device.create_buffer(&BufferDescriptor {
+            label: Some("SegLine Index Buffer"),
+            size: (INITIAL_LINE_INDEX_CAPACITY * std::mem::size_of::<TriIndex>()) as u64,
+            usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        Self {
+            device,
+            queue,
+            pipeline,
+            _pipeline_layout: pipeline_layout,
+            _shader_module: shader_module,
+            white_texture,
+            white_texture_view,
+            white_sampler,
+            vertex_buffer,
+            index_buffer,
+            vertex_capacity: INITIAL_LINE_VERTEX_CAPACITY,
+            index_capacity: INITIAL_LINE_INDEX_CAPACITY,
+        }
+    }
+
+    /// Create a uniform buffer + bind group for a view-projection matrix.
+    pub fn create_view_proj_bind_group(
+        &self,
+        view_proj: &Mat4,
+    ) -> (Buffer, wgpu::BindGroup) {
+        let bytes: [[f32; 4]; 4] = (*view_proj).into();
+        let uniform_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("SegLine ViewProj Uniform"),
+                contents: bytemuck::cast_slice(&bytes),
+                usage: BufferUsages::UNIFORM,
+            });
+
+        let layout = self.pipeline.get_bind_group_layout(0);
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("SegLine ViewProj BG"),
+            layout: &layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        (uniform_buffer, bind_group)
+    }
+
+    /// Create a texture bind group using the white 1×1 fallback texture.
+    pub fn create_white_texture_bind_group(&self) -> wgpu::BindGroup {
+        let layout = self.pipeline.get_bind_group_layout(1);
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("SegLine White Texture BG"),
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.white_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.white_sampler),
+                },
+            ],
+        })
+    }
+
+    /// Upload vertex and index data to GPU buffers, then issue a draw call.
+    ///
+    /// Automatically grows GPU buffers if the geometry exceeds current capacity.
+    ///
+    /// # Arguments
+    ///
+    /// * `render_pass` — active wgpu render pass
+    /// * `vertices` — line ribbon vertices from [`SegLineRenderer::render`]
+    /// * `indices` — triangle indices from [`SegLineRenderer::render`]
+    /// * `view_proj_bg` — bind group for group 0 (view-proj uniform)
+    /// * `texture_bg` — bind group for group 1 (texture + sampler)
+    pub fn draw(
+        &mut self,
+        render_pass: &mut RenderPass<'_>,
+        vertices: &[SegLineVertex],
+        indices: &[TriIndex],
+        view_proj_bg: &wgpu::BindGroup,
+        texture_bg: &wgpu::BindGroup,
+    ) {
+        if vertices.is_empty() || indices.is_empty() {
+            return;
+        }
+
+        // Grow vertex buffer if needed
+        if vertices.len() > self.vertex_capacity {
+            self.vertex_capacity = vertices.len().next_power_of_two();
+            self.vertex_buffer = self.device.create_buffer(&BufferDescriptor {
+                label: Some("SegLine Vertex Buffer (grown)"),
+                size: (self.vertex_capacity * std::mem::size_of::<SegLineVertex>()) as u64,
+                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+
+        // Grow index buffer if needed
+        if indices.len() > self.index_capacity {
+            self.index_capacity = indices.len().next_power_of_two();
+            self.index_buffer = self.device.create_buffer(&BufferDescriptor {
+                label: Some("SegLine Index Buffer (grown)"),
+                size: (self.index_capacity * std::mem::size_of::<TriIndex>()) as u64,
+                usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+
+        // Upload geometry
+        self.queue.write_buffer(
+            &self.vertex_buffer,
+            0,
+            bytemuck::cast_slice(vertices),
+        );
+        self.queue.write_buffer(
+            &self.index_buffer,
+            0,
+            bytemuck::cast_slice(indices),
+        );
+
+        // Draw
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, view_proj_bg, &[]);
+        render_pass.set_bind_group(1, texture_bg, &[]);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        render_pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
     }
 }
 

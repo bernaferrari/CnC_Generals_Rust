@@ -64,6 +64,12 @@ pub struct ProductionUpdate {
     current_production_end_frame: UnsignedInt,
     current_production_total_frames: UnsignedInt,
     is_producing: Bool,
+    /// When paused, saves the remaining production frames so resume can
+    /// recalculate the target end frame from the current logic frame.
+    paused_remaining_frames: UnsignedInt,
+    /// True while production is paused — the update loop skips progress
+    /// but keeps waking to avoid missing the resume signal.
+    is_paused: Bool,
 }
 
 impl ProductionUpdate {
@@ -101,6 +107,8 @@ impl ProductionUpdate {
             current_production_end_frame: 0,
             current_production_total_frames: 0,
             is_producing: false,
+            paused_remaining_frames: 0,
+            is_paused: false,
         })
     }
 
@@ -127,7 +135,7 @@ impl UpdateModuleInterface for ProductionUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         let current_frame = TheGameLogic::get_frame();
 
-        if self.is_producing {
+        if self.is_producing && !self.is_paused {
             if current_frame >= self.current_production_end_frame {
                 if let Some(entry) = self.current_entry.take() {
                     if let Some(factory_object) = self.object.upgrade() {
@@ -273,9 +281,26 @@ impl ProductionUpdateInterface for ProductionUpdate {
         self.is_producing
     }
 
-    fn pause_production(&mut self) {}
+    fn pause_production(&mut self) {
+        if !self.is_producing || self.is_paused {
+            return;
+        }
+        let current_frame = TheGameLogic::get_frame();
+        self.paused_remaining_frames = self
+            .current_production_end_frame
+            .saturating_sub(current_frame);
+        self.is_paused = true;
+    }
 
-    fn resume_production(&mut self) {}
+    fn resume_production(&mut self) {
+        if !self.is_paused {
+            return;
+        }
+        let current_frame = TheGameLogic::get_frame();
+        self.current_production_end_frame = current_frame.saturating_add(self.paused_remaining_frames);
+        self.paused_remaining_frames = 0;
+        self.is_paused = false;
+    }
 
     fn set_hold_door_open(&mut self, _exit_door: usize, hold_it: bool) {
         if hold_it {
