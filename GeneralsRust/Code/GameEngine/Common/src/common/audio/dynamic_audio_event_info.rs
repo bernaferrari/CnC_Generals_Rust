@@ -106,7 +106,10 @@ impl DynamicAudioEventInfo {
                 control: 0,
                 audio_name: String::new(),
                 volume: 0.5,
+                sounds_morning: Vec::new(),
                 sounds: Vec::new(),
+                sounds_night: Vec::new(),
+                sounds_evening: Vec::new(),
                 attack_sounds: Vec::new(),
                 decay_sounds: Vec::new(),
                 pitch_shift_min: 1.0,
@@ -129,7 +132,6 @@ impl DynamicAudioEventInfo {
         }
     }
 
-    /// Initialize AudioEventInfo portion of DynamicAudioEventInfo as copy; leave remainder uninitialized
     pub fn from_base_info(base_info: &AudioEventInfo) -> Self {
         DynamicAudioEventInfo {
             audio_event_info: AudioEventInfo {
@@ -137,7 +139,10 @@ impl DynamicAudioEventInfo {
                 control: base_info.control,
                 audio_name: base_info.audio_name.clone(),
                 volume: base_info.volume,
+                sounds_morning: base_info.sounds_morning.clone(),
                 sounds: base_info.sounds.clone(),
+                sounds_night: base_info.sounds_night.clone(),
+                sounds_evening: base_info.sounds_evening.clone(),
                 attack_sounds: base_info.attack_sounds.clone(),
                 decay_sounds: base_info.decay_sounds.clone(),
                 pitch_shift_min: base_info.pitch_shift_min,
@@ -436,7 +441,10 @@ impl Clone for DynamicAudioEventInfo {
                 control: self.audio_event_info.control,
                 audio_name: self.audio_event_info.audio_name.clone(),
                 volume: self.audio_event_info.volume,
+                sounds_morning: self.audio_event_info.sounds_morning.clone(),
                 sounds: self.audio_event_info.sounds.clone(),
+                sounds_night: self.audio_event_info.sounds_night.clone(),
+                sounds_evening: self.audio_event_info.sounds_evening.clone(),
                 attack_sounds: self.audio_event_info.attack_sounds.clone(),
                 decay_sounds: self.audio_event_info.decay_sounds.clone(),
                 pitch_shift_min: self.audio_event_info.pitch_shift_min,
@@ -473,7 +481,10 @@ mod tests {
             control: 0,
             audio_name: "TreeAmbient".to_string(),
             volume: 0.5,
+            sounds_morning: Vec::new(),
             sounds: vec!["tree_ambient_a.wav".to_string()],
+            sounds_night: Vec::new(),
+            sounds_evening: Vec::new(),
             attack_sounds: Vec::new(),
             decay_sounds: Vec::new(),
             pitch_shift_min: 1.0,

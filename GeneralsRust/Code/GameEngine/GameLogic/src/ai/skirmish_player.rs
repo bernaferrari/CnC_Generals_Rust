@@ -3,6 +3,8 @@ use crate::ai::THE_AI;
 use crate::build_list_info::BuildListInfo;
 use crate::common::coord::*;
 use crate::common::coord_ext::Coord2DExt;
+use crate::common::xfer::{Xfer, XferExt};
+use crate::common::Snapshot;
 use crate::common::*;
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory};
 use crate::object::production::construction::FoundationValidator;
@@ -2422,5 +2424,105 @@ impl AISkirmishPlayer {
         }
 
         best_target
+    }
+}
+
+impl Snapshot for AISkirmishPlayer {
+    fn crc(&self, xfer: &mut dyn Xfer) {
+        let mut cur_front_base_defense = self.cur_front_base_defense;
+        let _ = xfer.xfer_int(&mut cur_front_base_defense);
+
+        let mut cur_flank_base_defense = self.cur_flank_base_defense;
+        let _ = xfer.xfer_int(&mut cur_flank_base_defense);
+
+        let mut cur_front_left_defense_angle = self.cur_front_left_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_front_left_defense_angle);
+
+        let mut cur_front_right_defense_angle = self.cur_front_right_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_front_right_defense_angle);
+
+        let mut cur_left_flank_left_defense_angle = self.cur_left_flank_left_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_left_flank_left_defense_angle);
+
+        let mut cur_left_flank_right_defense_angle = self.cur_left_flank_right_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_left_flank_right_defense_angle);
+
+        let mut cur_right_flank_left_defense_angle = self.cur_right_flank_left_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_right_flank_left_defense_angle);
+
+        let mut cur_right_flank_right_defense_angle = self.cur_right_flank_right_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_right_flank_right_defense_angle);
+
+        let mut frame_to_check_enemy = self.frame_to_check_enemy;
+        let _ = xfer.xfer_unsigned_int(&mut frame_to_check_enemy);
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        let mut version: u8 = 1;
+        let _ = xfer.xfer_version(&mut version, 1);
+
+        self.base.xfer(xfer);
+
+        let mut cur_front_base_defense = self.cur_front_base_defense;
+        let _ = xfer.xfer_int(&mut cur_front_base_defense);
+        if xfer.is_loading() {
+            self.cur_front_base_defense = cur_front_base_defense;
+        }
+
+        let mut cur_flank_base_defense = self.cur_flank_base_defense;
+        let _ = xfer.xfer_int(&mut cur_flank_base_defense);
+        if xfer.is_loading() {
+            self.cur_flank_base_defense = cur_flank_base_defense;
+        }
+
+        let mut cur_front_left_defense_angle = self.cur_front_left_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_front_left_defense_angle);
+        if xfer.is_loading() {
+            self.cur_front_left_defense_angle = cur_front_left_defense_angle;
+        }
+
+        let mut cur_front_right_defense_angle = self.cur_front_right_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_front_right_defense_angle);
+        if xfer.is_loading() {
+            self.cur_front_right_defense_angle = cur_front_right_defense_angle;
+        }
+
+        let mut cur_left_flank_left_defense_angle = self.cur_left_flank_left_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_left_flank_left_defense_angle);
+        if xfer.is_loading() {
+            self.cur_left_flank_left_defense_angle = cur_left_flank_left_defense_angle;
+        }
+
+        let mut cur_left_flank_right_defense_angle = self.cur_left_flank_right_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_left_flank_right_defense_angle);
+        if xfer.is_loading() {
+            self.cur_left_flank_right_defense_angle = cur_left_flank_right_defense_angle;
+        }
+
+        let mut cur_right_flank_left_defense_angle = self.cur_right_flank_left_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_right_flank_left_defense_angle);
+        if xfer.is_loading() {
+            self.cur_right_flank_left_defense_angle = cur_right_flank_left_defense_angle;
+        }
+
+        let mut cur_right_flank_right_defense_angle = self.cur_right_flank_right_defense_angle;
+        let _ = xfer.xfer_real(&mut cur_right_flank_right_defense_angle);
+        if xfer.is_loading() {
+            self.cur_right_flank_right_defense_angle = cur_right_flank_right_defense_angle;
+        }
+
+        let mut frame_to_check_enemy = self.frame_to_check_enemy;
+        let _ = xfer.xfer_unsigned_int(&mut frame_to_check_enemy);
+        if xfer.is_loading() {
+            self.frame_to_check_enemy = frame_to_check_enemy;
+        }
+
+        // PARITY_NOTE: C++ also xfers m_currentEnemy (Player*), but in Rust
+        // we use Weak<RwLock<Player>> which cannot be directly serialized.
+        // The enemy is re-acquired via acquire_enemy() on load.
+    }
+
+    fn load_post_process(&mut self) {
+        self.current_enemy = None;
     }
 }

@@ -1273,11 +1273,22 @@ pub struct ParticleSystem {
     emission_volume_override: Option<EmissionVolume>,
     emission_volume_type_override: Option<EmissionVolumeType>,
 
+<<<<<<< Updated upstream
     // Slave emission buffer: during emit_particles, if a slave system is present,
     // the emitted particle count is recorded here so the manager can create
     // corresponding slave particles in a separate pass (avoids double-&mut borrow).
     // Matches C++ ParticleSystem::update lines 2004-2009.
     slave_emission_count: u32,
+=======
+    // C++ parity: ParticleSys.cpp lines 1854-1906 (isShrouded flag)
+    is_shrouded: bool,
+
+    // C++ parity: ParticleSys.cpp lines 1847-1932 (parentXfrm)
+    parent_transform: Option<Matrix3<f32>>,
+
+    // C++ parity: ParticleSys.cpp lines 1782-1783, 1518-1520, 1644-1646
+    particle_scale: f32,
+>>>>>>> Stashed changes
 }
 
 impl ParticleSystem {
@@ -1338,7 +1349,13 @@ impl ParticleSystem {
             emission_volume_override: None,
             emission_volume_type_override: None,
 
+<<<<<<< Updated upstream
             slave_emission_count: 0,
+=======
+            is_shrouded: false,
+            parent_transform: None,
+            particle_scale: Self::read_particle_scale_from_global_data(),
+>>>>>>> Stashed changes
         };
 
         // Initialize wind motion
@@ -1362,7 +1379,7 @@ impl ParticleSystem {
     /// # Arguments
     /// * `local_player_index` - Player index for visibility checks
     /// * `current_frame` - Current game frame for timing
-    pub fn update(&mut self, local_player_index: i32, current_frame: u32) -> bool {
+    pub fn update(&mut self, _local_player_index: i32, current_frame: u32) -> bool {
         if self.is_destroyed && self.particles.is_empty() {
             return false;
         }
@@ -1370,11 +1387,14 @@ impl ParticleSystem {
         // Update wind motion (C++ line 1978)
         self.update_wind_motion();
 
+        // C++ parity: parent transform concatenation (ParticleSys.cpp lines 1847-1932)
+        self.update_transform_from_parent();
+
         // Update existing particles (C++ lines 2143-2158)
         self.update_particles(current_frame);
 
-        // Emit new particles if not stopped or destroyed (C++ lines 1987-2049)
-        if !self.is_stopped && !self.is_destroyed {
+        // C++ parity: ParticleSys.cpp line 1970
+        if !self.is_stopped && !self.is_destroyed && !self.is_shrouded {
             self.emit_particles(current_frame);
         }
 
@@ -1556,6 +1576,27 @@ impl ParticleSystem {
         self.skip_parent_transform = enable;
     }
 
+    /// Set shroud visibility state. C++ parity: ParticleSys.cpp lines 1860-1884
+    pub fn set_shrouded(&mut self, shrouded: bool) {
+        self.is_shrouded = shrouded;
+    }
+
+    /// Set parent transform matrix. C++ parity: ParticleSys.cpp lines 1863, 1886-1890
+    pub fn set_parent_transform(&mut self, transform: Option<Matrix3<f32>>) {
+        self.parent_transform = transform;
+    }
+
+    pub fn update_particle_scale(&mut self) {
+        self.particle_scale = Self::read_particle_scale_from_global_data();
+    }
+
+    fn read_particle_scale_from_global_data() -> f32 {
+        game_engine::common::ini::ini_game_data::get_global_data()
+            .and_then(|gd| gd.read().ok())
+            .map(|gd| gd.particle_scale)
+            .unwrap_or(1.0)
+    }
+
     /// Get velocity multiplier
     pub fn velocity_multiplier(&self) -> Vector3<f32> {
         self.vel_coeff
@@ -1676,6 +1717,7 @@ impl ParticleSystem {
         self.particle_count
     }
 
+<<<<<<< Updated upstream
     /// Get system priority for C++-style particle budget culling.
     pub fn priority(&self) -> ParticlePriorityType {
         self.template.info().priority
@@ -1701,6 +1743,18 @@ impl ParticleSystem {
         }
         self.particle_count -= remove_count;
         remove_count
+=======
+    /// Remove the oldest particle (front of VecDeque). Returns true if a particle was removed.
+    /// C++ parity: ParticleSystemManager::removeOldestParticles calls deleteInstance on m_allParticlesHead[i],
+    /// which is the oldest particle in each priority bucket.
+    pub fn remove_oldest_particle(&mut self) -> bool {
+        if self.particles.pop_front().is_some() {
+            self.particle_count = self.particle_count.saturating_sub(1);
+            true
+        } else {
+            false
+        }
+>>>>>>> Stashed changes
     }
 
     /// Get wind angle
@@ -1830,19 +1884,23 @@ impl ParticleSystem {
         particle_info.position = self.compute_particle_position();
         particle_info.emitter_position = self.position;
 
-        // Velocity
+        // C++ parity: ParticleSys.cpp lines 1518-1520
+        // C++: newVel *= m_velCoeff * (0.5f + m_particleScale/2.0f)
         particle_info.velocity = self.compute_particle_velocity(&particle_info.position);
-
-        // Apply velocity coefficient
+        let vel_scale = 0.5 + self.particle_scale / 2.0;
         particle_info.velocity.component_mul_assign(&self.vel_coeff);
+        particle_info.velocity *= vel_scale;
 
         // Lifetime
         particle_info.lifetime = info.lifetime.sample() as u32;
 
-        // Size
-        particle_info.size =
-            (info.start_size.sample() + self.accumulated_size_bonus) * self.size_coeff;
-        particle_info.size_rate = info.size_rate.sample();
+        // C++ parity: ParticleSys.cpp lines 1782-1783
+        // C++: m_size = m_startSize*m_sizeCoeff*TheGlobalData->m_particleScale
+        // C++: m_sizeRate = m_sizeRate*m_sizeCoeff*TheGlobalData->m_particleScale
+        particle_info.size = (info.start_size.sample() + self.accumulated_size_bonus)
+            * self.size_coeff
+            * self.particle_scale;
+        particle_info.size_rate = info.size_rate.sample() * self.size_coeff * self.particle_scale;
         particle_info.size_rate_damping = info.size_rate_damping.sample();
 
         // Angles
@@ -1967,8 +2025,12 @@ impl ParticleSystem {
             }
         };
 
+        // C++ parity: ParticleSys.cpp lines 1644-1646
+        // C++: newPos *= (0.5f + m_particleScale/2.0f)
+        let pos_scale = 0.5 + self.particle_scale / 2.0;
+
         // Transform to world space
-        self.position + self.transform * local_pos
+        self.position + self.transform * (local_pos * pos_scale)
     }
 
     fn effective_emission_volume(&self) -> EmissionVolume {
@@ -2085,9 +2147,30 @@ impl ParticleSystem {
 
     /// Update transform matrix
     fn update_transform(&mut self) {
-        // For now, assume no parent transform
         self.transform = self.local_transform;
         self.is_identity = self.is_local_identity;
+    }
+
+    // C++ parity: ParticleSys.cpp lines 1910-1946
+    fn update_transform_from_parent(&mut self) {
+        if let Some(ref parent_xfrm) = self.parent_transform {
+            if self.skip_parent_transform {
+                self.transform = self.local_transform;
+            } else if !self.is_local_identity {
+                self.transform = parent_xfrm * self.local_transform;
+            } else {
+                self.transform = *parent_xfrm;
+            }
+            self.is_identity = false;
+        } else {
+            if !self.is_local_identity {
+                self.transform = self.local_transform;
+                self.is_identity = false;
+            } else {
+                self.transform = Matrix3::identity();
+                self.is_identity = true;
+            }
+        }
     }
 
     /// Initialize wind motion
@@ -2113,21 +2196,51 @@ impl ParticleSystem {
         }
     }
 
-    /// Update wind motion (matches C++ ParticleSystem::updateWindMotion)
+    /// Update wind motion (matches C++ ParticleSys.cpp lines 2085-2180)
     fn update_wind_motion(&mut self) {
         let info = self.template.info();
+        let mut rng = thread_rng();
 
         match info.wind_motion {
             WindMotion::PingPong => {
+                let start_angle = self.wind_motion_start_angle;
+                let end_angle = self.wind_motion_end_angle;
+
+                let total_span = end_angle - start_angle;
+                let half_span = total_span / 2.0;
+                let diff_from_center = (half_span - self.wind_angle + start_angle).abs();
+
+                const MINIMUM_CHANGE: f32 = 0.005;
+                let mut change = (1.0 - (diff_from_center / half_span)) * self.wind_angle_change;
+                if change < MINIMUM_CHANGE {
+                    change = MINIMUM_CHANGE;
+                }
+
                 if self.wind_motion_moving_to_end_angle {
-                    self.wind_angle += self.wind_angle_change;
-                    if self.wind_angle >= info.wind_motion_end_angle {
+                    self.wind_angle += change;
+                    if self.wind_angle >= end_angle {
                         self.wind_motion_moving_to_end_angle = false;
+                        self.wind_angle_change =
+                            rng.gen_range(info.wind_angle_change_min..=info.wind_angle_change_max);
+                        self.wind_motion_start_angle = rng.gen_range(
+                            info.wind_motion_start_angle_min..=info.wind_motion_start_angle_max,
+                        );
+                        self.wind_motion_end_angle = rng.gen_range(
+                            info.wind_motion_end_angle_min..=info.wind_motion_end_angle_max,
+                        );
                     }
                 } else {
-                    self.wind_angle -= self.wind_angle_change;
-                    if self.wind_angle <= info.wind_motion_start_angle {
+                    self.wind_angle -= change;
+                    if self.wind_angle <= start_angle {
                         self.wind_motion_moving_to_end_angle = true;
+                        self.wind_angle_change =
+                            rng.gen_range(info.wind_angle_change_min..=info.wind_angle_change_max);
+                        self.wind_motion_start_angle = rng.gen_range(
+                            info.wind_motion_start_angle_min..=info.wind_motion_start_angle_max,
+                        );
+                        self.wind_motion_end_angle = rng.gen_range(
+                            info.wind_motion_end_angle_min..=info.wind_motion_end_angle_max,
+                        );
                     }
                 }
             }

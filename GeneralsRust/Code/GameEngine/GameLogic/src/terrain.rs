@@ -2418,6 +2418,7 @@ impl TerrainLogic {
         self.active_boundary = new_active_boundary;
     }
 
+<<<<<<< Updated upstream
     /// Flatten terrain under a building/object.
     /// Reference: C++ TerrainLogic::flattenTerrain() in TerrainLogic.cpp
     ///
@@ -2426,10 +2427,20 @@ impl TerrainLogic {
     /// never raises — matching C++ setRawMapHeight behavior.
     pub fn flatten_terrain(&mut self, obj: &Arc<RwLock<Object>>) {
         let obj_guard = obj.read().unwrap();
+=======
+    /// Flatten terrain under object. Reference: C++ TerrainLogic::flattenTerrain()
+    pub fn flatten_terrain(&mut self, obj: &Arc<RwLock<Object>>) {
+        let obj_guard = match obj.read() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+
+>>>>>>> Stashed changes
         if obj_guard.get_geometry_info().get_is_small() {
             return;
         }
 
+<<<<<<< Updated upstream
         let pos = obj_guard.get_position();
         let geom = obj_guard.get_geometry_info();
 
@@ -2438,6 +2449,23 @@ impl TerrainLogic {
                 let angle = obj_guard.get_orientation();
                 let halfsize_x = geom.get_major_radius();
                 let halfsize_y = geom.get_minor_radius();
+=======
+        let pos = *obj_guard.get_position();
+        let geometry_type = obj_guard.get_geometry_info().get_geometry_type();
+        let major_radius = obj_guard.get_geometry_info().get_major_radius();
+        let minor_radius = obj_guard.get_geometry_info().get_minor_radius();
+        let angle = obj_guard.get_orientation();
+        drop(obj_guard);
+
+        if self.map_data.is_empty() || self.map_dx <= 0 || self.map_dy <= 0 {
+            return;
+        }
+
+        match geometry_type {
+            EngineGeometryType::Box => {
+                let halfsize_x = major_radius;
+                let halfsize_y = minor_radius;
+>>>>>>> Stashed changes
                 let c = angle.cos();
                 let s = angle.sin();
 
@@ -2468,6 +2496,7 @@ impl TerrainLogic {
                     .max(bottom_left_y);
 
                 let i_min_x = (min_x / MAP_XY_FACTOR).floor() as i32;
+<<<<<<< Updated upstream
                 let _i_min_y = (min_y / MAP_XY_FACTOR).floor() as i32;
                 let i_max_x = (max_x / MAP_XY_FACTOR).floor() as i32;
                 let i_max_y = (max_y / MAP_XY_FACTOR).floor() as i32;
@@ -2501,6 +2530,24 @@ impl TerrainLogic {
                         );
                         if match_tri {
                             total_height += self.get_ground_height(test_pt_x, test_pt_y, None);
+=======
+                let i_min_y = (min_y / MAP_XY_FACTOR).floor() as i32;
+                let i_max_x = (max_x / MAP_XY_FACTOR).floor() as i32;
+                let i_max_y = (max_y / MAP_XY_FACTOR).floor() as i32;
+
+                // PARITY_NOTE: C++ uses Point_In_Triangle_2D for box containment;
+                // our cross-product point-in-rotated-rect test is mathematically equivalent.
+                let mut total_height = 0.0f32;
+                let mut num_samples: i32 = 0;
+                for i in i_min_x..=i_max_x {
+                    for j in i_min_y..=i_max_y {
+                        let test_x = i as f32 * MAP_XY_FACTOR;
+                        let test_y = j as f32 * MAP_XY_FACTOR;
+                        if point_in_rotated_rect(
+                            test_x, test_y, pos.x, pos.y, halfsize_x, halfsize_y, c, s,
+                        ) {
+                            total_height += self.get_ground_height(test_x, test_y, None);
+>>>>>>> Stashed changes
                             num_samples += 1;
                         }
                     }
@@ -2508,15 +2555,24 @@ impl TerrainLogic {
                 if num_samples == 0 {
                     return;
                 }
+<<<<<<< Updated upstream
                 let avg_height = total_height / num_samples as f32;
                 let mut raw_data_height = (0.5 + avg_height / MAP_HEIGHT_SCALE).floor() as i32;
 
                 // Compare to center height — setRawMapHeight only lowers
+=======
+
+                let avg_height = total_height / num_samples as f32;
+                let mut raw_data_height = (0.5f32 + avg_height / MAP_HEIGHT_SCALE).floor() as i32;
+
+                // C++ setRawMapHeight only lowers, not raise
+>>>>>>> Stashed changes
                 let center_height =
                     (self.get_ground_height(pos.x, pos.y, None) / MAP_HEIGHT_SCALE).floor() as i32;
                 if raw_data_height > center_height {
                     raw_data_height = center_height;
                 }
+<<<<<<< Updated upstream
 
                 // Second pass: flatten 3x3 area around each matching cell
                 for i in i_min_x..=i_max_x {
@@ -2546,6 +2602,19 @@ impl TerrainLogic {
                             // Set 3x3 area: center + 4 cardinal + 4 diagonal neighbors
                             for di in -1..=1 {
                                 for dj in -1..=1 {
+=======
+                let raw_data_height = raw_data_height.clamp(0, 255) as u8;
+
+                for i in i_min_x..=i_max_x {
+                    for j in i_min_y..=i_max_y {
+                        let test_x = i as f32 * MAP_XY_FACTOR;
+                        let test_y = j as f32 * MAP_XY_FACTOR;
+                        if point_in_rotated_rect(
+                            test_x, test_y, pos.x, pos.y, halfsize_x, halfsize_y, c, s,
+                        ) {
+                            for di in -1i32..=1 {
+                                for dj in -1i32..=1 {
+>>>>>>> Stashed changes
                                     self.set_raw_map_height(i + di, j + dj, raw_data_height);
                                 }
                             }
@@ -2554,6 +2623,7 @@ impl TerrainLogic {
                 }
             }
             EngineGeometryType::Sphere | EngineGeometryType::Cylinder => {
+<<<<<<< Updated upstream
                 let radius = geom.get_major_radius();
                 let radius_sqr = radius * radius;
                 let i_min_x = ((pos.x - radius) / MAP_XY_FACTOR).floor() as i32;
@@ -2573,6 +2643,27 @@ impl TerrainLogic {
                         let dy = test_pt_y - pos.y;
                         if dx * dx + dy * dy < radius_sqr {
                             total_height += self.get_ground_height(test_pt_x, test_pt_y, None);
+=======
+                // PARITY_NOTE: C++ treats Sphere same as Cylinder ("not quite right, but close enough")
+                let radius = major_radius;
+                let radius_sqr = radius * radius;
+
+                let i_min_x = ((pos.x - radius) / MAP_XY_FACTOR).floor() as i32;
+                let i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
+                let i_max_x = ((pos.x + radius) / MAP_XY_FACTOR).floor() as i32;
+                let i_max_y = ((pos.y + radius) / MAP_XY_FACTOR).floor() as i32;
+
+                let mut total_height = 0.0f32;
+                let mut num_samples: i32 = 0;
+                for i in i_min_x..=i_max_x {
+                    for j in i_min_y..=i_max_y {
+                        let test_x = i as f32 * MAP_XY_FACTOR;
+                        let test_y = j as f32 * MAP_XY_FACTOR;
+                        let dx = test_x - pos.x;
+                        let dy = test_y - pos.y;
+                        if dx * dx + dy * dy < radius_sqr {
+                            total_height += self.get_ground_height(test_x, test_y, None);
+>>>>>>> Stashed changes
                             num_samples += 1;
                         }
                     }
@@ -2580,6 +2671,7 @@ impl TerrainLogic {
                 if num_samples == 0 {
                     return;
                 }
+<<<<<<< Updated upstream
                 let avg_height = total_height / num_samples as f32;
                 let raw_data_height = (0.5 + avg_height / MAP_HEIGHT_SCALE).floor() as i32;
 
@@ -2593,6 +2685,23 @@ impl TerrainLogic {
                         if dx * dx + dy * dy < radius_sqr {
                             for di in -1..=1 {
                                 for dj in -1..=1 {
+=======
+
+                let avg_height = total_height / num_samples as f32;
+                let raw_data_height = (0.5f32 + avg_height / MAP_HEIGHT_SCALE)
+                    .floor()
+                    .clamp(0.0, 255.0) as u8;
+
+                for i in i_min_x..=i_max_x {
+                    for j in i_min_y..=i_max_y {
+                        let test_x = i as f32 * MAP_XY_FACTOR;
+                        let test_y = j as f32 * MAP_XY_FACTOR;
+                        let dx = test_x - pos.x;
+                        let dy = test_y - pos.y;
+                        if dx * dx + dy * dy < radius_sqr {
+                            for di in -1i32..=1 {
+                                for dj in -1i32..=1 {
+>>>>>>> Stashed changes
                                     self.set_raw_map_height(i + di, j + dj, raw_data_height);
                                 }
                             }
@@ -2603,6 +2712,7 @@ impl TerrainLogic {
         }
     }
 
+<<<<<<< Updated upstream
     /// Dig a deep circular gorge into the terrain beneath an object.
     /// Reference: C++ TerrainLogic::createCraterInTerrain() in TerrainLogic.cpp
     ///
@@ -2610,29 +2720,60 @@ impl TerrainLogic {
     /// tapering to zero at the edge of the object's radius.
     pub fn create_crater_in_terrain(&mut self, obj: &Arc<RwLock<Object>>) {
         let obj_guard = obj.read().unwrap();
+=======
+    /// Create crater in terrain. Reference: C++ TerrainLogic::createCraterInTerrain()
+    pub fn create_crater_in_terrain(&mut self, obj: &Arc<RwLock<Object>>) {
+        let obj_guard = match obj.read() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+
+>>>>>>> Stashed changes
         if obj_guard.get_geometry_info().get_is_small() {
             return;
         }
 
+<<<<<<< Updated upstream
         let pos = obj_guard.get_position();
         let radius = obj_guard.get_geometry_info().get_major_radius();
         if radius <= 0.0 {
+=======
+        let pos = *obj_guard.get_position();
+        let radius = obj_guard.get_geometry_info().get_major_radius();
+        drop(obj_guard);
+
+        if radius <= 0.0f32 {
+            return;
+        }
+
+        if self.map_data.is_empty() || self.map_dx <= 0 || self.map_dy <= 0 {
+>>>>>>> Stashed changes
             return;
         }
 
         let i_min_x = ((pos.x - radius) / MAP_XY_FACTOR).floor() as i32;
+<<<<<<< Updated upstream
         let _i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
         let i_max_x = ((pos.x + radius) / MAP_XY_FACTOR).floor() as i32;
         let i_max_y = ((pos.y + radius) / MAP_XY_FACTOR).floor() as i32;
 
         for i in i_min_x..=i_max_x {
             // C++ bug: j starts at 0, not iMin.y — we match C++ exactly
+=======
+        let i_min_y = ((pos.y - radius) / MAP_XY_FACTOR).floor() as i32;
+        let i_max_x = ((pos.x + radius) / MAP_XY_FACTOR).floor() as i32;
+        let i_max_y = ((pos.y + radius) / MAP_XY_FACTOR).floor() as i32;
+
+        // PARITY_NOTE: C++ iterates j from 0 instead of i_min_y — replicated for parity
+        for i in i_min_x..=i_max_x {
+>>>>>>> Stashed changes
             for j in 0..=i_max_y {
                 let delta_x = i as f32 * MAP_XY_FACTOR - pos.x;
                 let delta_y = j as f32 * MAP_XY_FACTOR - pos.y;
                 let distance = (delta_x * delta_x + delta_y * delta_y).sqrt();
 
                 if distance < radius {
+<<<<<<< Updated upstream
                     let displacement_amount = radius * (1.0 - distance / radius);
                     let current_height = self.get_raw_map_height(i, j);
                     let target_height = (1i32).max(current_height - displacement_amount as i32);
@@ -2694,9 +2835,41 @@ impl TerrainLogic {
         let has_pos = (d1 > 0.0) || (d2 > 0.0) || (d3 > 0.0);
 
         !(has_neg && has_pos)
+=======
+                    let displacement = radius * (1.0f32 - distance / radius);
+                    let current = self.get_raw_map_height(i, j) as i32;
+                    let target = (current - displacement as i32).max(1);
+                    self.set_raw_map_height(i, j, target.clamp(0, 255) as u8);
+                }
+            }
+        }
+>>>>>>> Stashed changes
     }
 
     // Private helper methods
+
+    fn get_raw_map_height(&self, i: i32, j: i32) -> u8 {
+        if i < 0 || j < 0 || i >= self.map_dx || j >= self.map_dy {
+            return 0;
+        }
+        let idx = (j * self.map_dx + i) as usize;
+        if idx < self.map_data.len() {
+            self.map_data[idx]
+        } else {
+            0
+        }
+    }
+
+    /// Reference: C++ TerrainVisual::setRawMapHeight() — only lowers, never raises.
+    fn set_raw_map_height(&mut self, i: i32, j: i32, new_height: u8) {
+        if i < 0 || j < 0 || i >= self.map_dx || j >= self.map_dy {
+            return;
+        }
+        let idx = (j * self.map_dx + i) as usize;
+        if idx < self.map_data.len() && new_height < self.map_data[idx] {
+            self.map_data[idx] = new_height;
+        }
+    }
 
     /// Check if point is inside a bridge polygon using point-in-polygon test
     /// Reference: C++ TerrainLogic.cpp Bridge::isPointOnBridge()
@@ -3111,6 +3284,23 @@ impl TerrainQuery for TerrainQueryWrapper {
             SurfaceType::Ground
         }
     }
+}
+
+fn point_in_rotated_rect(
+    px: f32,
+    py: f32,
+    cx: f32,
+    cy: f32,
+    half_w: f32,
+    half_h: f32,
+    cos_a: f32,
+    sin_a: f32,
+) -> bool {
+    let dx = px - cx;
+    let dy = py - cy;
+    let local_x = dx * cos_a + dy * sin_a;
+    let local_y = -dx * sin_a + dy * cos_a;
+    local_x.abs() <= half_w && local_y.abs() <= half_h
 }
 
 fn point_in_convex_quad(point: &Coord2D, quad: &[Coord2D; 4]) -> bool {
