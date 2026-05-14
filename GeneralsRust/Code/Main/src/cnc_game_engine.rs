@@ -32,7 +32,8 @@ use crate::ui::{
 use crate::util::profiler::InitTimer;
 use ::game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
 use anyhow::Result;
-use game_engine::common::game_engine::{register_game_client_factory, GameClientInterface};
+use game_engine::common::game_engine::{register_game_client_factory, GameClientInterface, GameState};
+pub use game_engine::common::game_engine::GameState;
 use game_engine::common::system::subsystem_interface::{
     SubsystemError, SubsystemResult, SubsystemState,
 };
@@ -834,20 +835,6 @@ use crate::graphics::{
     GraphicsSystem, RenderPipeline,
 };
 
-/// Game state - matches C++ GameEngine states
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GameState {
-    /// Initial state - showing main menu
-    Menu,
-    /// Loading game assets
-    Loading,
-    /// Active gameplay
-    Playing,
-    /// Game paused
-    Paused,
-    /// Shutting down
-    Exiting,
-}
 
 #[cfg(feature = "internal")]
 pub mod parity_test_support {
@@ -934,7 +921,7 @@ pub mod parity_test_support {
         }
 
         pub fn set_dirty_play_state(&mut self) {
-            self.current_state = GameState::Playing;
+            self.current_state = GameState::InGame;
             self.pending_state = None;
             self.ui_screen = Some(Screen::GameHUD);
             self.game_paused = true;
@@ -952,14 +939,14 @@ pub mod parity_test_support {
             self.selected_objects.clear();
             self.match_over = false;
             self.victory_summary_present = false;
-            self.transition_to_state(GameState::Playing);
+            self.transition_to_state(GameState::InGame);
         }
 
         pub fn complete_load_game_success(&mut self) {
             self.selected_objects.clear();
             self.match_over = false;
             self.victory_summary_present = false;
-            self.transition_to_state(GameState::Playing);
+            self.transition_to_state(GameState::InGame);
         }
 
         pub fn return_to_main_menu_after_match(&mut self) {
@@ -1001,7 +988,7 @@ pub mod parity_test_support {
                 GameState::Loading => {
                     self.ui_screen = Some(Screen::Loading);
                 }
-                GameState::Playing => {
+                GameState::InGame => {
                     self.game_paused = false;
                     self.game_logic_paused = false;
                     self.ui_screen = Some(Screen::GameHUD);
@@ -1704,8 +1691,8 @@ impl CnCGameEngine {
                 self.request_state_change(GameState::Menu);
             }
             "toggle_pause" => match self.current_state {
-                GameState::Playing => self.request_state_change(GameState::Paused),
-                GameState::Paused => self.request_state_change(GameState::Playing),
+                GameState::InGame => self.request_state_change(GameState::Paused),
+                GameState::Paused => self.request_state_change(GameState::InGame),
                 _ => {}
             },
             "open_message_of_the_day" | "open_motd" => {
@@ -1732,7 +1719,7 @@ impl CnCGameEngine {
             "open_options" => {
                 self.set_runtime_host_ui_screen_override(None);
                 self.ui_manager.transition_to_screen(Screen::Options);
-                if self.current_state == GameState::Playing {
+                if self.current_state == GameState::InGame {
                     self.request_state_change(GameState::Paused);
                 } else if self.current_state != GameState::Paused {
                     self.request_state_change(GameState::Menu);
@@ -1836,9 +1823,9 @@ impl CnCGameEngine {
                     .cloned()
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
-                self.set_runtime_host_ui_screen_override(None);
+                self.set_runtime_host_ui_state_override(None);
                 self.start_game_from_ui(mode, faction, map);
-                self.request_state_change(GameState::Playing);
+                // start_game_from_ui transitions Loading -> InGame internally
             }
             "load_game" => {
                 let slot = args.get("slot").map(|slot| slot.trim()).unwrap_or_default();
@@ -1846,7 +1833,7 @@ impl CnCGameEngine {
                     self.set_runtime_host_ui_screen_override(None);
                     self.load_game_from_ui(slot);
                     if matches!(self.ui_manager.current_screen(), Some(Screen::GameHUD)) {
-                        self.request_state_change(GameState::Playing);
+                        self.request_state_change(GameState::InGame);
                     }
                 }
             }
@@ -3351,7 +3338,7 @@ impl CnCGameEngine {
             startup_target_state: Some(if start_in_menu {
                 GameState::Menu
             } else {
-                GameState::Playing
+                GameState::InGame
             }),
             startup_start_in_menu: start_in_menu,
             last_loading_title_update: None,
@@ -3368,7 +3355,7 @@ impl CnCGameEngine {
 
             #[cfg(feature = "game_client")]
             game_client: game_client::core::game_client::GameClient::new()
-                .expect("Failed to create GameClient"),
+                .map_err(|e| anyhow::anyhow!("Failed to create GameClient: {e}"))?,
 
             game_logic,
             combat_system,
@@ -4493,7 +4480,7 @@ impl CnCGameEngine {
                 ..
             } => {
                 let route_keyboard_to_legacy_ui =
-                    matches!(self.current_state, GameState::Playing | GameState::Paused);
+                    matches!(self.current_state, GameState::InGame | GameState::Paused);
                 match state {
                     ElementState::Pressed => {
                         self.keys_pressed.insert(key.clone());
@@ -4514,7 +4501,7 @@ impl CnCGameEngine {
                 let x = self.mouse_position.0 as i32;
                 let y = self.mouse_position.1 as i32;
                 let route_mouse_to_legacy_ui =
-                    matches!(self.current_state, GameState::Playing | GameState::Paused);
+                    matches!(self.current_state, GameState::InGame | GameState::Paused);
                 if route_mouse_to_legacy_ui {
                     let ui_button = Self::to_ui_mouse_button(*button);
                     if let Some(ui_button) = ui_button {
@@ -4522,7 +4509,7 @@ impl CnCGameEngine {
                     }
                 }
 
-                if matches!(self.current_state, GameState::Playing | GameState::Paused) {
+                if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     match (button, state) {
                         (MouseButton::Left, ElementState::Pressed) => {
                             self.handle_left_click();
@@ -4568,7 +4555,7 @@ impl CnCGameEngine {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_position = (position.x as f32, position.y as f32);
-                if matches!(self.current_state, GameState::Playing | GameState::Paused) {
+                if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.update_mouse_world_position();
                     self.ui_manager
                         .handle_mouse_move(position.x as i32, position.y as i32);
@@ -4576,7 +4563,7 @@ impl CnCGameEngine {
                 true
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if matches!(self.current_state, GameState::Playing | GameState::Paused) {
+                if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.handle_mouse_wheel(delta);
                 }
                 true
@@ -4811,16 +4798,20 @@ impl CnCGameEngine {
                 debug!("Exiting Loading state");
                 self.hide_shell_loading_overlay();
             }
-            GameState::Playing => {
-                debug!("Exiting Playing state");
+            GameState::InGame => {
+                debug!("Exiting InGame state");
                 // Could pause audio, save state, etc.
             }
             GameState::Paused => {
                 debug!("Exiting Paused state");
             }
+            GameState::Victory | GameState::Defeat => {
+                debug!("Exiting end-of-match screen state");
+            }
             GameState::Exiting => {
                 debug!("Already exiting");
             }
+            GameState::Initializing => {}
         }
 
         // Enter new state
@@ -4854,8 +4845,8 @@ impl CnCGameEngine {
                 self.set_runtime_ui_state_projection(UISystemState::Loading);
                 self.last_slow_menu_tick_log = None;
             }
-            GameState::Playing => {
-                info!("Entering Playing state");
+            GameState::InGame => {
+                info!("Entering InGame state");
                 // Start game logic, enable input
                 self.game_paused = false;
                 self.game_logic.set_paused(false);
@@ -4875,7 +4866,21 @@ impl CnCGameEngine {
             }
             GameState::Exiting => {
                 info!("Entering Exiting state - beginning shutdown");
-                // Cleanup will happen in drop
+            }
+            GameState::Victory => {
+                info!("Entering Victory state - match won");
+                self.game_paused = true;
+                self.game_logic.set_paused(true);
+                self.set_runtime_ui_state_projection(UISystemState::InGame);
+            }
+            GameState::Defeat => {
+                info!("Entering Defeat state - match lost");
+                self.game_paused = true;
+                self.game_logic.set_paused(true);
+                self.set_runtime_ui_state_projection(UISystemState::InGame);
+            }
+            GameState::Initializing => {
+                info!("Entering Initializing state");
             }
         }
 
@@ -5030,7 +5035,7 @@ impl CnCGameEngine {
                 let shell_elapsed = shell_update_started.elapsed();
 
                 // C++ shell/menu parity: menu-frame script camera requests must still drive
-                // the shell-map viewport even when not in Playing state.
+                // the shell-map viewport even when not in InGame state.
                 let process_commands_started = Instant::now();
                 self.game_logic.process_commands();
                 let process_commands_elapsed = process_commands_started.elapsed();
@@ -5155,7 +5160,7 @@ impl CnCGameEngine {
                     return;
                 }
                 self.set_runtime_ui_state_projection(UISystemState::Loading);
-                // After loading completes, the state will transition to Playing
+                // After loading completes, the state will transition to InGame
                 // This is handled by the initialization code setting pending_state
                 return;
             }
@@ -5170,16 +5175,29 @@ impl CnCGameEngine {
                 }
                 return;
             }
-            GameState::Playing => {
+            GameState::InGame => {
                 // Full update - continue below
             }
             GameState::Exiting => {
                 // Exiting: no updates needed
                 return;
             }
+            GameState::Victory | GameState::Defeat => {
+                // End-of-match screen: keep UI alive, game logic frozen.
+                // C++ shows the score screen then transitions to Menu on user input.
+                self.update_camera(visual_dt);
+                self.cleanup_sound_effects();
+                if let Err(err) = self.ui_manager.update(dt) {
+                    warn!("UI manager update failed in endgame state: {}", err);
+                }
+                return;
+            }
+            GameState::Initializing => {
+                return;
+            }
         }
 
-        // Full update cycle for Playing state (matches C++ GameEngine::update())
+        // Full update cycle for InGame state (matches C++ GameEngine::update())
 
         // C++ parity gate:
         //   (Network == NULL && !isGamePaused()) || (Network && Network->isFrameDataReady()).
@@ -5262,7 +5280,7 @@ impl CnCGameEngine {
         }
 
         // Update HUD with current player resources while actively playing.
-        if self.current_state == GameState::Playing {
+        if self.current_state == GameState::InGame {
             if let Some(player) = self.game_logic.get_player(self.current_player_id) {
                 let money = player.resources.supplies as i32;
                 let power = player.power_available;
@@ -5291,7 +5309,7 @@ impl CnCGameEngine {
         if self.current_state != GameState::Menu {
             self.cleanup_sound_effects();
         }
-        if self.current_state == GameState::Playing {
+        if self.current_state == GameState::InGame {
             self.set_runtime_ui_state_projection(UISystemState::InGame);
             if let Err(err) = self.ui_manager.update(dt) {
                 warn!("UI manager update failed in playing state: {}", err);
@@ -5299,7 +5317,7 @@ impl CnCGameEngine {
         }
 
         // Process queued commands in game logic during active gameplay.
-        if self.current_state == GameState::Playing {
+        if self.current_state == GameState::InGame {
             self.game_logic.process_commands();
             self.apply_pending_script_camera_requests();
         }
@@ -5401,7 +5419,7 @@ impl CnCGameEngine {
         }
 
         if !self.match_over
-            && self.current_state == GameState::Playing
+            && self.current_state == GameState::InGame
             && !self.game_logic.isInShellGame()
         {
             if let Some(condition) = self.game_logic.evaluate_victory_condition() {
@@ -5836,7 +5854,7 @@ impl CnCGameEngine {
     fn quick_load_from_hotkey(&mut self, source: &str) {
         let restore_screen = match self.current_state {
             GameState::Paused => Some(Screen::PauseMenu),
-            GameState::Playing => Some(Screen::GameHUD),
+            GameState::InGame => Some(Screen::GameHUD),
             _ => None,
         };
         let mode = self.game_logic.game_mode();
@@ -5933,7 +5951,7 @@ impl CnCGameEngine {
                     &self.game_logic,
                 );
 
-                self.transition_to_state(GameState::Playing);
+                self.transition_to_state(GameState::InGame);
             }
             Err(err) => {
                 warn!("Load failed for '{}': {}", slot, err);
@@ -5964,6 +5982,9 @@ impl CnCGameEngine {
 
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
     fn start_game_from_ui(&mut self, mode: GameMode, faction: String, map: String) {
+        // Show loading screen before starting map load (matches C++ loading screen flow)
+        self.transition_to_state(GameState::Loading);
+
         let faction_team = Self::team_from_faction(&faction);
         let map_name = if map.trim().is_empty() {
             DEFAULT_SKIRMISH_MAP.to_string()
@@ -6032,7 +6053,7 @@ impl CnCGameEngine {
                 startup_camera_defaults,
             );
         self.sync_orbit_from_camera_transform();
-        self.transition_to_state(GameState::Playing);
+        self.transition_to_state(GameState::InGame);
     }
 
     fn apply_map_lighting(
@@ -6747,7 +6768,7 @@ impl CnCGameEngine {
     }
 
     fn handle_key_press(&mut self, key: &Key) {
-        if !matches!(self.current_state, GameState::Playing | GameState::Paused) {
+        if !matches!(self.current_state, GameState::InGame | GameState::Paused) {
             match key {
                 Key::Character(c) if c == "m" || c == "M" => {
                     self.toggle_background_music();
@@ -7183,7 +7204,7 @@ impl CnCGameEngine {
 
             // Edge scrolling (C++ LookAt.cpp: 3px from screen edge in fullscreen)
             if !self.is_windowed
-                && matches!(self.current_state, GameState::Playing | GameState::Paused)
+                && matches!(self.current_state, GameState::InGame | GameState::Paused)
             {
                 const EDGE_SCROLL_SIZE: f32 = 3.0;
                 let (mx, my) = self.mouse_position;
@@ -7978,7 +7999,7 @@ impl RuntimeHostBridge {
 
     fn capture_interval_for_state(state: &str) -> Duration {
         match state {
-            "Menu" | "Playing" | "Paused" => Self::CAPTURE_REQUEST_INTERVAL_INTERACTIVE,
+            "Menu" | "InGame" | "Paused" => Self::CAPTURE_REQUEST_INTERVAL_INTERACTIVE,
             _ => Self::CAPTURE_REQUEST_INTERVAL_LOADING,
         }
     }
@@ -8413,7 +8434,7 @@ pub async fn run_cnc_game(
             let mut ww3d_elapsed = Duration::ZERO;
             let frame_timing = if matches!(
                 engine.get_state(),
-                GameState::Loading | GameState::Menu | GameState::Playing | GameState::Paused
+                GameState::Loading | GameState::Menu | GameState::InGame | GameState::Paused
             ) {
                 let ww3d_started = Instant::now();
                 let timing = match ww3d_engine::update() {
@@ -8798,19 +8819,23 @@ pub async fn run_cnc_game(
                                 },
                             ..
                         } => match engine.get_state() {
-                            GameState::Playing => {
-                                info!("Escape pressed in Playing state - pausing");
+                            GameState::InGame => {
+                                info!("Escape pressed in InGame state - pausing");
                                 engine.request_state_change(GameState::Paused);
                             }
                             GameState::Paused => {
                                 info!("Escape pressed in Paused state - resuming");
-                                engine.request_state_change(GameState::Playing);
+                                engine.request_state_change(GameState::InGame);
                             }
                             GameState::Menu | GameState::Loading => {
                                 info!("Escape pressed in Menu/Loading - exiting");
                                 engine.request_state_change(GameState::Exiting);
                             }
-                            GameState::Exiting => {}
+                            GameState::Victory | GameState::Defeat => {
+                                info!("Escape pressed in endgame - returning to menu");
+                                engine.request_state_change(GameState::Menu);
+                            }
+                            GameState::Exiting | GameState::Initializing => {}
                         },
                         WindowEvent::Resized(physical_size) => {
                             runtime_window_minimized |=

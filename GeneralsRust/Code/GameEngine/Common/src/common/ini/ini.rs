@@ -1104,14 +1104,8 @@ impl INI {
                     // Trim whitespace
                     self.buffer = self.buffer.trim().to_string();
 
-                    // Check for tab characters
-                    if self.buffer.contains('\t') {
-                        eprintln!(
-                            "Tab characters are not allowed in INI files ({}). Line: {}",
-                            self.filename, self.line_num
-                        );
-                        return Err(INIError::InvalidData);
-                    }
+                    // C++ accepts tab characters as whitespace delimiters
+                    self.buffer = self.buffer.replace('\t', " ");
                 }
                 Err(_) => return Err(INIError::UnknownError),
             }

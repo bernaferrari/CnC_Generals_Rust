@@ -140,7 +140,11 @@ pub enum BuildableStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CrcMode {
     Disabled,
+    Cached,
+    Recalc,
 }
+
+pub const REPLAY_CRC_INTERVAL: UnsignedInt = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameMode {
@@ -1334,6 +1338,10 @@ pub struct GameLogic {
     // Random seed for deterministic replay/sync
     random_seed: u64,
 
+    // CRC for lockstep synchronization (C++ GameLogic.h:272)
+    crc_cache: UnsignedInt,
+    crc_interval: UnsignedInt,
+
     // Object management
     next_object_id: ObjectID,
     all_objects: Vec<ObjectID>,
@@ -1433,6 +1441,8 @@ impl Default for GameLogic {
             game_time: 0.0,
             is_in_update: false,
             random_seed: 0,
+            crc_cache: 0,
+            crc_interval: REPLAY_CRC_INTERVAL,
             next_object_id: 1,
             all_objects: Vec::new(),
             dead_objects: Vec::new(),
@@ -1773,6 +1783,14 @@ impl GameLogic {
             warn!("Terrain update phase failed: {}", e);
         }
 
+        // -----------------------------------------------------------------------
+        // Phase 3b: CRC Calculation (C++ lines 3625-3654)
+        // -----------------------------------------------------------------------
+        // C++: m_CRC = getCRC(CRC_RECALC); msg->appendIntegerArgument(m_CRC);
+        if self.frame > 0 && self.frame % self.crc_interval == 0 {
+            self.crc_cache = self.compute_crc();
+        }
+
         // Clear frame events and reset temporary flags
         if let Err(e) = self.clear_frame_events() {
             warn!("Pre-update clear failed: {}", e);
@@ -1932,6 +1950,12 @@ impl GameLogic {
         if let Err(e) = self.update_weapon_store() {
             warn!("Weapon store update phase failed: {}", e);
         }
+
+        // -----------------------------------------------------------------------
+        // Phase 12b: Locomotor Store Update (C++ line 3768)
+        // -----------------------------------------------------------------------
+        // C++: TheLocomotorStore->UPDATE();
+        crate::locomotor::core::LOCOMOTOR_STORE.update();
 
         // -----------------------------------------------------------------------
         // Phase 13: Victory Conditions (C++ line 3769)
@@ -2672,7 +2696,11 @@ impl GameLogic {
             }
             CommandType::SetReplayCamera => {}
             CommandType::LogicCrc => {
-                trace!("logic_message_dispatcher: MSG_LOGIC_CRC");
+                let local_crc = self.crc_cache;
+                trace!(
+                    "logic_message_dispatcher: MSG_LOGIC_CRC (local=0x{:08X})",
+                    local_crc
+                );
             }
             CommandType::PurchaseScience => {
                 trace!("logic_message_dispatcher: MSG_PURCHASE_SCIENCE");
@@ -3230,6 +3258,28 @@ impl GameLogic {
         }
 
         Ok(())
+    }
+
+    /// Compute CRC of game state for lockstep synchronization.
+    /// Matches C++ GameLogic::getCRC(CRC_RECALC) at GameLogic.cpp:3988.
+    fn compute_crc(&self) -> UnsignedInt {
+        use crate::helpers::get_game_logic_random_seed_crc;
+        let mut crc: u32 = 0;
+        crc = crc.wrapping_add(get_game_logic_random_seed_crc());
+        for (&obj_id, obj_arc) in &self.objects {
+            if let Ok(obj) = obj_arc.read() {
+                let id_crc = obj_id as u32;
+                let pos = &obj.position;
+                let pos_bytes: [u8; 12] = unsafe {
+                    std::mem::transmute([pos.x.to_bits(), pos.y.to_bits(), pos.z.to_bits()])
+                };
+                crc = crc.wrapping_add(id_crc);
+                for &b in &pos_bytes {
+                    crc = (crc << 1).wrapping_add(b as u32);
+                }
+            }
+        }
+        crc
     }
 
     /// Update victory conditions.

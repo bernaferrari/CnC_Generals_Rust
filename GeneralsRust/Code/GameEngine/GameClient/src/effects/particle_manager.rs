@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::core::DrawableId;
 use crate::system::SubsystemInterface;
-use game_engine::common::ini::INI;
+use game_engine::common::ini::{INI, INILoadType};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::System::XferVersion;
@@ -1016,6 +1016,17 @@ impl SubsystemInterface for ParticleSystemManager {
         self.min_dynamic_particle_skip_priority = ParticlePriorityType::Critical;
         self.particle_skip_mask = 0;
         self.particle_generation_count = 0;
+
+        // Load particle system definitions from INI (matches C++ ParticleSystemManager::init)
+        // C++ Reference: INI ini; ini.load("Data\\INI\\ParticleSystem.ini", INI_LOAD_OVERWRITE, NULL);
+        let mut ini = INI::new();
+        if let Err(e) = ini.load("Data/INI/ParticleSystem.ini", INILoadType::Overwrite) {
+            // Log warning but don't fail init — particle systems can be loaded later
+            eprintln!(
+                "Warning: Failed to load Data/INI/ParticleSystem.ini: {}",
+                e
+            );
+        }
 
         Ok(())
     }

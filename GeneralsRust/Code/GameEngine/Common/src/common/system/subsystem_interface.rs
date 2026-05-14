@@ -340,7 +340,8 @@ impl SubsystemManager {
             return Err(SubsystemError::NotInitialized);
         }
 
-        for name in &self.initialization_order {
+        // C++ resets in reverse initialization order (last registered = first reset)
+        for name in self.initialization_order.iter().rev() {
             let index = self
                 .index_map
                 .get(name)

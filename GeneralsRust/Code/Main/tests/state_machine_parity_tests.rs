@@ -22,7 +22,7 @@ fn new_game_success_transitions_into_playing() {
     harness.set_dirty_play_state();
     harness.complete_new_game_success();
 
-    assert_eq!(harness.current_state(), GameState::Playing);
+    assert_eq!(harness.current_state(), GameState::InGame);
     assert_eq!(harness.ui_screen(), Some(Screen::GameHUD));
     assert!(!harness.game_paused());
     assert!(!harness.game_logic_paused());
@@ -38,7 +38,7 @@ fn load_game_success_transitions_into_playing() {
     harness.set_dirty_play_state();
     harness.complete_load_game_success();
 
-    assert_eq!(harness.current_state(), GameState::Playing);
+    assert_eq!(harness.current_state(), GameState::InGame);
     assert_eq!(harness.ui_screen(), Some(Screen::GameHUD));
     assert!(!harness.game_paused());
     assert!(!harness.game_logic_paused());
