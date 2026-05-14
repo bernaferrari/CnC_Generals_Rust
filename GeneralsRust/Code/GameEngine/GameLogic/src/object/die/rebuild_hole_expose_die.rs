@@ -51,7 +51,28 @@ impl Snapshotable for RebuildHoleExposeDieModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("RebuildHoleExposeDieModuleData xfer version: {e:?}"))?;
+
+        self.base.xfer(xfer)?;
+
+        let mut name = self.hole_name.as_str().to_string();
+        xfer.xfer_ascii_string(&mut name)
+            .map_err(|e| format!("RebuildHoleExposeDieModuleData hole_name: {e:?}"))?;
+        self.hole_name = AsciiString::from(name.as_str());
+
+        let mut health = self.hole_max_health;
+        xfer.xfer_real(&mut health)
+            .map_err(|e| format!("RebuildHoleExposeDieModuleData hole_max_health: {e:?}"))?;
+        self.hole_max_health = health;
+
+        let mut transfer = self.transfer_attackers;
+        xfer.xfer_bool(&mut transfer)
+            .map_err(|e| format!("RebuildHoleExposeDieModuleData transfer_attackers: {e:?}"))?;
+        self.transfer_attackers = transfer;
+
         Ok(())
     }
 

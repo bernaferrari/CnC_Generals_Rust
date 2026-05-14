@@ -71,7 +71,20 @@ impl Snapshotable for SpyVisionUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.spy_on_kind_of)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.self_powered)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.self_powered_duration)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.self_powered_interval)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.needs_upgrade)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

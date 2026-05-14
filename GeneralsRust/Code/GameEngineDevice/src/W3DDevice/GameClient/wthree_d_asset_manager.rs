@@ -179,11 +179,13 @@ pub struct AssetHandle {
 ///
 /// C++ stores a 16-entry palette in the top row of the texture; pixels
 /// matching those values are remapped to the house color gradient.
+/// r, g, b are in 0.0–1.0 range (output of unpack_house_color).
+/// C++: rgb.X = houseColorScale[y] * v_color.X, then Convert_Pixel to 0–255.
 fn recolor_palette_entry(index: usize, r: f32, g: f32, b: f32) -> (u8, u8, u8) {
     let scale = TEAM_COLOR_PALETTE[index] as f32 / 255.0;
-    let cr = (r * scale).clamp(0.0, 255.0) as u8;
-    let cg = (g * scale).clamp(0.0, 255.0) as u8;
-    let cb = (b * scale).clamp(0.0, 255.0) as u8;
+    let cr = (r * scale * 255.0).clamp(0.0, 255.0) as u8;
+    let cg = (g * scale * 255.0).clamp(0.0, 255.0) as u8;
+    let cb = (b * scale * 255.0).clamp(0.0, 255.0) as u8;
     (cr, cg, cb)
 }
 
@@ -199,6 +201,147 @@ fn unpack_house_color(color: u32) -> (f32, f32, f32) {
 fn munge_texture_name(name: &str, color: u32) -> String {
     let lower: String = name.chars().map(|c| c.to_ascii_lowercase()).collect();
     format!("#{}#{}", color, lower)
+}
+
+/// Read back pixel data from a GPU texture via a staging buffer.
+/// Returns None if the texture lacks COPY_SRC usage or readback fails.
+fn readback_texture_pixels(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    source: &wgpu::Texture,
+    width: u32,
+    height: u32,
+) -> Option<Vec<u8>> {
+    if !source.usage().contains(wgpu::TextureUsages::COPY_SRC) {
+        return None;
+    }
+
+    let bytes_per_pixel: u32 = 4;
+    let bytes_per_row = wgpu::util::align_to(width * bytes_per_pixel, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+    let buffer_size = (bytes_per_row * height) as u64;
+
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("recolor_readback_staging"),
+        size: buffer_size,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("recolor_readback"),
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::ImageCopyTexture {
+            texture: source,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::ImageCopyBuffer {
+            buffer: &staging,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_row),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+    device.poll(wgpu::Maintain::Wait);
+
+    let slice = staging.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |result| {
+        let _ = tx.send(result);
+    });
+    device.poll(wgpu::Maintain::Wait);
+
+    if let Ok(Ok(())) = rx.recv() {
+        let data = slice.get_mapped_range();
+        let padded = data.to_vec();
+        drop(data);
+        staging.unmap();
+
+        let unpadded_row = width * bytes_per_pixel;
+        if bytes_per_row == unpadded_row {
+            Some(padded)
+        } else {
+            let mut pixels = Vec::with_capacity((width * height * bytes_per_pixel) as usize);
+            for row in 0..height {
+                let src_start = (row * bytes_per_row) as usize;
+                let src_end = src_start + unpadded_row as usize;
+                if src_end <= padded.len() {
+                    pixels.extend_from_slice(&padded[src_start..src_end]);
+                }
+            }
+            Some(pixels)
+        }
+    } else {
+        None
+    }
+}
+
+/// C++ remapPalette32Bit: remap the first 16 pixels (palette row) to the house color gradient.
+fn remap_palette_only(pixels: &mut [u8], _width: u32, r: f32, g: f32, b: f32) {
+    for i in 0..TEAM_COLOR_PALETTE_SIZE {
+        let (cr, cg, cb) = recolor_palette_entry(i, r, g, b);
+        let offset = i * 4;
+        if offset + 3 < pixels.len() {
+            pixels[offset] = cr;
+            pixels[offset + 1] = cg;
+            pixels[offset + 2] = cb;
+            pixels[offset + 3] = 255;
+        }
+    }
+}
+
+/// C++ remapAlphaTexture32Bit: blend house color into every pixel using inverted alpha channel.
+/// alpha=0 → full house color, alpha=255 → no house color (inverted).
+fn remap_alpha_texture(pixels: &mut [u8], width: u32, height: u32, r: f32, g: f32, b: f32) {
+    let r255 = r * 255.0;
+    let g255 = g * 255.0;
+    let b255 = b * 255.0;
+    for y in 0..height {
+        for x in 0..width {
+            let offset = ((y * width + x) as usize) * 4;
+            if offset + 3 >= pixels.len() {
+                break;
+            }
+            let pixel_alpha = 255 - pixels[offset + 3];
+            if pixel_alpha != 0 {
+                let fa = pixel_alpha as f32 / 255.0;
+                let fi = 1.0 - fa;
+                pixels[offset] = (fa * r255 + fi * pixels[offset] as f32).clamp(0.0, 255.0) as u8;
+                pixels[offset + 1] = (fa * g255 + fi * pixels[offset + 1] as f32).clamp(0.0, 255.0) as u8;
+                pixels[offset + 2] = (fa * b255 + fi * pixels[offset + 2] as f32).clamp(0.0, 255.0) as u8;
+            }
+            pixels[offset + 3] = 255;
+        }
+    }
+}
+
+/// Dispatch to the correct remap mode based on texture name convention.
+/// C++ Recolor_Texture_One_Time checks name[3] for 'D' or 'A'.
+fn remap_texture_pixels(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    source_name: &str,
+    r: f32,
+    g: f32,
+    b: f32,
+) {
+    let ch = source_name.chars().nth(3);
+    match ch {
+        Some('D' | 'd') => remap_palette_only(pixels, width, r, g, b),
+        Some('A' | 'a') => remap_alpha_texture(pixels, width, height, r, g, b),
+        _ => {}
+    }
 }
 
 /// Generate a munged render-object name (C++ Munge_Render_Obj_Name).
@@ -926,6 +1069,7 @@ impl WthreeDAssetManager {
                 format: wgpu::TextureFormat::Rgba8UnormSrgb,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::RENDER_ATTACHMENT,
                 view_formats: &[],
             });
@@ -1105,37 +1249,91 @@ impl WthreeDAssetManager {
     ///
     /// Creates a new texture with house-color palette remapping.
     fn recolor_texture_one_time(&mut self, name: &str, color: u32) -> Option<String> {
-        // Check if source texture exists
         if !self.textures.contains_key(name) {
+            return None;
+        }
+
+        // C++: procedural textures (name starts with '!') return NULL
+        if name.starts_with('!') {
             return None;
         }
 
         let (r, g, b) = unpack_house_color(color);
 
-        // Create a recolored copy
+        // Clone source data to release the borrow before insertion
         let source = self.textures.get(name)?;
+        let width = source.width;
+        let height = source.height;
+        let format = source.format;
+        let source_gpu = source.wgpu_texture.clone();
+        drop(source);
+
+        let munged = munge_texture_name(name, color);
         let mut new_tex = AssetTexture {
-            name: munge_texture_name(name, color),
+            name: munged.clone(),
             wgpu_texture: None,
             wgpu_view: None,
             ref_count: 1,
-            width: source.width,
-            height: source.height,
-            format: source.format,
+            width,
+            height,
+            format,
         };
 
-        // If source has GPU texture and we have device, create recolored version
-        if let (Some(ref device), Some(ref queue), Some(ref source_gpu)) =
-            (&self.device, &self.queue, &source.wgpu_texture)
+        if let (Some(device), Some(queue), Some(src_tex)) =
+            (&self.device, &self.queue, &source_gpu)
         {
-            // PARITY_NOTE: C++ locks the surface, remaps palette pixels, creates
-            // new SurfaceClass + TextureClass. WGPU equivalent: read back source,
-            // remap pixels, create new texture, upload.
-            // Deferred to actual WGPU texture readback implementation.
-            let _ = (device, queue, source_gpu);
+            // Only read back uncompressed RGBA8 textures
+            if format == wgpu::TextureFormat::Rgba8UnormSrgb {
+                if let Some(mut pixels) =
+                    readback_texture_pixels(device, queue, src_tex, width, height)
+                {
+                    remap_texture_pixels(&mut pixels, width, height, name, r, g, b);
+
+                    let new_texture = device.create_texture(&wgpu::TextureDescriptor {
+                        label: Some(&format!("recolor_{}", munged)),
+                        size: wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING
+                            | wgpu::TextureUsages::COPY_DST
+                            | wgpu::TextureUsages::COPY_SRC,
+                        view_formats: &[],
+                    });
+
+                    let bytes_per_row = width * 4;
+                    queue.write_texture(
+                        wgpu::ImageCopyTexture {
+                            texture: &new_texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &pixels,
+                        wgpu::ImageDataLayout {
+                            offset: 0,
+                            bytes_per_row: Some(bytes_per_row),
+                            rows_per_image: Some(height),
+                        },
+                        wgpu::Extent3d {
+                            width,
+                            height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+
+                    let view = new_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    new_tex.wgpu_texture = Some(Arc::new(new_texture));
+                    new_tex.wgpu_view = Some(Arc::new(view));
+                }
+            }
         }
 
-        let munged = new_tex.name.clone();
         self.textures.insert(munged.clone(), new_tex);
         Some(munged)
     }

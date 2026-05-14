@@ -90,7 +90,24 @@ impl Snapshotable for StealthDetectorUpdateModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.update_rate)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.detection_range)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.initially_disabled)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.extra_detect_kindof)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.extra_detect_kindof_not)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.can_detect_while_garrisoned)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.can_detect_while_transported)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

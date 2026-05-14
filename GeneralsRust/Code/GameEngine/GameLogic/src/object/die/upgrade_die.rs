@@ -38,7 +38,18 @@ impl Snapshotable for UpgradeDieModuleData {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("UpgradeDieModuleData xfer version: {e:?}"))?;
+
+        self.base.xfer(xfer)?;
+
+        let mut name = self.upgrade_name.as_str().to_string();
+        xfer.xfer_ascii_string(&mut name)
+            .map_err(|e| format!("UpgradeDieModuleData upgrade_name: {e:?}"))?;
+        self.upgrade_name = AsciiString::from(name.as_str());
+
         Ok(())
     }
 

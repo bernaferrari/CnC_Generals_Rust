@@ -6,14 +6,15 @@
 //! Simple upgrade that grants OBJECT_STATUS_CAN_STEALTH status to enable stealth capability.
 //! Used for upgrades like "Black Market" that grant stealth to units.
 
-use crate::common::*;
+use std::sync::Arc;
+
+use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::debug;
-use std::sync::Arc;
 
 /// Stealth upgrade module data
 /// Matches C++ StealthUpgrade (no custom data fields, uses base UpgradeModule)
@@ -31,16 +32,12 @@ impl Default for StealthUpgradeModuleData {
 }
 
 impl ModuleData for StealthUpgradeModuleData {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn set_module_tag_name_key(&mut self, key: NameKeyType) {
-        self.module_tag_name_key = key;
+        LegacyModuleData::set_module_tag_name_key(self, key);
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.module_tag_name_key
+        LegacyModuleData::get_module_tag_name_key(self)
     }
 }
 
