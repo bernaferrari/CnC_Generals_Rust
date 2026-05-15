@@ -914,6 +914,124 @@ impl RenderObject for WrapRenderObj {
     }
 }
 
+use game_engine::common::system::scene_submission::{
+    SceneModelDesc, SceneProjectileStreamDesc, SceneSubmission as SceneSubmissionTrait,
+};
+
+impl SceneSubmissionTrait for RenderBridge {
+    fn submit_line(&self, _drawable_id: u32, _desc: &game_engine::common::system::scene_submission::SceneLineDesc) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
+        log::debug!("SceneSubmission::submit_line via RenderBridge (drawable_id={})", _drawable_id);
+        None
+    }
+
+    fn update_line(&self, _id: game_engine::common::system::scene_submission::SceneLineId, _desc: &game_engine::common::system::scene_submission::SceneLineDesc) {
+        log::debug!("SceneSubmission::update_line via RenderBridge (id={})", _id);
+    }
+
+    fn remove_line(&self, _id: game_engine::common::system::scene_submission::SceneLineId) {
+        log::debug!("SceneSubmission::remove_line via RenderBridge (id={})", _id);
+    }
+
+    fn submit_model(&self, desc: SceneModelDesc) {
+        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(bridge) = guard.as_mut() {
+            let submission = DrawSubmission::from_scene_model_desc(desc);
+            bridge.submit(submission);
+        }
+    }
+
+    fn submit_projectile_stream(&self, desc: SceneProjectileStreamDesc) {
+        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(bridge) = guard.as_mut() {
+            let ps = ProjectileStreamSubmission::from_scene_desc(desc);
+            bridge.submit_projectile_stream(ps);
+        }
+    }
+
+    fn begin_logic_frame(&self) {
+        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(bridge) = guard.as_mut() {
+            bridge.pending.clear();
+            bridge.pending_projectile_streams.clear();
+        }
+    }
+
+    fn end_logic_frame(&self) {}
+}
+
+impl DrawSubmission {
+    fn from_scene_model_desc(desc: SceneModelDesc) -> Self {
+        let condition_flags = RenderConditionFlags::from_bits_truncate(desc.condition_flags);
+        let render_state = RenderStateOverrides::from_condition_flags(condition_flags);
+
+        let world_transform = game_logic_matrix3d_to_glam(&desc.world_transform);
+
+        let bone_overrides = desc.bone_overrides.into_iter().map(|b| BoneOverride {
+            bone_index: b.bone_index,
+            bone_name: b.bone_name,
+            transform: game_logic_matrix3d_to_glam(&b.transform),
+        }).collect();
+
+        let mesh_uv_overrides = desc.mesh_uv_overrides.into_iter().map(|uv| MeshUvOverride {
+            mesh_name_prefix: uv.mesh_name_prefix,
+            u_offset: uv.u_offset,
+            v_offset: uv.v_offset,
+        }).collect();
+
+        let bs_center = ww3d_core::glam::Vec3::new(
+            desc.bounding_sphere_center.x as f32,
+            desc.bounding_sphere_center.y as f32,
+            desc.bounding_sphere_center.z as f32,
+        );
+
+        Self {
+            drawable_id: DrawableId(desc.drawable_id),
+            model_name: desc.model_name,
+            world_transform,
+            condition_flags,
+            render_state,
+            bone_overrides,
+            mesh_uv_overrides,
+            animation_name: desc.animation_name,
+            animation_mode: None,
+            animation_time: desc.animation_time,
+            bounding_sphere: BoundingSphere::new(bs_center, desc.bounding_sphere_radius),
+            bounding_box: AABox::zero(),
+            sort_level: desc.sort_level,
+            opaque: !desc.transparent,
+            transparent: desc.transparent,
+            cast_shadow: desc.cast_shadow,
+        }
+    }
+}
+
+impl ProjectileStreamSubmission {
+    fn from_scene_desc(desc: SceneProjectileStreamDesc) -> Self {
+        let lines = desc.lines.into_iter().map(|line| {
+            line.into_iter().map(|c| glam::Vec3::new(c.x as f32, c.y as f32, c.z as f32)).collect()
+        }).collect();
+
+        Self {
+            drawable_id: desc.drawable_id,
+            lines,
+            texture_name: desc.texture_name,
+            width: desc.width,
+            tile_factor: desc.tile_factor,
+            scroll_rate: desc.scroll_rate,
+        }
+    }
+}
+
+fn game_logic_matrix3d_to_glam(m: &game_engine::common::system::geometry::Matrix3D) -> glam::Mat4 {
+    let mut cols = [0.0f32; 16];
+    for i in 0..4 {
+        for j in 0..4 {
+            cols[j * 4 + i] = m.m[i][j];
+        }
+    }
+    glam::Mat4::from_cols_array(&cols)
+}
+
 // Global singleton instance
 use std::sync::Mutex;
 lazy_static::lazy_static! {

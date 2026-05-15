@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, TryLockError, Weak};
 
 use crate::bink::ensure_bink_provider_registered;
-use crate::video_stream::{VideoStream, VideoStreamInterface};
+use crate::video_stream::{PlaybackState, VideoStream, VideoStreamInterface};
 use game_engine::common::ini::get_global_data;
 use game_engine::common::ini::ini_webpage_url::get_registry_language;
 use log::warn;
@@ -82,6 +82,13 @@ pub trait VideoPlayerInterface {
         VIDEO_FIELD_PARSE_TABLE
     }
     fn notify_video_player_of_new_provider(&mut self, now_has_valid: Bool);
+    fn play(&mut self) {}
+    fn pause(&mut self) {}
+    fn stop(&mut self) {}
+    fn set_volume(&mut self, _volume: f32) {}
+    fn playback_state(&self) -> PlaybackState {
+        PlaybackState::Stopped
+    }
 }
 
 pub trait VideoStreamProvider: Send + Sync {
@@ -354,6 +361,58 @@ impl VideoPlayerInterface for VideoPlayer {
     fn notify_video_player_of_new_provider(&mut self, now_has_valid: Bool) {
         self.provider_is_valid = now_has_valid;
     }
+
+    fn play(&mut self) {
+        if let Some(stream) = self.first_stream.as_deref_mut() {
+            stream.play();
+        }
+        for stream_ref in &self.active_streams {
+            if let Some(stream) = stream_ref.upgrade() {
+                if let Ok(mut guard) = stream.lock() {
+                    guard.update();
+                }
+            }
+        }
+    }
+
+    fn pause(&mut self) {
+        if let Some(stream) = self.first_stream.as_deref_mut() {
+            stream.pause();
+        }
+    }
+
+    fn stop(&mut self) {
+        if let Some(stream) = self.first_stream.as_deref_mut() {
+            stream.stop();
+        }
+        for stream_ref in &self.active_streams {
+            if let Some(stream) = stream_ref.upgrade() {
+                if let Ok(mut guard) = stream.lock() {
+                    guard.update();
+                }
+            }
+        }
+    }
+
+    fn set_volume(&mut self, volume: f32) {
+        if let Some(stream) = self.first_stream.as_deref_mut() {
+            stream.set_volume(volume);
+        }
+        for stream_ref in &self.active_streams {
+            if let Some(stream) = stream_ref.upgrade() {
+                if let Ok(mut guard) = stream.lock() {
+                    guard.update();
+                }
+            }
+        }
+    }
+
+    fn playback_state(&self) -> PlaybackState {
+        self.first_stream
+            .as_deref()
+            .map(|s| s.playback_state())
+            .unwrap_or(PlaybackState::Stopped)
+    }
 }
 
 static THE_VIDEO_PLAYER: OnceLock<Arc<Mutex<Option<VideoPlayer>>>> = OnceLock::new();
@@ -566,6 +625,46 @@ impl VideoStreamInterface for ManagedVideoStreamHandle {
             .ok()
             .and_then(|state| state.inner.as_ref().map(|inner| inner.width()))
             .unwrap_or(0)
+    }
+
+    fn play(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(inner) = state.inner.as_mut() {
+                inner.play();
+            }
+        }
+    }
+
+    fn pause(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(inner) = state.inner.as_mut() {
+                inner.pause();
+            }
+        }
+    }
+
+    fn stop(&mut self) {
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(inner) = state.inner.as_mut() {
+                inner.stop();
+            }
+        }
+    }
+
+    fn set_volume(&mut self, volume: f32) {
+        if let Ok(mut state) = self.state.lock() {
+            if let Some(inner) = state.inner.as_mut() {
+                inner.set_volume(volume);
+            }
+        }
+    }
+
+    fn playback_state(&self) -> PlaybackState {
+        self.state
+            .lock()
+            .ok()
+            .and_then(|state| state.inner.as_ref().map(|inner| inner.playback_state()))
+            .unwrap_or(PlaybackState::Stopped)
     }
 }
 

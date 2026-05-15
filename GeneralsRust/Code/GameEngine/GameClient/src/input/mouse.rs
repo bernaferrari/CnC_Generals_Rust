@@ -611,6 +611,27 @@ impl Default for MouseState {
     }
 }
 
+/// Computed tooltip draw parameters for consumption by the rendering loop.
+///
+/// C++ reference: Mouse::drawTooltip() computes position, clip region, and calls
+/// TheDisplay->drawFillRect, TheDisplay->drawOpenRect, and DisplayString::draw.
+#[derive(Debug, Clone)]
+pub struct TooltipDrawInfo {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub box_width: f32,
+    pub text: String,
+    pub text_color: [u8; 4],
+    pub back_color: [u8; 4],
+    pub border_color: [u8; 4],
+    pub highlight_color: [u8; 4],
+    pub shadow_color: [u8; 4],
+    pub highlight_pos: i32,
+    pub animate_background: bool,
+}
+
 /// Mouse input handler
 pub struct Mouse {
     /// Current mouse state
@@ -908,15 +929,71 @@ impl Mouse {
         }
     }
 
+    pub fn compute_tooltip_draw_info(&self, screen_width: f32, screen_height: f32) -> Option<TooltipDrawInfo> {
+        let ts = &self.tooltip_state;
+        if !ts.display_tooltip || ts.tooltip_text.is_empty() {
+            return None;
+        }
+
+        let (mx, my) = self.state.position();
+
+        let char_width = self.tooltip_font_size as f32 * 0.6;
+        let line_height = self.tooltip_font_size as f32 * 1.2;
+
+        let text_width = ts.tooltip_text.len() as f32 * char_width;
+        let max_display_width = screen_width * self.tooltip_width_percent;
+        let display_width = if text_width > max_display_width && max_display_width > 0.0 {
+            max_display_width
+        } else {
+            text_width
+        };
+        let height = line_height;
+
+        let mut x_pos = mx + 20.0;
+        let mut y_pos = my;
+
+        if x_pos + display_width + 4.0 > screen_width {
+            x_pos -= 20.0 + display_width;
+        }
+        if y_pos + height + 4.0 > screen_height {
+            y_pos -= height;
+        }
+
+        let box_width = if self.tooltip_animate_background {
+            (display_width as i32).min(ts.highlight_pos) as f32
+        } else {
+            display_width
+        };
+
+        Some(TooltipDrawInfo {
+            x: x_pos,
+            y: y_pos,
+            width: display_width,
+            height,
+            box_width,
+            text: ts.tooltip_text.clone(),
+            text_color: ts.tooltip_text_color,
+            back_color: ts.tooltip_back_color,
+            border_color: self.tooltip_color_border,
+            highlight_color: self.tooltip_color_highlight,
+            shadow_color: self.tooltip_color_shadow,
+            highlight_pos: ts.highlight_pos,
+            animate_background: self.tooltip_animate_background,
+        })
+    }
+
     pub fn draw_tooltip(&self) {
         let ts = &self.tooltip_state;
         if !ts.display_tooltip || ts.tooltip_text.is_empty() {
             return;
         }
-        // Placeholder: actual 2D rendering through the display system will be wired later.
-        // State tracking (highlight_pos, tooltip_text_color, tooltip_back_color,
-        // tooltip_color_border, tooltip_color_shadow, tooltip_color_highlight) is all
-        // maintained and ready for the draw system to consume.
+        log::trace!(
+            "Tooltip: '{}' at ({:.0},{:.0}), highlight_pos={}",
+            ts.tooltip_text,
+            self.state.position().0,
+            self.state.position().1,
+            ts.highlight_pos
+        );
     }
 
     pub fn get_mouse_status(&self) -> &MouseState {
