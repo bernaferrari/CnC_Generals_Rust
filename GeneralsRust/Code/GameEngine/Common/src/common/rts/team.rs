@@ -1992,27 +1992,23 @@ impl Team {
         }
     }
 
-    /// Damage all team members
-    ///
-    /// Corresponds to C++ Team::damageTeamMembers()
+    /// Damage all team members (C++ Team::damageTeamMembers, Team.cpp:2451)
     pub fn damage_team_members<M: TeamMember + Damageable>(
         &mut self,
         get_member: impl Fn(u32) -> Option<M>,
         amount: f32,
     ) -> bool {
         for &member_id in &self.members {
-            if let Some(member) = get_member(member_id) {
+            if let Some(mut member) = get_member(member_id) {
                 if member.is_effectively_dead() || member.is_destroyed() {
                     continue;
                 }
 
-                // Do damage (amount < 0 means kill)
                 if amount < 0.0 {
-                    // In full implementation, would need mutable access
-                    // member.kill();
+                    member.kill();
                 } else {
-                    // member.attempt_damage(amount, DAMAGE_UNRESISTABLE, DEATH_NORMAL);
-                    let _ = amount; // Placeholder
+                    // DAMAGE_UNRESISTABLE=11, DEATH_NORMAL=0 (C++ Damage.h)
+                    member.attempt_damage(amount, 11, 0);
                 }
             }
         }
@@ -2498,29 +2494,21 @@ impl TeamPrototype {
             self.team_template.production_priority_failure_decrease;
     }
 
-    /// Evaluate the team's production condition
-    ///
-    /// Corresponds to C++ TeamPrototype::evaluateProductionCondition()
-    /// Returns true if production should proceed
+    /// Evaluate the team's production condition (C++ TeamPrototype::evaluateProductionCondition, Team.cpp:1104)
     pub fn evaluate_production_condition(&mut self) -> bool {
-        // If we already know there's no condition, return false
         if self.production_condition_always_false {
             return false;
         }
 
-        // In a full implementation, this would:
-        // 1. Check if we have a production condition script
-        // 2. Evaluate the script's conditions
-        // 3. Return the result
-
-        // For now, check if we have a production condition defined
-        if self.team_template.production_condition.is_empty() {
+        // C++ defers to script engine; until wired up we follow the
+        // "no script found" path (C++ line 1157-1159): mark always-false.
+        if !self.team_template.production_condition.is_empty() {
             self.production_condition_always_false = true;
             return false;
         }
 
-        // Placeholder: return true if condition is defined
-        true
+        self.production_condition_always_false = true;
+        false
     }
 
     /// Update state for all team instances

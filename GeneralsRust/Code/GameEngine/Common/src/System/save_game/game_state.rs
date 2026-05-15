@@ -960,8 +960,31 @@ impl GameState {
 // Snapshot implementation for GameState
 // ------------------------------------------------------------------------------------------------
 impl Snapshot for GameState {
-    fn crc(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-        // Empty implementation
+    fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let current_version: XferVersion = 2;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+
+        if version >= 2 {
+            let mut file_type = self.game_info.save_file_type as i32;
+            xfer.xfer_int(&mut file_type)?;
+            xfer.xfer_ascii_string(&mut self.game_info.mission_map_name)?;
+        }
+
+        xfer.xfer_unsigned_short(&mut self.game_info.date.year)?;
+        xfer.xfer_unsigned_short(&mut self.game_info.date.month)?;
+        xfer.xfer_unsigned_short(&mut self.game_info.date.day)?;
+        xfer.xfer_unsigned_short(&mut self.game_info.date.day_of_week)?;
+        xfer.xfer_unsigned_short(&mut self.game_info.date.hour)?;
+        xfer.xfer_unsigned_short(&mut self.game_info.date.minute)?;
+        xfer.xfer_unsigned_short(&mut self.game_info.date.second)?;
+        xfer.xfer_unsigned_short(&mut self.game_info.date.milliseconds)?;
+
+        xfer.xfer_unicode_string(&mut self.game_info.description)?;
+        xfer.xfer_ascii_string(&mut self.game_info.map_label)?;
+        xfer.xfer_ascii_string(&mut self.game_info.campaign_side)?;
+        xfer.xfer_int(&mut self.game_info.mission_number)?;
+
         Ok(())
     }
 

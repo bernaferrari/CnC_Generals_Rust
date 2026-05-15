@@ -946,7 +946,7 @@ pub struct ThingTemplate {
     is_forbidden: bool,
 
     // Gameplay properties
-    kindof: u64, // KindOfMaskType placeholder
+    kindof: u64, // stores KindOfMask.bits() as u64
     default_owning_side: AsciiString,
     command_set_string: AsciiString,
     skill_point_values: [i32; LEVEL_COUNT],
@@ -1338,8 +1338,8 @@ impl ThingTemplate {
         self.energy_bonus
     }
 
-    pub fn is_kind_of(&self, kind: u32) -> bool {
-        (self.kindof & kind as u64) != 0
+    pub fn is_kind_of(&self, kind: u64) -> bool {
+        (self.kindof & kind) != 0
     }
 
     pub fn is_kind_of_multi(&self, must_be_set: &u64, must_be_clear: &u64) -> bool {
@@ -1737,8 +1737,7 @@ impl ThingTemplate {
 
         // Mark build facilities
         // This would iterate through prerequisites and mark templates as build facilities
-        if self.is_kind_of(0x4000) {
-            // KINDOF_COMMANDCENTER placeholder
+        if self.is_kind_of(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits() as u64) {
             self.is_build_facility = true;
         }
 
@@ -2516,11 +2515,12 @@ mod tests {
 
     #[test]
     fn is_kind_of_handles_high_bit_masks_without_panicking() {
+        use crate::common::system::kind_of::KindOfMask;
         let mut template = ThingTemplate::new();
-        template.kindof = 0x1000;
+        template.kindof = KindOfMask::DOZER.bits() as u64;
 
-        assert!(template.is_kind_of(0x1000));
-        assert!(!template.is_kind_of(0x4000));
+        assert!(template.is_kind_of(KindOfMask::DOZER.bits() as u64));
+        assert!(!template.is_kind_of(KindOfMask::COMMANDCENTER.bits() as u64));
     }
 
     #[test]

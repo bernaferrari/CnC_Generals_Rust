@@ -156,6 +156,9 @@ pub struct ControlBarContext {
     pub current_state: ControlBarState,
     pub available_commands: Vec<CommandButton>,
     pub construction_queue: Vec<ProductionItem>,
+    pub observer_player_stats: Vec<(String, i32, i32, i32, i32, i32)>,
+    pub last_recorded_inventory_count: u32,
+    pub ui_dirty: bool,
 }
 
 /// Command button data matching C++ CommandButton
@@ -207,6 +210,9 @@ impl Default for ControlBarContext {
             current_state: ControlBarState::None,
             available_commands: Vec::new(),
             construction_queue: Vec::new(),
+            observer_player_stats: Vec::new(),
+            last_recorded_inventory_count: 0,
+            ui_dirty: false,
         }
     }
 }
