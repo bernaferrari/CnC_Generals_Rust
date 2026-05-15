@@ -10,6 +10,8 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use super::handles::ObjectHandle;
+
 // ================================================================================================
 // ENUMS AND TYPES - Matching C++ definitions
 // ================================================================================================
@@ -102,7 +104,7 @@ pub enum AbleToAttackType {
 }
 
 // ================================================================================================
-// FORWARD DECLARATIONS - Placeholder types
+// FORWARD DECLARATIONS - Types wrapping real game state
 // ================================================================================================
 
 /// 3D coordinate
@@ -113,11 +115,212 @@ pub struct Coord3D {
     pub z: f32,
 }
 
-/// Game object (unit, building, etc.)
-/// This would be fully implemented in the game logic module
+// ================================================================================================
+// GAME STATE PROVIDER TRAIT
+// ================================================================================================
+
+/// Trait providing real game-object state queries for the action system.
+///
+/// The GameLogic crate implements this trait to wire the Common-layer
+/// action validation code to actual game state. In C++, the ActionManager
+/// held raw `Object*` pointers and called methods directly; here we
+/// use an injected provider to keep the dependency one-directional
+/// (GameLogic → Common, not the reverse).
+///
+/// # Thread safety
+///
+/// Implementations must be safe to call from the logic thread.
+/// The trait is `Send + Sync` so the provider can be stored in a global.
+pub trait ObjectDataProvider: Send + Sync {
+    /// Returns `true` if the handle refers to a live game object.
+    fn is_valid_object(&self, id: ObjectHandle) -> bool;
+
+    /// Relationship between two objects (Enemies / Neutral / Allies).
+    fn get_relationship(&self, source: ObjectHandle, target: ObjectHandle) -> Relationship;
+
+    /// Relationship between a source object and a player's default team.
+    fn get_team_relationship(&self, source: ObjectHandle, player_id: u32) -> Relationship;
+
+    /// Whether the object is effectively dead (destroyed / pending deletion).
+    fn is_effectively_dead(&self, id: ObjectHandle) -> bool;
+
+    /// Whether the object can move (not IMMOBILE kind, not disabled).
+    fn is_mobile(&self, id: ObjectHandle) -> bool;
+
+    /// Test an `ObjectStatusTypes` bit on the object.
+    fn test_status(&self, id: ObjectHandle, status_bit: u32) -> bool;
+
+    /// Check if the object is of a specific KindOf classification.
+    /// The `kind_of` parameter is the bit index matching the C++ KindOf enum order.
+    fn is_kind_of(&self, id: ObjectHandle, kind_of: u32) -> bool;
+
+    /// Whether the object is above terrain (airborne).
+    fn is_above_terrain(&self, id: ObjectHandle) -> bool;
+
+    /// Current health value.
+    fn get_health(&self, id: ObjectHandle) -> f32;
+
+    /// Maximum health value.
+    fn get_max_health(&self, id: ObjectHandle) -> f32;
+
+    /// Controlling player index (0-based), or `None` if no player controls this object.
+    fn get_controlling_player_id(&self, id: ObjectHandle) -> Option<u32>;
+
+    /// Controlling player type (Human / Computer).
+    fn get_controlling_player_type(&self, id: ObjectHandle) -> PlayerType;
+
+    /// Shroud status of `target` as seen by `viewer_player_id`.
+    fn get_shrouded_status(&self, target: ObjectHandle, viewer_player_id: u32) -> ObjectShroudStatus;
+
+    /// Whether the object has a SupplyTruckAI interface.
+    fn has_supply_truck_ai(&self, id: ObjectHandle) -> bool;
+
+    /// Whether the object has a SupplyWarehouseDockUpdate module.
+    fn is_supply_warehouse(&self, id: ObjectHandle) -> bool;
+
+    /// Whether the object has a SupplyCenterDockUpdate module.
+    fn is_supply_center(&self, id: ObjectHandle) -> bool;
+
+    /// Number of supply boxes remaining in the warehouse.
+    fn get_warehouse_boxes(&self, id: ObjectHandle) -> u32;
+
+    /// Number of supply boxes the truck is currently carrying.
+    fn get_supply_boxes(&self, id: ObjectHandle) -> u32;
+
+    /// Whether the supply unit is available for supplying (e.g. Chinook not busy).
+    fn is_available_for_supplying(&self, id: ObjectHandle) -> bool;
+
+    /// Whether the object has a DockUpdateInterface module.
+    fn has_dock_update_interface(&self, id: ObjectHandle) -> bool;
+
+    /// Whether the object has a RailedTransportDockUpdate module.
+    fn is_railed_transport_dock(&self, id: ObjectHandle) -> bool;
+
+    /// Whether the object is inside a container (garrisoned, loaded into transport, etc.).
+    fn is_contained(&self, id: ObjectHandle) -> bool;
+
+    /// Whether the object is in a surrendered state.
+    fn is_surrendered(&self, id: ObjectHandle) -> bool;
+
+    /// Player index the object surrendered to, if any.
+    fn get_surrendered_player_index(&self, id: ObjectHandle) -> Option<u32>;
+
+    /// Whether the object has a ContainModule (can hold other objects).
+    fn has_contain_module(&self, id: ObjectHandle) -> bool;
+
+    /// The apparent controlling player as seen by `viewer_player_id`.
+    /// Used for stealth / disguise logic.
+    fn get_apparent_controlling_player(&self, id: ObjectHandle, viewer_player_id: u32) -> Option<u32>;
+}
+
+// ================================================================================================
+// GLOBAL DATA PROVIDER
+// ================================================================================================
+
+/// Global data provider instance (set by GameLogic at startup).
+///
+/// In C++, ActionManager accessed Object* pointers directly. In Rust,
+/// the Common crate cannot depend on GameLogic, so we inject an
+/// `ObjectDataProvider` through this global. GameLogic sets it during
+/// initialization via `set_object_data_provider()`.
+static mut OBJECT_DATA_PROVIDER: Option<&'static dyn ObjectDataProvider> = None;
+
+/// Set the global object data provider. Called once during GameLogic init.
+///
+/// # Safety
+/// Must be called from a single-threaded context before any action manager queries.
+pub unsafe fn set_object_data_provider(provider: &'static dyn ObjectDataProvider) {
+    OBJECT_DATA_PROVIDER = Some(provider);
+}
+
+/// Get a reference to the global object data provider, if one has been installed.
+fn get_provider() -> Option<&'static dyn ObjectDataProvider> {
+    // SAFETY: read-only access; provider is set once during init before any queries.
+    unsafe { OBJECT_DATA_PROVIDER }
+}
+
+// ================================================================================================
+// OBJECT WRAPPER
+// ================================================================================================
+
+/// KindOf bit indices matching the C++ KindOf enum order.
+/// Used with `ObjectDataProvider::is_kind_of()`.
+/// Reference: C++ Object.h / KindOf.h
+pub mod kind_of_bit {
+    pub const OBSTACLE: u32 = 0;
+    pub const SELECTABLE: u32 = 1;
+    pub const IMMOBILE: u32 = 2;
+    pub const CAN_ATTACK: u32 = 3;
+    pub const STRUCTURE: u32 = 7;
+    pub const INFANTRY: u32 = 8;
+    pub const VEHICLE: u32 = 9;
+    pub const AIRCRAFT: u32 = 10;
+    pub const DOZER: u32 = 12;
+    pub const HARVESTER: u32 = 13;
+    pub const POW_TRUCK: u32 = 17;
+    pub const TRANSPORT: u32 = 21;
+    pub const BRIDGE: u32 = 22;
+    pub const BRIDGE_TOWER: u32 = 24;
+    pub const REPAIR_PAD: u32 = 31;
+    pub const HEAL_PAD: u32 = 32;
+    pub const REBUILD_HOLE: u32 = 37;
+    pub const FS_AIRFIELD: u32 = 110;
+}
+
+/// ObjectStatus bit indices matching the C++ ObjectStatusTypes enum order.
+/// Used with `ObjectDataProvider::test_status()`.
+/// Reference: C++ ObjectStatusTypes.h
+pub mod status_bit {
+    pub const DESTROYED: u32 = 1;
+    pub const UNDER_CONSTRUCTION: u32 = 3;
+    pub const SOLD: u32 = 19;
+}
+
+/// Game object (unit, building, etc.) used by the action validation system.
+///
+/// In C++ the ActionManager held raw `Object*` pointers and called methods
+/// directly. Here the `Object` wraps an `ObjectHandle` and delegates every
+/// query through the globally-injected `ObjectDataProvider`, which the
+/// GameLogic crate implements against the real game-object system.
 pub struct Object {
-    // Placeholder fields
-    _id: u32,
+    handle: ObjectHandle,
+}
+
+impl Object {
+    /// Create an Object wrapper from a raw handle.
+    pub fn from_handle(handle: ObjectHandle) -> Self {
+        Self { handle }
+    }
+
+    /// Create an Object wrapper from a raw u32 ID.
+    pub fn from_id(id: u32) -> Self {
+        Self {
+            handle: ObjectHandle::new(id),
+        }
+    }
+
+    /// The underlying handle value.
+    pub fn handle(&self) -> ObjectHandle {
+        self.handle
+    }
+
+    /// The raw ID value.
+    pub fn id(&self) -> u32 {
+        self.handle.value()
+    }
+
+    /// Helper: execute a query against the data provider, returning a fallback
+    /// value when no provider is registered (e.g. during unit tests or early init).
+    #[inline]
+    fn with_provider<F, T>(&self, f: F, fallback: T) -> T
+    where
+        F: FnOnce(&'static dyn ObjectDataProvider) -> T,
+    {
+        match get_provider() {
+            Some(p) => f(p),
+            None => fallback,
+        }
+    }
 }
 
 /// Player in the game
@@ -727,197 +930,226 @@ fn appears_to_contain_friendlies(obj: &Object, other_object: &Object) -> bool {
 // OBJECT TRAIT EXTENSIONS
 // ================================================================================================
 
-/// Extension trait for Object to provide all the query methods
-/// These would be implemented on the actual Object struct in the game logic module
+// ================================================================================================
+// OBJECT QUERY METHODS - Delegated to ObjectDataProvider
+// ================================================================================================
+
 impl Object {
     #[inline]
     fn is_null(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| !p.is_valid_object(self.handle), true)
     }
 
     #[inline]
-    fn get_relationship(&self, _other: &Object) -> Relationship {
-        Relationship::Neutral // Placeholder
+    fn get_relationship(&self, other: &Object) -> Relationship {
+        self.with_provider(
+            |p| p.get_relationship(self.handle, other.handle),
+            Relationship::Neutral,
+        )
     }
 
     #[inline]
-    fn get_team_relationship(&self, _player_id: u32) -> Relationship {
-        Relationship::Neutral // Placeholder
+    fn get_team_relationship(&self, player_id: u32) -> Relationship {
+        self.with_provider(
+            |p| p.get_team_relationship(self.handle, player_id),
+            Relationship::Neutral,
+        )
     }
 
     #[inline]
     fn is_effectively_dead(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_effectively_dead(self.handle), true)
     }
 
     #[inline]
     fn is_mobile(&self) -> bool {
-        true // Placeholder
+        self.with_provider(|p| p.is_mobile(self.handle), false)
     }
 
     #[inline]
     fn test_status_under_construction(&self) -> bool {
-        false // Placeholder
+        self.with_provider(
+            |p| p.test_status(self.handle, status_bit::UNDER_CONSTRUCTION),
+            false,
+        )
     }
 
     #[inline]
     fn test_status_sold(&self) -> bool {
-        false // Placeholder
+        self.with_provider(
+            |p| p.test_status(self.handle, status_bit::SOLD),
+            false,
+        )
     }
 
     #[inline]
     fn is_kind_of_vehicle(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::VEHICLE), false)
     }
 
     #[inline]
     fn is_kind_of_aircraft(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::AIRCRAFT), false)
     }
 
     #[inline]
     fn is_kind_of_infantry(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::INFANTRY), false)
     }
 
     #[inline]
     fn is_kind_of_pow_truck(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::POW_TRUCK), false)
     }
 
     #[inline]
     fn is_kind_of_structure(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::STRUCTURE), false)
     }
 
     #[inline]
     fn is_kind_of_dozer(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::DOZER), false)
     }
 
     #[inline]
     fn is_kind_of_repair_pad(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::REPAIR_PAD), false)
     }
 
     #[inline]
     fn is_kind_of_airfield(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::FS_AIRFIELD), false)
     }
 
     #[inline]
     fn is_kind_of_heal_pad(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::HEAL_PAD), false)
     }
 
     #[inline]
     fn is_kind_of_bridge(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::BRIDGE), false)
     }
 
     #[inline]
     fn is_kind_of_bridge_tower(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::BRIDGE_TOWER), false)
     }
 
     #[inline]
     fn is_kind_of_rebuild_hole(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_kind_of(self.handle, kind_of_bit::REBUILD_HOLE), false)
     }
 
     #[inline]
     fn is_above_terrain(&self) -> bool {
-        true // Placeholder
+        self.with_provider(|p| p.is_above_terrain(self.handle), false)
     }
 
     #[inline]
     fn get_health(&self) -> f32 {
-        100.0 // Placeholder
+        self.with_provider(|p| p.get_health(self.handle), 100.0)
     }
 
     #[inline]
     fn get_max_health(&self) -> f32 {
-        100.0 // Placeholder
+        self.with_provider(|p| p.get_max_health(self.handle), 100.0)
     }
 
     #[inline]
     fn get_controlling_player_id(&self) -> u32 {
-        0 // Placeholder
+        self.with_provider(
+            |p| p.get_controlling_player_id(self.handle).unwrap_or(0),
+            0,
+        )
     }
 
     #[inline]
     fn get_controlling_player_type(&self) -> PlayerType {
-        PlayerType::Human // Placeholder
+        self.with_provider(
+            |p| p.get_controlling_player_type(self.handle),
+            PlayerType::Human,
+        )
     }
 
     #[inline]
-    fn get_shrouded_status_for_player(&self, _player_index: u32) -> ObjectShroudStatus {
-        ObjectShroudStatus::Clear // Placeholder
+    fn get_shrouded_status_for_player(&self, player_index: u32) -> ObjectShroudStatus {
+        self.with_provider(
+            |p| p.get_shrouded_status(self.handle, player_index),
+            ObjectShroudStatus::Clear,
+        )
     }
 
     #[inline]
     fn has_supply_truck_ai(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.has_supply_truck_ai(self.handle), false)
     }
 
     #[inline]
     fn is_supply_warehouse(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_supply_warehouse(self.handle), false)
     }
 
     #[inline]
     fn is_supply_center(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_supply_center(self.handle), false)
     }
 
     #[inline]
     fn get_warehouse_boxes(&self) -> u32 {
-        0 // Placeholder
+        self.with_provider(|p| p.get_warehouse_boxes(self.handle), 0)
     }
 
     #[inline]
     fn get_supply_boxes(&self) -> u32 {
-        0 // Placeholder
+        self.with_provider(|p| p.get_supply_boxes(self.handle), 0)
     }
 
     #[inline]
     fn is_available_for_supplying(&self) -> bool {
-        true // Placeholder
+        self.with_provider(|p| p.is_available_for_supplying(self.handle), false)
     }
 
     #[inline]
     fn has_dock_update_interface(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.has_dock_update_interface(self.handle), false)
     }
 
     #[inline]
     fn is_railed_transport_dock(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_railed_transport_dock(self.handle), false)
     }
 
     #[inline]
     fn is_contained(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_contained(self.handle), false)
     }
 
     #[inline]
     fn is_surrendered(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.is_surrendered(self.handle), false)
     }
 
     #[inline]
     fn get_surrendered_player_index(&self) -> Option<u32> {
-        None // Placeholder
+        self.with_provider(
+            |p| p.get_surrendered_player_index(self.handle),
+            None,
+        )
     }
 
     #[inline]
     fn has_contain_module(&self) -> bool {
-        false // Placeholder
+        self.with_provider(|p| p.has_contain_module(self.handle), false)
     }
 
     #[inline]
-    fn get_apparent_controlling_player(&self, _viewer_player_id: u32) -> Option<u32> {
-        None // Placeholder
+    fn get_apparent_controlling_player(&self, viewer_player_id: u32) -> Option<u32> {
+        self.with_provider(
+            |p| p.get_apparent_controlling_player(self.handle, viewer_player_id),
+            None,
+        )
     }
 }
 
@@ -987,5 +1219,65 @@ mod tests {
         assert!(CanAttackResult::Possible > CanAttackResult::NotPossible);
         assert!(CanAttackResult::PossibleAfterMoving > CanAttackResult::InvalidShot);
         assert!(CanAttackResult::Possible > CanAttackResult::PossibleAfterMoving);
+    }
+
+    #[test]
+    fn test_object_from_handle() {
+        let obj = Object::from_id(42);
+        assert_eq!(obj.id(), 42);
+        assert!(obj.handle().is_valid());
+    }
+
+    #[test]
+    fn test_object_null_without_provider() {
+        // Without a data provider registered, is_null returns true (fallback)
+        // since the provider can't validate the handle.
+        let obj = Object::from_id(1);
+        assert!(obj.is_null());
+    }
+
+    #[test]
+    fn test_object_fallback_defaults_without_provider() {
+        // Without a provider, all methods return safe fallback values.
+        let obj = Object::from_id(99);
+        assert_eq!(obj.get_relationship(&obj), Relationship::Neutral);
+        assert!(obj.is_effectively_dead());
+        assert!(!obj.is_mobile());
+        assert!(!obj.test_status_under_construction());
+        assert!(!obj.test_status_sold());
+        assert!(!obj.is_kind_of_vehicle());
+        assert!(!obj.is_kind_of_aircraft());
+        assert!(!obj.is_kind_of_infantry());
+        assert!(!obj.is_kind_of_pow_truck());
+        assert!(!obj.is_kind_of_structure());
+        assert!(!obj.is_kind_of_dozer());
+        assert!(!obj.is_kind_of_repair_pad());
+        assert!(!obj.is_kind_of_airfield());
+        assert!(!obj.is_kind_of_heal_pad());
+        assert!(!obj.is_kind_of_bridge());
+        assert!(!obj.is_kind_of_bridge_tower());
+        assert!(!obj.is_kind_of_rebuild_hole());
+        assert!(!obj.is_above_terrain());
+        assert_eq!(obj.get_health(), 100.0);
+        assert_eq!(obj.get_max_health(), 100.0);
+        assert_eq!(obj.get_controlling_player_id(), 0);
+        assert_eq!(obj.get_controlling_player_type(), PlayerType::Human);
+        assert_eq!(
+            obj.get_shrouded_status_for_player(0),
+            ObjectShroudStatus::Clear
+        );
+        assert!(!obj.has_supply_truck_ai());
+        assert!(!obj.is_supply_warehouse());
+        assert!(!obj.is_supply_center());
+        assert_eq!(obj.get_warehouse_boxes(), 0);
+        assert_eq!(obj.get_supply_boxes(), 0);
+        assert!(!obj.is_available_for_supplying());
+        assert!(!obj.has_dock_update_interface());
+        assert!(!obj.is_railed_transport_dock());
+        assert!(!obj.is_contained());
+        assert!(!obj.is_surrendered());
+        assert_eq!(obj.get_surrendered_player_index(), None);
+        assert!(!obj.has_contain_module());
+        assert_eq!(obj.get_apparent_controlling_player(0), None);
     }
 }

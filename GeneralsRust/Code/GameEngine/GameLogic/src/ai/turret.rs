@@ -2,6 +2,7 @@ use crate::ai::object_registry::get_legacy_object;
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::coord::*;
 use crate::common::xfer::{Xfer, XferVersion};
+use game_engine::common::system::Snapshotable;
 use crate::common::*;
 use crate::compat::{legacy_transition, register_classic_state, ClassicState};
 use crate::game_logic::game_logic::TheGameLogic;
@@ -2043,6 +2044,127 @@ impl ClassicState for TurretAIHoldTurretState {
 
     fn classic_is_busy(&self) -> bool {
         true
+    }
+}
+
+impl Snapshotable for TurretAI {
+    /// CRC for save game validation
+    /// Matches C++ TurretAI::crc
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Serialize/deserialize TurretAI state
+    /// Matches C++ TurretAI::xfer (version 2)
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ TurretAI.cpp line 322: currentVersion = 2
+        const CURRENT_VERSION: XferVersion = 2;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("TurretAI version xfer failed: {:?}", e))?;
+
+        // C++ line 332: xferSnapshot(m_turretStateMachine)
+        if let Some(machine_weak) = &self.state_machine {
+            if let Some(machine) = machine_weak.upgrade() {
+                let mut guard = machine
+                    .lock()
+                    .map_err(|_| "TurretAI state machine lock poisoned".to_string())?;
+                guard.xfer(xfer)?;
+            }
+        }
+
+        // C++ line 334: xferReal(&m_angle)
+        xfer.xfer_real(&mut self.current_angle)
+            .map_err(|e| format!("TurretAI current_angle xfer failed: {:?}", e))?;
+
+        // C++ line 335: xferReal(&m_pitch)
+        xfer.xfer_real(&mut self.current_pitch)
+            .map_err(|e| format!("TurretAI current_pitch xfer failed: {:?}", e))?;
+
+        // C++ line 336: xferUnsignedInt(&m_enableSweepUntil)
+        xfer.xfer_unsigned_int(&mut self.enable_sweep_until)
+            .map_err(|e| format!("TurretAI enable_sweep_until xfer failed: {:?}", e))?;
+
+        // C++ line 338: xferUser(&m_target, sizeof(m_target))
+        // m_target is TurretTargetType enum (TARGET_NONE=0, TARGET_OBJECT=1, TARGET_POSITION=2)
+        let mut target_kind_val = match self.target_kind {
+            TurretTargetKind::None => 0u32,
+            TurretTargetKind::Object => 1u32,
+            TurretTargetKind::Position => 2u32,
+        };
+        xfer.xfer_unsigned_int(&mut target_kind_val)
+            .map_err(|e| format!("TurretAI target_kind xfer failed: {:?}", e))?;
+        if xfer.is_loading() {
+            self.target_kind = match target_kind_val {
+                0 => TurretTargetKind::None,
+                1 => TurretTargetKind::Object,
+                2 => TurretTargetKind::Position,
+                _ => TurretTargetKind::None,
+            };
+        }
+
+        // C++ line 339: xferUnsignedInt(&m_continuousFireExpirationFrame)
+        // TODO: m_continuousFireExpirationFrame not yet in Rust struct — skip for now
+        let mut continuous_fire_expiration_frame: u32 = 0;
+        xfer.xfer_unsigned_int(&mut continuous_fire_expiration_frame)
+            .map_err(|e| format!("TurretAI continuous_fire_expiration xfer failed: {:?}", e))?;
+
+        // C++ lines 341-348: 7 Bool fields via UNPACK_AND_XFER macro
+        // m_playRotSound — TODO: not yet in Rust struct
+        let mut play_rot_sound: bool = false;
+        xfer.xfer_bool(&mut play_rot_sound)
+            .map_err(|e| format!("TurretAI play_rot_sound xfer failed: {:?}", e))?;
+
+        // m_playPitchSound — TODO: not yet in Rust struct
+        let mut play_pitch_sound: bool = false;
+        xfer.xfer_bool(&mut play_pitch_sound)
+            .map_err(|e| format!("TurretAI play_pitch_sound xfer failed: {:?}", e))?;
+
+        // m_positiveSweep
+        xfer.xfer_bool(&mut self.positive_sweep)
+            .map_err(|e| format!("TurretAI positive_sweep xfer failed: {:?}", e))?;
+
+        // m_didFire — TODO: not yet in Rust struct
+        let mut did_fire: bool = false;
+        xfer.xfer_bool(&mut did_fire)
+            .map_err(|e| format!("TurretAI did_fire xfer failed: {:?}", e))?;
+
+        // m_enabled
+        xfer.xfer_bool(&mut self.enabled)
+            .map_err(|e| format!("TurretAI enabled xfer failed: {:?}", e))?;
+
+        // m_firesWhileTurning
+        xfer.xfer_bool(&mut self.fires_while_turning)
+            .map_err(|e| format!("TurretAI fires_while_turning xfer failed: {:?}", e))?;
+
+        // m_targetWasSetByIdleMood
+        xfer.xfer_bool(&mut self.target_was_set_by_idle_mood)
+            .map_err(|e| format!("TurretAI target_was_set_by_idle_mood xfer failed: {:?}", e))?;
+
+        // C++ line 351-352: version >= 2: xferUnsignedInt(&m_sleepUntil)
+        // TODO: m_sleepUntil not yet in Rust struct — skip for now
+        if version >= 2 {
+            let mut sleep_until: u32 = 0;
+            xfer.xfer_unsigned_int(&mut sleep_until)
+                .map_err(|e| format!("TurretAI sleep_until xfer failed: {:?}", e))?;
+        }
+
+        Ok(())
+    }
+
+    /// Post-load processing
+    /// Matches C++ TurretAI::loadPostProcess
+    fn load_post_process(&mut self) -> Result<(), String> {
+        // C++ TurretAI.cpp line 359-364: captures victim initial team
+        // The turret state machine's goal object is the victim
+        if self.target_kind == TurretTargetKind::Object {
+            if let Some(target) = &self.current_target {
+                if let Ok(guard) = target.read() {
+                    self.victim_initial_team = guard.get_team_id();
+                }
+            }
+        }
+        Ok(())
     }
 }
 
