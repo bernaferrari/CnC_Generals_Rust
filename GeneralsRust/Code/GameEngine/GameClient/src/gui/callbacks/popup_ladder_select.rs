@@ -237,11 +237,10 @@ fn update_ladder_details(
         listbox.add_item_with_data_and_color(-1, &info.location, None, Some(caption_color));
     }
 
-    if !info.homepage_url.is_empty() {
-        let url_template = GameText::fetch("GUI:LadderURL");
-        let line = format_single(&url_template, info.homepage_url.as_str());
-        listbox.add_item_with_data_and_color(-1, &line, None, Some(caption_color));
-    }
+    // C++ always adds the homepage URL line, even if empty
+    let url_template = GameText::fetch("GUI:LadderURL");
+    let url_line = format_single(&url_template, info.homepage_url.as_str());
+    listbox.add_item_with_data_and_color(-1, &url_line, None, Some(caption_color));
 
     if !info.description.is_empty() {
         listbox.add_item_with_data_and_color(-1, &info.description, None, Some(color));
@@ -920,7 +919,12 @@ pub fn popup_ladder_select_system(
             state.listbox_ladder_details = None;
             WindowMsgHandled::Handled
         }
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes back to mData2 (data2) to indicate focus state;
+            // Rust uses values not pointers for WindowMsgData so write-back is not
+            // possible without API changes. Preserve this as a parity note.
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             if control_id == state.button_ok_id {
@@ -1026,6 +1030,9 @@ pub fn rc_game_details_menu_system(
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
+        // TODO: C++ handles GWM_CLOSE (WindowMessage::Close) in the RC game details menu
+        // system callback. The Rust WindowMessage enum does not yet have a Close variant.
+        // Add handling when Close is added to the enum.
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let ladder_button = name_to_id("RCGameDetailsMenu.wnd:ButtonLadderDetails");
@@ -1075,6 +1082,9 @@ pub fn rc_game_details_menu_system(
             let first_window = layout.borrow().get_first_window();
             if let Some(first) = first_window {
                 first.borrow_mut().set_user_data(selected_id);
+                // TODO: C++ calls TheWindowManager->setLoneWindow(first) here to make
+                // this the exclusive lone window. Add call when set_lone_window is available
+                // in the window manager API.
                 let _ = first.borrow_mut().hide(false);
                 first.borrow_mut().bring_to_top();
             }

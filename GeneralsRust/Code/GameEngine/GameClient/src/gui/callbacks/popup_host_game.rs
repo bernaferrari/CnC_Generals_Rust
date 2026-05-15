@@ -247,7 +247,22 @@ pub fn popup_host_game_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes back to mData2 (data2) to indicate focus state;
+            // Rust uses values not pointers for WindowMsgData so write-back is not
+            // possible without API changes. Preserve this as a parity note.
+            WindowMsgHandled::Handled
+        }
+        // TODO: C++ handles GWM_COMBOLIST_SELECTED (ComboBoxSelected) in this callback.
+        // When a ladder is selected with ladderID < 0 (the "choose ladder" sentinel),
+        // it restores the combo box selection and opens the ladder select overlay.
+        // The Rust WindowMessage enum does not yet have a ComboBoxSelected variant.
+        // Add handling when ComboBoxSelected is added to the enum.
+        //
+        // TODO: C++ handles GEM_UPDATE_TEXT (EditUpdateText) to strip leading whitespace
+        // from the game name text entry in real-time. The Rust WindowMessage enum does not
+        // yet have an EditUpdateText variant. When added, strip leading whitespace from
+        // text_entry_game_name on each edit update.
         WindowMessage::GadgetSelected => {
             let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
             let control_id = data1 as i32;
@@ -296,6 +311,10 @@ pub fn popup_host_game_system(
                     allow_observers,
                     use_stats,
                     limit_armies,
+                    // TODO: C++ host request includes additional fields not yet in
+                    // GameSpyHostRequest: exeCRC, iniCRC, gameVersion, restrictGameList,
+                    // ladderIP, ladderPort, hostPingStr. Add these fields to the struct
+                    // when the corresponding data sources are available.
                 });
                 // Clear modal before closing
                 if let Some(parent) = state.parent.as_ref() {
@@ -317,6 +336,11 @@ pub fn popup_host_game_system(
                 set_text_entry(&state.text_entry_game_name, &trimmed);
                 return WindowMsgHandled::Handled;
             }
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::Destroy => {
+            let mut state = popup_host_state().lock().unwrap_or_else(|e| e.into_inner());
+            state.parent = None;
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,

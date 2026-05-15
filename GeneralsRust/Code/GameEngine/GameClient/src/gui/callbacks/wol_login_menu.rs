@@ -399,6 +399,8 @@ fn show_tos(state: &mut WolLoginState) {
     if let Some(parent_tos) = state.parent_tos.as_ref() {
         let _ = parent_tos.borrow_mut().hide(false);
     }
+    // TODO: C++ has useWebBrowserForTOS flag that uses embedded browser for TOS display
+    // TODO: C++ shutdown calls TheWebBrowser->closeBrowserWindow(listboxTOS)
     state.use_web_browser_for_tos = false;
     state.web_browser_active = false;
 
@@ -408,7 +410,20 @@ fn show_tos(state: &mut WolLoginState) {
             widget.clear();
             let mut file_name = String::from("Data/TOS.txt");
             let data = fs::read_to_string(&file_name).or_else(|_| {
-                file_name = String::from("Data/English/TOS.txt");
+                // TODO: C++ uses GetRegistryLanguage() for language-specific TOS path (e.g. Data/German/TOS.txt)
+                let lang = GameSpyMiscPreferences::new().get_locale();
+                let lang_name = match lang {
+                    1 => "German",
+                    2 => "French",
+                    3 => "Spanish",
+                    4 => "Italian",
+                    5 => "Japanese",
+                    6 => "Korean",
+                    7 => "Chinese",
+                    8 => "Russian",
+                    _ => "English",
+                };
+                file_name = format!("Data/{}/TOS.txt", lang_name);
                 fs::read_to_string(&file_name)
             });
             if let Ok(data) = data {
@@ -951,7 +966,11 @@ pub fn wol_login_menu_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes back focus state via mData2 pointer; Rust uses values, needs write-back parity
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as u32;
             let mut state = wol_login_state().lock().unwrap_or_else(|e| e.into_inner());
@@ -993,6 +1012,7 @@ pub fn wol_login_menu_system(
             }
 
             if control_id == state.button_create_account_id || control_id == state.button_login_id {
+                // TODO: ALLOW_NON_PROFILED_LOGIN — C++ has a quick-login path that skips profile creation when this flag is set
                 let mut month = text_entry_text(&state.text_entry_month);
                 let mut day = text_entry_text(&state.text_entry_day);
                 let year = text_entry_text(&state.text_entry_year);

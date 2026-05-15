@@ -960,6 +960,10 @@ pub fn wol_welcome_menu_init(layout: &WindowLayout, _user_data: Option<&mut dyn 
         open_overlay(GameSpyOverlayType::LocaleSelect);
     }
 
+    // TODO: C++ creates TheFirewallHelper and calls detectFirewall() on init
+    // TODO: C++ calls TheFirewallHelper->behaviorDetectionUpdate() in update loop
+    // TODO: C++ writes firewall behavior to GlobalData and to disk
+
     with_window_manager(|manager| manager.transition_set_group("WOLWelcomeMenuFade", false));
 }
 
@@ -998,6 +1002,8 @@ pub fn wol_welcome_menu_update(layout: &WindowLayout, _user_data: Option<&mut dy
         raise_gs_message_box();
         state.raise_message_boxes = false;
     }
+
+    // TODO: C++ calls TheFirewallHelper->behaviorDetectionUpdate() here to detect firewall type each frame
 
     if shell_finished && !state.button_pushed {
         handle_buddy_responses();
@@ -1170,7 +1176,11 @@ pub fn wol_welcome_menu_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes back focus state via mData2 pointer; Rust uses values, needs write-back parity
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetSelected => {
             let control_id = data1;
             let mut state = wol_state().lock().unwrap_or_else(|e| e.into_inner());

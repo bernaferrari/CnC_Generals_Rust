@@ -859,7 +859,9 @@ pub fn wol_buddy_overlay_system(
     }
 
     match msg {
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => {
+            // TODO: C++ writes back focus state via mData2 pointer; Rust uses values, needs write-back parity
             return WindowMsgHandled::Handled;
         }
         WindowMessage::GadgetRightClick => {
@@ -1047,6 +1049,7 @@ pub fn wol_buddy_overlay_rc_menu_system(
             close_right_click_menu(window);
             return WindowMsgHandled::Handled;
         }
+        WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             let rc_data = window.get_user_data::<GameSpyRcMenuData>().cloned();
@@ -1167,9 +1170,9 @@ pub fn wol_buddy_overlay_rc_menu_system(
             }
 
             close_right_click_menu(window);
+            // TODO: C++ explicitly deletes rcData and nulls window user data after use
+            // Rust clones the data instead, keeping it alive until window destruction
             return WindowMsgHandled::Handled;
-        }
-        WindowMessage::Destroy => {
             let mut state = wol_buddy_state().lock().unwrap_or_else(|e| e.into_inner());
             state.rc_menu = None;
             state.rc_layout = None;

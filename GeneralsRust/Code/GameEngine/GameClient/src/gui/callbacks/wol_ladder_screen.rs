@@ -116,6 +116,8 @@ pub fn wol_ladder_screen_shutdown(
     layout: &WindowLayout,
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
+    // TODO: C++ calls TheWebBrowser->closeBrowserWindow() here to close any
+    // open browser window from the ladder/message board page.
     layout.hide(true);
     get_shell().shutdown_complete(layout);
 }
@@ -158,7 +160,12 @@ pub fn wol_ladder_screen_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::Create => WindowMsgHandled::Handled,
+        WindowMessage::Destroy => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes *(Bool*)mData2 = TRUE when mData1 != 0 to accept focus
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let state = wol_ladder_state().lock().unwrap_or_else(|e| e.into_inner());
@@ -168,6 +175,7 @@ pub fn wol_ladder_screen_system(
             }
             WindowMsgHandled::Handled
         }
+        WindowMessage::EditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
     }
 }
