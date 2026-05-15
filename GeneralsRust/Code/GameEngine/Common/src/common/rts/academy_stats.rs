@@ -1014,7 +1014,8 @@ impl Default for AcademyStats {
 
 impl AcademyStats {
     pub fn crc(&self) -> u32 {
-        0
+        let serialized = self.serialize();
+        crc32(&serialized)
     }
 
     pub fn serialize(&self) -> Vec<u8> {
@@ -1430,4 +1431,19 @@ mod tests {
         assert!(!has_advice);
         assert_eq!(info.num_tips, 0);
     }
+}
+
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFFFFFF;
+    for &byte in data {
+        crc ^= byte as u32;
+        for _ in 0..8 {
+            if crc & 1 != 0 {
+                crc = (crc >> 1) ^ 0xEDB88320;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    !crc
 }

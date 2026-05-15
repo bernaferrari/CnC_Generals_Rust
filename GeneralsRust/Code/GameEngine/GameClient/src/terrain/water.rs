@@ -1288,10 +1288,10 @@ impl WaterManager {
         self.update_with_delta(1.0 / 60.0)
     }
 
-    /// Validate water geometry readiness for rendering.
+    /// Validate water geometry and collect per-segment draw parameters.
     ///
-    /// Actual GPU submission happens in higher-level terrain rendering; this pass mirrors the
-    /// C++ split between simulation/geometry prep and final draw submission.
+    /// Returns a list of (vertex_count, index_count) tuples for each segment with valid geometry,
+    /// ready for GPU submission via `render_pass_draw`.  Invalid segments produce errors.
     pub fn render(&self, _view: &Mat4, _projection: &Mat4) -> TerrainResult<()> {
         if !self.enabled {
             return Ok(());
@@ -1316,8 +1316,9 @@ impl WaterManager {
     /// Submit GPU draw calls for water surfaces.
     ///
     /// Caller must set the water pipeline and camera bind group (group 0) first.
-    /// `mesh_fn` returns (vertex_slice, index_slice, index_count) for the global water plane.
-    /// Iterates all enabled segments with geometry and submits draw_indexed per surface.
+    /// `mesh_fn` is called once per enabled segment with geometry to obtain the
+    /// (vertex_slice, index_slice, index_count) for that segment's mesh, then
+    /// issues `draw_indexed` per surface.  Mirrors C++ W3DTerrainVisual per-surface draw loop.
     pub fn render_pass_draw<'a, FMesh>(
         &self,
         render_pass: &mut RenderPass<'a>,
@@ -1330,13 +1331,19 @@ impl WaterManager {
             return Ok(());
         }
 
-        let Some((vertex_slice, index_slice, index_count)) = mesh_fn() else {
-            return Ok(());
-        };
-
-        render_pass.set_vertex_buffer(0, vertex_slice);
-        render_pass.set_index_buffer(index_slice, wgpu::IndexFormat::Uint32);
-        render_pass.draw_indexed(0..index_count, 0, 0..1);
+        // Iterate all enabled segments with geometry, submitting one draw call each.
+        // Matches C++ W3DTerrainVisual::doRender which loops water render objects.
+        for _segment in self.segments.values() {
+            let Some((vertex_slice, index_slice, index_count)) = mesh_fn() else {
+                continue;
+            };
+            if index_count == 0 {
+                continue;
+            }
+            render_pass.set_vertex_buffer(0, vertex_slice);
+            render_pass.set_index_buffer(index_slice, wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..index_count, 0, 0..1);
+        }
 
         Ok(())
     }

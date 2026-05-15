@@ -426,6 +426,7 @@ pub struct RenderBridge {
     scene: Scene,
     pending: Vec<DrawSubmission>,
     pending_projectile_streams: Vec<ProjectileStreamSubmission>,
+    scene_lines: HashMap<game_engine::common::system::scene_submission::SceneLineId, SceneLineEntry>,
     camera: Option<Camera>,
     model_cache: HashMap<String, Arc<dyn RenderObject>>,
     asset_manager: AssetManager,
@@ -444,6 +445,7 @@ impl RenderBridge {
             scene,
             pending: Vec::with_capacity(2048),
             pending_projectile_streams: Vec::with_capacity(64),
+            scene_lines: HashMap::new(),
             camera: None,
             model_cache: HashMap::new(),
             asset_manager: AssetManager::new(),
@@ -791,6 +793,18 @@ impl RenderBridge {
     pub fn clear_model_cache(&mut self) {
         self.model_cache.clear();
     }
+
+    /// Get a snapshot of all visible scene lines for rendering.
+    ///
+    /// Lines persist across frames until explicitly removed via `remove_line`.
+    /// Only lines with `visible == true` are returned.
+    pub fn visible_scene_lines(&self) -> Vec<(game_engine::common::system::scene_submission::SceneLineId, &SceneLineEntry)> {
+        self.scene_lines
+            .iter()
+            .filter(|(_, entry)| entry.visible)
+            .map(|(id, entry)| (*id, entry))
+            .collect()
+    }
 }
 
 impl RenderObjectStateSummary {
@@ -919,17 +933,48 @@ use game_engine::common::system::scene_submission::{
 };
 
 impl SceneSubmissionTrait for RenderBridge {
-    fn submit_line(&self, _drawable_id: u32, _desc: &game_engine::common::system::scene_submission::SceneLineDesc) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
-        log::debug!("SceneSubmission::submit_line via RenderBridge (drawable_id={})", _drawable_id);
+    fn submit_line(&self, _drawable_id: u32, desc: &game_engine::common::system::scene_submission::SceneLineDesc) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
+        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(bridge) = guard.as_mut() {
+            let id = NEXT_LINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let entry = SceneLineEntry {
+                start: glam::Vec3::new(desc.start.x as f32, desc.start.y as f32, desc.start.z as f32),
+                end: glam::Vec3::new(desc.end.x as f32, desc.end.y as f32, desc.end.z as f32),
+                width: desc.width,
+                color: [desc.color_r, desc.color_g, desc.color_b, desc.opacity],
+                texture_name: desc.texture_name.clone(),
+                tile_factor: desc.tile_factor,
+                visible: desc.visible,
+            };
+            bridge.scene_lines.insert(id, entry);
+            log::debug!("SceneSubmission::submit_line drawable_id={} id={}", _drawable_id, id);
+            return Some(id);
+        }
         None
     }
 
-    fn update_line(&self, _id: game_engine::common::system::scene_submission::SceneLineId, _desc: &game_engine::common::system::scene_submission::SceneLineDesc) {
-        log::debug!("SceneSubmission::update_line via RenderBridge (id={})", _id);
+    fn update_line(&self, id: game_engine::common::system::scene_submission::SceneLineId, desc: &game_engine::common::system::scene_submission::SceneLineDesc) {
+        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(bridge) = guard.as_mut() {
+            if let Some(entry) = bridge.scene_lines.get_mut(&id) {
+                entry.start = glam::Vec3::new(desc.start.x as f32, desc.start.y as f32, desc.start.z as f32);
+                entry.end = glam::Vec3::new(desc.end.x as f32, desc.end.y as f32, desc.end.z as f32);
+                entry.width = desc.width;
+                entry.color = [desc.color_r, desc.color_g, desc.color_b, desc.opacity];
+                entry.texture_name = desc.texture_name.clone();
+                entry.tile_factor = desc.tile_factor;
+                entry.visible = desc.visible;
+            }
+        }
+        log::debug!("SceneSubmission::update_line id={}", id);
     }
 
-    fn remove_line(&self, _id: game_engine::common::system::scene_submission::SceneLineId) {
-        log::debug!("SceneSubmission::remove_line via RenderBridge (id={})", _id);
+    fn remove_line(&self, id: game_engine::common::system::scene_submission::SceneLineId) {
+        let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(bridge) = guard.as_mut() {
+            bridge.scene_lines.remove(&id);
+        }
+        log::debug!("SceneSubmission::remove_line id={}", id);
     }
 
     fn submit_model(&self, desc: SceneModelDesc) {

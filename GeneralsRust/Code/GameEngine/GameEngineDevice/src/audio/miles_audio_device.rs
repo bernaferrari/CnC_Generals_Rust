@@ -647,12 +647,24 @@ impl MilesAudioDevice {
                     }
 
                     AudioCommand::Pause { handle, response } => {
-                        let result = Self::handle_pause_command(handle, &playing_audio).await;
+                        let result = Self::handle_pause_command(
+                            handle,
+                            &playing_audio,
+                            #[cfg(feature = "audio")]
+                            &kira_driver,
+                        )
+                        .await;
                         let _ = response.send(result);
                     }
 
                     AudioCommand::Resume { handle, response } => {
-                        let result = Self::handle_resume_command(handle, &playing_audio).await;
+                        let result = Self::handle_resume_command(
+                            handle,
+                            &playing_audio,
+                            #[cfg(feature = "audio")]
+                            &kira_driver,
+                        )
+                        .await;
                         let _ = response.send(result);
                     }
 
@@ -804,16 +816,19 @@ impl MilesAudioDevice {
     async fn handle_pause_command(
         handle: AudioHandle,
         playing_audio: &DashMap<AudioHandle, PlayingAudio>,
+        #[cfg(feature = "audio")] kira_driver: &KiraAudioDriver,
     ) -> Result<()> {
         if let Some(mut playing) = playing_audio.get_mut(&handle) {
             playing.status = PlayingStatus::Paused;
 
             #[cfg(feature = "audio")]
             if let Some(kira_handle) = &playing.kira_handle {
-                log::debug!(
-                    "Miles: pause handle {} (Kira sound '{}') — state set to Paused, backend passthrough deferred",
-                    handle.0, kira_handle
-                );
+                if let Err(e) = kira_driver.pause_sound(kira_handle).await {
+                    log::warn!(
+                        "Miles: Kira pause failed for handle {} ('{}'): {}",
+                        handle.0, kira_handle, e
+                    );
+                }
             }
         }
 
@@ -827,16 +842,19 @@ impl MilesAudioDevice {
     async fn handle_resume_command(
         handle: AudioHandle,
         playing_audio: &DashMap<AudioHandle, PlayingAudio>,
+        #[cfg(feature = "audio")] kira_driver: &KiraAudioDriver,
     ) -> Result<()> {
         if let Some(mut playing) = playing_audio.get_mut(&handle) {
             playing.status = PlayingStatus::Playing;
 
             #[cfg(feature = "audio")]
             if let Some(kira_handle) = &playing.kira_handle {
-                log::debug!(
-                    "Miles: resume handle {} (Kira sound '{}') — state set to Playing, backend passthrough deferred",
-                    handle.0, kira_handle
-                );
+                if let Err(e) = kira_driver.resume_sound(kira_handle).await {
+                    log::warn!(
+                        "Miles: Kira resume failed for handle {} ('{}'): {}",
+                        handle.0, kira_handle, e
+                    );
+                }
             }
         }
 

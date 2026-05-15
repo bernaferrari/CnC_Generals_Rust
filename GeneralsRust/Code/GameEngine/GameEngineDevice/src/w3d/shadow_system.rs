@@ -1309,14 +1309,21 @@ impl Default for W3DProjectedShadowManager {
 // Handle types for render objects and drawables
 // ============================================================================
 
-/// Handle to a render object (placeholder for actual W3D render object)
-#[derive(Debug, Clone)]
+/// Handle to a render object in the W3D scene graph.
+///
+/// Parity: mirrors C++ `RenderObjClass*` used by the shadow system to
+/// reference scene objects. In C++ this is a raw pointer; here we use a
+/// stable u64 ID that the shadow manager resolves internally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RenderObjectHandle {
     pub id: u64,
 }
 
-/// Handle to a drawable (placeholder for actual drawable)
-#[derive(Debug, Clone)]
+/// Handle to a drawable (GameLogic-side visual representation).
+///
+/// Parity: mirrors C++ `Drawable*` used by shadow code. C++ stores a raw
+/// pointer; the Rust side uses a typed handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DrawableHandle {
     pub id: u64,
 }
@@ -1326,10 +1333,286 @@ pub struct RenderInfo {
     pub camera_frustum: Frustum,
 }
 
-/// Frustum for culling
+// ============================================================================
+// Plane — mirrors C++ PlaneClass (WWMath/plane.h)
+// ============================================================================
+
+/// A 3D plane stored as normal + distance (N·X = D).
+///
+/// Parity: matches C++ `PlaneClass` layout where
+/// `N` is the unit normal and `D` is the signed distance from the origin.
+/// `N·p >= D` means point `p` is in front of the plane.
+#[derive(Debug, Clone, Copy)]
+pub struct Plane {
+    pub n: Vec3,
+    pub d: f32,
+}
+
+impl Plane {
+    pub fn new(n: Vec3, d: f32) -> Self {
+        Self { n, d }
+    }
+
+    /// `D = N·point`
+    pub fn from_point(normal: Vec3, point: Vec3) -> Self {
+        Self {
+            n: normal,
+            d: normal.dot(point),
+        }
+    }
+
+    /// Parity: matches C++ `PlaneClass::Set(p1, p2, p3)`.
+    pub fn from_points(p0: Vec3, p1: Vec3, p2: Vec3) -> Self {
+        let edge1 = p1 - p0;
+        let edge2 = p2 - p0;
+        let n = edge1.cross(edge2);
+        if n.length_squared() < f32::EPSILON {
+            return Self { n: Vec3::Z, d: 0.0 };
+        }
+        let n = n.normalize();
+        Self { d: n.dot(p0), n }
+    }
+
+    #[inline]
+    pub fn distance_to_point(&self, point: Vec3) -> f32 {
+        self.n.dot(point) - self.d
+    }
+
+    /// Parity: matches C++ `PlaneClass::In_Front(point)`.
+    #[inline]
+    pub fn is_in_front(&self, point: Vec3) -> bool {
+        self.distance_to_point(point) >= 0.0
+    }
+
+    /// Parity: matches C++ `PlaneClass::In_Front(sphere)`.
+    #[inline]
+    pub fn sphere_in_front(&self, center: Vec3, radius: f32) -> bool {
+        self.distance_to_point(center) >= radius
+    }
+
+    /// Parity: matches C++ `PlaneClass::In_Front_Or_Intersecting(sphere)`.
+    #[inline]
+    pub fn sphere_intersects_or_in_front(&self, center: Vec3, radius: f32) -> bool {
+        self.d - self.n.dot(center) < radius
+    }
+}
+
+impl Default for Plane {
+    fn default() -> Self {
+        Self { n: Vec3::Z, d: 0.0 }
+    }
+}
+
+// ============================================================================
+// Frustum — mirrors C++ FrustumClass (WWMath/frustum.h)
+// ============================================================================
+
+/// Plane indices inside the frustum array.
+pub const PLANE_NEAR: usize = 0;
+pub const PLANE_BOTTOM: usize = 1;
+pub const PLANE_RIGHT: usize = 2;
+pub const PLANE_TOP: usize = 3;
+pub const PLANE_LEFT: usize = 4;
+pub const PLANE_FAR: usize = 5;
+
+/// View frustum for visibility culling.
+///
+/// Parity: matches C++ `FrustumClass` from WWMath/frustum.h.
+/// Stores 6 planes (near, bottom, right, top, left, far), 8 corner
+/// vertices, the camera transform, and an axis-aligned bounding box.
+/// Plane normals point *outward* from the frustum interior.
 #[derive(Debug, Clone)]
 pub struct Frustum {
-    // Placeholder for actual frustum data
+    /// Camera transform used to construct this frustum.
+    pub camera_transform: Mat4,
+    /// Six culling planes. Ordering matches C++: [near, bottom, right, top, left, far].
+    pub planes: [Plane; 6],
+    /// Eight corner vertices.
+    /// C++ ordering (looking from camera): near TL=0, near TR=1, near BL=2,
+    /// near BR=3, far TL=4, far TR=5, far BL=6, far BR=7.
+    pub corners: [Vec3; 8],
+    /// Axis-aligned bounding box enclosing the entire frustum.
+    pub bound_min: Vec3,
+    pub bound_max: Vec3,
+}
+
+impl Default for Frustum {
+    fn default() -> Self {
+        Self {
+            camera_transform: Mat4::IDENTITY,
+            planes: [Plane::default(); 6],
+            corners: [Vec3::ZERO; 8],
+            bound_min: Vec3::ZERO,
+            bound_max: Vec3::ZERO,
+        }
+    }
+}
+
+impl Frustum {
+    /// Parity: exact port of C++ `FrustumClass::Init()`.
+    ///
+    /// * `camera` — camera world transform (position + orientation).
+    /// * `vp_min` — minimum corner of the z=-1 view plane (x, y).
+    /// * `vp_max` — maximum corner of the z=-1 view plane (x, y).
+    /// * `znear` — near clip distance (positive; internally negated).
+    /// * `zfar` — far clip distance (positive; internally negated).
+    pub fn init(
+        camera: Mat4,
+        vp_min: Vec2,
+        vp_max: Vec2,
+        mut znear: f32,
+        mut zfar: f32,
+    ) -> Self {
+        if znear > 0.0 && zfar > 0.0 {
+            znear = -znear;
+            zfar = -zfar;
+        }
+
+        let camera_transform = camera;
+
+        let x_vec = camera.x_axis().truncate();
+        let y_vec = camera.y_axis().truncate();
+        let z_vec = camera.z_axis().truncate();
+        let zv = x_vec.cross(y_vec);
+        let reflected = z_vec.dot(zv) < 0.0;
+
+        let mut corners = [Vec3::ZERO; 8];
+
+        if reflected {
+            corners[1] = Vec3::new(vp_min.x, vp_max.y, 1.0) * znear;
+            corners[5] = Vec3::new(vp_min.x, vp_max.y, 1.0) * zfar;
+            corners[0] = Vec3::new(vp_max.x, vp_max.y, 1.0) * znear;
+            corners[4] = Vec3::new(vp_max.x, vp_max.y, 1.0) * zfar;
+            corners[3] = Vec3::new(vp_min.x, vp_min.y, 1.0) * znear;
+            corners[7] = Vec3::new(vp_min.x, vp_min.y, 1.0) * zfar;
+            corners[2] = Vec3::new(vp_max.x, vp_min.y, 1.0) * znear;
+            corners[6] = Vec3::new(vp_max.x, vp_min.y, 1.0) * zfar;
+        } else {
+            corners[0] = Vec3::new(vp_min.x, vp_max.y, 1.0) * znear;
+            corners[4] = Vec3::new(vp_min.x, vp_max.y, 1.0) * zfar;
+            corners[1] = Vec3::new(vp_max.x, vp_max.y, 1.0) * znear;
+            corners[5] = Vec3::new(vp_max.x, vp_max.y, 1.0) * zfar;
+            corners[2] = Vec3::new(vp_min.x, vp_min.y, 1.0) * znear;
+            corners[6] = Vec3::new(vp_min.x, vp_min.y, 1.0) * zfar;
+            corners[3] = Vec3::new(vp_max.x, vp_min.y, 1.0) * znear;
+            corners[7] = Vec3::new(vp_max.x, vp_min.y, 1.0) * zfar;
+        }
+
+        for corner in &mut corners {
+            *corner = camera_transform.transform_point3(*corner);
+        }
+
+        let planes: [Plane; 6] = [
+            Plane::from_points(corners[0], corners[3], corners[1]), // near
+            Plane::from_points(corners[0], corners[5], corners[4]), // bottom
+            Plane::from_points(corners[0], corners[6], corners[2]), // right
+            Plane::from_points(corners[2], corners[7], corners[3]), // top
+            Plane::from_points(corners[1], corners[7], corners[5]), // left
+            Plane::from_points(corners[4], corners[7], corners[6]), // far
+        ];
+
+        let mut bound_min = corners[0];
+        let mut bound_max = corners[0];
+        for i in 1..8 {
+            bound_min = bound_min.min(corners[i]);
+            bound_max = bound_max.max(corners[i]);
+        }
+
+        Self { camera_transform, planes, corners, bound_min, bound_max }
+    }
+
+    /// Extract frustum planes from a view-projection matrix.
+    ///
+    /// Standard technique: each plane is extracted by adding or subtracting
+    /// rows of the VP matrix. Normals are negated to match C++ convention
+    /// (outward-pointing).
+    pub fn from_view_projection(vp: Mat4) -> Self {
+        let row = |r: usize| -> Vec4 {
+            match r {
+                0 => vp.x_axis(),
+                1 => vp.y_axis(),
+                2 => vp.z_axis(),
+                3 => vp.w_axis(),
+                _ => Vec4::ZERO,
+            }
+        };
+
+        let normalize_plane = |v: Vec4| -> Plane {
+            let len = v.xyz().length();
+            if len < f32::EPSILON {
+                return Plane::default();
+            }
+            let inv = 1.0 / len;
+            Plane { n: v.xyz() * inv, d: v.w * inv }
+        };
+
+        let make_outward = |v: Vec4| -> Plane {
+            let p = normalize_plane(v);
+            Plane { n: -p.n, d: -p.d }
+        };
+
+        let r3 = row(3);
+        let r0 = row(0);
+        let r1 = row(1);
+        let r2 = row(2);
+
+        let left   = make_outward(r3 + r0);
+        let right  = make_outward(r3 - r0);
+        let bottom = make_outward(r3 + r1);
+        let top    = make_outward(r3 - r1);
+        let near   = make_outward(r3 + r2);
+        let far_p  = make_outward(r3 - r2);
+
+        let planes: [Plane; 6] = [near, bottom, right, top, left, far_p];
+
+        Self {
+            camera_transform: Mat4::IDENTITY,
+            planes,
+            corners: [Vec3::ZERO; 8],
+            bound_min: Vec3::ZERO,
+            bound_max: Vec3::ZERO,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Culling tests
+    // -----------------------------------------------------------------------
+
+    /// Returns `true` if the point lies inside all six planes.
+    pub fn test_point(&self, point: Vec3) -> bool {
+        for plane in &self.planes {
+            if plane.is_in_front(point) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Returns `true` unless the sphere is entirely outside at least one plane.
+    /// Parity: equivalent to testing `!In_Front(sphere)` for each C++ plane.
+    pub fn test_sphere(&self, center: Vec3, radius: f32) -> bool {
+        for plane in &self.planes {
+            if plane.sphere_in_front(center, radius) {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Uses p-vertex / n-vertex test against each plane.
+    pub fn test_bounds(&self, min: Vec3, max: Vec3) -> bool {
+        for plane in &self.planes {
+            let p = Vec3::new(
+                if plane.n.x >= 0.0 { max.x } else { min.x },
+                if plane.n.y >= 0.0 { max.y } else { min.y },
+                if plane.n.z >= 0.0 { max.z } else { min.z },
+            );
+            if plane.is_in_front(p) {
+                return false;
+            }
+        }
+        true
+    }
 }
 
 // ============================================================================
