@@ -370,6 +370,7 @@ fn is_valid_qm_ladder(info: &LadderInfo) -> bool {
 }
 
 fn populate_qm_ladder_combo_box(state: &mut WolQuickMatchState) {
+    // TODO: C++ has PopulateQMLadderListBox variant that populates a listbox instead of combobox when ladder count is large
     let Some(mut combo) = combo_box_mut(&state.combo_box_ladder) else {
         return;
     };
@@ -1017,6 +1018,7 @@ pub fn wol_quick_match_menu_init(
     update_start_button(&state);
 
     with_window_manager(|manager| manager.transition_set_group("WOLQuickMatchMenuFade", false));
+    // TODO: C++ checks isInShellGame() && getFrame() == 1 and fires SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME
     state.is_in_init = false;
 }
 
@@ -1091,6 +1093,10 @@ pub fn wol_quick_match_menu_update(
         raise_gs_message_box();
         state.raise_message_boxes = false;
     }
+
+    // TODO: C++ has TheNAT->update() loop here handling NATSTATE_DONE (launch game) and NATSTATE_FAILED (show error)
+    // TODO: C++ init deletes TheNAT and sets to NULL
+    // TODO: C++ QM_MATCHED handler calls markGameAsQM(), SendStatsToOtherPlayers(), startGame(0)
 
     if shell_finished && !state.button_pushed {
         handle_buddy_responses();
@@ -1397,7 +1403,11 @@ pub fn wol_quick_match_menu_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes back focus state via mData2 pointer; Rust uses values, needs write-back parity
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetSelected => {
             let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
             let control_id = data1 as i32;

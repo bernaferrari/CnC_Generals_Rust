@@ -202,7 +202,11 @@ pub fn popup_player_info_system(
     let mut state = popup_state().lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes back focus state via mData2 pointer; Rust uses values, needs write-back parity
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             if control_id == state.button_close_id {
