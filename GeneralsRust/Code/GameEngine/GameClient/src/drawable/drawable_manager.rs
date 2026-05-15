@@ -583,36 +583,123 @@ impl DrawableManager {
         self.current_render_pass = None;
     }
 
-    /// Render second material pass for special effects
+    /// Render second material pass for special effects.
+    ///
+    /// C++ parity: Drawables with stealth-detection overlays (VisibleDetected,
+    /// VisibleFriendlyDetected) get a translucent second pass.  These are sorted
+    /// back-to-front so alpha blending composites correctly over the opaque base.
     fn render_second_material_pass(&mut self) {
-        let view = self.view_matrix;
-        let proj = self.projection_matrix;
-        let all_ids: Vec<DrawableId> = self.drawables.keys().copied().collect();
-        for id in all_ids {
-            let needs_second = self.drawables.get(&id).map_or(false, |e| {
-                let look = e.drawable.get_stealth_look();
-                look == StealthLook::VisibleDetected || look == StealthLook::VisibleFriendlyDetected
-            });
-            if needs_second {
-                if let Some(entry) = self.drawables.get_mut(&id) {
-                    entry.drawable.render(&view, &proj);
-                }
+        // Phase 1: Collect drawables that need a translucent second material pass.
+        let mut second_pass_list: Vec<(DrawableId, f32)> = Vec::new();
+        for (&id, entry) in &self.drawables {
+            let needs_second = {
+                let look = entry.drawable.get_stealth_look();
+                look == StealthLook::VisibleDetected
+                    || look == StealthLook::VisibleFriendlyDetected
+            };
+            if needs_second && entry.drawable.is_visible() {
+                second_pass_list.push((id, entry.distance_to_camera));
             }
         }
+
+        if second_pass_list.is_empty() {
+            return;
+        }
+
+        // Phase 2: Sort back-to-front (farthest first) for correct alpha blending.
+        second_pass_list.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal)
+        });
+
+        // Phase 3: Submit alpha-blended draws.
+        self.current_render_pass = Some(RenderPass::SecondMaterial);
+        let view = self.view_matrix;
+        let proj = self.projection_matrix;
+
+        for (id, _) in second_pass_list {
+            if let Some(entry) = self.drawables.get_mut(&id) {
+                entry.drawable.render(&view, &proj);
+            }
+        }
+
+        self.current_render_pass = None;
     }
 
-    /// Render shadows
+    /// Render shadows.
+    ///
+    /// Iterates shadow-casting drawables from `shadow_caster_list`, collects their
+    /// bounding geometry, and submits shadow draws through the render pipeline.
+    /// C++ parity: matches TheDrawableManager render loop for SHADOW pass.
     pub fn render_shadows(
         &mut self,
         shadow_view_matrix: &Matrix4,
         shadow_projection_matrix: &Matrix4,
     ) {
+        if self.shadow_caster_list.is_empty() {
+            return;
+        }
+
+        self.current_render_pass = Some(RenderPass::Shadow);
+
+        // Collect shadow-casting drawables with their bounding spheres for
+        // potential frustum culling against the light frustum.
         let shadow_ids = self.shadow_caster_list.clone();
+        let mut shadow_casters_visible = 0usize;
+
         for &drawable_id in &shadow_ids {
             if let Some(entry) = self.drawables.get_mut(&drawable_id) {
+                let drawable = &entry.drawable;
+
+                // C++ parity: only cast shadows if the drawable is both visible
+                // and has the SHADOWS status flag set.
+                if !drawable.is_visible()
+                    || !drawable.get_status().has(DrawableStatus::SHADOWS)
+                {
+                    continue;
+                }
+
+                // Frustum check against the shadow (light) frustum.
+                if self.enable_frustum_culling {
+                    let (center, radius) = drawable.get_bounding_sphere();
+                    if !self.frustum.contains_sphere(center, radius) {
+                        continue;
+                    }
+                }
+
                 entry
                     .drawable
                     .render(shadow_view_matrix, shadow_projection_matrix);
+                shadow_casters_visible += 1;
+            }
+        }
+
+        self.current_render_pass = None;
+
+        // Submit collected shadow geometry through the draw pipeline.
+        if shadow_casters_visible > 0 {
+            if let Some(pipeline_arc) =
+                super::drawable_draw_pipeline::with_drawable_pipeline(|p| Arc::clone(p))
+            {
+                let view = glam::Mat4::from_cols_slice(&{
+                    let mut v = [0.0f32; 16];
+                    for i in 0..4 {
+                        for j in 0..4 {
+                            v[i * 4 + j] = shadow_view_matrix.elements[i][j];
+                        }
+                    }
+                    v
+                });
+                let proj = glam::Mat4::from_cols_slice(&{
+                    let mut v = [0.0f32; 16];
+                    for i in 0..4 {
+                        for j in 0..4 {
+                            v[i * 4 + j] = shadow_projection_matrix.elements[i][j];
+                        }
+                    }
+                    v
+                });
+                let mut pipeline = pipeline_arc.lock().unwrap_or_else(|e| e.into_inner());
+                pipeline.update_camera(&view, &proj);
             }
         }
     }

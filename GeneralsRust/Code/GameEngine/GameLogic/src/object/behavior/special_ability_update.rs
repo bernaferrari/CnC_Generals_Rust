@@ -641,7 +641,9 @@ impl SpecialAbilityUpdate {
                 | crate::object::special_power_types::SpecialPowerType::InfantryCaptureBuilding => {
                     self.kill_special_objects();
                 }
-                _ => {}
+                _ => {
+                    log::debug!("SpecialAbilityUpdate::end_preparation: unhandled power type {:?}", template.get_special_power_type());
+                }
             }
         }
     }
@@ -957,7 +959,9 @@ impl SpecialAbilityUpdate {
                     let _ = TheRadar::try_infiltration_event(target);
                 }
             }
-            _ => {}
+            _ => {
+                log::debug!("SpecialAbilityUpdate::start_preparation: unhandled power type {:?}", template.get_special_power_type());
+            }
         }
 
         let _ = self.with_spm(|spm| {
@@ -1066,9 +1070,11 @@ impl SpecialAbilityUpdate {
                     {
                         let _ = spm.start_power_recharge();
                     }
-                });
+                }
             }
-            _ => {}
+            _ => {
+                log::debug!("SpecialAbilityUpdate::continue_preparation: unhandled power type {:?}", template.get_special_power_type());
+            }
         }
 
         true
@@ -1424,7 +1430,9 @@ impl SpecialAbilityUpdate {
                     }
                 }
             }
-            _ => {}
+            _ => {
+                log::debug!("SpecialAbilityUpdate::trigger_ability_effect: unhandled power type {:?}", template.get_special_power_type());
+            }
         }
 
         if self.module_data.lose_stealth_on_trigger && ok_to_lose_stealth {

@@ -103,7 +103,9 @@ impl SmudgeManager {
         }
     }
 
-    pub fn init(&mut self) {}
+    pub fn init(&mut self) {
+        self.hardware_support = HardwareSmudgeSupport::Supported;
+    }
 
     pub fn reset(&mut self) {
         while let Some(set) = self.used_sets.pop() {

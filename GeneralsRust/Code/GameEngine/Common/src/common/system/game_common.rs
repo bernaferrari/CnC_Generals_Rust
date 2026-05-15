@@ -232,7 +232,11 @@ impl From<i32> for Relationship {
         match value {
             0 => Relationship::Enemies,
             1 => Relationship::Neutral,
-            _ => Relationship::Allies,
+            2 => Relationship::Allies,
+            _ => {
+                log::warn!("Relationship::from({value}) out of range, defaulting to Allies");
+                Relationship::Allies
+            }
         }
     }
 }
