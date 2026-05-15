@@ -201,29 +201,27 @@ impl Default for PristineBoneInfo {
     }
 }
 
-/// Model condition info (matching C++ ModelConditionInfo)
+// C++ parity: ModelConditionInfo (W3DModelDraw.h line 119)
 #[derive(Debug, Clone)]
 pub struct ModelConditionInfo {
     pub model_name: String,
     pub animations: Vec<W3DAnimationInfo>,
-    pub conditions: Vec<u32>, // Model condition flags
-    pub flags: u32,
-    pub transition_key: u32,
-
-    // Turret info
+    pub conditions: Vec<u128>, // C++: m_conditionsYesVec (ANY match suffices)
+    pub flags: u32,            // C++: m_flags (ACBits)
+    pub transition_key: u32,   // C++: m_transitionKey (0 = invalid)
+    pub allow_to_finish_key: u32, // C++: m_allowToFinishKey (0 = invalid)
+    pub transition_sig: u64,   // C++: m_transitionSig (0 = NO_TRANSITION)
+    pub mode: AnimationMode,   // C++: m_mode
+    pub anim_min_speed_factor: f32,
+    pub anim_max_speed_factor: f32,
+    pub description: String,
     pub turret_angle_key: Option<String>,
     pub turret_pitch_key: Option<String>,
     pub turret_artillery_angle_key: Option<String>,
-
-    // Public bones
     pub public_bones: Vec<String>,
     pub pristine_bones: HashMap<String, PristineBoneInfo>,
-
-    // Weapon barrel info
     pub weapon_barrel_bones: [Option<String>; WEAPONSLOT_COUNT],
     pub weapon_muzzle_bones: [Option<String>; WEAPONSLOT_COUNT],
-
-    // State flags
     pub valid_stuff: u32,
 }
 
@@ -241,6 +239,12 @@ impl ModelConditionInfo {
             conditions: Vec::new(),
             flags: 0,
             transition_key: 0,
+            allow_to_finish_key: 0,
+            transition_sig: 0,
+            mode: AnimationMode::Once,
+            anim_min_speed_factor: 1.0,
+            anim_max_speed_factor: 1.0,
+            description: String::new(),
             turret_angle_key: None,
             turret_pitch_key: None,
             turret_artillery_angle_key: None,
@@ -377,56 +381,26 @@ pub const TERRAIN_DECAL_TEXTURES: [&str; TERRAIN_DECAL_MAX] = [
 /// Main W3D Model Draw implementation (matching C++ W3DModelDraw)
 #[derive(Debug)]
 pub struct W3DModelDraw {
-    /// Model name
     pub model_name: String,
-
-    /// Initial model state
     pub initial_state: String,
-
-    /// Model condition states
     pub condition_states: HashMap<u32, ModelConditionInfo>,
-
-    /// Default model condition
     pub default_condition: ModelConditionInfo,
-
-    /// Current draw state
     pub draw_state: ModelDrawState,
-
-    /// Model scale
     pub scale: f32,
-
-    /// Weapon fire bones for each slot
     pub weapon_fire_bones: [Option<String>; WEAPONSLOT_COUNT],
-
-    /// Weapon recoil bones for each slot
     pub weapon_recoil_bones: [Option<String>; WEAPONSLOT_COUNT],
-
-    /// Weapon muzzle flash bones
     pub weapon_muzzle_flash_bones: [Option<String>; WEAPONSLOT_COUNT],
-
-    /// Terrain decal type
     pub terrain_decal_type: usize,
-
-    /// Terrain decal size
     pub terrain_decal_size: f32,
-
-    /// Animation flags
     pub anim_flags: u32,
-
-    /// Extra public bones
     pub extra_public_bones: Vec<String>,
-
-    /// Attachment looks
     pub attachment_looks: HashMap<String, String>,
-
-    /// Sub-object transforms
     pub sub_object_transforms: HashMap<String, Matrix4<f32>>,
-
-    /// Model render object (placeholder - would be actual render object)
     pub render_object_id: Option<u64>,
-
-    /// Whether model is fully loaded
     pub model_loaded: bool,
+    pub condition_states_vec: Vec<ModelConditionInfo>,
+    pub transition_map: HashMap<u64, usize>,
+    pub ignore_condition_states: u128,
 }
 
 impl Default for W3DModelDraw {
@@ -455,10 +429,12 @@ impl W3DModelDraw {
             sub_object_transforms: HashMap::new(),
             render_object_id: None,
             model_loaded: false,
+            condition_states_vec: Vec::new(),
+            transition_map: HashMap::new(),
+            ignore_condition_states: 0,
         }
     }
 
-    /// Create with model name
     pub fn with_model(name: &str, scale: f32) -> Self {
         Self {
             model_name: name.to_string(),
@@ -478,6 +454,9 @@ impl W3DModelDraw {
             sub_object_transforms: HashMap::new(),
             render_object_id: None,
             model_loaded: false,
+            condition_states_vec: Vec::new(),
+            transition_map: HashMap::new(),
+            ignore_condition_states: 0,
         }
     }
 
@@ -688,13 +667,66 @@ impl W3DModelDraw {
         }
     }
 
+    /// C++ parity: W3DModelDrawModuleData::findBestInfo
+    /// Finds the best matching condition state for the given flags.
+    /// Skips transition states (transition_sig != 0).
+    /// Matching: a state matches if ANY of its condition sets is a subset of query flags.
+    /// Best = most matching bits, ties broken by fewest extraneous bits.
+    pub fn find_best_info(&self, condition_flags: u128) -> Option<usize> {
+        let masked_flags = condition_flags & !self.ignore_condition_states;
+        let mut best_index = None;
+        let mut best_match_count = 0usize;
+        let mut best_extra_count = usize::MAX;
+
+        for (index, state) in self.condition_states_vec.iter().enumerate() {
+            if state.transition_sig != 0 {
+                continue;
+            }
+            for &cond_bits in &state.conditions {
+                if (masked_flags & cond_bits) != cond_bits {
+                    continue;
+                }
+                let match_count = (masked_flags & cond_bits).count_ones() as usize;
+                let extra_count = (cond_bits & !masked_flags).count_ones() as usize;
+                if match_count > best_match_count
+                    || (match_count == best_match_count && extra_count < best_extra_count)
+                {
+                    best_match_count = match_count;
+                    best_extra_count = extra_count;
+                    best_index = Some(index);
+                }
+            }
+        }
+        best_index
+    }
+
+    pub fn add_condition_state_to_vec(&mut self, state: ModelConditionInfo) -> usize {
+        let idx = self.condition_states_vec.len();
+        if state.transition_sig != 0 {
+            self.transition_map.insert(state.transition_sig, idx);
+        }
+        self.condition_states_vec.push(state);
+        idx
+    }
+
+    /// C++ parity: buildTransitionSig / recoverSrcState / recoverDstState
+    pub fn build_transition_sig(src_key: u32, dst_key: u32) -> u64 {
+        ((src_key as u64) << 32) | (dst_key as u64)
+    }
+
+    pub fn recover_src_state(sig: u64) -> u32 {
+        ((sig >> 32) & 0xFFFFFFFF) as u32
+    }
+
+    pub fn recover_dst_state(sig: u64) -> u32 {
+        (sig & 0xFFFFFFFF) as u32
+    }
+
     /// Preload model assets
     pub fn preload_assets(&mut self) {
-        // In full implementation, this would load model from asset manager
         self.model_loaded = true;
     }
 
-    /// Check if model is loaded
     pub fn is_loaded(&self) -> bool {
         self.model_loaded
     }
@@ -735,6 +767,30 @@ mod tests {
         let anim = W3DAnimationInfo::with_name("Idle", true, 0.0);
         assert_eq!(anim.name, "Idle");
         assert!(anim.is_idle_anim());
+    }
+
+    #[test]
+    fn test_find_best_info_basic() {
+        let mut module = W3DModelDraw::new();
+        let mut idle_state = ModelConditionInfo::new();
+        idle_state.model_name = "IdleModel".to_string();
+        idle_state.conditions = vec![0];
+        module.add_condition_state_to_vec(idle_state);
+
+        let mut moving_state = ModelConditionInfo::new();
+        moving_state.model_name = "MoveModel".to_string();
+        moving_state.conditions = vec![1u128 << 49]; // MODELCONDITION_MOVING
+        module.add_condition_state_to_vec(moving_state);
+
+        assert_eq!(module.find_best_info(0), Some(0));
+        assert_eq!(module.find_best_info(1u128 << 49), Some(1));
+    }
+
+    #[test]
+    fn test_transition_sig() {
+        let sig = W3DModelDraw::build_transition_sig(5, 10);
+        assert_eq!(W3DModelDraw::recover_src_state(sig), 5);
+        assert_eq!(W3DModelDraw::recover_dst_state(sig), 10);
     }
 
     #[test]
