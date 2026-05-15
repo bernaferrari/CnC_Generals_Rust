@@ -236,6 +236,12 @@ pub struct W3DRenderer {
     material_bind_group_layout: BindGroupLayout,
     fallback_bind_group_layout: BindGroupLayout,
 
+    /// Bind group layout for skeletal animation bone matrix palette.
+    bone_bind_group_layout: BindGroupLayout,
+    /// Identity bone matrix buffer (MAX_BONES identity mat4x4). Replaced at
+    /// draw time with actual pose data by the animation system.
+    bone_buffer: Buffer,
+
     /// Performance stats
     stats: RendererStats,
 }
@@ -336,6 +342,34 @@ impl W3DRenderer {
                 }],
             });
 
+        let bone_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                label: Some("W3D Bone Bind Group Layout"),
+                entries: &[BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::VERTEX,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+            });
+
+        let identity_matrix: [[f32; 4]; 4] = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let bone_data: Vec<[[f32; 4]; 4]> = vec![identity_matrix; MAX_BONES];
+        let bone_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("W3D Identity Bone Buffer"),
+            contents: bytemuck::cast_slice(bone_data.as_slice()),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+
         Ok(Self {
             device: Arc::new(device.clone()),
             queue: Arc::new(queue.clone()),
@@ -371,6 +405,8 @@ impl W3DRenderer {
             frame_bind_group_layout,
             material_bind_group_layout,
             fallback_bind_group_layout,
+            bone_bind_group_layout,
+            bone_buffer,
             stats: RendererStats::default(),
         })
     }
@@ -794,14 +830,24 @@ impl W3DRenderer {
                 let shader = self.shader_cache.get(&mesh.vertex_format).unwrap();
 
                 if !self.pipeline_cache.contains_key(&cache_key) {
+                    let is_skinned = matches!(mesh.vertex_format, W3DVertexFormat::Skinned);
+                    let bind_group_layouts: Vec<&BindGroupLayout> = if is_skinned {
+                        vec![
+                            &self.frame_bind_group_layout,
+                            &self.material_bind_group_layout,
+                            &self.bone_bind_group_layout,
+                        ]
+                    } else {
+                        vec![
+                            &self.frame_bind_group_layout,
+                            &self.material_bind_group_layout,
+                        ]
+                    };
                     let pipeline_layout =
                         self.device
                             .create_pipeline_layout(&PipelineLayoutDescriptor {
                                 label: Some("W3D Batch Submission Layout"),
-                                bind_group_layouts: &[
-                                    &self.frame_bind_group_layout,
-                                    &self.material_bind_group_layout,
-                                ],
+                                bind_group_layouts: &bind_group_layouts,
                                 push_constant_ranges: &[],
                             });
                     let pipeline = self
@@ -974,6 +1020,17 @@ impl W3DRenderer {
                 render_pass.set_pipeline(&pipeline);
                 render_pass.set_bind_group(0, &frame_bind_group, &[]);
                 render_pass.set_bind_group(1, &material_bind_group, &[]);
+                if matches!(mesh.vertex_format, W3DVertexFormat::Skinned) {
+                    let bone_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+                        label: Some("W3D Bone Bind Group"),
+                        layout: &self.bone_bind_group_layout,
+                        entries: &[BindGroupEntry {
+                            binding: 0,
+                            resource: self.bone_buffer.as_entire_binding(),
+                        }],
+                    });
+                    render_pass.set_bind_group(2, &bone_bind_group, &[]);
+                }
                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
 
@@ -1263,7 +1320,7 @@ fn mesh_vertex_stride(format: super::VertexFormat) -> Option<u64> {
         super::VertexFormat::PositionUv => Some(20),
         super::VertexFormat::PositionNormalUv => Some(32),
         super::VertexFormat::PositionNormalUvColor => Some(48),
-        super::VertexFormat::Skinned => return None,
+        super::VertexFormat::Skinned => Some(64),
     }
 }
 
@@ -1294,7 +1351,11 @@ fn mesh_vertex_buffer_layout(format: super::VertexFormat) -> Option<VertexBuffer
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &POSITION_NORMAL_UV_COLOR_ATTRIBUTES,
         }),
-        super::VertexFormat::Skinned => None,
+        super::VertexFormat::Skinned => Some(VertexBufferLayout {
+            array_stride: 64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &SKINNED_ATTRIBUTES,
+        }),
     }
 }
 
@@ -1318,6 +1379,79 @@ fn mesh_primitive_topology(topology: super::PrimitiveTopology) -> PrimitiveTopol
 }
 
 fn batch_shader_source(vertex_format: super::VertexFormat) -> String {
+    if matches!(vertex_format, super::VertexFormat::Skinned) {
+        return format!(
+            r#"
+struct FrameUniform {{
+    view_projection_matrix: mat4x4<f32>,
+}}
+
+struct MaterialUniform {{
+    base_color: vec4<f32>,
+    material_params: vec4<f32>,
+    emissive_color: vec4<f32>,
+}}
+
+struct BoneMatrices {{
+    matrices: array<mat4x4<f32>, {max_bones}>,
+}}
+
+struct VertexInput {{
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) bone_indices: vec4<u32>,
+    @location(4) bone_weights: vec4<f32>,
+    @location(8) instance_model_0: vec4<f32>,
+    @location(9) instance_model_1: vec4<f32>,
+    @location(10) instance_model_2: vec4<f32>,
+    @location(11) instance_model_3: vec4<f32>,
+    @location(12) instance_color: vec4<f32>,
+}}
+
+struct VertexOutput {{
+    @builtin(position) position: vec4<f32>,
+    @location(0) color: vec4<f32>,
+}}
+
+@group(0) @binding(0) var<uniform> frame: FrameUniform;
+@group(1) @binding(0) var<uniform> material: MaterialUniform;
+@group(2) @binding(0) var<uniform> bones: BoneMatrices;
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {{
+    var output: VertexOutput;
+
+    let skin_matrix =
+        input.bone_weights.x * bones.matrices[input.bone_indices.x] +
+        input.bone_weights.y * bones.matrices[input.bone_indices.y] +
+        input.bone_weights.z * bones.matrices[input.bone_indices.z] +
+        input.bone_weights.w * bones.matrices[input.bone_indices.w];
+
+    let skinned_position = skin_matrix * vec4<f32>(input.position, 1.0);
+
+    let model = mat4x4<f32>(
+        input.instance_model_0,
+        input.instance_model_1,
+        input.instance_model_2,
+        input.instance_model_3,
+    );
+    let world = model * skinned_position;
+    output.position = frame.view_projection_matrix * world;
+    output.color = material.base_color * input.instance_color + material.emissive_color;
+    return output;
+}}
+
+@fragment
+fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {{
+    let alpha = input.color.a * material.material_params.x;
+    return vec4<f32>(input.color.rgb, alpha);
+}}
+"#,
+            max_bones = MAX_BONES,
+        );
+    }
+
     let (vertex_input, vertex_color_expr) = match vertex_format {
         super::VertexFormat::Position => (
             "    @location(0) position: vec3<f32>,\n",
@@ -1337,10 +1471,6 @@ fn batch_shader_source(vertex_format: super::VertexFormat) -> String {
         ),
         super::VertexFormat::PositionNormalUvColor => (
             "    @location(0) position: vec3<f32>,\n    @location(1) normal: vec3<f32>,\n    @location(2) uv: vec2<f32>,\n    @location(3) color: vec4<f32>,\n",
-            "material.base_color * input.color",
-        ),
-        super::VertexFormat::Skinned => (
-            "    @location(0) position: vec3<f32>,\n    @location(1) normal: vec3<f32>,\n    @location(2) uv: vec2<f32>,\n    @location(3) color: vec4<f32>,\n    @location(4) bone_indices: vec4<u32>,\n    @location(5) bone_weights: vec4<f32>,\n",
             "material.base_color * input.color",
         ),
     };
@@ -1478,7 +1608,7 @@ const POSITION_NORMAL_UV_COLOR_ATTRIBUTES: [wgpu::VertexAttribute; 4] = [
     },
 ];
 
-const SKINNED_ATTRIBUTES: [wgpu::VertexAttribute; 6] = [
+const SKINNED_ATTRIBUTES: [wgpu::VertexAttribute; 5] = [
     wgpu::VertexAttribute {
         offset: 0,
         shader_location: 0,
@@ -1497,17 +1627,12 @@ const SKINNED_ATTRIBUTES: [wgpu::VertexAttribute; 6] = [
     wgpu::VertexAttribute {
         offset: 32,
         shader_location: 3,
-        format: wgpu::VertexFormat::Float32x4,
+        format: wgpu::VertexFormat::Uint32x4,
     },
     wgpu::VertexAttribute {
-        offset: 128,
+        offset: 48,
         shader_location: 4,
-        format: wgpu::VertexFormat::Uint32x2,
-    },
-    wgpu::VertexAttribute {
-        offset: 136,
-        shader_location: 5,
-        format: wgpu::VertexFormat::Float32x2,
+        format: wgpu::VertexFormat::Float32x4,
     },
 ];
 

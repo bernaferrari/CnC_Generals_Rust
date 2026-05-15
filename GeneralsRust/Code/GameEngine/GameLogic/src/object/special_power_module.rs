@@ -635,7 +635,9 @@ impl SpecialPowerModule {
                         crate::helpers::EvaEvent::SuperweaponLaunchedAllySneakAttack,
                         crate::helpers::EvaEvent::SuperweaponLaunchedEnemySneakAttack,
                     ),
-                    _ => {}
+                    _ => {
+                        log::debug!("SpecialPowerModule: unhandled EVA event for power type {:?}", power_type);
+                    }
                 }
             }
         }

@@ -61,7 +61,9 @@ impl LanguageFilter {
         self.init();
     }
 
-    pub fn update(&mut self) {}
+    pub fn update(&mut self) {
+        self.init();
+    }
 
     pub fn filter_line(&self, line: &mut String) {
         if line.is_empty() {
