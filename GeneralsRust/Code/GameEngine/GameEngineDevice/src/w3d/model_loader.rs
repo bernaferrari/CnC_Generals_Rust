@@ -53,59 +53,162 @@ pub struct W3DChunkHeader {
     pub chunk_size: u32,
 }
 
-/// W3D chunk types (from original C++)
+/// W3D chunk types — matches C++ `w3d_file.h` enum exactly.
+///
+/// Only the types we actually handle are enumerated; everything else falls
+/// through to `Unknown(u32)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u32)]
 pub enum W3DChunkType {
-    /// Mesh chunk
-    Mesh = 0x00000000,
-    /// Vertices
-    Vertices = 0x00000002,
-    /// Vertex normals
-    VertexNormals = 0x00000003,
-    /// Vertex colors
-    VertexColors = 0x00000004,
-    /// Texture coordinates
-    TexCoords = 0x00000005,
-    /// Triangles
-    Triangles = 0x00000032,
-    /// Material info
-    MaterialInfo = 0x00000028,
-    /// Shader materials
-    ShaderMaterials = 0x00000029,
-    /// Textures
-    Textures = 0x00000033,
-    /// Hierarchy
-    Hierarchy = 0x00000010,
-    /// Animation
-    Animation = 0x00000200,
-    /// Skeleton
-    Skeleton = 0x00000040,
-    /// Bone
-    Bone = 0x00000041,
-    /// Unknown/Custom
+    // ---- top-level containers ------------------------------------------------
+    /// `W3D_CHUNK_MESH` = 0x00000000
+    Mesh,
+    /// `W3D_CHUNK_HIERARCHY` = 0x00000100  (skeleton / bone hierarchy)
+    Hierarchy,
+    /// `W3D_CHUNK_ANIMATION` = 0x00000200
+    Animation,
+    /// `W3D_CHUNK_HMODEL` = 0x00000300
+    HModel,
+    /// `W3D_CHUNK_LODMODEL` = 0x00000400
+    LodModel,
+    /// `W3D_CHUNK_COLLECTION` = 0x00000420
+    Collection,
+    /// `W3D_CHUNK_HLOD` = 0x00000700
+    Hlod,
+    /// `W3D_CHUNK_EMITTER` = 0x00000500
+    Emitter,
+
+    // ---- mesh sub-chunks -----------------------------------------------------
+    /// `W3D_CHUNK_VERTICES` = 0x00000002
+    Vertices,
+    /// `W3D_CHUNK_VERTEX_NORMALS` = 0x00000003
+    VertexNormals,
+    /// `W3D_CHUNK_TEXCOORDS` = 0x00000005  (legacy, pre-v3 per-vertex UVs)
+    TexCoords,
+    /// `W3D_CHUNK_MESH_USER_TEXT` = 0x0000000C
+    MeshUserText,
+    /// `W3D_CHUNK_VERTEX_INFLUENCES` = 0x0000000E
+    VertexInfluences,
+    /// `W3D_CHUNK_MESH_HEADER3` = 0x0000001F
+    MeshHeader3,
+    /// `W3D_CHUNK_TRIANGLES` = 0x00000020
+    Triangles,
+    /// `W3D_CHUNK_MATERIAL_INFO` = 0x00000028  (W3dMaterialInfoStruct)
+    MaterialInfo,
+    /// `W3D_CHUNK_SHADERS` = 0x00000029  (array of W3dShaderStruct)
+    Shaders,
+    /// `W3D_CHUNK_VERTEX_MATERIALS` = 0x0000002A
+    VertexMaterials,
+    /// `W3D_CHUNK_VERTEX_MATERIAL` = 0x0000002B
+    VertexMaterial,
+    /// `W3D_CHUNK_VERTEX_MATERIAL_NAME` = 0x0000002C
+    VertexMaterialName,
+    /// `W3D_CHUNK_VERTEX_MATERIAL_INFO` = 0x0000002D
+    VertexMaterialInfo,
+    /// `W3D_CHUNK_TEXTURES` = 0x00000030  (wrapper)
+    Textures,
+    /// `W3D_CHUNK_TEXTURE` = 0x00000031
+    Texture,
+    /// `W3D_CHUNK_TEXTURE_NAME` = 0x00000032
+    TextureName,
+    /// `W3D_CHUNK_TEXTURE_INFO` = 0x00000033
+    TextureInfo,
+    /// `W3D_CHUNK_MATERIAL_PASS` = 0x00000038
+    MaterialPass,
+    /// `W3D_CHUNK_VERTEX_COLORS` = 0x0000000D  (per-vertex RGBA in DCG sub-chunk)
+    VertexColors,
+
+    // ---- hierarchy sub-chunks ------------------------------------------------
+    /// `W3D_CHUNK_HIERARCHY_HEADER` = 0x00000101
+    HierarchyHeader,
+    /// `W3D_CHUNK_PIVOTS` = 0x00000102
+    Pivots,
+
+    // ---- animation sub-chunks ------------------------------------------------
+    /// `W3D_CHUNK_ANIMATION_HEADER` = 0x00000201
+    AnimationHeader,
+    /// `W3D_CHUNK_ANIMATION_CHANNEL` = 0x00000202
+    AnimationChannel,
+    /// `W3D_CHUNK_BIT_CHANNEL` = 0x00000203
+    BitChannel,
+
+    // ---- fallback ------------------------------------------------------------
+    /// Any chunk type we don't explicitly handle
     Unknown(u32),
 }
 
 impl From<u32> for W3DChunkType {
     fn from(value: u32) -> Self {
         match value {
+            // top-level
             0x00000000 => Self::Mesh,
+            0x00000100 => Self::Hierarchy,
+            0x00000200 => Self::Animation,
+            0x00000300 => Self::HModel,
+            0x00000400 => Self::LodModel,
+            0x00000420 => Self::Collection,
+            0x00000700 => Self::Hlod,
+            0x00000500 => Self::Emitter,
+            // mesh sub-chunks
             0x00000002 => Self::Vertices,
             0x00000003 => Self::VertexNormals,
-            0x00000004 => Self::VertexColors,
             0x00000005 => Self::TexCoords,
-            0x00000032 => Self::Triangles,
+            0x0000000C => Self::MeshUserText,
+            0x0000000D => Self::VertexColors,
+            0x0000000E => Self::VertexInfluences,
+            0x0000001F => Self::MeshHeader3,
+            0x00000020 => Self::Triangles,
             0x00000028 => Self::MaterialInfo,
-            0x00000029 => Self::ShaderMaterials,
-            0x00000033 => Self::Textures,
-            0x00000010 => Self::Hierarchy,
-            0x00000200 => Self::Animation,
-            0x00000040 => Self::Skeleton,
-            0x00000041 => Self::Bone,
+            0x00000029 => Self::Shaders,
+            0x0000002A => Self::VertexMaterials,
+            0x0000002B => Self::VertexMaterial,
+            0x0000002C => Self::VertexMaterialName,
+            0x0000002D => Self::VertexMaterialInfo,
+            0x00000030 => Self::Textures,
+            0x00000031 => Self::Texture,
+            0x00000032 => Self::TextureName,
+            0x00000033 => Self::TextureInfo,
+            0x00000038 => Self::MaterialPass,
+            // hierarchy sub-chunks
+            0x00000101 => Self::HierarchyHeader,
+            0x00000102 => Self::Pivots,
+            // animation sub-chunks
+            0x00000201 => Self::AnimationHeader,
+            0x00000202 => Self::AnimationChannel,
+            0x00000203 => Self::BitChannel,
             other => Self::Unknown(other),
         }
     }
+}
+
+/// W3D name length constant — matches C++ `W3D_NAME_LEN`
+const W3D_NAME_LEN: usize = 16;
+
+/// Internal representation of a parsed `W3dVertexMaterialStruct`
+#[derive(Debug, Clone, Copy, Default)]
+struct W3dVertexMaterialInfo {
+    attributes: u32,
+    ambient: (u8, u8, u8),
+    diffuse: (u8, u8, u8),
+    specular: (u8, u8, u8),
+    emissive: (u8, u8, u8),
+    shininess: f32,
+    opacity: f32,
+    translucency: f32,
+}
+
+/// Internal representation of a parsed `W3dShaderStruct`
+#[derive(Debug, Clone, Copy, Default)]
+struct W3dShaderInfo {
+    depth_compare: u8,
+    depth_mask: u8,
+    dest_blend: u8,
+    pri_gradient: u8,
+    sec_gradient: u8,
+    src_blend: u8,
+    texturing: u8,
+    detail_color_func: u8,
+    detail_alpha_func: u8,
+    alpha_test: u8,
 }
 
 /// W3D vertex structure (matches game format)
@@ -455,14 +558,9 @@ impl W3DModelLoader {
                     let mesh = self.parse_mesh_chunk(&mut cursor, chunk_header.chunk_size)?;
                     model.meshes.push(mesh);
                 }
-                W3DChunkType::MaterialInfo | W3DChunkType::ShaderMaterials => {
-                    let materials =
-                        self.parse_material_chunk(&mut cursor, chunk_header.chunk_size)?;
-                    model.materials.extend(materials);
-                }
-                W3DChunkType::Skeleton => {
+                W3DChunkType::Hierarchy => {
                     let skeleton =
-                        self.parse_skeleton_chunk(&mut cursor, chunk_header.chunk_size)?;
+                        self.parse_hierarchy_chunk(&mut cursor, chunk_header.chunk_size)?;
                     model.skeleton = Some(skeleton);
                 }
                 W3DChunkType::Animation => {
@@ -471,7 +569,11 @@ impl W3DModelLoader {
                     model.animations.push(animation);
                 }
                 _ => {
-                    // Skip unknown chunks
+                    log::warn!(
+                        "Skipping top-level W3D chunk type 0x{:08X}, size {}",
+                        chunk_header.chunk_type,
+                        chunk_header.chunk_size
+                    );
                     cursor
                         .seek(SeekFrom::Current(chunk_header.chunk_size as i64))
                         .map_err(|e| {
@@ -652,63 +754,830 @@ impl W3DModelLoader {
         Ok(indices)
     }
 
-    /// Parse material chunk
+    /// Parse a `W3D_CHUNK_MATERIAL_INFO` (0x28) chunk that contains `W3dMaterialInfoStruct`
+    /// followed by sub-chunks for shaders, vertex materials, textures, and material passes.
+    ///
+    /// `W3dMaterialInfoStruct` { PassCount:u32, VertexMaterialCount:u32,
+    ///                           ShaderCount:u32, TextureCount:u32 }
+    ///
+    /// Materials are collected from the nested sub-chunks. The material system in W3D v3+
+    /// separates vertex materials, shaders, and textures into distinct chunks that are
+    /// tied together by index in `W3D_CHUNK_MATERIAL_PASS` sub-chunks.
     fn parse_material_chunk(
         &mut self,
         cursor: &mut Cursor<&[u8]>,
-        _size: u32,
+        chunk_size: u32,
     ) -> Result<Vec<W3DMaterial>> {
-        // Simplified material parsing - in reality this would be much more complex
-        let mut materials = Vec::new();
+        let start_pos = cursor.position();
+        let end_pos = start_pos + chunk_size as u64;
 
-        // Create a default material for now
-        let material = W3DMaterial {
-            name: "Default".to_string(),
-            base_color: Vec4::ONE,
-            diffuse_texture: Some("default.tga".to_string()),
-            ..Default::default()
-        };
+        // Read W3dMaterialInfoStruct: 4 × u32 = 16 bytes
+        let pass_count = self.read_u32(cursor)?;
+        let vertex_material_count = self.read_u32(cursor)?;
+        let shader_count = self.read_u32(cursor)?;
+        let texture_count = self.read_u32(cursor)?;
 
-        materials.push(material);
+        tracing::debug!(
+            "Material info: {} passes, {} vert materials, {} shaders, {} textures",
+            pass_count,
+            vertex_material_count,
+            shader_count,
+            texture_count
+        );
+
+        // Temporary storage for parsed sub-resources
+        let mut vert_material_names: Vec<String> = Vec::new();
+        let mut vert_material_infos: Vec<W3dVertexMaterialInfo> = Vec::new();
+        let mut texture_names: Vec<String> = Vec::new();
+        let mut shader_infos: Vec<W3dShaderInfo> = Vec::new();
+        let mut materials: Vec<W3DMaterial> = Vec::new();
+
+        // Parse sub-chunks within the material info chunk
+        while cursor.position() < end_pos {
+            let sub_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+            let sub_type = W3DChunkType::from(sub_header.chunk_type);
+            let sub_end = cursor.position() + sub_header.chunk_size as u64;
+
+            match sub_type {
+                W3DChunkType::Shaders => {
+                    // Array of W3dShaderStruct: 16 bytes each
+                    let shader_struct_size: u32 = 16;
+                    let count = sub_header.chunk_size / shader_struct_size;
+                    for _ in 0..count {
+                        let depth_compare = self.read_u8(cursor)?;
+                        let depth_mask = self.read_u8(cursor)?;
+                        let _color_mask = self.read_u8(cursor)?;
+                        let dest_blend = self.read_u8(cursor)?;
+                        let _fog_func = self.read_u8(cursor)?;
+                        let pri_gradient = self.read_u8(cursor)?;
+                        let sec_gradient = self.read_u8(cursor)?;
+                        let src_blend = self.read_u8(cursor)?;
+                        let texturing = self.read_u8(cursor)?;
+                        let detail_color_func = self.read_u8(cursor)?;
+                        let detail_alpha_func = self.read_u8(cursor)?;
+                        let _shader_preset = self.read_u8(cursor)?;
+                        let alpha_test = self.read_u8(cursor)?;
+                        let _post_detail_color = self.read_u8(cursor)?;
+                        let _post_detail_alpha = self.read_u8(cursor)?;
+                        let _pad = self.read_u8(cursor)?;
+
+                        shader_infos.push(W3dShaderInfo {
+                            depth_compare,
+                            depth_mask,
+                            dest_blend,
+                            pri_gradient,
+                            sec_gradient,
+                            src_blend,
+                            texturing,
+                            detail_color_func,
+                            detail_alpha_func,
+                            alpha_test,
+                        });
+                    }
+                }
+
+                W3DChunkType::VertexMaterials => {
+                    // Wrapper containing W3D_CHUNK_VERTEX_MATERIAL sub-chunks
+                    let vm_end = cursor.position() + sub_header.chunk_size as u64;
+                    while cursor.position() < vm_end {
+                        let vm_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+                        let vm_type = W3DChunkType::from(vm_header.chunk_type);
+                        let vm_end_inner = cursor.position() + vm_header.chunk_size as u64;
+
+                        if vm_type == W3DChunkType::VertexMaterial {
+                            let mut vm_name = String::new();
+                            let mut vm_info = W3dVertexMaterialInfo::default();
+
+                            while cursor.position() < vm_end_inner {
+                                let inner_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+                                let inner_type = W3DChunkType::from(inner_header.chunk_type);
+                                let inner_end =
+                                    cursor.position() + inner_header.chunk_size as u64;
+
+                                match inner_type {
+                                    W3DChunkType::VertexMaterialName => {
+                                        let mut name_buf =
+                                            vec![0u8; inner_header.chunk_size as usize];
+                                        cursor.read_exact(&mut name_buf).map_err(|e| {
+                                            W3DError::ModelLoadingFailed(format!(
+                                                "Failed to read vert material name: {}",
+                                                e
+                                            ))
+                                        })?;
+                                        vm_name = Self::read_null_terminated_from_slice(&name_buf);
+                                    }
+                                    W3DChunkType::VertexMaterialInfo => {
+                                        // W3dVertexMaterialStruct:
+                                        //   Attributes(u32) + Ambient(4) + Diffuse(4) +
+                                        //   Specular(4) + Emissive(4) + Shininess(f32) +
+                                        //   Opacity(f32) + Translucency(f32) = 32 bytes
+                                        vm_info.attributes = self.read_u32(cursor)?;
+                                        vm_info.ambient = self.read_w3d_rgb(cursor)?;
+                                        vm_info.diffuse = self.read_w3d_rgb(cursor)?;
+                                        vm_info.specular = self.read_w3d_rgb(cursor)?;
+                                        vm_info.emissive = self.read_w3d_rgb(cursor)?;
+                                        vm_info.shininess = self.read_f32(cursor)?;
+                                        vm_info.opacity = self.read_f32(cursor)?;
+                                        vm_info.translucency = self.read_f32(cursor)?;
+                                    }
+                                    _ => {
+                                        cursor
+                                            .seek(SeekFrom::Current(
+                                                inner_header.chunk_size as i64,
+                                            ))
+                                            .map_err(|e| {
+                                                W3DError::ModelLoadingFailed(format!(
+                                                    "Failed to skip inner vm chunk: {}",
+                                                    e
+                                                ))
+                                            })?;
+                                    }
+                                }
+                                if cursor.position() < inner_end {
+                                    cursor.set_position(inner_end);
+                                }
+                            }
+
+                            vert_material_names.push(vm_name);
+                            vert_material_infos.push(vm_info);
+                        } else {
+                            cursor
+                                .seek(SeekFrom::Current(vm_header.chunk_size as i64))
+                                .map_err(|e| {
+                                    W3DError::ModelLoadingFailed(format!(
+                                        "Failed to skip vm wrapper sub-chunk: {}",
+                                        e
+                                    ))
+                                })?;
+                        }
+                        if cursor.position() < vm_end {
+                            cursor.set_position(vm_end);
+                        }
+                    }
+                }
+
+                W3DChunkType::Textures => {
+                    // Wrapper containing W3D_CHUNK_TEXTURE sub-chunks
+                    let tex_end = cursor.position() + sub_header.chunk_size as u64;
+                    while cursor.position() < tex_end {
+                        let tex_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+                        let tex_type = W3DChunkType::from(tex_header.chunk_type);
+                        let tex_end_inner = cursor.position() + tex_header.chunk_size as u64;
+
+                        if tex_type == W3DChunkType::Texture {
+                            while cursor.position() < tex_end_inner {
+                                let inner_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+                                let inner_type = W3DChunkType::from(inner_header.chunk_type);
+                                let inner_end =
+                                    cursor.position() + inner_header.chunk_size as u64;
+
+                                if inner_type == W3DChunkType::TextureName {
+                                    let mut name_buf =
+                                        vec![0u8; inner_header.chunk_size as usize];
+                                    cursor.read_exact(&mut name_buf).map_err(|e| {
+                                        W3DError::ModelLoadingFailed(format!(
+                                            "Failed to read texture name: {}",
+                                            e
+                                        ))
+                                    })?;
+                                    texture_names
+                                        .push(Self::read_null_terminated_from_slice(&name_buf));
+                                } else {
+                                    cursor
+                                        .seek(SeekFrom::Current(
+                                            inner_header.chunk_size as i64,
+                                        ))
+                                        .map_err(|e| {
+                                            W3DError::ModelLoadingFailed(format!(
+                                                "Failed to skip tex sub-chunk: {}",
+                                                e
+                                            ))
+                                        })?;
+                                }
+                                if cursor.position() < inner_end {
+                                    cursor.set_position(inner_end);
+                                }
+                            }
+                        } else {
+                            cursor
+                                .seek(SeekFrom::Current(tex_header.chunk_size as i64))
+                                .map_err(|e| {
+                                    W3DError::ModelLoadingFailed(format!(
+                                        "Failed to skip tex wrapper sub-chunk: {}",
+                                        e
+                                    ))
+                                })?;
+                        }
+                        if cursor.position() < tex_end_inner {
+                            cursor.set_position(tex_end_inner);
+                        }
+                    }
+                }
+
+                W3DChunkType::MaterialPass => {
+                    // Each material pass ties together vertex material, shader, and texture
+                    // indices for a rendering pass. We create W3DMaterial entries from them.
+                    let mp_end = cursor.position() + sub_header.chunk_size as u64;
+
+                    let mut vm_ids: Vec<u32> = Vec::new();
+                    let mut shader_ids: Vec<u32> = Vec::new();
+                    let mut tex_ids: Vec<u32> = Vec::new();
+
+                    while cursor.position() < mp_end {
+                        let mp_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+                        let mp_type = W3DChunkType::from(mp_header.chunk_type);
+
+                        match mp_type {
+                            W3DChunkType::VertexMaterialName => {
+                                // Single u32 or per-vertex array
+                                let count = mp_header.chunk_size / 4;
+                                for _ in 0..count {
+                                    vm_ids.push(self.read_u32(cursor)?);
+                                }
+                            }
+                            W3DChunkType::Shaders => {
+                                // Single u32 or per-tri array
+                                let count = mp_header.chunk_size / 4;
+                                for _ in 0..count {
+                                    shader_ids.push(self.read_u32(cursor)?);
+                                }
+                            }
+                            W3DChunkType::Texture => {
+                                // Wrapper for texture stage
+                                let ts_end =
+                                    cursor.position() + mp_header.chunk_size as u64;
+                                while cursor.position() < ts_end {
+                                    let ts_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+                                    let ts_type = W3DChunkType::from(ts_header.chunk_type);
+
+                                    if ts_type == W3DChunkType::TextureName {
+                                        // W3D_CHUNK_TEXTURE_IDS: single or per-tri
+                                        let count = ts_header.chunk_size / 4;
+                                        for _ in 0..count {
+                                            tex_ids.push(self.read_u32(cursor)?);
+                                        }
+                                    } else {
+                                        cursor
+                                            .seek(SeekFrom::Current(
+                                                ts_header.chunk_size as i64,
+                                            ))
+                                            .map_err(|e| {
+                                                W3DError::ModelLoadingFailed(format!(
+                                                    "Failed to skip tex stage: {}",
+                                                    e
+                                                ))
+                                            })?;
+                                    }
+                                }
+                            }
+                            _ => {
+                                cursor
+                                    .seek(SeekFrom::Current(mp_header.chunk_size as i64))
+                                    .map_err(|e| {
+                                        W3DError::ModelLoadingFailed(format!(
+                                            "Failed to skip mat pass sub-chunk: {}",
+                                            e
+                                        ))
+                                    })?;
+                            }
+                        }
+                    }
+
+                    // Build W3DMaterial from the first pass's indices
+                    let vm_idx = vm_ids.first().copied().unwrap_or(0) as usize;
+                    let tex_idx = tex_ids.first().copied().unwrap_or(0) as usize;
+
+                    let vm_name = vert_material_names
+                        .get(vm_idx)
+                        .cloned()
+                        .unwrap_or_else(|| format!("Material{}", materials.len()));
+                    let vm_info = vert_material_infos
+                        .get(vm_idx)
+                        .copied()
+                        .unwrap_or_default();
+
+                    let diff_tex = if tex_idx < texture_names.len() {
+                        Some(texture_names[tex_idx].clone())
+                    } else {
+                        None
+                    };
+
+                    let base_color = Vec4::new(
+                        vm_info.diffuse.0 as f32 / 255.0,
+                        vm_info.diffuse.1 as f32 / 255.0,
+                        vm_info.diffuse.2 as f32 / 255.0,
+                        vm_info.opacity,
+                    );
+
+                    let double_sided = shader_infos
+                        .first()
+                        .map(|s| s.alpha_test != 0)
+                        .unwrap_or(false);
+
+                    materials.push(W3DMaterial {
+                        name: vm_name,
+                        base_color,
+                        diffuse_texture: diff_tex,
+                        normal_texture: None,
+                        specular_texture: None,
+                        emissive_texture: None,
+                        metallic: 0.0,
+                        roughness: 1.0 / vm_info.shininess.max(1.0),
+                        emissive_factor: Vec3::new(
+                            vm_info.emissive.0 as f32 / 255.0,
+                            vm_info.emissive.1 as f32 / 255.0,
+                            vm_info.emissive.2 as f32 / 255.0,
+                        ),
+                        alpha_cutoff: 0.5,
+                        double_sided,
+                    });
+                }
+
+                _ => {
+                    log::warn!(
+                        "Skipping unhandled material sub-chunk 0x{:08X}, size {}",
+                        sub_header.chunk_type,
+                        sub_header.chunk_size
+                    );
+                    cursor
+                        .seek(SeekFrom::Current(sub_header.chunk_size as i64))
+                        .map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to skip material sub-chunk: {}",
+                                e
+                            ))
+                        })?;
+                }
+            }
+
+            if cursor.position() < sub_end {
+                cursor.set_position(sub_end);
+            }
+        }
+
+        if cursor.position() < end_pos {
+            cursor.set_position(end_pos);
+        }
+
+        // If no materials were built from passes, create defaults from the vertex materials
+        if materials.is_empty() && !vert_material_names.is_empty() {
+            for (i, name) in vert_material_names.iter().enumerate() {
+                let info = vert_material_infos.get(i).copied().unwrap_or_default();
+                materials.push(W3DMaterial {
+                    name: name.clone(),
+                    base_color: Vec4::new(
+                        info.diffuse.0 as f32 / 255.0,
+                        info.diffuse.1 as f32 / 255.0,
+                        info.diffuse.2 as f32 / 255.0,
+                        info.opacity,
+                    ),
+                    diffuse_texture: texture_names.first().cloned(),
+                    normal_texture: None,
+                    specular_texture: None,
+                    emissive_texture: None,
+                    metallic: 0.0,
+                    roughness: 1.0 / info.shininess.max(1.0),
+                    emissive_factor: Vec3::new(
+                        info.emissive.0 as f32 / 255.0,
+                        info.emissive.1 as f32 / 255.0,
+                        info.emissive.2 as f32 / 255.0,
+                    ),
+                    alpha_cutoff: 0.5,
+                    double_sided: false,
+                });
+            }
+        }
+
+        tracing::debug!("Parsed {} materials", materials.len());
         Ok(materials)
     }
 
-    /// Parse skeleton chunk
-    fn parse_skeleton_chunk(
+    /// Parse a `W3D_CHUNK_HIERARCHY` top-level chunk (0x00000100).
+    ///
+    /// Binary layout mirrors C++ `HTreeClass::Load_W3D` in `htree.cpp`:
+    ///   - Sub-chunk `W3D_CHUNK_HIERARCHY_HEADER` (0x101): `W3dHierarchyStruct`
+    ///   - Sub-chunk `W3D_CHUNK_PIVOTS` (0x102):            array of `W3dPivotStruct`
+    ///
+    /// `W3dHierarchyStruct` { Version: u32, Name: [u8;16], NumPivots: u32, Center: [f32;3] }
+    /// `W3dPivotStruct`     { Name: [u8;16], ParentIdx: u32, Translation: [f32;3],
+    ///                         EulerAngles: [f32;3], Rotation: [f32;4] }
+    fn parse_hierarchy_chunk(
         &mut self,
         cursor: &mut Cursor<&[u8]>,
-        _size: u32,
+        chunk_size: u32,
     ) -> Result<Vec<W3DBone>> {
-        // Simplified skeleton parsing
-        let mut bones = Vec::new();
+        let start_pos = cursor.position();
+        let end_pos = start_pos + chunk_size as u64;
 
-        // Create a default root bone
-        let bone = W3DBone {
-            name: "Root".to_string(),
-            parent_index: -1,
-            rest_position: Vec3::ZERO,
-            rest_rotation: Quat::IDENTITY,
-            rest_scale: Vec3::ONE,
-            bind_matrix: Mat4::IDENTITY,
-            inverse_bind_matrix: Mat4::IDENTITY,
-        };
+        let mut hierarchy_name = String::new();
+        let mut num_pivots: u32 = 0;
+        let mut version: u32 = 0;
+        let mut bones: Vec<W3DBone> = Vec::new();
 
-        bones.push(bone);
+        while cursor.position() < end_pos {
+            let sub_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+            let sub_type = W3DChunkType::from(sub_header.chunk_type);
+            let sub_end = cursor.position() + sub_header.chunk_size as u64;
+
+            match sub_type {
+                W3DChunkType::HierarchyHeader => {
+                    // W3dHierarchyStruct: Version(4) + Name(16) + NumPivots(4) + Center(12) = 36 bytes
+                    version = self.read_u32(cursor)?;
+                    let mut name_buf = [0u8; W3D_NAME_LEN];
+                    cursor.read_exact(&mut name_buf).map_err(|e| {
+                        W3DError::ModelLoadingFailed(format!(
+                            "Failed to read hierarchy name: {}",
+                            e
+                        ))
+                    })?;
+                    hierarchy_name = Self::read_null_terminated(&name_buf);
+                    num_pivots = self.read_u32(cursor)?;
+                    // Center: 3 x f32
+                    let _center_x = self.read_f32(cursor)?;
+                    let _center_y = self.read_f32(cursor)?;
+                    let _center_z = self.read_f32(cursor)?;
+                }
+
+                W3DChunkType::Pivots => {
+                    // W3dPivotStruct per bone:
+                    //   Name[16] + ParentIdx(u32) + Translation[3](f32) +
+                    //   EulerAngles[3](f32) + Rotation[4](f32) = 16+4+12+12+16 = 60 bytes
+                    let pivot_size: u32 = W3D_NAME_LEN as u32 + 4 + 12 + 12 + 16;
+                    let pivot_count = sub_header.chunk_size / pivot_size;
+
+                    if pivot_count != num_pivots {
+                        log::warn!(
+                            "Hierarchy pivot count {} differs from header NumPivots {}",
+                            pivot_count,
+                            num_pivots
+                        );
+                    }
+
+                    let is_pre30 = version < ((3u32) << 16);
+                    let extra_root = if is_pre30 { 1 } else { 0 };
+
+                    // Pre-3.0 files don't have a root node, so we insert one
+                    if is_pre30 {
+                        bones.push(W3DBone {
+                            name: "RootTransform".to_string(),
+                            parent_index: -1,
+                            rest_position: Vec3::ZERO,
+                            rest_rotation: Quat::IDENTITY,
+                            rest_scale: Vec3::ONE,
+                            bind_matrix: Mat4::IDENTITY,
+                            inverse_bind_matrix: Mat4::IDENTITY,
+                        });
+                    }
+
+                    for _ in 0..pivot_count {
+                        let mut name_buf = [0u8; W3D_NAME_LEN];
+                        cursor.read_exact(&mut name_buf).map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to read pivot name: {}",
+                                e
+                            ))
+                        })?;
+                        let bone_name = Self::read_null_terminated(&name_buf);
+
+                        let mut parent_idx = self.read_u32(cursor)? as i32;
+
+                        let tx = self.read_f32(cursor)?;
+                        let ty = self.read_f32(cursor)?;
+                        let tz = self.read_f32(cursor)?;
+
+                        // EulerAngles: read and discard (C++ code only uses Translation + Rotation)
+                        let _euler_x = self.read_f32(cursor)?;
+                        let _euler_y = self.read_f32(cursor)?;
+                        let _euler_z = self.read_f32(cursor)?;
+
+                        let qx = self.read_f32(cursor)?;
+                        let qy = self.read_f32(cursor)?;
+                        let qz = self.read_f32(cursor)?;
+                        let qw = self.read_f32(cursor)?;
+
+                        // Pre-3.0: shift parent indices up by 1 (C++ does piv.ParentIdx += 1)
+                        if is_pre30 {
+                            parent_idx += 1;
+                        }
+
+                        let rest_position = Vec3::new(tx, ty, tz);
+                        let rest_rotation = Quat::from_xyzw(qx, qy, qz, qw).normalize();
+
+                        // Build the bind matrix: translation * rotation (matches C++ BaseTransform)
+                        let bind_matrix =
+                            Mat4::from_translation(rest_position) * Mat4::from_quat(rest_rotation);
+                        let inverse_bind_matrix = bind_matrix.inverse();
+
+                        bones.push(W3DBone {
+                            name: bone_name,
+                            parent_index: parent_idx,
+                            rest_position,
+                            rest_rotation,
+                            rest_scale: Vec3::ONE,
+                            bind_matrix,
+                            inverse_bind_matrix,
+                        });
+                    }
+                }
+
+                _ => {
+                    log::warn!(
+                        "Skipping unhandled hierarchy sub-chunk 0x{:08X}, size {}",
+                        sub_header.chunk_type,
+                        sub_header.chunk_size
+                    );
+                    cursor
+                        .seek(SeekFrom::Current(sub_header.chunk_size as i64))
+                        .map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to skip hierarchy sub-chunk: {}",
+                                e
+                            ))
+                        })?;
+                }
+            }
+
+            // Ensure we're at the end of this sub-chunk (handles partial reads / padding)
+            if cursor.position() < sub_end {
+                cursor.set_position(sub_end);
+            }
+        }
+
+        // Ensure cursor is at end of our chunk
+        if cursor.position() < end_pos {
+            cursor.set_position(end_pos);
+        }
+
+        tracing::debug!(
+            "Parsed hierarchy '{}' (v{}): {} bones",
+            hierarchy_name,
+            version,
+            bones.len()
+        );
+
         Ok(bones)
     }
 
-    /// Parse animation chunk
+    /// Parse a `W3D_CHUNK_ANIMATION` top-level chunk (0x00000200).
+    ///
+    /// Binary layout mirrors C++ `HRawAnimClass::Load_W3D` in `hrawanim.cpp`:
+    ///   - Sub-chunk `W3D_CHUNK_ANIMATION_HEADER` (0x201): `W3dAnimHeaderStruct`
+    ///   - Sub-chunk `W3D_CHUNK_ANIMATION_CHANNEL` (0x202): `W3dAnimChannelStruct` × N
+    ///   - Sub-chunk `W3D_CHUNK_BIT_CHANNEL` (0x203): `W3dBitChannelStruct` × N
+    ///
+    /// `W3dAnimHeaderStruct` { Version:u32, Name:[u8;16], HierarchyName:[u8;16],
+    ///                         NumFrames:u32, FrameRate:u32 }
+    ///
+    /// `W3dAnimChannelStruct` { FirstFrame:u16, LastFrame:u16, VectorLen:u16,
+    ///                          Flags:u16, Pivot:u16, pad:u16, Data:[f32...] }
+    ///   Flags indicate channel type: 0=X,1=Y,2=Z,3=XR,4=YR,5=ZR,6=Q (quaternion)
     fn parse_animation_chunk(
         &mut self,
         cursor: &mut Cursor<&[u8]>,
-        _size: u32,
+        chunk_size: u32,
     ) -> Result<W3DAnimation> {
-        // Simplified animation parsing
+        let start_pos = cursor.position();
+        let end_pos = start_pos + chunk_size as u64;
+
+        let mut anim_name = String::new();
+        let mut _hierarchy_name = String::new();
+        let mut num_frames: u32 = 0;
+        let mut frame_rate: u32 = 0;
+        let mut version: u32 = 0;
+
+        // Accumulate per-bone channels: bone_index -> (pos keys, rot keys, scale keys)
+        let mut bone_channels: HashMap<u32, W3DAnimationChannel> = HashMap::new();
+
+        while cursor.position() < end_pos {
+            let sub_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+            let sub_type = W3DChunkType::from(sub_header.chunk_type);
+            let sub_end = cursor.position() + sub_header.chunk_size as u64;
+
+            match sub_type {
+                W3DChunkType::AnimationHeader => {
+                    // W3dAnimHeaderStruct: 4 + 16 + 16 + 4 + 4 = 44 bytes
+                    version = self.read_u32(cursor)?;
+
+                    let mut name_buf = [0u8; W3D_NAME_LEN];
+                    cursor.read_exact(&mut name_buf).map_err(|e| {
+                        W3DError::ModelLoadingFailed(format!(
+                            "Failed to read anim name: {}",
+                            e
+                        ))
+                    })?;
+                    let raw_name = Self::read_null_terminated(&name_buf);
+
+                    let mut hier_buf = [0u8; W3D_NAME_LEN];
+                    cursor.read_exact(&mut hier_buf).map_err(|e| {
+                        W3DError::ModelLoadingFailed(format!(
+                            "Failed to read anim hierarchy name: {}",
+                            e
+                        ))
+                    })?;
+                    _hierarchy_name = Self::read_null_terminated(&hier_buf);
+
+                    num_frames = self.read_u32(cursor)?;
+                    frame_rate = self.read_u32(cursor)?;
+
+                    // C++ builds name as "HierarchyName.Name"
+                    anim_name = format!("{}.{}", _hierarchy_name, raw_name);
+                }
+
+                W3DChunkType::AnimationChannel => {
+                    // W3dAnimChannelStruct header: FirstFrame(u16) + LastFrame(u16) +
+                    //   VectorLen(u16) + Flags(u16) + Pivot(u16) + pad(u16) + first f32 = 14 bytes
+                    let first_frame = self.read_u16(cursor)?;
+                    let last_frame = self.read_u16(cursor)?;
+                    let vector_len = self.read_u16(cursor)? as usize;
+                    let flags = self.read_u16(cursor)? as usize;
+                    let pivot = self.read_u16(cursor)? as u32;
+                    let _pad = self.read_u16(cursor)?;
+
+                    let frame_count = (last_frame - first_frame + 1) as usize;
+                    // Total data floats: frame_count * vector_len, first already read as chan.Data[0]
+                    let total_floats = frame_count * vector_len;
+
+                    // Read all float data for this channel
+                    let mut channel_data = Vec::with_capacity(total_floats);
+                    let first_val = self.read_f32(cursor)?;
+                    channel_data.push(first_val);
+
+                    let remaining = total_floats - 1;
+                    for _ in 0..remaining {
+                        channel_data.push(self.read_f32(cursor)?);
+                    }
+
+                    // Skip any extra data (C++ exporter bug: may write too much)
+                    let bytes_read = remaining * 4;
+                    let expected_sub_data = sub_header.chunk_size as usize - 14;
+                    if bytes_read < expected_sub_data {
+                        let skip = expected_sub_data - bytes_read;
+                        cursor.seek(SeekFrom::Current(skip as i64)).map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to skip channel padding: {}",
+                                e
+                            ))
+                        })?;
+                    }
+
+                    // Determine channel type from flags (low byte)
+                    let channel_type = flags & 0x0F;
+                    let is_pre30 = version < ((3u32) << 16);
+                    let bone_idx = if is_pre30 { pivot + 1 } else { pivot };
+
+                    let ch = bone_channels.entry(bone_idx).or_insert_with(|| {
+                        W3DAnimationChannel {
+                            bone_index: bone_idx,
+                            position_keys: Vec::new(),
+                            rotation_keys: Vec::new(),
+                            scale_keys: Vec::new(),
+                        }
+                    });
+
+                    // flags 0=X, 1=Y, 2=Z, 6=Q (quaternion)
+                    match channel_type {
+                        0 | 1 | 2 => {
+                            // Translation axis: each frame is one float
+                            for (fi, &val) in channel_data.iter().enumerate() {
+                                let time = (first_frame as usize + fi) as f32
+                                    / if frame_rate > 0 { frame_rate as f32 } else { 30.0 };
+
+                                // Find or create a keyframe at this time
+                                let existing = ch
+                                    .position_keys
+                                    .iter()
+                                    .position(|k| (k.time - time).abs() < f32::EPSILON);
+                                match existing {
+                                    Some(idx) => {
+                                        let key = &mut ch.position_keys[idx];
+                                        match channel_type {
+                                            0 => key.position.x = val,
+                                            1 => key.position.y = val,
+                                            _ => key.position.z = val,
+                                        }
+                                    }
+                                    None => {
+                                        let mut pos = Vec3::ZERO;
+                                        match channel_type {
+                                            0 => pos.x = val,
+                                            1 => pos.y = val,
+                                            _ => pos.z = val,
+                                        }
+                                        ch.position_keys.push(W3DKeyframe {
+                                            time,
+                                            position: pos,
+                                            rotation: Quat::IDENTITY,
+                                            scale: Vec3::ONE,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        6 => {
+                            // Quaternion rotation: each frame is 4 floats
+                            for (fi, chunk) in channel_data.chunks_exact(4).enumerate() {
+                                let time = (first_frame as usize + fi) as f32
+                                    / if frame_rate > 0 { frame_rate as f32 } else { 30.0 };
+                                let q = Quat::from_xyzw(chunk[0], chunk[1], chunk[2], chunk[3])
+                                    .normalize();
+                                ch.rotation_keys.push(W3DKeyframe {
+                                    time,
+                                    position: Vec3::ZERO,
+                                    rotation: q,
+                                    scale: Vec3::ONE,
+                                });
+                            }
+                        }
+                        _ => {
+                            log::warn!(
+                                "Unhandled animation channel type {} for bone {}",
+                                channel_type,
+                                bone_idx
+                            );
+                        }
+                    }
+                }
+
+                W3DChunkType::BitChannel => {
+                    // W3dBitChannelStruct: FirstFrame(u16) + LastFrame(u16) + Flags(u16) +
+                    //   Pivot(u16) + DefaultVal(u8) + Data[...] = 9 bytes header + ceil(n/8) data
+                    let _first_frame = self.read_u16(cursor)?;
+                    let _last_frame = self.read_u16(cursor)?;
+                    let _flags = self.read_u16(cursor)?;
+                    let _pivot = self.read_u16(cursor)?;
+                    let _default_val = {
+                        let mut buf = [0u8; 1];
+                        cursor.read_exact(&mut buf).map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to read bit channel default: {}",
+                                e
+                            ))
+                        })?;
+                        buf[0]
+                    };
+                    // Skip the bit data
+                    let remaining = sub_header.chunk_size as i64 - 9;
+                    if remaining > 0 {
+                        cursor.seek(SeekFrom::Current(remaining)).map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to skip bit channel data: {}",
+                                e
+                            ))
+                        })?;
+                    }
+                }
+
+                _ => {
+                    log::warn!(
+                        "Skipping unhandled animation sub-chunk 0x{:08X}, size {}",
+                        sub_header.chunk_type,
+                        sub_header.chunk_size
+                    );
+                    cursor
+                        .seek(SeekFrom::Current(sub_header.chunk_size as i64))
+                        .map_err(|e| {
+                            W3DError::ModelLoadingFailed(format!(
+                                "Failed to skip animation sub-chunk: {}",
+                                e
+                            ))
+                        })?;
+                }
+            }
+
+            if cursor.position() < sub_end {
+                cursor.set_position(sub_end);
+            }
+        }
+
+        if cursor.position() < end_pos {
+            cursor.set_position(end_pos);
+        }
+
+        let fps = if frame_rate > 0 { frame_rate as f32 } else { 30.0 };
+        let duration = if num_frames > 0 && fps > 0.0 {
+            (num_frames - 1) as f32 / fps
+        } else {
+            0.0
+        };
+
+        let mut channels: Vec<W3DAnimationChannel> =
+            bone_channels.into_values().collect();
+        channels.sort_by_key(|c| c.bone_index);
+
+        tracing::debug!(
+            "Parsed animation '{}' (v{}): {} frames @ {} fps, {} channels",
+            anim_name,
+            version,
+            num_frames,
+            fps,
+            channels.len()
+        );
+
         Ok(W3DAnimation {
-            name: "Default".to_string(),
-            duration: 1.0,
-            channels: Vec::new(),
-            fps: 30.0,
+            name: anim_name,
+            duration,
+            channels,
+            fps,
         })
     }
 
@@ -826,6 +1695,45 @@ impl W3DModelLoader {
             .read_exact(&mut buffer)
             .map_err(|e| W3DError::ModelLoadingFailed(format!("Failed to read u32: {}", e)))?;
         Ok(u32::from_le_bytes(buffer))
+    }
+
+    /// Helper to read u16 (little-endian)
+    fn read_u16(&self, cursor: &mut Cursor<&[u8]>) -> Result<u16> {
+        let mut buffer = [0u8; 2];
+        cursor
+            .read_exact(&mut buffer)
+            .map_err(|e| W3DError::ModelLoadingFailed(format!("Failed to read u16: {}", e)))?;
+        Ok(u16::from_le_bytes(buffer))
+    }
+
+    /// Helper to read u8
+    fn read_u8(&self, cursor: &mut Cursor<&[u8]>) -> Result<u8> {
+        let mut buffer = [0u8; 1];
+        cursor
+            .read_exact(&mut buffer)
+            .map_err(|e| W3DError::ModelLoadingFailed(format!("Failed to read u8: {}", e)))?;
+        Ok(buffer[0])
+    }
+
+    /// Read a W3dRGBStruct: R, G, B as u8 + 1 byte pad
+    fn read_w3d_rgb(&self, cursor: &mut Cursor<&[u8]>) -> Result<(u8, u8, u8)> {
+        let r = self.read_u8(cursor)?;
+        let g = self.read_u8(cursor)?;
+        let b = self.read_u8(cursor)?;
+        let _pad = self.read_u8(cursor)?;
+        Ok((r, g, b))
+    }
+
+    /// Read a null-terminated string from a fixed-size buffer (W3D_NAME_LEN bytes)
+    fn read_null_terminated(buf: &[u8; W3D_NAME_LEN]) -> String {
+        let end = buf.iter().position(|&b| b == 0).unwrap_or(W3D_NAME_LEN);
+        String::from_utf8_lossy(&buf[..end]).to_string()
+    }
+
+    /// Read a null-terminated string from a variable-length slice
+    fn read_null_terminated_from_slice(buf: &[u8]) -> String {
+        let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+        String::from_utf8_lossy(&buf[..end]).to_string()
     }
 }
 

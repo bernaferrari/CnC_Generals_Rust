@@ -2992,7 +2992,9 @@ fn observer_audio_view_hooks() -> Option<&'static Arc<dyn ObserverAudioViewHooks
     OBSERVER_AUDIO_VIEW_HOOKS.get()
 }
 
-use game_engine::common::system::scene_submission::{SceneLineDesc, SceneLineId, SceneSubmission};
+use game_engine::common::system::scene_submission::{
+    SceneLineDesc, SceneLineId, SceneModelDesc, SceneProjectileStreamDesc, SceneSubmission,
+};
 
 static SCENE_SUBMISSION: OnceLock<Arc<dyn SceneSubmission>> = OnceLock::new();
 
@@ -3017,6 +3019,30 @@ pub fn update_scene_line(id: SceneLineId, desc: &SceneLineDesc) {
 pub fn remove_scene_line(id: SceneLineId) {
     if let Some(s) = get_scene_submission() {
         s.remove_line(id);
+    }
+}
+
+pub fn submit_scene_model(desc: SceneModelDesc) {
+    if let Some(s) = get_scene_submission() {
+        s.submit_model(desc);
+    }
+}
+
+pub fn submit_scene_projectile_stream(desc: SceneProjectileStreamDesc) {
+    if let Some(s) = get_scene_submission() {
+        s.submit_projectile_stream(desc);
+    }
+}
+
+pub fn begin_scene_logic_frame() {
+    if let Some(s) = get_scene_submission() {
+        s.begin_logic_frame();
+    }
+}
+
+pub fn end_scene_logic_frame() {
+    if let Some(s) = get_scene_submission() {
+        s.end_logic_frame();
     }
 }
 

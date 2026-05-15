@@ -7,6 +7,20 @@ use crate::video_buffer::VideoBuffer;
 type Bool = bool;
 type Int = i32;
 
+/// Playback state for a video stream.
+///
+/// Mirrors the C++ VideoPlayer lifecycle:
+/// `Loading` → `Playing` ⇄ `Paused` → `Complete`
+/// `Stopped` resets to frame 0 from any non-error state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackState {
+    Loading,
+    Playing,
+    Paused,
+    Stopped,
+    Complete,
+}
+
 pub trait VideoStreamInterface: Send {
     fn next(&self) -> Option<&dyn VideoStreamInterface>;
     fn next_mut(&mut self) -> Option<&mut dyn VideoStreamInterface>;
@@ -21,6 +35,14 @@ pub trait VideoStreamInterface: Send {
     fn frame_goto(&mut self, index: Int);
     fn height(&self) -> Int;
     fn width(&self) -> Int;
+
+    fn play(&mut self) {}
+    fn pause(&mut self) {}
+    fn stop(&mut self) {}
+    fn set_volume(&mut self, _volume: f32) {}
+    fn playback_state(&self) -> PlaybackState {
+        PlaybackState::Stopped
+    }
 }
 
 pub struct VideoStream {
@@ -32,6 +54,8 @@ pub struct VideoStream {
     frame_duration: Duration,
     last_update: Instant,
     paused: Bool,
+    state: PlaybackState,
+    volume: f32,
     decoded_rgba: Vec<u8>,
 }
 
@@ -46,6 +70,8 @@ impl VideoStream {
             frame_duration: Duration::from_millis(33),
             last_update: Instant::now(),
             paused: false,
+            state: PlaybackState::Stopped,
+            volume: 1.0,
             decoded_rgba: Vec::new(),
         }
     }
@@ -231,5 +257,42 @@ impl VideoStreamInterface for VideoStream {
 
     fn width(&self) -> Int {
         self.width
+    }
+
+    fn play(&mut self) {
+        match self.state {
+            PlaybackState::Playing => return,
+            PlaybackState::Complete | PlaybackState::Stopped | PlaybackState::Loading => {
+                self.current_frame = 0;
+                self.paused = false;
+            }
+            PlaybackState::Paused => {
+                self.paused = false;
+            }
+        }
+        self.state = PlaybackState::Playing;
+        self.last_update = Instant::now();
+    }
+
+    fn pause(&mut self) {
+        if self.state == PlaybackState::Playing {
+            self.state = PlaybackState::Paused;
+            self.paused = true;
+        }
+    }
+
+    fn stop(&mut self) {
+        self.state = PlaybackState::Stopped;
+        self.paused = true;
+        self.current_frame = 0;
+        self.decoded_rgba.clear();
+    }
+
+    fn set_volume(&mut self, volume: f32) {
+        self.volume = volume.clamp(0.0, 1.0);
+    }
+
+    fn playback_state(&self) -> PlaybackState {
+        self.state
     }
 }

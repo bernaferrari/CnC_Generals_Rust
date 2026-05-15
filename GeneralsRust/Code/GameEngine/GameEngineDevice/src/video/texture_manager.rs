@@ -193,6 +193,8 @@ pub enum TextureLoadingState {
 pub struct StreamingRequest {
     /// Texture ID
     pub texture_id: String,
+    /// File path to load from
+    pub file_path: Option<PathBuf>,
     /// Priority level
     pub priority: StreamingPriority,
     /// Request timestamp
@@ -562,6 +564,7 @@ impl TextureManager {
     ) -> Result<()> {
         let request = StreamingRequest {
             texture_id: id,
+            file_path: Some(path.as_ref().to_path_buf()),
             priority,
             requested_at: std::time::Instant::now(),
             callback: None,
@@ -865,17 +868,114 @@ impl TextureManager {
     }
 
     async fn process_streaming_queue(&self) {
-        // Process high-priority requests first
-        // This is a simplified version - production would have a proper streaming system
         let mut queue = self.streaming_queue.write();
 
         while let Some(request) = queue.pop_front() {
-            // Process the request (simplified)
+            let texture_id = request.texture_id.clone();
+            let callback = request.callback.clone();
+            let file_path = request.file_path.clone();
+
             tracing::debug!(
                 "Processing streaming request for texture: {}",
-                request.texture_id
+                texture_id
             );
-            // In a real implementation, this would actually load the texture
+
+            if self.texture_cache.contains_key(&texture_id) {
+                tracing::debug!("Texture '{}' already cached, skipping load", texture_id);
+                if let Some(cb) = callback {
+                    if let Some(cached) = self.texture_cache.get(&texture_id) {
+                        cb(Ok(cached.clone()));
+                    }
+                }
+                continue;
+            }
+
+            let loading_state = Arc::new(Mutex::new(TextureLoadingState::Loading));
+            self.loading_textures
+                .insert(texture_id.clone(), loading_state.clone());
+
+            drop(queue);
+
+            let render_device = self.render_device.clone();
+            let config = self.config.clone();
+            let texture_cache = self.texture_cache.clone();
+            let metadata_cache = self.metadata_cache.clone();
+            let gpu_memory_used = self.gpu_memory_used.clone();
+            let statistics = self.statistics.clone();
+            let content_hash_map = self.content_hash_map.clone();
+            let load_id = texture_id.clone();
+            let loading_state_clone = loading_state.clone();
+
+            let result = tokio::task::spawn_blocking(move || {
+                match file_path {
+                    Some(path) => Self::load_texture_from_file_sync(
+                        &render_device,
+                        &config,
+                        load_id.clone(),
+                        path,
+                        StreamingPriority::Normal,
+                        &texture_cache,
+                        &metadata_cache,
+                        &gpu_memory_used,
+                        &statistics,
+                        &content_hash_map,
+                    ),
+                    None => {
+                        let path = metadata_cache
+                            .get(&load_id)
+                            .and_then(|m| m.file_path.clone());
+                        match path {
+                            Some(path) => Self::load_texture_from_file_sync(
+                                &render_device,
+                                &config,
+                                load_id.clone(),
+                                path,
+                                StreamingPriority::Normal,
+                                &texture_cache,
+                                &metadata_cache,
+                                &gpu_memory_used,
+                                &statistics,
+                                &content_hash_map,
+                            ),
+                            None => Err(VideoDeviceError::ResourceError(format!(
+                                "No file path for streaming texture '{}'",
+                                load_id
+                            ))),
+                        }
+                    }
+                }
+            })
+            .await;
+
+            match result {
+                Ok(Ok(cached_texture)) => {
+                    *loading_state_clone.lock() = TextureLoadingState::Loaded;
+                    self.loading_textures.remove(&texture_id);
+                    if let Some(cb) = callback {
+                        cb(Ok(cached_texture));
+                    }
+                }
+                Ok(Err(err)) => {
+                    let err_msg = err.to_string();
+                    *loading_state_clone.lock() = TextureLoadingState::Failed(err_msg.clone());
+                    self.loading_textures.remove(&texture_id);
+                    tracing::warn!("Failed to load streaming texture '{}': {}", texture_id, err_msg);
+                    if let Some(cb) = callback {
+                        cb(Err(err));
+                    }
+                }
+                Err(join_err) => {
+                    let err_msg = format!("Task join error: {}", join_err);
+                    *loading_state_clone.lock() = TextureLoadingState::Failed(err_msg.clone());
+                    self.loading_textures.remove(&texture_id);
+                    tracing::error!("Streaming texture task panicked: {}", err_msg);
+                    if let Some(cb) = callback {
+                        cb(Err(VideoDeviceError::InitializationFailed(err_msg)));
+                    }
+                }
+            }
+
+            queue = self.streaming_queue.write();
         }
     }
 
