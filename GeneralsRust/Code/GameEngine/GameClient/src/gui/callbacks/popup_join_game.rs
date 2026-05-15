@@ -53,12 +53,18 @@ pub fn popup_join_game_init(_layout: &WindowLayout, _user_data: Option<&dyn std:
         }
     }
 
-    if let (Some(static_text), Some(room_id)) =
-        (static_text_game_name.as_ref(), current_staging_room_id())
-    {
-        if let Some(room) = find_staging_room_by_id(room_id) {
-            if let Some(widget) = static_text.borrow_mut().static_text_mut() {
-                widget.set_text(room.game_name);
+    // C++ unconditionally sets game name to empty first, then sets to room name if found.
+    if let Some(static_text) = static_text_game_name.as_ref() {
+        if let Some(widget) = static_text.borrow_mut().static_text_mut() {
+            widget.set_text("");
+        }
+    }
+    if let Some(static_text) = static_text_game_name.as_ref() {
+        if let Some(room_id) = current_staging_room_id() {
+            if let Some(room) = find_staging_room_by_id(room_id) {
+                if let Some(widget) = static_text.borrow_mut().static_text_mut() {
+                    widget.set_text(room.game_name);
+                }
             }
         }
     }
@@ -112,7 +118,14 @@ pub fn popup_join_game_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::Create => WindowMsgHandled::Handled,
+        WindowMessage::Destroy => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes back to mData2 (data2) to indicate focus state;
+            // Rust uses values not pointers for WindowMsgData so write-back is not
+            // possible without API changes. Preserve this as a parity note.
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let mut state = popup_join_state().lock().unwrap_or_else(|e| e.into_inner());

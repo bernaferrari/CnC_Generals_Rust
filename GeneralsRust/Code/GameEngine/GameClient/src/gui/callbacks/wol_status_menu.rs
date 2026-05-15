@@ -100,7 +100,14 @@ pub fn wol_status_menu_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::Create => WindowMsgHandled::Handled,
+        WindowMessage::Destroy => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes *(Bool*)mData2 = TRUE when mData1 != 0 to accept focus
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::GadgetSelected => WindowMsgHandled::Handled,
+        WindowMessage::EditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
     }
 }

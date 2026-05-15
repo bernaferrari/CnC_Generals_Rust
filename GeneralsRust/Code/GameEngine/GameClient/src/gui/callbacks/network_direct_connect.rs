@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
 use crate::gui::gadgets::ComboBoxItem;
+use crate::gui::callbacks::{set_lan_button_pushed, set_lan_is_shutting_down};
 use crate::gui::{
     get_shell, with_window_manager, GameWindow, LanPreferences, WindowLayout, WindowMessage,
     WindowMsgData, WindowMsgHandled,
@@ -329,6 +330,7 @@ fn handle_back(state: &mut NetworkDirectConnectState) {
     save_player_name(&name);
     trim_player_name(&mut name);
     request_set_name(name);
+    set_lan_button_pushed(true);
     state.button_pushed = true;
     let _ = get_shell().pop();
 }
@@ -343,6 +345,9 @@ pub fn network_direct_connect_init(
 
     state.button_pushed = false;
     state.is_shutting_down = false;
+
+    set_lan_button_pushed(false);
+    set_lan_is_shutting_down(false);
 
     state.parent_id = name_to_id("NetworkDirectConnect.wnd:NetworkDirectConnectParent");
     state.button_back_id = name_to_id("NetworkDirectConnect.wnd:ButtonBack");
@@ -437,7 +442,14 @@ pub fn network_direct_connect_system(
         .unwrap_or_else(|e| e.into_inner());
 
     match msg {
-        WindowMessage::InputFocus => return WindowMsgHandled::Handled,
+        WindowMessage::Create => return WindowMsgHandled::Handled,
+        WindowMessage::Destroy => return WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => {
+            // TODO: C++ writes back to mData2 (data2) to indicate focus state;
+            // Rust uses values not pointers for WindowMsgData so write-back is not
+            // possible without API changes. Preserve this as a parity note.
+            return WindowMsgHandled::Handled;
+        }
         WindowMessage::GadgetSelected => {
             if state.button_pushed {
                 return WindowMsgHandled::Handled;
@@ -456,6 +468,7 @@ pub fn network_direct_connect_system(
                 return WindowMsgHandled::Handled;
             }
         }
+        WindowMessage::GadgetEditDone => return WindowMsgHandled::Handled,
         _ => {}
     }
 
