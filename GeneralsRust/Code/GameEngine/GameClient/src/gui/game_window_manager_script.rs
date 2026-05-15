@@ -24,6 +24,10 @@
 use crate::gui::window_script::{
     parse_window_script, WindowDefinition, WindowLayoutDefinition, WindowScriptError,
 };
+use crate::gui::game_window::{
+    GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
+    WindowCallbacks as GwCallbacks, WindowInstanceData,
+};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -289,10 +293,10 @@ pub type LayoutShutdownFn = Box<dyn Fn(&str)>;
 /// Callback types for window-level events.
 /// PARITY_NOTE: mirrors C++ `GameWinSystemFunc`, `GameWinInputFunc`,
 /// `GameWinTooltipFunc`, `GameWinDrawFunc` resolved from `TheFunctionLexicon`.
-pub type WinSystemFn = Box<dyn Fn(u32, u32) -> bool>;
-pub type WinInputFn = Box<dyn Fn(u32, u32) -> bool>;
-pub type WinTooltipFn = Box<dyn Fn(u32) -> bool>;
-pub type WinDrawFn = Box<dyn Fn()>;
+pub type WinSystemFn = Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
+pub type WinInputFn = Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
+pub type WinTooltipFn = Box<dyn Fn(&GameWindow, u32)>;
+pub type WinDrawFn = Box<dyn Fn(&GameWindow)>;
 
 /// Registry that maps callback name strings to handler closures.
 ///
@@ -356,7 +360,7 @@ impl ScriptCallbackRegistry {
 
     /// Register a window system callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinSystemFunc()`.
-    pub fn register_win_system<F: Fn(u32, u32) -> bool + 'static>(
+    pub fn register_win_system<F: Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled + 'static>(
         &mut self,
         name: &str,
         callback: F,
@@ -366,7 +370,7 @@ impl ScriptCallbackRegistry {
 
     /// Register a window input callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinInputFunc()`.
-    pub fn register_win_input<F: Fn(u32, u32) -> bool + 'static>(
+    pub fn register_win_input<F: Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled + 'static>(
         &mut self,
         name: &str,
         callback: F,
@@ -376,14 +380,14 @@ impl ScriptCallbackRegistry {
 
     /// Register a window tooltip callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinTooltipFunc()`.
-    pub fn register_win_tooltip<F: Fn(u32) -> bool + 'static>(&mut self, name: &str, callback: F) {
+    pub fn register_win_tooltip<F: Fn(&GameWindow, u32) + 'static>(&mut self, name: &str, callback: F) {
         self.win_tooltip
             .insert(name.to_string(), Box::new(callback));
     }
 
     /// Register a window draw callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinDrawFunc()`.
-    pub fn register_win_draw<F: Fn() + 'static>(&mut self, name: &str, callback: F) {
+    pub fn register_win_draw<F: Fn(&GameWindow) + 'static>(&mut self, name: &str, callback: F) {
         self.win_draw.insert(name.to_string(), Box::new(callback));
     }
 
@@ -488,154 +492,162 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_win_draw_table(&mut self) {
-        self.register_win_draw("IMECandidateMainDraw", || {});
-        self.register_win_draw("IMECandidateTextAreaDraw", || {});
+        self.register_win_draw("IMECandidateMainDraw", |_win| {});
+        self.register_win_draw("IMECandidateTextAreaDraw", |_win| {});
     }
 
     fn populate_win_system_table(&mut self) {
-        self.register_win_system("PassSelectedButtonsToParentSystem", |_msg, _data| false);
-        self.register_win_system("PassMessagesToParentSystem", |_msg, _data| false);
-        self.register_win_system("GameWinDefaultSystem", |_msg, _data| false);
-        self.register_win_system("GadgetPushButtonSystem", |_msg, _data| false);
-        self.register_win_system("GadgetCheckBoxSystem", |_msg, _data| false);
-        self.register_win_system("GadgetRadioButtonSystem", |_msg, _data| false);
-        self.register_win_system("GadgetTabControlSystem", |_msg, _data| false);
-        self.register_win_system("GadgetListBoxSystem", |_msg, _data| false);
-        self.register_win_system("GadgetComboBoxSystem", |_msg, _data| false);
-        self.register_win_system("GadgetHorizontalSliderSystem", |_msg, _data| false);
-        self.register_win_system("GadgetVerticalSliderSystem", |_msg, _data| false);
-        self.register_win_system("GadgetProgressBarSystem", |_msg, _data| false);
-        self.register_win_system("GadgetStaticTextSystem", |_msg, _data| false);
-        self.register_win_system("GadgetTextEntrySystem", |_msg, _data| false);
-        self.register_win_system("MessageBoxSystem", |_msg, _data| false);
-        self.register_win_system("QuitMessageBoxSystem", |_msg, _data| false);
-        self.register_win_system("ExtendedMessageBoxSystem", |_msg, _data| false);
-        self.register_win_system("MOTDSystem", |_msg, _data| false);
-        self.register_win_system("MainMenuSystem", |_msg, _data| false);
-        self.register_win_system("OptionsMenuSystem", |_msg, _data| false);
-        self.register_win_system("SinglePlayerMenuSystem", |_msg, _data| false);
-        self.register_win_system("QuitMenuSystem", |_msg, _data| false);
-        self.register_win_system("MapSelectMenuSystem", |_msg, _data| false);
-        self.register_win_system("ReplayMenuSystem", |_msg, _data| false);
-        self.register_win_system("CreditsMenuSystem", |_msg, _data| false);
-        self.register_win_system("LanLobbyMenuSystem", |_msg, _data| false);
-        self.register_win_system("LanGameOptionsMenuSystem", |_msg, _data| false);
-        self.register_win_system("LanMapSelectMenuSystem", |_msg, _data| false);
-        self.register_win_system("SkirmishGameOptionsMenuSystem", |_msg, _data| false);
-        self.register_win_system("SkirmishMapSelectMenuSystem", |_msg, _data| false);
-        self.register_win_system("ChallengeMenuSystem", |_msg, _data| false);
-        self.register_win_system("SaveLoadMenuSystem", |_msg, _data| false);
-        self.register_win_system("PopupCommunicatorSystem", |_msg, _data| false);
-        self.register_win_system("PopupBuddyNotificationSystem", |_msg, _data| false);
-        self.register_win_system("PopupReplaySystem", |_msg, _data| false);
-        self.register_win_system("KeyboardOptionsMenuSystem", |_msg, _data| false);
-        self.register_win_system("WOLLadderScreenSystem", |_msg, _data| false);
-        self.register_win_system("WOLLoginMenuSystem", |_msg, _data| false);
-        self.register_win_system("WOLLocaleSelectSystem", |_msg, _data| false);
-        self.register_win_system("WOLLobbyMenuSystem", |_msg, _data| false);
-        self.register_win_system("WOLGameSetupMenuSystem", |_msg, _data| false);
-        self.register_win_system("WOLMapSelectMenuSystem", |_msg, _data| false);
-        self.register_win_system("WOLBuddyOverlaySystem", |_msg, _data| false);
-        self.register_win_system("WOLBuddyOverlayRCMenuSystem", |_msg, _data| false);
-        self.register_win_system("RCGameDetailsMenuSystem", |_msg, _data| false);
-        self.register_win_system("GameSpyPlayerInfoOverlaySystem", |_msg, _data| false);
-        self.register_win_system("WOLMessageWindowSystem", |_msg, _data| false);
-        self.register_win_system("WOLQuickMatchMenuSystem", |_msg, _data| false);
-        self.register_win_system("WOLWelcomeMenuSystem", |_msg, _data| false);
-        self.register_win_system("WOLStatusMenuSystem", |_msg, _data| false);
-        self.register_win_system("WOLQMScoreScreenSystem", |_msg, _data| false);
-        self.register_win_system("WOLCustomScoreScreenSystem", |_msg, _data| false);
-        self.register_win_system("NetworkDirectConnectSystem", |_msg, _data| false);
-        self.register_win_system("PopupHostGameSystem", |_msg, _data| false);
-        self.register_win_system("PopupJoinGameSystem", |_msg, _data| false);
-        self.register_win_system("PopupLadderSelectSystem", |_msg, _data| false);
-        self.register_win_system("InGamePopupMessageSystem", |_msg, _data| false);
-        self.register_win_system("ControlBarSystem", |_msg, _data| false);
-        self.register_win_system("ControlBarObserverSystem", |_msg, _data| false);
-        self.register_win_system("IMECandidateWindowSystem", |_msg, _data| false);
-        self.register_win_system("ReplayControlSystem", |_msg, _data| false);
-        self.register_win_system("InGameChatSystem", |_msg, _data| false);
-        self.register_win_system("DisconnectControlSystem", |_msg, _data| false);
-        self.register_win_system("DiplomacySystem", |_msg, _data| false);
-        self.register_win_system("GeneralsExpPointsSystem", |_msg, _data| false);
-        self.register_win_system("DifficultySelectSystem", |_msg, _data| false);
-        self.register_win_system("IdleWorkerSystem", |_msg, _data| false);
-        self.register_win_system("EstablishConnectionsControlSystem", |_msg, _data| false);
-        self.register_win_system("GameInfoWindowSystem", |_msg, _data| false);
-        self.register_win_system("ScoreScreenSystem", |_msg, _data| false);
-        self.register_win_system("DownloadMenuSystem", |_msg, _data| false);
+        self.register_win_system("PassSelectedButtonsToParentSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("PassMessagesToParentSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("GameWinDefaultSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+
+        // Gadget system callbacks — each verifies widget type and returns Ignored
+        // to allow handle_widget_system to process the message.
+        // PARITY_NOTE: C++ GadgetPushButton::System() etc. do type-specific system
+        // dispatch. The Rust widget dispatch in GameWindow::handle_widget_system
+        // handles composite gadget logic (ComboBox, ListBox, TabControl).
+        self.register_win_system("GadgetPushButtonSystem", gadget_push_button_system);
+        self.register_win_system("GadgetCheckBoxSystem", gadget_check_box_system);
+        self.register_win_system("GadgetRadioButtonSystem", gadget_radio_button_system);
+        self.register_win_system("GadgetTabControlSystem", gadget_tab_control_system);
+        self.register_win_system("GadgetListBoxSystem", gadget_list_box_system);
+        self.register_win_system("GadgetComboBoxSystem", gadget_combo_box_system);
+        self.register_win_system("GadgetHorizontalSliderSystem", gadget_horizontal_slider_system);
+        self.register_win_system("GadgetVerticalSliderSystem", gadget_vertical_slider_system);
+        self.register_win_system("GadgetProgressBarSystem", gadget_progress_bar_system);
+        self.register_win_system("GadgetStaticTextSystem", gadget_static_text_system);
+        self.register_win_system("GadgetTextEntrySystem", gadget_text_entry_system);
+
+        self.register_win_system("MessageBoxSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("QuitMessageBoxSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("ExtendedMessageBoxSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("MOTDSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("MainMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("OptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("SinglePlayerMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("QuitMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("MapSelectMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("ReplayMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("CreditsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("LanLobbyMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("LanGameOptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("LanMapSelectMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("SkirmishGameOptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("SkirmishMapSelectMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("ChallengeMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("SaveLoadMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("PopupCommunicatorSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("PopupBuddyNotificationSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("PopupReplaySystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("KeyboardOptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLLadderScreenSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLLoginMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLLocaleSelectSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLLobbyMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLGameSetupMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLMapSelectMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLBuddyOverlaySystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLBuddyOverlayRCMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("RCGameDetailsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("GameSpyPlayerInfoOverlaySystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLMessageWindowSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLQuickMatchMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLWelcomeMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLStatusMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLQMScoreScreenSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("WOLCustomScoreScreenSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("NetworkDirectConnectSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("PopupHostGameSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("PopupJoinGameSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("PopupLadderSelectSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("InGamePopupMessageSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("ControlBarSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("ControlBarObserverSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("IMECandidateWindowSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("ReplayControlSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("InGameChatSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("DisconnectControlSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("DiplomacySystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("GeneralsExpPointsSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("DifficultySelectSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("IdleWorkerSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("EstablishConnectionsControlSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("GameInfoWindowSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("ScoreScreenSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("DownloadMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
     }
 
     fn populate_win_input_table(&mut self) {
-        self.register_win_input("GameWinDefaultInput", |_msg, _data| false);
-        self.register_win_input("GameWinBlockInput", |_msg, _data| true);
-        self.register_win_input("GadgetPushButtonInput", |_msg, _data| false);
-        self.register_win_input("GadgetCheckBoxInput", |_msg, _data| false);
-        self.register_win_input("GadgetRadioButtonInput", |_msg, _data| false);
-        self.register_win_input("GadgetTabControlInput", |_msg, _data| false);
-        self.register_win_input("GadgetListBoxInput", |_msg, _data| false);
-        self.register_win_input("GadgetListBoxMultiInput", |_msg, _data| false);
-        self.register_win_input("GadgetComboBoxInput", |_msg, _data| false);
-        self.register_win_input("GadgetHorizontalSliderInput", |_msg, _data| false);
-        self.register_win_input("GadgetVerticalSliderInput", |_msg, _data| false);
-        self.register_win_input("GadgetStaticTextInput", |_msg, _data| false);
-        self.register_win_input("GadgetTextEntryInput", |_msg, _data| false);
+        self.register_win_input("GameWinDefaultInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("GameWinBlockInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Handled);
 
-        self.register_win_input("MainMenuInput", |_msg, _data| false);
-        self.register_win_input("MapSelectMenuInput", |_msg, _data| false);
-        self.register_win_input("OptionsMenuInput", |_msg, _data| false);
-        self.register_win_input("SinglePlayerMenuInput", |_msg, _data| false);
-        self.register_win_input("LanLobbyMenuInput", |_msg, _data| false);
-        self.register_win_input("ReplayMenuInput", |_msg, _data| false);
-        self.register_win_input("CreditsMenuInput", |_msg, _data| false);
-        self.register_win_input("KeyboardOptionsMenuInput", |_msg, _data| false);
-        self.register_win_input("PopupCommunicatorInput", |_msg, _data| false);
-        self.register_win_input("LanGameOptionsMenuInput", |_msg, _data| false);
-        self.register_win_input("LanMapSelectMenuInput", |_msg, _data| false);
-        self.register_win_input("SkirmishGameOptionsMenuInput", |_msg, _data| false);
-        self.register_win_input("SkirmishMapSelectMenuInput", |_msg, _data| false);
-        self.register_win_input("ChallengeMenuInput", |_msg, _data| false);
+        self.register_win_input("GadgetPushButtonInput", gadget_push_button_input);
+        self.register_win_input("GadgetCheckBoxInput", gadget_check_box_input);
+        self.register_win_input("GadgetRadioButtonInput", gadget_radio_button_input);
+        self.register_win_input("GadgetTabControlInput", gadget_tab_control_input);
+        self.register_win_input("GadgetListBoxInput", gadget_list_box_input);
+        self.register_win_input("GadgetListBoxMultiInput", gadget_list_box_multi_input);
+        self.register_win_input("GadgetComboBoxInput", gadget_combo_box_input);
+        self.register_win_input("GadgetHorizontalSliderInput", gadget_horizontal_slider_input);
+        self.register_win_input("GadgetVerticalSliderInput", gadget_vertical_slider_input);
+        self.register_win_input("GadgetStaticTextInput", gadget_static_text_input);
+        self.register_win_input("GadgetTextEntryInput", gadget_text_entry_input);
 
-        self.register_win_input("WOLLadderScreenInput", |_msg, _data| false);
-        self.register_win_input("WOLLoginMenuInput", |_msg, _data| false);
-        self.register_win_input("WOLLocaleSelectInput", |_msg, _data| false);
-        self.register_win_input("WOLLobbyMenuInput", |_msg, _data| false);
-        self.register_win_input("WOLGameSetupMenuInput", |_msg, _data| false);
-        self.register_win_input("WOLMapSelectMenuInput", |_msg, _data| false);
-        self.register_win_input("WOLBuddyOverlayInput", |_msg, _data| false);
-        self.register_win_input("GameSpyPlayerInfoOverlayInput", |_msg, _data| false);
-        self.register_win_input("WOLMessageWindowInput", |_msg, _data| false);
-        self.register_win_input("WOLQuickMatchMenuInput", |_msg, _data| false);
-        self.register_win_input("WOLWelcomeMenuInput", |_msg, _data| false);
-        self.register_win_input("WOLStatusMenuInput", |_msg, _data| false);
-        self.register_win_input("WOLQMScoreScreenInput", |_msg, _data| false);
-        self.register_win_input("WOLCustomScoreScreenInput", |_msg, _data| false);
+        self.register_win_input("MainMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("MapSelectMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("OptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("SinglePlayerMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("LanLobbyMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("ReplayMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("CreditsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("KeyboardOptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("PopupCommunicatorInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("LanGameOptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("LanMapSelectMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("SkirmishGameOptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("SkirmishMapSelectMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("ChallengeMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
 
-        self.register_win_input("NetworkDirectConnectInput", |_msg, _data| false);
-        self.register_win_input("PopupHostGameInput", |_msg, _data| false);
-        self.register_win_input("PopupJoinGameInput", |_msg, _data| false);
-        self.register_win_input("PopupLadderSelectInput", |_msg, _data| false);
+        self.register_win_input("WOLLadderScreenInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLLoginMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLLocaleSelectInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLLobbyMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLGameSetupMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLMapSelectMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLBuddyOverlayInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("GameSpyPlayerInfoOverlayInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLMessageWindowInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLQuickMatchMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLWelcomeMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLStatusMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLQMScoreScreenInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("WOLCustomScoreScreenInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
 
-        self.register_win_input("InGamePopupMessageInput", |_msg, _data| false);
-        self.register_win_input("ControlBarInput", |_msg, _data| false);
-        self.register_win_input("ReplayControlInput", |_msg, _data| false);
-        self.register_win_input("InGameChatInput", |_msg, _data| false);
-        self.register_win_input("DisconnectControlInput", |_msg, _data| false);
-        self.register_win_input("DiplomacyInput", |_msg, _data| false);
-        self.register_win_input("EstablishConnectionsControlInput", |_msg, _data| false);
-        self.register_win_input("LeftHUDInput", |_msg, _data| false);
-        self.register_win_input("ScoreScreenInput", |_msg, _data| false);
-        self.register_win_input("SaveLoadMenuInput", |_msg, _data| false);
-        self.register_win_input("BeaconWindowInput", |_msg, _data| false);
-        self.register_win_input("DifficultySelectInput", |_msg, _data| false);
-        self.register_win_input("PopupReplayInput", |_msg, _data| false);
-        self.register_win_input("GeneralsExpPointsInput", |_msg, _data| false);
-        self.register_win_input("DownloadMenuInput", |_msg, _data| false);
-        self.register_win_input("IMECandidateWindowInput", |_msg, _data| false);
+        self.register_win_input("NetworkDirectConnectInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("PopupHostGameInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("PopupJoinGameInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("PopupLadderSelectInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+
+        self.register_win_input("InGamePopupMessageInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("ControlBarInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("ReplayControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("InGameChatInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("DisconnectControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("DiplomacyInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("EstablishConnectionsControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("LeftHUDInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("ScoreScreenInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("SaveLoadMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("BeaconWindowInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("DifficultySelectInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("PopupReplayInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("GeneralsExpPointsInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("DownloadMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("IMECandidateWindowInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
     }
 
     fn populate_win_tooltip_table(&mut self) {
-        self.register_win_tooltip("GameWinDefaultTooltip", |_| false);
+        self.register_win_tooltip("GameWinDefaultTooltip", |_win, _time| {});
     }
 
     fn populate_layout_init_table(&mut self) {
@@ -767,6 +779,294 @@ impl ScriptCallbackRegistry {
 impl Default for ScriptCallbackRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Gadget system dispatch functions
+// PARITY_NOTE: Each mirrors the C++ GadgetXxx::System() / GadgetXxx::Input()
+// pattern — verify widget type, allow built-in widget dispatch to process.
+// Returning Ignored allows GameWindow::handle_widget_system/input to run.
+// ---------------------------------------------------------------------------
+
+fn gadget_push_button_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::PushButton(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    match msg {
+        WindowMessage::GadgetSelected
+        | WindowMessage::GadgetMouseEntering
+        | WindowMessage::GadgetMouseLeaving
+        | WindowMessage::GadgetRightClick
+        | WindowMessage::InputFocus => {}
+        _ => {}
+    }
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_check_box_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::CheckBox(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_radio_button_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::RadioButton(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_tab_control_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::TabControl(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_list_box_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::ListBox(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_combo_box_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::ComboBox(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_horizontal_slider_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::HorizontalSlider(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_vertical_slider_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::VerticalSlider(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_progress_bar_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::ProgressBar(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_static_text_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::StaticText(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_text_entry_system(window: &GameWindow, msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::TextEntry(_)) => {}
+        _ => return WindowMsgHandled::Ignored,
+    }
+    let _ = msg;
+    WindowMsgHandled::Ignored
+}
+
+// ---------------------------------------------------------------------------
+// Gadget input dispatch functions
+// PARITY_NOTE: Each mirrors the C++ GadgetXxx::Input() pattern. Returns
+// Ignored so GameWindow::handle_widget_input converts the message to an
+// InputEvent and dispatches to the widget's handle_input method.
+// ---------------------------------------------------------------------------
+
+fn gadget_push_button_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::PushButton(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+fn gadget_check_box_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::CheckBox(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+fn gadget_radio_button_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::RadioButton(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+fn gadget_tab_control_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::TabControl(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+fn gadget_list_box_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::ListBox(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+fn gadget_list_box_multi_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::ListBox(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+fn gadget_combo_box_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::ComboBox(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+fn gadget_horizontal_slider_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::HorizontalSlider(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+fn gadget_vertical_slider_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::VerticalSlider(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+fn gadget_static_text_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    WindowMsgHandled::Ignored
+}
+
+fn gadget_text_entry_input(window: &GameWindow, _msg: WindowMessage, _data1: WindowMsgData, _data2: WindowMsgData) -> WindowMsgHandled {
+    match window.widget() {
+        Some(WindowWidget::TextEntry(_)) => WindowMsgHandled::Ignored,
+        _ => WindowMsgHandled::Ignored,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bridge: create WindowCallbacks from registry lookups
+// PARITY_NOTE: mirrors C++ parseSystemCallback/parseInputCallback which
+// resolves a callback name from TheFunctionLexicon and assigns it to the
+// GameWindow's callback slot.
+// ---------------------------------------------------------------------------
+
+impl ScriptCallbackRegistry {
+    /// Resolve a system callback name and create a `GwCallbacks` struct
+    /// with the system callback wired. Returns `None` if the name resolves
+    /// to nothing or is "[None]".
+    pub fn create_system_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>> {
+        let normalized = normalize_callback_name(name);
+        if normalized.is_empty() {
+            return None;
+        }
+        let cb = self.win_system.get(&normalized)?;
+        let cb = Box::new(move |win: &GameWindow, msg: WindowMessage, d1: WindowMsgData, d2: WindowMsgData| {
+            cb(win, msg, d1, d2)
+        });
+        Some(cb)
+    }
+
+    /// Resolve an input callback name and create a boxed callback.
+    pub fn create_input_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>> {
+        let normalized = normalize_callback_name(name);
+        if normalized.is_empty() {
+            return None;
+        }
+        let cb = self.win_input.get(&normalized)?;
+        let cb = Box::new(move |win: &GameWindow, msg: WindowMessage, d1: WindowMsgData, d2: WindowMsgData| {
+            cb(win, msg, d1, d2)
+        });
+        Some(cb)
+    }
+
+    /// Resolve a tooltip callback name and create a boxed callback.
+    pub fn create_tooltip_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow, u32)>> {
+        let normalized = normalize_callback_name(name);
+        if normalized.is_empty() {
+            return None;
+        }
+        let cb = self.win_tooltip.get(&normalized)?;
+        let cb = Box::new(move |win: &GameWindow, time: u32| {
+            cb(win, time)
+        });
+        Some(cb)
+    }
+
+    /// Resolve a draw callback name and create a boxed callback.
+    pub fn create_draw_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow)>> {
+        let normalized = normalize_callback_name(name);
+        if normalized.is_empty() {
+            return None;
+        }
+        let cb = self.win_draw.get(&normalized)?;
+        let cb = Box::new(move |win: &GameWindow| {
+            cb(win)
+        });
+        Some(cb)
+    }
+
+    /// Create a complete `GwCallbacks` instance by resolving all four
+    /// callback names (system, input, tooltip, draw). Each field is set
+    /// only if the name resolves to a registered callback.
+    pub fn create_window_callbacks(
+        &self,
+        system_name: &str,
+        input_name: &str,
+        tooltip_name: &str,
+        draw_name: &str,
+    ) -> GwCallbacks {
+        let mut callbacks = GwCallbacks::default();
+        if let Some(cb) = self.create_system_callback(system_name) {
+            callbacks.system = Some(cb);
+        }
+        if let Some(cb) = self.create_input_callback(input_name) {
+            callbacks.input = Some(cb);
+        }
+        if let Some(cb) = self.create_tooltip_callback(tooltip_name) {
+            // Adapt from Fn(&GameWindow, u32) to Fn(&GameWindow, &WindowInstanceData, u32)
+            callbacks.tooltip = Some(Box::new(move |win: &GameWindow, _inst: &WindowInstanceData, time: u32| {
+                cb(win, time);
+            }));
+        }
+        if let Some(cb) = self.create_draw_callback(draw_name) {
+            callbacks.draw = Some(Box::new(move |win: &GameWindow, _inst: &WindowInstanceData| {
+                cb(win);
+            }));
+        }
+        callbacks
     }
 }
 

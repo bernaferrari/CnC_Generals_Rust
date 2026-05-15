@@ -876,7 +876,9 @@ impl RenderObject for WrapRenderObj {
         self.0.get_name()
     }
 
-    fn set_name(&mut self, _name: String) {}
+    fn set_name(&mut self, name: String) {
+        self.0.set_name(name);
+    }
 
     fn clone_object(&self) -> Box<dyn RenderObject> {
         Box::new(WrapRenderObj(self.0.clone_box()))
@@ -888,11 +890,11 @@ impl RenderObject for WrapRenderObj {
     }
 
     fn get_obj_space_bounding_sphere(&self) -> BoundingSphere {
-        BoundingSphere::zero()
+        self.0.get_obj_space_bounding_sphere()
     }
 
     fn get_obj_space_bounding_box(&self) -> AABox {
-        AABox::zero()
+        self.0.get_obj_space_bounding_box()
     }
 
     fn get_transform(&self) -> ww3d_core::glam::Mat4 {

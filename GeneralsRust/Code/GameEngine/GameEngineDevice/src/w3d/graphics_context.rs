@@ -241,6 +241,11 @@ pub struct GraphicsContext {
     /// Active render pass
     current_render_pass: Option<wgpu::RenderPass<'static>>,
 
+    /// Pending clear values consumed at next render pass creation (LoadOp::Clear)
+    pending_clear_color: Option<Color>,
+    pending_clear_depth: Option<f32>,
+    pending_clear_stencil: Option<u32>,
+
     /// Resource caches
     render_pipeline_cache: HashMap<u64, Arc<RenderPipeline>>,
     compute_pipeline_cache: HashMap<u64, Arc<ComputePipeline>>,
@@ -283,6 +288,9 @@ impl GraphicsContext {
             state_stack: Vec::new(),
             command_encoder: None,
             current_render_pass: None,
+            pending_clear_color: None,
+            pending_clear_depth: None,
+            pending_clear_stencil: None,
             render_pipeline_cache: HashMap::new(),
             compute_pipeline_cache: HashMap::new(),
             bind_group_cache: HashMap::new(),
@@ -294,36 +302,54 @@ impl GraphicsContext {
 
     /// Set viewport
     pub async fn set_viewport(&mut self, viewport: Viewport) -> Result<()> {
-        self.state.viewport = viewport;
-        // In a real implementation, this would set the actual viewport
+        self.state.viewport = viewport.clone();
+        if let Some(rp) = self.current_render_pass.as_mut() {
+            rp.set_viewport(
+                viewport.x,
+                viewport.y,
+                viewport.width,
+                viewport.height,
+                viewport.min_depth,
+                viewport.max_depth,
+            );
+        }
         Ok(())
     }
 
     /// Set scissor rectangle
     pub async fn set_scissor(&mut self, scissor: Option<ScissorRect>) -> Result<()> {
-        self.state.scissor = scissor;
-        // In a real implementation, this would set the actual scissor test
+        self.state.scissor = scissor.clone();
+        if let (Some(rp), Some(ref r)) = (self.current_render_pass.as_mut(), scissor) {
+            let x = r.left.max(0) as u32;
+            let y = r.top.max(0) as u32;
+            let w = (r.right - r.left).max(0) as u32;
+            let h = (r.bottom - r.top).max(0) as u32;
+            rp.set_scissor_rect(x, y, w, h);
+        }
         Ok(())
     }
 
-    /// Set blend state
+    /// Set blend state.
+    /// In wgpu, blend state is part of the pipeline object (not immediate like DX9 OMSetBlendState).
+    /// This stores state for deferred pipeline creation.
     pub async fn set_blend_state(&mut self, blend_state: BlendState) -> Result<()> {
         self.state.blend_state = blend_state;
-        // In a real implementation, this would set the actual blend state
         Ok(())
     }
 
-    /// Set depth state
+    /// Set depth state.
+    /// In wgpu, depth state is part of the pipeline object (not immediate like DX9 OMSetDepthStencilState).
+    /// This stores state for deferred pipeline creation.
     pub async fn set_depth_state(&mut self, depth_state: DepthState) -> Result<()> {
         self.state.depth_state = depth_state;
-        // In a real implementation, this would set the actual depth state
         Ok(())
     }
 
-    /// Set rasterizer state
+    /// Set rasterizer state.
+    /// In wgpu, rasterizer state is part of the pipeline object (not immediate like DX9 RSSetState).
+    /// This stores state for deferred pipeline creation.
     pub async fn set_rasterizer_state(&mut self, rasterizer_state: RasterizerState) -> Result<()> {
         self.state.rasterizer_state = rasterizer_state;
-        // In a real implementation, this would set the actual rasterizer state
         Ok(())
     }
 
@@ -332,13 +358,27 @@ impl GraphicsContext {
         self.state_stack.push(self.state.clone());
     }
 
-    /// Pop state from stack
+    /// Pop state from stack and re-apply dynamic state to active render pass
     pub async fn pop_state(&mut self) -> Result<()> {
         if let Some(previous_state) = self.state_stack.pop() {
             self.state = previous_state;
-            // In a real implementation, this would restore all the graphics state
+            self.apply_dynamic_state_to_pass();
         }
         Ok(())
+    }
+
+    fn apply_dynamic_state_to_pass(&mut self) {
+        if let Some(rp) = self.current_render_pass.as_mut() {
+            let v = &self.state.viewport;
+            rp.set_viewport(v.x, v.y, v.width, v.height, v.min_depth, v.max_depth);
+            if let Some(ref r) = self.state.scissor {
+                let x = r.left.max(0) as u32;
+                let y = r.top.max(0) as u32;
+                let w = (r.right - r.left).max(0) as u32;
+                let h = (r.bottom - r.top).max(0) as u32;
+                rp.set_scissor_rect(x, y, w, h);
+            }
+        }
     }
 
     /// Get current context state
@@ -346,24 +386,33 @@ impl GraphicsContext {
         &self.state
     }
 
-    /// Clear render targets
+    /// Clear render targets.
+    /// In wgpu, clearing is done via LoadOp::Clear at render pass creation, not mid-pass.
+    /// These values are stored and consumed by drain_pending_clears() when the next render pass begins.
     pub async fn clear(
         &mut self,
         color: Option<[f32; 4]>,
         depth: Option<f32>,
         stencil: Option<u32>,
     ) -> Result<()> {
-        // In a real implementation, this would clear the actual render targets
-        if let Some(_color) = color {
-            tracing::trace!("Clearing color buffer");
-        }
-        if let Some(_depth) = depth {
-            tracing::trace!("Clearing depth buffer");
-        }
-        if let Some(_stencil) = stencil {
-            tracing::trace!("Clearing stencil buffer");
-        }
+        self.pending_clear_color = color.map(|c| Color {
+            r: c[0],
+            g: c[1],
+            b: c[2],
+            a: c[3],
+        });
+        self.pending_clear_depth = depth;
+        self.pending_clear_stencil = stencil;
         Ok(())
+    }
+
+    /// Drain pending clear values for use in LoadOp::Clear when creating the next render pass
+    pub fn drain_pending_clears(&mut self) -> (Option<Color>, Option<f32>, Option<u32>) {
+        (
+            self.pending_clear_color.take(),
+            self.pending_clear_depth.take(),
+            self.pending_clear_stencil.take(),
+        )
     }
 
     /// Shutdown the graphics context

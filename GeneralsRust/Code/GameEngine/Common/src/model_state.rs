@@ -146,7 +146,10 @@ impl ModelConditionFlagType {
         match v {
             -1 => Self::Invalid,
             0..=116 => unsafe { std::mem::transmute(v) },
-            _ => Self::Count,
+            _ => {
+                log::warn!("ModelConditionFlagType::from_i32({v}) out of range, defaulting to Toppled");
+                Self::Toppled
+            }
         }
     }
 

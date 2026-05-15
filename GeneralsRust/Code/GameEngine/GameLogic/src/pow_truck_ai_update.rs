@@ -213,6 +213,51 @@ pub struct POWTruckAIUpdate {
 }
 
 #[cfg(feature = "allow_surrender")]
+impl Snapshotable for POWTruckAIUpdate {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_int(&mut 0i32).map_err(|e| e.to_string())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        let mut ai_mode = self.ai_mode as i8;
+        xfer.xfer_byte(&mut ai_mode).map_err(|e| e.to_string())?;
+        self.ai_mode = match ai_mode {
+            0 => POWTruckAIMode::Automatic,
+            _ => POWTruckAIMode::Manual,
+        };
+
+        let mut task = self.current_task as i8;
+        xfer.xfer_byte(&mut task).map_err(|e| e.to_string())?;
+        self.current_task = match task.rem_euclid(4) {
+            0 => POWTruckTask::Waiting,
+            1 => POWTruckTask::FindTarget,
+            2 => POWTruckTask::CollectingTarget,
+            _ => POWTruckTask::ReturningPrisoners,
+        };
+
+        xfer.xfer_object_id(&mut self.target_id)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_object_id(&mut self.prison_id)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.entered_waiting_frame)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.last_find_frame)
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "allow_surrender")]
 impl POWTruckAIUpdate {
     pub fn new(data: POWTruckAIUpdateData, owner_id: ObjectID) -> Self {
         Self {
