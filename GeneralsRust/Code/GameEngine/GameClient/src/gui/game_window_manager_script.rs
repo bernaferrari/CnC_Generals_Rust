@@ -28,6 +28,8 @@ use crate::gui::game_window::{
     GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
     WindowCallbacks as GwCallbacks, WindowInstanceData,
 };
+use crate::gui::callbacks as cb;
+use crate::gui::window_manager::WindowLayout;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -286,9 +288,9 @@ fn unquote(s: &str) -> &str {
 /// Callback types for layout-level lifecycle events.
 /// PARITY_NOTE: mirrors C++ `WindowLayoutInfo` function pointers resolved
 /// from `TheFunctionLexicon->winLayoutInitFunc()` etc.
-pub type LayoutInitFn = Box<dyn Fn(&str)>;
-pub type LayoutUpdateFn = Box<dyn Fn(&str)>;
-pub type LayoutShutdownFn = Box<dyn Fn(&str)>;
+pub type LayoutInitFn = Box<dyn Fn(&WindowLayout)>;
+pub type LayoutUpdateFn = Box<dyn Fn(&WindowLayout)>;
+pub type LayoutShutdownFn = Box<dyn Fn(&WindowLayout)>;
 
 /// Callback types for window-level events.
 /// PARITY_NOTE: mirrors C++ `GameWinSystemFunc`, `GameWinInputFunc`,
@@ -337,21 +339,21 @@ impl ScriptCallbackRegistry {
 
     /// Register a layout init callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->winLayoutInitFunc()`.
-    pub fn register_layout_init<F: Fn(&str) + 'static>(&mut self, name: &str, callback: F) {
+    pub fn register_layout_init<F: Fn(&WindowLayout) + 'static>(&mut self, name: &str, callback: F) {
         self.layout_init
             .insert(name.to_string(), Box::new(callback));
     }
 
     /// Register a layout update callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->winLayoutUpdateFunc()`.
-    pub fn register_layout_update<F: Fn(&str) + 'static>(&mut self, name: &str, callback: F) {
+    pub fn register_layout_update<F: Fn(&WindowLayout) + 'static>(&mut self, name: &str, callback: F) {
         self.layout_update
             .insert(name.to_string(), Box::new(callback));
     }
 
     /// Register a layout shutdown callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->winLayoutShutdownFunc()`.
-    pub fn register_layout_shutdown<F: Fn(&str) + 'static>(&mut self, name: &str, callback: F) {
+    pub fn register_layout_shutdown<F: Fn(&WindowLayout) + 'static>(&mut self, name: &str, callback: F) {
         self.layout_shutdown
             .insert(name.to_string(), Box::new(callback));
     }
@@ -492,6 +494,9 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_win_draw_table(&mut self) {
+        // PARITY_TODO: Draw functions take (&GameWindow, &WindowInstanceData) but
+        // WinDrawFn = Fn(&GameWindow). Need to update the type to include inst_data
+        // before wiring ime_candidate_main_draw / ime_candidate_text_area_draw.
         self.register_win_draw("IMECandidateMainDraw", |_win| {});
         self.register_win_draw("IMECandidateTextAreaDraw", |_win| {});
     }
@@ -501,11 +506,6 @@ impl ScriptCallbackRegistry {
         self.register_win_system("PassMessagesToParentSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("GameWinDefaultSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
 
-        // Gadget system callbacks — each verifies widget type and returns Ignored
-        // to allow handle_widget_system to process the message.
-        // PARITY_NOTE: C++ GadgetPushButton::System() etc. do type-specific system
-        // dispatch. The Rust widget dispatch in GameWindow::handle_widget_system
-        // handles composite gadget logic (ComboBox, ListBox, TabControl).
         self.register_win_system("GadgetPushButtonSystem", gadget_push_button_system);
         self.register_win_system("GadgetCheckBoxSystem", gadget_check_box_system);
         self.register_win_system("GadgetRadioButtonSystem", gadget_radio_button_system);
@@ -518,28 +518,35 @@ impl ScriptCallbackRegistry {
         self.register_win_system("GadgetStaticTextSystem", gadget_static_text_system);
         self.register_win_system("GadgetTextEntrySystem", gadget_text_entry_system);
 
+        // PARITY_TODO: MessageBoxSystem/QuitMessageBoxSystem/ExtendedMessageBoxSystem
+        // callbacks are set directly on windows at creation time (see message_box.rs).
         self.register_win_system("MessageBoxSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("QuitMessageBoxSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("ExtendedMessageBoxSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+
         self.register_win_system("MOTDSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+
+        // PARITY_TODO: MainMenuSystem uses MenuCallbacks trait — needs Shell adapter
         self.register_win_system("MainMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("OptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("SinglePlayerMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("QuitMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("QuitMenuSystem", cb::quit_menu_system);
         self.register_win_system("MapSelectMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("ReplayMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("ReplayMenuSystem", cb::replay_menu_system);
         self.register_win_system("CreditsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("LanLobbyMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("LanGameOptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("LanMapSelectMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("SkirmishGameOptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("SkirmishMapSelectMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("ChallengeMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("SaveLoadMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("PopupCommunicatorSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("LanGameOptionsMenuSystem", cb::lan_game_options_menu_system);
+        self.register_win_system("LanMapSelectMenuSystem", cb::lan_map_select_menu_system);
+        self.register_win_system("SkirmishGameOptionsMenuSystem", cb::skirmish_game_options_menu_system);
+        self.register_win_system("SkirmishMapSelectMenuSystem", cb::skirmish_map_select_menu_system);
+        self.register_win_system("ChallengeMenuSystem", cb::challenge_menu_system);
+        self.register_win_system("SaveLoadMenuSystem", cb::save_load_menu_system);
+        self.register_win_system("PopupCommunicatorSystem", cb::popup_communicator_system);
         self.register_win_system("PopupBuddyNotificationSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("PopupReplaySystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("KeyboardOptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("PopupReplaySystem", cb::popup_replay_system);
+        self.register_win_system("KeyboardOptionsMenuSystem", cb::keyboard_options_menu_system);
+
+        // WOL/network callbacks — deferred per AGENTS.md
         self.register_win_system("WOLLadderScreenSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("WOLLoginMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("WOLLocaleSelectSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
@@ -560,21 +567,26 @@ impl ScriptCallbackRegistry {
         self.register_win_system("PopupHostGameSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("PopupJoinGameSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("PopupLadderSelectSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("InGamePopupMessageSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+
+        self.register_win_system("InGamePopupMessageSystem", cb::in_game_popup_message_system);
+
+        // PARITY_TODO: ControlBarSystem uses Arc<RwLock<ControlBarSystem>> — needs adapter
         self.register_win_system("ControlBarSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("ControlBarObserverSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("IMECandidateWindowSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("ReplayControlSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("IMECandidateWindowSystem", cb::ime_candidate_window_system);
+        self.register_win_system("ReplayControlSystem", cb::replay_control_system);
+
+        // PARITY_TODO: InGameChat/DisconnectControl/Diplomacy/IdleWorker use struct singletons
         self.register_win_system("InGameChatSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("DisconnectControlSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("DiplomacySystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("GeneralsExpPointsSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("DifficultySelectSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("GeneralsExpPointsSystem", cb::generals_exp_points_system);
+        self.register_win_system("DifficultySelectSystem", cb::difficulty_select_system);
         self.register_win_system("IdleWorkerSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("EstablishConnectionsControlSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("GameInfoWindowSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("ScoreScreenSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("DownloadMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("GameInfoWindowSystem", cb::game_info_window_system);
+        self.register_win_system("ScoreScreenSystem", cb::score_screen_system);
+        self.register_win_system("DownloadMenuSystem", cb::download_menu_system);
     }
 
     fn populate_win_input_table(&mut self) {
@@ -593,21 +605,23 @@ impl ScriptCallbackRegistry {
         self.register_win_input("GadgetStaticTextInput", gadget_static_text_input);
         self.register_win_input("GadgetTextEntryInput", gadget_text_entry_input);
 
+        // PARITY_TODO: MainMenuInput uses MenuCallbacks trait — needs Shell adapter
         self.register_win_input("MainMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("MapSelectMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("OptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("SinglePlayerMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("LanLobbyMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("ReplayMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("ReplayMenuInput", cb::replay_menu_input);
         self.register_win_input("CreditsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("KeyboardOptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("PopupCommunicatorInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("LanGameOptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("LanMapSelectMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("SkirmishGameOptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("SkirmishMapSelectMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("ChallengeMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("KeyboardOptionsMenuInput", cb::keyboard_options_menu_input);
+        self.register_win_input("PopupCommunicatorInput", cb::popup_communicator_input);
+        self.register_win_input("LanGameOptionsMenuInput", cb::lan_game_options_menu_input);
+        self.register_win_input("LanMapSelectMenuInput", cb::lan_map_select_menu_input);
+        self.register_win_input("SkirmishGameOptionsMenuInput", cb::skirmish_game_options_menu_input);
+        self.register_win_input("SkirmishMapSelectMenuInput", cb::skirmish_map_select_menu_input);
+        self.register_win_input("ChallengeMenuInput", cb::challenge_menu_input);
 
+        // WOL/network callbacks — deferred per AGENTS.md
         self.register_win_input("WOLLadderScreenInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("WOLLoginMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("WOLLocaleSelectInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
@@ -628,22 +642,26 @@ impl ScriptCallbackRegistry {
         self.register_win_input("PopupJoinGameInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("PopupLadderSelectInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
 
-        self.register_win_input("InGamePopupMessageInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("InGamePopupMessageInput", cb::in_game_popup_message_input);
+
+        // PARITY_TODO: ControlBarInput uses struct singleton
         self.register_win_input("ControlBarInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("ReplayControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("ReplayControlInput", cb::replay_control_input);
+
+        // PARITY_TODO: InGameChat/DisconnectControl/Diplomacy use struct singletons
         self.register_win_input("InGameChatInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("DisconnectControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("DiplomacyInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("EstablishConnectionsControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("LeftHUDInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("ScoreScreenInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("SaveLoadMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("BeaconWindowInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("DifficultySelectInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("PopupReplayInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("GeneralsExpPointsInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("DownloadMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("IMECandidateWindowInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("ScoreScreenInput", cb::score_screen_input);
+        self.register_win_input("SaveLoadMenuInput", cb::save_load_menu_input);
+        self.register_win_input("BeaconWindowInput", cb::beacon_window_input);
+        self.register_win_input("DifficultySelectInput", cb::difficulty_select_input);
+        self.register_win_input("PopupReplayInput", cb::popup_replay_input);
+        self.register_win_input("GeneralsExpPointsInput", cb::generals_exp_points_input);
+        self.register_win_input("DownloadMenuInput", cb::download_menu_input);
+        self.register_win_input("IMECandidateWindowInput", cb::ime_candidate_window_input);
     }
 
     fn populate_win_tooltip_table(&mut self) {
@@ -651,128 +669,135 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_init_table(&mut self) {
-        self.register_layout_init("MainMenuInit", |_name| {});
-        self.register_layout_init("OptionsMenuInit", |_name| {});
-        self.register_layout_init("SaveLoadMenuInit", |_name| {});
-        self.register_layout_init("SaveLoadMenuFullScreenInit", |_name| {});
-        self.register_layout_init("PopupCommunicatorInit", |_name| {});
-        self.register_layout_init("KeyboardOptionsMenuInit", |_name| {});
-        self.register_layout_init("SinglePlayerMenuInit", |_name| {});
-        self.register_layout_init("MapSelectMenuInit", |_name| {});
-        self.register_layout_init("LanLobbyMenuInit", |_name| {});
-        self.register_layout_init("ReplayMenuInit", |_name| {});
-        self.register_layout_init("CreditsMenuInit", |_name| {});
-        self.register_layout_init("LanGameOptionsMenuInit", |_name| {});
-        self.register_layout_init("LanMapSelectMenuInit", |_name| {});
-        self.register_layout_init("SkirmishGameOptionsMenuInit", |_name| {});
-        self.register_layout_init("SkirmishMapSelectMenuInit", |_name| {});
-        self.register_layout_init("ChallengeMenuInit", |_name| {});
+        // PARITY_TODO: MainMenuInit uses MenuCallbacks trait — needs Shell adapter
+        self.register_layout_init("MainMenuInit", |_layout| {});
+        self.register_layout_init("OptionsMenuInit", |_layout| {});
+        self.register_layout_init("SaveLoadMenuInit", |layout| cb::save_load_menu_init(layout, None));
+        self.register_layout_init("SaveLoadMenuFullScreenInit", |layout| cb::save_load_menu_full_screen_init(layout, None));
+        self.register_layout_init("PopupCommunicatorInit", |layout| cb::popup_communicator_init(layout, None));
+        self.register_layout_init("KeyboardOptionsMenuInit", |layout| cb::keyboard_options_menu_init(layout, None));
+        self.register_layout_init("SinglePlayerMenuInit", |_layout| {});
+        self.register_layout_init("MapSelectMenuInit", |_layout| {});
+        self.register_layout_init("LanLobbyMenuInit", |_layout| {});
+        self.register_layout_init("ReplayMenuInit", |layout| cb::replay_menu_init(layout, None));
+        self.register_layout_init("CreditsMenuInit", |_layout| {});
+        self.register_layout_init("LanGameOptionsMenuInit", |layout| cb::lan_game_options_menu_init(layout, None));
+        self.register_layout_init("LanMapSelectMenuInit", |layout| cb::lan_map_select_menu_init(layout, None));
+        self.register_layout_init("SkirmishGameOptionsMenuInit", |layout| cb::skirmish_game_options_menu_init(layout, None));
+        self.register_layout_init("SkirmishMapSelectMenuInit", |layout| cb::skirmish_map_select_menu_init(layout, None));
+        self.register_layout_init("ChallengeMenuInit", |layout| cb::challenge_menu_init(layout, None));
 
-        self.register_layout_init("WOLLadderScreenInit", |_name| {});
-        self.register_layout_init("WOLLoginMenuInit", |_name| {});
-        self.register_layout_init("WOLLocaleSelectInit", |_name| {});
-        self.register_layout_init("WOLLobbyMenuInit", |_name| {});
-        self.register_layout_init("WOLGameSetupMenuInit", |_name| {});
-        self.register_layout_init("WOLMapSelectMenuInit", |_name| {});
-        self.register_layout_init("WOLBuddyOverlayInit", |_name| {});
-        self.register_layout_init("WOLBuddyOverlayRCMenuInit", |_name| {});
-        self.register_layout_init("RCGameDetailsMenuInit", |_name| {});
-        self.register_layout_init("GameSpyPlayerInfoOverlayInit", |_name| {});
-        self.register_layout_init("WOLMessageWindowInit", |_name| {});
-        self.register_layout_init("WOLQuickMatchMenuInit", |_name| {});
-        self.register_layout_init("WOLWelcomeMenuInit", |_name| {});
-        self.register_layout_init("WOLStatusMenuInit", |_name| {});
-        self.register_layout_init("WOLQMScoreScreenInit", |_name| {});
-        self.register_layout_init("WOLCustomScoreScreenInit", |_name| {});
+        // WOL/network callbacks — deferred per AGENTS.md
+        self.register_layout_init("WOLLadderScreenInit", |_layout| {});
+        self.register_layout_init("WOLLoginMenuInit", |_layout| {});
+        self.register_layout_init("WOLLocaleSelectInit", |_layout| {});
+        self.register_layout_init("WOLLobbyMenuInit", |_layout| {});
+        self.register_layout_init("WOLGameSetupMenuInit", |_layout| {});
+        self.register_layout_init("WOLMapSelectMenuInit", |_layout| {});
+        self.register_layout_init("WOLBuddyOverlayInit", |_layout| {});
+        self.register_layout_init("WOLBuddyOverlayRCMenuInit", |_layout| {});
+        self.register_layout_init("RCGameDetailsMenuInit", |_layout| {});
+        self.register_layout_init("GameSpyPlayerInfoOverlayInit", |_layout| {});
+        self.register_layout_init("WOLMessageWindowInit", |_layout| {});
+        self.register_layout_init("WOLQuickMatchMenuInit", |_layout| {});
+        self.register_layout_init("WOLWelcomeMenuInit", |_layout| {});
+        self.register_layout_init("WOLStatusMenuInit", |_layout| {});
+        self.register_layout_init("WOLQMScoreScreenInit", |_layout| {});
+        self.register_layout_init("WOLCustomScoreScreenInit", |_layout| {});
 
-        self.register_layout_init("NetworkDirectConnectInit", |_name| {});
-        self.register_layout_init("PopupHostGameInit", |_name| {});
-        self.register_layout_init("PopupJoinGameInit", |_name| {});
-        self.register_layout_init("PopupLadderSelectInit", |_name| {});
+        self.register_layout_init("NetworkDirectConnectInit", |_layout| {});
+        self.register_layout_init("PopupHostGameInit", |_layout| {});
+        self.register_layout_init("PopupJoinGameInit", |_layout| {});
+        self.register_layout_init("PopupLadderSelectInit", |_layout| {});
 
-        self.register_layout_init("InGamePopupMessageInit", |_name| {});
-        self.register_layout_init("GameInfoWindowInit", |_name| {});
-        self.register_layout_init("ScoreScreenInit", |_name| {});
-        self.register_layout_init("DownloadMenuInit", |_name| {});
-        self.register_layout_init("DifficultySelectInit", |_name| {});
-        self.register_layout_init("PopupReplayInit", |_name| {});
+        self.register_layout_init("InGamePopupMessageInit", |layout| cb::in_game_popup_message_init(layout, None));
+        self.register_layout_init("GameInfoWindowInit", |layout| cb::game_info_window_init(layout, None));
+        self.register_layout_init("ScoreScreenInit", |layout| cb::score_screen_init(layout, None));
+        self.register_layout_init("DownloadMenuInit", |layout| cb::download_menu_init(layout, None));
+        self.register_layout_init("DifficultySelectInit", |layout| cb::difficulty_select_init(layout, None));
+        self.register_layout_init("PopupReplayInit", |layout| cb::popup_replay_init(layout, None));
     }
 
     fn populate_layout_update_table(&mut self) {
-        self.register_layout_update("MainMenuUpdate", |_name| {});
-        self.register_layout_update("OptionsMenuUpdate", |_name| {});
-        self.register_layout_update("SinglePlayerMenuUpdate", |_name| {});
-        self.register_layout_update("MapSelectMenuUpdate", |_name| {});
-        self.register_layout_update("LanLobbyMenuUpdate", |_name| {});
-        self.register_layout_update("ReplayMenuUpdate", |_name| {});
-        self.register_layout_update("SaveLoadMenuUpdate", |_name| {});
-        self.register_layout_update("CreditsMenuUpdate", |_name| {});
-        self.register_layout_update("LanGameOptionsMenuUpdate", |_name| {});
-        self.register_layout_update("LanMapSelectMenuUpdate", |_name| {});
-        self.register_layout_update("SkirmishGameOptionsMenuUpdate", |_name| {});
-        self.register_layout_update("SkirmishMapSelectMenuUpdate", |_name| {});
-        self.register_layout_update("ChallengeMenuUpdate", |_name| {});
+        // PARITY_TODO: MainMenuUpdate/OptionsMenuUpdate/SinglePlayerMenuUpdate/MapSelectMenuUpdate
+        // use MenuCallbacks trait — needs Shell adapter
+        self.register_layout_update("MainMenuUpdate", |_layout| {});
+        self.register_layout_update("OptionsMenuUpdate", |_layout| {});
+        self.register_layout_update("SinglePlayerMenuUpdate", |_layout| {});
+        self.register_layout_update("MapSelectMenuUpdate", |_layout| {});
+        self.register_layout_update("LanLobbyMenuUpdate", |_layout| {});
+        self.register_layout_update("ReplayMenuUpdate", |layout| cb::replay_menu_update(layout, None));
+        self.register_layout_update("SaveLoadMenuUpdate", |layout| cb::save_load_menu_update(layout, None));
+        self.register_layout_update("CreditsMenuUpdate", |_layout| {});
+        self.register_layout_update("LanGameOptionsMenuUpdate", |layout| cb::lan_game_options_menu_update(layout, None));
+        self.register_layout_update("LanMapSelectMenuUpdate", |layout| cb::lan_map_select_menu_update(layout, None));
+        self.register_layout_update("SkirmishGameOptionsMenuUpdate", |layout| cb::skirmish_game_options_menu_update(layout, None));
+        self.register_layout_update("SkirmishMapSelectMenuUpdate", |layout| cb::skirmish_map_select_menu_update(layout, None));
+        self.register_layout_update("ChallengeMenuUpdate", |layout| cb::challenge_menu_update(layout, None));
 
-        self.register_layout_update("WOLLadderScreenUpdate", |_name| {});
-        self.register_layout_update("WOLLoginMenuUpdate", |_name| {});
-        self.register_layout_update("WOLLocaleSelectUpdate", |_name| {});
-        self.register_layout_update("WOLLobbyMenuUpdate", |_name| {});
-        self.register_layout_update("WOLGameSetupMenuUpdate", |_name| {});
-        self.register_layout_update("PopupHostGameUpdate", |_name| {});
-        self.register_layout_update("WOLMapSelectMenuUpdate", |_name| {});
-        self.register_layout_update("WOLBuddyOverlayUpdate", |_name| {});
-        self.register_layout_update("GameSpyPlayerInfoOverlayUpdate", |_name| {});
-        self.register_layout_update("WOLMessageWindowUpdate", |_name| {});
-        self.register_layout_update("WOLQuickMatchMenuUpdate", |_name| {});
-        self.register_layout_update("WOLWelcomeMenuUpdate", |_name| {});
-        self.register_layout_update("WOLStatusMenuUpdate", |_name| {});
-        self.register_layout_update("WOLQMScoreScreenUpdate", |_name| {});
-        self.register_layout_update("WOLCustomScoreScreenUpdate", |_name| {});
+        // WOL/network callbacks — deferred per AGENTS.md
+        self.register_layout_update("WOLLadderScreenUpdate", |_layout| {});
+        self.register_layout_update("WOLLoginMenuUpdate", |_layout| {});
+        self.register_layout_update("WOLLocaleSelectUpdate", |_layout| {});
+        self.register_layout_update("WOLLobbyMenuUpdate", |_layout| {});
+        self.register_layout_update("WOLGameSetupMenuUpdate", |_layout| {});
+        self.register_layout_update("PopupHostGameUpdate", |_layout| {});
+        self.register_layout_update("WOLMapSelectMenuUpdate", |_layout| {});
+        self.register_layout_update("WOLBuddyOverlayUpdate", |_layout| {});
+        self.register_layout_update("GameSpyPlayerInfoOverlayUpdate", |_layout| {});
+        self.register_layout_update("WOLMessageWindowUpdate", |_layout| {});
+        self.register_layout_update("WOLQuickMatchMenuUpdate", |_layout| {});
+        self.register_layout_update("WOLWelcomeMenuUpdate", |_layout| {});
+        self.register_layout_update("WOLStatusMenuUpdate", |_layout| {});
+        self.register_layout_update("WOLQMScoreScreenUpdate", |_layout| {});
+        self.register_layout_update("WOLCustomScoreScreenUpdate", |_layout| {});
 
-        self.register_layout_update("NetworkDirectConnectUpdate", |_name| {});
+        self.register_layout_update("NetworkDirectConnectUpdate", |_layout| {});
 
-        self.register_layout_update("ScoreScreenUpdate", |_name| {});
-        self.register_layout_update("DownloadMenuUpdate", |_name| {});
-        self.register_layout_update("PopupReplayUpdate", |_name| {});
+        self.register_layout_update("ScoreScreenUpdate", |layout| cb::score_screen_update(layout, None));
+        self.register_layout_update("DownloadMenuUpdate", |layout| cb::download_menu_update(layout, None));
+        self.register_layout_update("PopupReplayUpdate", |layout| cb::popup_replay_update(layout, None));
     }
 
     fn populate_layout_shutdown_table(&mut self) {
-        self.register_layout_shutdown("MainMenuShutdown", |_name| {});
-        self.register_layout_shutdown("OptionsMenuShutdown", |_name| {});
-        self.register_layout_shutdown("SaveLoadMenuShutdown", |_name| {});
-        self.register_layout_shutdown("PopupCommunicatorShutdown", |_name| {});
-        self.register_layout_shutdown("KeyboardOptionsMenuShutdown", |_name| {});
-        self.register_layout_shutdown("SinglePlayerMenuShutdown", |_name| {});
-        self.register_layout_shutdown("MapSelectMenuShutdown", |_name| {});
-        self.register_layout_shutdown("LanLobbyMenuShutdown", |_name| {});
-        self.register_layout_shutdown("ReplayMenuShutdown", |_name| {});
-        self.register_layout_shutdown("CreditsMenuShutdown", |_name| {});
-        self.register_layout_shutdown("LanGameOptionsMenuShutdown", |_name| {});
-        self.register_layout_shutdown("LanMapSelectMenuShutdown", |_name| {});
-        self.register_layout_shutdown("SkirmishGameOptionsMenuShutdown", |_name| {});
-        self.register_layout_shutdown("SkirmishMapSelectMenuShutdown", |_name| {});
-        self.register_layout_shutdown("ChallengeMenuShutdown", |_name| {});
+        // PARITY_TODO: MainMenuShutdown/OptionsMenuShutdown use MenuCallbacks trait
+        self.register_layout_shutdown("MainMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("OptionsMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("SaveLoadMenuShutdown", |layout| cb::save_load_menu_shutdown(layout, None));
+        self.register_layout_shutdown("PopupCommunicatorShutdown", |layout| cb::popup_communicator_shutdown(layout, None));
+        self.register_layout_shutdown("KeyboardOptionsMenuShutdown", |layout| cb::keyboard_options_menu_shutdown(layout, None));
+        self.register_layout_shutdown("SinglePlayerMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("MapSelectMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("LanLobbyMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("ReplayMenuShutdown", |layout| cb::replay_menu_shutdown(layout, None));
+        self.register_layout_shutdown("CreditsMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("LanGameOptionsMenuShutdown", |layout| cb::lan_game_options_menu_shutdown(layout, None));
+        self.register_layout_shutdown("LanMapSelectMenuShutdown", |layout| cb::lan_map_select_menu_shutdown(layout, None));
+        self.register_layout_shutdown("SkirmishGameOptionsMenuShutdown", |layout| cb::skirmish_game_options_menu_shutdown(layout, None));
+        self.register_layout_shutdown("SkirmishMapSelectMenuShutdown", |layout| cb::skirmish_map_select_menu_shutdown(layout, None));
+        self.register_layout_shutdown("ChallengeMenuShutdown", |layout| cb::challenge_menu_shutdown(layout, None));
 
-        self.register_layout_shutdown("WOLLadderScreenShutdown", |_name| {});
-        self.register_layout_shutdown("WOLLoginMenuShutdown", |_name| {});
-        self.register_layout_shutdown("WOLLocaleSelectShutdown", |_name| {});
-        self.register_layout_shutdown("WOLLobbyMenuShutdown", |_name| {});
-        self.register_layout_shutdown("WOLGameSetupMenuShutdown", |_name| {});
-        self.register_layout_shutdown("WOLMapSelectMenuShutdown", |_name| {});
-        self.register_layout_shutdown("WOLBuddyOverlayShutdown", |_name| {});
-        self.register_layout_shutdown("GameSpyPlayerInfoOverlayShutdown", |_name| {});
-        self.register_layout_shutdown("WOLMessageWindowShutdown", |_name| {});
-        self.register_layout_shutdown("WOLQuickMatchMenuShutdown", |_name| {});
-        self.register_layout_shutdown("WOLWelcomeMenuShutdown", |_name| {});
-        self.register_layout_shutdown("WOLStatusMenuShutdown", |_name| {});
-        self.register_layout_shutdown("WOLQMScoreScreenShutdown", |_name| {});
-        self.register_layout_shutdown("WOLCustomScoreScreenShutdown", |_name| {});
+        // WOL/network callbacks — deferred per AGENTS.md
+        self.register_layout_shutdown("WOLLadderScreenShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLLoginMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLLocaleSelectShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLLobbyMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLGameSetupMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLMapSelectMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLBuddyOverlayShutdown", |_layout| {});
+        self.register_layout_shutdown("GameSpyPlayerInfoOverlayShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLMessageWindowShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLQuickMatchMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLWelcomeMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLStatusMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLQMScoreScreenShutdown", |_layout| {});
+        self.register_layout_shutdown("WOLCustomScoreScreenShutdown", |_layout| {});
 
-        self.register_layout_shutdown("NetworkDirectConnectShutdown", |_name| {});
+        self.register_layout_shutdown("NetworkDirectConnectShutdown", |_layout| {});
 
-        self.register_layout_shutdown("ScoreScreenShutdown", |_name| {});
-        self.register_layout_shutdown("DownloadMenuShutdown", |_name| {});
-        self.register_layout_shutdown("PopupReplayShutdown", |_name| {});
+        self.register_layout_shutdown("ScoreScreenShutdown", |layout| cb::score_screen_shutdown(layout, None));
+        self.register_layout_shutdown("DownloadMenuShutdown", |layout| cb::download_menu_shutdown(layout, None));
+        self.register_layout_shutdown("PopupReplayShutdown", |layout| cb::popup_replay_shutdown(layout, None));
     }
 }
 
@@ -1515,26 +1540,26 @@ mod tests {
         let mut registry = ScriptCallbackRegistry::new();
         let called = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let called_clone = called.clone();
-        registry.register_layout_init("TestInit", move |_name| {
+        registry.register_layout_init("TestInit", move |_layout| {
             called_clone.store(true, std::sync::atomic::Ordering::Relaxed);
         });
 
         let cb = registry.get_layout_init("TestInit").unwrap();
-        cb("test");
+        let layout = WindowLayout::new("test".to_string());
+        cb(&layout);
         assert!(called.load(std::sync::atomic::Ordering::Relaxed));
 
-        // "None" returns None
         assert!(registry.get_layout_init("None").is_none());
         assert!(registry.get_layout_init("[None]").is_none());
     }
 
     #[test]
     fn test_callback_registry_win_system() {
+        use crate::gui::game_window::WindowMsgHandled;
         let mut registry = ScriptCallbackRegistry::new();
-        registry.register_win_system("MainMenuSystem", |msg, data| msg == 1 && data == 0);
-        let cb = registry.get_win_system("MainMenuSystem").unwrap();
-        assert!(cb(1, 0));
-        assert!(!cb(0, 0));
+        registry.register_win_system("TestSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        let cb = registry.get_win_system("TestSystem").unwrap();
+        assert!(registry.get_win_system("Nonexistent").is_none());
     }
 
     #[test]
