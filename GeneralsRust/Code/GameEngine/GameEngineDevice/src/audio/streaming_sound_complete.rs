@@ -323,15 +323,28 @@ impl StreamingSound {
         self.initialize_decoder_common(mss, hint).await
     }
 
-    /// Initialize decoder from generic source
     #[cfg(feature = "audio")]
     async fn initialize_decoder_from_source<T>(&self, source: T) -> Result<()> 
     where
         T: AsyncRead + AsyncSeek + Send + Sync + Unpin + 'static,
     {
-        // For now, this is a simplified implementation
-        // Full implementation would need to adapt async source to symphonia's sync interface
-        Err(AudioDeviceError::StreamingError("Generic source streaming not yet fully implemented".to_string()))
+        use std::io::Cursor;
+        use symphonia::core::io::MediaSourceStream;
+        use symphonia::core::probe::Hint;
+        use tokio::io::AsyncReadExt;
+
+        let mut buffered = source;
+        let mut data = Vec::new();
+        buffered.read_to_end(&mut data).await.map_err(|e| {
+            AudioDeviceError::StreamingError(format!("Failed to read source into buffer: {}", e))
+        })?;
+
+        let cursor: Box<dyn symphonia::core::io::MediaSource> =
+            Box::new(Cursor::new(data));
+        let mss = MediaSourceStream::new(cursor, Default::default());
+
+        let hint = Hint::new();
+        self.initialize_decoder_common(mss, hint).await
     }
 
     /// Common decoder initialization

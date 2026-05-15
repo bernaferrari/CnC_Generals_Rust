@@ -137,7 +137,7 @@ pub enum ModelConditionFlagType {
 
 impl Default for ModelConditionFlagType {
     fn default() -> Self {
-        Self::Toppled
+        Self::Invalid
     }
 }
 
@@ -147,8 +147,8 @@ impl ModelConditionFlagType {
             -1 => Self::Invalid,
             0..=116 => unsafe { std::mem::transmute(v) },
             _ => {
-                log::warn!("ModelConditionFlagType::from_i32({v}) out of range, defaulting to Toppled");
-                Self::Toppled
+                log::warn!("ModelConditionFlagType::from_i32({v}) out of range, defaulting to Invalid");
+                Self::Invalid
             }
         }
     }

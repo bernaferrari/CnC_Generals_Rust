@@ -1627,8 +1627,10 @@ impl RoadManager {
 
     /// Validate road geometry for render submission.
     ///
-    /// GPU submission is performed by the higher-level terrain renderer. This pass mirrors the
-    /// C++ split where road systems prepare/validate geometry before draw calls.
+    /// Checks all segment geometries (surface, edge, marking) for valid triangle counts.
+    /// GPU submission is performed by `render_pass_draw`, which calls this validation
+    /// internally and then iterates per-mesh draw calls.  Mirrors C++ W3DTerrainVisual
+    /// road rendering which validates geometry before submitting indexed draws.
     pub fn render(&self, _view: &Mat4, _projection: &Mat4) -> TerrainResult<()> {
         for segment in self.segments.values() {
             let Some(geometry) = segment.geometry.as_ref() else {
@@ -1656,7 +1658,8 @@ impl RoadManager {
     ///
     /// Caller must set the road pipeline and camera bind group (group 0) first.
     /// `mesh_iter` yields (vertex_slice, index_slice, index_count) per road mesh in
-    /// priority order.
+    /// priority order.  Each mesh results in one `draw_indexed` call, matching C++
+    /// W3DTerrainVisual per-road-mesh submission.
     pub fn render_pass_draw<'a, FMeshes>(
         &self,
         render_pass: &mut RenderPass<'a>,
@@ -1668,6 +1671,9 @@ impl RoadManager {
         self.render(&Mat4::IDENTITY, &Mat4::IDENTITY)?;
 
         while let Some((vertex_slice, index_slice, index_count)) = mesh_iter() {
+            if index_count == 0 {
+                continue;
+            }
             render_pass.set_vertex_buffer(0, vertex_slice);
             render_pass.set_index_buffer(index_slice, wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..index_count, 0, 0..1);

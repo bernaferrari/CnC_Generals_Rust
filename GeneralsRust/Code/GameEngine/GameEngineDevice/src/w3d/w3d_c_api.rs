@@ -563,13 +563,100 @@ async fn set_render_state_internal(
             device_lock.set_scene(scene).await?;
         }
         W3D_RENDER_STATE::W3DRS_ZENABLE => {
-            tracing::debug!("Setting depth test enabled: {}", value != 0);
+            // PARITY_NOTE: D3DRS_ZENABLE maps to wgpu depth_stencil state.
+            // Value: TRUE(1)=enable depth test, FALSE(0)=disable.
+            tracing::debug!("Set depth test enabled: {}", value != 0);
+        }
+        W3D_RENDER_STATE::W3DRS_ZWRITEENABLE => {
+            // PARITY_NOTE: D3DRS_ZWRITEENABLE controls depth buffer writes.
+            tracing::debug!("Set depth write enabled: {}", value != 0);
+        }
+        W3D_RENDER_STATE::W3DRS_ZFUNC => {
+            // PARITY_NOTE: D3DRS_ZFUNC sets depth comparison function.
+            // D3DCMP_NEVER=1..D3DCMP_ALWAYS=8. Default D3DCMP_LESSEQUAL=4.
+            tracing::debug!("Set depth comparison func: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_FILLMODE => {
+            // PARITY_NOTE: D3DRS_FILLMODE maps to wgpu PolygonMode.
+            // D3DFILL_POINT=1, D3DFILL_WIREFRAME=2, D3DFILL_SOLID=3.
+            tracing::debug!("Set fill mode: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_SHADEMODE => {
+            // PARITY_NOTE: No direct wgpu equivalent; always smooth interpolation.
+            tracing::debug!("Set shade mode (no-op in wgpu, always smooth): {}", value);
         }
         W3D_RENDER_STATE::W3DRS_CULLMODE => {
-            tracing::debug!("Setting cull mode: {}", value);
+            // PARITY_NOTE: D3DRS_CULLMODE maps to wgpu face culling.
+            // D3DCULL_NONE=1, D3DCULL_CW=2, D3DCULL_CCW=3.
+            tracing::debug!("Set cull mode: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_ALPHATESTENABLE => {
+            // PARITY_NOTE: Enables alpha test (discard). Tracked in FixedFunctionSurfaceState.
+            tracing::debug!("Set alpha test enabled: {}", value != 0);
+        }
+        W3D_RENDER_STATE::W3DRS_ALPHAREF => {
+            // PARITY_NOTE: Reference value for alpha test.
+            tracing::debug!("Set alpha reference: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_ALPHAFUNC => {
+            // PARITY_NOTE: Comparison for alpha test. Default D3DCMP_ALWAYS=8.
+            tracing::debug!("Set alpha func: {}", value);
         }
         W3D_RENDER_STATE::W3DRS_ALPHABLENDENABLE => {
-            tracing::debug!("Setting alpha blend enabled: {}", value != 0);
+            // PARITY_NOTE: Maps to wgpu BlendState. Tracked in FixedFunctionSurfaceState.
+            tracing::debug!("Set alpha blend enabled: {}", value != 0);
+        }
+        W3D_RENDER_STATE::W3DRS_SRCBLEND => {
+            // PARITY_NOTE: D3DBLEND_ZERO=1..D3DBLEND_BLENDFACTOR=19. Maps to wgpu BlendFactor.
+            tracing::debug!("Set source blend factor: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_DESTBLEND => {
+            // PARITY_NOTE: Maps to wgpu BlendFactor.
+            tracing::debug!("Set dest blend factor: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_STENCILENABLE => {
+            // PARITY_NOTE: Maps to wgpu StencilFaceState.
+            tracing::debug!("Set stencil enabled: {}", value != 0);
+        }
+        W3D_RENDER_STATE::W3DRS_STENCILFAIL => {
+            // PARITY_NOTE: D3DSTENCILOP_KEEP=1..D3DSTENCILOP_DECRSAT=8.
+            tracing::debug!("Set stencil fail op: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_STENCILZFAIL => {
+            tracing::debug!("Set stencil zfail op: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_STENCILPASS => {
+            tracing::debug!("Set stencil pass op: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_STENCILFUNC => {
+            // PARITY_NOTE: Maps to wgpu CompareFunction for StencilFaceState.
+            tracing::debug!("Set stencil func: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_STENCILREF => {
+            // PARITY_NOTE: Applied via wgpu render pass set_stencil_reference().
+            tracing::debug!("Set stencil ref: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_STENCILMASK => {
+            tracing::debug!("Set stencil mask: {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_STENCILWRITEMASK => {
+            tracing::debug!("Set stencil write mask: 0x{:08X}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_DITHERENABLE => {
+            // PARITY_NOTE: Dithering always enabled in wgpu for supported formats.
+            tracing::debug!("Set dither enable (no-op in wgpu): {}", value != 0);
+        }
+        W3D_RENDER_STATE::W3DRS_LASTPIXEL => {
+            // PARITY_NOTE: No wgpu equivalent; always draws all pixels.
+            tracing::debug!("Set last pixel (no wgpu equivalent): {}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_TEXTUREFACTOR => {
+            // PARITY_NOTE: ARGB color used by D3DTA_TFACTOR in texture stage states.
+            tracing::debug!("Set texture factor: 0x{:08X}", value);
+        }
+        W3D_RENDER_STATE::W3DRS_RANGEFOGENABLE => {
+            // PARITY_NOTE: Range-based fog; wgpu fog is in fragment shader.
+            tracing::debug!("Set range fog enabled: {}", value != 0);
         }
         W3D_RENDER_STATE::W3DRS_LIGHTING
         | W3D_RENDER_STATE::W3DRS_SPECULARENABLE
@@ -580,14 +667,13 @@ async fn set_render_state_internal(
         | W3D_RENDER_STATE::W3DRS_SPECULARMATERIALSOURCE
         | W3D_RENDER_STATE::W3DRS_AMBIENTMATERIALSOURCE
         | W3D_RENDER_STATE::W3DRS_EMISSIVEMATERIALSOURCE => {
+            // Fixed-function lighting states tracked in FixedFunctionLightingState
+            // for material hash computation. Actual lighting computed in shaders.
             tracing::debug!(
                 "Tracking fixed-function lighting state {:?}: {}",
                 state,
                 value
             );
-        }
-        _ => {
-            tracing::trace!("Ignoring render state {:?} value {}", state, value);
         }
     }
 

@@ -117,20 +117,19 @@ pub extern "C" fn AudioManager_SetVolume(affects: AudioAffect, volume: Real) {
         manager.set_volume(volume, affects);
     });
     
-    // Also update the comprehensive system
     with_global_audio(|system| {
         match affects {
             AudioAffect::Music => {
-                // Set music volume in comprehensive system
+                system.set_category_volume(SoundCategory::Music, volume);
             },
             AudioAffect::Sound | AudioAffect::Sound3D | AudioAffect::SoundEffects => {
                 system.set_master_volume(volume);
             },
             AudioAffect::Speech => {
-                // Set speech volume
+                system.set_category_volume(SoundCategory::Speech, volume);
             },
             AudioAffect::Ambient => {
-                // Set ambient volume
+                system.set_category_volume(SoundCategory::Ambient, volume);
             },
             _ => {}
         }

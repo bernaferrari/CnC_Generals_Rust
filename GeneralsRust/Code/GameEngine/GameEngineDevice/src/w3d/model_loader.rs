@@ -568,9 +568,24 @@ impl W3DModelLoader {
                         self.parse_animation_chunk(&mut cursor, chunk_header.chunk_size)?;
                     model.animations.push(animation);
                 }
+                W3DChunkType::HModel => {
+                    self.parse_hmodel_chunk(&mut cursor, chunk_header.chunk_size, &mut model)?;
+                }
+                W3DChunkType::Hlod => {
+                    self.parse_hlod_chunk(&mut cursor, chunk_header.chunk_size, &mut model)?;
+                }
+                W3DChunkType::LodModel => {
+                    self.parse_lod_model_chunk(&mut cursor, chunk_header.chunk_size, &mut model)?;
+                }
+                W3DChunkType::Collection => {
+                    self.parse_collection_chunk(&mut cursor, chunk_header.chunk_size)?;
+                }
+                W3DChunkType::Emitter => {
+                    self.skip_emitter_chunk(&mut cursor, chunk_header.chunk_size)?;
+                }
                 _ => {
                     log::warn!(
-                        "Skipping top-level W3D chunk type 0x{:08X}, size {}",
+                        "Skipping unknown top-level W3D chunk type 0x{:08X}, size {}",
                         chunk_header.chunk_type,
                         chunk_header.chunk_size
                     );
@@ -1437,12 +1452,10 @@ impl W3DModelLoader {
                     // flags 0=X, 1=Y, 2=Z, 6=Q (quaternion)
                     match channel_type {
                         0 | 1 | 2 => {
-                            // Translation axis: each frame is one float
                             for (fi, &val) in channel_data.iter().enumerate() {
                                 let time = (first_frame as usize + fi) as f32
                                     / if frame_rate > 0 { frame_rate as f32 } else { 30.0 };
 
-                                // Find or create a keyframe at this time
                                 let existing = ch
                                     .position_keys
                                     .iter()
@@ -1467,6 +1480,44 @@ impl W3DModelLoader {
                                             time,
                                             position: pos,
                                             rotation: Quat::IDENTITY,
+                                            scale: Vec3::ONE,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        3 | 4 | 5 => {
+                            let axis = channel_type - 3;
+                            for (fi, &val) in channel_data.iter().enumerate() {
+                                let time = (first_frame as usize + fi) as f32
+                                    / if frame_rate > 0 { frame_rate as f32 } else { 30.0 };
+
+                                let euler = match axis {
+                                    0 => Vec3::new(val, 0.0, 0.0),
+                                    1 => Vec3::new(0.0, val, 0.0),
+                                    _ => Vec3::new(0.0, 0.0, val),
+                                };
+                                let q = Quat::from_euler(
+                                    glam::EulerRot::XYZ,
+                                    euler.x,
+                                    euler.y,
+                                    euler.z,
+                                );
+
+                                let existing = ch
+                                    .rotation_keys
+                                    .iter()
+                                    .position(|k| (k.time - time).abs() < f32::EPSILON);
+                                match existing {
+                                    Some(idx) => {
+                                        let key = &mut ch.rotation_keys[idx];
+                                        key.rotation = q;
+                                    }
+                                    None => {
+                                        ch.rotation_keys.push(W3DKeyframe {
+                                            time,
+                                            position: Vec3::ZERO,
+                                            rotation: q,
                                             scale: Vec3::ONE,
                                         });
                                     }
@@ -1665,6 +1716,344 @@ impl W3DModelLoader {
         }
 
         model.bounding_box = BoundingBox::new(min, max);
+    }
+
+    /// Parse a `W3D_CHUNK_HMODEL` top-level chunk (0x00000300).
+    ///
+    /// An HModel is a hierarchical model containing a hierarchy sub-chunk and
+    /// one or more mesh sub-chunks. C++ loads these in `W3DAssetManager`.
+    fn parse_hmodel_chunk(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        chunk_size: u32,
+        model: &mut W3DModel,
+    ) -> Result<()> {
+        let start_pos = cursor.position();
+        let end_pos = start_pos + chunk_size as u64;
+
+        // HModel header: Version(u32) + Name[16] + unknown(u32) = 24 bytes
+        let _version = self.read_u32(cursor)?;
+        let mut name_buf = [0u8; W3D_NAME_LEN];
+        cursor.read_exact(&mut name_buf).map_err(|e| {
+            W3DError::ModelLoadingFailed(format!("Failed to read HModel name: {}", e))
+        })?;
+        let _hmodel_name = Self::read_null_terminated(&name_buf);
+        let _unknown = self.read_u32(cursor)?;
+
+        while cursor.position() < end_pos {
+            let sub_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+            let sub_type = W3DChunkType::from(sub_header.chunk_type);
+            let sub_end = cursor.position() + sub_header.chunk_size as u64;
+
+            match sub_type {
+                W3DChunkType::Hierarchy => {
+                    let skeleton =
+                        self.parse_hierarchy_chunk(cursor, sub_header.chunk_size)?;
+                    model.skeleton = Some(skeleton);
+                }
+                W3DChunkType::Mesh => {
+                    let mesh = self.parse_mesh_chunk(cursor, sub_header.chunk_size)?;
+                    model.meshes.push(mesh);
+                }
+                _ => {
+                    log::warn!(
+                        "Skipping unhandled HModel sub-chunk 0x{:08X}, size {}",
+                        sub_header.chunk_type,
+                        sub_header.chunk_size
+                    );
+                    cursor.seek(SeekFrom::Current(sub_header.chunk_size as i64)).map_err(|e| {
+                        W3DError::ModelLoadingFailed(format!("Failed to skip HModel sub-chunk: {}", e))
+                    })?;
+                }
+            }
+
+            if cursor.position() < sub_end {
+                cursor.set_position(sub_end);
+            }
+        }
+
+        if cursor.position() < end_pos {
+            cursor.set_position(end_pos);
+        }
+        Ok(())
+    }
+
+    /// Parse a `W3D_CHUNK_HLOD` top-level chunk (0x00000700).
+    ///
+    /// HLod is the most common chunk type in Generals models. It contains a
+    /// hierarchy and multiple meshes with LOD information.
+    /// C++ reference: `W3DAssetManager::Load_HLOD`.
+    fn parse_hlod_chunk(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        chunk_size: u32,
+        model: &mut W3DModel,
+    ) -> Result<()> {
+        let start_pos = cursor.position();
+        let end_pos = start_pos + chunk_size as u64;
+
+        // HLod header: Version(u32) + Name[16] + HierarchyName[16] + NumLods(u32) = 40 bytes
+        let _version = self.read_u32(cursor)?;
+        let mut name_buf = [0u8; W3D_NAME_LEN];
+        cursor.read_exact(&mut name_buf).map_err(|e| {
+            W3DError::ModelLoadingFailed(format!("Failed to read HLod name: {}", e))
+        })?;
+        let _hlod_name = Self::read_null_terminated(&name_buf);
+
+        let mut hier_buf = [0u8; W3D_NAME_LEN];
+        cursor.read_exact(&mut hier_buf).map_err(|e| {
+            W3DError::ModelLoadingFailed(format!("Failed to read HLod hierarchy name: {}", e))
+        })?;
+        let _hier_name = Self::read_null_terminated(&hier_buf);
+
+        let num_lods = self.read_u32(cursor)?;
+
+        model.lod_distances = vec![0.0; num_lods as usize];
+
+        while cursor.position() < end_pos {
+            let sub_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+            let sub_type = W3DChunkType::from(sub_header.chunk_type);
+            let sub_end = cursor.position() + sub_header.chunk_size as u64;
+
+            match sub_type {
+                W3DChunkType::Hierarchy => {
+                    let skeleton =
+                        self.parse_hierarchy_chunk(cursor, sub_header.chunk_size)?;
+                    model.skeleton = Some(skeleton);
+                }
+                W3DChunkType::Mesh => {
+                    let mesh = self.parse_mesh_chunk(cursor, sub_header.chunk_size)?;
+                    model.meshes.push(mesh);
+                }
+                // W3D_CHUNK_HLOD_LOD_ARRAY wrapper (0x00000701)
+                _ if sub_header.chunk_type == 0x00000701 => {
+                    self.parse_lod_array(cursor, sub_header.chunk_size, model)?;
+                }
+                _ => {
+                    log::warn!(
+                        "Skipping unhandled HLod sub-chunk 0x{:08X}, size {}",
+                        sub_header.chunk_type,
+                        sub_header.chunk_size
+                    );
+                    cursor.seek(SeekFrom::Current(sub_header.chunk_size as i64)).map_err(|e| {
+                        W3DError::ModelLoadingFailed(format!("Failed to skip HLod sub-chunk: {}", e))
+                    })?;
+                }
+            }
+
+            if cursor.position() < sub_end {
+                cursor.set_position(sub_end);
+            }
+        }
+
+        if cursor.position() < end_pos {
+            cursor.set_position(end_pos);
+        }
+        tracing::debug!(
+            "Parsed HLod: {} meshes, {} LODs",
+            model.meshes.len(),
+            num_lods
+        );
+        Ok(())
+    }
+
+    /// Parse a LOD array sub-chunk within an HLod.
+    ///
+    /// Contains model mesh references with LOD distances.
+    fn parse_lod_array(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        chunk_size: u32,
+        model: &mut W3DModel,
+    ) -> Result<()> {
+        let start_pos = cursor.position();
+        let end_pos = start_pos + chunk_size as u64;
+
+        // LOD array header: Version(u32) + ModelName[16] + NumLods(u32) = 24 bytes
+        let _version = self.read_u32(cursor)?;
+        let mut name_buf = [0u8; W3D_NAME_LEN];
+        cursor.read_exact(&mut name_buf).map_err(|e| {
+            W3DError::ModelLoadingFailed(format!("Failed to read LOD array name: {}", e))
+        })?;
+        let _array_name = Self::read_null_terminated(&name_buf);
+        let num_lods = self.read_u32(cursor)?;
+
+        for i in 0..num_lods as usize {
+            if cursor.position() >= end_pos {
+                break;
+            }
+            let sub_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+            let sub_end = cursor.position() + sub_header.chunk_size as u64;
+
+            // W3D_CHUNK_HLOD_SUB_OBJECT (0x00000702): BoneIndex(u32) + Distance(f32) + Name[16]
+            if sub_header.chunk_type == 0x00000702 && sub_header.chunk_size >= 24 {
+                let _bone_index = self.read_u32(cursor)?;
+                let distance = self.read_f32(cursor)?;
+                let mut obj_name_buf = [0u8; W3D_NAME_LEN];
+                cursor.read_exact(&mut obj_name_buf).map_err(|e| {
+                    W3DError::ModelLoadingFailed(format!("Failed to read LOD sub-object name: {}", e))
+                })?;
+                let _obj_name = Self::read_null_terminated(&obj_name_buf);
+
+                if i < model.lod_distances.len() {
+                    model.lod_distances[i] = distance;
+                }
+            } else {
+                cursor.seek(SeekFrom::Current(sub_header.chunk_size as i64)).map_err(|e| {
+                    W3DError::ModelLoadingFailed(format!("Failed to skip LOD entry: {}", e))
+                })?;
+            }
+
+            if cursor.position() < sub_end {
+                cursor.set_position(sub_end);
+            }
+        }
+
+        if cursor.position() < end_pos {
+            cursor.set_position(end_pos);
+        }
+        Ok(())
+    }
+
+    /// Parse a `W3D_CHUNK_LODMODEL` top-level chunk (0x00000400).
+    ///
+    /// LOD model contains multiple meshes at different detail levels.
+    fn parse_lod_model_chunk(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        chunk_size: u32,
+        model: &mut W3DModel,
+    ) -> Result<()> {
+        let start_pos = cursor.position();
+        let end_pos = start_pos + chunk_size as u64;
+
+        // LOD model header: Version(u32) + Name[16] + HierarchyName[16] + NumLods(u32)
+        let _version = self.read_u32(cursor)?;
+        let mut name_buf = [0u8; W3D_NAME_LEN];
+        cursor.read_exact(&mut name_buf).map_err(|e| {
+            W3DError::ModelLoadingFailed(format!("Failed to read LOD model name: {}", e))
+        })?;
+        let _lod_name = Self::read_null_terminated(&name_buf);
+
+        let mut hier_buf = [0u8; W3D_NAME_LEN];
+        cursor.read_exact(&mut hier_buf).map_err(|e| {
+            W3DError::ModelLoadingFailed(format!("Failed to read LOD hierarchy name: {}", e))
+        })?;
+        let _hier_name = Self::read_null_terminated(&hier_buf);
+
+        let _num_lods = self.read_u32(cursor)?;
+
+        while cursor.position() < end_pos {
+            let sub_header = self.read_struct::<W3DChunkHeader>(cursor)?;
+            let sub_type = W3DChunkType::from(sub_header.chunk_type);
+            let sub_end = cursor.position() + sub_header.chunk_size as u64;
+
+            match sub_type {
+                W3DChunkType::Mesh => {
+                    let mesh = self.parse_mesh_chunk(cursor, sub_header.chunk_size)?;
+                    model.meshes.push(mesh);
+                }
+                W3DChunkType::Hierarchy => {
+                    let skeleton =
+                        self.parse_hierarchy_chunk(cursor, sub_header.chunk_size)?;
+                    model.skeleton = Some(skeleton);
+                }
+                _ => {
+                    log::warn!(
+                        "Skipping unhandled LOD model sub-chunk 0x{:08X}, size {}",
+                        sub_header.chunk_type,
+                        sub_header.chunk_size
+                    );
+                    cursor.seek(SeekFrom::Current(sub_header.chunk_size as i64)).map_err(|e| {
+                        W3DError::ModelLoadingFailed(format!("Failed to skip LOD model sub-chunk: {}", e))
+                    })?;
+                }
+            }
+
+            if cursor.position() < sub_end {
+                cursor.set_position(sub_end);
+            }
+        }
+
+        if cursor.position() < end_pos {
+            cursor.set_position(end_pos);
+        }
+        Ok(())
+    }
+
+    /// Parse a `W3D_CHUNK_COLLECTION` top-level chunk (0x00000420).
+    ///
+    /// Collections group multiple transform references to other models.
+    fn parse_collection_chunk(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        chunk_size: u32,
+    ) -> Result<()> {
+        let start_pos = cursor.position();
+        let end_pos = start_pos + chunk_size as u64;
+
+        // Collection header: Version(u32) + Name[16] + NumTransforms(u32)
+        let _version = self.read_u32(cursor)?;
+        let mut name_buf = [0u8; W3D_NAME_LEN];
+        cursor.read_exact(&mut name_buf).map_err(|e| {
+            W3DError::ModelLoadingFailed(format!("Failed to read collection name: {}", e))
+        })?;
+        let coll_name = Self::read_null_terminated(&name_buf);
+        let num_transforms = self.read_u32(cursor)?;
+
+        // Skip the transform data (each transform is ~68 bytes: Mat4 + name)
+        let remaining = end_pos.saturating_sub(cursor.position());
+        if remaining > 0 {
+            cursor.seek(SeekFrom::Current(remaining as i64)).map_err(|e| {
+                W3DError::ModelLoadingFailed(format!("Failed to skip collection data: {}", e))
+            })?;
+        }
+
+        log::warn!(
+            "Collection '{}' has {} transforms — parsed header, data skipped (not yet populated into model)",
+            coll_name,
+            num_transforms
+        );
+
+        if cursor.position() < end_pos {
+            cursor.set_position(end_pos);
+        }
+        Ok(())
+    }
+
+    /// Skip an emitter chunk with a descriptive log.
+    fn skip_emitter_chunk(
+        &mut self,
+        cursor: &mut Cursor<&[u8]>,
+        chunk_size: u32,
+    ) -> Result<()> {
+        let start_pos = cursor.position();
+        let end_pos = start_pos + chunk_size as u64;
+
+        // Read emitter header for logging: Version(u32) + Name[16]
+        let _version = self.read_u32(cursor)?;
+        let mut name_buf = [0u8; W3D_NAME_LEN];
+        cursor.read_exact(&mut name_buf).map_err(|e| {
+            W3DError::ModelLoadingFailed(format!("Failed to read emitter name: {}", e))
+        })?;
+        let emitter_name = Self::read_null_terminated(&name_buf);
+
+        let remaining = end_pos.saturating_sub(cursor.position());
+        if remaining > 0 {
+            cursor.seek(SeekFrom::Current(remaining as i64)).map_err(|e| {
+                W3DError::ModelLoadingFailed(format!("Failed to skip emitter data: {}", e))
+            })?;
+        }
+
+        log::warn!(
+            "Emitter '{}' parsed header, particle system data skipped",
+            emitter_name
+        );
+
+        if cursor.position() < end_pos {
+            cursor.set_position(end_pos);
+        }
+        Ok(())
     }
 
     /// Helper to read struct from cursor

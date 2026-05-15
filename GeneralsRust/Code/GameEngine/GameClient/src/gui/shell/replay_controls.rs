@@ -97,11 +97,28 @@ impl ReplayControls {
         self.playback_speed = 1.0;
     }
 
-    /// Update the replay controls
-    pub fn update(&mut self, _delta_time: f32) {
+    /// Update the replay controls.
+    ///
+    /// When playing and not paused, advances the current frame counter by the playback speed.
+    /// C++ ReplayControls delegates to the game logic's frame-advance loop; this Rust port
+    /// tracks the logical frame position and signals completion when reaching total_frames.
+    pub fn update(&mut self, delta_time: f32) {
         if self.is_playing && !self.is_paused {
-            // Update playback state
-            // In actual implementation, this would advance frames
+            // At 30 logic FPS, one frame = 1/30s. Advance by speed * delta frames.
+            let frames_to_advance = (self.playback_speed * delta_time * 30.0).round() as u32;
+            if frames_to_advance > 0 {
+                let new_frame = self.current_frame.saturating_add(frames_to_advance);
+                self.current_frame = if self.total_frames > 0 {
+                    new_frame.min(self.total_frames)
+                } else {
+                    new_frame
+                };
+
+                if self.total_frames > 0 && self.current_frame >= self.total_frames {
+                    self.is_playing = false;
+                    self.is_paused = true;
+                }
+            }
         }
     }
 
@@ -132,6 +149,20 @@ impl ReplayControls {
     pub fn seek_to_frame(&mut self, frame: u32) {
         if frame <= self.total_frames {
             self.current_frame = frame;
+        }
+    }
+
+    /// Set total number of frames in the replay
+    pub fn set_total_frames(&mut self, total: u32) {
+        self.total_frames = total;
+    }
+
+    /// Get playback progress as a 0.0..1.0 ratio
+    pub fn get_progress(&self) -> f32 {
+        if self.total_frames == 0 {
+            0.0
+        } else {
+            self.current_frame as f32 / self.total_frames as f32
         }
     }
 
@@ -168,12 +199,14 @@ impl Default for ReplayControls {
 /// Matches C++ ReplayControls.cpp:16-22
 pub fn replay_control_input(
     _window: &GameWindow,
-    _msg: WindowMsg,
+    msg: WindowMsg,
     _mdata1: Option<&dyn Any>,
     _mdata2: Option<&dyn Any>,
 ) -> WindowMsgHandledType {
-    // All input currently ignored
-    WindowMsgHandledType::MsgIgnored
+    match msg {
+        WindowMsg::Char | WindowMsg::Selected => WindowMsgHandledType::MsgHandled,
+        _ => WindowMsgHandledType::MsgIgnored,
+    }
 }
 
 /// System callback for the control bar parent
@@ -186,10 +219,8 @@ pub fn replay_control_system(
     _mdata2: Option<&dyn Any>,
 ) -> WindowMsgHandledType {
     match msg {
-        WindowMsg::Selected => {
-            // Handle button selected
-            WindowMsgHandledType::MsgHandled
-        }
+        WindowMsg::Selected => WindowMsgHandledType::MsgHandled,
+        WindowMsg::Create | WindowMsg::Destroy => WindowMsgHandledType::MsgHandled,
         _ => WindowMsgHandledType::MsgIgnored,
     }
 }

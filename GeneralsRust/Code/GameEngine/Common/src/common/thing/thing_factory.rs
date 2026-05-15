@@ -12,7 +12,7 @@ use crate::common::{
     ini::{INILoadType as IniLoadType, INI},
     random_value::get_game_logic_random_value,
     rts::{AsciiString, UnsignedShort},
-    system::subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState},
+    system::{kind_of::KindOfMask, subsystem_interface::{SubsystemInterface, SubsystemResult, SubsystemState}},
     thing::{
         module::{Drawable, Object},
         thing_template::ThingTemplate,
@@ -356,8 +356,7 @@ impl ThingFactory {
         let _ = &variation_holder; // suppress unused_assignments
 
         // Verify template is not drawable-only
-        if final_template.is_kind_of(0x2000) {
-            // KINDOF_DRAWABLE_ONLY placeholder
+        if final_template.is_kind_of(KindOfMask::DRAWABLE_ONLY.bits() as u64) {
             return Err(ThingCreationError::CreationFailed(format!(
                 "Cannot create Objects with template {}, only Drawables",
                 final_template.get_name()
