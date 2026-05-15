@@ -60,7 +60,9 @@ pub mod tunnel_tracker;
 // Re-export main types for easier access
 pub use academy_stats::{AcademyAdviceInfo, AcademyClassificationType, AcademyStats};
 pub use achievements::{Achievement, AchievementCalculator, AchievementType};
-pub use action_manager::{ActionManager, WeaponSlotType};
+pub use action_manager::{
+    set_object_data_provider, ActionManager, Object, ObjectDataProvider, WeaponSlotType,
+};
 pub use energy::Energy;
 pub use handicap::{Handicap, HandicapType, ThingType};
 pub use handles::{
@@ -87,4 +89,4 @@ pub use team::{
     TeamMember, TeamPrototype, TeamPrototypeFlags, TeamRelationMap, TEAM_ID_INVALID,
     TEAM_PROTOTYPE_ID_INVALID,
 };
-pub use tunnel_tracker::TunnelTracker;
+pub use tunnel_tracker::{TunnelDestroyResult, TunnelTracker, INVALID_ID};

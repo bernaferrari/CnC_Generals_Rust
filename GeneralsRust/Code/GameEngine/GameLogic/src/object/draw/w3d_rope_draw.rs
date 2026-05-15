@@ -354,11 +354,19 @@ impl Snapshotable for W3DRopeDraw {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ parity: W3DRopeDraw::xfer (version 1).
         const CURRENT_VERSION: XferVersion = 1;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| e.to_string())?;
+
+        // C++ parity: DrawModule::xfer -> DrawableModule::xfer -> Module::xfer
+        // Each writes a version(1) byte. Match the 3-byte base class chain.
+        let mut draw_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut draw_module_version, 1).map_err(|e| e.to_string())?;
+        let mut drawable_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut drawable_module_version, 1).map_err(|e| e.to_string())?;
+        let mut module_version: XferVersion = 1;
+        xfer.xfer_version(&mut module_version, 1).map_err(|e| e.to_string())?;
 
         xfer.xfer_real(&mut self.cur_len)
             .map_err(|e| e.to_string())?;
