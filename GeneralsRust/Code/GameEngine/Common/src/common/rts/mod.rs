@@ -79,8 +79,9 @@ pub use post_game_stats::{GameResult, PlayerPostGameStats, PlayerSide, PostGameS
 pub use production_prerequisite::{PrereqUnitFlags, PrereqUnitRec, ProductionPrerequisite};
 pub use resource_gathering_manager::{ResourceGatheringManager, ResourceWorld};
 pub use science::{
-    get_science_store, get_science_store_mut, init_science_store, ScienceAccess, ScienceInfo,
-    ScienceStore, ScienceSubsystem, ScienceType, SCIENCE_INVALID,
+    get_science_store, get_science_store_mut, init_science_store, GeneralsExperience,
+    RankThreshold, RankThresholdStore, ScienceAccess, ScienceInfo, ScienceStore,
+    ScienceSubsystem, ScienceType, ScienceVec, LEVEL_CAP, SCIENCE_INVALID,
 };
 pub use score_keeper::ScoreKeeper;
 pub use special_power::{SpecialPowerStore, SpecialPowerTemplate, SpecialPowerType};

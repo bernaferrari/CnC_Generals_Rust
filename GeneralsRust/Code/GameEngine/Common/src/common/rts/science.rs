@@ -194,7 +194,7 @@
 
 use once_cell::sync::OnceCell;
 use std::any::Any;
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -206,9 +206,11 @@ use thiserror::Error;
 
 use crate::common::ini::{INIError, INIResult, INI};
 use crate::common::name_key_generator::NameKeyGenerator;
+use crate::common::system::snapshot::Snapshotable;
 use crate::common::system::subsystem_interface::{
     SubsystemDescriptor, SubsystemError, SubsystemInterface, SubsystemResult, SubsystemState,
 };
+use crate::common::system::xfer::{Xfer, XferVersion};
 
 use super::{AsciiString, NameKeyType};
 
@@ -220,6 +222,12 @@ pub type ScienceType = i32;
 
 /// Invalid science constant
 pub const SCIENCE_INVALID: ScienceType = -1;
+
+/// Vector of science types.
+///
+/// Matches C++ `typedef std::vector<ScienceType> ScienceVec` from Science.h.
+/// Used throughout the codebase for lists of sciences (prerequisites, granted, owned).
+pub type ScienceVec = Vec<ScienceType>;
 
 /// Science information structure
 #[derive(Debug, Clone)]
@@ -1129,6 +1137,507 @@ impl SubsystemInterface for ScienceSubsystem {
     }
 }
 
+// =========================================================================
+// Rank Threshold System
+// C++ Reference: RankInfo.h / RankInfo.cpp
+//
+// Defines the experience thresholds, science grants, and purchase points
+// for each rank level. Loaded from Data/INI/Rank.ini.
+// =========================================================================
+
+/// Single rank definition.
+///
+/// Maps C++ `RankInfo` (RankInfo.h lines 19-27):
+/// - `m_rankName`: Display name for the rank
+/// - `m_skillPointsNeeded`: Cumulative skill points required to reach this rank
+/// - `m_sciencePurchasePointsGranted`: Generals points awarded when reaching this rank
+/// - `m_sciencesGranted`: Sciences automatically granted upon reaching this rank
+///
+/// Ranks are 1-based: rank 1 is the starting rank, rank N is the highest.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RankThreshold {
+    pub rank_name: String,
+    pub skill_points_needed: i32,
+    pub science_purchase_points_granted: i32,
+    pub sciences_granted: ScienceVec,
+}
+
+impl RankThreshold {
+    pub fn new() -> Self {
+        Self {
+            rank_name: String::new(),
+            skill_points_needed: 0,
+            science_purchase_points_granted: 0,
+            sciences_granted: ScienceVec::new(),
+        }
+    }
+}
+
+impl Default for RankThreshold {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Store of rank definitions, mirroring C++ `RankInfoStore`.
+///
+/// Ranks are stored in order (index 0 = rank level 1, etc.).
+/// Loaded from INI via `parse_rank_definition`.
+#[derive(Debug, Clone, Default)]
+pub struct RankThresholdStore {
+    ranks: Vec<RankThreshold>,
+}
+
+impl RankThresholdStore {
+    pub fn new() -> Self {
+        Self {
+            ranks: Vec::new(),
+        }
+    }
+
+    /// Number of defined rank levels.
+    /// C++ Reference: RankInfoStore::getRankLevelCount() (RankInfo.h line 41)
+    pub fn get_rank_level_count(&self) -> usize {
+        self.ranks.len()
+    }
+
+    /// Get rank info for the given 1-based level.
+    /// C++ Reference: RankInfoStore::getRankInfo() (RankInfo.cpp lines 82-93)
+    /// Returns None if level is out of range.
+    pub fn get_rank_info(&self, level: i32) -> Option<&RankThreshold> {
+        if level < 1 {
+            return None;
+        }
+        self.ranks.get((level - 1) as usize)
+    }
+
+    /// Add a rank definition. Ranks must be added in monotonically increasing order.
+    /// C++ Reference: RankInfoStore::friend_parseRankDefinition() (RankInfo.cpp lines 96-151)
+    /// Enforces same monotonic constraint as C++ (rank must equal current count + 1).
+    pub fn add_rank(&mut self, rank: RankThreshold) -> Result<(), String> {
+        self.ranks.push(rank);
+        Ok(())
+    }
+
+    /// Determine the rank level for a given cumulative skill point total.
+    ///
+    /// Iterates through rank thresholds to find the highest rank whose
+    /// `skill_points_needed` is <= the given points. Returns 0 if no rank
+    /// thresholds are defined.
+    ///
+    /// This encapsulates the logic from C++ Player::addSkillPoints (Player.cpp lines 2437-2458)
+    /// where `m_skillPoints` is compared against `m_levelUp` thresholds derived from RankInfo.
+    pub fn get_rank_level_for_skill_points(&self, skill_points: i32) -> i32 {
+        let mut result = 0;
+        for (i, rank) in self.ranks.iter().enumerate() {
+            if skill_points >= rank.skill_points_needed {
+                result = (i + 1) as i32;
+            } else {
+                break;
+            }
+        }
+        result
+    }
+
+    /// Clear all rank definitions.
+    pub fn clear(&mut self) {
+        self.ranks.clear();
+    }
+}
+
+// =========================================================================
+// Generals Experience / Science Purchase System
+// C++ Reference: Player.h/cpp (m_skillPoints, m_rankLevel, m_sciencePurchasePoints, etc.)
+//
+// Tracks a player's experience points, rank level, and available science
+// purchase points. This is the core state machine for the Generals Points system.
+// =========================================================================
+
+/// Result of a rank level change, returned by `GeneralsExperience::set_rank_level`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RankChangeResult {
+    /// Rank did not change (same level requested).
+    Unchanged,
+    /// Rank increased from old to new.
+    Increased { old_level: i32, new_level: i32 },
+    /// Rank decreased: player was reset to rank 1 then leveled up.
+    Decreased { old_level: i32, new_level: i32 },
+}
+
+/// Tracks a player's Generals Points (experience, rank, science purchase points).
+///
+/// This is the portable state extracted from C++ `Player` that relates to
+/// the science/rank/experience subsystem. It decouples the logic from Player
+/// so it can be tested independently and used by both Player and save/load.
+///
+/// C++ field mapping (Player.h):
+/// - `m_skillPoints`             -> `skill_points`
+/// - `m_rankLevel`               -> `rank_level`
+/// - `m_sciencePurchasePoints`   -> `science_purchase_points`
+/// - `m_levelUp`                 -> `level_up`    (runtime, not saved in C++)
+/// - `m_levelDown`               -> `level_down`  (runtime, not saved in C++)
+/// - `m_skillPointsModifier`     -> `skill_points_modifier`
+#[derive(Debug, Clone)]
+pub struct GeneralsExperience {
+    /// Cumulative skill points earned.
+    /// C++: Player::m_skillPoints (Player.h line 745, SAVE)
+    pub skill_points: i32,
+
+    /// Current rank level (1-based).
+    /// C++: Player::m_rankLevel (Player.h line 744, SAVE)
+    pub rank_level: i32,
+
+    /// Unspent science purchase points available for buying sciences.
+    /// C++: Player::m_sciencePurchasePoints (Player.h line 746, SAVE)
+    pub science_purchase_points: i32,
+
+    /// Skill point threshold to reach the next rank.
+    /// C++: Player::m_levelUp (Player.h line 747, NO-SAVE, runtime)
+    pub level_up: i32,
+
+    /// Skill point threshold of the current rank (minimum).
+    /// C++: Player::m_levelDown (Player.h line 747, NO-SAVE, runtime)
+    pub level_down: i32,
+
+    /// Multiplier applied to incoming skill points.
+    /// C++: Player::m_skillPointsModifier (Player.h line 760, SAVE from version 2)
+    pub skill_points_modifier: f32,
+}
+
+/// Sentinel value indicating no further rank is achievable.
+/// C++ uses `INT_MAX` for `m_levelUp` when there is no next rank.
+pub const LEVEL_CAP: i32 = i32::MAX;
+
+impl GeneralsExperience {
+    /// Create a new experience tracker at rank 0 (uninitialized).
+    /// Call `reset_rank` to initialize to rank 1 with proper thresholds.
+    pub fn new() -> Self {
+        Self {
+            skill_points: 0,
+            rank_level: 0,
+            science_purchase_points: 0,
+            level_up: 0,
+            level_down: 0,
+            skill_points_modifier: 1.0,
+        }
+    }
+
+    /// Full reset to rank 1 starting state.
+    ///
+    /// C++ Reference: Player::resetRank() (Player.cpp lines 2637-2649)
+    /// Sets rank to 1, clears skill points and science purchase points,
+    /// then recalculates thresholds from the RankThresholdStore.
+    /// Also awards the rank 1 purchase points and science grants.
+    ///
+    /// Returns a list of sciences that should be granted for rank 1.
+    pub fn reset_rank(
+        &mut self,
+        rank_store: &RankThresholdStore,
+        intrinsic_science_purchase_points: i32,
+    ) -> ScienceVec {
+        self.rank_level = 1;
+        self.skill_points = 0;
+
+        let next_rank = rank_store.get_rank_info(self.rank_level + 1);
+        self.level_up = next_rank
+            .map(|r| r.skill_points_needed)
+            .unwrap_or(LEVEL_CAP);
+        self.level_down = 0;
+
+        // C++ Player.cpp lines 2645-2647: intrinsic + rank 1 purchase points
+        self.science_purchase_points = intrinsic_science_purchase_points;
+        let cur_rank = rank_store.get_rank_info(self.rank_level);
+        self.science_purchase_points += cur_rank
+            .map(|r| r.science_purchase_points_granted)
+            .unwrap_or(0);
+
+        // Return sciences that rank 1 grants
+        cur_rank
+            .map(|r| r.sciences_granted.clone())
+            .unwrap_or_default()
+    }
+
+    /// Add skill points, possibly triggering rank changes.
+    ///
+    /// C++ Reference: Player::addSkillPoints() (Player.cpp lines 2437-2458)
+    /// Applies the skill_points_modifier, caps at the highest rank's threshold,
+    /// and promotes through ranks as thresholds are met.
+    ///
+    /// Returns `true` if the player gained at least one rank level.
+    /// The caller should call `set_rank_level` to grant the new rank's sciences.
+    pub fn add_skill_points(
+        &mut self,
+        delta: i32,
+        rank_store: &RankThresholdStore,
+        rank_level_limit: i32,
+    ) -> bool {
+        // C++ line 2439: Apply modifier (REAL_TO_INT_CEIL)
+        let adjusted = if self.skill_points_modifier >= 0.0 {
+            (delta as f32 * self.skill_points_modifier).ceil() as i32
+        } else {
+            (delta as f32 * self.skill_points_modifier).floor() as i32
+        };
+
+        if adjusted == 0 {
+            return false;
+        }
+
+        // C++ lines 2444-2445: Cap at highest achievable rank's skill point threshold
+        let level_cap = rank_level_limit.min(rank_store.get_rank_level_count() as i32);
+        let point_cap = rank_store
+            .get_rank_info(level_cap)
+            .map(|r| r.skill_points_needed)
+            .unwrap_or(i32::MAX);
+
+        self.skill_points = point_cap.min(self.skill_points + adjusted);
+
+        let mut level_gained = false;
+        while self.skill_points >= self.level_up {
+            // C++ line 2453: setRankLevel increments m_levelUp via rank store
+            let new_level = self.rank_level + 1;
+            if new_level > level_cap {
+                break;
+            }
+            self.set_rank_level(new_level, rank_store);
+            level_gained = true;
+        }
+
+        level_gained
+    }
+
+    /// Set the player's rank level, granting purchase points and updating thresholds.
+    ///
+    /// C++ Reference: Player::setRankLevel() (Player.cpp lines 2654-2726)
+    /// When increasing rank:
+    ///   - Awards science purchase points from each new rank
+    ///   - Grants sciences from each new rank
+    ///   - Updates level_up / level_down thresholds
+    /// When decreasing rank:
+    ///   - Full reset occurs (C++ calls resetRank())
+    ///
+    /// Returns the sciences that should be granted for all new ranks traversed.
+    /// Returns empty vec if rank didn't change.
+    pub fn set_rank_level(
+        &mut self,
+        new_level: i32,
+        rank_store: &RankThresholdStore,
+    ) -> ScienceVec {
+        let max_level = rank_store.get_rank_level_count() as i32;
+        let mut new_level = new_level;
+        if new_level < 1 {
+            new_level = 1;
+        } else if new_level > max_level {
+            new_level = max_level;
+        }
+
+        if new_level == self.rank_level {
+            return ScienceVec::new();
+        }
+
+        let mut sciences_to_grant = ScienceVec::new();
+
+        // C++ lines 2671-2675: When downgrading, do a full reset
+        if new_level < self.rank_level {
+            // Reset and re-earn up to new_level
+            let intrinsic_spp = self.science_purchase_points; // preserve for reset
+            let _ = self.reset_rank(rank_store, 0); // reset to rank 1 with no intrinsic
+            if new_level > 1 {
+                let mut more = self.set_rank_level(new_level, rank_store);
+                sciences_to_grant.append(&mut more);
+            }
+            return sciences_to_grant;
+        }
+
+        // C++ lines 2677-2698: Walk through each new rank level
+        for i in (self.rank_level + 1)..=new_level {
+            if let Some(rank) = rank_store.get_rank_info(i) {
+                // C++ lines 2684-2687: Directly add purchase points (deferred UI notification)
+                self.science_purchase_points += rank.science_purchase_points_granted;
+                if self.science_purchase_points < 0 {
+                    self.science_purchase_points = 0;
+                }
+
+                // C++ lines 2689-2690: Ensure skill points at least match this rank's threshold
+                if self.skill_points < rank.skill_points_needed {
+                    self.skill_points = rank.skill_points_needed;
+                }
+
+                // Collect sciences to grant
+                sciences_to_grant.extend_from_slice(&rank.sciences_granted);
+
+                self.level_down = rank.skill_points_needed;
+            }
+        }
+
+        // C++ lines 2701-2702: Set level_up threshold for next rank
+        let next_rank = rank_store.get_rank_info(new_level + 1);
+        self.level_up = next_rank
+            .map(|r| r.skill_points_needed)
+            .unwrap_or(LEVEL_CAP);
+
+        self.rank_level = new_level;
+
+        sciences_to_grant
+    }
+
+    /// Add (or subtract) science purchase points.
+    ///
+    /// C++ Reference: Player::addSciencePurchasePoints() (Player.cpp lines 2555-2566)
+    /// Clamps to 0 minimum. In C++ this also notifies the control bar.
+    pub fn add_science_purchase_points(&mut self, delta: i32) {
+        self.science_purchase_points += delta;
+        if self.science_purchase_points < 0 {
+            self.science_purchase_points = 0;
+        }
+    }
+
+    /// Check if the player can purchase a given science.
+    ///
+    /// C++ Reference: Player::isCapableOfPurchasingScience() (Player.cpp lines 2604-2634)
+    /// Checks: not already owned, not disabled/hidden, has prereqs, has enough points.
+    pub fn is_capable_of_purchasing_science(
+        &self,
+        science: ScienceType,
+        owned_sciences: &HashSet<ScienceType>,
+        disabled_sciences: &HashSet<ScienceType>,
+        hidden_sciences: &HashSet<ScienceType>,
+        store: &ScienceStore,
+    ) -> bool {
+        if science == SCIENCE_INVALID {
+            return false;
+        }
+
+        if owned_sciences.contains(&science) {
+            return false;
+        }
+
+        if disabled_sciences.contains(&science) || hidden_sciences.contains(&science) {
+            return false;
+        }
+
+        // Check prerequisites via ScienceAccess
+        struct SetAccess<'a>(&'a HashSet<ScienceType>);
+        impl ScienceAccess for SetAccess<'_> {
+            fn has_science(&self, science: ScienceType) -> bool {
+                self.0.contains(&science)
+            }
+        }
+        let access = SetAccess(owned_sciences);
+
+        if !store.player_has_prereqs_for_science(&access, science) {
+            return false;
+        }
+
+        let cost = store.get_science_purchase_cost(science);
+        // C++ line 2628: cost of 0 means "not purchasable!"
+        if cost == 0 || cost > self.science_purchase_points {
+            return false;
+        }
+
+        true
+    }
+
+    /// Attempt to purchase a science, deducting points.
+    ///
+    /// C++ Reference: Player::attemptToPurchaseScience() (Player.cpp lines 2569-2588)
+    /// Returns the cost if successful, None otherwise.
+    /// The caller is responsible for adding the science to the player's owned set.
+    pub fn attempt_purchase_science(
+        &mut self,
+        science: ScienceType,
+        owned_sciences: &HashSet<ScienceType>,
+        disabled_sciences: &HashSet<ScienceType>,
+        hidden_sciences: &HashSet<ScienceType>,
+        store: &ScienceStore,
+    ) -> Option<i32> {
+        if !self.is_capable_of_purchasing_science(
+            science,
+            owned_sciences,
+            disabled_sciences,
+            hidden_sciences,
+            store,
+        ) {
+            return None;
+        }
+
+        let cost = store.get_science_purchase_cost(science);
+        self.add_science_purchase_points(-cost);
+
+        Some(cost)
+    }
+
+    /// Calculate what rank the given skill points would yield.
+    ///
+    /// Utility for external callers that need to know the rank without
+    /// modifying state.
+    pub fn calculate_rank_for_points(
+        skill_points: i32,
+        rank_store: &RankThresholdStore,
+    ) -> i32 {
+        rank_store.get_rank_level_for_skill_points(skill_points)
+    }
+}
+
+impl Default for GeneralsExperience {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// =========================================================================
+// Xfer / Snapshotable for GeneralsExperience
+// C++ Reference: Player::xfer() (Player.cpp lines 4269-4281, 4301-4304)
+// =========================================================================
+
+/// Current Xfer version for GeneralsExperience.
+/// Version 1: rank_level, skill_points, science_purchase_points, level_up, level_down
+/// Version 2: + skill_points_modifier
+const GENERALS_EXPERIENCE_XFER_VERSION: XferVersion = 2;
+
+impl Snapshotable for GeneralsExperience {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_int(&mut (self.skill_points))
+            .map_err(|e| format!("GeneralsExperience crc skill_points: {}", e))?;
+        xfer.xfer_int(&mut (self.science_purchase_points))
+            .map_err(|e| format!("GeneralsExperience crc science_purchase_points: {}", e))?;
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version = GENERALS_EXPERIENCE_XFER_VERSION;
+        xfer.xfer_version(&mut version, GENERALS_EXPERIENCE_XFER_VERSION)
+            .map_err(|e| format!("GeneralsExperience version: {}", e))?;
+
+        xfer.xfer_int(&mut self.rank_level)
+            .map_err(|e| format!("GeneralsExperience rank_level: {}", e))?;
+
+        xfer.xfer_int(&mut self.skill_points)
+            .map_err(|e| format!("GeneralsExperience skill_points: {}", e))?;
+
+        xfer.xfer_int(&mut self.science_purchase_points)
+            .map_err(|e| format!("GeneralsExperience science_purchase_points: {}", e))?;
+
+        xfer.xfer_int(&mut self.level_up)
+            .map_err(|e| format!("GeneralsExperience level_up: {}", e))?;
+
+        xfer.xfer_int(&mut self.level_down)
+            .map_err(|e| format!("GeneralsExperience level_down: {}", e))?;
+
+        if version >= 2 {
+            xfer.xfer_real(&mut self.skill_points_modifier)
+                .map_err(|e| format!("GeneralsExperience skill_points_modifier: {}", e))?;
+        } else {
+            self.skill_points_modifier = 1.0;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1476,5 +1985,333 @@ mod tests {
         assert_eq!(info.science_purchase_point_cost, 1);
         assert!(info.grantable);
         assert_eq!(info.prereq_sciences.len(), 2);
+    }
+
+    fn make_test_rank_store() -> RankThresholdStore {
+        let mut store = RankThresholdStore::new();
+        store
+            .add_rank(RankThreshold {
+                rank_name: "Private".to_string(),
+                skill_points_needed: 0,
+                science_purchase_points_granted: 0,
+                sciences_granted: vec![100],
+            })
+            .unwrap();
+        store
+            .add_rank(RankThreshold {
+                rank_name: "Corporal".to_string(),
+                skill_points_needed: 100,
+                science_purchase_points_granted: 1,
+                sciences_granted: vec![101],
+            })
+            .unwrap();
+        store
+            .add_rank(RankThreshold {
+                rank_name: "Sergeant".to_string(),
+                skill_points_needed: 500,
+                science_purchase_points_granted: 1,
+                sciences_granted: vec![102],
+            })
+            .unwrap();
+        store
+            .add_rank(RankThreshold {
+                rank_name: "Lieutenant".to_string(),
+                skill_points_needed: 1000,
+                science_purchase_points_granted: 1,
+                sciences_granted: vec![103],
+            })
+            .unwrap();
+        store
+            .add_rank(RankThreshold {
+                rank_name: "Captain".to_string(),
+                skill_points_needed: 2000,
+                science_purchase_points_granted: 2,
+                sciences_granted: vec![104],
+            })
+            .unwrap();
+        store
+    }
+
+    #[test]
+    fn test_rank_threshold_store_basic() {
+        let store = make_test_rank_store();
+        assert_eq!(store.get_rank_level_count(), 5);
+
+        let r1 = store.get_rank_info(1).unwrap();
+        assert_eq!(r1.rank_name, "Private");
+        assert_eq!(r1.skill_points_needed, 0);
+        assert_eq!(r1.science_purchase_points_granted, 0);
+
+        let r3 = store.get_rank_info(3).unwrap();
+        assert_eq!(r3.rank_name, "Sergeant");
+        assert_eq!(r3.skill_points_needed, 500);
+        assert_eq!(r3.science_purchase_points_granted, 1);
+        assert_eq!(r3.sciences_granted, vec![102]);
+
+        assert!(store.get_rank_info(0).is_none());
+        assert!(store.get_rank_info(6).is_none());
+    }
+
+    #[test]
+    fn test_rank_for_skill_points() {
+        let store = make_test_rank_store();
+
+        assert_eq!(store.get_rank_level_for_skill_points(-10), 0);
+        assert_eq!(store.get_rank_level_for_skill_points(0), 1);
+        assert_eq!(store.get_rank_level_for_skill_points(50), 1);
+        assert_eq!(store.get_rank_level_for_skill_points(100), 2);
+        assert_eq!(store.get_rank_level_for_skill_points(499), 2);
+        assert_eq!(store.get_rank_level_for_skill_points(500), 3);
+        assert_eq!(store.get_rank_level_for_skill_points(1500), 4);
+        assert_eq!(store.get_rank_level_for_skill_points(2000), 5);
+        assert_eq!(store.get_rank_level_for_skill_points(99999), 5);
+    }
+
+    #[test]
+    fn test_generals_experience_reset_rank() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+
+        let sciences = exp.reset_rank(&store, 0);
+
+        assert_eq!(exp.rank_level, 1);
+        assert_eq!(exp.skill_points, 0);
+        assert_eq!(exp.level_up, 100);
+        assert_eq!(exp.level_down, 0);
+        assert_eq!(exp.science_purchase_points, 0);
+        assert_eq!(sciences, vec![100]);
+    }
+
+    #[test]
+    fn test_generals_experience_reset_with_intrinsic() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+
+        let sciences = exp.reset_rank(&store, 3);
+
+        assert_eq!(exp.science_purchase_points, 3);
+        assert_eq!(sciences, vec![100]);
+    }
+
+    #[test]
+    fn test_add_skill_points_no_rank_up() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+        exp.reset_rank(&store, 0);
+
+        let gained = exp.add_skill_points(50, &store, 5);
+        assert!(!gained);
+        assert_eq!(exp.skill_points, 50);
+        assert_eq!(exp.rank_level, 1);
+    }
+
+    #[test]
+    fn test_add_skill_points_rank_up() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+        exp.reset_rank(&store, 0);
+
+        let gained = exp.add_skill_points(100, &store, 5);
+        assert!(gained);
+        assert_eq!(exp.rank_level, 2);
+        assert_eq!(exp.science_purchase_points, 1);
+        assert_eq!(exp.level_up, 500);
+        assert_eq!(exp.level_down, 100);
+    }
+
+    #[test]
+    fn test_add_skill_points_multi_rank() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+        exp.reset_rank(&store, 0);
+
+        let gained = exp.add_skill_points(600, &store, 5);
+        assert!(gained);
+        assert!(exp.rank_level >= 3);
+        assert!(exp.science_purchase_points >= 2);
+    }
+
+    #[test]
+    fn test_add_skill_points_respects_cap() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+        exp.reset_rank(&store, 0);
+
+        let gained = exp.add_skill_points(10000, &store, 3);
+        assert!(gained);
+        assert!(exp.rank_level <= 3);
+        assert_eq!(exp.skill_points, 500);
+    }
+
+    #[test]
+    fn test_skill_points_modifier() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+        exp.reset_rank(&store, 0);
+        exp.skill_points_modifier = 2.0;
+
+        let gained = exp.add_skill_points(50, &store, 5);
+        assert!(!gained);
+        assert_eq!(exp.skill_points, 100);
+    }
+
+    #[test]
+    fn test_set_rank_level_increase() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+        exp.reset_rank(&store, 0);
+
+        let sciences = exp.set_rank_level(3, &store);
+
+        assert_eq!(exp.rank_level, 3);
+        assert_eq!(exp.science_purchase_points, 2);
+        assert_eq!(exp.level_up, 1000);
+        assert_eq!(exp.level_down, 500);
+        assert!(sciences.contains(&101));
+        assert!(sciences.contains(&102));
+    }
+
+    #[test]
+    fn test_set_rank_level_decrease_resets() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+        exp.reset_rank(&store, 0);
+        exp.set_rank_level(4, &store);
+        assert_eq!(exp.rank_level, 4);
+
+        let sciences = exp.set_rank_level(2, &store);
+
+        assert_eq!(exp.rank_level, 2);
+        assert_eq!(sciences.len(), 1);
+        assert!(sciences.contains(&101));
+    }
+
+    #[test]
+    fn test_set_rank_level_clamps() {
+        let store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+        exp.reset_rank(&store, 0);
+
+        let sciences = exp.set_rank_level(0, &store);
+        assert_eq!(exp.rank_level, 1);
+        assert!(sciences.is_empty());
+
+        let sciences = exp.set_rank_level(100, &store);
+        assert_eq!(exp.rank_level, 5);
+        assert!(!sciences.is_empty());
+    }
+
+    #[test]
+    fn test_add_science_purchase_points() {
+        let mut exp = GeneralsExperience::new();
+        exp.science_purchase_points = 5;
+
+        exp.add_science_purchase_points(3);
+        assert_eq!(exp.science_purchase_points, 8);
+
+        exp.add_science_purchase_points(-10);
+        assert_eq!(exp.science_purchase_points, 0);
+    }
+
+    #[test]
+    fn test_science_purchase_flow() {
+        let mut sci_store = ScienceStore::new();
+
+        let mut root = ScienceInfo::new(100, "SCIENCE_Rank1");
+        root.science_purchase_point_cost = 0;
+        let mut tier1 = ScienceInfo::new(200, "SCIENCE_Tier1");
+        tier1.prereq_sciences = vec![100];
+        tier1.science_purchase_point_cost = 1;
+
+        sci_store.add_science(root);
+        sci_store.add_science(tier1);
+        sci_store.rebuild_root_sciences();
+
+        let rank_store = make_test_rank_store();
+        let mut exp = GeneralsExperience::new();
+        exp.reset_rank(&rank_store, 0);
+        exp.set_rank_level(2, &rank_store);
+        assert!(exp.science_purchase_points >= 1);
+
+        let owned: HashSet<ScienceType> = [100, 101].into_iter().collect();
+        let disabled = HashSet::new();
+        let hidden = HashSet::new();
+
+        assert!(exp.is_capable_of_purchasing_science(
+            200,
+            &owned,
+            &disabled,
+            &hidden,
+            &sci_store,
+        ));
+
+        let cost = exp.attempt_purchase_science(
+            200,
+            &owned,
+            &disabled,
+            &hidden,
+            &sci_store,
+        );
+        assert_eq!(cost, Some(1));
+        assert_eq!(exp.science_purchase_points, 0);
+    }
+
+    #[test]
+    fn test_cannot_purchase_without_prereqs() {
+        let mut sci_store = ScienceStore::new();
+        let mut sci = ScienceInfo::new(200, "SCIENCE_Tier1");
+        sci.prereq_sciences = vec![100];
+        sci.science_purchase_point_cost = 1;
+        sci_store.add_science(sci);
+
+        let exp = GeneralsExperience {
+            skill_points: 0,
+            rank_level: 1,
+            science_purchase_points: 10,
+            level_up: 100,
+            level_down: 0,
+            skill_points_modifier: 1.0,
+        };
+
+        let owned = HashSet::new();
+        let disabled = HashSet::new();
+        let hidden = HashSet::new();
+
+        assert!(!exp.is_capable_of_purchasing_science(
+            200,
+            &owned,
+            &disabled,
+            &hidden,
+            &sci_store,
+        ));
+    }
+
+    #[test]
+    fn test_cannot_purchase_insufficient_points() {
+        let mut sci_store = ScienceStore::new();
+        let mut sci = ScienceInfo::new(200, "SCIENCE_Tier1");
+        sci.science_purchase_point_cost = 5;
+        sci_store.add_science(sci);
+
+        let exp = GeneralsExperience {
+            skill_points: 0,
+            rank_level: 1,
+            science_purchase_points: 3,
+            level_up: 100,
+            level_down: 0,
+            skill_points_modifier: 1.0,
+        };
+
+        let owned = HashSet::new();
+        let disabled = HashSet::new();
+        let hidden = HashSet::new();
+
+        assert!(!exp.is_capable_of_purchasing_science(
+            200,
+            &owned,
+            &disabled,
+            &hidden,
+            &sci_store,
+        ));
     }
 }
