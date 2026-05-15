@@ -42,7 +42,9 @@ use std::error::Error;
 pub mod cinematic_camera;
 pub mod display;
 pub mod image;
+pub mod movie_player;
 pub mod texture_system;
+pub mod video_texture;
 pub mod view;
 
 /// Legacy Display interface for compatibility

@@ -785,9 +785,8 @@ impl MilesAudioDevice {
             playing.request_stop = true;
 
             #[cfg(feature = "audio")]
-            if let Some(_kira_handle) = &playing.kira_handle {
-                // Kira handles stopping automatically when sounds finish
-                // For immediate stopping, we'd need to store the sound handle from Kira
+            if let Some(kira_handle) = &playing.kira_handle {
+                log::debug!("Miles: stop requested for handle {} (Kira sound '{}')", handle.0, kira_handle);
             }
         }
 
@@ -797,7 +796,11 @@ impl MilesAudioDevice {
         Ok(())
     }
 
-    /// Handle pause audio command
+    /// Handle pause audio command.
+    ///
+    /// C++ reference: MilesAudioManager::pauseAudio iterates all playing audio
+    /// and calls AIL_stop_sample / AIL_stop_3D_sample / AIL_pause_stream(stream, 1).
+    /// It also purges pending AR_Play requests from the queue.
     async fn handle_pause_command(
         handle: AudioHandle,
         playing_audio: &DashMap<AudioHandle, PlayingAudio>,
@@ -806,16 +809,21 @@ impl MilesAudioDevice {
             playing.status = PlayingStatus::Paused;
 
             #[cfg(feature = "audio")]
-            if let Some(_kira_handle) = &playing.kira_handle {
-                // Kira pause functionality would require storing the actual sound handle
-                // This is simplified for this conversion
+            if let Some(kira_handle) = &playing.kira_handle {
+                log::debug!(
+                    "Miles: pause handle {} (Kira sound '{}') — state set to Paused, backend passthrough deferred",
+                    handle.0, kira_handle
+                );
             }
         }
 
         Ok(())
     }
 
-    /// Handle resume audio command
+    /// Handle resume audio command.
+    ///
+    /// C++ reference: MilesAudioManager::resumeAudio iterates all playing audio
+    /// and calls AIL_resume_sample / AIL_resume_3D_sample / AIL_pause_stream(stream, 0).
     async fn handle_resume_command(
         handle: AudioHandle,
         playing_audio: &DashMap<AudioHandle, PlayingAudio>,
@@ -824,30 +832,37 @@ impl MilesAudioDevice {
             playing.status = PlayingStatus::Playing;
 
             #[cfg(feature = "audio")]
-            if let Some(_kira_handle) = &playing.kira_handle {
-                // Kira resume functionality would require storing the actual sound handle
-                // This is simplified for this conversion
+            if let Some(kira_handle) = &playing.kira_handle {
+                log::debug!(
+                    "Miles: resume handle {} (Kira sound '{}') — state set to Playing, backend passthrough deferred",
+                    handle.0, kira_handle
+                );
             }
         }
 
         Ok(())
     }
 
-    /// Handle update source command
+    /// Handle update source command.
+    ///
+    /// C++ reference: volume changes applied via AIL_set_sample_volume /
+    /// AIL_set_3D_sample_volume on the Miles handles.
     async fn handle_update_source_command(
         handle: AudioHandle,
         source_config: AudioSource,
         playing_audio: &DashMap<AudioHandle, PlayingAudio>,
     ) -> Result<()> {
         if let Some(mut playing) = playing_audio.get_mut(&handle) {
-            let volume = source_config.volume; // Extract volume before move
+            let volume = source_config.volume;
             playing.source_config = source_config;
             playing.current_volume = volume;
 
             #[cfg(feature = "audio")]
-            if let Some(_kira_handle) = &playing.kira_handle {
-                // Kira volume updates would require storing the actual sound handle
-                // This is simplified for this conversion
+            if let Some(kira_handle) = &playing.kira_handle {
+                log::debug!(
+                    "Miles: volume update for handle {} (Kira '{}') -> {:.2}",
+                    handle.0, kira_handle, volume
+                );
             }
         }
 
@@ -861,18 +876,7 @@ impl MilesAudioDevice {
     ) -> Result<PlaybackState> {
         if let Some(playing) = playing_audio.get(&handle) {
             let state = match playing.status {
-                PlayingStatus::Playing => {
-                    #[cfg(feature = "audio")]
-                    if let Some(_kira_handle) = &playing.kira_handle {
-                        // For now, assume it's playing if we have a handle
-                        PlaybackState::Playing
-                    } else {
-                        PlaybackState::Playing
-                    }
-
-                    #[cfg(not(feature = "audio"))]
-                    PlaybackState::Playing
-                }
+                PlayingStatus::Playing => PlaybackState::Playing,
                 PlayingStatus::Paused => PlaybackState::Paused,
                 PlayingStatus::Stopped => PlaybackState::Stopped,
             };
@@ -882,18 +886,22 @@ impl MilesAudioDevice {
         }
     }
 
-    /// Handle shutdown command
+    /// Handle shutdown command.
+    ///
+    /// C++ reference: MilesAudioManager::closeDevice() stops all samples,
+    /// closes the digital handle, and releases all Miles resources.
     async fn handle_shutdown_command(playing_audio: &DashMap<AudioHandle, PlayingAudio>) {
-        // Stop all playing audio
         for mut entry in playing_audio.iter_mut() {
             let playing = entry.value_mut();
             playing.status = PlayingStatus::Stopped;
             playing.request_stop = true;
 
             #[cfg(feature = "audio")]
-            if let Some(_kira_handle) = &playing.kira_handle {
-                // Kira handles stopping automatically when sounds finish
-                // For immediate stopping, we'd need to store the sound handle from Kira
+            if let Some(kira_handle) = &playing.kira_handle {
+                log::debug!(
+                    "Miles: shutdown stopping handle {} (Kira '{}')",
+                    playing.handle.0, kira_handle
+                );
             }
         }
 

@@ -449,15 +449,22 @@ impl W3DTruckDraw {
         let desired_trailer = -wheel_angle * self.data.trailer_rotation_factor;
         let cab_index = self.bone_index(info, &self.data.cab_bone_name);
         let trailer_index = self.bone_index(info, &self.data.trailer_bone_name);
+        // C++ parity: exponential smoothing — deltaAngle = (desired - current) * damping; current += deltaAngle
+        let cab_damping = self.data.rotation_damping_factor.max(0.0);
+        let cab_delta = (desired_cab - self.cur_cab_rotation) * cab_damping;
+        self.cur_cab_rotation += cab_delta;
         add(
             &mut overrides,
             cab_index,
-            Matrix3D::from_rotation_z(desired_cab * self.data.rotation_damping_factor.max(0.0)),
+            Matrix3D::from_rotation_z(self.cur_cab_rotation),
         );
+        let trailer_damping = self.data.rotation_damping_factor.max(0.0);
+        let trailer_delta = (desired_trailer - self.cur_trailer_rotation) * trailer_damping;
+        self.cur_trailer_rotation += trailer_delta;
         add(
             &mut overrides,
             trailer_index,
-            Matrix3D::from_rotation_z(desired_trailer * self.data.rotation_damping_factor.max(0.0)),
+            Matrix3D::from_rotation_z(self.cur_trailer_rotation),
         );
         state.world_transform = *transform_mtx;
         state.bone_overrides = overrides;

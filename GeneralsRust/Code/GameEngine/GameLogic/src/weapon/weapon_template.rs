@@ -2508,7 +2508,7 @@ impl WeaponTemplate {
                 // --- Radius damage affects / collide ---
                 "RadiusDamageAffects" => {
                     // C++: INI::parseBitString32 with TheWeaponAffectsMaskNames
-                    // Pipe-separated list of flag names
+                    // Pipe-separated list of flag names. C++ continues parsing after unknown tokens.
                     for token in trimmed.split('|') {
                         let t = token.trim().to_ascii_uppercase();
                         match t.as_str() {
@@ -2526,7 +2526,12 @@ impl WeaponTemplate {
                             "NOT_AIRBORNE" => self
                                 .affects_mask
                                 .insert(WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE),
-                            _ => {}
+                            _ => {
+                                log::warn!(
+                                    "WeaponTemplate '{}': unrecognized RadiusDamageAffects token '{}', skipping",
+                                    self.name, t
+                                );
+                            }
                         }
                     }
                 }
@@ -2549,7 +2554,12 @@ impl WeaponTemplate {
                             "BALLISTIC_MISSILES" => self
                                 .collide_mask
                                 .insert(WeaponCollideMask::BALLISTIC_MISSILES),
-                            _ => {}
+                            _ => {
+                                log::warn!(
+                                    "WeaponTemplate '{}': unrecognized ProjectileCollidesWith token '{}', skipping",
+                                    self.name, t
+                                );
+                            }
                         }
                     }
                 }
@@ -2557,8 +2567,13 @@ impl WeaponTemplate {
                 // --- WeaponBonus sub-block handled separately ---
                 "WeaponBonus" | "ScatterTarget" => {}
 
-                // Everything else: silently skip
-                _ => {}
+                // Everything else: log and skip (C++ silently skips unknown INI keys)
+                _ => {
+                    log::debug!(
+                        "WeaponTemplate '{}': unrecognized INI field '{}', skipping",
+                        self.name, key
+                    );
+                }
             }
         }
     }

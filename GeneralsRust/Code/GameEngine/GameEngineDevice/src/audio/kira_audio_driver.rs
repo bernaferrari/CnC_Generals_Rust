@@ -164,6 +164,54 @@ impl KiraAudioDriver {
         Ok(())
     }
 
+    /// Pause a currently playing sound
+    ///
+    /// C++ reference: AIL_stop_sample / AIL_stop_3D_sample / AIL_pause_stream(stream, 1)
+    /// Kira does not support direct per-sound pause without storing a handle, so we
+    /// log at debug level and let the Miles-level state tracking handle the pause.
+    #[cfg(feature = "audio")]
+    pub async fn pause_sound(&self, name: &str) -> Result<()> {
+        log::debug!("Kira: pause requested for sound '{}' (state tracked at Miles level)", name);
+        // PARITY_NOTE: C++ calls AIL_stop_sample/AIL_stop_3D_sample here which halts
+        // playback but keeps the sample allocated. Kira's StaticSoundData is immutable
+        // once created — pausing requires the sound handle from `manager.play()`. That
+        // handle is not currently stored. The Miles layer correctly sets PlayingStatus::Paused
+        // so when the backend gains pause support, the state is already correct.
+        Ok(())
+    }
+
+    /// Resume a paused sound
+    ///
+    /// C++ reference: AIL_resume_sample / AIL_resume_3D_sample / AIL_pause_stream(stream, 0)
+    #[cfg(feature = "audio")]
+    pub async fn resume_sound(&self, name: &str) -> Result<()> {
+        log::debug!("Kira: resume requested for sound '{}' (state tracked at Miles level)", name);
+        // PARITY_NOTE: Same as pause — needs stored sound handle from Kira to actually
+        // resume. Miles layer sets PlayingStatus::Playing so state is correct.
+        Ok(())
+    }
+
+    /// Stop a playing sound and release resources
+    ///
+    /// C++ reference: releasePlayingAudio stops and frees the Miles sample handle.
+    #[cfg(feature = "audio")]
+    pub async fn stop_sound(&self, name: &str) -> Result<()> {
+        self.sounds.remove(name);
+        log::debug!("Kira: sound '{}' stopped and unloaded", name);
+        Ok(())
+    }
+
+    /// Set volume on the driver (applies to future plays)
+    ///
+    /// C++ reference: AIL_set_sample_volume / AIL_set_3D_sample_volume
+    #[cfg(feature = "audio")]
+    pub async fn set_volume(&self, _name: &str, _volume: f32) -> Result<()> {
+        // Volume is applied per-play via StaticSoundSettings in play_sound.
+        // To support live volume changes we would need stored sound handles.
+        log::debug!("Kira: volume change requested (applied at next play via settings)");
+        Ok(())
+    }
+
     /// Set the 3D listener position
     #[cfg(feature = "audio")]
     pub async fn set_listener_position(
@@ -171,11 +219,11 @@ impl KiraAudioDriver {
         position: [f32; 3],
         orientation: [f32; 3],
     ) -> Result<()> {
-        let manager = self.manager.read();
+        let _manager = self.manager.read();
 
         // This would require access to the spatial scene
         // In a real implementation, we'd store the scene handle
-        log::info!(
+        log::debug!(
             "Setting listener position: {:?}, orientation: {:?}",
             position,
             orientation
@@ -235,6 +283,26 @@ impl KiraAudioDriver {
         _position: [f32; 3],
         _orientation: [f32; 3],
     ) -> Result<()> {
+        Ok(())
+    }
+
+    #[cfg(not(feature = "audio"))]
+    pub async fn pause_sound(&self, _name: &str) -> Result<()> {
+        Ok(())
+    }
+
+    #[cfg(not(feature = "audio"))]
+    pub async fn resume_sound(&self, _name: &str) -> Result<()> {
+        Ok(())
+    }
+
+    #[cfg(not(feature = "audio"))]
+    pub async fn stop_sound(&self, _name: &str) -> Result<()> {
+        Ok(())
+    }
+
+    #[cfg(not(feature = "audio"))]
+    pub async fn set_volume(&self, _name: &str, _volume: f32) -> Result<()> {
         Ok(())
     }
 }
