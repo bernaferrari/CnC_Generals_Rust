@@ -198,15 +198,24 @@ impl Default for SegLineFlags {
 
 /// Vertex format for segment line rendering
 /// C++ Reference: Matches VertexFormatXYZDUV1 structure
+/// Uses padding fields to satisfy bytemuck::Pod (no implicit padding)
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
 pub struct SegLineVertex {
-    pub position: Vec3,
-    pub diffuse: Vec4,
-    pub uv: Vec2,
+    pub position: [f32; 4], // XYZ + pad to align to Vec4 (C++ VertexFormatXYZDUV1)
+    pub diffuse: [f32; 4],
+    pub uv: [f32; 2],
 }
 
 impl SegLineVertex {
+    pub fn new(position: Vec3, diffuse: Vec4, uv: Vec2) -> Self {
+        Self {
+            position: [position.x, position.y, position.z, 0.0],
+            diffuse: diffuse.into(),
+            uv: uv.into(),
+        }
+    }
+
     const ATTRIBUTES: &'static [VertexAttribute] = &[
         VertexAttribute {
             offset: 0,
@@ -214,12 +223,12 @@ impl SegLineVertex {
             format: VertexFormat::Float32x3,
         },
         VertexAttribute {
-            offset: std::mem::size_of::<Vec3>() as u64,
+            offset: std::mem::size_of::<[f32; 4]>() as u64,
             shader_location: 1,
             format: VertexFormat::Float32x4,
         },
         VertexAttribute {
-            offset: (std::mem::size_of::<Vec3>() + std::mem::size_of::<Vec4>()) as u64,
+            offset: (std::mem::size_of::<[f32; 4]>() + std::mem::size_of::<[f32; 4]>()) as u64,
             shader_location: 2,
             format: VertexFormat::Float32x2,
         },
@@ -1308,23 +1317,23 @@ impl SegLineRenderer {
         let top = top_dir * top_dir.dot(points[0]);
         let bottom = bottom_dir * bottom_dir.dot(points[0]);
 
-        vertices.push(SegLineVertex {
-            position: top,
-            diffuse: intersections[1][0].rgba,
-            uv: Vec2::new(
+        vertices.push(SegLineVertex::new(
+            top,
+            intersections[1][0].rgba,
+            Vec2::new(
                 u_values[0] + uv_offset.x,
                 intersections[1][0].tex_v + uv_offset.y,
             ),
-        });
+        ));
 
-        vertices.push(SegLineVertex {
-            position: bottom,
-            diffuse: intersections[1][1].rgba,
-            uv: Vec2::new(
+        vertices.push(SegLineVertex::new(
+            bottom,
+            intersections[1][1].rgba,
+            Vec2::new(
                 u_values[1] + uv_offset.x,
                 intersections[1][1].tex_v + uv_offset.y,
             ),
-        });
+        ));
 
         let mut last_top_vidx = 0u16;
         let mut last_bottom_vidx = 1u16;
@@ -1374,23 +1383,23 @@ impl SegLineRenderer {
                 let top = top_dir * top_dir.dot(points[pidx]);
                 let bottom = bottom_dir * bottom_dir.dot(points[pidx]);
 
-                vertices.push(SegLineVertex {
-                    position: top,
-                    diffuse: intersections[top_int_idx][0].rgba,
-                    uv: Vec2::new(
+                vertices.push(SegLineVertex::new(
+                    top,
+                    intersections[top_int_idx][0].rgba,
+                    Vec2::new(
                         u_values[0] + uv_offset.x,
                         intersections[top_int_idx][0].tex_v + uv_offset.y,
                     ),
-                });
+                ));
 
-                vertices.push(SegLineVertex {
-                    position: bottom,
-                    diffuse: intersections[bottom_int_idx][1].rgba,
-                    uv: Vec2::new(
+                vertices.push(SegLineVertex::new(
+                    bottom,
+                    intersections[bottom_int_idx][1].rgba,
+                    Vec2::new(
                         u_values[1] + uv_offset.x,
                         intersections[bottom_int_idx][1].tex_v + uv_offset.y,
                     ),
-                });
+                ));
             } else if residual_top > 1 {
                 // Advance bottom only - fan
                 indices.push(TriIndex {
@@ -1412,14 +1421,14 @@ impl SegLineRenderer {
                 let bottom_dir = intersections[bottom_int_idx][1].direction;
                 let bottom = bottom_dir * bottom_dir.dot(points[pidx]);
 
-                vertices.push(SegLineVertex {
-                    position: bottom,
-                    diffuse: intersections[bottom_int_idx][1].rgba,
-                    uv: Vec2::new(
+                vertices.push(SegLineVertex::new(
+                    bottom,
+                    intersections[bottom_int_idx][1].rgba,
+                    Vec2::new(
                         u_values[1] + uv_offset.x,
                         intersections[bottom_int_idx][1].tex_v + uv_offset.y,
                     ),
-                });
+                ));
             } else {
                 // Advance top only - fan
                 indices.push(TriIndex {
@@ -1441,14 +1450,14 @@ impl SegLineRenderer {
                 let top_dir = intersections[top_int_idx][0].direction;
                 let top = top_dir * top_dir.dot(points[pidx]);
 
-                vertices.push(SegLineVertex {
-                    position: top,
-                    diffuse: intersections[top_int_idx][0].rgba,
-                    uv: Vec2::new(
+                vertices.push(SegLineVertex::new(
+                    top,
+                    intersections[top_int_idx][0].rgba,
+                    Vec2::new(
                         u_values[0] + uv_offset.x,
                         intersections[top_int_idx][0].tex_v + uv_offset.y,
                     ),
-                });
+                ));
             }
 
             // Skip points
@@ -1665,7 +1674,7 @@ impl SegLineGpuPipeline {
         queue.write_texture(
             white_texture.as_image_copy(),
             &[255u8, 255, 255, 255],
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4),
                 rows_per_image: Some(1),
@@ -1723,7 +1732,7 @@ impl SegLineGpuPipeline {
         &self,
         view_proj: &Mat4,
     ) -> (Buffer, wgpu::BindGroup) {
-        let bytes: [[f32; 4]; 4] = (*view_proj).into();
+        let bytes: [[f32; 4]; 4] = (*view_proj).to_cols_array_2d();
         let uniform_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {

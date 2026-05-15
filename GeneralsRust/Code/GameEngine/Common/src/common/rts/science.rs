@@ -1439,7 +1439,7 @@ impl GeneralsExperience {
         // C++ lines 2671-2675: When downgrading, do a full reset
         if new_level < self.rank_level {
             // Reset and re-earn up to new_level
-            let intrinsic_spp = self.science_purchase_points; // preserve for reset
+            let _intrinsic_spp = self.science_purchase_points;
             let _ = self.reset_rank(rank_store, 0); // reset to rank 1 with no intrinsic
             if new_level > 1 {
                 let mut more = self.set_rank_level(new_level, rank_store);
@@ -1596,9 +1596,11 @@ const GENERALS_EXPERIENCE_XFER_VERSION: XferVersion = 2;
 
 impl Snapshotable for GeneralsExperience {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        xfer.xfer_int(&mut (self.skill_points))
+        let mut sp = self.skill_points;
+        let mut spp = self.science_purchase_points;
+        xfer.xfer_int(&mut sp)
             .map_err(|e| format!("GeneralsExperience crc skill_points: {}", e))?;
-        xfer.xfer_int(&mut (self.science_purchase_points))
+        xfer.xfer_int(&mut spp)
             .map_err(|e| format!("GeneralsExperience crc science_purchase_points: {}", e))?;
         Ok(())
     }

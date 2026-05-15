@@ -1446,8 +1446,8 @@ impl GameEngine {
 
         false
     }
+}
 
-    fn service_os(&mut self) { (matching C++ TheGameEngine)
 static GAME_ENGINE_INSTANCE: OnceLock<Mutex<Option<Arc<Mutex<GameEngine>>>>> = OnceLock::new();
 
 fn game_engine_slot() -> &'static Mutex<Option<Arc<Mutex<GameEngine>>>> {
