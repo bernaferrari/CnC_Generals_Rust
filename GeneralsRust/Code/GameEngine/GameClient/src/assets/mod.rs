@@ -28,6 +28,7 @@ use tokio::sync::{Notify, RwLock as AsyncRwLock, Semaphore};
 
 use crate::audio::*;
 use crate::display::texture_system::{TextureHandle, TextureManager};
+use crate::drawable::drawable_draw_pipeline::{with_drawable_pipeline, MeshVertex};
 use crate::effects::particle_renderer::with_particle_renderer;
 use crate::system::SubsystemInterface;
 use image::GenericImageView;
@@ -898,6 +899,7 @@ impl AssetManager {
                     .await
                 {
                     Ok(model) => {
+                        self.register_drawable_model_meshes(&model, &asset_data.descriptor.path);
                         self.queue_texture_loads_for_model(&model, &asset_data.descriptor.path)
                             .await;
                     }
@@ -926,6 +928,63 @@ impl AssetManager {
             }
             _ => {}
         }
+    }
+
+    fn register_drawable_model_meshes(&self, model: &w3d_loader::W3DModel, path: &Path) {
+        if model.meshes.is_empty() {
+            return;
+        }
+
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        for mesh in &model.meshes {
+            let Ok(base_vertex) = u32::try_from(vertices.len()) else {
+                log::warn!(
+                    "Drawable mesh registration skipped for {}: vertex count exceeds u32 indices",
+                    path.display()
+                );
+                return;
+            };
+            vertices.extend(mesh.vertices.iter().map(|vertex| MeshVertex {
+                position: [vertex.position.x, vertex.position.y, vertex.position.z],
+                normal: [vertex.normal.x, vertex.normal.y, vertex.normal.z],
+                uv: [vertex.uv.x, vertex.uv.y],
+            }));
+            for index in &mesh.indices {
+                let Some(adjusted_index) = base_vertex.checked_add(*index) else {
+                    log::warn!(
+                        "Drawable mesh registration skipped for {}: index exceeds u32 range",
+                        path.display()
+                    );
+                    return;
+                };
+                indices.push(adjusted_index);
+            }
+        }
+
+        if vertices.is_empty() || indices.is_empty() {
+            return;
+        }
+
+        let mut model_keys = Vec::new();
+        if !model.name.is_empty() {
+            model_keys.push(model.name.as_str());
+        }
+        if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
+            model_keys.push(file_name);
+        }
+        if let Some(file_stem) = path.file_stem().and_then(|name| name.to_str()) {
+            model_keys.push(file_stem);
+        }
+
+        with_drawable_pipeline(|pipeline| {
+            if let Ok(mut guard) = pipeline.lock() {
+                for key in model_keys {
+                    guard.insert_mesh(key, vertices.clone(), indices.clone());
+                }
+            }
+        });
     }
 
     async fn queue_texture_loads_for_model(&self, model: &w3d_loader::W3DModel, path: &Path) {
