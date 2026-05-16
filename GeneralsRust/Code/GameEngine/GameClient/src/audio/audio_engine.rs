@@ -277,11 +277,20 @@ struct PlayingInstance {
     kira_handle: StaticSoundHandle,
     info: AudioEventInfo,
     volume: f32,
+    fade: Option<AudioFade>,
     position: Option<AudioPosition>,
     start_time: Instant,
     is_looping: bool,
     category: AudioCategory,
     sound_type_flags: u32,
+}
+
+struct AudioFade {
+    started_at: Instant,
+    duration: Duration,
+    from_volume: f32,
+    to_volume: f32,
+    stop_when_done: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -424,7 +433,7 @@ impl AudioEngine {
             None => return 0,
         };
 
-        self.play_event_internal(info, position, None, None)
+        self.play_event_internal(info, position, None, None, None)
     }
 
     /// Play an audio event by name attached to an object ID (position will
@@ -440,7 +449,7 @@ impl AudioEngine {
             None => return 0,
         };
 
-        self.play_event_internal(info, None, Some(object_id), player_index)
+        self.play_event_internal(info, None, Some(object_id), player_index, None)
     }
 
     /// Stop a playing audio event.
@@ -448,9 +457,10 @@ impl AudioEngine {
         if handle == 0 {
             return;
         }
-        if let Some(_instance) = self.instances.remove(&handle) {
-            // kira handle is dropped / stopped via kira's own mechanism.
-            // If we need explicit stop, we need to store the kira mutable handle.
+        if let Some(mut instance) = self.instances.remove(&handle) {
+            if let Err(err) = instance.kira_handle.stop(Tween::default()) {
+                log::debug!("AudioEngine: stop failed for handle {}: {}", handle, err);
+            }
         }
     }
 
@@ -515,6 +525,13 @@ impl AudioEngine {
     pub fn set_audio_volume(&mut self, handle: AudioHandle, volume: f32) -> bool {
         if let Some(inst) = self.instances.get_mut(&handle) {
             inst.volume = volume.clamp(0.0, 1.0);
+            inst.fade = None;
+            if let Err(err) = inst
+                .kira_handle
+                .set_volume(Volume::Amplitude(inst.volume as f64), Tween::default())
+            {
+                log::debug!("AudioEngine: volume update failed for handle {}: {}", handle, err);
+            }
             true
         } else {
             false
@@ -530,7 +547,6 @@ impl AudioEngine {
     /// Registers a temporary `AudioEventInfo` in the `Music` category and
     /// plays it.  Returns the handle of the playing track, or `0` on failure.
     pub fn play_music_track(&mut self, track_name: &str, fade_in: f32) -> AudioHandle {
-        let _ = fade_in; // PARITY_NOTE: fade handled when real backend is connected
         let info = AudioEventInfo {
             name: track_name.to_string(),
             filename: track_name.to_string(),
@@ -539,14 +555,13 @@ impl AudioEngine {
             volume: self.effective_music_volume(),
             ..AudioEventInfo::default()
         };
-        self.play_event_internal(info, None, None, None)
+        self.play_event_internal(info, None, None, None, Some(fade_in.max(0.0)))
     }
 
     /// Stop the currently playing music track with an optional fade-out.
     ///
     /// Stops all active instances in the `Music` category.
     pub fn stop_music(&mut self, fade_out: f32) {
-        let _ = fade_out; // PARITY_NOTE: fade handled when real backend is connected
         let music_handles: Vec<AudioHandle> = self
             .instances
             .iter()
@@ -558,8 +573,23 @@ impl AudioEngine {
                 }
             })
             .collect();
-        for h in music_handles {
-            self.stop_event(h);
+        if fade_out > 0.0 {
+            let duration = Duration::from_secs_f32(fade_out);
+            for h in music_handles {
+                if let Some(inst) = self.instances.get_mut(&h) {
+                    inst.fade = Some(AudioFade {
+                        started_at: Instant::now(),
+                        duration,
+                        from_volume: inst.volume,
+                        to_volume: 0.0,
+                        stop_when_done: true,
+                    });
+                }
+            }
+        } else {
+            for h in music_handles {
+                self.stop_event(h);
+            }
         }
     }
 
@@ -580,7 +610,7 @@ impl AudioEngine {
             priority: AudioPriority::High,
             ..AudioEventInfo::default()
         };
-        self.play_event_internal(info, None, None, None)
+        self.play_event_internal(info, None, None, None, None)
     }
 
     // -----------------------------------------------------------------------
@@ -736,6 +766,7 @@ impl AudioEngine {
         position: Option<AudioPosition>,
         _object_id: Option<u32>,
         _player_index: Option<u32>,
+        fade_in_seconds: Option<f32>,
     ) -> AudioHandle {
         // Check category toggles
         match info.category {
@@ -791,9 +822,13 @@ impl AudioEngine {
             return 0; // effectively inaudible
         }
 
+        let fade_duration = fade_in_seconds.unwrap_or(0.0).max(0.0);
+        let initial_volume = if fade_duration > 0.0 { 0.0 } else { effective_vol };
+
         // Attempt playback via kira.
+        let is_looping = info.loop_count == 0 || info.loop_count > 1;
         let kira_handle =
-            match self.play_file_with_kira(&full_path, effective_vol, info.loop_count > 1) {
+            match self.play_file_with_kira(&full_path, initial_volume, is_looping) {
                 Ok(h) => h,
                 Err(e) => {
                     log::warn!("AudioEngine: failed to play {:?}: {}", full_path, e);
@@ -808,10 +843,21 @@ impl AudioEngine {
                 handle,
                 kira_handle,
                 info: info.clone(),
-                volume: effective_vol,
+                volume: initial_volume,
+                fade: if fade_duration > 0.0 {
+                    Some(AudioFade {
+                        started_at: Instant::now(),
+                        duration: Duration::from_secs_f32(fade_duration),
+                        from_volume: initial_volume,
+                        to_volume: effective_vol,
+                        stop_when_done: false,
+                    })
+                } else {
+                    None
+                },
                 position,
                 start_time: Instant::now(),
-                is_looping: info.loop_count > 1,
+                is_looping,
                 category: info.category,
                 sound_type_flags: info.sound_type_flags,
             },
@@ -908,6 +954,43 @@ impl SubsystemInterface for AudioEngine {
     }
 
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut remove_after_fade = Vec::new();
+        for inst in self.instances.values_mut() {
+            let Some(fade) = inst.fade.as_ref() else {
+                continue;
+            };
+            let duration = fade.duration.as_secs_f32();
+            let progress = if duration <= f32::EPSILON {
+                1.0
+            } else {
+                (fade.started_at.elapsed().as_secs_f32() / duration).clamp(0.0, 1.0)
+            };
+            let new_volume = fade.from_volume + (fade.to_volume - fade.from_volume) * progress;
+            inst.volume = new_volume;
+            if let Err(err) = inst
+                .kira_handle
+                .set_volume(Volume::Amplitude(new_volume.max(0.0) as f64), Tween::default())
+            {
+                log::debug!(
+                    "AudioEngine: fade volume update failed for handle {}: {}",
+                    inst.handle,
+                    err
+                );
+            }
+
+            if progress >= 1.0 {
+                let stop_when_done = fade.stop_when_done;
+                inst.fade = None;
+                if stop_when_done {
+                    remove_after_fade.push(inst.handle);
+                }
+            }
+        }
+
+        for handle in remove_after_fade {
+            self.stop_event(handle);
+        }
+
         // Garbage-collect finished instances.
         let finished: Vec<AudioHandle> = self
             .instances
