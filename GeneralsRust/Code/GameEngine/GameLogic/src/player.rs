@@ -3680,13 +3680,39 @@ impl Snapshotable for Player {
             }
         }
 
-        // Build list info (present bool + optional snapshot)
+        // Build list info (count + snapshots)
         {
-            let has_build_list = self.build_list.is_some();
-            let mut has_bl = has_build_list;
-            xfer.xfer_bool(&mut has_bl).map_err(|e| e.to_string())?;
-            if xfer.get_xfer_mode() == XferMode::Load {
-                self.build_list = None; // build list reconstruction deferred
+            let mut build_list_count: UnsignedShort = 0;
+            if xfer.get_xfer_mode() == XferMode::Save {
+                let mut entry = self.build_list.as_deref();
+                while let Some(info) = entry {
+                    build_list_count = build_list_count.saturating_add(1);
+                    entry = info.get_next();
+                }
+            }
+
+            xfer.xfer_unsigned_short(&mut build_list_count)
+                .map_err(|e| e.to_string())?;
+
+            if xfer.get_xfer_mode() == XferMode::Save {
+                let mut entry = self.build_list.as_deref_mut();
+                while let Some(info) = entry {
+                    info.xfer(xfer);
+                    entry = info.get_next_mut();
+                }
+            } else {
+                let mut entries = Vec::with_capacity(build_list_count as usize);
+                for _ in 0..build_list_count {
+                    let mut info = BuildListInfo::new();
+                    info.xfer(xfer);
+                    entries.push(info);
+                }
+
+                self.build_list = None;
+                for mut info in entries.into_iter().rev() {
+                    info.set_next_build_list_boxed(self.build_list.take());
+                    self.build_list = Some(Box::new(info));
+                }
             }
         }
 
