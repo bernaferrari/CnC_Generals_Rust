@@ -391,6 +391,10 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         self.inner.get_build_time()
     }
 
+    fn get_buildable_status(&self) -> Option<game_engine::common::thing::BuildableStatus> {
+        Some(self.inner.get_buildable())
+    }
+
     fn get_threat_value(&self) -> UnsignedInt {
         self.inner.get_threat_value() as UnsignedInt
     }
