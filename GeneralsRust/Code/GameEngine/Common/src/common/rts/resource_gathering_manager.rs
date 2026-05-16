@@ -276,23 +276,23 @@ impl Snapshotable for ResourceGatheringManager {
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|err| err.to_string())?;
 
-        let mut centers: Vec<u32> = match xfer.get_xfer_mode() {
-            XferMode::Load => Vec::new(),
-            _ => self.supply_centers.iter().copied().collect(),
-        };
         let mut warehouses: Vec<u32> = match xfer.get_xfer_mode() {
             XferMode::Load => Vec::new(),
             _ => self.supply_warehouses.iter().copied().collect(),
         };
+        let mut centers: Vec<u32> = match xfer.get_xfer_mode() {
+            XferMode::Load => Vec::new(),
+            _ => self.supply_centers.iter().copied().collect(),
+        };
 
-        xfer.xfer_vec_unsigned_int(&mut centers)
-            .map_err(|err| err.to_string())?;
         xfer.xfer_vec_unsigned_int(&mut warehouses)
+            .map_err(|err| err.to_string())?;
+        xfer.xfer_vec_unsigned_int(&mut centers)
             .map_err(|err| err.to_string())?;
 
         if matches!(xfer.get_xfer_mode(), XferMode::Load) {
-            self.supply_centers = VecDeque::from(centers);
             self.supply_warehouses = VecDeque::from(warehouses);
+            self.supply_centers = VecDeque::from(centers);
         }
 
         Ok(())
