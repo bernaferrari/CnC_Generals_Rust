@@ -1983,7 +1983,7 @@ impl TerrainVisual for TerrainVisualStub {
                 return terrain.get_normal_at(x, y);
             }
         }
-        Ok(Vec3::Y)
+        Ok(Vec3::Z)
     }
 
     fn is_valid_position(&self, x: f32, y: f32) -> bool {
@@ -2077,6 +2077,13 @@ pub fn create_mouse() -> MouseHandle {
 mod tests {
     use super::*;
     use gamelogic::commands::command::CommandType;
+
+    #[test]
+    fn terrain_visual_bridge_fallback_normal_is_z_up_like_cpp_world() {
+        let terrain = TerrainVisualStub::default();
+
+        assert_eq!(terrain.get_normal_at(10.0, 20.0).unwrap(), Vec3::Z);
+    }
 
     #[test]
     fn in_game_ui_reset_clears_transient_state() {
