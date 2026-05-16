@@ -55,6 +55,8 @@ use log::error;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+const WAYPOINT_PATH_LIMIT: usize = 1024;
+
 /// Movement states for units
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MovementState {
@@ -5569,7 +5571,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         let mut visited = std::collections::HashSet::new();
         let mut waypoints = Vec::new();
         let mut current = waypoint.clone();
-        for _ in 0..128 {
+        for _ in 0..=WAYPOINT_PATH_LIMIT {
             if !visited.insert(current.id) {
                 break;
             }
@@ -7852,7 +7854,8 @@ mod tests {
             "Attempting to path immobile unit"
         );
         assert_eq!(
-            ai.request_attack_path(INVALID_ID, &destination).unwrap_err(),
+            ai.request_attack_path(INVALID_ID, &destination)
+                .unwrap_err(),
             "Attempting to path immobile unit"
         );
         assert_eq!(
