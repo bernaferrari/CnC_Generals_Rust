@@ -31,6 +31,8 @@ impl W3DTransform {
     }
 
     pub fn to_matrix(&self) -> W3DMatrix {
-        W3DMatrix::from_scale_rotation_translation(self.scale, self.rotation, self.translation)
+        W3DMatrix::from_translation(self.translation)
+            * self.rotation.into_matrix().into_homogeneous()
+            * W3DMatrix::from_nonuniform_scale(self.scale)
     }
 }
