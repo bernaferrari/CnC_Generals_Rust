@@ -507,6 +507,18 @@ fn cloned_module_data_or_default<TData>(
 where
     TData: ModuleData + Clone + Default + 'static,
 {
+    cloned_module_data_or_else(module_name, module_data, TData::default)
+}
+
+fn cloned_module_data_or_else<TData, F>(
+    module_name: &str,
+    module_data: &Arc<dyn ModuleData>,
+    fallback: F,
+) -> Arc<TData>
+where
+    TData: ModuleData + Clone + 'static,
+    F: FnOnce() -> TData,
+{
     Arc::new(
         module_data
             .as_any()
@@ -514,7 +526,7 @@ where
             .cloned()
             .unwrap_or_else(|| {
                 warn!("{module_name} module data expected; using defaults");
-                TData::default()
+                fallback()
             }),
     )
 }
@@ -3920,20 +3932,16 @@ fn slow_death_behavior_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .as_any()
-        .downcast_ref::<SlowDeathBehaviorModuleData>()
-        .cloned()
-        .unwrap_or_else(|| {
-            warn!("SlowDeathBehavior module data expected; using defaults");
-            SlowDeathBehaviorModuleData::new()
-        });
+    let typed_data = cloned_module_data_or_else::<SlowDeathBehaviorModuleData, _>(
+        "SlowDeathBehavior",
+        &module_data,
+        SlowDeathBehaviorModuleData::new,
+    );
     let object_id = resolve_owner_id(&thing);
     let object = TheGameLogic::find_object_by_id(object_id).unwrap_or_else(|| {
         panic!("SlowDeathBehavior requires owning object {object_id}");
     });
-    let data: Arc<dyn crate::common::ModuleData> = Arc::new(typed_data);
+    let data: Arc<dyn crate::common::ModuleData> = typed_data;
     Box::new(
         SlowDeathBehavior::new(object, data)
             .expect("SlowDeathBehavior failed to initialize from module data"),
@@ -4715,16 +4723,12 @@ fn w3d_tree_draw_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let data = module_data
-        .as_ref()
-        .as_any()
-        .downcast_ref::<W3DTreeDrawModuleData>()
-        .cloned()
-        .unwrap_or_else(|| {
-            warn!("W3DTreeDraw module data expected; using defaults");
-            W3DTreeDrawModuleData::new()
-        });
-    let mut module = W3DTreeDraw::new(data);
+    let data = cloned_module_data_or_else::<W3DTreeDrawModuleData, _>(
+        "W3DTreeDraw",
+        &module_data,
+        W3DTreeDrawModuleData::new,
+    );
+    let mut module = W3DTreeDraw::new(data.as_ref().clone());
     let drawable_id = resolve_drawable_id(&thing);
     if drawable_id != INVALID_ID {
         module.bind_drawable_id(drawable_id);
