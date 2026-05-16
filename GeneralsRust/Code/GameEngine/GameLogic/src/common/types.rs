@@ -5191,14 +5191,14 @@ pub trait WeaponStoreInterface: std::fmt::Debug + Send + Sync {
     }
 
     /// Get a weapon by ID (immutable)
-    fn get_weapon(&self, weapon_id: WeaponId) -> Option<&dyn std::any::Any> {
+    fn get_weapon(&self, weapon_id: WeaponId) -> Option<&crate::weapon::Weapon> {
         // Default implementation returns None
         let _ = weapon_id;
         None
     }
 
     /// Get a mutable weapon by ID
-    fn get_weapon_mut(&mut self, weapon_id: WeaponId) -> Option<&mut dyn std::any::Any> {
+    fn get_weapon_mut(&mut self, weapon_id: WeaponId) -> Option<&mut crate::weapon::Weapon> {
         // Default implementation returns None
         let _ = weapon_id;
         None
