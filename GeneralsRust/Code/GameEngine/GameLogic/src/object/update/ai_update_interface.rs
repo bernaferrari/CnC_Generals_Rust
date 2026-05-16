@@ -1183,7 +1183,10 @@ impl AIUpdateInterface {
         // PARITY_TODO: delegate to pathfinder->chooseBestLocomotorForPosition()
         // once surface-aware locomotor templates are wired. Until then, keep
         // the C++ success/failure contract by selecting an available template
-        // from the current set instead of inventing one.
+        // from the current set instead of inventing one. If no replacement is
+        // available, keep the previous locomotor like C++ does when physics has
+        // slid the object into an invalid cell.
+        let previous_locomotor_tag = self.cur_locomotor_tag;
         self.cur_locomotor_tag = if self
             .module_data
             .locomotor_sets()
@@ -1192,6 +1195,8 @@ impl AIUpdateInterface {
             .unwrap_or(false)
         {
             1
+        } else if previous_locomotor_tag != 0 {
+            previous_locomotor_tag
         } else {
             0
         };
@@ -1913,6 +1918,18 @@ mod tests {
         assert_eq!(ai.get_cur_locomotor_set(), LocomotorSetType::Normal);
         assert_eq!(ai.locomotor_set_tag, 1);
         assert_ne!(ai.cur_locomotor_tag, 0);
+        assert_eq!(ai.get_cur_locomotor_speed(), AI_FAST_AS_POSSIBLE);
+    }
+
+    #[test]
+    fn choose_locomotor_preserves_previous_when_no_current_cell_locomotor_like_cpp() {
+        let mut ai = ai_update();
+        ai.cur_locomotor_set = LocomotorSetType::Wander;
+        ai.cur_locomotor_tag = 77;
+
+        ai.choose_locomotor_from_current_set();
+
+        assert_eq!(ai.cur_locomotor_tag, 77);
         assert_eq!(ai.get_cur_locomotor_speed(), AI_FAST_AS_POSSIBLE);
     }
 
