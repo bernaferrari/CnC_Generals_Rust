@@ -340,7 +340,16 @@ impl SpecialPowerStore {
             return false;
         };
 
-        if !obj_guard.has_special_power_module_for_power(template) {
+        self.can_use_special_power_for_object(&obj_guard, template)
+    }
+
+    /// Object-reference variant used when the caller already owns the object.
+    pub fn can_use_special_power_for_object(
+        &self,
+        obj: &crate::object::Object,
+        template: &SpecialPowerTemplate,
+    ) -> bool {
+        if !obj.has_special_power_module_for_power(template) {
             return false;
         }
 
@@ -349,7 +358,7 @@ impl SpecialPowerStore {
             return true;
         }
 
-        let Some(player) = obj_guard.get_controlling_player() else {
+        let Some(player) = obj.get_controlling_player() else {
             return false;
         };
         let Ok(player_guard) = player.read() else {

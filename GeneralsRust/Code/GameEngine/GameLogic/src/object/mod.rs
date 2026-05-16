@@ -10519,7 +10519,26 @@ impl Object {
         waypoint: &crate::object::special_power_module::Waypoint,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
     ) -> Result<(), String> {
+        self.do_special_power_using_waypoints_forced(
+            special_power_name,
+            waypoint,
+            command_options,
+            false,
+        )
+    }
+
+    pub fn do_special_power_using_waypoints_forced(
+        &self,
+        special_power_name: &str,
+        waypoint: &crate::object::special_power_module::Waypoint,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+        forced: bool,
+    ) -> Result<(), String> {
         if self.is_disabled() {
+            return Ok(());
+        }
+
+        if !self.can_dispatch_special_power(special_power_name, forced) {
             return Ok(());
         }
 
@@ -11426,6 +11445,21 @@ impl Object {
     // C++ Reference: Object.cpp doSpecialPower, doSpecialPowerAtObject, doSpecialPowerAtLocation
     // ========================================================================
 
+    fn can_dispatch_special_power(&self, special_power_template_name: &str, forced: bool) -> bool {
+        if forced {
+            return true;
+        }
+
+        let Some(store) = crate::object::special_power_template::get_special_power_store() else {
+            return false;
+        };
+        let Some(template) = store.find_special_power_template(special_power_template_name) else {
+            return false;
+        };
+
+        store.can_use_special_power_for_object(self, template)
+    }
+
     pub fn do_special_power(
         &self,
         special_power_template_name: &str,
@@ -11436,8 +11470,8 @@ impl Object {
             return;
         }
 
-        if !forced {
-            // TODO: full implementation pending TheSpecialPowerStore::canUseSpecialPower
+        if !self.can_dispatch_special_power(special_power_template_name, forced) {
+            return;
         }
 
         self.with_special_power_module_mut_by_name(special_power_template_name, |sp_module| {
@@ -11456,8 +11490,8 @@ impl Object {
             return;
         }
 
-        if !forced {
-            // TODO: full implementation pending TheSpecialPowerStore::canUseSpecialPower
+        if !self.can_dispatch_special_power(special_power_template_name, forced) {
+            return;
         }
 
         self.with_special_power_module_mut_by_name(special_power_template_name, |sp_module| {
@@ -11476,8 +11510,8 @@ impl Object {
             return;
         }
 
-        if !forced {
-            // TODO: full implementation pending TheSpecialPowerStore::canUseSpecialPower
+        if !self.can_dispatch_special_power(special_power_template_name, forced) {
+            return;
         }
 
         self.with_special_power_module_mut_by_name(special_power_template_name, |sp_module| {
@@ -12913,6 +12947,28 @@ mod tests {
             garrison_obj.get_radar_priority(),
             RadarPriorityType::Structure
         );
+    }
+
+    #[test]
+    fn object_special_power_dispatch_uses_store_gate_for_non_forced_calls() {
+        let _guard = test_state_lock();
+        crate::object::special_power_template::get_special_power_store_mut()
+            .expect("special power store")
+            .reset();
+
+        let obj = Object::new_test(77_001, 100.0);
+        assert!(obj.can_dispatch_special_power("MissingPower", true));
+        assert!(!obj.can_dispatch_special_power("MissingPower", false));
+
+        crate::object::special_power_template::get_special_power_store_mut()
+            .expect("special power store")
+            .add_template(SpecialPowerTemplate::new("NeedsModule".to_string(), 77));
+
+        assert!(!obj.can_dispatch_special_power("NeedsModule", false));
+
+        crate::object::special_power_template::get_special_power_store_mut()
+            .expect("special power store")
+            .reset();
     }
 
     #[test]
