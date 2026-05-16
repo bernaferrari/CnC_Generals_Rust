@@ -63,20 +63,48 @@ impl Vector4 {
     pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
         Self { x, y, z, w }
     }
+
+    fn normalized_plane(self) -> Self {
+        let length = (self.x * self.x + self.y * self.y + self.z * self.z).sqrt();
+        if length <= f32::EPSILON {
+            return self;
+        }
+        Self {
+            x: self.x / length,
+            y: self.y / length,
+            z: self.z / length,
+            w: self.w / length,
+        }
+    }
 }
 
 impl Frustum {
     pub fn from_view_projection(view_projection: &Matrix4) -> Self {
-        // Extract frustum planes from view-projection matrix
-        // This is a simplified version - in practice you'd extract all 6 planes
+        let m = &view_projection.elements;
+        let row = |idx: usize| [m[idx][0], m[idx][1], m[idx][2], m[idx][3]];
+        let combine = |a: [f32; 4], b: [f32; 4], sign: f32| {
+            Vector4::new(
+                a[0] + sign * b[0],
+                a[1] + sign * b[1],
+                a[2] + sign * b[2],
+                a[3] + sign * b[3],
+            )
+            .normalized_plane()
+        };
+
+        let row0 = row(0);
+        let row1 = row(1);
+        let row2 = row(2);
+        let row3 = row(3);
+
         Self {
             planes: [
-                Vector4::new(-1.0, 0.0, 0.0, 1.0),   // left
-                Vector4::new(1.0, 0.0, 0.0, 1.0),    // right
-                Vector4::new(0.0, -1.0, 0.0, 1.0),   // bottom
-                Vector4::new(0.0, 1.0, 0.0, 1.0),    // top
-                Vector4::new(0.0, 0.0, -1.0, 0.1),   // near
-                Vector4::new(0.0, 0.0, 1.0, 1000.0), // far
+                combine(row3, row0, 1.0),  // left
+                combine(row3, row0, -1.0), // right
+                combine(row3, row1, 1.0),  // bottom
+                combine(row3, row1, -1.0), // top
+                combine(row3, row2, 1.0),  // near
+                combine(row3, row2, -1.0), // far
             ],
         }
     }
@@ -537,7 +565,9 @@ impl DrawableManager {
         }
 
         // Phase 2+3: Flush the bridge and record wgpu draw calls
-        if let Some(pipeline_arc) = super::drawable_draw_pipeline::with_drawable_pipeline(|p| Arc::clone(p)) {
+        if let Some(pipeline_arc) =
+            super::drawable_draw_pipeline::with_drawable_pipeline(|p| Arc::clone(p))
+        {
             let mut pipeline = pipeline_arc.lock().unwrap_or_else(|e| e.into_inner());
             pipeline.update_camera(view_matrix, proj_matrix);
             pipeline.record_draw(pass);
@@ -594,8 +624,7 @@ impl DrawableManager {
         for (&id, entry) in &self.drawables {
             let needs_second = {
                 let look = entry.drawable.get_stealth_look();
-                look == StealthLook::VisibleDetected
-                    || look == StealthLook::VisibleFriendlyDetected
+                look == StealthLook::VisibleDetected || look == StealthLook::VisibleFriendlyDetected
             };
             if needs_second && entry.drawable.is_visible() {
                 second_pass_list.push((id, entry.distance_to_camera));
@@ -607,9 +636,7 @@ impl DrawableManager {
         }
 
         // Phase 2: Sort back-to-front (farthest first) for correct alpha blending.
-        second_pass_list.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal)
-        });
+        second_pass_list.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(Ordering::Equal));
 
         // Phase 3: Submit alpha-blended draws.
         self.current_render_pass = Some(RenderPass::SecondMaterial);
@@ -652,9 +679,7 @@ impl DrawableManager {
 
                 // C++ parity: only cast shadows if the drawable is both visible
                 // and has the SHADOWS status flag set.
-                if !drawable.is_visible()
-                    || !drawable.get_status().has(DrawableStatus::SHADOWS)
-                {
+                if !drawable.is_visible() || !drawable.get_status().has(DrawableStatus::SHADOWS) {
                     continue;
                 }
 
@@ -852,6 +877,13 @@ pub fn with_drawable_manager_ref<R>(f: impl FnOnce(&DrawableManager) -> R) -> R 
 mod tests {
     use super::*;
 
+    fn assert_close(actual: f32, expected: f32) {
+        assert!(
+            (actual - expected).abs() < 0.0001,
+            "expected {expected}, got {actual}"
+        );
+    }
+
     #[test]
     fn test_drawable_manager_creation() {
         let manager = DrawableManager::new();
@@ -966,6 +998,29 @@ mod tests {
         // Test points inside and outside frustum
         assert!(frustum.contains_sphere(Vector3::zero(), 1.0));
         assert!(!frustum.contains_sphere(Vector3::new(1000.0, 1000.0, 1000.0), 1.0));
+    }
+
+    #[test]
+    fn test_frustum_extracts_normalized_identity_planes() {
+        let frustum = Frustum::from_view_projection(&Matrix4::identity());
+
+        assert_close(frustum.planes[0].x, 1.0);
+        assert_close(frustum.planes[0].w, 1.0);
+        assert_close(frustum.planes[1].x, -1.0);
+        assert_close(frustum.planes[1].w, 1.0);
+        assert_close(frustum.planes[4].z, 1.0);
+        assert_close(frustum.planes[4].w, 1.0);
+        assert_close(frustum.planes[5].z, -1.0);
+        assert_close(frustum.planes[5].w, 1.0);
+    }
+
+    #[test]
+    fn test_frustum_uses_view_projection_translation() {
+        let translated = Matrix4::translation(Vector3::new(-10.0, 0.0, 0.0));
+        let frustum = Frustum::from_view_projection(&translated);
+
+        assert!(frustum.contains_sphere(Vector3::new(10.0, 0.0, 0.0), 0.5));
+        assert!(!frustum.contains_sphere(Vector3::new(0.0, 0.0, 0.0), 0.5));
     }
 
     #[test]
