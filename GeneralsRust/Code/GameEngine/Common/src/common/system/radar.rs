@@ -648,7 +648,7 @@ impl RadarSystem {
 
         // Check for queued terrain refresh
         if let Some(refresh_frame) = self.queue_terrain_refresh_frame {
-            if current_frame - refresh_frame > RADAR_QUEUE_TERRAIN_REFRESH_DELAY {
+            if current_frame.saturating_sub(refresh_frame) > RADAR_QUEUE_TERRAIN_REFRESH_DELAY {
                 self.refresh_terrain();
             }
         }
@@ -1911,6 +1911,24 @@ mod tests {
         // Update past expiration (1 second = 30 frames)
         radar.update(35);
         assert_eq!(radar.get_active_events().len(), 0);
+    }
+
+    #[test]
+    fn queued_terrain_refresh_ignores_earlier_frame_without_underflow() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+        radar.refresh_terrain();
+        assert!(!radar.is_terrain_dirty());
+
+        radar.update(100);
+        radar.queue_terrain_refresh();
+        radar.update(50);
+
+        assert!(!radar.is_terrain_dirty());
     }
 
     #[test]
