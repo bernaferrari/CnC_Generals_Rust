@@ -234,6 +234,10 @@ fn xfer_terrain_visual_state(
         }
     }
 
+    if version < 3 {
+        return Ok(());
+    }
+
     let mut entries = if xfer.get_xfer_mode() == XferMode::Save {
         let mut trees = terrain.tree_registrations();
         trees.sort_by_key(|entry| entry.drawable_id);
@@ -2144,6 +2148,45 @@ mod tests {
                 0, 0, 0, 0, // client tree/render-object count
             ]
         );
+    }
+
+    #[test]
+    fn terrain_visual_xfer_loads_cpp_v2_without_tree_phase() {
+        let mut terrain = TerrainVisualStub::default();
+        terrain.add_tree_registration(TerrainTreeRegistration {
+            drawable_id: 42,
+            location: Vec3::new(1.0, 2.0, 3.0),
+            scale: 1.0,
+            angle: 0.0,
+            random_scale_amount: 0.0,
+            module_data: W3DTreeDrawModuleData::new(),
+        });
+
+        let path = std::env::temp_dir().join(format!(
+            "terrain_visual_xfer_v2_{}_{}.bin",
+            std::process::id(),
+            TheGameLogic::get_frame()
+        ));
+        std::fs::write(
+            &path,
+            [
+                2, // W3DTerrainVisual xfer version before client tree/prop snapshot
+                1, // base TerrainVisual xfer version
+                0, // water grid disabled
+                0, 0, 0, 0, // height-map byte count
+            ],
+        )
+        .unwrap();
+
+        {
+            let mut load = game_engine::System::XferLoad::new();
+            load.open(path.to_string_lossy().into_owned()).unwrap();
+            xfer_terrain_visual_state(&mut terrain, &mut load).unwrap();
+            load.close().unwrap();
+        }
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(terrain.tree_registrations().len(), 1);
     }
 
     #[test]
