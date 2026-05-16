@@ -1041,9 +1041,22 @@ impl AIUpdateInterface {
 
     /// C++ AIUpdateInterface::isPathAvailable – checks if a path exists
     /// between current position and destination.
-    pub fn is_path_available(&self, _destination: Coord3D) -> bool {
-        // PARITY_TODO: delegate to pathfinder once bridge is ported
-        self.path.is_some()
+    pub fn is_path_available(&self, destination: Coord3D) -> bool {
+        // PARITY_TODO: delegate to pathfinder->clientSafeQuickDoesPathExist once
+        // the pathfinder bridge is ported. Until then, answer against the same
+        // information compute_path can actually use instead of treating any
+        // unrelated current path as proof that this destination is reachable.
+        if let Some(path) = self.path.as_ref() {
+            if let Some(close_node) = path.last() {
+                let dx = destination.x - close_node.x;
+                let dy = destination.y - close_node.y;
+                let dz = destination.z - close_node.z;
+                if dx * dx + dy * dy + dz * dz < 0.25 {
+                    return true;
+                }
+            }
+        }
+        self.final_position != Coord3D::ZERO && destination != Coord3D::ZERO
     }
 
     /// C++ AIUpdateInterface::canComputeQuickPath – airborne units can skip
@@ -1806,6 +1819,21 @@ mod tests {
 
         assert_eq!(ai.get_path().as_ref().unwrap().len(), 2);
         assert_eq!(ai.get_path_timestamp(), old_timestamp);
+    }
+
+    #[test]
+    fn is_path_available_checks_requested_destination_not_any_path() {
+        let mut ai = ai_update();
+        ai.path = Some(vec![
+            Coord3D::new(1.0, 2.0, 0.0),
+            Coord3D::new(10.0, 10.0, 0.0),
+        ]);
+
+        assert!(ai.is_path_available(Coord3D::new(10.1, 10.1, 0.0)));
+        assert!(!ai.is_path_available(Coord3D::new(99.0, 99.0, 0.0)));
+
+        ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
+        assert!(ai.is_path_available(Coord3D::new(99.0, 99.0, 0.0)));
     }
 
     #[test]
