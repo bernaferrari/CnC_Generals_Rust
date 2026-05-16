@@ -53,7 +53,22 @@ impl Default for GrantStealthBehaviorModuleData {
 crate::impl_legacy_module_data_with_key_field!(GrantStealthBehaviorModuleData, module_tag_name_key);
 
 impl Snapshotable for GrantStealthBehaviorModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut start_radius = self.start_radius;
+        xfer.xfer_real(&mut start_radius)
+            .map_err(|e| e.to_string())?;
+        let mut final_radius = self.final_radius;
+        xfer.xfer_real(&mut final_radius)
+            .map_err(|e| e.to_string())?;
+        let mut radius_grow_rate = self.radius_grow_rate;
+        xfer.xfer_real(&mut radius_grow_rate)
+            .map_err(|e| e.to_string())?;
+        let mut kind_of = self.kind_of as u32;
+        xfer.xfer_unsigned_int(&mut kind_of)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -435,7 +450,23 @@ impl UpdateModuleInterface for GrantStealthBehavior {
 }
 
 impl Snapshotable for GrantStealthBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("{:?}", e))?;
+
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|e| format!("GrantStealthBehavior update module base state: {}", e))?;
+
+        let mut radius_particle_system_id = self.radius_particle_system_id;
+        xfer.xfer_unsigned_int(&mut radius_particle_system_id)
+            .map_err(|e| format!("GrantStealthBehavior radius_particle_system_id: {:?}", e))?;
+        let mut current_scan_radius = self.current_scan_radius;
+        xfer.xfer_real(&mut current_scan_radius)
+            .map_err(|e| format!("GrantStealthBehavior current_scan_radius: {:?}", e))?;
+
         Ok(())
     }
 

@@ -953,7 +953,67 @@ impl NeutronMissileUpdate {
 }
 
 impl Snapshotable for NeutronMissileUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("NeutronMissileUpdate crc version: {e:?}"))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut state_val = self.state as u32;
+        xfer.xfer_u32(&mut state_val)
+            .map_err(|e| format!("NeutronMissileUpdate crc state: {e:?}"))?;
+
+        let mut target_pos = self.target_pos.clone();
+        xfer.xfer_coord3d(&mut target_pos);
+        let mut intermed_pos = self.intermed_pos.clone();
+        xfer.xfer_coord3d(&mut intermed_pos);
+        let mut launcher_id = self.launcher_id;
+        xfer.xfer_object_id(&mut launcher_id)
+            .map_err(|e| format!("NeutronMissileUpdate crc launcher id: {e:?}"))?;
+
+        let mut wslot_val = self.attach_wslot as u32;
+        xfer.xfer_u32(&mut wslot_val)
+            .map_err(|e| format!("NeutronMissileUpdate crc weapon slot: {e:?}"))?;
+
+        let mut attach_specific_barrel_to_use = self.attach_specific_barrel_to_use;
+        xfer.xfer_i32(&mut attach_specific_barrel_to_use)
+            .map_err(|e| format!("NeutronMissileUpdate crc barrel: {e:?}"))?;
+        let mut accel = self.accel.clone();
+        xfer.xfer_coord3d(&mut accel);
+        let mut vel = self.vel.clone();
+        xfer.xfer_coord3d(&mut vel);
+        let mut state_timestamp = self.state_timestamp;
+        xfer.xfer_u32(&mut state_timestamp)
+            .map_err(|e| format!("NeutronMissileUpdate crc state timestamp: {e:?}"))?;
+        let mut is_launched = self.is_launched;
+        xfer.xfer_bool(&mut is_launched)
+            .map_err(|e| format!("NeutronMissileUpdate crc launched flag: {e:?}"))?;
+        let mut is_armed = self.is_armed;
+        xfer.xfer_bool(&mut is_armed)
+            .map_err(|e| format!("NeutronMissileUpdate crc armed flag: {e:?}"))?;
+        let mut no_turn_dist_left = self.no_turn_dist_left;
+        xfer.xfer_f32(&mut no_turn_dist_left)
+            .map_err(|e| format!("NeutronMissileUpdate crc no-turn distance: {e:?}"))?;
+        let mut reached_intermediate_pos = self.reached_intermediate_pos;
+        xfer.xfer_bool(&mut reached_intermediate_pos)
+            .map_err(|e| format!("NeutronMissileUpdate crc intermediate flag: {e:?}"))?;
+        let mut frame_at_launch = self.frame_at_launch;
+        xfer.xfer_u32(&mut frame_at_launch)
+            .map_err(|e| format!("NeutronMissileUpdate crc launch frame: {e:?}"))?;
+        let mut height_at_launch = self.height_at_launch;
+        xfer.xfer_f32(&mut height_at_launch)
+            .map_err(|e| format!("NeutronMissileUpdate crc launch height: {e:?}"))?;
+        xfer.xfer_radius_decal(&self.delivery_decal);
+
+        let mut name = self
+            .exhaust_sys_tmpl
+            .as_ref()
+            .map(|tmpl| tmpl.to_string())
+            .unwrap_or_default();
+        xfer.xfer_string(&mut name)
+            .map_err(|e| format!("NeutronMissileUpdate crc exhaust template: {e:?}"))?;
+
         Ok(())
     }
 

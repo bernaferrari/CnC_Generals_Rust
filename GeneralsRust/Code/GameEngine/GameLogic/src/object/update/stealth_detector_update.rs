@@ -704,7 +704,13 @@ impl StealthDetectorControlInterface for StealthDetectorUpdate {
 }
 
 impl Snapshotable for StealthDetectorUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut enabled = self
+            .controller
+            .lock()
+            .map(|ctrl| ctrl.is_enabled())
+            .unwrap_or(true);
+        xfer.xfer_bool(&mut enabled).map_err(|e| e.to_string())?;
         Ok(())
     }
 

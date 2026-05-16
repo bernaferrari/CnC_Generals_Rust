@@ -337,8 +337,20 @@ impl BridgeTowerBehavior {
 
     pub fn crc(
         &self,
-        _xfer: &mut dyn EngineXfer,
+        xfer: &mut dyn EngineXfer,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+
+        xfer_behavior_module_base_versions(xfer)?;
+
+        let mut bridge_id = self.bridge_id;
+        xfer.xfer_object_id(&mut bridge_id)?;
+
+        let mut tower_kind = self.tower_type as u32;
+        xfer.xfer_unsigned_int(&mut tower_kind)?;
+
         Ok(())
     }
 

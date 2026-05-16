@@ -856,7 +856,45 @@ impl LandMineInterface for MinefieldBehavior {
 }
 
 impl Snapshotable for MinefieldBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| err.to_string())?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+        let mut virtual_mines_remaining = self.virtual_mines_remaining;
+        xfer.xfer_unsigned_int(&mut virtual_mines_remaining)
+            .map_err(|err| err.to_string())?;
+        let mut next_death_check_frame = self.next_death_check_frame;
+        xfer.xfer_unsigned_int(&mut next_death_check_frame)
+            .map_err(|err| err.to_string())?;
+        let mut scoot_frames_left = self.scoot_frames_left;
+        xfer.xfer_unsigned_int(&mut scoot_frames_left)
+            .map_err(|err| err.to_string())?;
+        let mut scoot_vel = self.scoot_vel;
+        xfer.xfer_coord3d(&mut scoot_vel);
+        let mut scoot_accel = self.scoot_accel;
+        xfer.xfer_coord3d(&mut scoot_accel);
+        let mut ignore_damage = self.ignore_damage;
+        xfer.xfer_bool(&mut ignore_damage)
+            .map_err(|err| err.to_string())?;
+        let mut regenerates = self.regenerates;
+        xfer.xfer_bool(&mut regenerates)
+            .map_err(|err| err.to_string())?;
+        let mut draining = self.draining;
+        xfer.xfer_bool(&mut draining)
+            .map_err(|err| err.to_string())?;
+        let mut max_immunity = MAX_IMMUNITY as u8;
+        xfer.xfer_unsigned_byte(&mut max_immunity)
+            .map_err(|err| err.to_string())?;
+        for immune in &self.immunes {
+            let mut id = immune.id;
+            xfer.xfer_object_id(&mut id)
+                .map_err(|err| err.to_string())?;
+            let mut collide_time = immune.collide_time;
+            xfer.xfer_unsigned_int(&mut collide_time)
+                .map_err(|err| err.to_string())?;
+        }
         Ok(())
     }
 

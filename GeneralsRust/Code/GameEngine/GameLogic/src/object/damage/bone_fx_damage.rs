@@ -114,7 +114,9 @@ impl BehaviorModuleInterface for BoneFXDamage {
 }
 
 impl Snapshotable for BoneFXDamage {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: u32 = 1;
+        xfer.xfer_version_write(CURRENT_VERSION);
         Ok(())
     }
 

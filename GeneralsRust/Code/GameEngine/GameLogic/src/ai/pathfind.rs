@@ -726,7 +726,44 @@ pub struct PathfindCell {
 }
 
 impl Snapshotable for Path {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc Path version: {:?}", e))?;
+        let mut count: i32 = self.nodes.len() as i32;
+        xfer.xfer_int(&mut count)
+            .map_err(|e| format!("Failed to crc Path node count: {:?}", e))?;
+        let mut remaining = count;
+        let mut current = self.tail;
+        while let Some(key) = current {
+            let node = self.nodes.get(key).unwrap();
+            let mut node_id = remaining;
+            xfer.xfer_int(&mut node_id)
+                .map_err(|e| format!("Failed to crc Path node id: {:?}", e))?;
+            let mut pos = *node.get_position();
+            xfer.xfer_real(&mut pos.x)
+                .map_err(|e| format!("Failed to crc Path node pos.x: {:?}", e))?;
+            xfer.xfer_real(&mut pos.y)
+                .map_err(|e| format!("Failed to crc Path node pos.y: {:?}", e))?;
+            xfer.xfer_real(&mut pos.z)
+                .map_err(|e| format!("Failed to crc Path node pos.z: {:?}", e))?;
+            let mut layer_value = node.get_layer() as u32;
+            xfer.xfer_unsigned_int(&mut layer_value)
+                .map_err(|e| format!("Failed to crc Path node layer: {:?}", e))?;
+            let mut can_opt = node.can_optimize();
+            xfer.xfer_bool(&mut can_opt)
+                .map_err(|e| format!("Failed to crc Path node can_optimize: {:?}", e))?;
+            let mut opt_id: i32 = -1;
+            if let Some(next_key) = node.next_opti {
+                if let Some(next_node) = self.nodes.get(next_key) {
+                    opt_id = next_node.id;
+                }
+            }
+            xfer.xfer_int(&mut opt_id)
+                .map_err(|e| format!("Failed to crc Path opt id: {:?}", e))?;
+            remaining -= 1;
+            current = node.prev;
+        }
         Ok(())
     }
 

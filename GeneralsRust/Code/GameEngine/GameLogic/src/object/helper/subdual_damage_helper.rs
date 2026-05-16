@@ -191,7 +191,22 @@ impl ObjectHelperInterface for SubdualDamageHelper {
 }
 
 impl Snapshotable for SubdualDamageHelper {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("SubdualDamageHelper crc version: {err:?}"))?;
+
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| format!("SubdualDamageHelper crc object helper version: {err:?}"))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|err| format!("SubdualDamageHelper crc update module base: {err}"))?;
+
+        let mut healing_step_countdown = self.healing_step_countdown;
+        xfer.xfer_unsigned_int(&mut healing_step_countdown)
+            .map_err(|err| format!("SubdualDamageHelper crc healing_step_countdown: {err:?}"))?;
         Ok(())
     }
 

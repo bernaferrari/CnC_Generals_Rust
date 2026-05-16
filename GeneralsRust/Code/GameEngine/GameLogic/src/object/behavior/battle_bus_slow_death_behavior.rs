@@ -494,7 +494,11 @@ impl ThingModuleData for BattleBusSlowDeathBehaviorModuleData {
 }
 
 impl Snapshotable for BattleBusSlowDeathBehaviorModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1001,7 +1005,26 @@ impl BehaviorModuleInterface for BattleBusSlowDeathBehavior {
 }
 
 impl Snapshotable for BattleBusSlowDeathBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        // Base SlowDeathBehavior CRC is not available via &self, but we still feed own state
+        let mut is_real_death = self.is_real_death;
+        xfer.xfer_bool(&mut is_real_death)
+            .map_err(|e| e.to_string())?;
+        let mut is_in_first_death = self.is_in_first_death;
+        xfer.xfer_bool(&mut is_in_first_death)
+            .map_err(|e| e.to_string())?;
+        let mut ground_check_frame = self.ground_check_frame;
+        xfer.xfer_unsigned_int(&mut ground_check_frame)
+            .map_err(|e| e.to_string())?;
+        let mut penalty_death_frame = self.penalty_death_frame;
+        xfer.xfer_unsigned_int(&mut penalty_death_frame)
+            .map_err(|e| e.to_string())?;
+
         Ok(())
     }
 

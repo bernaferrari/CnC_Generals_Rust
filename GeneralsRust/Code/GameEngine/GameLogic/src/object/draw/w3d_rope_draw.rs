@@ -349,7 +349,47 @@ impl RopeDrawInterface for W3DRopeDraw {
 }
 
 impl Snapshotable for W3DRopeDraw {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
+
+        let mut draw_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut draw_module_version, 1).map_err(|e| e.to_string())?;
+        let mut drawable_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut drawable_module_version, 1).map_err(|e| e.to_string())?;
+        let mut module_version: XferVersion = 1;
+        xfer.xfer_version(&mut module_version, 1).map_err(|e| e.to_string())?;
+
+        let mut cur_len = self.cur_len;
+        xfer.xfer_real(&mut cur_len).map_err(|e| e.to_string())?;
+        let mut max_len = self.max_len;
+        xfer.xfer_real(&mut max_len).map_err(|e| e.to_string())?;
+        let mut width = self.width;
+        xfer.xfer_real(&mut width).map_err(|e| e.to_string())?;
+        let mut color_r = self.color.r as Real;
+        let mut color_g = self.color.g as Real;
+        let mut color_b = self.color.b as Real;
+        xfer.xfer_real(&mut color_r).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut color_g).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut color_b).map_err(|e| e.to_string())?;
+        let mut cur_speed = self.cur_speed;
+        xfer.xfer_real(&mut cur_speed).map_err(|e| e.to_string())?;
+        let mut max_speed = self.max_speed;
+        xfer.xfer_real(&mut max_speed).map_err(|e| e.to_string())?;
+        let mut accel = self.accel;
+        xfer.xfer_real(&mut accel).map_err(|e| e.to_string())?;
+        let mut wobble_len = self.wobble_len;
+        xfer.xfer_real(&mut wobble_len).map_err(|e| e.to_string())?;
+        let mut wobble_amp = self.wobble_amp;
+        xfer.xfer_real(&mut wobble_amp).map_err(|e| e.to_string())?;
+        let mut wobble_rate = self.wobble_rate;
+        xfer.xfer_real(&mut wobble_rate).map_err(|e| e.to_string())?;
+        let mut cur_wobble_phase = self.cur_wobble_phase;
+        xfer.xfer_real(&mut cur_wobble_phase).map_err(|e| e.to_string())?;
+        let mut cur_z_offset = self.cur_z_offset;
+        xfer.xfer_real(&mut cur_z_offset).map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -385,7 +385,36 @@ impl Module for SpyVisionUpdate {
 }
 
 impl Snapshotable for SpyVisionUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 2;
+        xfer
+            .xfer_version(&mut version, 2)
+            .map_err(|e| format!("SpyVisionUpdate crc version failed: {:?}", e))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+        if let Ok(mut controller) = self.controller.lock() {
+            xfer
+                .xfer_unsigned_int(&mut controller.deactivate_frame)
+                .map_err(|e| format!("SpyVisionUpdate crc deactivate_frame failed: {:?}", e))?;
+            xfer
+                .xfer_bool(&mut controller.currently_active)
+                .map_err(|e| format!("SpyVisionUpdate crc currently_active failed: {:?}", e))?;
+            if version >= 2 {
+                xfer
+                    .xfer_bool(&mut controller.reset_timers_next_update)
+                    .map_err(|e| {
+                        format!(
+                            "SpyVisionUpdate crc reset_timers_next_update failed: {:?}",
+                            e
+                        )
+                    })?;
+                xfer
+                    .xfer_unsigned_int(&mut controller.disabled_until_frame)
+                    .map_err(|e| {
+                        format!("SpyVisionUpdate crc disabled_until_frame failed: {:?}", e)
+                    })?;
+            }
+        }
         Ok(())
     }
 

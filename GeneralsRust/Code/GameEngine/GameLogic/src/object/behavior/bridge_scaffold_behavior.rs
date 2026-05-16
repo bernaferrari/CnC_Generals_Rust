@@ -430,8 +430,30 @@ impl EngineModule for BridgeScaffoldBehaviorModule {
 impl BridgeScaffoldBehavior {
     pub fn crc(
         &self,
-        _xfer: &mut dyn Xfer,
+        xfer: &mut dyn Xfer,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut motion_value: UnsignedInt = self.target_motion as UnsignedInt;
+        xfer.xfer_unsigned_int(&mut motion_value)?;
+
+        let mut create_pos = self.create_pos;
+        xfer.xfer_coord3d(&mut create_pos);
+        let mut rise_to_pos = self.rise_to_pos;
+        xfer.xfer_coord3d(&mut rise_to_pos);
+        let mut build_pos = self.build_pos;
+        xfer.xfer_coord3d(&mut build_pos);
+        let mut lateral_speed = self.lateral_speed;
+        xfer.xfer_real(&mut lateral_speed)?;
+        let mut vertical_speed = self.vertical_speed;
+        xfer.xfer_real(&mut vertical_speed)?;
+        let mut target_pos = self.target_pos;
+        xfer.xfer_coord3d(&mut target_pos);
+
         Ok(())
     }
 

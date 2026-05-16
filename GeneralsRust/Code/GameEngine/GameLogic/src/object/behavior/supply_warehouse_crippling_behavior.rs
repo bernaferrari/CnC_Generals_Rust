@@ -351,7 +351,22 @@ impl Module for SupplyWarehouseCripplingBehaviorModule {
 }
 
 impl Snapshotable for SupplyWarehouseCripplingBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|e| format!("Failed to xfer update module base state: {}", e))?;
+
+        let mut healing_suppressed_until_frame = self.healing_suppressed_until_frame;
+        xfer.xfer_unsigned_int(&mut healing_suppressed_until_frame)
+            .map_err(|e| format!("Failed to xfer healing_suppressed_until_frame: {:?}", e))?;
+        let mut next_healing_frame = self.next_healing_frame;
+        xfer.xfer_unsigned_int(&mut next_healing_frame)
+            .map_err(|e| format!("Failed to xfer next_healing_frame: {:?}", e))?;
+
         Ok(())
     }
 

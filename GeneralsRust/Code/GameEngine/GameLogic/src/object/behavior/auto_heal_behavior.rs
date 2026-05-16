@@ -415,7 +415,10 @@ impl UpdateModuleData {
 }
 
 impl Snapshotable for UpdateModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1194,7 +1197,32 @@ impl BehaviorModuleInterface for AutoHealBehavior {
 }
 
 impl Snapshotable for AutoHealBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("AutoHealBehavior version xfer failed: {:?}", e))?;
+
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|e| format!("AutoHealBehavior update module base state: {}", e))?;
+
+        let mut upgrade_mux_version: XferVersion = 1;
+        xfer.xfer_version(&mut upgrade_mux_version, 1)
+            .map_err(|e| format!("AutoHealBehavior upgrade mux version: {:?}", e))?;
+        let mut upgrade_executed = self.upgrade_executed;
+        xfer.xfer_bool(&mut upgrade_executed)
+            .map_err(|e| e.to_string())?;
+
+        let mut radius_particle_system_id = self.radius_particle_system_id;
+        xfer.xfer_unsigned_int(&mut radius_particle_system_id)
+            .map_err(|e| e.to_string())?;
+        let mut soonest_heal_frame = self.soonest_heal_frame;
+        xfer.xfer_unsigned_int(&mut soonest_heal_frame)
+            .map_err(|e| e.to_string())?;
+        let mut stopped = self.stopped;
+        xfer.xfer_bool(&mut stopped)
+            .map_err(|e| e.to_string())?;
+
         Ok(())
     }
 

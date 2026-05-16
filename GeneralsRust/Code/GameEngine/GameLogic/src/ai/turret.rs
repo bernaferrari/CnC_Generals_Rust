@@ -2048,9 +2048,50 @@ impl ClassicState for TurretAIHoldTurretState {
 }
 
 impl Snapshotable for TurretAI {
-    /// CRC for save game validation
-    /// Matches C++ TurretAI::crc
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 2;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("TurretAI version crc failed: {:?}", e))?;
+        if let Some(machine_weak) = &self.state_machine {
+            if let Some(machine) = machine_weak.upgrade() {
+                let mut guard = machine
+                    .lock()
+                    .map_err(|_| "TurretAI state machine lock poisoned".to_string())?;
+                guard.crc(xfer).map_err(|e| e.to_string())?;
+            }
+        }
+        let mut current_angle = self.current_angle;
+        xfer.xfer_real(&mut current_angle)
+            .map_err(|e| format!("TurretAI current_angle crc failed: {:?}", e))?;
+        let mut current_pitch = self.current_pitch;
+        xfer.xfer_real(&mut current_pitch)
+            .map_err(|e| format!("TurretAI current_pitch crc failed: {:?}", e))?;
+        let mut enable_sweep_until = self.enable_sweep_until;
+        xfer.xfer_unsigned_int(&mut enable_sweep_until)
+            .map_err(|e| format!("TurretAI enable_sweep_until crc failed: {:?}", e))?;
+        let mut target_kind_val = match self.target_kind {
+            TurretTargetKind::None => 0u32,
+            TurretTargetKind::Object => 1u32,
+            TurretTargetKind::Position => 2u32,
+        };
+        xfer.xfer_unsigned_int(&mut target_kind_val)
+            .map_err(|e| format!("TurretAI target_kind crc failed: {:?}", e))?;
+        let mut continuous_fire_expiration_frame: u32 = 0;
+        xfer.xfer_unsigned_int(&mut continuous_fire_expiration_frame)
+            .map_err(|e| format!("TurretAI continuous_fire_expiration crc failed: {:?}", e))?;
+        let mut play_rot_sound: bool = false;
+        xfer.xfer_bool(&mut play_rot_sound)
+            .map_err(|e| format!("TurretAI play_rot_sound crc failed: {:?}", e))?;
+        let mut play_pitch_sound: bool = false;
+        xfer.xfer_bool(&mut play_pitch_sound)
+            .map_err(|e| format!("TurretAI play_pitch_sound crc failed: {:?}", e))?;
+        let mut positive_sweep = self.positive_sweep;
+        xfer.xfer_bool(&mut positive_sweep)
+            .map_err(|e| format!("TurretAI positive_sweep crc failed: {:?}", e))?;
+        let mut did_fire: bool = false;
+        xfer.xfer_bool(&mut did_fire)
+            .map_err(|e| format!("TurretAI did_fire crc failed: {:?}", e))?;
         Ok(())
     }
 

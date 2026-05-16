@@ -2035,7 +2035,115 @@ impl BehaviorModuleInterface for SpecialAbilityUpdate {
 }
 
 impl Snapshotable for SpecialAbilityUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("SpecialAbilityUpdate version xfer failed: {:?}", e))?;
+
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut active = self.active;
+        xfer.xfer_bool(&mut active)
+            .map_err(|e| format!("SpecialAbilityUpdate active xfer failed: {:?}", e))?;
+
+        let mut prep_frames = self.prep_frames;
+        xfer.xfer_unsigned_int(&mut prep_frames)
+            .map_err(|e| format!("SpecialAbilityUpdate prep_frames xfer failed: {:?}", e))?;
+
+        let mut anim_frames = self.anim_frames;
+        xfer.xfer_unsigned_int(&mut anim_frames)
+            .map_err(|e| format!("SpecialAbilityUpdate anim_frames xfer failed: {:?}", e))?;
+
+        let mut target_id = self.target_id;
+        xfer.xfer_object_id(&mut target_id)
+            .map_err(|e| format!("SpecialAbilityUpdate target_id xfer failed: {:?}", e))?;
+
+        let mut target_pos = self.target_pos;
+        xfer.xfer_real(&mut target_pos.x)
+            .map_err(|e| format!("SpecialAbilityUpdate target_pos.x xfer failed: {:?}", e))?;
+        xfer.xfer_real(&mut target_pos.y)
+            .map_err(|e| format!("SpecialAbilityUpdate target_pos.y xfer failed: {:?}", e))?;
+        xfer.xfer_real(&mut target_pos.z)
+            .map_err(|e| format!("SpecialAbilityUpdate target_pos.z xfer failed: {:?}", e))?;
+
+        let mut location_count = self.location_count;
+        xfer.xfer_int(&mut location_count)
+            .map_err(|e| format!("SpecialAbilityUpdate location_count xfer failed: {:?}", e))?;
+
+        let mut special_object_id_list: Vec<ObjectID> =
+            self.special_object_id_list.iter().copied().collect();
+        xfer.xfer_stl_object_id_list(&mut special_object_id_list)
+            .map_err(|e| {
+                format!(
+                    "SpecialAbilityUpdate special_object_id_list xfer failed: {:?}",
+                    e
+                )
+            })?;
+
+        {
+            let mut entries: u32 = self.special_object_id_list.len() as u32;
+            xfer.xfer_unsigned_int(&mut entries).map_err(|e| {
+                format!(
+                    "SpecialAbilityUpdate special_object_entries xfer failed: {:?}",
+                    e
+                )
+            })?;
+        }
+
+        let mut no_target_command = self.no_target_command;
+        xfer.xfer_bool(&mut no_target_command).map_err(|e| {
+            format!(
+                "SpecialAbilityUpdate no_target_command xfer failed: {:?}",
+                e
+            )
+        })?;
+
+        {
+            let mut state_val: i32 = self.packing_state as i32;
+            unsafe {
+                xfer.xfer_user(
+                    &mut state_val as *mut i32 as *mut u8,
+                    std::mem::size_of::<i32>(),
+                )
+            }
+            .map_err(|e| format!("SpecialAbilityUpdate packing_state xfer failed: {:?}", e))?;
+        }
+
+        let mut facing_initiated = self.facing_initiated;
+        xfer.xfer_bool(&mut facing_initiated)
+            .map_err(|e| format!("SpecialAbilityUpdate facing_initiated xfer failed: {:?}", e))?;
+
+        let mut facing_complete = self.facing_complete;
+        xfer.xfer_bool(&mut facing_complete)
+            .map_err(|e| format!("SpecialAbilityUpdate facing_complete xfer failed: {:?}", e))?;
+
+        let mut within_start_ability_range = self.within_start_ability_range;
+        xfer.xfer_bool(&mut within_start_ability_range)
+            .map_err(|e| {
+                format!(
+                    "SpecialAbilityUpdate within_start_ability_range xfer failed: {:?}",
+                    e
+                )
+            })?;
+
+        let mut do_disable_fx_particles = self.do_disable_fx_particles;
+        xfer.xfer_bool(&mut do_disable_fx_particles)
+            .map_err(|e| {
+                format!(
+                    "SpecialAbilityUpdate do_disable_fx_particles xfer failed: {:?}",
+                    e
+                )
+            })?;
+
+        let mut capture_flash_phase = self.capture_flash_phase;
+        xfer.xfer_real(&mut capture_flash_phase).map_err(|e| {
+            format!(
+                "SpecialAbilityUpdate capture_flash_phase xfer failed: {:?}",
+                e
+            )
+        })?;
+
         Ok(())
     }
 

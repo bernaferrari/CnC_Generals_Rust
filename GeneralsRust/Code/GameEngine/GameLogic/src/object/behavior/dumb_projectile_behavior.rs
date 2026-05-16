@@ -372,7 +372,10 @@ impl ThingModuleData for UpdateModuleData {
 }
 
 impl Snapshotable for UpdateModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1235,7 +1238,49 @@ impl DumbProjectileBehaviorModule {
 }
 
 impl Snapshotable for DumbProjectileBehaviorModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|err| err.to_string())?;
+
+        let mut next_call_frame_and_phase = self.behavior.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut launcher_id = self.behavior.launcher_id;
+        xfer.xfer_object_id(&mut launcher_id)
+            .map_err(|err| err.to_string())?;
+
+        let mut victim_id = self.behavior.victim_id;
+        xfer.xfer_object_id(&mut victim_id)
+            .map_err(|err| err.to_string())?;
+
+        let mut segments = self.behavior.flight_path_segments as Int;
+        xfer.xfer_int(&mut segments)
+            .map_err(|err| err.to_string())?;
+
+        let mut speed = self.behavior.flight_path_speed;
+        xfer.xfer_real(&mut speed).map_err(|err| err.to_string())?;
+
+        let mut start = self.behavior.flight_path_start;
+        xfer.xfer_coord3d(&mut start);
+
+        let mut end = self.behavior.flight_path_end;
+        xfer.xfer_coord3d(&mut end);
+
+        let mut weapon_name = self
+            .behavior
+            .detonation_weapon
+            .as_ref()
+            .map(|weapon| weapon.name.clone())
+            .unwrap_or_default();
+        xfer.xfer_ascii_string(&mut weapon_name)
+            .map_err(|err| err.to_string())?;
+
+        let mut lifespan = self.behavior.lifespan_frame;
+        xfer.xfer_unsigned_int(&mut lifespan)
+            .map_err(|err| err.to_string())?;
+
         Ok(())
     }
 

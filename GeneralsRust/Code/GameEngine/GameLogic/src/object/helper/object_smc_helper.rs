@@ -166,7 +166,19 @@ impl ObjectHelperInterface for ObjectSMCHelper {
 }
 
 impl Snapshotable for ObjectSMCHelper {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("ObjectSMCHelper crc version: {err:?}"))?;
+
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| format!("ObjectSMCHelper crc object helper version: {err:?}"))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|err| format!("ObjectSMCHelper crc update module base: {err}"))?;
+
         Ok(())
     }
 

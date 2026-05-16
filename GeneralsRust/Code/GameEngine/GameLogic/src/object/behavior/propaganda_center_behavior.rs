@@ -84,7 +84,14 @@ impl PropagandaCenterBehaviorModuleData {
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for PropagandaCenterBehaviorModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        self.base.crc(xfer)?;
+        let mut brainwash_duration = self.brainwash_duration;
+        xfer.xfer_unsigned_int(&mut brainwash_duration)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -386,7 +393,30 @@ impl BehaviorModuleInterface for PropagandaCenterBehavior {
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for PropagandaCenterBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("xfer version failed: {e:?}"))?;
+
+        Snapshotable::crc(&self.prison_behavior, xfer).map_err(|e| e.to_string())?;
+
+        let mut brainwashing_subject_id = self.brainwashing_subject_id;
+        xfer.xfer_object_id(&mut brainwashing_subject_id)
+            .map_err(|e| e.to_string())?;
+        let mut brainwashing_subject_start_frame = self.brainwashing_subject_start_frame;
+        xfer.xfer_unsigned_int(&mut brainwashing_subject_start_frame)
+            .map_err(|e| e.to_string())?;
+
+        let mut list_count: u16 = self.brainwashed_list.len().min(u16::MAX as usize) as u16;
+        xfer.xfer_unsigned_short(&mut list_count)
+            .map_err(|e| e.to_string())?;
+
+        for id in self.brainwashed_list.iter().copied().take(list_count as usize) {
+            let mut id_copy = id;
+            xfer.xfer_object_id(&mut id_copy)
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 
@@ -520,8 +550,12 @@ impl ContainModuleInterface for PropagandaCenterBehaviorContainHandle {
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for PropagandaCenterBehaviorModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if let Ok(guard) = self.behavior.lock() {
+            Snapshotable::crc(&*guard, xfer)
+        } else {
+            Ok(())
+        }
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {

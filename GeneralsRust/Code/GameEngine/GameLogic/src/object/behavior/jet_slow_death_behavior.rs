@@ -616,7 +616,21 @@ impl BehaviorModuleInterface for JetSlowDeathBehavior {
 }
 
 impl Snapshotable for JetSlowDeathBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| err.to_string())?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+        let mut timer_death_frame = self.timer_death_frame;
+        xfer.xfer_unsigned_int(&mut timer_death_frame)
+            .map_err(|err| err.to_string())?;
+        let mut timer_on_ground_frame = self.timer_on_ground_frame;
+        xfer.xfer_unsigned_int(&mut timer_on_ground_frame)
+            .map_err(|err| err.to_string())?;
+        let mut roll_rate = self.roll_rate;
+        xfer.xfer_real(&mut roll_rate)
+            .map_err(|err| err.to_string())?;
         Ok(())
     }
 

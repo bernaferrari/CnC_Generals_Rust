@@ -1618,7 +1618,59 @@ impl Drop for SpawnBehavior {
 }
 
 impl Snapshotable for SpawnBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|err| format!("SpawnBehavior::xfer version failed: {err}"))?;
+
+        xfer_behavior_module_base_versions(xfer)?;
+
+        if version >= 2 {
+            let mut initial_burst_times_inited = self.initial_burst_times_inited;
+            xfer.xfer_bool(&mut initial_burst_times_inited)
+                .map_err(|err| {
+                    format!("SpawnBehavior::xfer initial_burst_times_inited failed: {err}")
+                })?;
+        }
+
+        let mut template_name = self
+            .spawn_template
+            .as_ref()
+            .map(|template| template.get_name().to_string())
+            .unwrap_or_default();
+        xfer.xfer_ascii_string(&mut template_name)
+            .map_err(|err| format!("SpawnBehavior::xfer spawn_template failed: {err}"))?;
+
+        let mut one_shot_countdown = self.one_shot_countdown;
+        xfer.xfer_int(&mut one_shot_countdown)
+            .map_err(|err| format!("SpawnBehavior::xfer one_shot_countdown failed: {err}"))?;
+        let mut frames_to_wait = self.frames_to_wait;
+        xfer.xfer_int(&mut frames_to_wait)
+            .map_err(|err| format!("SpawnBehavior::xfer frames_to_wait failed: {err}"))?;
+        let mut first_batch_count = self.first_batch_count;
+        xfer.xfer_int(&mut first_batch_count)
+            .map_err(|err| format!("SpawnBehavior::xfer first_batch_count failed: {err}"))?;
+
+        let mut replacement_times: Vec<Int> = self.replacement_times.iter().copied().collect();
+        xfer.xfer_stl_int_list(&mut replacement_times)
+            .map_err(|err| format!("SpawnBehavior::xfer replacement_times failed: {err}"))?;
+
+        let mut spawn_ids: Vec<ObjectID> = self.spawn_ids.iter().copied().collect();
+        xfer.xfer_stl_object_id_list(&mut spawn_ids)
+            .map_err(|err| format!("SpawnBehavior::xfer spawn_ids failed: {err}"))?;
+
+        let mut active = self.active;
+        xfer.xfer_bool(&mut active)
+            .map_err(|err| format!("SpawnBehavior::xfer active failed: {err}"))?;
+        let mut aggregate_health = self.aggregate_health;
+        xfer.xfer_bool(&mut aggregate_health)
+            .map_err(|err| format!("SpawnBehavior::xfer aggregate_health failed: {err}"))?;
+        let mut spawn_count = self.spawn_count;
+        xfer.xfer_unsigned_int(&mut spawn_count)
+            .map_err(|err| format!("SpawnBehavior::xfer spawn_count failed: {err}"))?;
+        let mut self_tasking_spawn_count = self.self_tasking_spawn_count;
+        xfer.xfer_unsigned_int(&mut self_tasking_spawn_count)
+            .map_err(|err| format!("SpawnBehavior::xfer self_tasking_spawn_count failed: {err}"))?;
         Ok(())
     }
 

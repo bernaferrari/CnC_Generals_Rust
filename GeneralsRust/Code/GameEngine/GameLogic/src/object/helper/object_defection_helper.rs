@@ -201,7 +201,31 @@ impl ObjectHelperInterface for ObjectDefectionHelper {
 }
 
 impl Snapshotable for ObjectDefectionHelper {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("ObjectDefectionHelper crc version: {err:?}"))?;
+
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| format!("ObjectDefectionHelper crc object helper version: {err:?}"))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|err| format!("ObjectDefectionHelper crc update module base: {err}"))?;
+
+        let mut defection_detection_start = self.defection_detection_start;
+        xfer.xfer_unsigned_int(&mut defection_detection_start)
+            .map_err(|err| format!("ObjectDefectionHelper crc detection_start: {err:?}"))?;
+        let mut defection_detection_end = self.defection_detection_end;
+        xfer.xfer_unsigned_int(&mut defection_detection_end)
+            .map_err(|err| format!("ObjectDefectionHelper crc detection_end: {err:?}"))?;
+        let mut defection_detection_flash_phase = self.defection_detection_flash_phase;
+        xfer.xfer_real(&mut defection_detection_flash_phase)
+            .map_err(|err| format!("ObjectDefectionHelper crc flash_phase: {err:?}"))?;
+        let mut do_defector_fx = self.do_defector_fx;
+        xfer.xfer_bool(&mut do_defector_fx)
+            .map_err(|err| format!("ObjectDefectionHelper crc do_defector_fx: {err:?}"))?;
         Ok(())
     }
 
