@@ -16,7 +16,8 @@
 
 use std::sync::Arc;
 
-use crate::effects::particle_manager::ParticleSystemManager;
+use crate::effects::decals::DecalRenderItem;
+use crate::effects::particle_manager::{ParticleSystemManager, ParticleType};
 use crate::effects::particle_renderer::{ParticleRenderer, ParticleUniforms};
 
 /// W3D Particle System Bridge
@@ -57,10 +58,9 @@ impl W3DParticleSystemBridge {
     /// 4. For particle/volume systems: fill buffers, render via PointGroupClass
     /// 5. Apply frustum culling
     ///
-    /// PARITY_NOTE: Full rendering requires:
-    /// - Streak rendering via line-strip geometry (not yet implemented — uses quads as fallback)
-    /// - Volume particle rendering via depth-based layering (not yet implemented — uses regular quads)
-    /// - Smudge/heat-distortion rendering via post-process (not yet implemented)
+    /// PARITY_NOTE: Full heat-distortion post-process support still requires the
+    /// global C++ m_useHeatEffects path; smudge particles are rendered as terrain
+    /// decals until that pass exists.
     pub fn do_particles(
         &mut self,
         particle_manager: &ParticleSystemManager,
@@ -78,7 +78,13 @@ impl W3DParticleSystemBridge {
         // Collect all active particle systems for rendering
         let systems: Vec<_> = particle_manager.all_particle_systems().collect();
 
-        // Render all particle systems
+        let smudges = collect_smudge_render_items(&systems);
+        if !smudges.is_empty() {
+            renderer.render_decals(encoder, view, depth_view, &smudges, uniforms);
+        }
+
+        // Render all non-drawable particle systems. The renderer handles streak
+        // and volume particle specialization based on the C++ particle type.
         renderer.render_particles(encoder, view, depth_view, &systems, uniforms);
 
         // Track on-screen particle count
@@ -94,6 +100,39 @@ impl W3DParticleSystemBridge {
     pub fn is_ready_to_render(&self) -> bool {
         self.ready_to_render
     }
+}
+
+fn collect_smudge_render_items(
+    systems: &[&crate::effects::particle_system::ParticleSystem],
+) -> Vec<DecalRenderItem> {
+    let mut items = Vec::new();
+
+    for system in systems {
+        let info = system.template().info();
+        if info.particle_type != ParticleType::Smudge {
+            continue;
+        }
+
+        for particle in system.particles() {
+            if particle.lifetime_left == 0 || particle.is_culled {
+                continue;
+            }
+
+            items.push(DecalRenderItem {
+                position: particle.position,
+                size: particle.size,
+                rotation: particle.angle_z,
+                color: [
+                    particle.color[0] * particle.color_scale,
+                    particle.color[1] * particle.color_scale,
+                    particle.color[2] * particle.color_scale,
+                    particle.alpha,
+                ],
+            });
+        }
+    }
+
+    items
 }
 
 impl Default for W3DParticleSystemBridge {
