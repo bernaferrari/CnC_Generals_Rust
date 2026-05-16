@@ -2988,6 +2988,7 @@ mod tests {
     #[test]
     fn test_callbacks() {
         let mut window = GameWindow::new();
+        window.set_status(WindowStatus::ENABLED);
 
         // Test input callback
         window.set_input_callback(|_win, msg, _d1, _d2| match msg {
