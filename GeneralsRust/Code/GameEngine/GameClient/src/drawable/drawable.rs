@@ -555,11 +555,10 @@ impl IconInfo {
                     xfer.xfer_unsigned_int(&mut keep)
                         .map_err(|e| format!("{:?}", e))?;
 
-                    let icon = icon
-                        .as_any()
-                        .downcast_ref::<Anim2DIcon>()
-                        .ok_or_else(|| "Icon is not Anim2D-backed".to_string())?;
-                    let mut template_name = icon.template_name().to_string();
+                    let mut template_name = icon
+                        .anim2d_template_name()
+                        .ok_or_else(|| "Icon is not Anim2D-backed".to_string())?
+                        .to_string();
                     xfer.xfer_ascii_string(&mut template_name)
                         .map_err(|e| format!("{:?}", e))?;
 
@@ -619,11 +618,10 @@ impl Snapshotable for IconInfo {
             xfer.xfer_unsigned_int(&mut keep)
                 .map_err(|e| format!("{:?}", e))?;
 
-            let icon = icon
-                .as_any()
-                .downcast_ref::<Anim2DIcon>()
-                .ok_or_else(|| "Icon is not Anim2D-backed".to_string())?;
-            let mut template_name = icon.template_name().to_string();
+            let mut template_name = icon
+                .anim2d_template_name()
+                .ok_or_else(|| "Icon is not Anim2D-backed".to_string())?
+                .to_string();
             xfer.xfer_ascii_string(&mut template_name)
                 .map_err(|e| format!("{:?}", e))?;
 
@@ -654,7 +652,9 @@ impl Snapshotable for IconInfo {
 /// Trait for drawable icons
 pub trait Icon: std::fmt::Debug + Send + Sync {
     fn render(&self, position: Vector3, size: Vector3);
-    fn as_any(&self) -> &dyn Any;
+    fn anim2d_template_name(&self) -> Option<&str> {
+        None
+    }
     fn xfer(&self, xfer: &mut dyn Xfer) -> Result<(), String>;
 }
 
@@ -710,8 +710,8 @@ impl Icon for Anim2DIcon {
         );
     }
 
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn anim2d_template_name(&self) -> Option<&str> {
+        Some(self.template_name())
     }
 
     fn xfer(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -1000,7 +1000,8 @@ impl Snapshotable for TintEnvelope {
 impl Snapshotable for LocoInfo {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1075,7 +1076,8 @@ impl Snapshotable for LocoInfo {
 impl Snapshotable for WheelInfo {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -4917,9 +4919,6 @@ mod tests {
         struct MockIcon;
         impl Icon for MockIcon {
             fn render(&self, _position: Vector3, _size: Vector3) {}
-            fn as_any(&self) -> &dyn Any {
-                self
-            }
             fn xfer(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
                 Ok(())
             }
