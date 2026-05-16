@@ -3175,155 +3175,31 @@ pub enum ContainModuleDataKind<'a> {
 
 impl<'a> ContainModuleDataKind<'a> {
     pub fn from_module_data(module_data: &'a dyn ModuleData) -> Option<Self> {
-        // Prefer direct concrete module data first, then adapter-backed module data.
-        if let Some(data) = module_data.as_any().downcast_ref::<OpenContainModuleData>() {
-            return Some(Self::Open(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<TransportContainModuleData>()
-        {
-            return Some(Self::Transport(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<GarrisonContainModuleData>()
-        {
-            return Some(Self::Garrison(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<TunnelContainModuleData>()
-        {
-            return Some(Self::Tunnel(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<OverlordContainModuleData>()
-        {
-            return Some(Self::Overlord(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<HelixContainModuleData>()
-        {
-            return Some(Self::Helix(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<RailedTransportContainModuleData>()
-        {
-            return Some(Self::RailedTransport(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<RiderChangeContainModuleData>()
-        {
-            return Some(Self::RiderChange(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<InternetHackContainModuleData>()
-        {
-            return Some(Self::InternetHack(data));
-        }
-        if let Some(data) = module_data.as_any().downcast_ref::<HealContainModuleData>() {
-            return Some(Self::Heal(data));
-        }
-        if let Some(data) = module_data.as_any().downcast_ref::<CaveContainModuleData>() {
-            return Some(Self::Cave(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<ParachuteContainModuleData>()
-        {
-            return Some(Self::Parachute(data));
-        }
-        if let Some(data) = module_data
-            .as_any()
-            .downcast_ref::<MobNexusContainModuleData>()
-        {
-            return Some(Self::MobNexus(data));
+        macro_rules! try_kind {
+            ($data_ty:ty, $variant:ident) => {{
+                let any = module_data.as_any();
+                if let Some(data) = any.downcast_ref::<$data_ty>() {
+                    return Some(Self::$variant(data));
+                }
+                if let Some(adapter) = any.downcast_ref::<ContainModuleDataAdapter<$data_ty>>() {
+                    return Some(Self::$variant(adapter.contain_data()));
+                }
+            }};
         }
 
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<OpenContainModuleData>>()
-        {
-            return Some(Self::Open(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<TransportContainModuleData>>()
-        {
-            return Some(Self::Transport(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<GarrisonContainModuleData>>()
-        {
-            return Some(Self::Garrison(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<TunnelContainModuleData>>()
-        {
-            return Some(Self::Tunnel(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<OverlordContainModuleData>>()
-        {
-            return Some(Self::Overlord(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<HelixContainModuleData>>()
-        {
-            return Some(Self::Helix(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<RailedTransportContainModuleData>>()
-        {
-            return Some(Self::RailedTransport(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<RiderChangeContainModuleData>>()
-        {
-            return Some(Self::RiderChange(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<InternetHackContainModuleData>>()
-        {
-            return Some(Self::InternetHack(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<HealContainModuleData>>()
-        {
-            return Some(Self::Heal(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<CaveContainModuleData>>()
-        {
-            return Some(Self::Cave(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<ParachuteContainModuleData>>()
-        {
-            return Some(Self::Parachute(adapter.contain_data()));
-        }
-        if let Some(adapter) = module_data
-            .as_any()
-            .downcast_ref::<ContainModuleDataAdapter<MobNexusContainModuleData>>()
-        {
-            return Some(Self::MobNexus(adapter.contain_data()));
-        }
+        try_kind!(OpenContainModuleData, Open);
+        try_kind!(TransportContainModuleData, Transport);
+        try_kind!(GarrisonContainModuleData, Garrison);
+        try_kind!(TunnelContainModuleData, Tunnel);
+        try_kind!(OverlordContainModuleData, Overlord);
+        try_kind!(HelixContainModuleData, Helix);
+        try_kind!(RailedTransportContainModuleData, RailedTransport);
+        try_kind!(RiderChangeContainModuleData, RiderChange);
+        try_kind!(InternetHackContainModuleData, InternetHack);
+        try_kind!(HealContainModuleData, Heal);
+        try_kind!(CaveContainModuleData, Cave);
+        try_kind!(ParachuteContainModuleData, Parachute);
+        try_kind!(MobNexusContainModuleData, MobNexus);
 
         None
     }
