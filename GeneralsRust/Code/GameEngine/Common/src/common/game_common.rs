@@ -277,7 +277,7 @@ pub fn normalize_angle(angle: f32) -> f32 {
     while normalized > PI {
         normalized -= 2.0 * PI;
     }
-    while normalized < -PI {
+    while normalized <= -PI {
         normalized += 2.0 * PI;
     }
     normalized
@@ -302,7 +302,7 @@ mod tests {
         assert_eq!(LOGICFRAMES_PER_SECOND, 30);
         assert_eq!(MSEC_PER_SECOND, 1000);
         assert_eq!(LOGICFRAMES_PER_MSEC_REAL, 0.03);
-        assert_eq!(MSEC_PER_LOGICFRAME_REAL, 33.333334);
+        assert!((MSEC_PER_LOGICFRAME_REAL - (1000.0 / 30.0)).abs() < 0.00001);
     }
 
     #[test]
