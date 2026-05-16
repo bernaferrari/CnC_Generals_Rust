@@ -191,9 +191,7 @@ impl ControlBarInterface for ControlBarBridge {
             .map(|set| set as &dyn std::any::Any)
     }
 
-    fn get_command_button(&self, button_id: CommandButtonId) -> Option<&dyn std::any::Any> {
-        self.buttons_by_id
-            .get(&button_id)
-            .map(|button| button as &dyn std::any::Any)
+    fn get_command_button(&self, button_id: CommandButtonId) -> Option<&CommandButton> {
+        self.buttons_by_id.get(&button_id)
     }
 }
