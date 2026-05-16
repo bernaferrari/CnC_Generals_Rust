@@ -2713,24 +2713,43 @@ impl Player {
 
     /// Check whether the player is allowed to build the given template.
     pub fn can_build_template(&self, template: &dyn crate::common::ThingTemplate) -> Bool {
-        if let Some(status) = crate::helpers::TheGameLogic::find_buildable_status_override(
+        if template.is_kind_of(crate::common::KindOf::Structure) {
+            if !self.can_build_base {
+                return false;
+            }
+        } else if !self.can_build_units {
+            return false;
+        }
+
+        let buildable_status = crate::helpers::TheGameLogic::find_buildable_status_override(
             template.get_name().as_str(),
-        ) {
+        );
+        if let Some(status) = buildable_status {
             // BuildableStatus values mirror C++:
             // 0=Yes, 1=Ignore_Prerequisites, 2=No, 3=Only_By_AI.
             if status == 2 {
                 return false;
             }
+            if status == 1 {
+                return true;
+            }
             if status == 3 && self.player_type != PlayerType::Computer {
                 return false;
             }
+        } else if let Some(status) = template.get_buildable_status() {
+            use game_engine::common::thing::BuildableStatus;
+
+            match status {
+                BuildableStatus::No => return false,
+                BuildableStatus::IgnorePrerequisites => return true,
+                BuildableStatus::OnlyByAi if self.player_type != PlayerType::Computer => {
+                    return false;
+                }
+                BuildableStatus::Yes | BuildableStatus::OnlyByAi => {}
+            }
         }
 
-        if template.is_kind_of(crate::common::KindOf::Structure) {
-            self.can_build_base
-        } else {
-            self.can_build_units
-        }
+        true
     }
 
     /// Hunting behavior
