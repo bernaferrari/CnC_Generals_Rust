@@ -69,6 +69,7 @@ struct MeshBuffers {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_count: u32,
+    texture_name: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -107,9 +108,13 @@ pub struct DrawableDrawPipeline {
     // Bind group layouts (kept for pipeline creation reference)
     _camera_bgl: wgpu::BindGroupLayout,
     _object_bgl: wgpu::BindGroupLayout,
+    texture_bgl: wgpu::BindGroupLayout,
 
     // Mesh cache
     mesh_cache: HashMap<String, MeshBuffers>,
+    texture_bind_groups: HashMap<String, wgpu::BindGroup>,
+    default_texture_bind_group: wgpu::BindGroup,
+    texture_sampler: wgpu::Sampler,
 
     // Fallback unit cube
     fallback_mesh: MeshBuffers,
@@ -184,10 +189,46 @@ impl DrawableDrawPipeline {
             }],
         });
 
+        // --- Texture bind group ---
+        let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Drawable Texture BGL"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Drawable Texture Sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let default_texture = Self::create_solid_texture(&device, &queue, [255, 255, 255, 255]);
+        let default_texture_bind_group =
+            Self::create_texture_bind_group(&device, &texture_bgl, &sampler, &default_texture);
+
         // --- Pipeline layout ---
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Drawable Pipeline Layout"),
-            bind_group_layouts: &[&camera_bgl, &object_bgl],
+            bind_group_layouts: &[&camera_bgl, &object_bgl, &texture_bgl],
             push_constant_ranges: &[],
         });
 
@@ -334,7 +375,11 @@ impl DrawableDrawPipeline {
             object_bind_group,
             _camera_bgl: camera_bgl,
             _object_bgl: object_bgl,
+            texture_bgl,
             mesh_cache: HashMap::new(),
+            texture_bind_groups: HashMap::new(),
+            default_texture_bind_group,
+            texture_sampler: sampler,
             fallback_mesh,
         })
     }
@@ -439,14 +484,30 @@ impl DrawableDrawPipeline {
             .mesh_cache
             .get(&submission.model_name.to_lowercase())
             .unwrap_or(&self.fallback_mesh);
+        let texture_bind_group = mesh
+            .texture_name
+            .as_ref()
+            .and_then(|name| self.texture_bind_groups.get(&name.to_lowercase()))
+            .unwrap_or(&self.default_texture_bind_group);
 
         pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
         pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        pass.set_bind_group(2, texture_bind_group, &[]);
         pass.draw_indexed(0..mesh.index_count, 0, 0..1);
     }
 
     /// Insert a mesh into the cache. Call during asset loading.
     pub fn insert_mesh(&mut self, model_name: &str, vertices: Vec<MeshVertex>, indices: Vec<u32>) {
+        self.insert_mesh_with_texture(model_name, vertices, indices, None);
+    }
+
+    pub fn insert_mesh_with_texture(
+        &mut self,
+        model_name: &str,
+        vertices: Vec<MeshVertex>,
+        indices: Vec<u32>,
+        texture_name: Option<String>,
+    ) {
         if vertices.is_empty() || indices.is_empty() {
             return;
         }
@@ -477,6 +538,7 @@ impl DrawableDrawPipeline {
                 vertex_buffer,
                 index_buffer,
                 index_count: indices.len() as u32,
+                texture_name,
             },
         );
     }
@@ -484,6 +546,128 @@ impl DrawableDrawPipeline {
     /// Check if a mesh is already cached.
     pub fn has_mesh(&self, model_name: &str) -> bool {
         self.mesh_cache.contains_key(&model_name.to_lowercase())
+    }
+
+    pub fn load_texture(
+        &mut self,
+        name: &str,
+        texture_data: &[u8],
+    ) -> Result<(), image::ImageError> {
+        if texture_data.is_empty() {
+            return Ok(());
+        }
+
+        let image = image::load_from_memory(texture_data)?;
+        let rgba = image.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&format!("Drawable Texture: {name}")),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        let bind_group = Self::create_texture_bind_group(
+            &self.device,
+            &self.texture_bgl,
+            &self.texture_sampler,
+            &texture,
+        );
+        self.texture_bind_groups
+            .insert(name.to_lowercase(), bind_group);
+        Ok(())
+    }
+
+    fn create_solid_texture(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        color: [u8; 4],
+    ) -> wgpu::Texture {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Drawable Default White Texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &color,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        texture
+    }
+
+    fn create_texture_bind_group(
+        device: &wgpu::Device,
+        layout: &wgpu::BindGroupLayout,
+        sampler: &wgpu::Sampler,
+        texture: &wgpu::Texture,
+    ) -> wgpu::BindGroup {
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Drawable Texture BG"),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        })
     }
 
     /// Create a unit cube (1x1x1 centered at origin) as the fallback mesh.
@@ -547,6 +731,7 @@ impl DrawableDrawPipeline {
             vertex_buffer,
             index_buffer,
             index_count: indices.len() as u32,
+            texture_name: None,
         }
     }
 }

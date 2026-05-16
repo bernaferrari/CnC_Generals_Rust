@@ -883,6 +883,12 @@ impl AssetManager {
                                     let _ = guard.load_texture(stem, &asset_data.data);
                                 }
                             });
+                            with_drawable_pipeline(|pipeline| {
+                                if let Ok(mut guard) = pipeline.lock() {
+                                    let _ = guard.load_texture(label, &asset_data.data);
+                                    let _ = guard.load_texture(stem, &asset_data.data);
+                                }
+                            });
                         }
                     } else {
                         log::warn!(
@@ -937,6 +943,12 @@ impl AssetManager {
 
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
+        let texture_name = model
+            .textures
+            .iter()
+            .map(|texture| texture.name.trim())
+            .find(|name| !name.is_empty())
+            .map(str::to_string);
 
         for mesh in &model.meshes {
             let Ok(base_vertex) = u32::try_from(vertices.len()) else {
@@ -987,7 +999,12 @@ impl AssetManager {
         with_drawable_pipeline(|pipeline| {
             if let Ok(mut guard) = pipeline.lock() {
                 for key in model_keys {
-                    guard.insert_mesh(key, vertices.clone(), indices.clone());
+                    guard.insert_mesh_with_texture(
+                        key,
+                        vertices.clone(),
+                        indices.clone(),
+                        texture_name.clone(),
+                    );
                 }
             }
         });
