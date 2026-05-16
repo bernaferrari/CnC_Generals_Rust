@@ -22,6 +22,7 @@ use crate::common::{
     WhichTurretType, INVALID_ID, LOGICFRAMES_PER_SECOND, WEAPONSLOT_COUNT,
 };
 use crate::helpers::TheGameLogic;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::weapon::WeaponSlotType;
 
 // ---------------------------------------------------------------------------
@@ -1291,10 +1292,13 @@ impl AIUpdateInterface {
             _ => return,
         };
         if let Some(ref turret) = self.turret_ai[idx] {
-            if let Ok(guard) = turret.lock() {
-                // PARITY_TODO: resolve target_id to Arc<RwLock<Object>> via game logic lookup
-                // and call set_current_target() once object registry bridge is wired
-                let _ = (target_id, guard);
+            if let Ok(mut guard) = turret.lock() {
+                let target = if target_id == INVALID_ID {
+                    None
+                } else {
+                    OBJECT_REGISTRY.get_object(target_id)
+                };
+                guard.set_current_target(target);
             }
         }
     }
