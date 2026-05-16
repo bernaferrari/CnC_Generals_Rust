@@ -884,10 +884,8 @@ impl ModuleFactory {
 }
 
 impl Snapshotable for ModuleFactory {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        for module_data in &self.module_data_list {
-            module_data.crc(xfer)?;
-        }
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ ModuleFactory::crc() is intentionally empty
         Ok(())
     }
 

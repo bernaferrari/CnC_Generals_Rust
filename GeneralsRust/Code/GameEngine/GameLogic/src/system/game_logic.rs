@@ -1869,9 +1869,8 @@ impl GameLogic {
         if let Err(e) = self.process_stealth_controllers(FIXED_DELTA_TIME) {
             warn!("Stealth update phase failed: {}", e);
         }
-        if let Err(e) = crate::weapon::update_dot_effects(frame) {
-            warn!("DoT update phase failed: {}", e);
-        }
+        // PARITY_NOTE: C++ DoT is handled by PoisonedBehavior module updates, not a global manager.
+        // The fabricated DotManager/update_dot_effects has been removed.
 
         // Keep special power timers/cooldowns in sync with the simulation frame.
         crate::special_power_module::update();

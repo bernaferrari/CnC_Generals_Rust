@@ -7,7 +7,6 @@
 
 use crate::common::{Coord3D, ObjectID, ObjectStatusTypes, PlayerMaskType};
 use crate::damage::{DamageType, DeathType};
-use crate::weapon::armor_system::{ArmorType, DamageCalculationEngine};
 
 /// Huge damage amount for instant kill effects (matches C++ HUGE_DAMAGE_AMOUNT)
 pub const HUGE_DAMAGE_AMOUNT: f32 = 999999.0; // C++ Damage.h:282
@@ -126,45 +125,41 @@ impl DamageInfo {
 
 /// Damage application helper for weapon-to-object damage
 ///
-/// This structure encapsulates the logic for applying weapon damage to objects,
-/// including armor calculations, veterancy bonuses, and special effects.
-pub struct DamageApplicator {
-    /// Damage calculation engine for armor/veterancy
-    damage_engine: DamageCalculationEngine,
-}
+/// This structure encapsulates the logic for applying weapon damage to objects.
+/// PARITY_NOTE: The fabricated ArmorType/DamageCalculationEngine system has been removed.
+/// C++ armor uses ArmorTemplate coefficient tables (see object/armor.rs).
+/// Damage application goes through Object::attempt_damage() which looks up the
+/// target's ArmorTemplate to get the coefficient for the weapon's DamageType.
+pub struct DamageApplicator;
 
 impl DamageApplicator {
     /// Create new damage applicator
     pub fn new() -> Self {
-        Self {
-            damage_engine: DamageCalculationEngine::new(),
-        }
+        Self
     }
 
-    /// Calculate final damage amount with all modifiers
+    /// Calculate final damage amount.
     ///
-    /// Applies armor resistance, veterancy bonuses, and difficulty scaling
+    /// PARITY_NOTE: In C++, damage goes through ArmorTemplate::getConditionCoeff().
+    /// The fabricated ArmorType enum + DamageCalculationEngine have been removed.
+    /// Callers should use Object::attempt_damage() which handles armor internally.
+    /// This method returns base_damage unchanged as a placeholder.
+    #[allow(clippy::too_many_arguments)]
     pub fn calculate_final_damage(
         &self,
         base_damage: f32,
-        damage_type: DamageType,
-        target_armor: ArmorType,
-        attacker_veterancy: usize,
-        defender_veterancy: usize,
-        difficulty: usize,
-        target_health: f32,
+        _damage_type: DamageType,
+        _target_armor_type: u32,
+        _attacker_veterancy: usize,
+        _defender_veterancy: usize,
+        _difficulty: usize,
+        _target_health: f32,
     ) -> f32 {
-        let result = self.damage_engine.calculate_damage(
-            base_damage,
-            damage_type,
-            target_armor,
-            attacker_veterancy,
-            defender_veterancy,
-            difficulty,
-            target_health,
-        );
-
-        result.final_damage
+        // PARITY_NOTE: In C++, the damage calculation is:
+        //   final = base * armor_coefficient * veterancy_bonus * difficulty_modifier
+        // But this is done through Object::attempt_damage() -> ArmorTemplate lookup.
+        // This placeholder returns raw base_damage until full parity path is wired.
+        base_damage
     }
 
     /// Build a DamageInfo structure ready for application
@@ -395,20 +390,20 @@ mod tests {
     }
 
     #[test]
-    fn test_damage_applicator_creation() {
+    fn test_damage_applicator_returns_base_damage() {
         let applicator = DamageApplicator::new();
         let damage = applicator.calculate_final_damage(
             100.0,
             DamageType::SmallArms,
-            ArmorType::Tank,
-            0, // Regular attacker
-            0, // Regular defender
-            1, // Normal difficulty
+            0, // armor_type placeholder
+            0,
+            0,
+            1,
             200.0,
         );
 
-        // Tank has 25% resistance to small arms
-        assert_eq!(damage, 25.0);
+        // PARITY_NOTE: Returns base_damage as placeholder until full parity path
+        assert_eq!(damage, 100.0);
     }
 
     #[test]
