@@ -38,15 +38,13 @@ impl FireWeaponUpdate {
         let weapon = if let Some(tmpl) = module_data.weapon_template {
             if let Some(weapon_store) = ctx.weapon_store.as_mut() {
                 let weapon = weapon_store.allocate_new_weapon(tmpl, WeaponSlotType::Primary);
-                if let Some(weapon_any) = weapon_store.get_weapon_mut(weapon) {
-                    if let Some(weapon_ref) = weapon_any.downcast_mut::<crate::weapon::Weapon>() {
-                        if let Err(err) = weapon_ref.load_ammo_now(thing) {
-                            log::debug!(
-                                "FireWeaponUpdate::new failed to load initial ammo for {:?}: {}",
-                                thing,
-                                err
-                            );
-                        }
+                if let Some(weapon_ref) = weapon_store.get_weapon_mut(weapon) {
+                    if let Err(err) = weapon_ref.load_ammo_now(thing) {
+                        log::debug!(
+                            "FireWeaponUpdate::new failed to load initial ammo for {:?}: {}",
+                            thing,
+                            err
+                        );
                     }
                 }
                 Some(weapon)
@@ -78,16 +76,14 @@ impl FireWeaponUpdate {
                 (self.weapon, ctx.game_logic.find_object(self.thing))
             {
                 if let Some(weapon_store) = ctx.weapon_store.as_mut() {
-                    if let Some(weapon_any) = weapon_store.get_weapon_mut(weapon_id) {
-                        if let Some(weapon) = weapon_any.downcast_mut::<crate::weapon::Weapon>() {
-                            let pos = object.get_position();
-                            if let Err(err) = weapon.force_fire_weapon(object.get_id(), &pos) {
-                                log::debug!(
-                                    "FireWeaponUpdate::update force_fire_weapon failed for {:?}: {}",
-                                    object.get_id(),
-                                    err
-                                );
-                            }
+                    if let Some(weapon) = weapon_store.get_weapon_mut(weapon_id) {
+                        let pos = object.get_position();
+                        if let Err(err) = weapon.force_fire_weapon(object.get_id(), &pos) {
+                            log::debug!(
+                                "FireWeaponUpdate::update force_fire_weapon failed for {:?}: {}",
+                                object.get_id(),
+                                err
+                            );
                         }
                     }
                 }
@@ -110,11 +106,7 @@ impl FireWeaponUpdate {
             return false;
         };
 
-        let Some(weapon_any) = weapon_store.get_weapon(weapon_id) else {
-            return false;
-        };
-
-        let Some(weapon) = weapon_any.downcast_ref::<crate::weapon::Weapon>() else {
+        let Some(weapon) = weapon_store.get_weapon(weapon_id) else {
             return false;
         };
 
