@@ -1639,12 +1639,13 @@ impl ControlBar {
             }
 
             let display_name = player.get_player_display_name().clone();
-            let money = player.get_money();
+            let money = player.get_money().get_money();
 
-            let score_bit = 1u64 << (gamelogic::common::KindOf::Score as u64);
-            let struct_bit = 1u64 << (gamelogic::common::KindOf::Structure as u64);
-            let score_create_bit = 1u64 << (gamelogic::common::KindOf::ScoreCreate as u64);
-            let score_destroy_bit = 1u64 << (gamelogic::common::KindOf::ScoreDestroy as u64);
+            // C++ KindOf bit indices (from KindOf.h): Score=45, Structure=8, ScoreCreate=46, ScoreDestroy=47
+            let score_bit = 1u64 << 45;
+            let struct_bit = 1u64 << 8;
+            let score_create_bit = 1u64 << 46;
+            let score_destroy_bit = 1u64 << 47;
 
             let num_units = player.count_objects_by_kindof(score_bit, struct_bit);
 
@@ -1715,128 +1716,6 @@ impl ControlBar {
             }
         }
 
-        let Some(contain) = object.get_contain() else {
-            return Ok(());
-        };
-        let contain_count = contain.lock().map(|c| c.get_contain_count()).unwrap_or(0);
-
-        if let Ok(mut ctx) = self.context.write() {
-            if ctx.last_recorded_inventory_count != contain_count {
-                ctx.last_recorded_inventory_count = contain_count;
-                ctx.ui_dirty = true;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn update_context_observer(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let player_list = logic_player_list();
-        let players = player_list
-            .lock()
-            .map_err(|_| "Failed to lock player list")?;
-
-        // Collect observer-visible stats per non-observer player.
-        // C++ ControlBarObserver.cpp:286-311 iterates the looked-at player and
-        // fills static text fields for units, buildings, killed, lost.
-        let mut observer_stats: Vec<(String, i32, i32, i32, i32, i32)> = Vec::new();
-        for i in 0..players.get_player_count() {
-            let player = players.get_player(i as PlayerIndex);
-            let Some(player) = player else { continue };
-            if player.is_player_observer() {
-                continue;
-            }
-            let display_name = player.get_player_display_name().clone();
-            let money = player.get_money().count();
-
-            // Units: objects with KINDOF_SCORE set, KINDOF_STRUCTURE cleared.
-            let score_mask = gamelogic::common::KindOfMaskType::from_kindofs(&[
-                gamelogic::common::KindOf::Score,
-            ]);
-            let no_struct_mask = gamelogic::common::KindOfMaskType::from_kindofs(&[
-                gamelogic::common::KindOf::Structure,
-            ]);
-            let num_units = player.count_objects_by_kindof(score_mask, no_struct_mask);
-
-            // Buildings: combine SCORE+STRUCTURE, SCORE_CREATE+STRUCTURE, SCORE_DESTROY+STRUCTURE.
-            let score_struct = gamelogic::common::KindOfMaskType::from_kindofs(&[
-                gamelogic::common::KindOf::Score,
-                gamelogic::common::KindOf::Structure,
-            ]);
-            let score_create_struct = gamelogic::common::KindOfMaskType::from_kindofs(&[
-                gamelogic::common::KindOf::ScoreCreate,
-                gamelogic::common::KindOf::Structure,
-            ]);
-            let score_destroy_struct = gamelogic::common::KindOfMaskType::from_kindofs(&[
-                gamelogic::common::KindOf::ScoreDestroy,
-                gamelogic::common::KindOf::Structure,
-            ]);
-            let num_buildings = player.count_objects_by_kindof(score_struct, Default::default())
-                + player.count_objects_by_kindof(score_create_struct, Default::default())
-                + player.count_objects_by_kindof(score_destroy_struct, Default::default());
-
-            let score_keeper = player.get_score_keeper();
-            let units_killed = score_keeper.get_total_units_destroyed();
-            let units_lost = score_keeper.get_total_units_lost();
-
-            observer_stats.push((display_name, money, num_units, num_buildings, units_killed, units_lost));
-        }
-
-        // Store stats so the UI can read them on the next draw pass.
-        if let Ok(mut ctx) = self.context.write() {
-            ctx.observer_player_stats = observer_stats;
-        }
-
-        Ok(())
-    }
-
-    /// C++ ControlBarStructureInventory.cpp:181-214: update garrison/contain inventory.
-    /// Checks that the selected object is still locally controlled or neutral,
-    /// then re-populates inventory buttons when the contain count changes.
-    fn update_context_structure_inventory(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let selected_object = self
-            .context
-            .read()
-            .map_err(|_| "Failed to acquire context read lock")?
-            .selected_objects
-            .first()
-            .copied();
-
-        let Some(object_id) = selected_object else {
-            return Ok(());
-        };
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return Ok(());
-        };
-        let Ok(object) = object_arc.read() else {
-            return Ok(());
-        };
-
-        // C++ checks: if not locally controlled and not neutral, deselect.
-        let player_list = logic_player_list();
-        let local_player_index = player_list
-            .lock()
-            .map_err(|_| "Failed to lock player list")?
-            .get_local_player_index();
-
-        let obj_player_id = object.get_controlling_player_id().unwrap_or(0xFFFF) as PlayerIndex;
-        if obj_player_id != local_player_id {
-            // Non-local object: check relationship (simplified — if enemy, deselect).
-            if let Some(local_player) = player_list
-                .lock()
-                .ok()
-                .and_then(|pl| pl.get_player(local_player_id))
-            {
-                let relationship = local_player.get_relationship_to_player(obj_player_id);
-                if relationship != gamelogic::common::types::RelationshipType::Neutral as i32 {
-                    // C++ deselects the drawable for enemy objects.
-                    let _ = TheInGameUI::deselect_all();
-                    return Ok(());
-                }
-            }
-        }
-
-        // Check contain count and repopulate if changed.
         let Some(contain) = object.get_contain() else {
             return Ok(());
         };

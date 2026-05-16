@@ -3374,7 +3374,7 @@ impl GameClient {
 
     fn should_preload_template(template: &ThingTemplate, preload_everything: bool) -> bool {
         // C++ parity: GameClient.cpp::preloadAssets checks KINDOF_PRELOAD unless preloadEverything is forced.
-        const KINDOF_PRELOAD: u32 = 26;
+        const KINDOF_PRELOAD: u64 = 26;
         preload_everything || template.is_kind_of(KINDOF_PRELOAD)
     }
 

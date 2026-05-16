@@ -49,6 +49,174 @@ use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+fn selection_can_enter_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_repair_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_get_repaired_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_get_healed_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_hijack_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_sabotage_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_capture_building_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_disable_vehicle_hack_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_steal_cash_hack_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_disable_building_hack_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_pickup_crate_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> Option<Coord3D> {
+    None
+}
+
+fn selection_can_salvage_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> Option<Coord3D> {
+    None
+}
+
+fn selection_can_resume_construction_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_dock_at_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_convert_to_carbomb_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn selection_can_attack_target(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+    _target_id: ObjectID,
+) -> bool {
+    false
+}
+
+fn collect_selectable_objects(
+    _region: &IRegion2D,
+    _is_point: bool,
+    _radius: f32,
+    _local_player: Option<u32>,
+    _profile: ContextPickProfile,
+) -> (Vec<(ObjectID, f32)>, Vec<(ObjectID, f32)>) {
+    (Vec::new(), Vec::new())
+}
+
+fn pick_closest(objects: &mut Vec<(ObjectID, f32)>) -> Option<ObjectID> {
+    objects.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+    objects.first().map(|(id, _)| *id)
+}
+
+fn is_enemy_target(_local_player: i32, _target_id: ObjectID) -> bool {
+    false
+}
+
+fn selection_has_quick_path_to(
+    _selection: &HashSet<ObjectID>,
+    _world: &Coord3D,
+) -> bool {
+    true
+}
+
+fn selection_counts(
+    _local_player: Option<u32>,
+    _selection: &HashSet<ObjectID>,
+) -> (i32, i32, i32, i32) {
+    (0, 0, 0, 0)
+}
+
+fn dispatch_translated_message(msg: &GameMessageType) {
+    let command_list = get_command_list();
+    if let Ok(mut guard) = command_list.write() {
+        guard.append_message(GameMessage::new(msg.clone()));
+    };
+}
+
 fn logic_to_message_coord(pos: &LogicCoord3D) -> Coord3D {
     Coord3D::new(pos.x, pos.y, pos.z)
 }
