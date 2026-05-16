@@ -6,9 +6,9 @@
 
 //! Copy Protection System Implementation
 //!
-//! Handles software copy protection mechanisms for the game engine.
-//! Note: This is a mock implementation for educational purposes only.
-//! Real copy protection would involve more sophisticated techniques.
+//! Mirrors the original launcher handshake used by Generals. The C++ game
+//! validates a message supplied by the launcher through shared memory; debug and
+//! internal builds skip that requirement.
 //!
 //! Rust conversion: 2025
 
@@ -17,6 +17,9 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::ascii_string::AsciiString;
+
+pub const EXPECTED_LAUNCHER_MESSAGE: &str =
+    "Play the \"Command & Conquer: Generals\" Multiplayer Test.";
 
 /// Copy protection status codes
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -68,13 +71,13 @@ pub trait CopyProtectionInterface {
     fn periodic_check(&mut self) -> ValidationResult;
 }
 
-/// Mock copy protection implementation
-/// In a real system, this would interface with actual protection mechanisms
+/// C++ CopyProtect state.
 pub struct CopyProtection {
     is_initialized: bool,
     last_check_time: u64,
     current_status: ProtectionStatus,
     check_interval: u64, // seconds
+    protected_message: Option<AsciiString>,
 }
 
 impl Default for CopyProtection {
@@ -91,6 +94,7 @@ impl CopyProtection {
             last_check_time: 0,
             current_status: ProtectionStatus::Unknown,
             check_interval: 300, // 5 minutes
+            protected_message: None,
         }
     }
 
@@ -102,77 +106,119 @@ impl CopyProtection {
             .unwrap_or(0)
     }
 
-    /// Mock disc validation
-    fn validate_disc_internal(&self) -> ProtectionStatus {
-        // Mock implementation - would check:
-        // 1. Disc signature
-        // 2. Key sectors
-        // 3. Copy protection markers
-        // 4. Digital certificates
-
-        // For educational purposes, always return valid
-        // Real implementation would perform actual validation
-        ProtectionStatus::Valid
+    pub fn accept_launcher_message<S: Into<AsciiString>>(&mut self, message: S) {
+        self.protected_message = Some(message.into());
+        self.current_status = self.validate_launcher_message();
     }
 
-    /// Mock license validation
-    fn validate_license_internal(&self) -> ValidationResult {
-        let current_time = Self::get_current_time();
+    pub fn clear_launcher_message(&mut self) {
+        self.protected_message = None;
+        self.current_status = if self.is_initialized {
+            self.validate_launcher_message()
+        } else {
+            ProtectionStatus::Unknown
+        };
+    }
 
-        // Mock validation process
-        // Real implementation would check:
-        // 1. Registry entries
-        // 2. License files
-        // 3. Hardware fingerprinting
-        // 4. Online activation status
+    fn should_skip_launcher_validation() -> bool {
+        cfg!(any(debug_assertions, feature = "internal"))
+    }
+
+    fn validate_launcher_message(&self) -> ProtectionStatus {
+        if Self::should_skip_launcher_validation() {
+            return ProtectionStatus::Valid;
+        }
+
+        let Some(message) = &self.protected_message else {
+            return ProtectionStatus::NoDisc;
+        };
+
+        if message.as_str() == EXPECTED_LAUNCHER_MESSAGE {
+            ProtectionStatus::Valid
+        } else {
+            ProtectionStatus::CorruptedData
+        }
+    }
+
+    fn make_validation_result(&self, status: ProtectionStatus) -> ValidationResult {
+        let error_message = match status {
+            ProtectionStatus::Valid => AsciiString::new(),
+            ProtectionStatus::Unknown => AsciiString::from("Protection system not initialized"),
+            ProtectionStatus::NoDisc => AsciiString::from("Launcher message not received"),
+            ProtectionStatus::CorruptedData => AsciiString::from("Launcher message mismatch"),
+            ProtectionStatus::InvalidDisc => AsciiString::from("Launcher validation failed"),
+            ProtectionStatus::NetworkError => AsciiString::from("Launcher communication failed"),
+        };
 
         ValidationResult {
-            status: ProtectionStatus::Valid,
-            error_message: AsciiString::new(),
-            validation_time: current_time,
+            status,
+            error_message,
+            validation_time: Self::get_current_time(),
         }
+    }
+
+    fn validate_disc_internal(&self) -> ProtectionStatus {
+        // C++ CopyProtect validates the launcher-provided message, not optical
+        // media sectors. Keep this method as a compatibility alias for existing
+        // CD-check call sites.
+        self.validate_launcher_message()
+    }
+
+    fn validate_license_internal(&self) -> ValidationResult {
+        self.make_validation_result(self.validate_launcher_message())
+    }
+
+    pub fn is_launcher_running(&self) -> bool {
+        if Self::should_skip_launcher_validation() {
+            return true;
+        }
+
+        self.protected_message.is_some()
+    }
+
+    pub fn notify_launcher(&self) -> bool {
+        // The original implementation signaled a Windows event and waited for a
+        // 0xBEEF message. Rust does not own that launcher process; this reports
+        // whether the expected data has already been supplied.
+        self.is_launcher_running()
+    }
+
+    pub fn shutdown(&mut self) {
+        self.protected_message = None;
+        self.current_status = ProtectionStatus::Unknown;
+        self.is_initialized = false;
+    }
+
+    pub fn validate(&self) -> bool {
+        self.validate_launcher_message() == ProtectionStatus::Valid
     }
 }
 
 impl CopyProtectionInterface for CopyProtection {
     fn init(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Initialize copy protection systems
         self.is_initialized = true;
         self.last_check_time = Self::get_current_time();
-        self.current_status = ProtectionStatus::Valid;
-
-        // Perform initial validation
-        let validation = self.validate_license_internal();
-        self.current_status = validation.status;
-
+        self.current_status = self.validate_launcher_message();
         Ok(())
     }
 
     fn validate_license(&self) -> ValidationResult {
         if !self.is_initialized {
-            return ValidationResult {
-                status: ProtectionStatus::Unknown,
-                error_message: AsciiString::from("Protection system not initialized"),
-                validation_time: Self::get_current_time(),
-            };
+            return self.make_validation_result(ProtectionStatus::Unknown);
         }
 
         self.validate_license_internal()
     }
 
     fn check_disc_presence(&self) -> bool {
-        // Mock disc presence check
-        // Real implementation would check CD/DVD drives
-        true // For educational purposes, assume disc is always present
+        // Compatibility for callers named after the old CD check. The C++ path
+        // checked launcher state/message data, not a physical disc.
+        self.is_launcher_running()
     }
 
     fn validate_disc(&self) -> ProtectionStatus {
         if !self.is_initialized {
             return ProtectionStatus::Unknown;
-        }
-
-        if !self.check_disc_presence() {
-            return ProtectionStatus::NoDisc;
         }
 
         self.validate_disc_internal()
@@ -185,33 +231,13 @@ impl CopyProtectionInterface for CopyProtection {
     fn periodic_check(&mut self) -> ValidationResult {
         let current_time = Self::get_current_time();
 
-        // Only perform check if enough time has passed
         if current_time - self.last_check_time < self.check_interval {
-            return ValidationResult {
-                status: self.current_status,
-                error_message: AsciiString::from("Check interval not reached"),
-                validation_time: current_time,
-            };
+            return self.make_validation_result(self.current_status);
         }
 
-        // Update last check time
         self.last_check_time = current_time;
-
-        // Perform validation
         let result = self.validate_license_internal();
         self.current_status = result.status;
-
-        // Also check disc if needed
-        let disc_status = self.validate_disc();
-        if disc_status != ProtectionStatus::Valid {
-            self.current_status = disc_status;
-            return ValidationResult {
-                status: disc_status,
-                error_message: AsciiString::from("Disc validation failed"),
-                validation_time: current_time,
-            };
-        }
-
         result
     }
 }
@@ -228,7 +254,7 @@ pub struct ProtectionConfig {
 impl Default for ProtectionConfig {
     fn default() -> Self {
         Self {
-            enable_disc_check: true,
+            enable_disc_check: false,
             enable_periodic_check: true,
             check_interval_seconds: 300, // 5 minutes
             max_validation_attempts: 3,
@@ -339,16 +365,6 @@ pub mod utils {
             *byte ^= key;
         }
     }
-
-    /// Check if running in a virtual machine (mock implementation)
-    pub fn is_virtual_machine() -> bool {
-        // Mock implementation - real version would check:
-        // 1. System hardware signatures
-        // 2. Registry entries
-        // 3. Process lists
-        // 4. Timing attacks
-        false
-    }
 }
 
 #[cfg(test)]
@@ -367,7 +383,30 @@ mod tests {
         let mut protection = CopyProtection::new();
         assert!(protection.init().is_ok());
         assert!(protection.is_initialized);
-        assert_eq!(protection.get_status(), ProtectionStatus::Valid);
+        let expected = if CopyProtection::should_skip_launcher_validation() {
+            ProtectionStatus::Valid
+        } else {
+            ProtectionStatus::NoDisc
+        };
+        assert_eq!(protection.get_status(), expected);
+    }
+
+    #[test]
+    fn launcher_message_controls_validation_state() {
+        let mut protection = CopyProtection::new();
+        assert!(protection.init().is_ok());
+
+        protection.accept_launcher_message(EXPECTED_LAUNCHER_MESSAGE);
+        assert!(protection.validate());
+        assert!(protection.notify_launcher());
+
+        protection.clear_launcher_message();
+        if CopyProtection::should_skip_launcher_validation() {
+            assert!(protection.validate());
+        } else {
+            assert_eq!(protection.validate_disc(), ProtectionStatus::NoDisc);
+            assert!(!protection.validate());
+        }
     }
 
     #[test]
@@ -384,7 +423,12 @@ mod tests {
         assert!(manager.init().is_ok());
 
         let result = manager.comprehensive_validation();
-        assert_eq!(result.status, ProtectionStatus::Valid);
+        let expected = if CopyProtection::should_skip_launcher_validation() {
+            ProtectionStatus::Valid
+        } else {
+            ProtectionStatus::NoDisc
+        };
+        assert_eq!(result.status, expected);
     }
 
     #[test]
