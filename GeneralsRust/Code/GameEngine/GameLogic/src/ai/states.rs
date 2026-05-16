@@ -1954,7 +1954,9 @@ impl AIIdleState {
                                             &pos,
                                             crate::ai::pathfind::PathfindLayerEnum::Ground,
                                         );
-                                        if let Some(snapped) = crate::ai::pathfind::goal_position(&pos) {
+                                        if let Some(snapped) =
+                                            crate::ai::pathfind::goal_position(&pos)
+                                        {
                                             let frame = TheGameLogic::get_frame();
                                             if frame <= 1 {
                                                 drop(owner_guard);
@@ -11178,7 +11180,10 @@ impl Snapshotable for AIMoveAndTightenState {
         Snapshotable::crc(&self.base, xfer)?;
         let mut ok_to_repath_times = self.ok_to_repath_times;
         xfer.xfer_int(&mut ok_to_repath_times).map_err(|e| {
-            format!("AIMoveAndTightenState crc ok_to_repath_times failed: {:?}", e)
+            format!(
+                "AIMoveAndTightenState crc ok_to_repath_times failed: {:?}",
+                e
+            )
         })?;
         let mut check_for_path = self.check_for_path;
         xfer.xfer_bool(&mut check_for_path)

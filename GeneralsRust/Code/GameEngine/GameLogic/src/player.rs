@@ -3436,8 +3436,7 @@ impl Snapshotable for Player {
 
         // Radar info
         let mut radar_count = self.radar_count;
-        xfer.xfer_int(&mut radar_count)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut radar_count).map_err(|e| e.to_string())?;
         let mut is_player_dead = self.is_player_dead;
         xfer.xfer_bool(&mut is_player_dead)
             .map_err(|e| e.to_string())?;
@@ -3538,7 +3537,8 @@ impl Snapshotable for Player {
             xfer.xfer_version(&mut money_version, 1)
                 .map_err(|e| e.to_string())?;
             let mut money_amount = self.money.amount as u32;
-            xfer.xfer_u32(&mut money_amount).map_err(|e| e.to_string())?;
+            xfer.xfer_u32(&mut money_amount)
+                .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.money.amount = money_amount as Int;
             }
@@ -3583,15 +3583,12 @@ impl Snapshotable for Player {
                     .ok()
                     .and_then(|center| center.find_upgrade(&upgrade_name));
                 if template.is_none() {
-                    log::warn!(
-                        "Player::xfer - Unable to find upgrade '{}'",
-                        upgrade_name
-                    );
+                    log::warn!("Player::xfer - Unable to find upgrade '{}'", upgrade_name);
                     // Skip the upgrade data by reading a dummy
                     let mut dummy_upgrade = crate::upgrade::Upgrade::new(Arc::new(
-                        crate::upgrade::UpgradeTemplate::new(
-                            crate::common::AsciiString::from("__dummy__"),
-                        ),
+                        crate::upgrade::UpgradeTemplate::new(crate::common::AsciiString::from(
+                            "__dummy__",
+                        )),
                     ));
                     dummy_upgrade.xfer(xfer)?;
                     continue;
@@ -3617,7 +3614,8 @@ impl Snapshotable for Player {
         // Upgrade masks
         {
             let mut in_progress = self.upgrades_in_progress.bits();
-            xfer.xfer_u128(&mut in_progress).map_err(|e| e.to_string())?;
+            xfer.xfer_u128(&mut in_progress)
+                .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.upgrades_in_progress = UpgradeMaskType::from_bits_truncate(in_progress);
             }
@@ -3726,7 +3724,8 @@ impl Snapshotable for Player {
         {
             let has_rgm = self.resource_manager.is_some();
             let mut rgm_present = has_rgm;
-            xfer.xfer_bool(&mut rgm_present).map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut rgm_present)
+                .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.resource_manager = if rgm_present {
                     Some(ResourceGatheringManager::new())
@@ -3740,7 +3739,8 @@ impl Snapshotable for Player {
         {
             let has_tunnel = self.tunnel_tracker.is_some();
             let mut tunnel_present = has_tunnel;
-            xfer.xfer_bool(&mut tunnel_present).map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut tunnel_present)
+                .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.tunnel_tracker = if tunnel_present {
                     Some(TunnelTracker::new())
@@ -3776,7 +3776,8 @@ impl Snapshotable for Player {
         }
 
         // Rank/skill
-        xfer.xfer_int(&mut self.rank_level).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.rank_level)
+            .map_err(|e| e.to_string())?;
         xfer.xfer_int(&mut self.skill_points)
             .map_err(|e| e.to_string())?;
         xfer.xfer_int(&mut self.science_purchase_points)
@@ -3999,12 +4000,13 @@ impl Snapshotable for Player {
                     xfer.xfer_real(&mut percent).map_err(|e| e.to_string())?;
                     let mut refs: UnsignedInt = 0;
                     xfer.xfer_u32(&mut refs).map_err(|e| e.to_string())?;
-                    self.kind_of_percent_production_change_list
-                        .push(KindOfPercentProductionChange {
+                    self.kind_of_percent_production_change_list.push(
+                        KindOfPercentProductionChange {
                             kind_of: kind_of_raw,
                             percent,
                             refs,
-                        });
+                        },
+                    );
                 }
             }
         }
@@ -4084,14 +4086,14 @@ impl Snapshotable for Player {
                 self.battle_plan_bonuses = None;
                 if has_bonus {
                     self.battle_plan_bonuses = Some(BattlePlanBonuses {
-                    armor_scalar: 1.0,
-                    sight_range_scalar: 1.0,
-                    bombardment: 0,
-                    hold_the_line: 0,
-                    search_and_destroy: 0,
-                    valid_kind_of: crate::common::KIND_OF_MASK_NONE,
-                    invalid_kind_of: crate::common::KIND_OF_MASK_NONE,
-                });
+                        armor_scalar: 1.0,
+                        sight_range_scalar: 1.0,
+                        bombardment: 0,
+                        hold_the_line: 0,
+                        search_and_destroy: 0,
+                        valid_kind_of: crate::common::KIND_OF_MASK_NONE,
+                        invalid_kind_of: crate::common::KIND_OF_MASK_NONE,
+                    });
                 }
             }
             if let Some(ref mut bonuses) = self.battle_plan_bonuses {
@@ -4106,10 +4108,12 @@ impl Snapshotable for Player {
                 xfer.xfer_int(&mut bonuses.search_and_destroy)
                     .map_err(|e| e.to_string())?;
                 let mut valid_kind_of = bonuses.valid_kind_of;
-                xfer.xfer_u64(&mut valid_kind_of).map_err(|e| e.to_string())?;
+                xfer.xfer_u64(&mut valid_kind_of)
+                    .map_err(|e| e.to_string())?;
                 bonuses.valid_kind_of = valid_kind_of;
                 let mut invalid_kind_of = bonuses.invalid_kind_of;
-                xfer.xfer_u64(&mut invalid_kind_of).map_err(|e| e.to_string())?;
+                xfer.xfer_u64(&mut invalid_kind_of)
+                    .map_err(|e| e.to_string())?;
                 bonuses.invalid_kind_of = invalid_kind_of;
             }
         }

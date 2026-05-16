@@ -1247,7 +1247,8 @@ impl PathfindingSystem {
                 // Check slope for cliff classification
                 let half_cell = PATHFIND_CELL_SIZE_F * 0.5;
                 let h_center = terrain.get_ground_height(cell_world.x, cell_world.y, None);
-                let h_right = terrain.get_ground_height(cell_world.x + half_cell, cell_world.y, None);
+                let h_right =
+                    terrain.get_ground_height(cell_world.x + half_cell, cell_world.y, None);
                 let h_up = terrain.get_ground_height(cell_world.x, cell_world.y + half_cell, None);
 
                 let slope_x = (h_right - h_center).abs();
@@ -1372,14 +1373,21 @@ impl PathfindingSystem {
 
         // Check exact cell first
         if self.is_destination_valid(
-            cell, layer, surfaces, is_crusher, radius, center_in_cell, ignore_obstacle_id,
+            cell,
+            layer,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            ignore_obstacle_id,
         ) {
             // Snap to cell center
             let snapped = cell.to_world(layer);
             if let Some(terrain) = TheTerrainLogic::get() {
                 dest.x = snapped.x;
                 dest.y = snapped.y;
-                dest.z = terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
+                dest.z =
+                    terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
             }
             return true;
         }
@@ -1397,8 +1405,15 @@ impl PathfindingSystem {
                 i += 1;
                 limit -= 1;
                 if self.try_adjust_cell(
-                    i, j, layer, surfaces, is_crusher, radius, center_in_cell,
-                    ignore_obstacle_id, dest,
+                    i,
+                    j,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    ignore_obstacle_id,
+                    dest,
                 ) {
                     return true;
                 }
@@ -1408,8 +1423,15 @@ impl PathfindingSystem {
                 j += 1;
                 limit -= 1;
                 if self.try_adjust_cell(
-                    i, j, layer, surfaces, is_crusher, radius, center_in_cell,
-                    ignore_obstacle_id, dest,
+                    i,
+                    j,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    ignore_obstacle_id,
+                    dest,
                 ) {
                     return true;
                 }
@@ -1420,8 +1442,15 @@ impl PathfindingSystem {
                 i -= 1;
                 limit -= 1;
                 if self.try_adjust_cell(
-                    i, j, layer, surfaces, is_crusher, radius, center_in_cell,
-                    ignore_obstacle_id, dest,
+                    i,
+                    j,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    ignore_obstacle_id,
+                    dest,
                 ) {
                     return true;
                 }
@@ -1431,8 +1460,15 @@ impl PathfindingSystem {
                 j -= 1;
                 limit -= 1;
                 if self.try_adjust_cell(
-                    i, j, layer, surfaces, is_crusher, radius, center_in_cell,
-                    ignore_obstacle_id, dest,
+                    i,
+                    j,
+                    layer,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    ignore_obstacle_id,
+                    dest,
                 ) {
                     return true;
                 }
@@ -1461,7 +1497,13 @@ impl PathfindingSystem {
             return false;
         }
         if !self.is_destination_valid(
-            coord, layer, surfaces, is_crusher, radius, center_in_cell, ignore_obstacle_id,
+            coord,
+            layer,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            ignore_obstacle_id,
         ) {
             return false;
         }
@@ -1469,7 +1511,8 @@ impl PathfindingSystem {
         if let Some(terrain) = TheTerrainLogic::get() {
             dest.x = snapped.x;
             dest.y = snapped.y;
-            dest.z = terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
+            dest.z =
+                terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
         }
         true
     }
@@ -1506,7 +1549,12 @@ impl PathfindingSystem {
         for x in start_x..end_x {
             for y in start_y..end_y {
                 let coord = GridCoord::new(x, y);
-                if !pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells.as_ref()) {
+                if !pathfinder.is_passable_with_ignore(
+                    coord,
+                    surfaces,
+                    is_crusher,
+                    ignore_cells.as_ref(),
+                ) {
                     return false;
                 }
             }
@@ -1540,8 +1588,13 @@ impl PathfindingSystem {
 
         if same_zone {
             if self.is_destination_valid(
-                goal_cell, PathfindLayerEnum::Ground, surfaces, is_crusher,
-                radius, center_in_cell, None,
+                goal_cell,
+                PathfindLayerEnum::Ground,
+                surfaces,
+                is_crusher,
+                radius,
+                center_in_cell,
+                None,
             ) {
                 return true;
             }
@@ -1559,8 +1612,14 @@ impl PathfindingSystem {
                 i += 1;
                 limit -= 1;
                 if self.try_zone_adjust(
-                    i, j, start_cell, surfaces, is_crusher, radius,
-                    center_in_cell, dest,
+                    i,
+                    j,
+                    start_cell,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    dest,
                 ) {
                     return true;
                 }
@@ -1569,8 +1628,14 @@ impl PathfindingSystem {
                 j += 1;
                 limit -= 1;
                 if self.try_zone_adjust(
-                    i, j, start_cell, surfaces, is_crusher, radius,
-                    center_in_cell, dest,
+                    i,
+                    j,
+                    start_cell,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    dest,
                 ) {
                     return true;
                 }
@@ -1580,8 +1645,14 @@ impl PathfindingSystem {
                 i -= 1;
                 limit -= 1;
                 if self.try_zone_adjust(
-                    i, j, start_cell, surfaces, is_crusher, radius,
-                    center_in_cell, dest,
+                    i,
+                    j,
+                    start_cell,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    dest,
                 ) {
                     return true;
                 }
@@ -1590,8 +1661,14 @@ impl PathfindingSystem {
                 j -= 1;
                 limit -= 1;
                 if self.try_zone_adjust(
-                    i, j, start_cell, surfaces, is_crusher, radius,
-                    center_in_cell, dest,
+                    i,
+                    j,
+                    start_cell,
+                    surfaces,
+                    is_crusher,
+                    radius,
+                    center_in_cell,
+                    dest,
                 ) {
                     return true;
                 }
@@ -1629,8 +1706,13 @@ impl PathfindingSystem {
         }
 
         if !self.is_destination_valid(
-            coord, PathfindLayerEnum::Ground, surfaces, is_crusher,
-            radius, center_in_cell, None,
+            coord,
+            PathfindLayerEnum::Ground,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            None,
         ) {
             return false;
         }
@@ -1639,7 +1721,8 @@ impl PathfindingSystem {
         if let Some(terrain) = TheTerrainLogic::get() {
             dest.x = snapped.x;
             dest.y = snapped.y;
-            dest.z = terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
+            dest.z =
+                terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
         }
         true
     }
@@ -1669,8 +1752,13 @@ impl PathfindingSystem {
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         let cell = GridCoord::from_world(dest);
         self.is_destination_valid(
-            cell, PathfindLayerEnum::Ground, surfaces, is_crusher,
-            radius, center_in_cell, None,
+            cell,
+            PathfindLayerEnum::Ground,
+            surfaces,
+            is_crusher,
+            radius,
+            center_in_cell,
+            None,
         )
     }
 
@@ -1844,13 +1932,7 @@ impl PathfindingSystem {
         is_crusher: bool,
         diameter: i32,
     ) -> bool {
-        self.is_ground_line_passable(
-            start,
-            end,
-            is_crusher,
-            diameter,
-            None,
-        )
+        self.is_ground_line_passable(start, end, is_crusher, diameter, None)
     }
 
     /// Snap a world position to the nearest cell center.
@@ -1883,8 +1965,8 @@ impl PathfindingSystem {
             radius,
             center_in_cell,
             layer,
-            true,  // do_ground
-            true,  // do_layer
+            true, // do_ground
+            true, // do_layer
         );
     }
 

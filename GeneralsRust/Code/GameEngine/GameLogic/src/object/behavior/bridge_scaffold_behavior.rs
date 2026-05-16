@@ -428,10 +428,7 @@ impl EngineModule for BridgeScaffoldBehaviorModule {
 }
 
 impl BridgeScaffoldBehavior {
-    pub fn crc(
-        &self,
-        xfer: &mut dyn Xfer,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let current_version: XferVersion = 1;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)?;

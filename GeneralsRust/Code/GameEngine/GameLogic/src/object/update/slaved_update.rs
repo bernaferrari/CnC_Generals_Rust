@@ -92,7 +92,8 @@ impl SlavedUpdateModuleData {
 impl Snapshotable for SlavedUpdateModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1311,10 +1312,13 @@ impl Snapshotable for SlavedUpdate {
         let mut repair_state = self.repair_state as i32;
         let mut repairing = self.repairing;
 
-        xfer.xfer_object_id(&mut slaver).map_err(|e| e.to_string())?;
+        xfer.xfer_object_id(&mut slaver)
+            .map_err(|e| e.to_string())?;
         xfer.xfer_coord3d(&mut guard_point_offset);
-        xfer.xfer_i32(&mut frames_to_wait).map_err(|e| e.to_string())?;
-        xfer.xfer_i32(&mut repair_state).map_err(|e| e.to_string())?;
+        xfer.xfer_i32(&mut frames_to_wait)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_i32(&mut repair_state)
+            .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut repairing).map_err(|e| e.to_string())?;
 
         Ok(())

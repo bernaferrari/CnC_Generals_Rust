@@ -411,7 +411,12 @@ impl Snapshotable for PropagandaCenterBehavior {
         xfer.xfer_unsigned_short(&mut list_count)
             .map_err(|e| e.to_string())?;
 
-        for id in self.brainwashed_list.iter().copied().take(list_count as usize) {
+        for id in self
+            .brainwashed_list
+            .iter()
+            .copied()
+            .take(list_count as usize)
+        {
             let mut id_copy = id;
             xfer.xfer_object_id(&mut id_copy)
                 .map_err(|e| e.to_string())?;
@@ -460,8 +465,7 @@ impl Snapshotable for PropagandaCenterBehavior {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Snapshotable::load_post_process(&mut self.prison_behavior)
-            .map_err(|e| e.to_string())?;
+        Snapshotable::load_post_process(&mut self.prison_behavior).map_err(|e| e.to_string())?;
         Ok(())
     }
 }

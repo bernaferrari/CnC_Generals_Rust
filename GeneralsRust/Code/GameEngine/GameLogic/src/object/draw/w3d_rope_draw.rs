@@ -62,13 +62,15 @@ impl DrawModuleData for W3DRopeDrawModuleData {
 impl Snapshotable for W3DRopeDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -360,11 +362,14 @@ impl Snapshotable for W3DRopeDraw {
             .map_err(|e| e.to_string())?;
 
         let mut draw_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut draw_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut draw_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut drawable_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut drawable_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut module_version: XferVersion = 1;
-        xfer.xfer_version(&mut module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|e| e.to_string())?;
 
         let mut cur_len = self.cur_len;
         xfer.xfer_real(&mut cur_len).map_err(|e| e.to_string())?;
@@ -389,11 +394,14 @@ impl Snapshotable for W3DRopeDraw {
         let mut wobble_amp = self.wobble_amp;
         xfer.xfer_real(&mut wobble_amp).map_err(|e| e.to_string())?;
         let mut wobble_rate = self.wobble_rate;
-        xfer.xfer_real(&mut wobble_rate).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut wobble_rate)
+            .map_err(|e| e.to_string())?;
         let mut cur_wobble_phase = self.cur_wobble_phase;
-        xfer.xfer_real(&mut cur_wobble_phase).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut cur_wobble_phase)
+            .map_err(|e| e.to_string())?;
         let mut cur_z_offset = self.cur_z_offset;
-        xfer.xfer_real(&mut cur_z_offset).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut cur_z_offset)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -406,11 +414,14 @@ impl Snapshotable for W3DRopeDraw {
         // C++ parity: DrawModule::xfer -> DrawableModule::xfer -> Module::xfer
         // Each writes a version(1) byte. Match the 3-byte base class chain.
         let mut draw_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut draw_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut draw_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut drawable_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut drawable_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut module_version: XferVersion = 1;
-        xfer.xfer_version(&mut module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|e| e.to_string())?;
 
         xfer.xfer_real(&mut self.cur_len)
             .map_err(|e| e.to_string())?;

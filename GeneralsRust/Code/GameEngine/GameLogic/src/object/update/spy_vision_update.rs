@@ -69,7 +69,8 @@ impl ModuleData for SpyVisionUpdateModuleData {
 impl Snapshotable for SpyVisionUpdateModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -389,29 +390,24 @@ impl Module for SpyVisionUpdate {
 impl Snapshotable for SpyVisionUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 2;
-        xfer
-            .xfer_version(&mut version, 2)
+        xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("SpyVisionUpdate crc version failed: {:?}", e))?;
         let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
         xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
         if let Ok(mut controller) = self.controller.lock() {
-            xfer
-                .xfer_unsigned_int(&mut controller.deactivate_frame)
+            xfer.xfer_unsigned_int(&mut controller.deactivate_frame)
                 .map_err(|e| format!("SpyVisionUpdate crc deactivate_frame failed: {:?}", e))?;
-            xfer
-                .xfer_bool(&mut controller.currently_active)
+            xfer.xfer_bool(&mut controller.currently_active)
                 .map_err(|e| format!("SpyVisionUpdate crc currently_active failed: {:?}", e))?;
             if version >= 2 {
-                xfer
-                    .xfer_bool(&mut controller.reset_timers_next_update)
+                xfer.xfer_bool(&mut controller.reset_timers_next_update)
                     .map_err(|e| {
                         format!(
                             "SpyVisionUpdate crc reset_timers_next_update failed: {:?}",
                             e
                         )
                     })?;
-                xfer
-                    .xfer_unsigned_int(&mut controller.disabled_until_frame)
+                xfer.xfer_unsigned_int(&mut controller.disabled_until_frame)
                     .map_err(|e| {
                         format!("SpyVisionUpdate crc disabled_until_frame failed: {:?}", e)
                     })?;
@@ -422,28 +418,23 @@ impl Snapshotable for SpyVisionUpdate {
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 2;
-        xfer
-            .xfer_version(&mut version, 2)
+        xfer.xfer_version(&mut version, 2)
             .map_err(|e| format!("SpyVisionUpdate xfer version failed: {:?}", e))?;
         xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
         if let Ok(mut controller) = self.controller.lock() {
-            xfer
-                .xfer_unsigned_int(&mut controller.deactivate_frame)
+            xfer.xfer_unsigned_int(&mut controller.deactivate_frame)
                 .map_err(|e| format!("SpyVisionUpdate xfer deactivate_frame failed: {:?}", e))?;
-            xfer
-                .xfer_bool(&mut controller.currently_active)
+            xfer.xfer_bool(&mut controller.currently_active)
                 .map_err(|e| format!("SpyVisionUpdate xfer currently_active failed: {:?}", e))?;
             if version >= 2 {
-                xfer
-                    .xfer_bool(&mut controller.reset_timers_next_update)
+                xfer.xfer_bool(&mut controller.reset_timers_next_update)
                     .map_err(|e| {
                         format!(
                             "SpyVisionUpdate xfer reset_timers_next_update failed: {:?}",
                             e
                         )
                     })?;
-                xfer
-                    .xfer_unsigned_int(&mut controller.disabled_until_frame)
+                xfer.xfer_unsigned_int(&mut controller.disabled_until_frame)
                     .map_err(|e| {
                         format!("SpyVisionUpdate xfer disabled_until_frame failed: {:?}", e)
                     })?;

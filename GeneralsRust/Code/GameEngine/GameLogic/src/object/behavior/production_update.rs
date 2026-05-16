@@ -297,7 +297,8 @@ impl ProductionUpdateInterface for ProductionUpdate {
             return;
         }
         let current_frame = TheGameLogic::get_frame();
-        self.current_production_end_frame = current_frame.saturating_add(self.paused_remaining_frames);
+        self.current_production_end_frame =
+            current_frame.saturating_add(self.paused_remaining_frames);
         self.paused_remaining_frames = 0;
         self.is_paused = false;
     }

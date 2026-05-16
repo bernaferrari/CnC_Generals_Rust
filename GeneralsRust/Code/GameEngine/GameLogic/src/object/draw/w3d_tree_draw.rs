@@ -371,13 +371,15 @@ impl DrawModuleData for W3DTreeDrawModuleData {
 impl Snapshotable for W3DTreeDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -699,11 +701,14 @@ impl Snapshotable for W3DTreeDraw {
             .map_err(|e| e.to_string())?;
 
         let mut draw_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut draw_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut draw_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut drawable_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut drawable_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut module_version: XferVersion = 1;
-        xfer.xfer_version(&mut module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }
