@@ -5595,15 +5595,23 @@ impl AIUpdateInterface for UnitAIUpdate {
             return Ok(());
         }
 
-        let first = waypoints.remove(0);
+        let last = waypoints
+            .last()
+            .map(|waypoint| waypoint.position)
+            .expect("waypoints is not empty");
         if let Ok(mut guard) = unit.write() {
-            guard.target_position = Some(first.position);
+            guard.target_position = Some(last);
             guard.movement_state = MovementState::Moving;
             guard.current_speed = 0.0;
-            guard.current_path = None;
             guard.path_index = 0;
-            guard.path_following_state = Some(PathFollowingState::new(first.position));
-            guard.waypoint_queue = waypoints;
+            guard.path_following_state = None;
+            guard.current_path = Some(
+                waypoints
+                    .iter()
+                    .map(|waypoint| Coord2D::new(waypoint.position.x, waypoint.position.y))
+                    .collect(),
+            );
+            guard.waypoint_queue.clear();
         }
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
