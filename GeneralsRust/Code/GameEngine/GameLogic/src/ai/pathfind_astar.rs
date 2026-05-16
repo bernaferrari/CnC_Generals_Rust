@@ -347,6 +347,14 @@ impl AStarPathfinder {
         cell.is_impassable()
     }
 
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
     /// Calculate movement cost between adjacent cells
     /// Matches C++ PathfindCell::costSoFar() at AIPathfind.cpp:1691-1711
     fn movement_cost_with_ignore(
