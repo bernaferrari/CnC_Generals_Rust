@@ -23,11 +23,11 @@ pub use crate::object::update::special_power_update::SpecialPowerCommandOption;
 pub type SpecialPowerCommandOptions = SpecialPowerCommandOption;
 use crate::command_button::CommandButton;
 use crate::common::science::{ScienceType, SCIENCE_INVALID};
-use game_engine::common::system::Xfer;
 use crate::object::special_power_module::Waypoint;
 use crate::object::update::ai_update::deliver_payload_data::DeliverPayloadData;
 use crate::object::SpecialPowerTemplate;
 use crate::player::PlayerIndex;
+use game_engine::common::system::Xfer;
 use std::any::Any;
 /// Destroy reasons used by die/destroy modules (mirrors C++ DestroyReason).
 #[derive(Debug, Clone, Copy)]
@@ -745,6 +745,20 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     /// Get contain count as u32 (matches legacy API).
     fn get_contain_count(&self) -> u32 {
         self.get_contained_count() as u32
+    }
+
+    /// Number of passengers currently hidden by stealth containment.
+    fn get_stealth_units_contained(&self) -> UnsignedInt {
+        self.get_contained_objects()
+            .iter()
+            .filter_map(|id| TheGameLogic::find_object_by_id(*id))
+            .filter(|obj| {
+                obj.read()
+                    .ok()
+                    .map(|guard| guard.test_status(ObjectStatusTypes::Stealthed))
+                    .unwrap_or(false)
+            })
+            .count() as UnsignedInt
     }
 
     /// Get contain max as i32 (matches legacy API).
