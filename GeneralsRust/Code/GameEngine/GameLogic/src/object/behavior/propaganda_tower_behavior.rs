@@ -570,7 +570,29 @@ impl BehaviorModuleInterface for PropagandaTowerBehavior {
 }
 
 impl Snapshotable for PropagandaTowerBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|e| format!("Failed to xfer UpdateModule base state: {}", e))?;
+
+        let mut last_scan_frame = self.last_scan_frame;
+        xfer.xfer_unsigned_int(&mut last_scan_frame)
+            .map_err(|e| e.to_string())?;
+
+        let mut inside_count: u16 = self.inside_list.len().min(u16::MAX as usize) as u16;
+        xfer.xfer_unsigned_short(&mut inside_count)
+            .map_err(|e| e.to_string())?;
+
+        for id in self.inside_list.iter().copied().take(inside_count as usize) {
+            let mut id_copy = id;
+            xfer.xfer_object_id(&mut id_copy)
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 

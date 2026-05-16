@@ -1170,7 +1170,15 @@ impl TransitionDamageFX {
         }
     }
 
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u32 = 1;
+        xfer.xfer_version_write(current_version);
+        for state in 0..BODY_DAMAGE_TYPE_COUNT {
+            for slot in 0..DAMAGE_MODULE_MAX_FX {
+                let mut id = self.particle_system_ids[state][slot];
+                let _ = game_engine::system::Xfer::xfer_unsigned_int(xfer, &mut id);
+            }
+        }
         Ok(())
     }
 

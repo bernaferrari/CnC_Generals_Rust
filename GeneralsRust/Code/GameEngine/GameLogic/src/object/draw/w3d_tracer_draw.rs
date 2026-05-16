@@ -265,7 +265,11 @@ impl TracerDrawInterface for W3DTracerDraw {
 }
 
 impl Snapshotable for W3DTracerDraw {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -970,7 +970,67 @@ impl BehaviorModuleInterface for ParkingPlaceBehavior {
 }
 
 impl Snapshotable for ParkingPlaceBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 3;
+        xfer.xfer_version(&mut version, 3)
+            .map_err(|e| format!("ParkingPlaceBehavior version xfer failed: {:?}", e))?;
+
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut spaces_count: u8 = self.spaces.len().min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut spaces_count)
+            .map_err(|e| e.to_string())?;
+        for space in self.spaces.iter().take(spaces_count as usize) {
+            let mut object_id = space.object_in_space;
+            let mut reserved_for_exit = space.reserved_for_exit;
+            xfer.xfer_object_id(&mut object_id)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut reserved_for_exit)
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut runways_count: u8 = self.runways.len().min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut runways_count)
+            .map_err(|e| e.to_string())?;
+        for runway in self.runways.iter().take(runways_count as usize) {
+            let mut in_use_by = runway.in_use_by;
+            let mut next_in_line = runway.next_in_line_for_takeoff;
+            let mut was_in_line = runway.was_in_line;
+            xfer.xfer_object_id(&mut in_use_by)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_object_id(&mut next_in_line)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut was_in_line)
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut heal_count: u8 = self.healing.len().min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut heal_count)
+            .map_err(|e| e.to_string())?;
+        for info in self.healing.iter().take(heal_count as usize) {
+            let mut healed_id = info.getting_healed_id;
+            let mut heal_start_frame = info.heal_start_frame;
+            xfer.xfer_object_id(&mut healed_id)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_unsigned_int(&mut heal_start_frame)
+                .map_err(|e| e.to_string())?;
+        }
+
+        if version >= 2 {
+            let mut heli_rally_point = self.heli_rally_point;
+            xfer.xfer_coord3d(&mut heli_rally_point);
+            let mut heli_rally_point_exists = self.heli_rally_point_exists;
+            xfer.xfer_bool(&mut heli_rally_point_exists)
+                .map_err(|e| e.to_string())?;
+        }
+
+        if version >= 3 {
+            let mut next_heal_frame = self.next_heal_frame;
+            xfer.xfer_unsigned_int(&mut next_heal_frame)
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 

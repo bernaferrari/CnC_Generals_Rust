@@ -47,7 +47,20 @@ impl Default for RebuildHoleExposeDieModuleData {
 }
 
 impl Snapshotable for RebuildHoleExposeDieModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("RebuildHoleExposeDieModuleData crc version: {e:?}"))?;
+        self.base.crc(xfer)?;
+        let mut name = self.hole_name.as_str().to_string();
+        xfer.xfer_ascii_string(&mut name)
+            .map_err(|e| format!("RebuildHoleExposeDieModuleData crc hole_name: {e:?}"))?;
+        let mut health = self.hole_max_health;
+        xfer.xfer_real(&mut health)
+            .map_err(|e| format!("RebuildHoleExposeDieModuleData crc hole_max_health: {e:?}"))?;
+        let mut transfer = self.transfer_attackers;
+        xfer.xfer_bool(&mut transfer)
+            .map_err(|e| format!("RebuildHoleExposeDieModuleData crc transfer_attackers: {e:?}"))?;
         Ok(())
     }
 

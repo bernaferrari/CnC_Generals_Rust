@@ -49,7 +49,11 @@ impl POWTruckBehaviorModuleData {
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for POWTruckBehaviorModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        self.base.crc(xfer)?;
         Ok(())
     }
 
@@ -425,8 +429,12 @@ impl ContainModuleInterface for POWTruckBehaviorContainHandle {
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for POWTruckBehaviorModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let guard = self
+            .behavior
+            .lock()
+            .map_err(|_| "POWTruckBehaviorModule lock poisoned".to_string())?;
+        Snapshotable::crc(&guard.contain, xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {

@@ -1846,7 +1846,107 @@ fn xfer_fixed_matrix3d_array(
 }
 
 impl Snapshotable for ParticleUplinkCannonUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 3;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        let b = &self.behavior;
+
+        let mut next_call_frame_and_phase = b.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut status = b.status as u32;
+        xfer.xfer_unsigned_int(&mut status)
+            .map_err(|e| e.to_string())?;
+
+        let mut laser_status = b.laser_status as u32;
+        xfer.xfer_unsigned_int(&mut laser_status)
+            .map_err(|e| e.to_string())?;
+
+        let mut frames = b.frames;
+        xfer.xfer_unsigned_int(&mut frames)
+            .map_err(|e| e.to_string())?;
+
+        let mut outer_system_ids = b.outer_system_ids.clone();
+        xfer_fixed_particle_ids(xfer, &mut outer_system_ids)?;
+        let mut laser_beam_ids = b.laser_beam_ids.clone();
+        xfer_fixed_drawable_ids(xfer, &mut laser_beam_ids)?;
+        let mut ground_to_orbit_beam_id = b.ground_to_orbit_beam_id;
+        xfer.xfer_drawable_id(&mut ground_to_orbit_beam_id)
+            .map_err(|e| e.to_string())?;
+        let mut orbit_to_target_beam_id = b.orbit_to_target_beam_id;
+        xfer.xfer_drawable_id(&mut orbit_to_target_beam_id)
+            .map_err(|e| e.to_string())?;
+        let mut connector_system_id = b.connector_system_id;
+        xfer.xfer_unsigned_int(&mut connector_system_id)
+            .map_err(|e| e.to_string())?;
+        let mut laser_base_system_id = b.laser_base_system_id;
+        xfer.xfer_unsigned_int(&mut laser_base_system_id)
+            .map_err(|e| e.to_string())?;
+        let mut outer_node_positions = b.outer_node_positions.clone();
+        xfer_fixed_coord3d_array(xfer, &mut outer_node_positions)?;
+        let mut outer_node_orientations = b.outer_node_orientations.clone();
+        xfer_fixed_matrix3d_array(xfer, &mut outer_node_orientations)?;
+        let mut connector_node_position = b.connector_node_position;
+        xfer.xfer_coord3d(&mut connector_node_position);
+        let mut laser_origin_position = b.laser_origin_position;
+        xfer.xfer_coord3d(&mut laser_origin_position);
+        let mut override_target_destination = b.override_target_destination;
+        xfer.xfer_coord3d(&mut override_target_destination);
+        let mut up_bones_cached = b.up_bones_cached;
+        xfer.xfer_bool(&mut up_bones_cached)
+            .map_err(|e| e.to_string())?;
+        let mut default_info_cached = b.default_info_cached;
+        xfer.xfer_bool(&mut default_info_cached)
+            .map_err(|e| e.to_string())?;
+        let mut invalid_settings = b.invalid_settings;
+        xfer.xfer_bool(&mut invalid_settings)
+            .map_err(|e| e.to_string())?;
+        let mut initial_target_position = b.initial_target_position;
+        xfer.xfer_coord3d(&mut initial_target_position);
+        let mut current_target_position = b.current_target_position;
+        xfer.xfer_coord3d(&mut current_target_position);
+        let mut scorch_marks_made = b.scorch_marks_made;
+        xfer.xfer_unsigned_int(&mut scorch_marks_made)
+            .map_err(|e| e.to_string())?;
+        let mut next_scorch_mark_frame = b.next_scorch_mark_frame;
+        xfer.xfer_unsigned_int(&mut next_scorch_mark_frame)
+            .map_err(|e| e.to_string())?;
+        let mut next_launch_fx_frame = b.next_launch_fx_frame;
+        xfer.xfer_unsigned_int(&mut next_launch_fx_frame)
+            .map_err(|e| e.to_string())?;
+        let mut damage_pulses_made = b.damage_pulses_made;
+        xfer.xfer_unsigned_int(&mut damage_pulses_made)
+            .map_err(|e| e.to_string())?;
+        let mut next_damage_pulse_frame = b.next_damage_pulse_frame;
+        xfer.xfer_unsigned_int(&mut next_damage_pulse_frame)
+            .map_err(|e| e.to_string())?;
+        let mut start_attack_frame = b.start_attack_frame;
+        xfer.xfer_unsigned_int(&mut start_attack_frame)
+            .map_err(|e| e.to_string())?;
+        let mut start_decay_frame = b.start_decay_frame;
+        xfer.xfer_unsigned_int(&mut start_decay_frame)
+            .map_err(|e| e.to_string())?;
+        let mut last_driving_click_frame = b.last_driving_click_frame;
+        xfer.xfer_unsigned_int(&mut last_driving_click_frame)
+            .map_err(|e| e.to_string())?;
+        let mut second_last_driving_click_frame = b.second_last_driving_click_frame;
+        xfer.xfer_unsigned_int(&mut second_last_driving_click_frame)
+            .map_err(|e| e.to_string())?;
+        if version >= 3 {
+            let mut manual_target_mode = b.manual_target_mode;
+            xfer.xfer_bool(&mut manual_target_mode)
+                .map_err(|e| e.to_string())?;
+            let mut scripted_waypoint_mode = b.scripted_waypoint_mode;
+            xfer.xfer_bool(&mut scripted_waypoint_mode)
+                .map_err(|e| e.to_string())?;
+            let mut next_dest_waypoint_id = b.next_dest_waypoint_id;
+            xfer.xfer_unsigned_int(&mut next_dest_waypoint_id)
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 

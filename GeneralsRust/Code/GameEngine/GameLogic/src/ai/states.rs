@@ -337,6 +337,48 @@ impl FollowWaypointPathCore {
         })
     }
 
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut group_offset_x = self.group_offset.x;
+        let mut group_offset_y = self.group_offset.y;
+        let mut angle = self.angle;
+        let mut frames_sleeping = self.frames_sleeping;
+        let mut append_goal_position = self.append_goal_position;
+        let mut goal_position_x = self.goal_position.x;
+        let mut goal_position_y = self.goal_position.y;
+        let mut goal_position_z = self.goal_position.z;
+        let mut current_id: WaypointId = self
+            .current_waypoint
+            .as_ref()
+            .map(|w| w.id)
+            .unwrap_or(INVALID_ID);
+        let mut prior_id: WaypointId = self
+            .prior_waypoint
+            .as_ref()
+            .map(|w| w.id)
+            .unwrap_or(INVALID_ID);
+        xfer.xfer_real(&mut group_offset_x)
+            .map_err(|e| format!("Failed to crc group_offset.x: {:?}", e))?;
+        xfer.xfer_real(&mut group_offset_y)
+            .map_err(|e| format!("Failed to crc group_offset.y: {:?}", e))?;
+        xfer.xfer_real(&mut angle)
+            .map_err(|e| format!("Failed to crc angle: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut frames_sleeping)
+            .map_err(|e| format!("Failed to crc frames_sleeping: {:?}", e))?;
+        xfer.xfer_bool(&mut append_goal_position)
+            .map_err(|e| format!("Failed to crc append_goal_position: {:?}", e))?;
+        xfer.xfer_real(&mut goal_position_x)
+            .map_err(|e| format!("Failed to crc goal_position.x: {:?}", e))?;
+        xfer.xfer_real(&mut goal_position_y)
+            .map_err(|e| format!("Failed to crc goal_position.y: {:?}", e))?;
+        xfer.xfer_real(&mut goal_position_z)
+            .map_err(|e| format!("Failed to crc goal_position.z: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut current_id)
+            .map_err(|e| format!("Failed to crc current waypoint id: {:?}", e))?;
+        xfer.xfer_unsigned_int(&mut prior_id)
+            .map_err(|e| format!("Failed to crc prior waypoint id: {:?}", e))?;
+        Ok(())
+    }
+
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         xfer.xfer_real(&mut self.group_offset.x)
             .map_err(|e| format!("Failed to xfer group_offset.x: {:?}", e))?;
@@ -9302,6 +9344,10 @@ impl AttackStateMachine {
         self.base.xfer(xfer).map_err(|err| err.to_string())
     }
 
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.base.crc(xfer).map_err(|err| err.to_string())
+    }
+
     pub fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process().map_err(|err| err.to_string())
     }
@@ -10977,7 +11023,42 @@ impl AIAttackMoveStateMachine {
 }
 
 impl Snapshotable for AIMoveToState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("AIMoveToState crc version failed: {:?}", e))?;
+        let mut goal_position_x = self.goal_position.x;
+        xfer.xfer_real(&mut goal_position_x)
+            .map_err(|e| format!("AIMoveToState crc goal_position.x failed: {:?}", e))?;
+        let mut goal_position_y = self.goal_position.y;
+        xfer.xfer_real(&mut goal_position_y)
+            .map_err(|e| format!("AIMoveToState crc goal_position.y failed: {:?}", e))?;
+        let mut goal_position_z = self.goal_position.z;
+        xfer.xfer_real(&mut goal_position_z)
+            .map_err(|e| format!("AIMoveToState crc goal_position.z failed: {:?}", e))?;
+        let mut goal_layer = self.goal_layer;
+        xfer.xfer_u8(&mut goal_layer);
+        let mut waiting_for_path = self.waiting_for_path;
+        xfer.xfer_bool(&mut waiting_for_path)
+            .map_err(|e| format!("AIMoveToState crc waiting_for_path failed: {:?}", e))?;
+        let mut path_goal_position_x = self.path_goal_position.x;
+        xfer.xfer_real(&mut path_goal_position_x)
+            .map_err(|e| format!("AIMoveToState crc path_goal_position.x failed: {:?}", e))?;
+        let mut path_goal_position_y = self.path_goal_position.y;
+        xfer.xfer_real(&mut path_goal_position_y)
+            .map_err(|e| format!("AIMoveToState crc path_goal_position.y failed: {:?}", e))?;
+        let mut path_goal_position_z = self.path_goal_position.z;
+        xfer.xfer_real(&mut path_goal_position_z)
+            .map_err(|e| format!("AIMoveToState crc path_goal_position.z failed: {:?}", e))?;
+        let mut path_timestamp = self.path_timestamp;
+        xfer.xfer_unsigned_int(&mut path_timestamp)
+            .map_err(|e| format!("AIMoveToState crc path_timestamp failed: {:?}", e))?;
+        let mut blocked_repath_timestamp = self.blocked_repath_timestamp;
+        xfer.xfer_unsigned_int(&mut blocked_repath_timestamp)
+            .map_err(|e| format!("AIMoveToState crc blocked_repath_timestamp failed: {:?}", e))?;
+        let mut adjust_destinations = self.adjust_destinations;
+        xfer.xfer_bool(&mut adjust_destinations)
+            .map_err(|e| format!("AIMoveToState crc adjust_destinations failed: {:?}", e))?;
         Ok(())
     }
 
@@ -11033,7 +11114,26 @@ impl Snapshotable for AIMoveToState {
 }
 
 impl Snapshotable for AIWanderInPlaceState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("AIWanderInPlaceState crc version failed: {:?}", e))?;
+        Snapshotable::crc(&self.base, xfer)?;
+        let mut origin_x = self.origin.x;
+        xfer.xfer_real(&mut origin_x)
+            .map_err(|e| format!("AIWanderInPlaceState crc origin.x failed: {:?}", e))?;
+        let mut origin_y = self.origin.y;
+        xfer.xfer_real(&mut origin_y)
+            .map_err(|e| format!("AIWanderInPlaceState crc origin.y failed: {:?}", e))?;
+        let mut origin_z = self.origin.z;
+        xfer.xfer_real(&mut origin_z)
+            .map_err(|e| format!("AIWanderInPlaceState crc origin.z failed: {:?}", e))?;
+        let mut wait_frames = self.wait_frames;
+        xfer.xfer_int(&mut wait_frames)
+            .map_err(|e| format!("AIWanderInPlaceState crc wait_frames failed: {:?}", e))?;
+        let mut timer = self.timer;
+        xfer.xfer_int(&mut timer)
+            .map_err(|e| format!("AIWanderInPlaceState crc timer failed: {:?}", e))?;
         Ok(())
     }
 
@@ -11066,7 +11166,18 @@ impl Snapshotable for AIWanderInPlaceState {
 }
 
 impl Snapshotable for AIMoveAndTightenState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("AIMoveAndTightenState crc version failed: {:?}", e))?;
+        Snapshotable::crc(&self.base, xfer)?;
+        let mut ok_to_repath_times = self.ok_to_repath_times;
+        xfer.xfer_int(&mut ok_to_repath_times).map_err(|e| {
+            format!("AIMoveAndTightenState crc ok_to_repath_times failed: {:?}", e)
+        })?;
+        let mut check_for_path = self.check_for_path;
+        xfer.xfer_bool(&mut check_for_path)
+            .map_err(|e| format!("AIMoveAndTightenState crc check_for_path failed: {:?}", e))?;
         Ok(())
     }
 
@@ -11093,8 +11204,11 @@ impl Snapshotable for AIMoveAndTightenState {
 }
 
 impl Snapshotable for AIMoveAndDeleteState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("AIMoveAndDeleteState crc version failed: {:?}", e))?;
+        Snapshotable::crc(&self.base, xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -11111,7 +11225,20 @@ impl Snapshotable for AIMoveAndDeleteState {
 }
 
 impl Snapshotable for AIMoveAndEvacuateState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("AIMoveAndEvacuateState crc version failed: {:?}", e))?;
+        Snapshotable::crc(&self.base, xfer)?;
+        let mut origin_x = self.origin.x;
+        xfer.xfer_real(&mut origin_x)
+            .map_err(|e| format!("AIMoveAndEvacuateState crc origin.x failed: {:?}", e))?;
+        let mut origin_y = self.origin.y;
+        xfer.xfer_real(&mut origin_y)
+            .map_err(|e| format!("AIMoveAndEvacuateState crc origin.y failed: {:?}", e))?;
+        let mut origin_z = self.origin.z;
+        xfer.xfer_real(&mut origin_z)
+            .map_err(|e| format!("AIMoveAndEvacuateState crc origin.z failed: {:?}", e))?;
         Ok(())
     }
 
@@ -11136,7 +11263,18 @@ impl Snapshotable for AIMoveAndEvacuateState {
 }
 
 impl Snapshotable for AIAttackObjectState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        let mut has_machine = self.attack_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc attack object has_machine: {:?}", e))?;
+        let mut original_victim_pos = self.original_victim_pos.clone();
+        xfer.xfer_coord3d(&mut original_victim_pos);
+        if let Some(machine) = self.attack_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
         Ok(())
     }
 
@@ -11184,7 +11322,18 @@ impl Snapshotable for AIAttackObjectState {
 }
 
 impl Snapshotable for AIAttackPositionState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        let mut has_machine = self.attack_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc attack position has_machine: {:?}", e))?;
+        let mut target_position = self.target_position.clone();
+        xfer.xfer_coord3d(&mut target_position);
+        if let Some(machine) = self.attack_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
         Ok(())
     }
 
@@ -11230,7 +11379,29 @@ impl Snapshotable for AIAttackPositionState {
 }
 
 impl Snapshotable for AIAttackMoveToState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        Snapshotable::crc(&self.base, xfer)?;
+
+        let mut has_machine = self.attack_move_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc attack move has_machine: {:?}", e))?;
+        if version >= 2 {
+            let mut frame_to_sleep_until = self.frame_to_sleep_until;
+            let mut retry_count = self.retry_count;
+            xfer.xfer_unsigned_int(&mut frame_to_sleep_until)
+                .map_err(|e| format!("Failed to crc frame_to_sleep_until: {:?}", e))?;
+            xfer.xfer_int(&mut retry_count)
+                .map_err(|e| format!("Failed to crc retry_count: {:?}", e))?;
+        }
+
+        if let Some(machine) = self.attack_move_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
         Ok(())
     }
 
@@ -11279,7 +11450,30 @@ impl Snapshotable for AIAttackMoveToState {
 }
 
 impl Snapshotable for AIAttackPursueTargetState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        Snapshotable::crc(&self.base, xfer)?;
+        let mut prev_victim_pos = self.prev_victim_pos.clone();
+        xfer.xfer_coord3d(&mut prev_victim_pos);
+        let mut approach_timestamp = self.approach_timestamp;
+        xfer.xfer_unsigned_int(&mut approach_timestamp)
+            .map_err(|e| format!("Failed to crc pursue approach_timestamp: {:?}", e))?;
+        let mut follow = self.follow;
+        xfer.xfer_bool(&mut follow)
+            .map_err(|e| format!("Failed to crc pursue follow: {:?}", e))?;
+        let mut attacking_object = self.attacking_object;
+        xfer.xfer_bool(&mut attacking_object)
+            .map_err(|e| format!("Failed to crc pursue attacking_object: {:?}", e))?;
+        let mut stop_if_in_range = self.stop_if_in_range;
+        xfer.xfer_bool(&mut stop_if_in_range)
+            .map_err(|e| format!("Failed to crc pursue stop_if_in_range: {:?}", e))?;
+        let mut is_initial_approach = self.is_initial_approach;
+        xfer.xfer_bool(&mut is_initial_approach)
+            .map_err(|e| format!("Failed to crc pursue is_initial_approach: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11310,7 +11504,30 @@ impl Snapshotable for AIAttackPursueTargetState {
 }
 
 impl Snapshotable for AIAttackApproachTargetState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        Snapshotable::crc(&self.base, xfer)?;
+        let mut prev_victim_pos = self.prev_victim_pos.clone();
+        xfer.xfer_coord3d(&mut prev_victim_pos);
+        let mut approach_timestamp = self.approach_timestamp;
+        xfer.xfer_unsigned_int(&mut approach_timestamp)
+            .map_err(|e| format!("Failed to crc approach approach_timestamp: {:?}", e))?;
+        let mut follow = self.follow;
+        xfer.xfer_bool(&mut follow)
+            .map_err(|e| format!("Failed to crc approach follow: {:?}", e))?;
+        let mut attacking_object = self.attacking_object;
+        xfer.xfer_bool(&mut attacking_object)
+            .map_err(|e| format!("Failed to crc approach attacking_object: {:?}", e))?;
+        let mut stop_if_in_range = self.stop_if_in_range;
+        xfer.xfer_bool(&mut stop_if_in_range)
+            .map_err(|e| format!("Failed to crc approach stop_if_in_range: {:?}", e))?;
+        let mut is_initial_approach = self.is_initial_approach;
+        xfer.xfer_bool(&mut is_initial_approach)
+            .map_err(|e| format!("Failed to crc approach is_initial_approach: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11341,7 +11558,18 @@ impl Snapshotable for AIAttackApproachTargetState {
 }
 
 impl Snapshotable for AIAttackAimAtTargetState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut can_turn_in_place = self.can_turn_in_place;
+        xfer.xfer_bool(&mut can_turn_in_place)
+            .map_err(|e| format!("Failed to crc can_turn_in_place: {:?}", e))?;
+        let mut set_locomotor = self.set_locomotor;
+        xfer.xfer_bool(&mut set_locomotor)
+            .map_err(|e| format!("Failed to crc set_locomotor: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11364,8 +11592,12 @@ impl Snapshotable for AIAttackAimAtTargetState {
 }
 
 impl Snapshotable for AIFollowWaypointPathAsTeamState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        self.core.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -11382,8 +11614,12 @@ impl Snapshotable for AIFollowWaypointPathAsTeamState {
 }
 
 impl Snapshotable for AIFollowWaypointPathAsIndividualsState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        self.core.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -11400,7 +11636,19 @@ impl Snapshotable for AIFollowWaypointPathAsIndividualsState {
 }
 
 impl Snapshotable for AIFollowWaypointPathAsTeamExactState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut id: WaypointId = self
+            .last_waypoint
+            .as_ref()
+            .map(|w| w.id)
+            .unwrap_or(INVALID_ID);
+        xfer.xfer_unsigned_int(&mut id)
+            .map_err(|e| format!("Failed to crc team waypoint id: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11433,7 +11681,19 @@ impl Snapshotable for AIFollowWaypointPathAsTeamExactState {
 }
 
 impl Snapshotable for AIFollowWaypointPathAsIndividualsExactState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut id: WaypointId = self
+            .last_waypoint
+            .as_ref()
+            .map(|w| w.id)
+            .unwrap_or(INVALID_ID);
+        xfer.xfer_unsigned_int(&mut id)
+            .map_err(|e| format!("Failed to crc individual waypoint id: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11466,7 +11726,21 @@ impl Snapshotable for AIFollowWaypointPathAsIndividualsExactState {
 }
 
 impl Snapshotable for AIAttackFollowWaypointPathAsTeamState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        self.base.crc(xfer)?;
+
+        let mut has_machine = self.attack_follow_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc attack-follow-team has_machine: {:?}", e))?;
+
+        if let Some(machine) = self.attack_follow_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
         Ok(())
     }
 
@@ -11509,7 +11783,25 @@ impl Snapshotable for AIAttackFollowWaypointPathAsTeamState {
 }
 
 impl Snapshotable for AIAttackFollowWaypointPathAsIndividualsState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        self.base.crc(xfer)?;
+
+        let mut has_machine = self.attack_follow_machine.is_some();
+        xfer.xfer_bool(&mut has_machine).map_err(|e| {
+            format!(
+                "Failed to crc attack-follow-individuals has_machine: {:?}",
+                e
+            )
+        })?;
+
+        if let Some(machine) = self.attack_follow_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
         Ok(())
     }
 
@@ -11556,7 +11848,13 @@ impl Snapshotable for AIAttackFollowWaypointPathAsIndividualsState {
 }
 
 impl Snapshotable for AIAttackMoveStateMachine {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        self.base
+            .crc(xfer)
+            .map_err(|e| format!("Failed to crc attack move machine: {:?}", e))?;
         Ok(())
     }
 
@@ -11578,7 +11876,13 @@ impl Snapshotable for AIAttackMoveStateMachine {
 }
 
 impl Snapshotable for AIAttackThenIdleStateMachine {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        self.base
+            .crc(xfer)
+            .map_err(|e| format!("Failed to crc attack-then-idle machine: {:?}", e))?;
         Ok(())
     }
 
@@ -11603,7 +11907,19 @@ impl Snapshotable for AIAttackThenIdleStateMachine {
 }
 
 impl Snapshotable for AIAttackSquadState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut has_machine = self.attack_squad_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc attack-squad has_machine: {:?}", e))?;
+
+        if let Some(machine) = self.attack_squad_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
         Ok(())
     }
 
@@ -11643,7 +11959,23 @@ impl Snapshotable for AIAttackSquadState {
 }
 
 impl Snapshotable for AIAttackAreaState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut has_machine = self.attack_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc attack-area has_machine: {:?}", e))?;
+
+        if let Some(machine) = self.attack_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
+        let mut next_enemy_scan_time = self.next_enemy_scan_time;
+        xfer.xfer_unsigned_int(&mut next_enemy_scan_time)
+            .map_err(|e| format!("Failed to crc next_enemy_scan_time: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11686,7 +12018,19 @@ impl Snapshotable for AIAttackAreaState {
 }
 
 impl Snapshotable for AIGuardState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut has_machine = self.guard_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc guard has_machine: {:?}", e))?;
+
+        if let Some(machine) = self.guard_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
         Ok(())
     }
 
@@ -11723,7 +12067,19 @@ impl Snapshotable for AIGuardState {
 }
 
 impl Snapshotable for AIGuardRetaliateState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut has_machine = self.guard_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc guard retaliate has_machine: {:?}", e))?;
+
+        if let Some(machine) = self.guard_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
         Ok(())
     }
 
@@ -11760,7 +12116,19 @@ impl Snapshotable for AIGuardRetaliateState {
 }
 
 impl Snapshotable for AITunnelNetworkGuardState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut has_machine = self.guard_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc tunnel-guard has_machine: {:?}", e))?;
+
+        if let Some(machine) = self.guard_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
         Ok(())
     }
 
@@ -11797,7 +12165,21 @@ impl Snapshotable for AITunnelNetworkGuardState {
 }
 
 impl Snapshotable for AIIdleState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut initial_sleep_offset = self.initial_sleep_offset;
+        xfer.xfer_unsigned_short(&mut initial_sleep_offset)
+            .map_err(|e| format!("Failed to crc initial_sleep_offset: {:?}", e))?;
+        let mut should_look_for_targets = self.should_look_for_targets;
+        xfer.xfer_bool(&mut should_look_for_targets)
+            .map_err(|e| format!("Failed to crc should_look_for_targets: {:?}", e))?;
+        let mut inited = self.inited;
+        xfer.xfer_bool(&mut inited)
+            .map_err(|e| format!("Failed to crc inited: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11822,7 +12204,19 @@ impl Snapshotable for AIIdleState {
 }
 
 impl Snapshotable for AIWanderState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        self.core.crc(xfer)?;
+        let mut wait_frames = self.wait_frames;
+        xfer.xfer_int(&mut wait_frames)
+            .map_err(|e| format!("Failed to crc wait_frames: {:?}", e))?;
+        let mut timer = self.timer;
+        xfer.xfer_int(&mut timer)
+            .map_err(|e| format!("Failed to crc timer: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11846,7 +12240,19 @@ impl Snapshotable for AIWanderState {
 }
 
 impl Snapshotable for AIPanicState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        self.core.crc(xfer)?;
+        let mut wait_frames = self.wait_frames;
+        xfer.xfer_int(&mut wait_frames)
+            .map_err(|e| format!("Failed to crc wait_frames: {:?}", e))?;
+        let mut timer = self.timer;
+        xfer.xfer_int(&mut timer)
+            .map_err(|e| format!("Failed to crc timer: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11870,7 +12276,23 @@ impl Snapshotable for AIPanicState {
 }
 
 impl Snapshotable for AIHuntState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut has_machine = self.hunt_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc hunt has_machine: {:?}", e))?;
+
+        if let Some(machine) = self.hunt_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
+        let mut next_enemy_scan_time = self.next_enemy_scan_time;
+        xfer.xfer_unsigned_int(&mut next_enemy_scan_time)
+            .map_err(|e| format!("Failed to crc next_enemy_scan_time: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11915,7 +12337,14 @@ impl Snapshotable for AIHuntState {
 }
 
 impl Snapshotable for AIExitState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut entry_to_clear = self.entry_to_clear;
+        xfer.xfer_object_id(&mut entry_to_clear)
+            .map_err(|e| format!("Failed to crc entry_to_clear: {:?}", e))?;
         Ok(())
     }
 
@@ -11935,7 +12364,14 @@ impl Snapshotable for AIExitState {
 }
 
 impl Snapshotable for AIExitInstantlyState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut entry_to_clear = self.entry_to_clear;
+        xfer.xfer_object_id(&mut entry_to_clear)
+            .map_err(|e| format!("Failed to crc entry_to_clear: {:?}", e))?;
         Ok(())
     }
 
@@ -11955,7 +12391,23 @@ impl Snapshotable for AIExitInstantlyState {
 }
 
 impl Snapshotable for AIDockState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut has_machine = self.dock_machine.is_some();
+        xfer.xfer_bool(&mut has_machine)
+            .map_err(|e| format!("Failed to crc dock has_machine: {:?}", e))?;
+
+        if let Some(machine) = self.dock_machine.as_ref() {
+            machine.crc(xfer)?;
+        }
+
+        let mut using_precision_movement = self.using_precision_movement;
+        xfer.xfer_bool(&mut using_precision_movement)
+            .map_err(|e| format!("Failed to crc precision movement: {:?}", e))?;
+
         Ok(())
     }
 
@@ -11995,7 +12447,21 @@ impl Snapshotable for AIDockState {
 }
 
 impl Snapshotable for AIEnterState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        if version >= 2 {
+            self.base.crc(xfer)?;
+        }
+
+        let mut entry_to_clear = self.entry_to_clear;
+        xfer.xfer_object_id(&mut entry_to_clear)
+            .map_err(|e| format!("Failed to crc entry_to_clear: {:?}", e))?;
+        let mut goal_position = self.goal_position.clone();
+        xfer.xfer_coord3d(&mut goal_position);
+
         Ok(())
     }
 
@@ -12024,7 +12490,46 @@ impl Snapshotable for AIEnterState {
 }
 
 impl Snapshotable for AIFollowPathState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut index = self.index as i32;
+        xfer.xfer_int(&mut index)
+            .map_err(|e| format!("Failed to crc follow path index: {:?}", e))?;
+
+        let mut adjust_final = self.adjust_final;
+        xfer.xfer_bool(&mut adjust_final)
+            .map_err(|e| format!("Failed to crc follow path adjust_final: {:?}", e))?;
+        let mut adjust_final_override = self.adjust_final_override;
+        xfer.xfer_bool(&mut adjust_final_override)
+            .map_err(|e| format!("Failed to crc follow path adjust_final_override: {:?}", e))?;
+        let mut retry_count = self.retry_count;
+        xfer.xfer_int(&mut retry_count)
+            .map_err(|e| format!("Failed to crc follow path retry_count: {:?}", e))?;
+
+        let mut path_len = self.path.len() as i32;
+        xfer.xfer_int(&mut path_len)
+            .map_err(|e| format!("Failed to crc follow path length: {:?}", e))?;
+        for idx in 0..path_len.max(0) {
+            let mut pos = self
+                .path
+                .get(idx as usize)
+                .copied()
+                .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
+            xfer.xfer_coord3d(&mut pos);
+        }
+
+        if version >= 2 {
+            let mut has_ignore_object = self.ignore_object_id.is_some();
+            xfer.xfer_bool(&mut has_ignore_object)
+                .map_err(|e| format!("Failed to crc follow path has_ignore_object: {:?}", e))?;
+            let mut ignore_object_id = self.ignore_object_id.unwrap_or(crate::common::INVALID_ID);
+            xfer.xfer_object_id(&mut ignore_object_id)
+                .map_err(|e| format!("Failed to crc follow path ignore_object_id: {:?}", e))?;
+        }
+
         Ok(())
     }
 
@@ -12100,7 +12605,17 @@ impl Snapshotable for AIFollowPathState {
 }
 
 impl Snapshotable for AIPickUpCrateState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+
+        let mut delay_counter = self.delay_counter;
+        xfer.xfer_int(&mut delay_counter)
+            .map_err(|e| format!("Failed to crc pick up crate delay_counter: {:?}", e))?;
+        let mut goal_position = self.goal_position.clone();
+        xfer.xfer_coord3d(&mut goal_position);
+
         Ok(())
     }
 
@@ -12126,7 +12641,19 @@ impl Snapshotable for AIPickUpCrateState {
 }
 
 impl Snapshotable for AIRappelIntoState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        let mut rappel_rate = self.rappel_rate;
+        xfer.xfer_real(&mut rappel_rate)
+            .map_err(|e| format!("Failed to crc rappel_rate: {:?}", e))?;
+        let mut dest_z = self.dest_z;
+        xfer.xfer_real(&mut dest_z)
+            .map_err(|e| format!("Failed to crc rappel dest_z: {:?}", e))?;
+        let mut target_is_bldg = self.target_is_bldg;
+        xfer.xfer_bool(&mut target_is_bldg)
+            .map_err(|e| format!("Failed to crc rappel target_is_bldg: {:?}", e))?;
         Ok(())
     }
 
@@ -12149,7 +12676,13 @@ impl Snapshotable for AIRappelIntoState {
 }
 
 impl Snapshotable for AICombatDropState {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: game_engine::common::system::xfer::XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        let mut issued_command = self.issued_command;
+        xfer.xfer_bool(&mut issued_command)
+            .map_err(|e| format!("Failed to crc combat drop issued_command: {:?}", e))?;
         Ok(())
     }
 

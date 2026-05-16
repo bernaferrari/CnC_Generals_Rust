@@ -2181,7 +2181,101 @@ impl BehaviorModuleInterface for FlightDeckBehavior {
 }
 
 impl Snapshotable for FlightDeckBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("FlightDeckBehavior version xfer failed: {:?}", e))?;
+
+        let state = self.state.read().unwrap();
+
+        let mut spaces_count: u8 = state
+            .parking_spaces
+            .len()
+            .min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut spaces_count)
+            .map_err(|e| e.to_string())?;
+        for space in state.parking_spaces.iter().take(spaces_count as usize) {
+            let mut object_id = space.object_id;
+            xfer.xfer_object_id(&mut object_id)
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut runways_count: u8 = state
+            .runways
+            .len()
+            .min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut runways_count)
+            .map_err(|e| e.to_string())?;
+        for runway in state.runways.iter().take(runways_count as usize) {
+            let mut takeoff = runway.in_use_by_for_takeoff;
+            let mut landing = runway.in_use_by_for_landing;
+            xfer.xfer_object_id(&mut takeoff)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_object_id(&mut landing)
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut heal_count: u8 = state
+            .healing_objects
+            .len()
+            .min(u8::MAX as usize) as u8;
+        xfer.xfer_unsigned_byte(&mut heal_count)
+            .map_err(|e| e.to_string())?;
+        for info in state.healing_objects.iter().take(heal_count as usize) {
+            let mut healed_id = info.object_id;
+            let mut heal_start_frame = info.heal_start_frame;
+            xfer.xfer_object_id(&mut healed_id)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_unsigned_int(&mut heal_start_frame)
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut next_heal_frame = state.next_heal_frame;
+        xfer.xfer_unsigned_int(&mut next_heal_frame)
+            .map_err(|e| e.to_string())?;
+        let mut next_cleanup_frame = state.next_cleanup_frame;
+        xfer.xfer_unsigned_int(&mut next_cleanup_frame)
+            .map_err(|e| e.to_string())?;
+        let mut started_production_frame = state.started_production_frame;
+        xfer.xfer_unsigned_int(&mut started_production_frame)
+            .map_err(|e| e.to_string())?;
+        let mut next_allowed_production_frame = state.next_allowed_production_frame;
+        xfer.xfer_unsigned_int(&mut next_allowed_production_frame)
+            .map_err(|e| e.to_string())?;
+
+        drop(state);
+
+        let mut designated_target = self.designated_target;
+        xfer.xfer_object_id(&mut designated_target)
+            .map_err(|e| e.to_string())?;
+        let mut command_type = self.designated_command as i32;
+        xfer.xfer_int(&mut command_type)
+            .map_err(|e| e.to_string())?;
+        let mut designated_position = self.designated_position;
+        xfer.xfer_coord3d(&mut designated_position);
+
+        let mut max_runways: UnsignedInt = MAX_RUNWAYS as UnsignedInt;
+        xfer.xfer_unsigned_int(&mut max_runways)
+            .map_err(|e| e.to_string())?;
+        let state = self.state.read().unwrap();
+        for i in 0..MAX_RUNWAYS {
+            let mut next_launch_wave_frame = state.next_launch_wave_frame[i];
+            let mut ramp_up_frame = state.ramp_up_frame[i];
+            let mut catapult_system_frame = state.catapult_system_frame[i];
+            let mut lower_ramp_frame = state.lower_ramp_frame[i];
+            let mut ramp_up = state.ramp_up[i];
+            xfer.xfer_unsigned_int(&mut next_launch_wave_frame)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_unsigned_int(&mut ramp_up_frame)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_unsigned_int(&mut catapult_system_frame)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_unsigned_int(&mut lower_ramp_frame)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut ramp_up)
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 

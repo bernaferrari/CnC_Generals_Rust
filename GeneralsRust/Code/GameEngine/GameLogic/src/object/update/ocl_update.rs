@@ -456,7 +456,24 @@ fn unpack_color(packed: i32) -> Color {
 }
 
 impl Snapshotable for OCLUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| format!("OCLUpdate::crc version failed: {err}"))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+        let mut next_creation_frame = self.next_creation_frame;
+        xfer.xfer_unsigned_int(&mut next_creation_frame)
+            .map_err(|err| format!("OCLUpdate::crc next_creation_frame failed: {err}"))?;
+        let mut timer_started_frame = self.timer_started_frame;
+        xfer.xfer_unsigned_int(&mut timer_started_frame)
+            .map_err(|err| format!("OCLUpdate::crc timer_started_frame failed: {err}"))?;
+        let mut is_faction_neutral = self.is_faction_neutral;
+        xfer.xfer_bool(&mut is_faction_neutral)
+            .map_err(|err| format!("OCLUpdate::crc is_faction_neutral failed: {err}"))?;
+        let mut packed_color = pack_color(self.current_player_color);
+        xfer.xfer_int(&mut packed_color)
+            .map_err(|err| format!("OCLUpdate::crc current_player_color failed: {err}"))?;
         Ok(())
     }
 

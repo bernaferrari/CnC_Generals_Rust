@@ -73,7 +73,11 @@ impl ClientUpdateInterface for AnimatedParticleSysBoneClientUpdateModule {
 }
 
 impl Snapshotable for AnimatedParticleSysBoneClientUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("{:?}", e))?;
         Ok(())
     }
 

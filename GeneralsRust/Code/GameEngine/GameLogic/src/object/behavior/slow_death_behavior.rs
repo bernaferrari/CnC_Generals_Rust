@@ -102,7 +102,31 @@ pub struct SlowDeathBehaviorModuleData {
 impl ModuleData for SlowDeathBehaviorModuleData {}
 
 impl Snapshotable for SlowDeathBehaviorModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut sink_rate = self.sink_rate;
+        xfer.xfer_real(&mut sink_rate)
+            .map_err(|e| e.to_string())?;
+        let mut probability_modifier = self.probability_modifier;
+        xfer.xfer_int(&mut probability_modifier)
+            .map_err(|e| e.to_string())?;
+        let mut modifier_bonus_per_overkill_percent = self.modifier_bonus_per_overkill_percent;
+        xfer.xfer_real(&mut modifier_bonus_per_overkill_percent)
+            .map_err(|e| e.to_string())?;
+        let mut sink_delay = self.sink_delay;
+        xfer.xfer_unsigned_int(&mut sink_delay)
+            .map_err(|e| e.to_string())?;
+        let mut sink_delay_variance = self.sink_delay_variance;
+        xfer.xfer_unsigned_int(&mut sink_delay_variance)
+            .map_err(|e| e.to_string())?;
+        let mut destruction_altitude = self.destruction_altitude;
+        xfer.xfer_real(&mut destruction_altitude)
+            .map_err(|e| e.to_string())?;
+        let mut destruction_delay = self.destruction_delay;
+        xfer.xfer_unsigned_int(&mut destruction_delay)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1134,7 +1158,29 @@ impl Module for SlowDeathBehavior {
 }
 
 impl Snapshotable for SlowDeathBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("SlowDeathBehavior xfer version: {:?}", e))?;
+
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut sink_frame = self.sink_frame;
+        xfer.xfer_unsigned_int(&mut sink_frame)
+            .map_err(|e| format!("SlowDeathBehavior xfer sink_frame: {:?}", e))?;
+        let mut midpoint_frame = self.midpoint_frame;
+        xfer.xfer_unsigned_int(&mut midpoint_frame)
+            .map_err(|e| format!("SlowDeathBehavior xfer midpoint_frame: {:?}", e))?;
+        let mut destruction_frame = self.destruction_frame;
+        xfer.xfer_unsigned_int(&mut destruction_frame)
+            .map_err(|e| format!("SlowDeathBehavior xfer destruction_frame: {:?}", e))?;
+        let mut accelerated_time_scale = self.accelerated_time_scale;
+        xfer.xfer_real(&mut accelerated_time_scale)
+            .map_err(|e| format!("SlowDeathBehavior xfer accelerated_time_scale: {:?}", e))?;
+        let mut flags = self.flags;
+        xfer.xfer_unsigned_int(&mut flags)
+            .map_err(|e| format!("SlowDeathBehavior xfer flags: {:?}", e))?;
         Ok(())
     }
 

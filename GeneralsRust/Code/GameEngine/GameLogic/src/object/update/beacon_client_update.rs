@@ -319,7 +319,17 @@ impl ClientUpdateInterface for BeaconClientUpdateModule {
 }
 
 impl Snapshotable for BeaconClientUpdateModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("{:?}", e))?;
+        let mut particle_system_id = self.particle_system_id.unwrap_or(0);
+        xfer.xfer_unsigned_int(&mut particle_system_id)
+            .map_err(|e| format!("{:?}", e))?;
+        let mut last_radar_pulse = self.last_radar_pulse;
+        xfer.xfer_unsigned_int(&mut last_radar_pulse)
+            .map_err(|e| format!("{:?}", e))?;
         Ok(())
     }
 

@@ -1824,7 +1824,90 @@ impl ContainModuleInterface for OpenContain {
 }
 
 impl Snapshotable for OpenContain {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| e.to_string())?;
+
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut contain_list_size = self.contained_object_ids.len() as u32;
+        xfer.xfer_unsigned_int(&mut contain_list_size)
+            .map_err(|e| e.to_string())?;
+        for id in &self.contained_object_ids {
+            let mut object_id = *id;
+            xfer.xfer_object_id(&mut object_id)
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut player_mask_bits = self.player_who_entered.bits();
+        xfer.xfer_unsigned_int(&mut player_mask_bits)
+            .map_err(|e| e.to_string())?;
+
+        let mut last_unload_sound_frame = self.last_unload_sound_frame;
+        xfer.xfer_unsigned_int(&mut last_unload_sound_frame)
+            .map_err(|e| e.to_string())?;
+        let mut last_load_sound_frame = self.last_load_sound_frame;
+        xfer.xfer_unsigned_int(&mut last_load_sound_frame)
+            .map_err(|e| e.to_string())?;
+
+        let mut stealth_units_contained = self.stealth_units_contained;
+        xfer.xfer_unsigned_int(&mut stealth_units_contained)
+            .map_err(|e| e.to_string())?;
+
+        let mut door_close_countdown = self.door_close_countdown.load(Ordering::Relaxed);
+        xfer.xfer_unsigned_int(&mut door_close_countdown)
+            .map_err(|e| e.to_string())?;
+
+        Self::xfer_model_condition_flags(xfer, &mut self.condition_state.clone())?;
+
+        let mut fire_points = self.fire_points.clone();
+        for matrix in &mut fire_points {
+            Self::xfer_fire_point_matrix(xfer, matrix)?;
+        }
+
+        let mut fire_point_start = self.fire_point_start;
+        xfer.xfer_int(&mut fire_point_start)
+            .map_err(|e| e.to_string())?;
+        let mut fire_point_next = self.fire_point_next;
+        xfer.xfer_int(&mut fire_point_next)
+            .map_err(|e| e.to_string())?;
+        let mut fire_point_size = self.fire_point_size;
+        xfer.xfer_int(&mut fire_point_size)
+            .map_err(|e| e.to_string())?;
+        let mut no_fire_points_in_art = self.no_fire_points_in_art;
+        xfer.xfer_bool(&mut no_fire_points_in_art)
+            .map_err(|e| e.to_string())?;
+
+        let mut rally_point = self.rally_point.clone();
+        Self::xfer_coord_3d(xfer, &mut rally_point)?;
+        let mut rally_point_exists = self.rally_point_exists;
+        xfer.xfer_bool(&mut rally_point_exists)
+            .map_err(|e| e.to_string())?;
+
+        let mut enter_exit_count = self.object_enter_exit_info.len() as u16;
+        xfer.xfer_unsigned_short(&mut enter_exit_count)
+            .map_err(|e| e.to_string())?;
+        for (id, want) in &self.object_enter_exit_info {
+            let mut object_id = *id;
+            let mut enter_exit_type = Self::contain_want_to_cpp_value(*want);
+            xfer.xfer_object_id(&mut object_id)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_int(&mut enter_exit_type)
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut which_exit_path = self.which_exit_path;
+        xfer.xfer_int(&mut which_exit_path)
+            .map_err(|e| e.to_string())?;
+
+        if version >= 2 {
+            let mut passengers_allowed_to_fire = self.module_data.passengers_allowed_to_fire;
+            xfer.xfer_bool(&mut passengers_allowed_to_fire)
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 

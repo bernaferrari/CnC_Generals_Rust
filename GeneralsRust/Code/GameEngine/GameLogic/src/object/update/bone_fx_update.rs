@@ -1575,7 +1575,68 @@ impl BoneFxControlInterface for BoneFXUpdate {
 }
 
 impl Snapshotable for BoneFXUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_version_write(1);
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut count = self.particle_system_ids.len() as u16;
+        xfer.xfer_u16(&mut count);
+        for id in &self.particle_system_ids {
+            let mut id_copy = *id;
+            xfer.xfer_particle_system_id(&mut id_copy);
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
+                let mut next_fx_frame = self.next_fx_frame[i][j];
+                let _ = xfer.xfer_i32(&mut next_fx_frame);
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
+                let mut next_ocl_frame = self.next_ocl_frame[i][j];
+                let _ = xfer.xfer_i32(&mut next_ocl_frame);
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
+                let mut next_ps_frame = self.next_particle_system_frame[i][j];
+                let _ = xfer.xfer_i32(&mut next_ps_frame);
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
+                xfer.xfer_coord3d(&mut self.fx_bone_positions[i][j].clone());
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
+                xfer.xfer_coord3d(&mut self.ocl_bone_positions[i][j].clone());
+            }
+        }
+
+        for i in 0..BODY_DAMAGE_TYPE_COUNT {
+            for j in 0..BONE_FX_MAX_BONES {
+                xfer.xfer_coord3d(&mut self.ps_bone_positions[i][j].clone());
+            }
+        }
+
+        let mut cur_body_state = self.cur_body_state as i32;
+        let _ = xfer.xfer_i32(&mut cur_body_state);
+
+        for resolved in &self.bones_resolved {
+            let mut value = *resolved;
+            let _ = xfer.xfer_bool(&mut value);
+        }
+
+        let mut active = self.active;
+        let _ = xfer.xfer_bool(&mut active);
+
         Ok(())
     }
 
