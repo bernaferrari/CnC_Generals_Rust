@@ -104,7 +104,9 @@ use crate::common::types::WeaponBonusConditionType;
 use crate::common::ArmorSetType;
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::experience::ExperienceTracker;
-use crate::helpers::{FiringTracker, ObjectDisabledHelper, ObjectHeldHelper, TheGameLogic};
+use crate::helpers::{
+    FiringTracker, ObjectDisabledHelper, ObjectHeldHelper, TheGameLogic, ThePartitionManager,
+};
 use crate::modules::{
     AIAttitudeType, AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModuleInterface,
     BodyModuleInterface, BodyModuleInterfaceExt, CollideModuleInterface, ContainModuleInterface,
@@ -9220,10 +9222,39 @@ impl Object {
         }
     }
 
-    /// Find enemies in radius (simplified)
-    pub async fn find_enemies_in_radius(&self, _radius: f32) -> Result<Vec<Object>, String> {
-        // Simplified implementation - would use partition manager
-        Ok(Vec::new())
+    /// Find live enemy objects within 2D radius using the global partition registry.
+    pub async fn find_enemies_in_radius(
+        &self,
+        radius: f32,
+    ) -> Result<Vec<Arc<RwLock<Object>>>, String> {
+        let Some(partition) = ThePartitionManager::get() else {
+            return Ok(Vec::new());
+        };
+
+        let mut enemies = Vec::new();
+        for object_id in partition.get_objects_in_range(self.get_position(), radius.max(0.0)) {
+            if object_id == self.get_id() {
+                continue;
+            }
+
+            let Some(object) = registry::OBJECT_REGISTRY.get_object(object_id) else {
+                continue;
+            };
+            let Ok(candidate) = object.read() else {
+                continue;
+            };
+            if candidate.is_effectively_dead() {
+                continue;
+            }
+            if self.relationship_to(&candidate) != Relationship::Enemies {
+                continue;
+            }
+
+            drop(candidate);
+            enemies.push(object);
+        }
+
+        Ok(enemies)
     }
 
     /// Check if the controlling player's power grid can cover an additional demand.
