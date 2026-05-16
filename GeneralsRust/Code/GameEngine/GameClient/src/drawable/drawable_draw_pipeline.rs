@@ -346,7 +346,9 @@ impl DrawableDrawPipeline {
     pub fn record_draw(&mut self, pass: &mut wgpu::RenderPass) {
         // 1. Flush the bridge (cull + sort + partition)
         let submissions = {
-            let mut guard = get_render_bridge().lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = get_render_bridge()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             match guard.as_mut() {
                 Some(bridge) => {
                     bridge.flush();
@@ -415,8 +417,11 @@ impl DrawableDrawPipeline {
             _pad1: 0,
             _pad2: 0,
         };
-        self.queue
-            .write_buffer(&self.object_buffer, 0, bytemuck::cast_slice(&[object_uniforms]));
+        self.queue.write_buffer(
+            &self.object_buffer,
+            0,
+            bytemuck::cast_slice(&[object_uniforms]),
+        );
 
         // TODO: We should wait for the uniform write to complete via a submission.
         // For now this works because the queue writes are ordered relative to submits.
@@ -428,20 +433,12 @@ impl DrawableDrawPipeline {
             .unwrap_or(&self.fallback_mesh);
 
         pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-        pass.set_index_buffer(
-            mesh.index_buffer.slice(..),
-            wgpu::IndexFormat::Uint16,
-        );
+        pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         pass.draw_indexed(0..mesh.index_count, 0, 0..1);
     }
 
     /// Insert a mesh into the cache. Call during asset loading.
-    pub fn insert_mesh(
-        &mut self,
-        model_name: &str,
-        vertices: Vec<MeshVertex>,
-        indices: Vec<u16>,
-    ) {
+    pub fn insert_mesh(&mut self, model_name: &str, vertices: Vec<MeshVertex>, indices: Vec<u32>) {
         if vertices.is_empty() || indices.is_empty() {
             return;
         }
@@ -517,7 +514,7 @@ impl DrawableDrawPipeline {
             MeshVertex::new([-0.5, 0.5, -0.5], [-1.0, 0.0, 0.0], [0.0, 0.0]),
         ];
 
-        let indices: Vec<u16> = vec![
+        let indices: Vec<u32> = vec![
             0, 1, 2, 0, 2, 3, // front
             4, 5, 6, 4, 6, 7, // back
             8, 9, 10, 8, 10, 11, // top
