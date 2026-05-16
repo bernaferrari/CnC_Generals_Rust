@@ -9969,13 +9969,7 @@ impl Object {
             return Ok(());
         };
 
-        let Some(button_any) = control_bar.get_command_button(button_id) else {
-            return Ok(());
-        };
-
-        let Some(command_button) =
-            button_any.downcast_ref::<crate::command_button::CommandButton>()
-        else {
+        let Some(command_button) = control_bar.get_command_button(button_id) else {
             return Ok(());
         };
 
@@ -10115,13 +10109,7 @@ impl Object {
             return Ok(());
         };
 
-        let Some(button_any) = control_bar.get_command_button(button_id) else {
-            return Ok(());
-        };
-
-        let Some(command_button) =
-            button_any.downcast_ref::<crate::command_button::CommandButton>()
-        else {
+        let Some(command_button) = control_bar.get_command_button(button_id) else {
             return Ok(());
         };
 
@@ -10260,13 +10248,7 @@ impl Object {
             return Ok(());
         };
 
-        let Some(button_any) = control_bar.get_command_button(button_id) else {
-            return Ok(());
-        };
-
-        let Some(command_button) =
-            button_any.downcast_ref::<crate::command_button::CommandButton>()
-        else {
+        let Some(command_button) = control_bar.get_command_button(button_id) else {
             return Ok(());
         };
 
@@ -10470,13 +10452,7 @@ impl Object {
             return Ok(());
         };
 
-        let Some(button_any) = control_bar.get_command_button(button_id) else {
-            return Ok(());
-        };
-
-        let Some(command_button) =
-            button_any.downcast_ref::<crate::command_button::CommandButton>()
-        else {
+        let Some(command_button) = control_bar.get_command_button(button_id) else {
             return Ok(());
         };
 

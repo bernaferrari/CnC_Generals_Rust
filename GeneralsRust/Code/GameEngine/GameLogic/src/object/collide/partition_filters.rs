@@ -1641,20 +1641,15 @@ impl super::partition_manager::PartitionFilter for PartitionFilterValidCommandBu
                         if let Ok(source_guard) = source_handle.read() {
                             if let Some(control_bar) = crate::control_bar::get_control_bar_bridge()
                             {
-                                if let Some(button_any) =
+                                if let Some(command_button) =
                                     control_bar.get_command_button(self.command_button_id)
                                 {
-                                    if let Some(command_button) =
-                                        button_any
-                                            .downcast_ref::<crate::command_button::CommandButton>()
-                                    {
-                                        valid_target = command_button.is_valid_to_use_on(
-                                            &source_guard,
-                                            Some(&target_guard),
-                                            None,
-                                            self.command_source,
-                                        );
-                                    }
+                                    valid_target = command_button.is_valid_to_use_on(
+                                        &source_guard,
+                                        Some(&target_guard),
+                                        None,
+                                        self.command_source,
+                                    );
                                 }
                             }
                         }
