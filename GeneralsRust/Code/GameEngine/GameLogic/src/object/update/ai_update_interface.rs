@@ -1115,7 +1115,20 @@ impl AIUpdateInterface {
     /// Ported from AIUpdate.cpp:833.
     pub fn choose_locomotor_from_current_set(&mut self) {
         // PARITY_TODO: delegate to pathfinder->chooseBestLocomotorForPosition()
-        // once locomotor bridge is ported
+        // once surface-aware locomotor templates are wired. Until then, keep
+        // the C++ success/failure contract by selecting an available template
+        // from the current set instead of inventing one.
+        self.cur_locomotor_tag = if self
+            .module_data
+            .locomotor_sets()
+            .get(&self.cur_locomotor_set)
+            .map(|entries| !entries.is_empty())
+            .unwrap_or(false)
+        {
+            1
+        } else {
+            0
+        };
     }
 
     /// C++ AIUpdateInterface::isDoingGroundMovement – true if moving along ground.
@@ -1494,6 +1507,12 @@ impl AIUpdateInterface {
 
     pub fn set_locomotor_upgrade(&mut self, set: bool) {
         self.upgraded_locomotors = set;
+        if matches!(
+            self.cur_locomotor_set,
+            LocomotorSetType::Normal | LocomotorSetType::NormalUpgraded
+        ) {
+            self.choose_locomotor_set(LocomotorSetType::Normal);
+        }
     }
 
     pub fn notify_crate(&mut self, id: ObjectID) {
@@ -1512,9 +1531,24 @@ impl AIUpdateInterface {
         if actual_set == self.cur_locomotor_set {
             return true;
         }
-        // PARITY_TODO: call chooseLocomotorSetExplicit + chooseGoodLocomotorFromCurrentSet
-        // once locomotor templates are wired
-        self.cur_locomotor_set = actual_set;
+        if self.choose_locomotor_set_explicit(actual_set) {
+            self.choose_locomotor_from_current_set();
+            return true;
+        }
+        false
+    }
+
+    fn choose_locomotor_set_explicit(&mut self, wst: LocomotorSetType) -> bool {
+        let Some(entries) = self.module_data.locomotor_sets().get(&wst) else {
+            return false;
+        };
+        if entries.is_empty() {
+            return false;
+        }
+
+        self.locomotor_set_tag = entries.len() as UnsignedInt;
+        self.cur_locomotor_tag = 0;
+        self.cur_locomotor_set = wst;
         true
     }
 }
@@ -1576,6 +1610,13 @@ mod tests {
 
     fn ai_update() -> AIUpdateInterface {
         AIUpdateInterface::new(Arc::new(AIUpdateModuleData::default()))
+    }
+
+    fn ai_update_with_locomotors() -> AIUpdateInterface {
+        let mut data = AIUpdateModuleData::default();
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "BasicLoco".into());
+        data.add_locomotor_set_entry(LocomotorSetType::NormalUpgraded, "UpgradeLoco".into());
+        AIUpdateInterface::new(Arc::new(data))
     }
 
     #[test]
@@ -1698,5 +1739,36 @@ mod tests {
 
         assert_eq!(ai.do_locomotor(), u32::MAX);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
+    }
+
+    #[test]
+    fn choose_locomotor_set_fails_without_ini_set_like_cpp() {
+        let mut ai = ai_update_with_locomotors();
+
+        assert!(!ai.choose_locomotor_set(LocomotorSetType::Wander));
+        assert_eq!(ai.get_cur_locomotor_set(), LocomotorSetType::Invalid);
+        assert_eq!(ai.cur_locomotor_tag, 0);
+    }
+
+    #[test]
+    fn choose_locomotor_set_selects_available_template_like_cpp() {
+        let mut ai = ai_update_with_locomotors();
+
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
+        assert_eq!(ai.get_cur_locomotor_set(), LocomotorSetType::Normal);
+        assert_eq!(ai.locomotor_set_tag, 1);
+        assert_ne!(ai.cur_locomotor_tag, 0);
+        assert_eq!(ai.get_cur_locomotor_speed(), AI_FAST_AS_POSSIBLE);
+    }
+
+    #[test]
+    fn set_locomotor_upgrade_reselects_normal_set_like_cpp() {
+        let mut ai = ai_update_with_locomotors();
+
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
+        ai.set_locomotor_upgrade(true);
+
+        assert_eq!(ai.get_cur_locomotor_set(), LocomotorSetType::NormalUpgraded);
+        assert_ne!(ai.cur_locomotor_tag, 0);
     }
 }
