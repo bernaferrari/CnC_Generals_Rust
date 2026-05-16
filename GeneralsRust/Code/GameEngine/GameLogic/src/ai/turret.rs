@@ -218,7 +218,7 @@ impl TurretAI {
             recenter_time: LOGICFRAMES_PER_SECOND * 2,
             min_idle_scan_interval: 9_999_999,
             max_idle_scan_interval: 9_999_999,
-            continuous_fire_expiration_frame: 0,
+            continuous_fire_expiration_frame: u32::MAX,
             play_rot_sound: false,
             play_pitch_sound: false,
             did_fire: false,
@@ -482,6 +482,7 @@ impl TurretAI {
                 self.current_angle -= self.turn_rate;
             }
             self.current_angle = Self::normalize_angle(self.current_angle);
+            self.play_rot_sound = true;
             false
         }
     }
@@ -509,6 +510,7 @@ impl TurretAI {
                 self.current_angle -= rate;
             }
             self.current_angle = Self::normalize_angle(self.current_angle);
+            self.play_rot_sound = true;
             false
         }
     }
@@ -529,6 +531,7 @@ impl TurretAI {
             } else {
                 self.current_pitch -= self.pitch_rate;
             }
+            self.play_pitch_sound = true;
             false
         }
     }
@@ -707,7 +710,85 @@ impl TurretAI {
 
     /// Called when state machine changes
     pub fn friend_notify_state_machine_changed(&mut self) {
-        // Handle state machine change notifications
+        self.sleep_until = TheGameLogic::get_frame();
+    }
+
+    /// Update turret AI and maintain the C++ sleep/sweep/sound bookkeeping.
+    pub fn update_turret_ai(&mut self) -> StateReturnType {
+        let now = TheGameLogic::get_frame();
+        if self.sleep_until != 0 && now < self.sleep_until {
+            return StateReturnType::Sleep(self.sleep_until - now);
+        }
+
+        if !self.fires_while_turning || self.continuous_fire_expiration_frame <= now {
+            self.play_rot_sound = false;
+            self.play_pitch_sound = false;
+        }
+
+        if self.enabled {
+            self.did_fire = false;
+        } else {
+            self.sleep_until = now.saturating_add(WAIT_INDEFINITELY);
+            return StateReturnType::Sleep(WAIT_INDEFINITELY);
+        }
+
+        self.sleep_until = now;
+        StateReturnType::Continue
+    }
+
+    /// Safe updater for shared turret handles. This drops the turret lock before
+    /// running the state machine because states may need to lock the turret.
+    pub fn update_turret_ai_handle(turret: &Arc<Mutex<TurretAI>>) -> StateReturnType {
+        let machine = {
+            let Ok(mut guard) = turret.lock() else {
+                return StateReturnType::Failure;
+            };
+            let now = TheGameLogic::get_frame();
+            if guard.sleep_until != 0 && now < guard.sleep_until {
+                return StateReturnType::Sleep(guard.sleep_until - now);
+            }
+            if !guard.fires_while_turning || guard.continuous_fire_expiration_frame <= now {
+                guard.play_rot_sound = false;
+                guard.play_pitch_sound = false;
+            }
+            let recentering = guard
+                .state_machine
+                .as_ref()
+                .and_then(|weak| weak.upgrade())
+                .and_then(|machine| machine.lock().ok()?.get_current_state_id())
+                == Some(TurretStateType::Recenter.into());
+            if !guard.enabled && !recentering {
+                guard.sleep_until = now.saturating_add(WAIT_INDEFINITELY);
+                return StateReturnType::Sleep(WAIT_INDEFINITELY);
+            }
+            guard.did_fire = false;
+            guard.state_machine.as_ref().and_then(|weak| weak.upgrade())
+        };
+
+        let state_return = machine
+            .map(|machine| {
+                machine
+                    .lock()
+                    .map(|mut guard| guard.update())
+                    .unwrap_or(StateReturnType::Failure)
+            })
+            .unwrap_or(StateReturnType::Continue);
+
+        let Ok(mut guard) = turret.lock() else {
+            return StateReturnType::Failure;
+        };
+        let now = TheGameLogic::get_frame();
+        if guard.did_fire {
+            const ENABLE_SWEEP_FRAME_COUNT: u32 = 3;
+            guard.enable_sweep_until = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
+            guard.continuous_fire_expiration_frame = now.saturating_add(ENABLE_SWEEP_FRAME_COUNT);
+        }
+        let sleep_frames = match state_return {
+            StateReturnType::Sleep(frames) => frames,
+            _ => 0,
+        };
+        guard.sleep_until = now.saturating_add(sleep_frames);
+        state_return
     }
 
     /// Get hold time
@@ -889,7 +970,7 @@ impl TurretAI {
 
     pub fn set_turret_enabled(&mut self, enabled: bool) {
         if enabled && !self.enabled {
-            self.friend_notify_state_machine_changed();
+            self.sleep_until = TheGameLogic::get_frame();
         }
         self.enabled = enabled;
     }
@@ -2291,4 +2372,54 @@ pub enum TurretTargetKind {
     None,
     Object,
     Position,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_turret() -> TurretAI {
+        TurretAI::new(Weak::new())
+    }
+
+    #[test]
+    fn turret_defaults_match_cpp_runtime_fields() {
+        let turret = test_turret();
+
+        assert_eq!(turret.get_continuous_fire_expiration_frame(), u32::MAX);
+        assert_eq!(turret.get_sleep_until(), 0);
+        assert!(!turret.get_play_rot_sound());
+        assert!(!turret.get_play_pitch_sound());
+        assert!(!turret.get_did_fire());
+    }
+
+    #[test]
+    fn turret_rotation_and_pitch_set_sound_flags_when_moving() {
+        let mut turret = test_turret();
+        turret.set_turn_rate(0.1);
+        turret.set_pitch_rate(0.1);
+        turret.set_allows_pitch(true);
+
+        assert!(!turret.rotate_towards_angle(1.0));
+        assert!(turret.get_play_rot_sound());
+
+        assert!(!turret.pitch_towards_angle(1.0));
+        assert!(turret.get_play_pitch_sound());
+    }
+
+    #[test]
+    fn turret_wake_and_sleep_bookkeeping_matches_cpp_fields() {
+        let mut turret = test_turret();
+        let now = TheGameLogic::get_frame();
+
+        turret.set_sleep_until(now.saturating_add(5));
+        assert_eq!(turret.update_turret_ai(), StateReturnType::Sleep(5));
+
+        turret.friend_notify_state_machine_changed();
+        assert_eq!(turret.get_sleep_until(), now);
+
+        turret.set_turret_enabled(false);
+        turret.set_turret_enabled(true);
+        assert_eq!(turret.get_sleep_until(), now);
+    }
 }
