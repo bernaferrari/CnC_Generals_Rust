@@ -33,6 +33,7 @@ use crate::gui::window_script::{
 };
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Arc, RwLock};
 
 // ---------------------------------------------------------------------------
 // Constants matching C++ GameWindowManagerScript.cpp
@@ -531,13 +532,13 @@ impl ScriptCallbackRegistry {
         self.register_win_system("MOTDSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
 
         self.register_win_system("MainMenuSystem", main_menu_system);
-        self.register_win_system("OptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("SinglePlayerMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("OptionsMenuSystem", options_menu_system);
+        self.register_win_system("SinglePlayerMenuSystem", single_player_menu_system);
         self.register_win_system("QuitMenuSystem", cb::quit_menu_system);
-        self.register_win_system("MapSelectMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("MapSelectMenuSystem", map_select_menu_system);
         self.register_win_system("ReplayMenuSystem", cb::replay_menu_system);
-        self.register_win_system("CreditsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("LanLobbyMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("CreditsMenuSystem", credits_menu_system);
+        self.register_win_system("LanLobbyMenuSystem", lan_lobby_menu_system);
         self.register_win_system("LanGameOptionsMenuSystem", cb::lan_game_options_menu_system);
         self.register_win_system("LanMapSelectMenuSystem", cb::lan_map_select_menu_system);
         self.register_win_system("SkirmishGameOptionsMenuSystem", cb::skirmish_game_options_menu_system);
@@ -609,12 +610,12 @@ impl ScriptCallbackRegistry {
         self.register_win_input("GadgetTextEntryInput", gadget_text_entry_input);
 
         self.register_win_input("MainMenuInput", main_menu_input);
-        self.register_win_input("MapSelectMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("OptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("SinglePlayerMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("LanLobbyMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("MapSelectMenuInput", map_select_menu_input);
+        self.register_win_input("OptionsMenuInput", options_menu_input);
+        self.register_win_input("SinglePlayerMenuInput", single_player_menu_input);
+        self.register_win_input("LanLobbyMenuInput", lan_lobby_menu_input);
         self.register_win_input("ReplayMenuInput", cb::replay_menu_input);
-        self.register_win_input("CreditsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("CreditsMenuInput", credits_menu_input);
         self.register_win_input("KeyboardOptionsMenuInput", cb::keyboard_options_menu_input);
         self.register_win_input("PopupCommunicatorInput", cb::popup_communicator_input);
         self.register_win_input("LanGameOptionsMenuInput", cb::lan_game_options_menu_input);
@@ -676,16 +677,16 @@ impl ScriptCallbackRegistry {
                 log::warn!("MainMenuInit failed: {}", err);
             }
         });
-        self.register_layout_init("OptionsMenuInit", |_layout| {});
+        self.register_layout_init("OptionsMenuInit", options_menu_init);
         self.register_layout_init("SaveLoadMenuInit", |layout| cb::save_load_menu_init(layout, None));
         self.register_layout_init("SaveLoadMenuFullScreenInit", |layout| cb::save_load_menu_full_screen_init(layout, None));
         self.register_layout_init("PopupCommunicatorInit", |layout| cb::popup_communicator_init(layout, None));
         self.register_layout_init("KeyboardOptionsMenuInit", |layout| cb::keyboard_options_menu_init(layout, None));
-        self.register_layout_init("SinglePlayerMenuInit", |_layout| {});
-        self.register_layout_init("MapSelectMenuInit", |_layout| {});
-        self.register_layout_init("LanLobbyMenuInit", |_layout| {});
+        self.register_layout_init("SinglePlayerMenuInit", single_player_menu_init);
+        self.register_layout_init("MapSelectMenuInit", map_select_menu_init);
+        self.register_layout_init("LanLobbyMenuInit", lan_lobby_menu_init);
         self.register_layout_init("ReplayMenuInit", |layout| cb::replay_menu_init(layout, None));
-        self.register_layout_init("CreditsMenuInit", |_layout| {});
+        self.register_layout_init("CreditsMenuInit", credits_menu_init);
         self.register_layout_init("LanGameOptionsMenuInit", |layout| cb::lan_game_options_menu_init(layout, None));
         self.register_layout_init("LanMapSelectMenuInit", |layout| cb::lan_map_select_menu_init(layout, None));
         self.register_layout_init("SkirmishGameOptionsMenuInit", |layout| cb::skirmish_game_options_menu_init(layout, None));
@@ -724,20 +725,20 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_update_table(&mut self) {
-        // PARITY_TODO: OptionsMenuUpdate/SinglePlayerMenuUpdate/MapSelectMenuUpdate
-        // use MenuCallbacks trait — needs Shell adapter
+        // PARITY_TODO: remaining no-op menu updates below need concrete adapters
+        // or are intentionally deferred network callbacks.
         self.register_layout_update("MainMenuUpdate", |layout| {
             if let Err(err) = get_main_menu().update(layout, None) {
                 log::warn!("MainMenuUpdate failed: {}", err);
             }
         });
-        self.register_layout_update("OptionsMenuUpdate", |_layout| {});
-        self.register_layout_update("SinglePlayerMenuUpdate", |_layout| {});
-        self.register_layout_update("MapSelectMenuUpdate", |_layout| {});
-        self.register_layout_update("LanLobbyMenuUpdate", |_layout| {});
+        self.register_layout_update("OptionsMenuUpdate", options_menu_update);
+        self.register_layout_update("SinglePlayerMenuUpdate", single_player_menu_update);
+        self.register_layout_update("MapSelectMenuUpdate", map_select_menu_update);
+        self.register_layout_update("LanLobbyMenuUpdate", lan_lobby_menu_update);
         self.register_layout_update("ReplayMenuUpdate", |layout| cb::replay_menu_update(layout, None));
         self.register_layout_update("SaveLoadMenuUpdate", |layout| cb::save_load_menu_update(layout, None));
-        self.register_layout_update("CreditsMenuUpdate", |_layout| {});
+        self.register_layout_update("CreditsMenuUpdate", credits_menu_update);
         self.register_layout_update("LanGameOptionsMenuUpdate", |layout| cb::lan_game_options_menu_update(layout, None));
         self.register_layout_update("LanMapSelectMenuUpdate", |layout| cb::lan_map_select_menu_update(layout, None));
         self.register_layout_update("SkirmishGameOptionsMenuUpdate", |layout| cb::skirmish_game_options_menu_update(layout, None));
@@ -769,21 +770,22 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_shutdown_table(&mut self) {
-        // PARITY_TODO: OptionsMenuShutdown uses MenuCallbacks trait
+        // PARITY_TODO: remaining no-op menu shutdowns below need concrete adapters
+        // or are intentionally deferred network callbacks.
         self.register_layout_shutdown("MainMenuShutdown", |layout| {
             if let Err(err) = get_main_menu().shutdown(layout, None) {
                 log::warn!("MainMenuShutdown failed: {}", err);
             }
         });
-        self.register_layout_shutdown("OptionsMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("OptionsMenuShutdown", options_menu_shutdown);
         self.register_layout_shutdown("SaveLoadMenuShutdown", |layout| cb::save_load_menu_shutdown(layout, None));
         self.register_layout_shutdown("PopupCommunicatorShutdown", |layout| cb::popup_communicator_shutdown(layout, None));
         self.register_layout_shutdown("KeyboardOptionsMenuShutdown", |layout| cb::keyboard_options_menu_shutdown(layout, None));
-        self.register_layout_shutdown("SinglePlayerMenuShutdown", |_layout| {});
-        self.register_layout_shutdown("MapSelectMenuShutdown", |_layout| {});
-        self.register_layout_shutdown("LanLobbyMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("SinglePlayerMenuShutdown", single_player_menu_shutdown);
+        self.register_layout_shutdown("MapSelectMenuShutdown", map_select_menu_shutdown);
+        self.register_layout_shutdown("LanLobbyMenuShutdown", lan_lobby_menu_shutdown);
         self.register_layout_shutdown("ReplayMenuShutdown", |layout| cb::replay_menu_shutdown(layout, None));
-        self.register_layout_shutdown("CreditsMenuShutdown", |_layout| {});
+        self.register_layout_shutdown("CreditsMenuShutdown", credits_menu_shutdown);
         self.register_layout_shutdown("LanGameOptionsMenuShutdown", |layout| cb::lan_game_options_menu_shutdown(layout, None));
         self.register_layout_shutdown("LanMapSelectMenuShutdown", |layout| cb::lan_map_select_menu_shutdown(layout, None));
         self.register_layout_shutdown("SkirmishGameOptionsMenuShutdown", |layout| cb::skirmish_game_options_menu_shutdown(layout, None));
@@ -1006,6 +1008,304 @@ fn main_menu_input(
     } else {
         WindowMsgHandled::Ignored
     }
+}
+
+fn with_menu<M, R>(
+    menu: Option<Arc<RwLock<M>>>,
+    name: &str,
+    f: impl FnOnce(&mut M) -> R,
+) -> Option<R>
+where
+    M: cb::MenuCallbacks,
+{
+    let Some(menu) = menu else {
+        log::warn!("{} adapter missing menu instance", name);
+        return None;
+    };
+    let result = match menu.write() {
+        Ok(mut menu) => Some(f(&mut menu)),
+        Err(err) => {
+            log::warn!("{} adapter lock poisoned: {}", name, err);
+            None
+        }
+    };
+    result
+}
+
+fn single_player_menu() -> Option<Arc<RwLock<cb::SinglePlayerMenu>>> {
+    cb::get_menu_manager()
+        .read()
+        .ok()
+        .map(|manager| manager.get_single_player_menu())
+}
+
+fn options_menu() -> Option<Arc<RwLock<cb::OptionsMenu>>> {
+    cb::get_menu_manager()
+        .read()
+        .ok()
+        .map(|manager| manager.get_options_menu())
+}
+
+fn map_select_menu() -> Option<Arc<RwLock<cb::MapSelectMenu>>> {
+    cb::get_menu_manager()
+        .read()
+        .ok()
+        .map(|manager| manager.get_map_select_menu())
+}
+
+fn credits_menu() -> Option<Arc<RwLock<cb::CreditsMenu>>> {
+    cb::get_menu_manager()
+        .read()
+        .ok()
+        .map(|manager| manager.get_credits_menu())
+}
+
+fn lan_lobby_menu() -> Option<Arc<RwLock<cb::LanLobbyMenu>>> {
+    cb::get_menu_manager()
+        .read()
+        .ok()
+        .map(|manager| manager.get_lan_lobby_menu())
+}
+
+fn menu_system<M>(
+    menu: Option<Arc<RwLock<M>>>,
+    name: &str,
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled
+where
+    M: cb::MenuCallbacks,
+{
+    with_menu(menu, name, |menu| menu.system(window, msg, data1, data2))
+        .unwrap_or(WindowMsgHandled::Ignored)
+}
+
+fn menu_input<M>(
+    menu: Option<Arc<RwLock<M>>>,
+    name: &str,
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled
+where
+    M: cb::MenuCallbacks,
+{
+    with_menu(menu, name, |menu| menu.input(window, msg, data1, data2))
+        .unwrap_or(WindowMsgHandled::Ignored)
+}
+
+fn menu_init<M>(menu: Option<Arc<RwLock<M>>>, name: &str, layout: &WindowLayout)
+where
+    M: cb::MenuCallbacks,
+{
+    let _ = with_menu(menu, name, |menu| {
+        if let Err(err) = menu.init(layout, None) {
+            log::warn!("{} failed: {}", name, err);
+        }
+    });
+}
+
+fn menu_update<M>(menu: Option<Arc<RwLock<M>>>, name: &str, layout: &WindowLayout)
+where
+    M: cb::MenuCallbacks,
+{
+    let _ = with_menu(menu, name, |menu| {
+        if let Err(err) = menu.update(layout, None) {
+            log::warn!("{} failed: {}", name, err);
+        }
+    });
+}
+
+fn menu_shutdown<M>(menu: Option<Arc<RwLock<M>>>, name: &str, layout: &WindowLayout)
+where
+    M: cb::MenuCallbacks,
+{
+    let _ = with_menu(menu, name, |menu| {
+        if let Err(err) = menu.shutdown(layout, None) {
+            log::warn!("{} failed: {}", name, err);
+        }
+    });
+}
+
+fn single_player_menu_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_system(
+        single_player_menu(),
+        "SinglePlayerMenuSystem",
+        window,
+        msg,
+        data1,
+        data2,
+    )
+}
+
+fn options_menu_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_system(options_menu(), "OptionsMenuSystem", window, msg, data1, data2)
+}
+
+fn map_select_menu_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_system(
+        map_select_menu(),
+        "MapSelectMenuSystem",
+        window,
+        msg,
+        data1,
+        data2,
+    )
+}
+
+fn credits_menu_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_system(credits_menu(), "CreditsMenuSystem", window, msg, data1, data2)
+}
+
+fn lan_lobby_menu_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_system(lan_lobby_menu(), "LanLobbyMenuSystem", window, msg, data1, data2)
+}
+
+fn single_player_menu_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_input(
+        single_player_menu(),
+        "SinglePlayerMenuInput",
+        window,
+        msg,
+        data1,
+        data2,
+    )
+}
+
+fn options_menu_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_input(options_menu(), "OptionsMenuInput", window, msg, data1, data2)
+}
+
+fn map_select_menu_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_input(
+        map_select_menu(),
+        "MapSelectMenuInput",
+        window,
+        msg,
+        data1,
+        data2,
+    )
+}
+
+fn credits_menu_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_input(credits_menu(), "CreditsMenuInput", window, msg, data1, data2)
+}
+
+fn lan_lobby_menu_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    menu_input(lan_lobby_menu(), "LanLobbyMenuInput", window, msg, data1, data2)
+}
+
+fn single_player_menu_init(layout: &WindowLayout) {
+    menu_init(single_player_menu(), "SinglePlayerMenuInit", layout);
+}
+
+fn options_menu_init(layout: &WindowLayout) {
+    menu_init(options_menu(), "OptionsMenuInit", layout);
+}
+
+fn map_select_menu_init(layout: &WindowLayout) {
+    menu_init(map_select_menu(), "MapSelectMenuInit", layout);
+}
+
+fn credits_menu_init(layout: &WindowLayout) {
+    menu_init(credits_menu(), "CreditsMenuInit", layout);
+}
+
+fn lan_lobby_menu_init(layout: &WindowLayout) {
+    menu_init(lan_lobby_menu(), "LanLobbyMenuInit", layout);
+}
+
+fn single_player_menu_update(layout: &WindowLayout) {
+    menu_update(single_player_menu(), "SinglePlayerMenuUpdate", layout);
+}
+
+fn options_menu_update(layout: &WindowLayout) {
+    menu_update(options_menu(), "OptionsMenuUpdate", layout);
+}
+
+fn map_select_menu_update(layout: &WindowLayout) {
+    menu_update(map_select_menu(), "MapSelectMenuUpdate", layout);
+}
+
+fn credits_menu_update(layout: &WindowLayout) {
+    menu_update(credits_menu(), "CreditsMenuUpdate", layout);
+}
+
+fn lan_lobby_menu_update(layout: &WindowLayout) {
+    menu_update(lan_lobby_menu(), "LanLobbyMenuUpdate", layout);
+}
+
+fn single_player_menu_shutdown(layout: &WindowLayout) {
+    menu_shutdown(single_player_menu(), "SinglePlayerMenuShutdown", layout);
+}
+
+fn options_menu_shutdown(layout: &WindowLayout) {
+    menu_shutdown(options_menu(), "OptionsMenuShutdown", layout);
+}
+
+fn map_select_menu_shutdown(layout: &WindowLayout) {
+    menu_shutdown(map_select_menu(), "MapSelectMenuShutdown", layout);
+}
+
+fn credits_menu_shutdown(layout: &WindowLayout) {
+    menu_shutdown(credits_menu(), "CreditsMenuShutdown", layout);
+}
+
+fn lan_lobby_menu_shutdown(layout: &WindowLayout) {
+    menu_shutdown(lan_lobby_menu(), "LanLobbyMenuShutdown", layout);
 }
 
 // ---------------------------------------------------------------------------
@@ -1662,6 +1962,26 @@ mod tests {
         assert!(registry.get_layout_init("MainMenuInit").is_some());
         assert!(registry.get_layout_update("MainMenuUpdate").is_some());
         assert!(registry.get_layout_shutdown("MainMenuShutdown").is_some());
+    }
+
+    #[test]
+    fn menu_callback_trait_adapters_are_wired_to_registry() {
+        let mut registry = ScriptCallbackRegistry::new();
+        registry.populate_defaults();
+
+        for name in [
+            "SinglePlayerMenu",
+            "OptionsMenu",
+            "MapSelectMenu",
+            "CreditsMenu",
+            "LanLobbyMenu",
+        ] {
+            assert!(registry.get_win_system(&format!("{name}System")).is_some());
+            assert!(registry.get_win_input(&format!("{name}Input")).is_some());
+            assert!(registry.get_layout_init(&format!("{name}Init")).is_some());
+            assert!(registry.get_layout_update(&format!("{name}Update")).is_some());
+            assert!(registry.get_layout_shutdown(&format!("{name}Shutdown")).is_some());
+        }
     }
 
     #[test]
