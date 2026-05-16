@@ -324,6 +324,7 @@ pub struct TerrainVisualImpl {
 
     /// Terrain shaders
     terrain_pipeline: Option<wgpu::RenderPipeline>,
+    terrain_depth_pipeline: Option<wgpu::RenderPipeline>,
     water_pipeline: Option<wgpu::RenderPipeline>,
     road_pipeline: Option<wgpu::RenderPipeline>,
 
@@ -489,6 +490,7 @@ impl TerrainVisualImpl {
             queue: None,
             uniform_buffer: None,
             terrain_pipeline: None,
+            terrain_depth_pipeline: None,
             water_pipeline: None,
             road_pipeline: None,
             heightmap_texture: None,
@@ -2867,6 +2869,38 @@ impl TerrainVisualImpl {
         self.record_water_draws(pass);
     }
 
+    pub fn record_chunk_depth_draws<'pass>(&'pass self, pass: &mut RenderPass<'pass>) {
+        if !self.enabled {
+            return;
+        }
+
+        if let Some(pipeline) = &self.terrain_depth_pipeline {
+            pass.set_pipeline(pipeline);
+            if let Some(camera_bg) = &self.terrain_camera_bind_group {
+                pass.set_bind_group(0, camera_bg, &[]);
+            }
+
+            let chunk_meshes = &self.chunk_meshes;
+            let visible_chunk_ids = self.visible_chunk_ids_for_draw_area();
+
+            let _ = self.chunk_manager.render_pass_draw(
+                pass,
+                |_| None,
+                |chunk_id| {
+                    let mesh = chunk_meshes.get(&chunk_id)?;
+                    if !visible_chunk_ids.contains(&chunk_id) {
+                        return None;
+                    }
+                    Some((
+                        mesh.vertex_buffer.slice(..),
+                        mesh.index_buffer.slice(..),
+                        mesh.index_count,
+                    ))
+                },
+            );
+        }
+    }
+
     fn record_skybox_background_draw<'pass>(&self, pass: &mut RenderPass<'pass>) {
         let (Some(pipeline), Some(bind_group)) = (
             self.skybox_background_pipeline.as_ref(),
@@ -2920,7 +2954,11 @@ impl TerrainVisualImpl {
         let _ = self.road_system.render_pass_draw(pass, || {
             let mesh = road_meshes.get(mesh_index)?;
             mesh_index += 1;
-            Some((mesh.vertex_buffer.slice(..), mesh.index_buffer.slice(..), mesh.index_count))
+            Some((
+                mesh.vertex_buffer.slice(..),
+                mesh.index_buffer.slice(..),
+                mesh.index_count,
+            ))
         });
     }
 
@@ -3075,6 +3113,50 @@ impl TerrainVisualImpl {
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: Some(wgpu::Face::Back),
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth32Float,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                multiview: None,
+                cache: None,
+            },
+        ));
+
+        let depth_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Terrain Depth Pipeline Layout"),
+                bind_group_layouts: &[camera_layout.as_ref()],
+                push_constant_ranges: &[],
+            });
+
+        self.terrain_depth_pipeline = Some(device.create_render_pipeline(
+            &wgpu::RenderPipelineDescriptor {
+                label: Some("Terrain Depth Pipeline"),
+                layout: Some(&depth_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[TerrainVertex::desc()],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: None,
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     strip_index_format: None,
