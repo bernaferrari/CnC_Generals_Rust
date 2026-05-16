@@ -1794,7 +1794,8 @@ impl GameLogic {
         // Phase 3b: CRC Calculation (C++ lines 3625-3654)
         // -----------------------------------------------------------------------
         // C++: m_CRC = getCRC(CRC_RECALC); msg->appendIntegerArgument(m_CRC);
-        let current_crc_interval = game_engine::common::crc_debug::replay_crc_interval() as UnsignedInt;
+        let current_crc_interval =
+            game_engine::common::crc_debug::replay_crc_interval() as UnsignedInt;
         if self.frame > 0 && self.frame % current_crc_interval == 0 {
             self.crc_cache = self.compute_crc();
         }

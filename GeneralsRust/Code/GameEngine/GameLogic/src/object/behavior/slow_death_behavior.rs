@@ -107,8 +107,7 @@ impl Snapshotable for SlowDeathBehaviorModuleData {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| e.to_string())?;
         let mut sink_rate = self.sink_rate;
-        xfer.xfer_real(&mut sink_rate)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut sink_rate).map_err(|e| e.to_string())?;
         let mut probability_modifier = self.probability_modifier;
         xfer.xfer_int(&mut probability_modifier)
             .map_err(|e| e.to_string())?;
@@ -159,8 +158,7 @@ impl Snapshotable for SlowDeathBehaviorModuleData {
         xfer.xfer_real(&mut self.fling_pitch_variance)
             .map_err(|e| e.to_string())?;
         let mut mask = self.mask_of_loaded_effects as i8;
-        xfer.xfer_byte(&mut mask)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_byte(&mut mask).map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
             self.mask_of_loaded_effects = mask as u8;
         }

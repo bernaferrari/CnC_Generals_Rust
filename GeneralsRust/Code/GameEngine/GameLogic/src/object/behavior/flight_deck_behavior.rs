@@ -2188,10 +2188,7 @@ impl Snapshotable for FlightDeckBehavior {
 
         let state = self.state.read().unwrap();
 
-        let mut spaces_count: u8 = state
-            .parking_spaces
-            .len()
-            .min(u8::MAX as usize) as u8;
+        let mut spaces_count: u8 = state.parking_spaces.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut spaces_count)
             .map_err(|e| e.to_string())?;
         for space in state.parking_spaces.iter().take(spaces_count as usize) {
@@ -2200,10 +2197,7 @@ impl Snapshotable for FlightDeckBehavior {
                 .map_err(|e| e.to_string())?;
         }
 
-        let mut runways_count: u8 = state
-            .runways
-            .len()
-            .min(u8::MAX as usize) as u8;
+        let mut runways_count: u8 = state.runways.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut runways_count)
             .map_err(|e| e.to_string())?;
         for runway in state.runways.iter().take(runways_count as usize) {
@@ -2215,10 +2209,7 @@ impl Snapshotable for FlightDeckBehavior {
                 .map_err(|e| e.to_string())?;
         }
 
-        let mut heal_count: u8 = state
-            .healing_objects
-            .len()
-            .min(u8::MAX as usize) as u8;
+        let mut heal_count: u8 = state.healing_objects.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut heal_count)
             .map_err(|e| e.to_string())?;
         for info in state.healing_objects.iter().take(heal_count as usize) {
@@ -2272,8 +2263,7 @@ impl Snapshotable for FlightDeckBehavior {
                 .map_err(|e| e.to_string())?;
             xfer.xfer_unsigned_int(&mut lower_ramp_frame)
                 .map_err(|e| e.to_string())?;
-            xfer.xfer_bool(&mut ramp_up)
-                .map_err(|e| e.to_string())?;
+            xfer.xfer_bool(&mut ramp_up).map_err(|e| e.to_string())?;
         }
 
         Ok(())

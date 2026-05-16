@@ -1268,7 +1268,8 @@ impl ObjectManager {
                 if let Ok(obj_guard) = obj_arc.read() {
                     if let Some(team_arc) = obj_guard.get_team() {
                         if let Ok(team_guard) = team_arc.read() {
-                            if let Some(controlling_player) = team_guard.get_controlling_player_id() {
+                            if let Some(controlling_player) = team_guard.get_controlling_player_id()
+                            {
                                 if controlling_player == player_id {
                                     owned_objects.push(obj_id);
                                 }

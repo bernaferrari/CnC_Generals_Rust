@@ -8653,13 +8653,18 @@ impl Object {
 
     /// C++ parity: Object::hasSingleUseCommandBeenUsed()
     pub fn has_single_use_command_been_used(&self) -> bool {
-        self.status.test_status(ObjectStatusTypes::MissileKillingSelf)
+        self.status
+            .test_status(ObjectStatusTypes::MissileKillingSelf)
     }
 
     /// C++ parity: Object::hasProductionInQueue()
     pub fn has_production_in_queue(&self) -> bool {
         self.get_contain()
-            .map(|c| c.lock().map(|guard| guard.get_contain_count() > 0).unwrap_or(false))
+            .map(|c| {
+                c.lock()
+                    .map(|guard| guard.get_contain_count() > 0)
+                    .unwrap_or(false)
+            })
             .unwrap_or(false)
     }
 
@@ -8677,7 +8682,11 @@ impl Object {
     /// C++ parity: Object::hasContainedObjects()
     pub fn has_contained_objects(&self) -> bool {
         self.get_contain()
-            .map(|c| c.lock().map(|guard| guard.get_contain_count() > 0).unwrap_or(false))
+            .map(|c| {
+                c.lock()
+                    .map(|guard| guard.get_contain_count() > 0)
+                    .unwrap_or(false)
+            })
             .unwrap_or(false)
     }
 
@@ -11742,7 +11751,9 @@ impl Object {
         let mut result = Coord3D::new(
             pos.x + self.health_box_offset.x,
             pos.y + self.health_box_offset.y,
-            pos.z + self.geometry_info.get_max_height_above_position() + 10.0
+            pos.z
+                + self.geometry_info.get_max_height_above_position()
+                + 10.0
                 + self.health_box_offset.z,
         );
 

@@ -62,13 +62,15 @@ crate::impl_legacy_module_data_with_key_field!(MaxHealthUpgradeModuleData, modul
 impl Snapshotable for MaxHealthUpgradeModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

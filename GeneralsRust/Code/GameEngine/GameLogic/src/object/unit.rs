@@ -645,20 +645,15 @@ impl Unit {
                 // Track whether we need to handle a waypoint after the borrow ends
                 let mut handle_waypoint: Option<Coord3D> = None;
 
-                let (desired_speed, condition, _blocked, max_blocked_speed) = {
+                let (desired_speed, condition, _blocked) = {
                     let mut speed = FAST_AS_POSSIBLE;
                     let mut body_condition = BodyDamageType::Pristine;
                     let mut blocked = false;
-                    let mut max_blocked_speed = FAST_AS_POSSIBLE;
                     if let Ok(obj_guard) = self.base_object.read() {
                         if let Some(ai) = obj_guard.get_ai_update_interface() {
                             if let Ok(mut ai_guard) = ai.lock() {
                                 speed = ai_guard.get_desired_speed();
                                 blocked = ai_guard.get_num_frames_blocked() > 0;
-                                max_blocked_speed = ai_guard.get_cur_max_blocked_speed();
-                                if blocked && speed > max_blocked_speed {
-                                    speed = max_blocked_speed;
-                                }
                                 speed = ai_guard.apply_bump_speed_limit(speed, blocked);
                             }
                         }
@@ -669,9 +664,8 @@ impl Unit {
                             }
                         }
                     }
-                    (speed, body_condition, blocked, max_blocked_speed)
+                    (speed, body_condition, blocked)
                 };
-                let _ = max_blocked_speed;
 
                 if let (Some(path_state), Some(locomotor)) = (
                     self.path_following_state.as_mut(),
@@ -2687,7 +2681,7 @@ impl UnitAIUpdate {
             is_blocked: false,
             blocked_and_stuck: false,
             blocked_frames: 0,
-            cur_max_blocked_speed: 0.0,
+            cur_max_blocked_speed: FAST_AS_POSSIBLE,
             bump_speed_limit: FAST_AS_POSSIBLE,
         }
     }
@@ -3601,12 +3595,16 @@ impl AIUpdateInterface for UnitAIUpdate {
         Ok(())
     }
 
-    fn apply_bump_speed_limit(&mut self, mut desired_speed: Real, blocked: bool) -> Real {
-        if blocked && desired_speed > self.bump_speed_limit {
-            self.bump_speed_limit = desired_speed;
+    fn apply_bump_speed_limit(&mut self, mut desired_speed: Real, mut blocked: bool) -> Real {
+        if blocked && desired_speed > self.cur_max_blocked_speed {
+            desired_speed = self.cur_max_blocked_speed;
+            if self.bump_speed_limit > desired_speed {
+                self.bump_speed_limit = desired_speed;
+            }
             self.bump_speed_limit *= 0.95;
             desired_speed = self.bump_speed_limit;
         } else {
+            blocked = false;
             if self.bump_speed_limit < FAST_AS_POSSIBLE {
                 let min_limit = desired_speed * 0.2;
                 if self.bump_speed_limit < min_limit {
@@ -3617,6 +3615,9 @@ impl AIUpdateInterface for UnitAIUpdate {
             if desired_speed > self.bump_speed_limit {
                 desired_speed = self.bump_speed_limit;
             }
+        }
+        if !blocked && self.blocked_frames > 1 {
+            self.blocked_frames = 1;
         }
         desired_speed
     }
@@ -7751,6 +7752,65 @@ impl Drop for UnitAIUpdate {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn unit_ai_update_without_unit() -> UnitAIUpdate {
+        UnitAIUpdate::new(
+            Weak::new(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
+    #[test]
+    fn unit_ai_update_blocked_speed_uses_cur_max_before_bump_decay() {
+        let mut ai = unit_ai_update_without_unit();
+        ai.cur_max_blocked_speed = 10.0;
+        ai.bump_speed_limit = FAST_AS_POSSIBLE;
+        ai.blocked_frames = 3;
+
+        let speed = ai.apply_bump_speed_limit(25.0, true);
+
+        assert!((speed - 9.5).abs() < 0.001);
+        assert!((ai.bump_speed_limit - 9.5).abs() < 0.001);
+        assert_eq!(ai.blocked_frames, 3);
+    }
+
+    #[test]
+    fn unit_ai_update_bump_limit_recovers_and_caps_blocked_frames_when_unblocked() {
+        let mut ai = unit_ai_update_without_unit();
+        ai.bump_speed_limit = 10.0;
+        ai.blocked_frames = 4;
+
+        let speed = ai.apply_bump_speed_limit(20.0, false);
+
+        assert!((speed - 10.5).abs() < 0.001);
+        assert!((ai.bump_speed_limit - 10.5).abs() < 0.001);
+        assert_eq!(ai.blocked_frames, 1);
+    }
+
+    #[test]
+    fn unit_ai_update_cur_max_blocked_speed_defaults_to_fast_as_possible() {
+        let ai = unit_ai_update_without_unit();
+
+        assert_eq!(ai.get_cur_max_blocked_speed(), FAST_AS_POSSIBLE);
     }
 }
 

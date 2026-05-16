@@ -2128,13 +2128,12 @@ impl Snapshotable for SpecialAbilityUpdate {
             })?;
 
         let mut do_disable_fx_particles = self.do_disable_fx_particles;
-        xfer.xfer_bool(&mut do_disable_fx_particles)
-            .map_err(|e| {
-                format!(
-                    "SpecialAbilityUpdate do_disable_fx_particles xfer failed: {:?}",
-                    e
-                )
-            })?;
+        xfer.xfer_bool(&mut do_disable_fx_particles).map_err(|e| {
+            format!(
+                "SpecialAbilityUpdate do_disable_fx_particles xfer failed: {:?}",
+                e
+            )
+        })?;
 
         let mut capture_flash_phase = self.capture_flash_phase;
         xfer.xfer_real(&mut capture_flash_phase).map_err(|e| {

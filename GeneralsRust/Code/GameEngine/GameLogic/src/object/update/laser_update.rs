@@ -43,7 +43,8 @@ impl LaserUpdateModuleData {
 impl Snapshotable for LaserUpdateModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -269,11 +270,14 @@ impl Snapshotable for LaserUpdateModule {
         let u = &self.update;
 
         let mut start_pos_x = u.start_pos.x;
-        xfer.xfer_real(&mut start_pos_x).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut start_pos_x)
+            .map_err(|e| e.to_string())?;
         let mut start_pos_y = u.start_pos.y;
-        xfer.xfer_real(&mut start_pos_y).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut start_pos_y)
+            .map_err(|e| e.to_string())?;
         let mut start_pos_z = u.start_pos.z;
-        xfer.xfer_real(&mut start_pos_z).map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut start_pos_z)
+            .map_err(|e| e.to_string())?;
         let mut end_pos_x = u.end_pos.x;
         xfer.xfer_real(&mut end_pos_x).map_err(|e| e.to_string())?;
         let mut end_pos_y = u.end_pos.y;
