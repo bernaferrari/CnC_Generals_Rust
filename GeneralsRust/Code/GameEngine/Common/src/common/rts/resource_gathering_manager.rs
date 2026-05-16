@@ -410,10 +410,10 @@ mod tests {
         assert!(!manager.has_supply_infrastructure());
 
         manager.add_supply_center(10);
-        manager.add_supply_center(10); // dedup
+        manager.add_supply_center(10); // C++ appends duplicate IDs
         manager.add_supply_warehouse(20);
 
-        assert_eq!(manager.get_center_count(), 1);
+        assert_eq!(manager.get_center_count(), 2);
         assert_eq!(manager.get_warehouse_count(), 1);
         assert!(manager.has_supply_infrastructure());
 
