@@ -11,6 +11,12 @@ struct VertexOutput {
     @location(5) opacity: f32,
 };
 
+@group(2) @binding(0)
+var diffuse_texture: texture_2d<f32>;
+
+@group(2) @binding(1)
+var diffuse_sampler: sampler;
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     // Simple directional light from above
@@ -20,7 +26,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let lighting = ambient + diffuse * 0.7;
 
     // Base color with tint
-    var color = input.vertex_color * input.color_tint;
+    let diffuse_color = textureSample(diffuse_texture, diffuse_sampler, input.uv);
+    var color = diffuse_color * input.vertex_color * input.color_tint;
 
     // Apply lighting
     color = vec4<f32>(color.rgb * lighting, color.a);
