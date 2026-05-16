@@ -1130,6 +1130,10 @@ impl ProjectileUpdateInterface for MissileAIUpdateBehavior {
         let _ = UpdateModuleInterface::update(self);
     }
 
+    fn projectile_get_launcher_id(&self) -> ObjectID {
+        self.update.projectile_get_launcher_id()
+    }
+
     fn projectile_now_jammed(&mut self) {
         if let Some(object) = self.object.upgrade() {
             if let Ok(mut guard) = object.write() {
