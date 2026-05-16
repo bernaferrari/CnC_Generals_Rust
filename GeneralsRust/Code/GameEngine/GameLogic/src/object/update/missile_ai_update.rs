@@ -1173,7 +1173,73 @@ impl MissileAIUpdateFactory {
 }
 
 impl Snapshotable for MissileAIUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut object_id = self.object_id;
+        xfer.xfer_object_id(&mut object_id)
+            .map_err(|e| format!("MissileAIUpdate crc object_id: {:?}", e))?;
+        let mut state: i32 = self.state as i32;
+        xfer.xfer_int(&mut state)
+            .map_err(|e| format!("MissileAIUpdate crc state: {:?}", e))?;
+        let mut state_timestamp = self.state_timestamp;
+        xfer.xfer_unsigned_int(&mut state_timestamp)
+            .map_err(|e| format!("MissileAIUpdate crc state_timestamp: {:?}", e))?;
+        let mut next_target_track_time = self.next_target_track_time;
+        xfer.xfer_unsigned_int(&mut next_target_track_time)
+            .map_err(|e| format!("MissileAIUpdate crc next_target_track_time: {:?}", e))?;
+        let mut launcher_id = self.launcher_id;
+        xfer.xfer_object_id(&mut launcher_id)
+            .map_err(|e| format!("MissileAIUpdate crc launcher_id: {:?}", e))?;
+        let mut victim_id = self.victim_id;
+        xfer.xfer_object_id(&mut victim_id)
+            .map_err(|e| format!("MissileAIUpdate crc victim_id: {:?}", e))?;
+        let mut is_armed = self.is_armed;
+        xfer.xfer_bool(&mut is_armed)
+            .map_err(|e| format!("MissileAIUpdate crc is_armed: {:?}", e))?;
+        let mut fuel_expiration_date = self.fuel_expiration_date;
+        xfer.xfer_unsigned_int(&mut fuel_expiration_date)
+            .map_err(|e| format!("MissileAIUpdate crc fuel_expiration_date: {:?}", e))?;
+        let mut no_turn_dist_left = self.no_turn_dist_left;
+        xfer.xfer_real(&mut no_turn_dist_left)
+            .map_err(|e| format!("MissileAIUpdate crc no_turn_dist_left: {:?}", e))?;
+        let mut prev_pos_x = self.prev_pos.x;
+        xfer.xfer_real(&mut prev_pos_x)
+            .map_err(|e| format!("MissileAIUpdate crc prev_pos.x: {:?}", e))?;
+        let mut prev_pos_y = self.prev_pos.y;
+        xfer.xfer_real(&mut prev_pos_y)
+            .map_err(|e| format!("MissileAIUpdate crc prev_pos.y: {:?}", e))?;
+        let mut prev_pos_z = self.prev_pos.z;
+        xfer.xfer_real(&mut prev_pos_z)
+            .map_err(|e| format!("MissileAIUpdate crc prev_pos.z: {:?}", e))?;
+        let mut max_accel = self.max_accel;
+        xfer.xfer_real(&mut max_accel)
+            .map_err(|e| format!("MissileAIUpdate crc max_accel: {:?}", e))?;
+        let mut is_tracking_target = self.is_tracking_target;
+        xfer.xfer_bool(&mut is_tracking_target)
+            .map_err(|e| format!("MissileAIUpdate crc is_tracking_target: {:?}", e))?;
+        let mut extra_bonus_flags = self.extra_bonus_flags.bits();
+        xfer.xfer_unsigned_int(&mut extra_bonus_flags)
+            .map_err(|e| format!("MissileAIUpdate crc extra_bonus_flags: {:?}", e))?;
+        let mut exhaust_id = self.exhaust_id;
+        xfer.xfer_unsigned_int(&mut exhaust_id)
+            .map_err(|e| format!("MissileAIUpdate crc exhaust_id: {:?}", e))?;
+        let mut original_target_pos_x = self.original_target_pos.x;
+        xfer.xfer_real(&mut original_target_pos_x)
+            .map_err(|e| format!("MissileAIUpdate crc original_target_pos.x: {:?}", e))?;
+        let mut original_target_pos_y = self.original_target_pos.y;
+        xfer.xfer_real(&mut original_target_pos_y)
+            .map_err(|e| format!("MissileAIUpdate crc original_target_pos.y: {:?}", e))?;
+        let mut original_target_pos_z = self.original_target_pos.z;
+        xfer.xfer_real(&mut original_target_pos_z)
+            .map_err(|e| format!("MissileAIUpdate crc original_target_pos.z: {:?}", e))?;
+        let mut frames_till_decoyed = self.frames_till_decoyed;
+        xfer.xfer_unsigned_int(&mut frames_till_decoyed)
+            .map_err(|e| format!("MissileAIUpdate crc frames_till_decoyed: {:?}", e))?;
+        let mut no_damage = self.no_damage;
+        xfer.xfer_bool(&mut no_damage)
+            .map_err(|e| format!("MissileAIUpdate crc no_damage: {:?}", e))?;
+        let mut is_jammed = self.is_jammed;
+        xfer.xfer_bool(&mut is_jammed)
+            .map_err(|e| format!("MissileAIUpdate crc is_jammed: {:?}", e))?;
         Ok(())
     }
 

@@ -34,7 +34,14 @@ impl Default for UpgradeDieModuleData {
 }
 
 impl Snapshotable for UpgradeDieModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("UpgradeDieModuleData crc version: {e:?}"))?;
+        self.base.crc(xfer)?;
+        let mut name = self.upgrade_name.as_str().to_string();
+        xfer.xfer_ascii_string(&mut name)
+            .map_err(|e| format!("UpgradeDieModuleData crc upgrade_name: {e:?}"))?;
         Ok(())
     }
 

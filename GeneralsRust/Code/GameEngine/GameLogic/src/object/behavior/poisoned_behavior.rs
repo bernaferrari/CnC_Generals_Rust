@@ -269,7 +269,26 @@ impl BehaviorModuleInterface for PoisonedBehavior {
 }
 
 impl Snapshotable for PoisonedBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|err| err.to_string())?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+        let mut poison_damage_frame = self.poison_damage_frame;
+        xfer.xfer_unsigned_int(&mut poison_damage_frame)
+            .map_err(|err| err.to_string())?;
+        let mut poison_overall_stop_frame = self.poison_overall_stop_frame;
+        xfer.xfer_unsigned_int(&mut poison_overall_stop_frame)
+            .map_err(|err| err.to_string())?;
+        let mut poison_damage_amount = self.poison_damage_amount;
+        xfer.xfer_real(&mut poison_damage_amount)
+            .map_err(|err| err.to_string())?;
+        if version >= 2 {
+            let mut death_type = self.death_type as u32;
+            xfer.xfer_unsigned_int(&mut death_type)
+                .map_err(|err| err.to_string())?;
+        }
         Ok(())
     }
 

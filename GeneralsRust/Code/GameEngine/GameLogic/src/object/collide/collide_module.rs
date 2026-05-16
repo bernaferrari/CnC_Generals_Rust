@@ -197,8 +197,10 @@ impl CollideModuleInterface for CollideModule {
 }
 
 impl game_engine::common::system::Snapshotable for CollideModule {
-    fn crc(&self, _xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| err.to_string())
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {

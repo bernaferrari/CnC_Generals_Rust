@@ -79,8 +79,12 @@ impl RadarUpdate {
         UpdateSleepTime::None
     }
 
-    pub fn crc(&self, _xfer: &mut dyn Xfer) {
-        // Implementation for CRC check
+    pub fn crc(&self, xfer: &mut dyn Xfer) {
+        xfer.xfer_version_write(1);
+        let mut status = self.status as u32;
+        let _ = xfer.xfer_u32(&mut status);
+        let mut next_ready_frame = self.next_ready_frame;
+        let _ = xfer.xfer_u32(&mut next_ready_frame);
     }
 
     pub fn xfer(&mut self, xfer: &mut dyn Xfer) {

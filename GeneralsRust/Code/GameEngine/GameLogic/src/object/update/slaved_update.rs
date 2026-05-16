@@ -1298,7 +1298,23 @@ impl SlavedUpdateInterface for SlavedUpdate {
 }
 
 impl Snapshotable for SlavedUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_version_write(1);
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut slaver = self.slaver;
+        let mut guard_point_offset = self.guard_point_offset.clone();
+        let mut frames_to_wait = self.frames_to_wait;
+        let mut repair_state = self.repair_state as i32;
+        let mut repairing = self.repairing;
+
+        xfer.xfer_object_id(&mut slaver).map_err(|e| e.to_string())?;
+        xfer.xfer_coord3d(&mut guard_point_offset);
+        xfer.xfer_i32(&mut frames_to_wait).map_err(|e| e.to_string())?;
+        xfer.xfer_i32(&mut repair_state).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut repairing).map_err(|e| e.to_string())?;
+
         Ok(())
     }
 

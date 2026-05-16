@@ -607,7 +607,15 @@ impl CommandButtonHuntUpdate {
 }
 
 impl Snapshotable for CommandButtonHuntUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+        let mut command_button_name = self.command_button_name.clone();
+        xfer.xfer_ascii_string(&mut command_button_name)
+            .map_err(|e| format!("Failed to xfer command button name: {:?}", e))?;
         Ok(())
     }
 

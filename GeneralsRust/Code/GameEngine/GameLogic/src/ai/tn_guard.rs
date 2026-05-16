@@ -464,7 +464,27 @@ impl AITNGuardMachine {
         })
         .unwrap_or(100.0)
     }
-    pub fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        if version >= 2 {
+            if let Ok(mut guard) = self.base.lock() {
+                guard.crc(xfer).map_err(|e| e.to_string())?;
+            }
+        }
+        let mut nemesis_to_attack = self.nemesis_to_attack;
+        xfer.xfer_object_id(&mut nemesis_to_attack)
+            .map_err(|e| format!("Failed to crc nemesis_to_attack: {:?}", e))?;
+        let mut position_to_guard_x = self.position_to_guard.x;
+        xfer.xfer_real(&mut position_to_guard_x)
+            .map_err(|e| format!("Failed to crc position_to_guard.x: {:?}", e))?;
+        let mut position_to_guard_y = self.position_to_guard.y;
+        xfer.xfer_real(&mut position_to_guard_y)
+            .map_err(|e| format!("Failed to crc position_to_guard.y: {:?}", e))?;
+        let mut position_to_guard_z = self.position_to_guard.z;
+        xfer.xfer_real(&mut position_to_guard_z)
+            .map_err(|e| format!("Failed to crc position_to_guard.z: {:?}", e))?;
         Ok(())
     }
 
@@ -578,7 +598,10 @@ impl AITNGuardInnerState {
     pub fn is_attack(&self) -> bool {
         self.is_attacking
     }
-    pub fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
         Ok(())
     }
 
@@ -818,7 +841,13 @@ impl AITNGuardIdleState {
     pub fn is_guard_idle(&self) -> bool {
         true
     }
-    pub fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        let mut next_enemy_scan_time = self.next_enemy_scan_time;
+        xfer.xfer_unsigned_int(&mut next_enemy_scan_time)
+            .map_err(|e| format!("Failed to crc next_enemy_scan_time: {:?}", e))?;
         Ok(())
     }
 
@@ -832,11 +861,9 @@ impl AITNGuardIdleState {
     }
 
     pub fn load_post_process(&mut self) -> Result<(), String> {
-        // Goal object is already restored by StateMachine snapshot load.
         Ok(())
     }
 }
-
 impl StateImplementation for AITNGuardIdleState {
     fn on_enter(&mut self) -> StateReturnType {
         let now = TheGameLogic::get_frame();
@@ -968,7 +995,10 @@ impl AITNGuardOuterState {
     pub fn is_attack(&self) -> bool {
         self.is_attacking
     }
-    pub fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
         Ok(())
     }
 
@@ -1116,7 +1146,14 @@ impl AITNGuardReturnState {
             next_return_scan_time: 0,
         }
     }
-    pub fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        Snapshotable::crc(&self.enter_state, xfer)?;
+        let mut next_return_scan_time = self.next_return_scan_time;
+        xfer.xfer_unsigned_int(&mut next_return_scan_time)
+            .map_err(|e| format!("Failed to crc next_return_scan_time: {:?}", e))?;
         Ok(())
     }
 
@@ -1317,7 +1354,10 @@ impl AITNGuardAttackAggressorState {
     pub fn is_attack(&self) -> bool {
         self.is_attacking
     }
-    pub fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
         Ok(())
     }
 

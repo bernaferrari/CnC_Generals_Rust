@@ -86,7 +86,17 @@ impl PrisonBehaviorModuleData {
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for PrisonBehaviorModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        self.base.crc(xfer)?;
+        let mut show_prisoners = self.show_prisoners;
+        xfer.xfer_bool(&mut show_prisoners)
+            .map_err(|e| e.to_string())?;
+        let mut prefix = self.prison_yard_bone_prefix.to_string();
+        xfer.xfer_ascii_string(&mut prefix)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -509,7 +519,30 @@ impl ContainModuleInterface for PrisonBehaviorContainHandle {
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for PrisonBehaviorModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+
+        let guard = self
+            .behavior
+            .lock()
+            .map_err(|_| "PrisonBehaviorModule: behavior lock poisoned".to_string())?;
+
+        let mut visual_count = guard.visuals.len() as u16;
+        xfer.xfer_unsigned_short(&mut visual_count)
+            .map_err(|e| e.to_string())?;
+
+        for visual in &guard.visuals {
+            let mut object_id = visual.object_id;
+            xfer.xfer_object_id(&mut object_id)
+                .map_err(|e| e.to_string())?;
+            let mut drawable_id = visual.drawable_id;
+            xfer.xfer_unsigned_int(&mut drawable_id)
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 
@@ -563,7 +596,26 @@ impl Snapshotable for PrisonBehaviorModule {
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for PrisonBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+
+        Snapshotable::crc(&self.contain, xfer)?;
+
+        let mut visual_count = self.visuals.len() as u16;
+        xfer.xfer_unsigned_short(&mut visual_count)
+            .map_err(|e| e.to_string())?;
+
+        for visual in &self.visuals {
+            let mut object_id = visual.object_id;
+            xfer.xfer_object_id(&mut object_id)
+                .map_err(|e| e.to_string())?;
+            let mut drawable_id = visual.drawable_id;
+            xfer.xfer_unsigned_int(&mut drawable_id)
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 

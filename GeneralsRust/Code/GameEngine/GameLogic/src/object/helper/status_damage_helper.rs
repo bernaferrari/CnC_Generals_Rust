@@ -182,7 +182,25 @@ impl ObjectHelperInterface for StatusDamageHelper {
 }
 
 impl Snapshotable for StatusDamageHelper {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("StatusDamageHelper crc version: {err:?}"))?;
+
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| format!("StatusDamageHelper crc object helper version: {err:?}"))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|err| format!("StatusDamageHelper crc update module base: {err}"))?;
+
+        let mut status = self.status_to_heal as u32;
+        xfer.xfer_unsigned_int(&mut status)
+            .map_err(|err| format!("StatusDamageHelper crc status_to_heal: {err:?}"))?;
+        let mut frame_to_heal = self.frame_to_heal;
+        xfer.xfer_unsigned_int(&mut frame_to_heal)
+            .map_err(|err| format!("StatusDamageHelper crc frame_to_heal: {err:?}"))?;
         Ok(())
     }
 

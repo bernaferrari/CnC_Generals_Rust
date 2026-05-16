@@ -67,7 +67,16 @@ impl OverchargeBehaviorModuleData {
 }
 
 impl Snapshotable for OverchargeBehaviorModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        let mut health_percent_to_drain_per_second = self.health_percent_to_drain_per_second;
+        xfer.xfer_real(&mut health_percent_to_drain_per_second)
+            .map_err(|e| e.to_string())?;
+        let mut not_allowed_when_health_below_percent = self.not_allowed_when_health_below_percent;
+        xfer.xfer_real(&mut not_allowed_when_health_below_percent)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -420,7 +429,16 @@ impl BehaviorModuleInterface for OverchargeBehavior {
 }
 
 impl Snapshotable for OverchargeBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("xfer version failed: {e:?}"))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|e| format!("xfer update module base state failed: {e}"))?;
+        let mut overcharge_active = self.overcharge_active;
+        xfer.xfer_bool(&mut overcharge_active)
+            .map_err(|e| format!("xfer overcharge_active failed: {e:?}"))?;
         Ok(())
     }
 

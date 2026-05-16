@@ -386,7 +386,11 @@ impl ThingModuleData for BridgeBehaviorModuleData {
 }
 
 impl Snapshotable for BridgeBehaviorModuleData {
-    fn crc(&self, _xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1514,8 +1518,37 @@ impl BridgeBehavior {
 
     pub fn crc(
         &self,
-        _xfer: &mut dyn EngineXfer,
+        xfer: &mut dyn EngineXfer,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        for tower_id in &self.tower_id {
+            let mut id = *tower_id;
+            xfer.xfer_object_id(&mut id)?;
+        }
+
+        let mut scaffold_present = self.scaffold_present;
+        xfer.xfer_bool(&mut scaffold_present)?;
+
+        let mut scaffold_count: u16 =
+            self.scaffold_object_id_list.len().min(u16::MAX as usize) as u16;
+        xfer.xfer_u16(&mut scaffold_count);
+        for object_id in self
+            .scaffold_object_id_list
+            .iter()
+            .take(scaffold_count as usize)
+        {
+            let mut id_copy = *object_id;
+            xfer.xfer_object_id(&mut id_copy)?;
+        }
+
+        let mut death_frame = self.death_frame;
+        xfer.xfer_unsigned_int(&mut death_frame)?;
+
         Ok(())
     }
 

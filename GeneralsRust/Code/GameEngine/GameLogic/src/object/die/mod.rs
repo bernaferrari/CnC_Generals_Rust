@@ -304,7 +304,25 @@ impl Default for DieModuleData {
 }
 
 impl Snapshotable for DieModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("DieModuleData crc version: {e:?}"))?;
+        let mut death_types = self.die_mux_data.death_types;
+        xfer.xfer_unsigned_int(&mut death_types)
+            .map_err(|e| format!("DieModuleData crc death_types: {e:?}"))?;
+        let mut veterancy_levels = self.die_mux_data.veterancy_levels;
+        xfer.xfer_unsigned_int(&mut veterancy_levels)
+            .map_err(|e| format!("DieModuleData crc veterancy_levels: {e:?}"))?;
+        let mut exempt_status = self.die_mux_data.exempt_status.bits();
+        xfer.xfer_unsigned_int(&mut exempt_status)
+            .map_err(|e| format!("DieModuleData crc exempt_status: {e:?}"))?;
+        let mut required_status = self.die_mux_data.required_status.bits();
+        xfer.xfer_unsigned_int(&mut required_status)
+            .map_err(|e| format!("DieModuleData crc required_status: {e:?}"))?;
+        let mut module_tag_name_key = self.module_tag_name_key;
+        xfer.xfer_unsigned_int(&mut module_tag_name_key)
+            .map_err(|e| format!("DieModuleData crc module_tag_name_key: {e:?}"))?;
         Ok(())
     }
 

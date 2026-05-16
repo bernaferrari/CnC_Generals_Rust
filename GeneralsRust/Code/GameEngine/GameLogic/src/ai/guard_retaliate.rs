@@ -588,7 +588,27 @@ impl AIGuardRetaliateMachine {
         .unwrap_or(100.0)
     }
 
-    pub fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| format!("Failed to crc version: {:?}", e))?;
+        if version >= 2 {
+            if let Ok(mut guard) = self.base.lock() {
+                guard.crc(xfer).map_err(|e| e.to_string())?;
+            }
+        }
+        let mut nemesis_to_attack = self.shared.get_nemesis_to_attack();
+        xfer.xfer_object_id(&mut nemesis_to_attack)
+            .map_err(|e| format!("Failed to crc nemesis_to_attack: {:?}", e))?;
+        let mut position_to_guard_x = self.position_to_guard.x;
+        xfer.xfer_real(&mut position_to_guard_x)
+            .map_err(|e| format!("Failed to crc position_to_guard.x: {:?}", e))?;
+        let mut position_to_guard_y = self.position_to_guard.y;
+        xfer.xfer_real(&mut position_to_guard_y)
+            .map_err(|e| format!("Failed to crc position_to_guard.y: {:?}", e))?;
+        let mut position_to_guard_z = self.position_to_guard.z;
+        xfer.xfer_real(&mut position_to_guard_z)
+            .map_err(|e| format!("Failed to crc position_to_guard.z: {:?}", e))?;
         Ok(())
     }
 

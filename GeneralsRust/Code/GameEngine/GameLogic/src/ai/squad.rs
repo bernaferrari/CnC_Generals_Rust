@@ -405,7 +405,18 @@ impl Clone for Squad {
 }
 
 impl Snapshotable for Squad {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to crc Squad version: {:?}", e))?;
+        let mut object_count = self.object_ids.len() as u16;
+        xfer.xfer_unsigned_short(&mut object_count)
+            .map_err(|e| format!("Failed to crc Squad object count: {:?}", e))?;
+        for &object_id in &self.object_ids {
+            let mut id = object_id;
+            xfer.xfer_object_id(&mut id)
+                .map_err(|e| format!("Failed to crc Squad object id: {:?}", e))?;
+        }
         Ok(())
     }
 

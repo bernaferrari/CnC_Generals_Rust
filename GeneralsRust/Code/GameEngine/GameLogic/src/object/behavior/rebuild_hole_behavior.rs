@@ -590,7 +590,45 @@ impl RebuildHoleBehaviorInterface for RebuildHoleBehavior {
 }
 
 impl Snapshotable for RebuildHoleBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| format!("version xfer: {e:?}"))?;
+
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let mut worker_id = self.worker_id;
+        xfer.xfer_object_id(&mut worker_id)
+            .map_err(|e| e.to_string())?;
+        let mut reconstructing_id = self.reconstructing_id;
+        xfer.xfer_object_id(&mut reconstructing_id)
+            .map_err(|e| e.to_string())?;
+        if version >= 2 {
+            let mut spawner_object_id = self.spawner_object_id;
+            xfer.xfer_object_id(&mut spawner_object_id)
+                .map_err(|e| e.to_string())?;
+        }
+        let mut worker_wait_counter = self.worker_wait_counter;
+        xfer.xfer_unsigned_int(&mut worker_wait_counter)
+            .map_err(|e| e.to_string())?;
+
+        let mut worker_name = self
+            .worker_template
+            .as_ref()
+            .map(|t| t.get_name().to_string())
+            .unwrap_or_default();
+        let mut rebuild_name = self
+            .rebuild_template
+            .as_ref()
+            .map(|t| t.get_name().to_string())
+            .unwrap_or_default();
+
+        game_engine::system::Xfer::xfer_ascii_string(xfer, &mut worker_name)
+            .map_err(|e| e.to_string())?;
+        game_engine::system::Xfer::xfer_ascii_string(xfer, &mut rebuild_name)
+            .map_err(|e| e.to_string())?;
+
         Ok(())
     }
 

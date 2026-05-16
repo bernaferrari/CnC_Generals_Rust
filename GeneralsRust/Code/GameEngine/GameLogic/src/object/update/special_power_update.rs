@@ -108,7 +108,13 @@ impl SpecialPowerUpdateModule {
     }
 
     /// Match C++ SpecialPowerUpdateModule::crc (no additional state).
-    pub fn crc(&self, _xfer: &mut dyn Xfer) {}
+    pub fn crc(&self, xfer: &mut dyn Xfer) {
+        xfer.xfer_version_write(1);
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        if let Err(err) = xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase) {
+            panic!("SpecialPowerUpdateModule::crc failed to xfer base state: {err}");
+        }
+    }
 
     /// Match C++ SpecialPowerUpdateModule::xfer.
     pub fn save(&self, xfer: &mut dyn Xfer) {

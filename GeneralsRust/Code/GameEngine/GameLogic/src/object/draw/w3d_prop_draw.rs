@@ -162,7 +162,11 @@ impl DrawModule for W3DPropDraw {
     fn react_to_geometry_change(&mut self) {}
 }
 impl Snapshotable for W3DPropDraw {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {

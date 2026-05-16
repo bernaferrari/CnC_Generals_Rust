@@ -302,7 +302,25 @@ fn weapon_bonus_from_cpp_value(value: u32) -> WeaponBonusConditionType {
 }
 
 impl Snapshotable for TempWeaponBonusHelper {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|err| format!("TempWeaponBonusHelper crc version: {err:?}"))?;
+
+        let mut object_helper_version = CURRENT_VERSION;
+        xfer.xfer_version(&mut object_helper_version, CURRENT_VERSION)
+            .map_err(|err| format!("TempWeaponBonusHelper crc object helper version: {err:?}"))?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)
+            .map_err(|err| format!("TempWeaponBonusHelper crc update module base: {err}"))?;
+
+        let mut bonus = weapon_bonus_to_cpp_value(self.current_bonus);
+        xfer.xfer_unsigned_int(&mut bonus)
+            .map_err(|err| format!("TempWeaponBonusHelper crc current_bonus: {err:?}"))?;
+        let mut frame_to_remove = self.frame_to_remove;
+        xfer.xfer_unsigned_int(&mut frame_to_remove)
+            .map_err(|err| format!("TempWeaponBonusHelper crc frame_to_remove: {err:?}"))?;
         Ok(())
     }
 
