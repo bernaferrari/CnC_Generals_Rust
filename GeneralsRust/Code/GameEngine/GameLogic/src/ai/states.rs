@@ -1959,7 +1959,12 @@ impl AIIdleState {
                                             if frame <= 1 {
                                                 drop(owner_guard);
                                                 if let Ok(mut obj_w) = owner.write() {
-                                                    obj_w.set_position(&snapped);
+                                                    if let Err(err) = obj_w.set_position(&snapped) {
+                                                        log::warn!(
+                                                            "Failed to snap AI owner position: {}",
+                                                            err
+                                                        );
+                                                    }
                                                 }
                                             }
                                             let _ = crate::ai::pathfind::update_goal_for_object(

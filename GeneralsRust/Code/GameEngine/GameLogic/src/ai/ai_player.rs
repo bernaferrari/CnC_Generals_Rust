@@ -167,7 +167,7 @@ impl WorkOrder {
         }
 
         let mut factory_id = self.factory_id.unwrap_or(INVALID_ID);
-        xfer.xfer_object_id(&mut factory_id);
+        let _ = xfer.xfer_object_id(&mut factory_id);
         if xfer.is_loading() {
             self.factory_id = if factory_id == INVALID_ID {
                 None
@@ -400,7 +400,7 @@ impl TeamInQueue {
         }
 
         let mut reinforcement_id = self.reinforcement_id.unwrap_or(INVALID_ID);
-        xfer.xfer_object_id(&mut reinforcement_id);
+        let _ = xfer.xfer_object_id(&mut reinforcement_id);
         if xfer.is_loading() {
             self.reinforcement_id = if reinforcement_id == INVALID_ID {
                 None
@@ -4150,7 +4150,7 @@ impl Snapshot for AIPlayer {
         let _ = xfer.xfer_real(&mut team_seconds);
 
         let mut cur_warehouse_id = self.current_warehouse_id.unwrap_or(INVALID_ID);
-        xfer.xfer_object_id(&mut cur_warehouse_id);
+        let _ = xfer.xfer_object_id(&mut cur_warehouse_id);
 
         let mut frame_last_building_built = self.frame_last_building_built as i32;
         let _ = xfer.xfer_int(&mut frame_last_building_built);
@@ -4172,11 +4172,11 @@ impl Snapshot for AIPlayer {
 
         for i in 0..MAX_STRUCTURES_TO_REPAIR {
             let mut id = self.structures_to_repair[i].unwrap_or(INVALID_ID);
-            xfer.xfer_object_id(&mut id);
+            let _ = xfer.xfer_object_id(&mut id);
         }
 
         let mut repair_dozer = self.repair_dozer.unwrap_or(INVALID_ID);
-        xfer.xfer_object_id(&mut repair_dozer);
+        let _ = xfer.xfer_object_id(&mut repair_dozer);
 
         let mut structures_in_queue = self.structures_in_queue;
         let _ = xfer.xfer_int(&mut structures_in_queue);
@@ -4271,7 +4271,7 @@ impl Snapshot for AIPlayer {
         }
 
         let mut cur_warehouse_id = self.current_warehouse_id.unwrap_or(INVALID_ID);
-        xfer.xfer_object_id(&mut cur_warehouse_id);
+        let _ = xfer.xfer_object_id(&mut cur_warehouse_id);
         if xfer.is_loading() {
             self.current_warehouse_id = if cur_warehouse_id == INVALID_ID {
                 None
@@ -4320,14 +4320,14 @@ impl Snapshot for AIPlayer {
 
         for i in 0..MAX_STRUCTURES_TO_REPAIR {
             let mut id = self.structures_to_repair[i].unwrap_or(INVALID_ID);
-            xfer.xfer_object_id(&mut id);
+            let _ = xfer.xfer_object_id(&mut id);
             if xfer.is_loading() {
                 self.structures_to_repair[i] = if id == INVALID_ID { None } else { Some(id) };
             }
         }
 
         let mut repair_dozer = self.repair_dozer.unwrap_or(INVALID_ID);
-        xfer.xfer_object_id(&mut repair_dozer);
+        let _ = xfer.xfer_object_id(&mut repair_dozer);
         if xfer.is_loading() {
             self.repair_dozer = if repair_dozer == INVALID_ID {
                 None
