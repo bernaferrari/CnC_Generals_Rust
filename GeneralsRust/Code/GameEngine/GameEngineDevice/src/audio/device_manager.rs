@@ -5,7 +5,7 @@
 use super::{
     AudioDeviceError, AudioDriver, DriverType, MilesAudioConfig, MilesAudioDevice, Result,
 };
-use crate::{DeviceConfig, DeviceStatus, DeviceType, PerformanceMetrics};
+use crate::{DeviceStatus, DeviceType, PerformanceMetrics};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -176,6 +176,21 @@ impl DeviceManager {
     /// Get available devices
     pub async fn get_available_devices(&self) -> Vec<AudioDeviceInfo> {
         self.available_devices.read().await.clone()
+    }
+
+    /// Get capabilities for the selected device, or the default enumerated device.
+    pub async fn get_capabilities(&self) -> super::DeviceCapabilities {
+        if let Some(device) = self.current_device.read().await.as_ref() {
+            return device.get_capabilities().await;
+        }
+
+        let devices = self.available_devices.read().await;
+        devices
+            .iter()
+            .find(|device| device.is_default)
+            .or_else(|| devices.first())
+            .map(|device| device.capabilities.clone())
+            .unwrap_or_default()
     }
 
     /// Get device status
