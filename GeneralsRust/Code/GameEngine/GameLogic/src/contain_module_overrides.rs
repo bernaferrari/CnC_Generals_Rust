@@ -3611,22 +3611,11 @@ macro_rules! body_factories {
             thing: Arc<dyn ModuleThing>,
             module_data: Arc<dyn ModuleData>,
         ) -> Box<dyn Module> {
-            let typed_data = module_data
-                .as_ref()
-                .as_any()
-                .downcast_ref::<$data_ty>()
-                .cloned()
-                .unwrap_or_else(|| {
-                    warn!(concat!(
-                        $module_name,
-                        " module data expected; using defaults"
-                    ));
-                    <$data_ty>::default()
-                });
+            let typed_data = cloned_module_data_or_default::<$data_ty>($module_name, &module_data);
             Box::new(BodyBindingModule::new(
                 $module_name,
                 resolve_owner_id(&thing),
-                Arc::new(typed_data),
+                typed_data,
                 $body_ctor,
             ))
         }
@@ -3802,21 +3791,13 @@ macro_rules! die_factories {
             thing: Arc<dyn ModuleThing>,
             module_data: Arc<dyn ModuleData>,
         ) -> Box<dyn Module> {
-            let typed_data = module_data
-                .as_ref()
-                .as_any()
-                .downcast_ref::<$data_ty>()
-                .cloned()
-                .unwrap_or_else(|| {
-                    warn!(concat!(
-                        $module_name,
-                        " module data expected; using defaults"
-                    ));
-                    <$data_ty>::default()
-                });
-            build_die_module($module_name, thing, typed_data, |object, data| {
-                Box::new(<$die_ty>::new(object, data))
-            })
+            let typed_data = cloned_module_data_or_default::<$data_ty>($module_name, &module_data);
+            build_die_module(
+                $module_name,
+                thing,
+                typed_data.as_ref().clone(),
+                |object, data| Box::new(<$die_ty>::new(object, data)),
+            )
         }
     };
 }
@@ -4486,19 +4467,12 @@ macro_rules! owner_bound_draw_factory {
             thing: Arc<dyn ModuleThing>,
             module_data: Arc<dyn ModuleData>,
         ) -> Box<dyn Module> {
-            let data = module_data
-                .as_ref()
-                .as_any()
-                .downcast_ref::<$data_ty>()
-                .cloned()
-                .unwrap_or_else(|| {
-                    warn!(concat!(
-                        $module_name,
-                        " module data expected; using defaults"
-                    ));
-                    <$data_ty>::new()
-                });
-            let mut module = <$module_ty>::new(data);
+            let data = cloned_module_data_or_else::<$data_ty, _>(
+                $module_name,
+                &module_data,
+                <$data_ty>::new,
+            );
+            let mut module = <$module_ty>::new(data.as_ref().clone());
             let owner_id = resolve_owner_id(&thing);
             if owner_id != INVALID_ID {
                 module.bind_owner_id(owner_id);
@@ -4514,19 +4488,12 @@ macro_rules! plain_draw_factory {
             _thing: Arc<dyn ModuleThing>,
             module_data: Arc<dyn ModuleData>,
         ) -> Box<dyn Module> {
-            let data = module_data
-                .as_ref()
-                .as_any()
-                .downcast_ref::<$data_ty>()
-                .cloned()
-                .unwrap_or_else(|| {
-                    warn!(concat!(
-                        $module_name,
-                        " module data expected; using defaults"
-                    ));
-                    <$data_ty>::new()
-                });
-            Box::new(<$module_ty>::new(data))
+            let data = cloned_module_data_or_else::<$data_ty, _>(
+                $module_name,
+                &module_data,
+                <$data_ty>::new,
+            );
+            Box::new(<$module_ty>::new(data.as_ref().clone()))
         }
     };
 }
