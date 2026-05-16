@@ -5,7 +5,7 @@
 //! Author: Graham Smallwood, April 2002 (C++ version)
 //! Rust conversion: 2025
 
-use crate::common::{ModuleData, Real, UnsignedInt, XferVersion};
+use crate::common::{AABox, Coord3D, GeometryInfo, ModuleData, Real, UnsignedInt, XferVersion};
 use crate::modules::{
     BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
@@ -201,7 +201,7 @@ impl DynamicGeometryInfoUpdateLogic {
         }
     }
 
-    pub fn update_step(&mut self, object: &GameObject) -> UpdateSleepTime {
+    pub fn update_step(&mut self, object: &mut GameObject) -> UpdateSleepTime {
         if self.finished {
             return UPDATE_SLEEP_NONE;
         }
@@ -220,14 +220,15 @@ impl DynamicGeometryInfoUpdateLogic {
         let ratio = (self.time_active as f32) / transition_time;
 
         // Calculate new geometry values
-        let _new_height = self.initial_height + ratio * (self.final_height - self.initial_height);
-        let _new_major = self.initial_major_radius
+        let new_height = self.initial_height + ratio * (self.final_height - self.initial_height);
+        let new_major = self.initial_major_radius
             + ratio * (self.final_major_radius - self.initial_major_radius);
-        let _new_minor = self.initial_minor_radius
+        let new_minor = self.initial_minor_radius
             + ratio * (self.final_minor_radius - self.initial_minor_radius);
 
-        // Apply new geometry to object (simplified implementation)
-        let _ = (object, _new_height, _new_major, _new_minor);
+        let new_geometry =
+            geometry_with_dimensions(object.get_geometry_info(), new_height, new_major, new_minor);
+        object.set_geometry_info(new_geometry);
 
         // Increment time active
         self.time_active += 1;
@@ -252,6 +253,22 @@ impl DynamicGeometryInfoUpdateLogic {
 
         UPDATE_SLEEP_NONE
     }
+}
+
+fn geometry_with_dimensions(
+    old_geometry: &GeometryInfo,
+    height: Real,
+    major_radius: Real,
+    minor_radius: Real,
+) -> GeometryInfo {
+    let mut geometry = old_geometry.clone();
+    let major_radius = major_radius.max(0.0);
+    let minor_radius = minor_radius.max(0.0);
+    geometry.bounds = AABox {
+        min: Coord3D::new(-major_radius, -minor_radius, 0.0),
+        max: Coord3D::new(major_radius, minor_radius, height.max(0.0)),
+    };
+    geometry
 }
 
 pub(crate) fn xfer_dynamic_geometry_info_update_logic(
@@ -325,8 +342,8 @@ impl DynamicGeometryInfoUpdate {
 impl UpdateModuleInterface for DynamicGeometryInfoUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         if let Some(obj_arc) = self.object.upgrade() {
-            if let Ok(obj) = obj_arc.read() {
-                return self.logic.update_step(&obj);
+            if let Ok(mut obj) = obj_arc.write() {
+                return self.logic.update_step(&mut obj);
             }
         }
         UPDATE_SLEEP_NONE

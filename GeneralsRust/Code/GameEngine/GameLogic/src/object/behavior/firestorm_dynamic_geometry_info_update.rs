@@ -274,13 +274,13 @@ impl UpdateModuleInterface for FirestormDynamicGeometryInfoUpdate {
             None => return UPDATE_SLEEP_NONE,
         };
 
-        let obj = match obj_arc.read() {
+        let mut obj = match obj_arc.write() {
             Ok(guard) => guard,
             Err(_) => return UPDATE_SLEEP_NONE,
         };
 
         // Call base transition logic
-        let res = self.logic.update_step(&obj);
+        let res = self.logic.update_step(&mut obj);
 
         // Don't do firestorm stuff if still in initial delay
         if !self.logic.started {
