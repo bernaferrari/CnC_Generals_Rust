@@ -93,7 +93,7 @@ impl Default for SceneModelDesc {
             sort_level: 0,
             transparent: false,
             cast_shadow: true,
-            bounding_sphere_center: Coord3D::ZERO,
+            bounding_sphere_center: Coord3D::new(0.0, 0.0, 0.0),
             bounding_sphere_radius: 0.0,
             animation_name: None,
             animation_time: 0.0,

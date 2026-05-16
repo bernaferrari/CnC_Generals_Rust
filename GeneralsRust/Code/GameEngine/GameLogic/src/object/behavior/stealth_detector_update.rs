@@ -100,10 +100,18 @@ impl Snapshotable for StealthDetectorUpdateModuleData {
             .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.initially_disabled)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.extra_detect_kindof)
+        let mut extra_detect_kindof = self.extra_detect_kindof as u32;
+        xfer.xfer_unsigned_int(&mut extra_detect_kindof)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.extra_detect_kindof_not)
+        if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
+            self.extra_detect_kindof = extra_detect_kindof as u64;
+        }
+        let mut extra_detect_kindof_not = self.extra_detect_kindof_not as u32;
+        xfer.xfer_unsigned_int(&mut extra_detect_kindof_not)
             .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
+            self.extra_detect_kindof_not = extra_detect_kindof_not as u64;
+        }
         xfer.xfer_bool(&mut self.can_detect_while_garrisoned)
             .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.can_detect_while_transported)

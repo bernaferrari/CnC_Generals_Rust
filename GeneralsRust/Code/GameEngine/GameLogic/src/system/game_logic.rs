@@ -3290,7 +3290,7 @@ impl GameLogic {
             let obj_arc = self.objects.get(obj_id).unwrap();
             if let Ok(obj) = obj_arc.read() {
                 let id_crc = *obj_id as u32;
-                let pos = &obj.position;
+                let pos = obj.get_position();
                 let pos_bytes: [u8; 12] = unsafe {
                     std::mem::transmute([pos.x.to_bits(), pos.y.to_bits(), pos.z.to_bits()])
                 };

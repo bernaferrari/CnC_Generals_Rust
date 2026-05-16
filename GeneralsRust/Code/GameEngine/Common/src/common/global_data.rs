@@ -8,7 +8,6 @@
 //! the engine.
 
 use std::collections::HashMap;
-use std::io;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use once_cell::sync::Lazy;
@@ -776,45 +775,59 @@ impl Snapshotable for GlobalData {
     /// C++ Reference: GlobalData is CRC'd as part of the INI CRC in GameEngine.cpp.
     /// We CRC all gameplay-relevant fields to detect desync.
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Camera
-        xf!(xfer, xfer_real, self.camera_pitch, "camera_pitch");
-        xf!(xfer, xfer_real, self.camera_yaw, "camera_yaw");
-        xf!(xfer, xfer_real, self.camera_height, "camera_height");
-        xf!(xfer, xfer_real, self.max_camera_height, "max_camera_height");
-        xf!(xfer, xfer_real, self.min_camera_height, "min_camera_height");
+        let mut camera_pitch = self.camera_pitch;
+        xf!(xfer, xfer_real, camera_pitch, "camera_pitch");
+        let mut camera_yaw = self.camera_yaw;
+        xf!(xfer, xfer_real, camera_yaw, "camera_yaw");
+        let mut camera_height = self.camera_height;
+        xf!(xfer, xfer_real, camera_height, "camera_height");
+        let mut max_camera_height = self.max_camera_height;
+        xf!(xfer, xfer_real, max_camera_height, "max_camera_height");
+        let mut min_camera_height = self.min_camera_height;
+        xf!(xfer, xfer_real, min_camera_height, "min_camera_height");
 
-        // Physics
-        xf!(xfer, xfer_real, self.gravity, "gravity");
-        xf!(xfer, xfer_real, self.ground_stiffness, "ground_stiffness");
-        xf!(xfer, xfer_real, self.structure_stiffness, "structure_stiffness");
-        xf!(xfer, xfer_real, self.terrain_height_at_edge_of_map, "terrain_height_at_edge_of_map");
+        let mut gravity = self.gravity;
+        xf!(xfer, xfer_real, gravity, "gravity");
+        let mut ground_stiffness = self.ground_stiffness;
+        xf!(xfer, xfer_real, ground_stiffness, "ground_stiffness");
+        let mut structure_stiffness = self.structure_stiffness;
+        xf!(xfer, xfer_real, structure_stiffness, "structure_stiffness");
+        let mut terrain_height_at_edge_of_map = self.terrain_height_at_edge_of_map;
+        xf!(xfer, xfer_real, terrain_height_at_edge_of_map, "terrain_height_at_edge_of_map");
 
-        // Economy
-        xf!(xfer, xfer_real, self.build_speed, "build_speed");
-        xf!(xfer, xfer_real, self.multiple_factory, "multiple_factory");
-        xf!(xfer, xfer_real, self.refund_percent, "refund_percent");
-        xf!(xfer, xfer_int, self.base_value_per_supply_box, "base_value_per_supply_box");
-        xf!(xfer, xfer_int, self.default_starting_cash, "default_starting_cash");
+        let mut build_speed = self.build_speed;
+        xf!(xfer, xfer_real, build_speed, "build_speed");
+        let mut multiple_factory = self.multiple_factory;
+        xf!(xfer, xfer_real, multiple_factory, "multiple_factory");
+        let mut refund_percent = self.refund_percent;
+        xf!(xfer, xfer_real, refund_percent, "refund_percent");
+        let mut base_value_per_supply_box = self.base_value_per_supply_box;
+        xf!(xfer, xfer_int, base_value_per_supply_box, "base_value_per_supply_box");
+        let mut default_starting_cash = self.default_starting_cash;
+        xf!(xfer, xfer_int, default_starting_cash, "default_starting_cash");
 
-        // Gameplay thresholds
-        xf!(xfer, xfer_real, self.unit_damaged_thresh, "unit_damaged_thresh");
-        xf!(xfer, xfer_real, self.unit_really_damaged_thresh, "unit_really_damaged_thresh");
-        xf!(xfer, xfer_real, self.stealth_friendly_opacity, "stealth_friendly_opacity");
-        xf!(xfer, xfer_unsigned_int, self.default_occlusion_delay, "default_occlusion_delay");
+        let mut unit_damaged_thresh = self.unit_damaged_thresh;
+        xf!(xfer, xfer_real, unit_damaged_thresh, "unit_damaged_thresh");
+        let mut unit_really_damaged_thresh = self.unit_really_damaged_thresh;
+        xf!(xfer, xfer_real, unit_really_damaged_thresh, "unit_really_damaged_thresh");
+        let mut stealth_friendly_opacity = self.stealth_friendly_opacity;
+        xf!(xfer, xfer_real, stealth_friendly_opacity, "stealth_friendly_opacity");
+        let mut default_occlusion_delay = self.default_occlusion_delay;
+        xf!(xfer, xfer_unsigned_int, default_occlusion_delay, "default_occlusion_delay");
 
-        // Time of day and lighting
         let mut tod = self.time_of_day as i32;
         xf!(xfer, xfer_int, tod, "time_of_day");
-        xf!(xfer, xfer_int, self.num_global_lights, "num_global_lights");
-        xf!(xfer, xfer_real, self.script_override_infantry_light_scale, "script_override_infantry_light_scale");
+        let mut num_global_lights = self.num_global_lights;
+        xf!(xfer, xfer_int, num_global_lights, "num_global_lights");
+        let mut script_override_infantry_light_scale = self.script_override_infantry_light_scale;
+        xf!(xfer, xfer_real, script_override_infantry_light_scale, "script_override_infantry_light_scale");
 
-        // Health bonuses
         for i in 0..LEVEL_COUNT {
             let mut val = self.health_bonus[i];
-            xf!(xfer, xfer_real, val, concat!("health_bonus[", i, "]"));
+            let label = format!("health_bonus[{}]", i);
+            xf!(xfer, xfer_real, val, &label);
         }
 
-        // Difficulty bonuses
         for pt in 0..PLAYERTYPE_COUNT {
             for diff in 0..DIFFICULTY_COUNT {
                 let mut val = self.solo_player_health_bonus_for_difficulty[pt][diff];
@@ -822,9 +835,10 @@ impl Snapshotable for GlobalData {
             }
         }
 
-        // CRC values
-        xf!(xfer, xfer_unsigned_int, self.ini_crc, "ini_crc");
-        xf!(xfer, xfer_unsigned_int, self.exe_crc, "exe_crc");
+        let mut ini_crc = self.ini_crc;
+        xf!(xfer, xfer_unsigned_int, ini_crc, "ini_crc");
+        let mut exe_crc = self.exe_crc;
+        xf!(xfer, xfer_unsigned_int, exe_crc, "exe_crc");
 
         Ok(())
     }

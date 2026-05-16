@@ -23,6 +23,7 @@ pub use crate::object::update::special_power_update::SpecialPowerCommandOption;
 pub type SpecialPowerCommandOptions = SpecialPowerCommandOption;
 use crate::command_button::CommandButton;
 use crate::common::science::{ScienceType, SCIENCE_INVALID};
+use game_engine::common::system::Xfer;
 use crate::object::special_power_module::Waypoint;
 use crate::object::update::ai_update::deliver_payload_data::DeliverPayloadData;
 use crate::object::SpecialPowerTemplate;
@@ -385,18 +386,26 @@ pub enum ContainWant {
 }
 
 pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
-    /// Check if can contain the specified object
     fn can_contain(&self, object_id: ObjectID) -> bool;
-    /// Add an object to containment
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String>;
-    /// Remove an object from containment
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String>;
-    /// Get list of contained objects
     fn get_contained_objects(&self) -> &[ObjectID];
-    /// Get current containment count
     fn get_contained_count(&self) -> usize;
-    /// Get maximum containment capacity
     fn get_max_capacity(&self) -> usize;
+
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let _ = xfer;
+        Ok(())
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let _ = xfer;
+        Ok(())
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
 
     /// Per-frame containment update.
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {

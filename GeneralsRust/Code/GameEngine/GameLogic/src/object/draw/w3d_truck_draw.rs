@@ -351,7 +351,7 @@ impl W3DTruckDraw {
         }
     }
     fn append_bone_overrides(
-        &self,
+        &mut self,
         transform_mtx: &Matrix3D,
         speed: Real,
         turning: Real,

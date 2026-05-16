@@ -2069,7 +2069,7 @@ impl Snapshotable for TurretAI {
                 let mut guard = machine
                     .lock()
                     .map_err(|_| "TurretAI state machine lock poisoned".to_string())?;
-                guard.xfer(xfer)?;
+                guard.xfer(xfer).map_err(|e| e.to_string())?;
             }
         }
 

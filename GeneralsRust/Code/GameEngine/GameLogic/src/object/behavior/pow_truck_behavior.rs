@@ -430,11 +430,11 @@ impl Snapshotable for POWTruckBehaviorModule {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.behavior
+        let mut guard = self
+            .behavior
             .lock()
-            .map_err(|_| "POWTruckBehaviorModule lock poisoned".to_string())?
-            .contain
-            .xfer(xfer)
+            .map_err(|_| "POWTruckBehaviorModule lock poisoned".to_string())?;
+        Snapshotable::xfer(&mut guard.contain, xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
