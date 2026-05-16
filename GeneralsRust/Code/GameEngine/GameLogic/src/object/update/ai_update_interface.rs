@@ -1038,9 +1038,20 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::doLocomotor – execute locomotor movement along path.
     /// Returns UpdateSleepTime hint.  Ported from AIUpdate.cpp (approx line 2000+).
     pub fn do_locomotor(&mut self) -> UnsignedInt {
+        if self.is_blocked {
+            self.blocked_frames = self.blocked_frames.saturating_add(1);
+        } else {
+            self.blocked_frames = 0;
+        }
+        self.is_blocked = false;
+        let blocked = self.blocked_frames > 0;
+
         match self.locomotor_goal_type {
             LocoGoalType::None => {}
             LocoGoalType::PositionOnPath => {
+                if self.path.is_none() && self.waiting_for_path {
+                    return u32::MAX;
+                }
                 // PARITY_TODO: move along path using cur_locomotor once locomotor bridge is ported
             }
             LocoGoalType::PositionExplicit => {
@@ -1050,7 +1061,13 @@ impl AIUpdateInterface {
                 // PARITY_TODO: rotate to angle
             }
         }
-        LOGICFRAMES_PER_SECOND * 2 // default sleep
+
+        if !blocked && self.blocked_frames > 1 {
+            self.blocked_frames = 1;
+        }
+        self.cur_max_blocked_speed = AI_FAST_AS_POSSIBLE;
+
+        0
     }
 
     /// C++ AIUpdateInterface::setLocomotorGoalPositionOnPath – sets the
@@ -1655,5 +1672,31 @@ mod tests {
         assert!(!ai.is_waiting_for_path());
         assert!(!ai.is_attack_path);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::None);
+    }
+
+    #[test]
+    fn do_locomotor_updates_blocked_state_like_cpp() {
+        let mut ai = ai_update();
+        ai.cur_max_blocked_speed = 12.0;
+        ai.is_blocked = true;
+
+        assert_eq!(ai.do_locomotor(), 0);
+        assert_eq!(ai.blocked_frames, 1);
+        assert!(!ai.is_blocked);
+        assert_eq!(ai.cur_max_blocked_speed, AI_FAST_AS_POSSIBLE);
+
+        assert_eq!(ai.do_locomotor(), 0);
+        assert_eq!(ai.blocked_frames, 0);
+    }
+
+    #[test]
+    fn do_locomotor_waits_forever_for_pending_path() {
+        let mut ai = ai_update();
+        ai.locomotor_goal_type = LocoGoalType::PositionOnPath;
+        ai.waiting_for_path = true;
+        ai.path = None;
+
+        assert_eq!(ai.do_locomotor(), u32::MAX);
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
     }
 }
