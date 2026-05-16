@@ -476,7 +476,10 @@ mod tests {
 
     #[test]
     fn invalid_entries_are_pruned() {
-        let world = FakeWorld::new().with_object(1).with_object(900);
+        let world = FakeWorld::new()
+            .with_object(1)
+            .with_object(900)
+            .with_distance(1, 900, 10.0);
 
         let mut manager = ResourceGatheringManager::new();
         manager.add_supply_warehouse(800); // Does not exist -> removed
