@@ -869,14 +869,8 @@ impl W3DRenderer {
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
         if let Some(terrain_guard) = terrain_guard.as_ref() {
             if let Some(terrain_visual) = terrain_guard.as_ref() {
-                if let Err(err) = terrain_visual
-                    .chunk_manager()
-                    .render_depth(&mut render_pass)
-                {
-                    log::warn!("Terrain depth pre-pass failed: {}", err);
-                } else {
-                    self.stats.draw_calls += terrain_visual.chunk_draw_count() as u32;
-                }
+                terrain_visual.record_chunk_depth_draws(&mut render_pass);
+                self.stats.draw_calls += terrain_visual.chunk_draw_count() as u32;
             }
         }
 
