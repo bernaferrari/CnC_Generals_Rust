@@ -5140,7 +5140,10 @@ pub trait ControlBarInterface: std::fmt::Debug + Send + Sync {
     fn find_command_set(&self, name: &str) -> Option<&dyn std::any::Any>;
 
     /// Get a command button by ID
-    fn get_command_button(&self, button_id: CommandButtonId) -> Option<&dyn std::any::Any>;
+    fn get_command_button(
+        &self,
+        button_id: CommandButtonId,
+    ) -> Option<&crate::command_button::CommandButton>;
 }
 
 /// Trait for thing factory interface used by UpdateContext

@@ -11,7 +11,7 @@ use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
 
 use crate::ai::THE_AI;
-use crate::command_button::{CommandButton, CommandButtonId, MAX_COMMANDS_PER_SET};
+use crate::command_button::{CommandButtonId, MAX_COMMANDS_PER_SET};
 use crate::commands::command::CommandType;
 use crate::common::types::ControlBarInterface;
 use crate::common::{
@@ -218,11 +218,7 @@ impl CommandButtonHuntUpdate {
             return UpdateSleepTime::Forever;
         };
 
-        let Some(button_any) = control_bar.get_command_button(button_id) else {
-            return UpdateSleepTime::Forever;
-        };
-
-        let Some(button) = button_any.downcast_ref::<CommandButton>() else {
+        let Some(button) = control_bar.get_command_button(button_id) else {
             return UpdateSleepTime::Forever;
         };
 
@@ -252,14 +248,12 @@ impl CommandButtonHuntUpdate {
 
         if let Some(button_id) = self.command_button {
             if let Some(control_bar) = get_control_bar_bridge() {
-                if let Some(button_any) = control_bar.get_command_button(button_id) {
-                    if let Some(button) = button_any.downcast_ref::<CommandButton>() {
-                        let weapon_slot = button.get_weapon_slot();
-                        object.set_weapon_lock(
-                            weapon_slot,
-                            crate::weapon::WeaponLockType::LockedTemporarily,
-                        );
-                    }
+                if let Some(button) = control_bar.get_command_button(button_id) {
+                    let weapon_slot = button.get_weapon_slot();
+                    object.set_weapon_lock(
+                        weapon_slot,
+                        crate::weapon::WeaponLockType::LockedTemporarily,
+                    );
                 }
             }
         }
@@ -287,11 +281,7 @@ impl CommandButtonHuntUpdate {
             return UpdateSleepTime::Forever;
         };
 
-        let Some(button_any) = control_bar.get_command_button(button_id) else {
-            return UpdateSleepTime::Forever;
-        };
-
-        let Some(button) = button_any.downcast_ref::<CommandButton>() else {
+        let Some(button) = control_bar.get_command_button(button_id) else {
             return UpdateSleepTime::Forever;
         };
 
@@ -382,11 +372,7 @@ impl CommandButtonHuntUpdate {
             return None;
         };
 
-        let Some(button_any) = control_bar.get_command_button(button_id) else {
-            return None;
-        };
-
-        let Some(button) = button_any.downcast_ref::<CommandButton>() else {
+        let Some(button) = control_bar.get_command_button(button_id) else {
             return None;
         };
 
