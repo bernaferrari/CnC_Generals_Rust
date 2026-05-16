@@ -916,6 +916,10 @@ impl AIUpdateInterface {
     /// returns false if no path found.  Lines ~AIUpdate.cpp:440.
     pub fn compute_path(&mut self, destination: Coord3D) -> bool {
         self.requested_destination = destination;
+        if self.can_compute_quick_path() {
+            return self.compute_quick_path(destination);
+        }
+
         // PARITY_TODO: delegate to pathfinder->findPath() once pathfinder bridge is ported.
         // For now, create a simple two-point path as placeholder.
         let start = self.final_position;
@@ -950,7 +954,11 @@ impl AIUpdateInterface {
         self.is_approach_path = false;
         self.is_safe_path = false;
 
-        // PARITY_TODO: canComputeQuickPath() / computeQuickPath() for missiles/air
+        if self.can_compute_quick_path() {
+            self.compute_quick_path(destination);
+            return;
+        }
+
         self.waiting_for_path = true;
 
         let now = TheGameLogic::get_frame();
@@ -1029,6 +1037,44 @@ impl AIUpdateInterface {
     pub fn is_path_available(&self, _destination: Coord3D) -> bool {
         // PARITY_TODO: delegate to pathfinder once bridge is ported
         self.path.is_some()
+    }
+
+    /// C++ AIUpdateInterface::canComputeQuickPath – airborne units can skip
+    /// queued pathfinding and build a direct path immediately.
+    pub fn can_compute_quick_path(&self) -> bool {
+        self.cur_locomotor_tag != 0 && !self.is_doing_ground_movement()
+    }
+
+    /// C++ AIUpdateInterface::computeQuickPath – build a direct two-node path
+    /// for airborne/non-ground movement.
+    pub fn compute_quick_path(&mut self, destination: Coord3D) -> bool {
+        if let Some(path) = self.path.as_ref() {
+            if let Some(close_node) = path.last() {
+                let dx = destination.x - close_node.x;
+                let dy = destination.y - close_node.y;
+                let dz = destination.z - close_node.z;
+                if dx * dx + dy * dy + dz * dz < 0.25 {
+                    return true;
+                }
+            }
+        }
+
+        let mut start = self.final_position;
+        if start == Coord3D::ZERO {
+            return false;
+        }
+        start.z = destination.z;
+
+        self.destroy_path();
+        self.path = Some(vec![start, destination]);
+        self.path_timestamp = TheGameLogic::get_frame();
+        self.blocked_frames = 0;
+        self.is_blocked = false;
+        self.is_blocked_and_stuck = false;
+        self.queue_for_path_frame = 0;
+        self.waiting_for_path = false;
+        self.set_locomotor_goal_position_on_path();
+        true
     }
 
     // -----------------------------------------------------------------------
@@ -1713,6 +1759,46 @@ mod tests {
         assert!(!ai.is_waiting_for_path());
         assert!(!ai.is_attack_path);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::None);
+    }
+
+    #[test]
+    fn request_path_computes_airborne_quick_path_like_cpp() {
+        let mut ai = ai_update();
+        ai.set_final_position(Coord3D::new(4.0, 5.0, 1.0));
+        ai.cur_locomotor_set = LocomotorSetType::Supersonic;
+        ai.cur_locomotor_tag = 1;
+        ai.is_blocked = true;
+        ai.is_blocked_and_stuck = true;
+
+        ai.request_path(Coord3D::new(20.0, 30.0, 9.0), true);
+
+        assert!(!ai.is_waiting_for_path());
+        assert_eq!(ai.get_queue_for_path_frame(), 0);
+        assert!(!ai.is_blocked);
+        assert!(!ai.is_blocked_and_stuck);
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
+        assert_eq!(
+            ai.get_path().as_ref().unwrap().as_slice(),
+            &[Coord3D::new(4.0, 5.0, 9.0), Coord3D::new(20.0, 30.0, 9.0)]
+        );
+    }
+
+    #[test]
+    fn quick_path_reuses_close_existing_destination_like_cpp() {
+        let mut ai = ai_update();
+        ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
+        ai.cur_locomotor_set = LocomotorSetType::Supersonic;
+        ai.cur_locomotor_tag = 1;
+        ai.path = Some(vec![
+            Coord3D::new(1.0, 2.0, 3.0),
+            Coord3D::new(9.0, 10.0, 11.0),
+        ]);
+        let old_timestamp = ai.get_path_timestamp();
+
+        assert!(ai.compute_quick_path(Coord3D::new(9.2, 10.1, 11.0)));
+
+        assert_eq!(ai.get_path().as_ref().unwrap().len(), 2);
+        assert_eq!(ai.get_path_timestamp(), old_timestamp);
     }
 
     #[test]
