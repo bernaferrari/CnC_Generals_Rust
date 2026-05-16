@@ -26,6 +26,7 @@ use crate::gui::game_window::{
     GameWindow, WindowCallbacks as GwCallbacks, WindowInstanceData, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowWidget,
 };
+use crate::gui::get_disconnect_menu;
 use crate::gui::shell::main_menu::get_main_menu;
 use crate::gui::window_manager::WindowLayout;
 use crate::gui::window_script::{
@@ -523,11 +524,9 @@ impl ScriptCallbackRegistry {
         self.register_win_system("GadgetStaticTextSystem", gadget_static_text_system);
         self.register_win_system("GadgetTextEntrySystem", gadget_text_entry_system);
 
-        // PARITY_TODO: MessageBoxSystem/QuitMessageBoxSystem/ExtendedMessageBoxSystem
-        // callbacks are set directly on windows at creation time (see message_box.rs).
-        self.register_win_system("MessageBoxSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("QuitMessageBoxSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("ExtendedMessageBoxSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("MessageBoxSystem", message_box_system);
+        self.register_win_system("QuitMessageBoxSystem", quit_message_box_system);
+        self.register_win_system("ExtendedMessageBoxSystem", extended_message_box_system);
 
         self.register_win_system("MOTDSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
 
@@ -574,19 +573,17 @@ impl ScriptCallbackRegistry {
 
         self.register_win_system("InGamePopupMessageSystem", cb::in_game_popup_message_system);
 
-        // PARITY_TODO: ControlBarSystem uses Arc<RwLock<ControlBarSystem>> — needs adapter
-        self.register_win_system("ControlBarSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("ControlBarObserverSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("ControlBarSystem", control_bar_system);
+        self.register_win_system("ControlBarObserverSystem", control_bar_observer_system);
         self.register_win_system("IMECandidateWindowSystem", cb::ime_candidate_window_system);
         self.register_win_system("ReplayControlSystem", cb::replay_control_system);
 
-        // PARITY_TODO: InGameChat/DisconnectControl/Diplomacy/IdleWorker use struct singletons
-        self.register_win_system("InGameChatSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("DisconnectControlSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_system("DiplomacySystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("InGameChatSystem", in_game_chat_system);
+        self.register_win_system("DisconnectControlSystem", disconnect_control_system);
+        self.register_win_system("DiplomacySystem", diplomacy_system);
         self.register_win_system("GeneralsExpPointsSystem", cb::generals_exp_points_system);
         self.register_win_system("DifficultySelectSystem", cb::difficulty_select_system);
-        self.register_win_system("IdleWorkerSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("IdleWorkerSystem", idle_worker_system);
         self.register_win_system("EstablishConnectionsControlSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("GameInfoWindowSystem", cb::game_info_window_system);
         self.register_win_system("ScoreScreenSystem", cb::score_screen_system);
@@ -647,16 +644,14 @@ impl ScriptCallbackRegistry {
 
         self.register_win_input("InGamePopupMessageInput", cb::in_game_popup_message_input);
 
-        // PARITY_TODO: ControlBarInput uses struct singleton
-        self.register_win_input("ControlBarInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("ControlBarInput", control_bar_input);
         self.register_win_input("ReplayControlInput", cb::replay_control_input);
 
-        // PARITY_TODO: InGameChat/DisconnectControl/Diplomacy use struct singletons
-        self.register_win_input("InGameChatInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("InGameChatInput", in_game_chat_input);
         self.register_win_input("DisconnectControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("DiplomacyInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("DiplomacyInput", diplomacy_input);
         self.register_win_input("EstablishConnectionsControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
-        self.register_win_input("LeftHUDInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("LeftHUDInput", left_hud_input);
         self.register_win_input("ScoreScreenInput", cb::score_screen_input);
         self.register_win_input("SaveLoadMenuInput", cb::save_load_menu_input);
         self.register_win_input("BeaconWindowInput", cb::beacon_window_input);
@@ -1030,6 +1025,184 @@ where
         }
     };
     result
+}
+
+fn with_arc_write<T, R>(lock: &Arc<RwLock<T>>, f: impl FnOnce(&mut T) -> R) -> R {
+    let mut guard = lock.write().unwrap_or_else(|e| e.into_inner());
+    f(&mut *guard)
+}
+
+fn control_bar_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_control_bar_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    with_arc_write(&callbacks, |callbacks| {
+        callbacks.system(window, msg, data1, data2)
+    })
+}
+
+fn control_bar_observer_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_control_bar_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_observer();
+    with_arc_write(&callbacks, |callbacks| {
+        callbacks.system(window, msg, data1, data2)
+    })
+}
+
+fn control_bar_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_control_bar_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    with_arc_write(&callbacks, |callbacks| {
+        callbacks.system(window, msg, data1, data2)
+    })
+}
+
+fn left_hud_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_control_bar_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_left_hud();
+    with_arc_write(&callbacks, |callbacks| {
+        callbacks.input(window, msg, data1, data2)
+    })
+}
+
+fn diplomacy_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    with_arc_write(&callbacks, |callbacks| {
+        callbacks.system(window, msg, data1, data2)
+    })
+}
+
+fn diplomacy_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_diplomacy_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let callbacks = system.get_callbacks();
+    with_arc_write(&callbacks, |callbacks| {
+        callbacks.input(window, msg, data1, data2)
+    })
+}
+
+fn in_game_chat_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_ingame_ui_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let chat = system.get_chat();
+    with_arc_write(&chat, |chat| chat.system(window, msg, data1, data2))
+}
+
+fn in_game_chat_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_ingame_ui_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let chat = system.get_chat();
+    with_arc_write(&chat, |chat| chat.input(window, msg, data1, data2))
+}
+
+fn idle_worker_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_ingame_ui_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let idle_worker = system.get_idle_worker();
+    with_arc_write(&idle_worker, |idle_worker| {
+        idle_worker.system(window, msg, data1, data2)
+    })
+}
+
+fn message_box_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_message_box_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let standard = system.get_standard();
+    with_arc_write(&standard, |standard| {
+        standard.system(window, msg, data1, data2)
+    })
+}
+
+fn extended_message_box_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_message_box_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let extended = system.get_extended();
+    with_arc_write(&extended, |extended| {
+        extended.system(window, msg, data1, data2)
+    })
+}
+
+fn quit_message_box_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let system = cb::get_message_box_system();
+    let system = system.read().unwrap_or_else(|e| e.into_inner());
+    let quit = system.get_quit();
+    with_arc_write(&quit, |quit| quit.system(window, msg, data1, data2))
+}
+
+fn disconnect_control_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let menu = get_disconnect_menu();
+    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
+    menu.system(window, msg, data1, data2)
 }
 
 fn single_player_menu() -> Option<Arc<RwLock<cb::SinglePlayerMenu>>> {
@@ -1981,6 +2154,35 @@ mod tests {
             assert!(registry.get_layout_init(&format!("{name}Init")).is_some());
             assert!(registry.get_layout_update(&format!("{name}Update")).is_some());
             assert!(registry.get_layout_shutdown(&format!("{name}Shutdown")).is_some());
+        }
+    }
+
+    #[test]
+    fn singleton_callback_adapters_are_wired_to_registry() {
+        let mut registry = ScriptCallbackRegistry::new();
+        registry.populate_defaults();
+
+        for name in [
+            "MessageBoxSystem",
+            "QuitMessageBoxSystem",
+            "ExtendedMessageBoxSystem",
+            "ControlBarSystem",
+            "ControlBarObserverSystem",
+            "InGameChatSystem",
+            "DisconnectControlSystem",
+            "DiplomacySystem",
+            "IdleWorkerSystem",
+        ] {
+            assert!(registry.get_win_system(name).is_some());
+        }
+
+        for name in [
+            "ControlBarInput",
+            "InGameChatInput",
+            "DiplomacyInput",
+            "LeftHUDInput",
+        ] {
+            assert!(registry.get_win_input(name).is_some());
         }
     }
 
