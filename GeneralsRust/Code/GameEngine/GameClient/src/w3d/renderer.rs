@@ -238,6 +238,7 @@ pub struct W3DRenderer {
 
     // Post-processing pipelines
     tonemap_pipeline: RenderPipeline,
+    hdr_bind_group: BindGroup,
     bloom_extract_pipeline: Option<RenderPipeline>,
     bloom_blur_h_pipeline: Option<RenderPipeline>,
     bloom_blur_v_pipeline: Option<RenderPipeline>,
@@ -636,8 +637,22 @@ impl W3DRenderer {
         };
 
         // Create post-processing pipelines
-        let tonemap_pipeline =
+        let (tonemap_pipeline, hdr_bind_group_layout) =
             Self::create_tonemap_pipeline(&device, shader_manager, settings.format)?;
+        let hdr_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("W3D HDR Tone Map Bind Group"),
+            layout: &hdr_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&hdr_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&material_sampler),
+                },
+            ],
+        });
 
         // Create bloom resources and pipelines
         let (
@@ -703,13 +718,7 @@ impl W3DRenderer {
             "🎯 Pipelines: {} render, {} compute, {} post-processing",
             4 + if gbuffer_pipeline.is_some() { 1 } else { 0 },
             if culling_pipeline.is_some() { 1 } else { 0 },
-            2 + if ssao_pipeline.is_some() { 2 } else { 0 }
-                + if taa_pipeline.is_some() { 1 } else { 0 }
-                + if bloom_extract_pipeline.is_some() {
-                    4
-                } else {
-                    0
-                }
+            1
         );
 
         Ok(Self {
@@ -746,6 +755,7 @@ impl W3DRenderer {
             shadow_pipeline,
             culling_pipeline,
             tonemap_pipeline,
+            hdr_bind_group,
             bloom_extract_pipeline,
             bloom_blur_h_pipeline,
             bloom_blur_v_pipeline,
@@ -1096,189 +1106,10 @@ impl W3DRenderer {
             return Ok(());
         }
 
-        // SSAO pass
-        if let (
-            Some(ssao_pipeline),
-            Some(ssao_blur_pipeline),
-            Some(ssao_view),
-            Some(ssao_blur_view),
-        ) = (
-            &self.ssao_pipeline,
-            &self.ssao_blur_pipeline,
-            &self.ssao_view,
-            &self.ssao_blur_view,
-        ) {
-            // SSAO generation
-            let mut ssao_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("W3D SSAO Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: ssao_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::WHITE),
-                        store: StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            ssao_pass.set_pipeline(ssao_pipeline);
-            ssao_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            // Would bind G-buffer textures here (depth, normal, noise)
-            ssao_pass.draw(0..3, 0..1);
-            drop(ssao_pass);
-
-            // SSAO blur pass
-            let mut blur_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("W3D SSAO Blur Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: ssao_blur_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Clear(Color::WHITE),
-                        store: StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            blur_pass.set_pipeline(ssao_blur_pipeline);
-            // Would bind SSAO texture here
-            blur_pass.draw(0..3, 0..1);
-            drop(blur_pass);
-
-            self.stats.draw_calls += 2;
-        }
-
-        // TAA pass
-        if let (Some(taa_pipeline), Some(taa_history_view)) =
-            (&self.taa_pipeline, &self.taa_history_view)
-        {
-            // Update TAA jitter for next frame
-            self.taa_frame_index += 1;
-
-            let mut taa_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: Some("W3D TAA Pass"),
-                color_attachments: &[Some(RenderPassColorAttachment {
-                    view: &self.hdr_view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: Operations {
-                        load: LoadOp::Load,
-                        store: StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            taa_pass.set_pipeline(taa_pipeline);
-            taa_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            // Would bind current frame, history, motion vectors, depth here
-            taa_pass.draw(0..3, 0..1);
-            drop(taa_pass);
-
-            self.stats.draw_calls += 1;
-        }
-
-        // Bloom pass (multi-pass: extract -> blur H -> blur V -> composite)
-        if let (Some(extract), Some(blur_h), Some(blur_v), Some(composite)) = (
-            &self.bloom_extract_pipeline,
-            &self.bloom_blur_h_pipeline,
-            &self.bloom_blur_v_pipeline,
-            &self.bloom_composite_pipeline,
-        ) {
-            if self.bloom_views.len() >= 3 {
-                // Extract bright pixels
-                let mut extract_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("W3D Bloom Extract Pass"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &self.bloom_views[0],
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: Operations {
-                            load: LoadOp::Clear(Color::BLACK),
-                            store: StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                extract_pass.set_pipeline(extract);
-                extract_pass.draw(0..3, 0..1);
-                drop(extract_pass);
-
-                // Horizontal blur
-                let mut blur_h_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("W3D Bloom Blur H Pass"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &self.bloom_views[1],
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: Operations {
-                            load: LoadOp::Clear(Color::BLACK),
-                            store: StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                blur_h_pass.set_pipeline(blur_h);
-                blur_h_pass.draw(0..3, 0..1);
-                drop(blur_h_pass);
-
-                // Vertical blur
-                let mut blur_v_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("W3D Bloom Blur V Pass"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &self.bloom_views[2],
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: Operations {
-                            load: LoadOp::Clear(Color::BLACK),
-                            store: StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                blur_v_pass.set_pipeline(blur_v);
-                blur_v_pass.draw(0..3, 0..1);
-                drop(blur_v_pass);
-
-                // Composite bloom onto HDR buffer
-                let mut composite_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("W3D Bloom Composite Pass"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: &self.hdr_view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: Operations {
-                            load: LoadOp::Load,
-                            store: StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-                composite_pass.set_pipeline(composite);
-                composite_pass.draw(0..3, 0..1);
-                drop(composite_pass);
-
-                self.stats.draw_calls += 4;
-            }
-        }
+        // SSAO, TAA, and bloom resources are allocated by the renderer, but the
+        // required texture bind groups are not wired yet. Do not issue partial
+        // fullscreen draws with missing inputs; wgpu validation would reject
+        // those passes and the result would not match the C++ renderer.
 
         // Tone mapping pass (HDR -> LDR)
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
@@ -1298,8 +1129,7 @@ impl W3DRenderer {
         });
 
         render_pass.set_pipeline(&self.tonemap_pipeline);
-        // Bind HDR texture and render fullscreen quad
-        render_pass.set_bind_group(0, &self.lights_bind_group, &[]);
+        render_pass.set_bind_group(0, &self.hdr_bind_group, &[]);
         // Fullscreen triangle (no vertex buffer needed)
         render_pass.draw(0..3, 0..1);
 
@@ -1313,7 +1143,8 @@ impl W3DRenderer {
             return;
         }
         let max_bytes = self.bone_buffer.size() as usize;
-        let write_bytes = (skinning_matrices_flat.len() * std::mem::size_of::<f32>()).min(max_bytes);
+        let write_bytes =
+            (skinning_matrices_flat.len() * std::mem::size_of::<f32>()).min(max_bytes);
         let write_f32s = write_bytes / std::mem::size_of::<f32>();
         if write_f32s > 0 {
             self.queue.write_buffer(
@@ -2218,7 +2049,7 @@ impl W3DRenderer {
         device: &Device,
         shader_manager: &W3DShaderManager,
         format: TextureFormat,
-    ) -> W3DResult<RenderPipeline> {
+    ) -> W3DResult<(RenderPipeline, BindGroupLayout)> {
         let tonemap_shader_source = include_str!("shaders/tonemap.wgsl");
         let shader = shader_manager.get_or_create_shader("tonemap", tonemap_shader_source)?;
 
@@ -2245,7 +2076,7 @@ impl W3DRenderer {
                 ],
             });
 
-        Ok(device.create_render_pipeline(&RenderPipelineDescriptor {
+        let pipeline = device.create_render_pipeline(&RenderPipelineDescriptor {
             label: Some("W3D Tone Mapping Pipeline"),
             layout: Some(&device.create_pipeline_layout(&PipelineLayoutDescriptor {
                 label: Some("Tone Mapping Layout"),
@@ -2281,7 +2112,9 @@ impl W3DRenderer {
             multisample: MultisampleState::default(),
             multiview: None,
             cache: None,
-        }))
+        });
+
+        Ok((pipeline, hdr_bind_group_layout))
     }
 
     fn create_bloom_pipelines(
