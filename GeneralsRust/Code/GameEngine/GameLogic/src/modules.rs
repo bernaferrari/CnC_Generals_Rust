@@ -3284,6 +3284,8 @@ pub trait UpgradeModuleInterface: Send + Sync {
         let _ = upgrade_mask;
     }
 
+    fn force_refresh_upgrade(&mut self) {}
+
     /// Notify module that its owning object is being deleted.
     fn on_delete(&mut self, object: &mut Object) {
         let _ = object;
