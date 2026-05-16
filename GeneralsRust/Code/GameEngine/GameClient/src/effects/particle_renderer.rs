@@ -125,26 +125,64 @@ impl ParticleBatch {
             return; // Batch full
         }
 
-        let vertex = ParticleVertex {
-            position: [
-                particle.position.x,
-                particle.position.y,
-                particle.position.z,
-            ],
-            size: [particle.size, particle.size],
-            color: [
-                particle.color[0] * particle.color_scale,
-                particle.color[1] * particle.color_scale,
-                particle.color[2] * particle.color_scale,
-                1.0,
-            ],
-            uv_rect: [0.0, 0.0, 1.0, 1.0], // Will be set based on texture atlas
-            rotation: particle.angle_z,
-            alpha: particle.alpha,
-            _padding: 0.0,
-        };
+        let vertex = particle_billboard_vertex(particle, system);
 
         self.vertices.push(vertex);
+        self.dirty = true;
+    }
+
+    /// Add a streak segment particle using its previous and current positions.
+    pub fn add_streak_particle(&mut self, particle: &Particle, system: &ParticleSystem) {
+        if self.vertices.len() >= MAX_PARTICLES_PER_BATCH {
+            return;
+        }
+
+        self.vertices.push(particle_streak_vertex(particle, system));
+        self.dirty = true;
+    }
+
+    /// Add layered volume-particle slices sorted from the camera-facing side.
+    pub fn add_volume_particle(
+        &mut self,
+        particle: &Particle,
+        system: &ParticleSystem,
+        camera_position: [f32; 3],
+    ) {
+        let info = system.template().info();
+        let layer_count = info
+            .volume_particle_depth
+            .max(OPTIMUM_VOLUME_PARTICLE_DEPTH)
+            .min(MAX_VOLUME_PARTICLE_DEPTH) as usize;
+        if layer_count == 0 {
+            self.add_particle(particle, system);
+            return;
+        }
+
+        let view_dir = Vector3::new(
+            particle.position.x - camera_position[0],
+            particle.position.y - camera_position[1],
+            particle.position.z - camera_position[2],
+        )
+        .try_normalize(0.0001)
+        .unwrap_or_else(|| Vector3::new(0.0, 0.0, 1.0));
+
+        let spacing = particle.size / layer_count as f32;
+        let first_offset = -0.5 * spacing * (layer_count.saturating_sub(1) as f32);
+
+        for layer in 0..layer_count {
+            if self.vertices.len() >= MAX_PARTICLES_PER_BATCH {
+                break;
+            }
+
+            let mut vertex = particle_billboard_vertex(particle, system);
+            let offset = first_offset + spacing * layer as f32;
+            vertex.position[0] += view_dir.x * offset;
+            vertex.position[1] += view_dir.y * offset;
+            vertex.position[2] += view_dir.z * offset;
+            vertex.alpha /= layer_count as f32;
+            self.vertices.push(vertex);
+        }
+
         self.dirty = true;
     }
 
@@ -169,6 +207,41 @@ impl ParticleBatch {
         self.vertex_buffer = Some(buffer);
         self.dirty = false;
     }
+}
+
+fn particle_billboard_vertex(particle: &Particle, _system: &ParticleSystem) -> ParticleVertex {
+    ParticleVertex {
+        position: [
+            particle.position.x,
+            particle.position.y,
+            particle.position.z,
+        ],
+        size: [particle.size, particle.size],
+        color: [
+            particle.color[0] * particle.color_scale,
+            particle.color[1] * particle.color_scale,
+            particle.color[2] * particle.color_scale,
+            1.0,
+        ],
+        uv_rect: [0.0, 0.0, 1.0, 1.0],
+        rotation: particle.angle_z,
+        alpha: particle.alpha,
+        _padding: 0.0,
+    }
+}
+
+fn particle_streak_vertex(particle: &Particle, system: &ParticleSystem) -> ParticleVertex {
+    let delta = particle.position - particle.last_position;
+    let length = (delta.x * delta.x + delta.y * delta.y)
+        .sqrt()
+        .max(particle.size);
+    let midpoint = particle.last_position + delta * 0.5;
+
+    let mut vertex = particle_billboard_vertex(particle, system);
+    vertex.position = [midpoint.x, midpoint.y, midpoint.z];
+    vertex.size = [length, particle.size.max(0.001)];
+    vertex.rotation = delta.y.atan2(delta.x);
+    vertex
 }
 
 /// GPU particle renderer
@@ -712,7 +785,7 @@ impl ParticleRenderer {
 
         // Collect particles into batches
         for system in systems {
-            self.collect_system_particles(system);
+            self.collect_system_particles(system, uniforms.camera_position);
         }
 
         // Update GPU buffers for batches
@@ -992,9 +1065,16 @@ impl ParticleRenderer {
     }
 
     /// Collect particles from a system into appropriate batches
-    fn collect_system_particles(&mut self, system: &ParticleSystem) {
+    fn collect_system_particles(&mut self, system: &ParticleSystem, camera_position: [f32; 3]) {
         let template = system.template();
         let info = template.info();
+        if matches!(
+            info.particle_type,
+            ParticleType::Drawable | ParticleType::Smudge
+        ) {
+            return;
+        }
+
         let texture_name = if info.particle_type_name.is_empty() {
             "default".to_string()
         } else {
@@ -1011,7 +1091,18 @@ impl ParticleRenderer {
         // Add particles from system to batch
         for particle in system.particles() {
             if particle.lifetime_left > 0 && !particle.is_culled {
-                batch.add_particle(particle, system);
+                match info.particle_type {
+                    ParticleType::Streak => batch.add_streak_particle(particle, system),
+                    ParticleType::VolumeParticle => {
+                        let before = batch.vertices.len();
+                        batch.add_volume_particle(particle, system, camera_position);
+                        self.stats.particles_rendered +=
+                            batch.vertices.len().saturating_sub(before);
+                        continue;
+                    }
+                    ParticleType::Particle => batch.add_particle(particle, system),
+                    ParticleType::Drawable | ParticleType::Smudge => continue,
+                }
                 self.stats.particles_rendered += 1;
             }
         }
@@ -1171,7 +1262,15 @@ impl ParticleRenderer {
 
 #[cfg(test)]
 mod tests {
+    use super::super::particle_system::ParticleInfo;
     use super::*;
+
+    fn test_system(particle_type: ParticleType, depth: u32) -> ParticleSystem {
+        let mut template = ParticleSystemTemplate::new("test".to_string());
+        template.info_mut().particle_type = particle_type;
+        template.info_mut().volume_particle_depth = depth;
+        ParticleSystem::new(Arc::new(template), 1, false)
+    }
 
     #[test]
     fn test_particle_vertex_layout() {
@@ -1191,6 +1290,41 @@ mod tests {
         let mut batch = ParticleBatch::new(ParticleShaderType::Alpha, "test.tga".to_string());
         assert_eq!(batch.vertices.len(), 0);
         assert!(batch.dirty);
+    }
+
+    #[test]
+    fn streak_particle_uses_segment_midpoint_length_and_rotation() {
+        let system = test_system(ParticleType::Streak, 0);
+        let mut info = ParticleInfo::default();
+        info.position = Point3::new(4.0, 3.0, 2.0);
+        info.size = 0.5;
+        let mut particle = Particle::new(&info, 0, 0);
+        particle.last_position = Point3::new(0.0, 0.0, 2.0);
+
+        let vertex = particle_streak_vertex(&particle, &system);
+
+        assert_eq!(vertex.position, [2.0, 1.5, 2.0]);
+        assert_eq!(vertex.size[0], 5.0);
+        assert_eq!(vertex.size[1], 0.5);
+        assert!((vertex.rotation - (3.0_f32).atan2(4.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn volume_particle_emits_default_depth_layers() {
+        let system = test_system(ParticleType::VolumeParticle, 0);
+        let mut info = ParticleInfo::default();
+        info.position = Point3::new(0.0, 0.0, 3.0);
+        info.size = 6.0;
+        let particle = Particle::new(&info, 0, 0);
+        let mut batch = ParticleBatch::new(ParticleShaderType::Alpha, "test.tga".to_string());
+
+        batch.add_volume_particle(&particle, &system, [0.0, 0.0, 0.0]);
+
+        assert_eq!(batch.vertices.len(), OPTIMUM_VOLUME_PARTICLE_DEPTH as usize);
+        let alpha_sum: f32 = batch.vertices.iter().map(|vertex| vertex.alpha).sum();
+        assert!((alpha_sum - particle.alpha).abs() < 0.0001);
+        assert!(batch.vertices.first().unwrap().position[2] < particle.position.z);
+        assert!(batch.vertices.last().unwrap().position[2] > particle.position.z);
     }
 
     #[test]
