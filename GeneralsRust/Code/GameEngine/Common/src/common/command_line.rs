@@ -508,6 +508,7 @@ impl CommandLineParser {
     }
 
     /// Parse -nosizzle flag
+    #[cfg_attr(any(feature = "debug", feature = "internal"), allow(dead_code))]
     fn parse_no_sizzle(&mut self, _args: &[String]) -> usize {
         self.global_data.play_sizzle = false;
         1

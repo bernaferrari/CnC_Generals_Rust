@@ -1813,7 +1813,7 @@ impl Player {
     /// C++ Reference: Player::addSkillPoints() (Player.cpp lines 3041-3084)
     pub fn add_skill_points(&mut self, delta: i32) -> bool {
         // C++ line 3045: Apply modifier
-        let adjusted_delta = (delta as f32 * self.skill_points_modifier) as i32;
+        let adjusted_delta = (delta as f32 * self.skill_points_modifier).ceil() as i32;
 
         // C++ lines 3050-3052: Check for no change
         if adjusted_delta == 0 {
@@ -1824,16 +1824,12 @@ impl Player {
         let old_rank = self.rank_level;
         self.skill_points += adjusted_delta;
 
-        // C++ lines 3057-3083: Check for rank up/down
-        // This would use RankInfo to determine thresholds
-        // Simplified: check if rank should change based on skill points
+        // C++ addSkillPoints only advances ranks. Rank loss is handled by setRankLevel.
         let new_rank = self.calculate_rank_from_skill_points();
-        if new_rank != old_rank {
-            self.rank_level = new_rank;
-            true
-        } else {
-            false
+        if new_rank > old_rank {
+            return self.set_rank_level(new_rank);
         }
+        false
     }
 
     /// Calculate rank level from current skill points
@@ -1869,7 +1865,8 @@ impl Player {
     /// Set rank level, returns true if changed
     /// C++ Reference: Player::setRankLevel() (Player.cpp lines 3090-3115)
     pub fn set_rank_level(&mut self, level: i32) -> bool {
-        if level != self.rank_level && level >= 1 {
+        let level = level.max(1);
+        if level != self.rank_level {
             let old_level = self.rank_level;
             self.rank_level = level;
 
@@ -3765,6 +3762,28 @@ mod tests {
         // Test cash bounty
         player.set_cash_bounty_percent(0.25);
         assert!((player.get_cash_bounty_percent() - 0.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_skill_points_do_not_downgrade_rank() {
+        let mut player = Player::new(0);
+        player.reset_rank();
+
+        assert!(player.add_skill_points(500));
+        assert_eq!(player.get_rank_level(), 3);
+
+        assert!(!player.add_skill_points(-450));
+        assert_eq!(player.get_skill_points(), 50);
+        assert_eq!(player.get_rank_level(), 3);
+    }
+
+    #[test]
+    fn test_set_rank_level_clamps_to_one() {
+        let mut player = Player::new(0);
+        player.set_rank_level(3);
+
+        assert!(player.set_rank_level(0));
+        assert_eq!(player.get_rank_level(), 1);
     }
 
     #[test]
