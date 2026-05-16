@@ -2547,7 +2547,10 @@ impl Shell {
             }
         }
 
-        if self.screen_stack.is_empty() {
+        let shell_map_enabled = get_global_data()
+            .map(|data| data.read().shell_map_on)
+            .unwrap_or(false);
+        if !shell_map_enabled && self.screen_stack.is_empty() {
             self.push("Menus/MainMenu.wnd", false)?;
         }
 
