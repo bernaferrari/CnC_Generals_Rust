@@ -2720,6 +2720,10 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_build_time(&self) -> Real {
         0.0
     }
+    /// C++ ThingTemplate::getBuildable().
+    fn get_buildable_status(&self) -> Option<game_engine::common::thing::BuildableStatus> {
+        None
+    }
     /// C++ ThingTemplate::getThreatValue().
     fn get_threat_value(&self) -> UnsignedInt {
         0
@@ -3825,6 +3829,10 @@ impl ThingTemplate for Arc<DefaultThingTemplate> {
         (**self).get_build_time()
     }
 
+    fn get_buildable_status(&self) -> Option<game_engine::common::thing::BuildableStatus> {
+        (**self).get_buildable_status()
+    }
+
     fn get_threat_value(&self) -> UnsignedInt {
         (**self).get_threat_value()
     }
@@ -4054,6 +4062,10 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
 
     fn get_build_time(&self) -> Real {
         (**self).get_build_time()
+    }
+
+    fn get_buildable_status(&self) -> Option<game_engine::common::thing::BuildableStatus> {
+        (**self).get_buildable_status()
     }
 
     fn get_threat_value(&self) -> UnsignedInt {
