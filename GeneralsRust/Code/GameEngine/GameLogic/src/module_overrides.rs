@@ -1234,14 +1234,13 @@ fn immortal_body_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<ActiveBodyModuleData>()
-        .expect("ActiveBodyModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<ActiveBodyModuleData>("ImmortalBody", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("ImmortalBody");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let body = Arc::new(Mutex::new(ImmortalBody::new(typed_data.clone(), owner_id)));
+    let body = Arc::new(Mutex::new(ImmortalBody::new(
+        data_arc.as_ref().clone(),
+        owner_id,
+    )));
     Box::new(ImmortalBodyModule::new(
         module_name_key,
         data_arc,
@@ -1336,15 +1335,12 @@ fn hive_structure_body_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<HiveStructureBodyModuleData>()
-        .expect("HiveStructureBodyModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc =
+        cloned_module_data::<HiveStructureBodyModuleData>("HiveStructureBody", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("HiveStructureBody");
     let (owner_id, _) = resolve_owner_info(&thing);
     let body = Arc::new(Mutex::new(HiveStructureBody::new(
-        typed_data.clone(),
+        data_arc.as_ref().clone(),
         owner_id,
     )));
     Box::new(HiveStructureBodyModule::new(
@@ -1432,14 +1428,13 @@ fn undead_body_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<UndeadBodyModuleData>()
-        .expect("UndeadBodyModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<UndeadBodyModuleData>("UndeadBody", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("UndeadBody");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let body = Arc::new(Mutex::new(UndeadBody::new(typed_data.clone(), owner_id)));
+    let body = Arc::new(Mutex::new(UndeadBody::new(
+        data_arc.as_ref().clone(),
+        owner_id,
+    )));
     Box::new(UndeadBodyModule::new(
         module_name_key,
         data_arc,
