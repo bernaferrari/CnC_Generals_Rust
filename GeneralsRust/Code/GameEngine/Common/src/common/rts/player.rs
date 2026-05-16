@@ -15,6 +15,7 @@
 //! - Squad system (hotkey squads and current selection)
 //! - Resource gathering management
 
+use crate::common::ini::get_rank_info_store;
 use crate::common::rts::{
     get_science_store, AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle,
     ProductionPrerequisite, Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
@@ -1201,11 +1202,28 @@ impl Player {
         self.rank_level = 1;
         self.skill_points = 0;
         self.science_purchase_points = 0;
+        self.sciences.clear();
 
-        // C++ lines 445-448: Would calculate level_up and level_down from RankInfo
-        // For now, set reasonable defaults
+        let rank_store = get_rank_info_store();
+        if !rank_store.is_empty() {
+            self.level_up = rank_store
+                .get_rank_info(self.rank_level + 1)
+                .map(|rank| rank.skill_points_needed)
+                .unwrap_or(i32::MAX);
+            self.level_down = 0;
+
+            if let Some(rank) = rank_store.get_rank_info(self.rank_level) {
+                self.science_purchase_points = rank.science_purchase_points_granted as i32;
+                for &science in &rank.sciences_granted {
+                    self.grant_science(science);
+                }
+            }
+
+            return;
+        }
+
         self.level_up = 100;
-        self.level_down = 50;
+        self.level_down = 0;
     }
 
     /// Reset sciences to just intrinsic ones from player template
@@ -1833,9 +1851,13 @@ impl Player {
     }
 
     /// Calculate rank level from current skill points
-    /// Simplified version - C++ uses RankInfo system
+    /// C++ Reference: RankInfoStore::getRankLevelForSkillPoints()
     fn calculate_rank_from_skill_points(&self) -> i32 {
-        // Simplified rank calculation (C++ uses TheRankInfo->getRankLevelForSkillPoints)
+        let rank_store = get_rank_info_store();
+        if !rank_store.is_empty() {
+            return rank_store.get_rank_level_for_skill_points(self.skill_points);
+        }
+
         let points = self.skill_points;
         if points >= 5000 {
             8
@@ -1865,19 +1887,57 @@ impl Player {
     /// Set rank level, returns true if changed
     /// C++ Reference: Player::setRankLevel() (Player.cpp lines 3090-3115)
     pub fn set_rank_level(&mut self, level: i32) -> bool {
-        let level = level.max(1);
-        if level != self.rank_level {
-            let old_level = self.rank_level;
+        let rank_count = {
+            let rank_store = get_rank_info_store();
+            rank_store.get_rank_level_count()
+        };
+
+        if rank_count == 0 {
+            let level = level.max(1);
+            if level == self.rank_level {
+                return false;
+            }
+
             self.rank_level = level;
-
-            // C++ lines 3099-3114: Grant rank sciences
-            // This would grant sciences associated with this rank
-            // Simplified: just update the level
-
-            old_level != self.rank_level
-        } else {
-            false
+            return true;
         }
+
+        let level = level.clamp(1, rank_count);
+        if level == self.rank_level {
+            return false;
+        }
+
+        if level < self.rank_level {
+            self.reset_rank();
+        }
+
+        let start_level = self.rank_level + 1;
+        let rank_store = get_rank_info_store();
+        for rank_level in start_level..=level {
+            if let Some(rank) = rank_store.get_rank_info(rank_level) {
+                self.science_purchase_points += rank.science_purchase_points_granted as i32;
+                if self.science_purchase_points < 0 {
+                    self.science_purchase_points = 0;
+                }
+
+                if self.skill_points < rank.skill_points_needed {
+                    self.skill_points = rank.skill_points_needed;
+                }
+
+                for &science in &rank.sciences_granted {
+                    self.grant_science(science);
+                }
+
+                self.level_down = rank.skill_points_needed;
+            }
+        }
+
+        self.level_up = rank_store
+            .get_rank_info(level + 1)
+            .map(|rank| rank.skill_points_needed)
+            .unwrap_or(i32::MAX);
+        self.rank_level = level;
+        true
     }
 
     /// Get skill points modifier
