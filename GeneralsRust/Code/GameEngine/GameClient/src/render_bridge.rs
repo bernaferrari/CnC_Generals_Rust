@@ -437,6 +437,18 @@ pub struct RenderBridge {
     elapsed_time: f32,
 }
 
+struct SceneLineEntry {
+    start: glam::Vec3,
+    end: glam::Vec3,
+    width: f32,
+    color: [f32; 4],
+    texture_name: String,
+    tile_factor: f32,
+    visible: bool,
+}
+
+static NEXT_LINE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
 impl RenderBridge {
     pub fn new() -> Self {
         let scene = SceneBuilder::new("GameLogic Bridge Scene".to_string()).build();
@@ -891,7 +903,7 @@ impl RenderObject for WrapRenderObj {
     }
 
     fn set_name(&mut self, name: String) {
-        self.0.set_name(name);
+        self.0.set_name(&name);
     }
 
     fn clone_object(&self) -> Box<dyn RenderObject> {
@@ -905,10 +917,14 @@ impl RenderObject for WrapRenderObj {
 
     fn get_obj_space_bounding_sphere(&self) -> BoundingSphere {
         self.0.get_obj_space_bounding_sphere()
+            .map(|(center, radius)| BoundingSphere::new(center, radius))
+            .unwrap_or(BoundingSphere::zero())
     }
 
     fn get_obj_space_bounding_box(&self) -> AABox {
         self.0.get_obj_space_bounding_box()
+            .map(|(min, max)| AABox { min, max })
+            .unwrap_or(AABox { min: glam::Vec3::ZERO, max: glam::Vec3::ZERO })
     }
 
     fn get_transform(&self) -> ww3d_core::glam::Mat4 {
@@ -942,7 +958,7 @@ impl SceneSubmissionTrait for RenderBridge {
                 end: glam::Vec3::new(desc.end.x as f32, desc.end.y as f32, desc.end.z as f32),
                 width: desc.width,
                 color: [desc.color_r, desc.color_g, desc.color_b, desc.opacity],
-                texture_name: desc.texture_name.clone(),
+                texture_name: desc.texture_name.clone().unwrap_or_default(),
                 tile_factor: desc.tile_factor,
                 visible: desc.visible,
             };
@@ -961,7 +977,7 @@ impl SceneSubmissionTrait for RenderBridge {
                 entry.end = glam::Vec3::new(desc.end.x as f32, desc.end.y as f32, desc.end.z as f32);
                 entry.width = desc.width;
                 entry.color = [desc.color_r, desc.color_g, desc.color_b, desc.opacity];
-                entry.texture_name = desc.texture_name.clone();
+                entry.texture_name = desc.texture_name.clone().unwrap_or_default();
                 entry.tile_factor = desc.tile_factor;
                 entry.visible = desc.visible;
             }

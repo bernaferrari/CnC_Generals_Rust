@@ -866,7 +866,7 @@ impl ChunkManager {
         mut mesh_fn: FMesh,
     ) -> TerrainResult<()>
     where
-        FBindGroup: FnMut(ChunkId) -> Option<wgpu::BindGroup<'a>>,
+        FBindGroup: FnMut(ChunkId) -> Option<wgpu::BindGroup>,
         FMesh: FnMut(ChunkId) -> Option<(wgpu::BufferSlice<'a>, wgpu::BufferSlice<'a>, u32)>,
     {
         self.render(

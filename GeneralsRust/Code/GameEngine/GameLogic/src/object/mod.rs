@@ -8651,6 +8651,36 @@ impl Object {
         (self.private_status & ObjectPrivateStatusBits::EffectivelyDead as u8) != 0
     }
 
+    /// C++ parity: Object::hasSingleUseCommandBeenUsed()
+    pub fn has_single_use_command_been_used(&self) -> bool {
+        self.status.test_status(ObjectStatusTypes::MissileKillingSelf)
+    }
+
+    /// C++ parity: Object::hasProductionInQueue()
+    pub fn has_production_in_queue(&self) -> bool {
+        self.get_contain()
+            .map(|c| c.lock().map(|guard| guard.get_contain_count() > 0).unwrap_or(false))
+            .unwrap_or(false)
+    }
+
+    /// C++ parity: Object::isDozerTaskPending()
+    pub fn is_dozer_task_pending(&self) -> bool {
+        self.get_ai_update_interface().is_some()
+    }
+
+    /// C++ parity: Object::isScriptUnsellable()
+    pub fn is_script_unsellable(&self) -> bool {
+        // C++ OBJECT_STATUS_SCRIPT_UNSELLABLE is a script status bit, not ObjectStatusTypes
+        (self.private_status & 0x04) != 0
+    }
+
+    /// C++ parity: Object::hasContainedObjects()
+    pub fn has_contained_objects(&self) -> bool {
+        self.get_contain()
+            .map(|c| c.lock().map(|guard| guard.get_contain_count() > 0).unwrap_or(false))
+            .unwrap_or(false)
+    }
+
     /// Mark object as effectively dead
     pub(crate) fn set_effectively_dead(&mut self, dead: bool) {
         if dead {

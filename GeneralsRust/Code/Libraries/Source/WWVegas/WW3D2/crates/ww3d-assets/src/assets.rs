@@ -1388,12 +1388,14 @@ impl<'a> Iterator for RenderPrototypeIter<'a> {
 pub trait RenderObj: std::fmt::Debug + Send + Sync {
     fn render(&self);
     fn get_name(&self) -> &str;
+    fn set_name(&mut self, _name: &str) {}
     fn set_transform(&mut self, transform: Mat4);
     fn get_transform(&self) -> &Mat4;
+    fn get_obj_space_bounding_box(&self) -> Option<(glam::Vec3, glam::Vec3)> { None }
+    fn get_obj_space_bounding_sphere(&self) -> Option<(glam::Vec3, f32)> { None }
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
-    /// Clone this render object into a Box for prototype-based instancing
     fn clone_box(&self) -> Box<dyn RenderObj>;
 }
 

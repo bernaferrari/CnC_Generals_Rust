@@ -2890,8 +2890,8 @@ impl SubsystemInterface for Shell {
 }
 
 thread_local! {
-    static SHELL: RefCell<Shell> = const { RefCell::new(Shell::new()) };
-    static PENDING_SHELL_SCHEME: RefCell<Option<String>> = const { RefCell::new(None) };
+    static SHELL: RefCell<Shell> = RefCell::new(Shell::new());
+    static PENDING_SHELL_SCHEME: RefCell<Option<String>> = RefCell::new(None);
 }
 
 /// Get the global shell instance.

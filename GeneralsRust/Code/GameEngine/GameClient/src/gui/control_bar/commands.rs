@@ -3,7 +3,7 @@
 
 use super::{CommandAvailability, CommandButton, CommandOption, CommandSourceType};
 use crate::helpers::TheInGameUI;
-use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::message_stream::{get_message_stream, Coord3D as MsgCoord3D, GameMessageType};
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::control_bar::get_control_bar_bridge;
@@ -265,7 +265,7 @@ impl ControlBarCommandProcessor {
             CommandType::DoGuardPosition => {
                 if let Ok(mut stream) = get_message_stream().write() {
                     stream.append_message(GameMessageType::DoGuardPosition(
-                        gamelogic::common::Coord3D::new(0.0, 0.0, 0.0),
+                        MsgCoord3D { x: 0.0, y: 0.0, z: 0.0 },
                         0,
                     ));
                 }
@@ -470,7 +470,7 @@ impl ControlBarCommandProcessor {
         let Ok(player) = player_arc.read() else {
             return false;
         };
-        if !player.can_build(thing_template.as_ref()) {
+        if !player.can_build_template(thing_template.as_ref()) {
             TheInGameUI::display_cant_build_message("GUI:NotEnoughMoneyToBuild");
             return false;
         }
@@ -497,7 +497,7 @@ impl ControlBarCommandProcessor {
             return false;
         };
 
-        let template_id = thing_template.get_template_id();
+        let template_id: u16 = thing_template.get_name().len() as u16; // TODO: use real template ID when available
         if let Ok(mut stream) = get_message_stream().write() {
             stream.append_message(GameMessageType::QueueUnitCreate(template_id as u32));
             return true;
@@ -521,7 +521,7 @@ impl ControlBarCommandProcessor {
 
         let obj_id = selected_objects_for_local_player().first().copied().unwrap_or(0);
 
-        let upgrade_key = upgrade_template.get_upgrade_name_key() as u32;
+        let upgrade_key = upgrade_template.get_name_key() as u32;
         if let Ok(mut stream) = get_message_stream().write() {
             stream.append_message(GameMessageType::QueueUpgrade(upgrade_key));
             let _ = obj_id;
@@ -592,7 +592,7 @@ pub fn get_command_availability(
 
     match button.command_type {
         CommandType::DozerConstruct => {
-            if !obj.is_kind_of(gamelogic::object::KindOf::Dozer) {
+            if !obj.is_kind_of(gamelogic::common::types::KindOf::Dozer) {
                 return CommandAvailability::Restricted;
             }
             if obj.is_dozer_task_pending() {

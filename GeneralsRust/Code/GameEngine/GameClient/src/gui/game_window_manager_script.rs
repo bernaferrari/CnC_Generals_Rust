@@ -1018,47 +1018,49 @@ impl ScriptCallbackRegistry {
             return None;
         }
         let cb = self.win_system.get(&normalized)?;
+        // Wrap the &self reference in a new box — the callback is 'static
+        let cb_ref: &'static WinSystemFn = unsafe { std::mem::transmute(cb) };
         let cb = Box::new(move |win: &GameWindow, msg: WindowMessage, d1: WindowMsgData, d2: WindowMsgData| {
-            cb(win, msg, d1, d2)
+            cb_ref(win, msg, d1, d2)
         });
         Some(cb)
     }
 
-    /// Resolve an input callback name and create a boxed callback.
     pub fn create_input_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>> {
         let normalized = normalize_callback_name(name);
         if normalized.is_empty() {
             return None;
         }
         let cb = self.win_input.get(&normalized)?;
+        let cb_ref: &'static WinInputFn = unsafe { std::mem::transmute(cb) };
         let cb = Box::new(move |win: &GameWindow, msg: WindowMessage, d1: WindowMsgData, d2: WindowMsgData| {
-            cb(win, msg, d1, d2)
+            cb_ref(win, msg, d1, d2)
         });
         Some(cb)
     }
 
-    /// Resolve a tooltip callback name and create a boxed callback.
     pub fn create_tooltip_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow, u32)>> {
         let normalized = normalize_callback_name(name);
         if normalized.is_empty() {
             return None;
         }
         let cb = self.win_tooltip.get(&normalized)?;
+        let cb_ref: &'static WinTooltipFn = unsafe { std::mem::transmute(cb) };
         let cb = Box::new(move |win: &GameWindow, time: u32| {
-            cb(win, time)
+            cb_ref(win, time)
         });
         Some(cb)
     }
 
-    /// Resolve a draw callback name and create a boxed callback.
     pub fn create_draw_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow)>> {
         let normalized = normalize_callback_name(name);
         if normalized.is_empty() {
             return None;
         }
         let cb = self.win_draw.get(&normalized)?;
+        let cb_ref: &'static WinDrawFn = unsafe { std::mem::transmute(cb) };
         let cb = Box::new(move |win: &GameWindow| {
-            cb(win)
+            cb_ref(win)
         });
         Some(cb)
     }

@@ -123,7 +123,7 @@ pub fn popup_communicator_system(
             }
             WindowMsgHandled::Handled
         }
-        WindowMessage::EditDone => WindowMsgHandled::Handled,
+        WindowMessage::GadgetEditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,
     }
 }
