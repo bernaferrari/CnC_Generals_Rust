@@ -81,13 +81,15 @@ impl Snapshotable for SquishCollideModuleData {
 impl Snapshotable for SquishCollide {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1);
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("SquishCollide crc version: {e:?}"))?;
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1);
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("SquishCollide xfer version: {e:?}"))?;
         Ok(())
     }
 
