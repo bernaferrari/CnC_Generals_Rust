@@ -63,7 +63,7 @@ use gamelogic::system::radar_notifier;
 use gamelogic::system::shroud_manager::get_shroud_manager;
 use gamelogic::team::get_team_factory;
 use gamelogic::update_game_logic;
-use gamelogic::weapon::{update_dot_effects, with_weapon_store_mut};
+use gamelogic::weapon::with_weapon_store_mut;
 use glam::{Vec2, Vec3};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -3016,12 +3016,6 @@ impl GameLogic {
         // decision logic. Stealth modules also live in the sleepy update queue.
         self.update_construction(&object_ids, dt);
         self.update_movement(&object_ids, dt);
-
-        // DoT updates are part of the object update phase
-        // in C++ (processed within the normal/sleepy update module loops).
-        if let Err(e) = update_dot_effects(self.frame) {
-            log::warn!("DoT effects update failed: {}", e);
-        }
 
         // Special power cooldown/timer updates
         update_special_powers();

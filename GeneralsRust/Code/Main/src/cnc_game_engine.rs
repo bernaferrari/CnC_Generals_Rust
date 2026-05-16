@@ -32,8 +32,10 @@ use crate::ui::{
 use crate::util::profiler::InitTimer;
 use ::game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
 use anyhow::Result;
-use game_engine::common::game_engine::{register_command_list_init, register_game_client_factory, GameClientInterface, GameState};
 pub use game_engine::common::game_engine::GameState;
+use game_engine::common::game_engine::{
+    register_command_list_init, register_game_client_factory, GameClientInterface,
+};
 use game_engine::common::system::subsystem_interface::{
     SubsystemError, SubsystemResult, SubsystemState,
 };
@@ -1404,6 +1406,11 @@ fn register_command_list_bootstrap() {
     });
 }
 
+#[cfg(feature = "game_client")]
+fn register_real_game_client_bootstrap() {
+    register_command_list_bootstrap();
+}
+
 #[cfg(not(feature = "game_client"))]
 fn register_real_game_client_bootstrap() {}
 
@@ -1840,7 +1847,7 @@ impl CnCGameEngine {
                     .cloned()
                     .filter(|name| !name.trim().is_empty())
                     .unwrap_or_else(|| DEFAULT_SKIRMISH_MAP.to_string());
-                self.set_runtime_host_ui_state_override(None);
+                self.set_runtime_host_ui_screen_override(None);
                 self.start_game_from_ui(mode, faction, map);
                 // start_game_from_ui transitions Loading -> InGame internally
             }
@@ -2567,7 +2574,7 @@ impl CnCGameEngine {
                         for sci_path in ["Data/INI/Default/Science.ini", "Data/INI/Science.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(sci_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded science definitions from {}", sci_path),
                                     Err(err) => warn!("Failed parsing Science.ini '{}': {}", sci_path, err),
                                 }
@@ -2580,7 +2587,7 @@ impl CnCGameEngine {
                     {
                         if let Some(content) = extract_ini_text_from_archives("Data/INI/Rank.ini") {
                             let mut ini = game_engine::common::ini::INI::new();
-                            match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                            match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => {
                                     let store = game_engine::common::ini::ini_rank::get_rank_info_store();
                                     if store.is_empty() {
@@ -2601,7 +2608,7 @@ impl CnCGameEngine {
                         for pt_path in ["Data/INI/Default/PlayerTemplate.ini", "Data/INI/PlayerTemplate.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(pt_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded player template definitions from {}", pt_path),
                                     Err(err) => warn!("Failed parsing PlayerTemplate.ini '{}': {}", pt_path, err),
                                 }
@@ -2619,7 +2626,7 @@ impl CnCGameEngine {
                         ] {
                             if let Some(content) = extract_ini_text_from_archives(mp_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => {
                                         loaded_any_multiplayer = true;
                                         info!("Loaded {}", mp_path);
@@ -2641,7 +2648,7 @@ impl CnCGameEngine {
                         for terrain_path in ["Data/INI/Default/Terrain.ini", "Data/INI/Terrain.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(terrain_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded terrain definitions from {}", terrain_path),
                                     Err(err) => warn!("Failed parsing Terrain.ini '{}': {}", terrain_path, err),
                                 }
@@ -2655,7 +2662,7 @@ impl CnCGameEngine {
                         for roads_path in ["Data/INI/Default/Roads.ini", "Data/INI/Roads.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(roads_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded road definitions from {}", roads_path),
                                     Err(err) => warn!("Failed parsing Roads.ini '{}': {}", roads_path, err),
                                 }
@@ -2670,7 +2677,7 @@ impl CnCGameEngine {
                         for fxl_path in ["Data/INI/Default/FXList.ini", "Data/INI/FXList.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(fxl_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded FX list definitions from {}", fxl_path),
                                     Err(err) => warn!("Failed parsing FXList.ini '{}': {}", fxl_path, err),
                                 }
@@ -2684,7 +2691,7 @@ impl CnCGameEngine {
                     {
                         if let Some(content) = extract_ini_text_from_archives("Data/INI/Weapon.ini") {
                             let mut ini = game_engine::common::ini::INI::new();
-                            match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                            match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => info!("Loaded weapon definitions from Data/INI/Weapon.ini"),
                                 Err(err) => warn!("Failed parsing Weapon.ini: {}", err),
                             }
@@ -2704,7 +2711,7 @@ impl CnCGameEngine {
                             if let Some(content) = extract_ini_text_from_archives(sp_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
                                 match ini.with_inline_source(&content, |ini| {
-                                    ini.parse_file()
+                                    ini.parse_current_file()
                                 }) {
                                     Ok(()) => {
                                         loaded_any_special_power = true;
@@ -2731,7 +2738,7 @@ impl CnCGameEngine {
                     {
                         if let Some(content) = extract_ini_text_from_archives("Data/INI/DamageFX.ini") {
                             let mut ini = game_engine::common::ini::INI::new();
-                            match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                            match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                 Ok(()) => {
                                     if let Some(store) = game_engine::common::ini::ini_damage_fx::get_damage_fx_store() {
                                         if store.get_damage_fx_names().is_empty() {
@@ -2847,7 +2854,7 @@ impl CnCGameEngine {
                         for upgrade_path in ["Data/INI/Default/Upgrade.ini", "Data/INI/Upgrade.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(upgrade_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded upgrade definitions from {}", upgrade_path),
                                     Err(err) => warn!("Failed parsing Upgrade.ini '{}': {}", upgrade_path, err),
                                 }
@@ -2866,7 +2873,7 @@ impl CnCGameEngine {
                         ] {
                             if let Some(content) = extract_ini_text_from_archives(crate_ini_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => {
                                         info!("Loaded crate definitions from '{}'", crate_ini_path);
                                     }
@@ -2920,7 +2927,7 @@ impl CnCGameEngine {
                         for cmd_path in &[lang_path.as_str(), "Data/INI/CommandMap.ini"] {
                             if let Some(content) = extract_ini_text_from_archives(cmd_path) {
                                 let mut ini = game_engine::common::ini::INI::new();
-                                match ini.with_inline_source(&content, |ini| ini.parse_file()) {
+                                match ini.with_inline_source(&content, |ini| ini.parse_current_file()) {
                                     Ok(()) => info!("Loaded command map from {}", cmd_path),
                                     Err(err) => warn!("Failed parsing CommandMap.ini '{}': {}", cmd_path, err),
                                 }

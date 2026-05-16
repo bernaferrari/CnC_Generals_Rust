@@ -9,6 +9,7 @@ use game_engine::common::system::{
     big_file_system::BigArchiveBackend, file_system::get_file_system,
     local_file_system::LocalFileSystem,
     subsystem_interface::SubsystemInterface as CommonSubsystemInterface,
+    Xfer,
 };
 use game_engine::get_game_state;
 use log::{debug, error, info, warn};
@@ -38,6 +39,11 @@ pub trait SubsystemInterface: Send + Sync + Any {
 
     /// Shutdown the subsystem
     fn shutdown(&mut self) -> Result<()>;
+
+    /// Optional save/load CRC hook for systems that mirror C++ XferCRC initialization.
+    fn calculate_xfer_crc(&self) -> Option<u32> {
+        None
+    }
 
     /// Get subsystem name for debugging
     fn name(&self) -> &'static str;
