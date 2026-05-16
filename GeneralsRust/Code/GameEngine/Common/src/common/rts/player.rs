@@ -2359,9 +2359,7 @@ impl Player {
     /// Add a supply center
     /// C++ Reference: ResourceGatheringManager::addSupplyCenter()
     pub fn add_supply_center(&mut self, center_id: ObjectID) {
-        if !self.supply_centers.contains(&center_id) {
-            self.supply_centers.push(center_id);
-        }
+        self.supply_centers.push(center_id);
     }
 
     /// Remove a supply center
@@ -2373,9 +2371,7 @@ impl Player {
     /// Add a supply warehouse
     /// C++ Reference: ResourceGatheringManager::addSupplyWarehouse()
     pub fn add_supply_warehouse(&mut self, warehouse_id: ObjectID) {
-        if !self.supply_warehouses.contains(&warehouse_id) {
-            self.supply_warehouses.push(warehouse_id);
-        }
+        self.supply_warehouses.push(warehouse_id);
     }
 
     /// Remove a supply warehouse
@@ -3880,8 +3876,8 @@ mod tests {
         // Add supply centers
         player.add_supply_center(1);
         player.add_supply_center(2);
-        player.add_supply_center(1); // Duplicate - should not be added
-        assert_eq!(player.get_supply_centers().len(), 2);
+        player.add_supply_center(1); // C++ appends duplicates
+        assert_eq!(player.get_supply_centers().len(), 3);
 
         // Add supply warehouses
         player.add_supply_warehouse(10);
