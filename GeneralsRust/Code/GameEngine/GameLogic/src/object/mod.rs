@@ -11856,13 +11856,14 @@ impl Object {
     pub fn force_refresh_sub_object_upgrade_status(&mut self) {
         for entry in &self.upgrade_module_handles {
             entry.with_module(|module| {
-                if let Some(UpgradeModuleKindMut::SubObjects(_sub_obj)) =
-                    module_upgrade_kind(module)
+                if let Some(UpgradeModuleKindMut::SubObjects(sub_obj)) = module_upgrade_kind(module)
                 {
-                    // TODO: full implementation pending SubObjectsUpgrade::forceRefreshUpgrade.
-                    // C++ calls upgrade->forceRefreshUpgrade() on each SubObjects upgrade module.
+                    sub_obj.force_refresh_upgrade();
                 }
             });
+        }
+        for handle in SubObjectsUpgradeHandle::for_object(self.id) {
+            handle.force_refresh();
         }
     }
 

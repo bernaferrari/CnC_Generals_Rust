@@ -167,6 +167,14 @@ impl SubObjectsUpgradeHandle {
         // C++ does not revert sub-object visibility for this upgrade.
     }
 
+    pub fn force_refresh(&self) -> bool {
+        let guard = self.inner.lock().expect("SubObjectsUpgrade inner poisoned");
+        if !guard.mux.is_already_upgraded() {
+            return false;
+        }
+        apply_subobject_visibility_for_object(guard.object_id, guard.data.as_ref())
+    }
+
     pub(crate) fn for_object(object_id: ObjectID) -> Vec<Self> {
         let mut registry = SUBOBJECTS_UPGRADE_MODULES
             .write()
@@ -383,6 +391,13 @@ impl UpgradeModuleInterface for SubObjectsUpgrade {
 
     fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
         // C++ does not revert sub-object visibility for this upgrade.
+    }
+
+    fn force_refresh_upgrade(&mut self) {
+        let guard = self.inner.lock().expect("SubObjectsUpgrade inner poisoned");
+        if guard.mux.is_already_upgraded() {
+            apply_subobject_visibility_for_object(guard.object_id, guard.data.as_ref());
+        }
     }
 }
 
