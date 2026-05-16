@@ -138,9 +138,14 @@ impl Upgrade {
 }
 
 impl Snapshotable for Upgrade {
-    /// CRC for save game validation
-    /// Matches C++ Upgrade::crc
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version = 1u8;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+
+        let mut status_value = self.status as u32;
+        xfer.xfer_u32(&mut status_value)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -8,6 +8,7 @@
 
 use std::sync::{Arc, RwLock};
 use crate::common::{ObjectStatusMaskType, ObjectStatusTypes};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// 3D coordinate representation
 #[derive(Debug, Clone, Copy, Default)]
@@ -310,39 +311,60 @@ impl DieModuleInterface for FireWeaponWhenDeadBehavior {
     fn on_die(&mut self, damage_info: &DamageInfo) -> BehaviorResult<()> {
         let mut state = self.state.write().unwrap();
 
-        // Check if behavior is active
         if !state.is_active {
             return Ok(());
         }
 
-        // Check if death weapon has already been fired
         if state.has_fired_death_weapon {
             return Ok(());
         }
 
-        // Check if this death type/damage type should trigger the behavior
         if !self.config.die_mux_data.is_die_applicable(damage_info) {
             return Ok(());
         }
 
-        // This will never apply until built. Otherwise canceling construction sets it off,
-        // and killing a one hitpoint one percent building will too.
         if self.is_object_under_construction() {
             return Err(BehaviorError::ObjectUnderConstruction);
         }
 
-        // Check upgrade conflicts
         if !self.check_upgrade_conflicts()? {
             return Err(BehaviorError::UpgradeRequirementsNotMet);
         }
 
-        // Fire the death weapon
         let object_position = self.get_object_position();
         self.fire_death_weapon(object_position)?;
 
-        // Mark as fired to prevent multiple firings
         state.has_fired_death_weapon = true;
 
+        Ok(())
+    }
+}
+
+impl Snapshotable for FireWeaponWhenDeadBehavior {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let state = self.state.read().map_err(|e| format!("FireWeaponWhenDeadBehavior::crc lock failed: {e}"))?;
+        let mut is_active = state.is_active;
+        xfer.xfer_bool(&mut is_active).map_err(|e| e.to_string())?;
+        let mut has_fired = state.has_fired_death_weapon;
+        xfer.xfer_bool(&mut has_fired).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer version failed: {e}"))?;
+
+        let mut state = self.state.write().map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer lock failed: {e}"))?;
+        xfer.xfer_bool(&mut state.is_active)
+            .map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer is_active failed: {e}"))?;
+        xfer.xfer_bool(&mut state.has_fired_death_weapon)
+            .map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer has_fired_death_weapon failed: {e}"))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
     }
 }

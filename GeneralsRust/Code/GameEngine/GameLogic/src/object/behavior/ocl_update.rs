@@ -20,7 +20,7 @@
 //! Original C++ Author: EA Developers
 //! Rust conversion: 2025
 
-use crate::common::{Bool, Coord3D, ObjectID, Real, UnsignedInt};
+use crate::common::{Bool, Coord3D, Int, ObjectID, Real, UnsignedInt};
 use crate::helpers::{
     get_game_logic_random_value, get_game_logic_random_value_real, TheTerrainLogic,
     TheThingFactory,
@@ -28,6 +28,7 @@ use crate::helpers::{
 use crate::modules::OCLUpdateInterface;
 use crate::player::ThePlayerList;
 use crate::team::get_team_factory;
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use serde::{Deserialize, Serialize};
 use std::f32::consts::PI;
 
@@ -454,6 +455,45 @@ impl OCLUpdate {
 impl OCLUpdateInterface for OCLUpdate {
     fn reset_timer(&mut self) -> Result<(), GameError> {
         self.reset();
+        Ok(())
+    }
+}
+
+impl Snapshotable for OCLUpdate {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_unsigned_int(&mut 0u32).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| format!("OCLUpdate::xfer version failed: {e}"))?;
+
+        xfer.xfer_unsigned_int(&mut self.next_creation_frame)
+            .map_err(|e| format!("OCLUpdate::xfer next_creation_frame failed: {e}"))?;
+
+        xfer.xfer_unsigned_int(&mut self.current_frame)
+            .map_err(|e| format!("OCLUpdate::xfer current_frame failed: {e}"))?;
+
+        let mut is_faction_neutral: Bool = self.owner_team_id.is_none();
+        xfer.xfer_bool(&mut is_faction_neutral)
+            .map_err(|e| format!("OCLUpdate::xfer is_faction_neutral failed: {e}"))?;
+
+        let mut current_player_color: Int = self.owner_player_id.map(|id| id as Int).unwrap_or(0);
+        xfer.xfer_int(&mut current_player_color)
+            .map_err(|e| format!("OCLUpdate::xfer current_player_color failed: {e}"))?;
+
+        if xfer.is_reading() {
+            self.owner_team_id = if is_faction_neutral { None } else { Some(current_player_color as u32) };
+            self.owner_player_id = if current_player_color != 0 { Some(current_player_color as u32) } else { None };
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
     }
 }

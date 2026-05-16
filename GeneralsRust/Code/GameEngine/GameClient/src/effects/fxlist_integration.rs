@@ -101,14 +101,15 @@ impl FXNugget for SoundFXNugget {
         _override_radius: f32,
         _context: &mut FXContext,
     ) {
-        // Audio playback would be triggered here via TheAudio->addAudioEvent
-        // For now, we log the sound event
-        log::debug!(
-            "SoundFX: {} at ({}, {}, {})",
-            self.sound_name,
+        // Matches C++ SoundFXNugget::doFXPos (FXList.cpp lines 78-88):
+        //   AudioEventRTS sound(m_soundName);
+        //   if (primary) sound.setPosition(primary);
+        //   TheAudio->addAudioEvent(&sound);
+        game_engine::common::audio::gameplay_audio_dispatch::dispatch_positional_sound(
+            &self.sound_name,
             primary.x,
             primary.y,
-            primary.z
+            primary.z,
         );
     }
 }

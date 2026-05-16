@@ -35,6 +35,16 @@ pub(crate) fn xfer_upgrade_module_state(
     Ok(())
 }
 
+// C++ UpgradeModule::crc calls BehaviorModule::crc then UpgradeMux::upgradeMuxCRC,
+// which delegates to upgradeMuxXfer — identical code path to xfer.
+pub(crate) fn crc_upgrade_module_state(
+    xfer: &mut dyn Xfer,
+    upgrade_executed: bool,
+) -> Result<(), String> {
+    let mut executed = upgrade_executed;
+    xfer_upgrade_module_state(xfer, &mut executed)
+}
+
 pub(crate) fn xfer_upgrade_module_with_version(
     xfer: &mut dyn Xfer,
     upgrade_executed: &mut bool,
