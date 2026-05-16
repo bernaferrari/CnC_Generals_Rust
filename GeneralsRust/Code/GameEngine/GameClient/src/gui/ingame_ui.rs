@@ -3529,7 +3529,9 @@ impl Default for SelectionBox {
 }
 
 impl Snapshotable for InGameUI {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> std::result::Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> std::result::Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 

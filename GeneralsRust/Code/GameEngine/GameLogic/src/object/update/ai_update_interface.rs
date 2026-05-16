@@ -257,7 +257,9 @@ impl ModuleData for AIUpdateModuleData {
 }
 
 impl Snapshotable for AIUpdateModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -632,7 +634,9 @@ impl Module for AIUpdateInterfaceModule {
 }
 
 impl Snapshotable for AIUpdateInterfaceModule {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 

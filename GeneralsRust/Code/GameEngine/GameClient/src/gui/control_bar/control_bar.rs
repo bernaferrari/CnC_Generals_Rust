@@ -33,7 +33,7 @@ use game_engine::common::rts::{get_science_store, ScienceType, SCIENCE_INVALID};
 use gamelogic::command_button::map_gui_command_to_command_type;
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::{get_command_queue_manager, Command, CommandPriority, QueuedCommand};
-use gamelogic::common::types::OBJECT_STATUS_UNDER_CONSTRUCTION;
+use gamelogic::common::types::{KindOf, OBJECT_STATUS_SOLD, OBJECT_STATUS_UNDER_CONSTRUCTION};
 use gamelogic::common::GameError;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
@@ -41,6 +41,97 @@ use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{player_list as logic_player_list, PlayerIndex};
 use gamelogic::system::beacon_manager::snapshot_beacons;
 use gamelogic::upgrade::center::with_upgrade_center;
+
+pub const MAX_PURCHASE_SCIENCE_RANK_1: usize = 8;
+pub const MAX_PURCHASE_SCIENCE_RANK_3: usize = 4;
+pub const MAX_PURCHASE_SCIENCE_RANK_8: usize = 3;
+pub const MAX_SPECIAL_POWER_SHORTCUTS: usize = 8;
+pub const MAX_RIGHT_HUD_UPGRADE_CAMEOS: usize = 4;
+const RADAR_ATTACK_GLOW_FRAMES: u32 = 150;
+const RADAR_ATTACK_GLOW_NUM_TIMES: u32 = 15;
+const LOGICFRAMES_PER_SECOND: u32 = 30;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlBarStage {
+    Default,
+    Low,
+    Hidden,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommandButtonMappedBorderType {
+    None,
+    Build,
+    Upgrade,
+    Action,
+    System,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PortraitDisplayState {
+    pub portrait_image: String,
+    pub veterancy_overlay: Option<String>,
+    pub upgrade_cameos: Vec<UpgradeCameoState>,
+    pub is_visible: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct UpgradeCameoState {
+    pub upgrade_name: String,
+    pub button_image: String,
+    pub is_completed: bool,
+    pub is_visible: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SciencePurchaseState {
+    pub rank1_buttons: Vec<ScienceButtonState>,
+    pub rank3_buttons: Vec<ScienceButtonState>,
+    pub rank8_buttons: Vec<ScienceButtonState>,
+    pub available_points: i32,
+    pub rank_level: i32,
+    pub experience_progress: f32,
+    pub rank_title_label: String,
+    pub is_visible: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScienceButtonState {
+    pub command_name: String,
+    pub science_type: ScienceType,
+    pub is_hidden: bool,
+    pub is_enabled: bool,
+    pub is_purchased: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SpecialPowerShortcutState {
+    pub command_name: String,
+    pub availability: CommandAvailability,
+    pub multiplier_count: i32,
+    pub is_hidden: bool,
+}
+
+impl Default for SciencePurchaseState {
+    fn default() -> Self {
+        Self {
+            rank1_buttons: Vec::new(),
+            rank3_buttons: Vec::new(),
+            rank8_buttons: Vec::new(),
+            available_points: 0,
+            rank_level: 0,
+            experience_progress: 0.0,
+            rank_title_label: String::new(),
+            is_visible: false,
+        }
+    }
+}
+
+impl Default for ControlBarStage {
+    fn default() -> Self {
+        Self::Default
+    }
+}
 
 pub struct ControlBar {
     context: Arc<RwLock<ControlBarContext>>,
@@ -59,6 +150,37 @@ pub struct ControlBar {
     displayed_queue_count: usize,
     current_frame: u32,
     flash_active: bool,
+    control_bar_stage: ControlBarStage,
+    portrait_state: PortraitDisplayState,
+    science_state: SciencePurchaseState,
+    gen_star_flash: bool,
+    last_flashed_at_point_value: i32,
+    radar_attack_glow_on: bool,
+    remaining_radar_attack_glow_frames: u32,
+    special_power_shortcuts: Vec<SpecialPowerShortcutState>,
+    special_power_shortcut_count: usize,
+    displayed_construct_percent: f32,
+    displayed_ocl_timer_seconds: u32,
+    border_colors: CommandBarBorderColors,
+}
+
+#[derive(Debug, Clone)]
+struct CommandBarBorderColors {
+    build: Option<u32>,
+    action: Option<u32>,
+    upgrade: Option<u32>,
+    system: Option<u32>,
+}
+
+impl Default for CommandBarBorderColors {
+    fn default() -> Self {
+        Self {
+            build: None,
+            action: None,
+            upgrade: None,
+            system: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -151,6 +273,18 @@ impl ControlBar {
             displayed_queue_count: 0,
             current_frame: 0,
             flash_active: false,
+            control_bar_stage: ControlBarStage::Default,
+            portrait_state: PortraitDisplayState::default(),
+            science_state: SciencePurchaseState::default(),
+            gen_star_flash: true,
+            last_flashed_at_point_value: -1,
+            radar_attack_glow_on: false,
+            remaining_radar_attack_glow_frames: 0,
+            special_power_shortcuts: Vec::new(),
+            special_power_shortcut_count: 0,
+            displayed_construct_percent: -1.0,
+            displayed_ocl_timer_seconds: 0,
+            border_colors: CommandBarBorderColors::default(),
         }
     }
 
@@ -217,12 +351,24 @@ impl ControlBar {
             }
         }
 
+        self.current_frame = TheGameLogic::get_frame();
+        self.update_star_image();
+        self.update_radar_attack_glow();
+
         if self.observer_mode {
+            self.update_observer_portrait()?;
             return Ok(());
         }
 
+        if self.science_state.is_visible {
+            self.update_context_purchase_science();
+        }
+
+        self.update_flash_buttons();
+
         if self.ui_dirty {
             self.evaluate_context_ui()?;
+            self.populate_special_power_shortcut()?;
             self.ui_dirty = false;
         }
 
@@ -276,13 +422,9 @@ impl ControlBar {
                 self.update_context_ocl_timer(delta_time)?;
             }
             ControlBarState::Observer => {
-                // C++ ControlBar.cpp:1410-1433: refreshes observer info window every half-second
-                // and updates the portrait based on selected drawable
                 self.update_context_observer()?;
             }
             ControlBarState::MultiSelect => {
-                // C++ ControlBar.cpp:1511-1516: updateContextMultiSelect() refreshes
-                // command availability across all selected objects
                 self.update_context_multi_select()?;
             }
         }
@@ -300,6 +442,8 @@ impl ControlBar {
         if let Some(context) = context_snapshot {
             self.refresh_button_states(&context, player_id);
         }
+
+        self.update_special_power_shortcut_availability();
 
         Ok(())
     }
@@ -326,6 +470,7 @@ impl ControlBar {
             context.construction_queue.clear();
             self.build_queue_data.clear();
             self.displayed_queue_count = 0;
+            self.portrait_state = PortraitDisplayState::default();
             let mut guard = self
                 .context
                 .write()
@@ -362,50 +507,66 @@ impl ControlBar {
             return Ok(());
         };
 
-        let under_construction = OBJECT_REGISTRY
-            .get_object(obj_id)
-            .and_then(|arc| {
-                arc.read()
-                    .ok()
-                    .map(|guard| guard.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION))
-            })
-            .unwrap_or(false);
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            context.current_state = ControlBarState::None;
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            *guard = context;
+            return Ok(());
+        };
+        let Ok(obj) = obj_arc.read() else {
+            context.current_state = ControlBarState::None;
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            *guard = context;
+            return Ok(());
+        };
+
+        if obj.test_status(OBJECT_STATUS_SOLD) {
+            drop(obj);
+            context.current_state = ControlBarState::None;
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            *guard = context;
+            return Ok(());
+        }
+
+        let under_construction = obj.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION);
 
         if under_construction {
+            drop(obj);
             context.current_state = ControlBarState::UnderConstruction;
         } else {
-            let has_command_set = OBJECT_REGISTRY
-                .get_object(obj_id)
-                .map(|arc| {
-                    arc.read()
-                        .map(|guard| guard.get_command_set_string().is_empty())
-                        .map(|empty| !empty)
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
+            let has_command_set = !obj.get_command_set_string().is_empty();
 
-            let has_garrisonable_contain = OBJECT_REGISTRY
-                .get_object(obj_id)
-                .and_then(|arc| {
-                    arc.read().ok().and_then(|guard| {
-                        guard.get_contain().and_then(|contain| {
-                            contain.lock().ok().map(|c| c.is_displayed_on_control_bar())
-                        })
-                    })
+            let has_garrisonable_contain = obj
+                .get_contain()
+                .and_then(|contain| {
+                    contain.lock().ok().map(|c| c.is_displayed_on_control_bar())
                 })
                 .unwrap_or(false);
 
             if has_garrisonable_contain && !has_command_set {
+                drop(obj);
                 context.current_state = ControlBarState::StructureInventory;
             } else if has_command_set {
+                drop(obj);
                 context.current_state = ControlBarState::Command;
             } else {
+                drop(obj);
                 context.current_state = ControlBarState::None;
             }
         }
 
         self.build_queue_data.clear();
         self.displayed_queue_count = 0;
+        self.update_portrait_for_object(obj_id);
 
         self.rebuild_command_buttons(&mut context)?;
 
@@ -432,6 +593,8 @@ impl ControlBar {
         new_state: ControlBarState,
         _draw_id: Option<u32>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.portrait_state = PortraitDisplayState::default();
+
         let mut context = {
             let mut guard = self
                 .context
@@ -445,6 +608,20 @@ impl ControlBar {
         context.construction_queue.clear();
         self.build_queue_data.clear();
         self.displayed_queue_count = 0;
+        self.displayed_construct_percent = -1.0;
+        self.displayed_ocl_timer_seconds = 0;
+
+        if let Some(&obj_id) = context.selected_objects.first() {
+            self.update_portrait_for_object(obj_id);
+        }
+
+        self.rebuild_command_buttons(&mut context)?;
+
+        if new_state == ControlBarState::Command {
+            if let Some(&obj_id) = context.selected_objects.first() {
+                let _ = self.populate_build_queue(&mut context, obj_id);
+            }
+        }
 
         let mut guard = self
             .context
@@ -1883,6 +2060,24 @@ impl ControlBar {
         &mut self,
         _delta_time: Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let obj_id = {
+            let context = self
+                .context
+                .read()
+                .map_err(|_| "Failed to acquire context read lock")?;
+            context.selected_objects.first().copied()
+        };
+        let Some(_obj_id) = obj_id else {
+            return Ok(());
+        };
+
+        let Some(_obj_arc) = OBJECT_REGISTRY.get_object(_obj_id) else {
+            return Ok(());
+        };
+
+        // C++ reads construct percent from the object's status; we track it
+        // for display change detection. When get_construct_percent() is ported,
+        // wire it here.
         Ok(())
     }
 
@@ -1890,7 +2085,482 @@ impl ControlBar {
         &mut self,
         _delta_time: Duration,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let obj_id = {
+            let context = self
+                .context
+                .read()
+                .map_err(|_| "Failed to acquire context read lock")?;
+            context.selected_objects.first().copied()
+        };
+        let Some(_obj_id) = obj_id else {
+            return Ok(());
+        };
+
+        let Some(_obj_arc) = OBJECT_REGISTRY.get_object(_obj_id) else {
+            return Ok(());
+        };
+
+        // C++ reads OCL timer seconds from OCLUpdate module; tracked for display
+        // change detection. When get_ocl_timer_seconds() is ported, wire it here.
         Ok(())
+    }
+
+    // ---------------------------------------------------------------------------
+    // Star image / general button flash
+    // C++ ControlBar.cpp:1621-1647
+    // ---------------------------------------------------------------------------
+
+    fn update_star_image(&mut self) {
+        let current_points = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|p| p.read().ok().map(|guard| guard.get_science_purchase_points()))
+            .unwrap_or(0);
+
+        if self.last_flashed_at_point_value > current_points || current_points <= 0 {
+            self.gen_star_flash = false;
+        } else {
+            self.last_flashed_at_point_value = current_points;
+        }
+
+        if self.gen_star_flash && self.current_frame % LOGICFRAMES_PER_SECOND > LOGICFRAMES_PER_SECOND / 2 {
+            // C++ flashes the general button highlight
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Flash buttons
+    // C++ ControlBar.cpp:1438-1469
+    // ---------------------------------------------------------------------------
+
+    fn update_flash_buttons(&mut self) {
+        if !self.flash_active {
+            return;
+        }
+
+        if self.current_frame % 10 != 0 {
+            return;
+        }
+
+        let mut still_flashing = false;
+        for (name, state) in self.button_states.iter_mut() {
+            if state.flash_time.is_some() {
+                still_flashing = true;
+            }
+        }
+
+        if !still_flashing {
+            self.flash_active = false;
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Radar attack glow
+    // C++ ControlBar.cpp:3169-3197
+    // ---------------------------------------------------------------------------
+
+    fn update_radar_attack_glow(&mut self) {
+        if !self.radar_attack_glow_on {
+            return;
+        }
+        if self.remaining_radar_attack_glow_frames == 0 {
+            self.radar_attack_glow_on = false;
+            return;
+        }
+        self.remaining_radar_attack_glow_frames = self.remaining_radar_attack_glow_frames.saturating_sub(1);
+        if self.remaining_radar_attack_glow_frames == 0 {
+            self.radar_attack_glow_on = false;
+            return;
+        }
+        if self.remaining_radar_attack_glow_frames % RADAR_ATTACK_GLOW_NUM_TIMES == 0 {
+            // C++ toggles winEnable on/off for glow effect
+        }
+    }
+
+    pub fn trigger_radar_attack_glow(&mut self) {
+        self.radar_attack_glow_on = true;
+        self.remaining_radar_attack_glow_frames = RADAR_ATTACK_GLOW_FRAMES;
+    }
+
+    // ---------------------------------------------------------------------------
+    // Portrait display
+    // C++ ControlBar.cpp:2534-2663
+    // ---------------------------------------------------------------------------
+
+    fn update_portrait_for_object(&mut self, obj_id: u32) {
+        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            self.portrait_state = PortraitDisplayState::default();
+            return;
+        };
+        let Ok(obj) = obj_arc.read() else {
+            self.portrait_state = PortraitDisplayState::default();
+            return;
+        };
+
+        if obj.is_kind_of(KindOf::ShowPortraitWhenControlled) && !obj.is_locally_controlled() {
+            self.portrait_state = PortraitDisplayState::default();
+            return;
+        }
+
+        let template_name = obj.get_template_name().to_string();
+
+        let veterancy = obj.get_veterancy_level();
+        let veterancy_overlay = match veterancy {
+            gamelogic::common::types::VeterancyLevel::Veteran => Some("SSChevron1L".to_string()),
+            gamelogic::common::types::VeterancyLevel::Elite => Some("SSChevron2L".to_string()),
+            gamelogic::common::types::VeterancyLevel::Heroic => Some("SSChevron3L".to_string()),
+            _ => None,
+        };
+
+        self.portrait_state = PortraitDisplayState {
+            portrait_image: template_name,
+            veterancy_overlay,
+            upgrade_cameos: Vec::new(),
+            is_visible: true,
+        };
+    }
+
+    fn update_observer_portrait(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.current_frame % (LOGICFRAMES_PER_SECOND / 2) != 0 {
+            return Ok(());
+        }
+        self.update_context_observer()?;
+
+        let obj_id = {
+            self.context
+                .read()
+                .map_err(|_| "Failed to acquire context read lock")?
+                .selected_objects
+                .first()
+                .copied()
+        };
+        if let Some(id) = obj_id {
+            self.update_portrait_for_object(id);
+        }
+
+        Ok(())
+    }
+
+    pub fn set_portrait_by_object_id(&mut self, obj_id: Option<u32>) {
+        if let Some(id) = obj_id {
+            self.update_portrait_for_object(id);
+        } else {
+            self.portrait_state = PortraitDisplayState::default();
+        }
+    }
+
+    pub fn get_portrait_state(&self) -> &PortraitDisplayState {
+        &self.portrait_state
+    }
+
+    // ---------------------------------------------------------------------------
+    // Science purchase system
+    // C++ ControlBar.cpp:143-485, 2907-2966
+    // ---------------------------------------------------------------------------
+
+    pub fn show_purchase_science(&mut self) {
+        self.populate_purchase_science();
+        self.gen_star_flash = false;
+        self.science_state.is_visible = true;
+    }
+
+    pub fn hide_purchase_science(&mut self) {
+        self.science_state.is_visible = false;
+    }
+
+    pub fn toggle_purchase_science(&mut self) {
+        if self.science_state.is_visible {
+            self.hide_purchase_science();
+        } else {
+            self.show_purchase_science();
+        }
+    }
+
+    fn populate_purchase_science(&mut self) {
+        let player_arc = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let Some(player_arc) = player_arc else { return };
+        let Ok(player) = player_arc.read() else { return };
+
+        let Some(store) = get_science_store() else { return };
+
+        self.science_state.available_points = player.get_science_purchase_points();
+        self.science_state.rank_level = player.get_rank_level() as i32;
+        self.science_state.experience_progress = 0.0;
+        self.science_state.rank_title_label = format!("SCIENCE:Rank{}", player.get_rank_level());
+
+        self.science_state.rank1_buttons.clear();
+        self.science_state.rank3_buttons.clear();
+        self.science_state.rank8_buttons.clear();
+        self.update_context_purchase_science();
+    }
+
+    fn update_context_purchase_science(&mut self) {
+        let player_arc = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let Some(player_arc) = player_arc else { return };
+        let Ok(player) = player_arc.read() else { return };
+
+        self.science_state.available_points = player.get_science_purchase_points();
+    }
+
+    pub fn get_science_state(&self) -> &SciencePurchaseState {
+        &self.science_state
+    }
+
+    // ---------------------------------------------------------------------------
+    // Control bar stage management
+    // C++ ControlBar.cpp:2968-3053
+    // ---------------------------------------------------------------------------
+
+    pub fn switch_control_bar_stage(&mut self, stage: ControlBarStage) {
+        self.control_bar_stage = stage;
+    }
+
+    pub fn toggle_control_bar_stage(&mut self) {
+        if self.control_bar_stage == ControlBarStage::Default {
+            self.switch_control_bar_stage(ControlBarStage::Low);
+        } else {
+            self.switch_control_bar_stage(ControlBarStage::Default);
+        }
+    }
+
+    pub fn get_control_bar_stage(&self) -> ControlBarStage {
+        self.control_bar_stage
+    }
+
+    // ---------------------------------------------------------------------------
+    // Control bar scheme
+    // C++ ControlBar.cpp:2726-2824
+    // ---------------------------------------------------------------------------
+
+    pub fn set_control_bar_scheme_by_player(&mut self) {
+        let is_observer = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|p| p.read().ok().map(|guard| guard.is_player_observer()))
+            .unwrap_or(false);
+
+        if is_observer {
+            self.observer_mode = true;
+            let _ = self.switch_to_context(ControlBarState::Observer, None);
+        } else {
+            self.observer_mode = false;
+            let _ = self.switch_to_context(ControlBarState::None, None);
+        }
+
+        self.switch_control_bar_stage(ControlBarStage::Default);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Player event handlers
+    // C++ ControlBar.cpp:1651-1682
+    // ---------------------------------------------------------------------------
+
+    pub fn on_player_rank_changed(&mut self) {
+        self.gen_star_flash = true;
+        self.mark_ui_dirty();
+    }
+
+    pub fn on_player_science_purchase_points_changed(&mut self) {
+        self.gen_star_flash = true;
+        self.mark_ui_dirty();
+    }
+
+    // ---------------------------------------------------------------------------
+    // Special power shortcut bar
+    // C++ ControlBar.cpp:3198-3747
+    // ---------------------------------------------------------------------------
+
+    pub fn init_special_power_shortcut_bar(&mut self) {
+        self.special_power_shortcuts.clear();
+        self.special_power_shortcut_count = 0;
+
+        let player_arc = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let Some(player_arc) = player_arc else { return };
+        let Ok(player) = player_arc.read() else { return };
+
+        if !player.is_player_active() {
+            return;
+        }
+
+        self.special_power_shortcut_count = MAX_SPECIAL_POWER_SHORTCUTS;
+        for _ in 0..self.special_power_shortcut_count {
+            self.special_power_shortcuts.push(SpecialPowerShortcutState {
+                command_name: String::new(),
+                availability: CommandAvailability::Hidden,
+                multiplier_count: 1,
+                is_hidden: true,
+            });
+        }
+    }
+
+    fn populate_special_power_shortcut(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.special_power_shortcut_count == 0 {
+            return Ok(());
+        }
+
+        let player_arc = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let Some(player_arc) = player_arc else { return Ok(()) };
+        let Ok(player) = player_arc.read() else { return Ok(()) };
+
+        let control_bar = get_control_bar_bridge();
+        let Some(control_bar) = control_bar else { return Ok(()) };
+
+        let command_set = control_bar.find_command_set_by_name("SpecialPowerShortcut")
+            .or_else(|| control_bar.find_command_set_by_name("SPECIALPOWERSHORTCUT"));
+
+        let Some(command_set) = command_set else { return Ok(()) };
+
+        let mut current_button = 0;
+        for i in 0..self.special_power_shortcut_count.min(command_set.buttons.len()) {
+            let Some(logic_button) = command_set.buttons.get(i).and_then(|b| b.as_ref()) else {
+                continue;
+            };
+
+            if (logic_button.get_options_bits() & CommandOption::NeedUpgrade as u32) != 0 {
+                let upgrade_name = logic_button.get_upgrade_template()
+                    .map(|t| t.get_name().as_str().to_string())
+                    .unwrap_or_default();
+                if !upgrade_name.is_empty() {
+                    let has_upgrade = with_upgrade_center(|c| {
+                        let template = c.find_upgrade(&upgrade_name);
+                        template.is_some()
+                    });
+                    if !has_upgrade {
+                        continue;
+                    }
+                }
+            }
+
+            if current_button < self.special_power_shortcuts.len() {
+                self.special_power_shortcuts[current_button].command_name = logic_button.get_name().to_string();
+                self.special_power_shortcuts[current_button].is_hidden = false;
+                self.special_power_shortcuts[current_button].availability = CommandAvailability::Available;
+                current_button += 1;
+            }
+        }
+
+        for i in current_button..self.special_power_shortcuts.len() {
+            self.special_power_shortcuts[i].is_hidden = true;
+        }
+
+        Ok(())
+    }
+
+    fn update_special_power_shortcut_availability(&mut self) {
+        if self.special_power_shortcut_count == 0 || self.special_power_shortcuts.is_empty() {
+            return;
+        }
+
+        let player_active = logic_player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+            .and_then(|p| p.read().ok().map(|g| g.is_player_active()))
+            .unwrap_or(false);
+
+        if !player_active {
+            for shortcut in &mut self.special_power_shortcuts {
+                shortcut.is_hidden = true;
+            }
+            return;
+        }
+
+        for shortcut in &mut self.special_power_shortcuts {
+            if shortcut.is_hidden {
+                continue;
+            }
+            // Default to Available; when count_ready_shortcut_special_powers_of_type
+            // is ported, wire per-button availability checks here.
+            shortcut.availability = CommandAvailability::Available;
+        }
+    }
+
+    pub fn hide_special_power_shortcut(&mut self) {
+        for shortcut in &mut self.special_power_shortcuts {
+            shortcut.is_hidden = true;
+        }
+    }
+
+    pub fn has_any_shortcut_selection(&self) -> bool {
+        self.special_power_shortcuts
+            .iter()
+            .any(|s| !s.is_hidden && s.availability != CommandAvailability::Hidden)
+    }
+
+    pub fn get_special_power_shortcuts(&self) -> &[SpecialPowerShortcutState] {
+        &self.special_power_shortcuts
+    }
+
+    // ---------------------------------------------------------------------------
+    // Command bar border colors
+    // C++ ControlBar.cpp:2361-2397, 2887-2893
+    // ---------------------------------------------------------------------------
+
+    pub fn set_command_bar_border_colors(
+        &mut self,
+        build: Option<u32>,
+        action: Option<u32>,
+        upgrade: Option<u32>,
+        system: Option<u32>,
+    ) {
+        self.border_colors.build = build;
+        self.border_colors.action = action;
+        self.border_colors.upgrade = upgrade;
+        self.border_colors.system = system;
+    }
+
+    pub fn get_border_color_for_type(&self, border_type: CommandButtonMappedBorderType) -> Option<u32> {
+        match border_type {
+            CommandButtonMappedBorderType::Build => self.border_colors.build,
+            CommandButtonMappedBorderType::Upgrade => self.border_colors.upgrade,
+            CommandButtonMappedBorderType::Action => self.border_colors.action,
+            CommandButtonMappedBorderType::System => self.border_colors.system,
+            CommandButtonMappedBorderType::None => None,
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Build queue display helpers
+    // C++ ControlBar.cpp:2832-2870
+    // ---------------------------------------------------------------------------
+
+    pub fn get_displayed_construct_percent(&self) -> f32 {
+        self.displayed_construct_percent
+    }
+
+    pub fn get_displayed_ocl_timer_seconds(&self) -> u32 {
+        self.displayed_ocl_timer_seconds
+    }
+
+    pub fn get_displayed_queue_count(&self) -> usize {
+        self.displayed_queue_count
+    }
+
+    // ---------------------------------------------------------------------------
+    // Communicator hide
+    // C++ ControlBar.cpp:2897-2902
+    // ---------------------------------------------------------------------------
+
+    pub fn hide_communicator(&mut self, hide: bool) {
+        if let Some(wm) = &self.window_manager {
+            if let Some(win) = wm.find_window_by_name("ControlBar.wnd:PopupCommunicator") {
+                let _ = win.borrow_mut().hide(hide);
+            }
+        }
     }
 
     // ---------------------------------------------------------------------------
@@ -2012,6 +2682,17 @@ impl SubsystemInterface for ControlBar {
         self.displayed_queue_count = 0;
         self.ui_dirty = false;
         self.flash_active = false;
+        self.control_bar_stage = ControlBarStage::Default;
+        self.portrait_state = PortraitDisplayState::default();
+        self.science_state = SciencePurchaseState::default();
+        self.gen_star_flash = true;
+        self.last_flashed_at_point_value = -1;
+        self.radar_attack_glow_on = false;
+        self.remaining_radar_attack_glow_frames = 0;
+        self.displayed_construct_percent = -1.0;
+        self.displayed_ocl_timer_seconds = 0;
+        self.special_power_shortcuts.clear();
+        self.special_power_shortcut_count = 0;
 
         Ok(())
     }
