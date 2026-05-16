@@ -42,6 +42,33 @@ impl MeshVertex {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_render_state_keeps_drawable_texture_visible() {
+        assert_eq!(
+            object_color_tint(&render_bridge::RenderStateOverrides::default()),
+            [1.0, 1.0, 1.0, 1.0]
+        );
+    }
+
+    #[test]
+    fn render_state_tint_combines_construction_damage_and_emissive() {
+        let mut state = render_bridge::RenderStateOverrides::default();
+        state.construction_tint = Some([0.5, 0.6, 0.7]);
+        state.damage_overlay = 0.5;
+        state.emissive_tint = [0.1, 0.0, 0.2];
+
+        let tint = object_color_tint(&state);
+        assert!((tint[0] - 0.5125).abs() < 0.0001);
+        assert!((tint[1] - 0.495).abs() < 0.0001);
+        assert!((tint[2] - 0.7775).abs() < 0.0001);
+        assert_eq!(tint[3], 1.0);
+    }
+}
+
 /// Camera uniform buffer (view-projection matrix).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]
@@ -77,6 +104,37 @@ struct MeshBuffers {
 // ---------------------------------------------------------------------------
 
 static DRAWABLE_PIPELINE: OnceLock<Arc<Mutex<DrawableDrawPipeline>>> = OnceLock::new();
+
+fn object_color_tint(state: &render_bridge::RenderStateOverrides) -> [f32; 4] {
+    let mut rgb = state.construction_tint.unwrap_or([1.0, 1.0, 1.0]);
+
+    if state.apply_night_map {
+        rgb = [rgb[0] * 0.82, rgb[1] * 0.88, rgb[2]];
+    }
+    if state.apply_snow_map {
+        rgb = [
+            (rgb[0] * 1.08).min(1.0),
+            (rgb[1] * 1.08).min(1.0),
+            (rgb[2] * 1.12).min(1.0),
+        ];
+    }
+    if state.damage_overlay > 0.0 {
+        let damage_scale = (1.0 - state.damage_overlay.clamp(0.0, 1.0) * 0.35).max(0.0);
+        rgb = [
+            rgb[0] * damage_scale,
+            rgb[1] * damage_scale,
+            rgb[2] * damage_scale,
+        ];
+    }
+
+    rgb = [
+        (rgb[0] + state.emissive_tint[0]).clamp(0.0, 1.0),
+        (rgb[1] + state.emissive_tint[1]).clamp(0.0, 1.0),
+        (rgb[2] + state.emissive_tint[2]).clamp(0.0, 1.0),
+    ];
+
+    [rgb[0], rgb[1], rgb[2], 1.0]
+}
 
 pub fn register_drawable_pipeline(pipeline: Arc<Mutex<DrawableDrawPipeline>>) {
     let _ = DRAWABLE_PIPELINE.set(pipeline);
@@ -459,13 +517,12 @@ impl DrawableDrawPipeline {
         submission: &render_bridge::DrawSubmission,
     ) {
         // Update per-object uniform
-        let color_tint = submission.render_state.emissive_tint;
-        let opacity = submission.render_state.opacity;
+        let color_tint = object_color_tint(&submission.render_state);
 
         let object_uniforms = ObjectUniforms {
             world: submission.world_transform.to_cols_array_2d(),
-            color_tint: [color_tint[0], color_tint[1], color_tint[2], 1.0],
-            opacity,
+            color_tint,
+            opacity: submission.render_state.opacity.clamp(0.0, 1.0),
             _pad0: 0,
             _pad1: 0,
             _pad2: 0,
