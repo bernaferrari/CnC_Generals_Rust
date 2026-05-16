@@ -395,7 +395,7 @@ impl Snapshotable for PropagandaCenterBehavior {
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("xfer version failed: {e:?}"))?;
 
-        self.prison_behavior.xfer(xfer).map_err(|e| e.to_string())?;
+        Snapshotable::xfer(&mut self.prison_behavior, xfer).map_err(|e| e.to_string())?;
 
         xfer.xfer_object_id(&mut self.brainwashing_subject_id)
             .map_err(|e| e.to_string())?;
@@ -430,8 +430,7 @@ impl Snapshotable for PropagandaCenterBehavior {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        self.prison_behavior
-            .load_post_process()
+        Snapshotable::load_post_process(&mut self.prison_behavior)
             .map_err(|e| e.to_string())?;
         Ok(())
     }
@@ -527,7 +526,7 @@ impl Snapshotable for PropagandaCenterBehaviorModule {
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         if let Ok(mut guard) = self.behavior.lock() {
-            guard.xfer(xfer)
+            Snapshotable::xfer(&mut *guard, xfer)
         } else {
             Ok(())
         }

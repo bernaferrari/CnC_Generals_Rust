@@ -14,11 +14,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 #[cfg(feature = "audio")]
-use fundsp::hacker::*;
-#[cfg(feature = "audio")]
 use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 #[cfg(feature = "audio")]
-use rubato::{InterpolationParameters, InterpolationType, Resampler, SincFixedIn, WindowFunction};
+use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
 use crate::common::audio::{AudioAffect, AudioHandle, Bool, Real, UnsignedInt};
 

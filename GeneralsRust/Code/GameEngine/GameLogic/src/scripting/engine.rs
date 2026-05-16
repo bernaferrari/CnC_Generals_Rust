@@ -1650,7 +1650,7 @@ impl ScriptEngine {
 
     fn template_matches_kind(template: &EngineThingTemplate, kind: KindOf) -> bool {
         for idx in kind_of_indices(kind) {
-            if template.is_kind_of(*idx) {
+            if template.is_kind_of((*idx) as u64) {
                 return true;
             }
         }

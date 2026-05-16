@@ -1920,25 +1920,34 @@ impl Snapshotable for Team {
             xfer.xfer_object_id(&mut id).map_err(|e| e.to_string())?;
         }
 
-        let mut state = self.state.clone();
+        let mut state = self.state.to_string();
         xfer.xfer_ascii_string(&mut state)
             .map_err(|e| e.to_string())?;
 
-        xfer.xfer_bool(&mut self.entered_or_exited)
+        let mut entered_or_exited = self.entered_or_exited;
+        xfer.xfer_bool(&mut entered_or_exited)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.active).map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.created).map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.check_enemy_sighted)
+        let mut active = self.active;
+        xfer.xfer_bool(&mut active).map_err(|e| e.to_string())?;
+        let mut created = self.created;
+        xfer.xfer_bool(&mut created).map_err(|e| e.to_string())?;
+        let mut check_enemy_sighted = self.check_enemy_sighted;
+        xfer.xfer_bool(&mut check_enemy_sighted)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.see_enemy)
+        let mut see_enemy = self.see_enemy;
+        xfer.xfer_bool(&mut see_enemy)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.prev_see_enemy)
+        let mut prev_see_enemy = self.prev_see_enemy;
+        xfer.xfer_bool(&mut prev_see_enemy)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.was_idle)
+        let mut was_idle = self.was_idle;
+        xfer.xfer_bool(&mut was_idle)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.destroy_threshold)
+        let mut destroy_threshold = self.destroy_threshold;
+        xfer.xfer_int(&mut destroy_threshold)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.cur_units).map_err(|e| e.to_string())?;
+        let mut cur_units = self.cur_units;
+        xfer.xfer_int(&mut cur_units).map_err(|e| e.to_string())?;
 
         let mut waypoint_id = self.current_waypoint_id.unwrap_or(0);
         xfer.xfer_u32(&mut waypoint_id).map_err(|e| e.to_string())?;
@@ -1951,9 +1960,11 @@ impl Snapshotable for Team {
             xfer.xfer_bool(&mut val).map_err(|e| e.to_string())?;
         }
 
-        xfer.xfer_bool(&mut self.recruitability_set)
+        let mut recruitability_set = self.recruitability_set;
+        xfer.xfer_bool(&mut recruitability_set)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.recruitable)
+        let mut recruitable = self.recruitable;
+        xfer.xfer_bool(&mut recruitable)
             .map_err(|e| e.to_string())?;
 
         let mut target = self.common_attack_target;
@@ -1978,12 +1989,12 @@ impl Snapshotable for Team {
         }
 
         // player_relations (inline, matching C++ PlayerRelationMap::xfer pattern)
-        let player_rel_count = self.player_relations.as_ref().map(|r| r.map.len() as u16).unwrap_or(0);
+        let player_rel_count = self.player_relations.as_ref().map(|r| r.len() as u16).unwrap_or(0);
         let mut player_rel_count_xfer = player_rel_count;
         xfer.xfer_unsigned_short(&mut player_rel_count_xfer)
             .map_err(|e| e.to_string())?;
         if let Some(ref relations) = self.player_relations {
-            for (&pidx, &rel) in &relations.map {
+            for (&pidx, &rel) in relations {
                 let mut player_idx = pidx;
                 let mut rel_raw = rel as i32;
                 xfer.xfer_int(&mut player_idx).map_err(|e| e.to_string())?;
@@ -2032,7 +2043,8 @@ impl Snapshotable for Team {
         }
 
         // State
-        xfer.xfer_ascii_string(&mut self.state)
+        let mut state = self.state.to_string();
+        xfer.xfer_ascii_string(&mut state)
             .map_err(|e| e.to_string())?;
 
         // Status flags
@@ -2144,14 +2156,14 @@ impl Snapshotable for Team {
             let mut rel_count = self
                 .player_relations
                 .as_ref()
-                .map(|r| r.map.len() as u16)
+                .map(|r| r.len() as u16)
                 .unwrap_or(0);
             xfer.xfer_unsigned_short(&mut rel_count)
                 .map_err(|e| e.to_string())?;
 
             if xfer.get_xfer_mode() == XferMode::Save {
                 if let Some(ref relations) = self.player_relations {
-                    for (&pidx, &rel) in &relations.map {
+                    for (&pidx, &rel) in relations {
                         let mut player_idx = pidx;
                         let mut rel_raw = rel as Int;
                         xfer.xfer_int(&mut player_idx).map_err(|e| e.to_string())?;

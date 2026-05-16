@@ -1730,6 +1730,7 @@ impl ControlBar {
         Ok(())
     }
 
+    fn update_context_observer(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let player_list = logic_player_list();
         let players = player_list
             .lock()

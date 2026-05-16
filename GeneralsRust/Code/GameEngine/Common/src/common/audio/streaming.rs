@@ -19,9 +19,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 #[cfg(feature = "audio")]
-use rtrb::{Consumer, Producer, RingBuffer};
-#[cfg(feature = "audio")]
-use rubato::{InterpolationParameters, InterpolationType, Resampler, SincFixedIn, WindowFunction};
+use rubato::{SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 
 use crate::common::audio::{
     AudioFormat, AudioHandle, AudioLoadError, AudioMetadata, Bool, Real, UnsignedInt,
@@ -174,7 +172,6 @@ impl StreamBuffer {
 }
 
 /// Audio streaming engine
-#[derive(Debug)]
 pub struct AudioStreamer {
     /// Unique handle
     handle: AudioHandle,
@@ -186,9 +183,7 @@ pub struct AudioStreamer {
     state: Arc<RwLock<StreamState>>,
     /// Stream quality
     quality: StreamQuality,
-    /// Ring buffer for streaming
-    #[cfg(feature = "audio")]
-    ring_buffer: Option<(Producer<f32>, Consumer<f32>)>,
+    ring_buffer: Option<(crossbeam_channel::Sender<f32>, crossbeam_channel::Receiver<f32>)>,
     /// Stream buffers
     buffers: Arc<RwLock<VecDeque<StreamBuffer>>>,
     /// Current playback position in samples
@@ -208,13 +203,22 @@ pub struct AudioStreamer {
     command_sender: Option<Sender<StreamCommand>>,
     /// Status channel for receiving updates
     status_receiver: Option<Receiver<StreamStatus>>,
-    /// Resampler for format conversion
-    #[cfg(feature = "audio")]
-    resampler: Option<SincFixedIn<f32>>,
-    /// Target sample rate
     target_sample_rate: u32,
     /// Target channels
     target_channels: u16,
+}
+
+impl std::fmt::Debug for AudioStreamer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AudioStreamer")
+            .field("handle", &self.handle)
+            .field("state", &self.state.read())
+            .field("quality", &self.quality)
+            .field("looping", &self.looping)
+            .field("target_sample_rate", &self.target_sample_rate)
+            .field("target_channels", &self.target_channels)
+            .finish()
+    }
 }
 
 /// Stream control commands
@@ -272,34 +276,10 @@ impl AudioStreamer {
         let state = Arc::new(RwLock::new(StreamState::Initializing));
         let position = Arc::new(RwLock::new(0));
 
-        #[cfg(feature = "audio")]
         let ring_buffer = {
             let buffer_size = quality.get_buffer_size();
-            let (producer, consumer) = RingBuffer::<f32>::new(buffer_size);
-            Some((producer, consumer))
-        };
-
-        #[cfg(feature = "audio")]
-        let resampler = if metadata.sample_rate != target_sample_rate {
-            let params = InterpolationParameters {
-                sinc_len: 256,
-                f_cutoff: 0.95,
-                interpolation: InterpolationType::Linear,
-                oversampling_factor: 256,
-                window: WindowFunction::BlackmanHarris2,
-            };
-            Some(
-                SincFixedIn::new(
-                    target_sample_rate as f64 / metadata.sample_rate as f64,
-                    2.0,
-                    params,
-                    metadata.channels as usize,
-                    target_channels as usize,
-                )
-                .map_err(|_| AudioLoadError::InvalidData)?,
-            )
-        } else {
-            None
+            let (tx, rx) = crossbeam_channel::bounded(buffer_size);
+            Some((tx, rx))
         };
 
         let streamer = Self {
@@ -308,7 +288,6 @@ impl AudioStreamer {
             metadata,
             state: state.clone(),
             quality,
-            #[cfg(feature = "audio")]
             ring_buffer,
             buffers: buffers.clone(),
             position: position.clone(),
@@ -320,8 +299,6 @@ impl AudioStreamer {
             stream_thread: None,
             command_sender: Some(command_sender),
             status_receiver: Some(status_receiver),
-            #[cfg(feature = "audio")]
-            resampler,
             target_sample_rate,
             target_channels,
         };
@@ -448,32 +425,26 @@ impl AudioStreamer {
 
     /// Read samples from the stream
     pub fn read_samples(&self, buffer: &mut [f32]) -> usize {
-        #[cfg(feature = "audio")]
-        {
-            if let Some((_, ref consumer)) = &self.ring_buffer {
-                consumer.read(buffer).unwrap_or(0)
-            } else {
-                0
+        let mut read_count = 0;
+        if let Some((_, ref consumer)) = &self.ring_buffer {
+            for slot in buffer.iter_mut() {
+                match consumer.try_recv() {
+                    Ok(sample) => {
+                        *slot = sample;
+                        read_count += 1;
+                    }
+                    Err(_) => break,
+                }
             }
         }
-        #[cfg(not(feature = "audio"))]
-        {
-            0
-        }
+        read_count
     }
 
     /// Get buffer level (0.0 - 1.0)
     pub fn buffer_level(&self) -> f32 {
-        #[cfg(feature = "audio")]
-        {
-            if let Some((_, ref consumer)) = &self.ring_buffer {
-                consumer.slots() as f32 / consumer.capacity() as f32
-            } else {
-                0.0
-            }
-        }
-        #[cfg(not(feature = "audio"))]
-        {
+        if let Some((_, ref consumer)) = &self.ring_buffer {
+            consumer.len() as f32 / 65536.0
+        } else {
             0.0
         }
     }

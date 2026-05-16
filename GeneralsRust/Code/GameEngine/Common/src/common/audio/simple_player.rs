@@ -13,8 +13,6 @@ use std::time::{Duration, Instant};
 
 use super::engine::{AudioEngine, AudioEngineConfig};
 use super::AudioHandle;
-
-// Type aliases for compatibility with original interface
 pub type HResult = i32;
 pub type Bool = bool;
 
@@ -97,31 +95,24 @@ pub enum PlayerStatus {
 /// Simple audio player for streaming media files
 /// Replaces the Windows Media Format SDK functionality with cross-platform audio
 pub struct SimplePlayer {
-    // Reference counting (simulating COM AddRef/Release)
     ref_count: AtomicUsize,
 
-    // Playback state
     status: Arc<Mutex<PlayerStatus>>,
     url: Arc<Mutex<Option<PathBuf>>>,
     format: Arc<Mutex<WaveFormat>>,
 
-    // Buffer management
     buffers_outstanding: Arc<AtomicUsize>,
     audio_buffers: Arc<Mutex<VecDeque<AudioBuffer>>>,
 
-    // Events and completion handling
     completion_handler: Arc<Mutex<Option<Box<dyn Fn(HResult) + Send + Sync>>>>,
     event_queue: Arc<Mutex<VecDeque<PlayerEvent>>>,
 
-    // Threading
     playback_thread: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
     should_stop: Arc<AtomicBool>,
 
-    // Audio output engine
-    audio_engine: Arc<Mutex<AudioEngine>>,
+    audio_engine: AudioEngine,
     current_handle: Arc<Mutex<Option<AudioHandle>>>,
 
-    // Error state
     last_error: Arc<Mutex<HResult>>,
 }
 
@@ -135,9 +126,8 @@ const E_UNEXPECTED: HResult = -4;
 impl SimplePlayer {
     /// Create a new SimplePlayer instance
     pub fn new() -> Result<Self, HResult> {
-        let mut engine =
+        let engine =
             AudioEngine::with_config(AudioEngineConfig::default()).map_err(|_| E_FAIL)?;
-        engine.start().map_err(|_| E_FAIL)?;
 
         Ok(SimplePlayer {
             ref_count: AtomicUsize::new(1),
@@ -150,7 +140,7 @@ impl SimplePlayer {
             event_queue: Arc::new(Mutex::new(VecDeque::new())),
             playback_thread: Arc::new(Mutex::new(None)),
             should_stop: Arc::new(AtomicBool::new(false)),
-            audio_engine: Arc::new(Mutex::new(engine)),
+            audio_engine: engine,
             current_handle: Arc::new(Mutex::new(None)),
             last_error: Arc::new(Mutex::new(S_OK)),
         })
@@ -210,22 +200,15 @@ impl SimplePlayer {
         self.should_stop.store(true, Ordering::Relaxed);
 
         if let Some(handle) = self.current_handle.lock().unwrap().take() {
-            if let Ok(engine) = self.audio_engine.lock() {
-                let _ = engine.stop_source(handle);
-            }
+            let _ = self.audio_engine.stop_source(handle);
         }
 
-        // Wait for playback thread to finish
         if let Some(handle) = self.playback_thread.lock().unwrap().take() {
             let _ = handle.join();
         }
 
-        // Stop audio engine
-        if let Ok(mut engine) = self.audio_engine.lock() {
-            let _ = engine.stop();
-        }
+        let _ = self.audio_engine.stop();
 
-        // Update status
         {
             let mut status_guard = self.status.lock().unwrap();
             *status_guard = PlayerStatus::Stopped;
@@ -267,200 +250,90 @@ impl SimplePlayer {
 
     /// Start the playback thread
     fn start_playback_thread(&mut self, file_path: PathBuf, duration: Duration) -> HResult {
+        let handle = match self.audio_engine.play(&file_path.to_string_lossy(), 1.0, false, None) {
+            Ok(h) => h,
+            Err(_) => return E_FAIL,
+        };
+
+        *self.current_handle.lock().unwrap() = Some(handle);
+
+        {
+            let mut status_guard = self.status.lock().unwrap();
+            *status_guard = PlayerStatus::Playing;
+        }
+
+        {
+            let mut queue_guard = self.event_queue.lock().unwrap();
+            queue_guard.push_back(PlayerEvent::Opened);
+            queue_guard.push_back(PlayerEvent::Started);
+        }
+
         let status = Arc::clone(&self.status);
         let should_stop = Arc::clone(&self.should_stop);
         let event_queue = Arc::clone(&self.event_queue);
-        let audio_engine = Arc::clone(&self.audio_engine);
         let current_handle = Arc::clone(&self.current_handle);
         let completion_handler = Arc::clone(&self.completion_handler);
         let last_error = Arc::clone(&self.last_error);
         let buffers_outstanding = Arc::clone(&self.buffers_outstanding);
 
-        let handle = thread::spawn(move || {
-            Self::playback_thread_main(
-                file_path,
-                duration,
-                status,
-                should_stop,
-                event_queue,
-                audio_engine,
-                current_handle,
-                completion_handler,
-                last_error,
-                buffers_outstanding,
-            );
+        let thread_handle = thread::spawn(move || {
+            let result = S_OK;
+            let start_time = Instant::now();
+            let duration_limit = if duration.as_secs() > 0 {
+                Some(duration)
+            } else {
+                None
+            };
+
+            buffers_outstanding.store(1, Ordering::Relaxed);
+
+            loop {
+                if should_stop.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                if let Some(limit) = duration_limit {
+                    if start_time.elapsed() >= limit {
+                        break;
+                    }
+                }
+
+                thread::sleep(Duration::from_millis(20));
+            }
+
+            if should_stop.load(Ordering::Relaxed) {
+                {
+                    let mut status_guard = status.lock().unwrap();
+                    *status_guard = PlayerStatus::Stopped;
+                }
+
+                let mut queue_guard = event_queue.lock().unwrap();
+                queue_guard.push_back(PlayerEvent::Stopped);
+            } else {
+                {
+                    let mut status_guard = status.lock().unwrap();
+                    *status_guard = PlayerStatus::Stopped;
+                }
+
+                let mut queue_guard = event_queue.lock().unwrap();
+                queue_guard.push_back(PlayerEvent::EndOfFile);
+            }
+
+            *current_handle.lock().unwrap() = None;
+
+            if let Some(handler) = completion_handler.lock().unwrap().as_ref() {
+                handler(result);
+            }
+
+            buffers_outstanding.store(0, Ordering::Relaxed);
         });
 
         {
             let mut thread_guard = self.playback_thread.lock().unwrap();
-            *thread_guard = Some(handle);
+            *thread_guard = Some(thread_handle);
         }
 
         S_OK
-    }
-
-    /// Main function for the playback thread
-    fn playback_thread_main(
-        file_path: PathBuf,
-        duration: Duration,
-        status: Arc<Mutex<PlayerStatus>>,
-        should_stop: Arc<AtomicBool>,
-        event_queue: Arc<Mutex<VecDeque<PlayerEvent>>>,
-        audio_engine: Arc<Mutex<AudioEngine>>,
-        current_handle: Arc<Mutex<Option<AudioHandle>>>,
-        completion_handler: Arc<Mutex<Option<Box<dyn Fn(HResult) + Send + Sync>>>>,
-        last_error: Arc<Mutex<HResult>>,
-        buffers_outstanding: Arc<AtomicUsize>,
-    ) {
-        let mut result = S_OK;
-
-        // Simulate opening the file
-        {
-            let mut status_guard = status.lock().unwrap();
-            *status_guard = PlayerStatus::Opening;
-        }
-
-        // Post opened event
-        {
-            let mut queue_guard = event_queue.lock().unwrap();
-            queue_guard.push_back(PlayerEvent::Opened);
-        }
-
-        // Simulate analyzing the file format
-        thread::sleep(Duration::from_millis(100));
-
-        if should_stop.load(Ordering::Relaxed) {
-            return;
-        }
-
-        // Set status to opened
-        {
-            let mut status_guard = status.lock().unwrap();
-            *status_guard = PlayerStatus::Opened;
-        }
-
-        // Start playback
-        {
-            let mut status_guard = status.lock().unwrap();
-            *status_guard = PlayerStatus::Playing;
-        }
-
-        let handle = {
-            let engine = match audio_engine.lock() {
-                Ok(engine) => engine,
-                Err(_) => {
-                    result = E_FAIL;
-                    *last_error.lock().unwrap() = result;
-                    {
-                        let mut status_guard = status.lock().unwrap();
-                        *status_guard = PlayerStatus::Error;
-                    }
-                    {
-                        let mut queue_guard = event_queue.lock().unwrap();
-                        queue_guard.push_back(PlayerEvent::Error(result));
-                    }
-                    if let Some(handler) = completion_handler.lock().unwrap().as_ref() {
-                        handler(result);
-                    }
-                    buffers_outstanding.store(0, Ordering::Relaxed);
-                    return;
-                }
-            };
-
-            match engine.play(&file_path.to_string_lossy(), 1.0, false, None) {
-                Ok(handle) => handle,
-                Err(_) => {
-                    result = E_FAIL;
-                    *last_error.lock().unwrap() = result;
-                    {
-                        let mut status_guard = status.lock().unwrap();
-                        *status_guard = PlayerStatus::Error;
-                    }
-                    {
-                        let mut queue_guard = event_queue.lock().unwrap();
-                        queue_guard.push_back(PlayerEvent::Error(result));
-                    }
-                    if let Some(handler) = completion_handler.lock().unwrap().as_ref() {
-                        handler(result);
-                    }
-                    buffers_outstanding.store(0, Ordering::Relaxed);
-                    return;
-                }
-            }
-        };
-
-        *current_handle.lock().unwrap() = Some(handle);
-
-        // Post started event
-        {
-            let mut queue_guard = event_queue.lock().unwrap();
-            queue_guard.push_back(PlayerEvent::Started);
-        }
-
-        // Simulate audio playback by sleeping for the duration
-        let start_time = Instant::now();
-        let duration_limit = if duration.as_secs() > 0 {
-            Some(duration)
-        } else {
-            None
-        };
-
-        buffers_outstanding.store(1, Ordering::Relaxed);
-
-        loop {
-            if should_stop.load(Ordering::Relaxed) {
-                break;
-            }
-
-            if let Some(limit) = duration_limit {
-                if start_time.elapsed() >= limit {
-                    break;
-                }
-            }
-
-            let is_playing = audio_engine
-                .lock()
-                .map(|engine| engine.is_playing(handle))
-                .unwrap_or(false);
-            if !is_playing {
-                break;
-            }
-
-            thread::sleep(Duration::from_millis(20));
-        }
-
-        // Check if we were stopped early
-        if should_stop.load(Ordering::Relaxed) {
-            {
-                let mut status_guard = status.lock().unwrap();
-                *status_guard = PlayerStatus::Stopped;
-            }
-
-            let mut queue_guard = event_queue.lock().unwrap();
-            queue_guard.push_back(PlayerEvent::Stopped);
-        } else {
-            // End of file reached
-            {
-                let mut status_guard = status.lock().unwrap();
-                *status_guard = PlayerStatus::Stopped;
-            }
-
-            let mut queue_guard = event_queue.lock().unwrap();
-            queue_guard.push_back(PlayerEvent::EndOfFile);
-        }
-
-        // Stop audio source
-        if let Ok(engine) = audio_engine.lock() {
-            let _ = engine.stop_source(handle);
-        }
-        *current_handle.lock().unwrap() = None;
-
-        // Call completion handler if set
-        if let Some(handler) = completion_handler.lock().unwrap().as_ref() {
-            handler(result);
-        }
-
-        buffers_outstanding.store(0, Ordering::Relaxed);
     }
 
     /// Process any pending events (should be called regularly by the main thread)
@@ -510,18 +383,15 @@ impl SimplePlayer {
         }
 
         if let Some(handle) = self.current_handle.lock().unwrap().as_ref().copied() {
-            if let Ok(engine) = self.audio_engine.lock() {
-                if engine.pause(handle).is_ok() {
-                    *status_guard = PlayerStatus::Paused;
-                    return S_OK;
-                }
+            if self.audio_engine.pause(handle).is_ok() {
+                *status_guard = PlayerStatus::Paused;
+                return S_OK;
             }
         }
 
         E_FAIL
     }
 
-    /// Resume playback (simplified implementation)
     pub fn resume(&self) -> HResult {
         let mut status_guard = self.status.lock().unwrap();
         if *status_guard != PlayerStatus::Paused {
@@ -529,11 +399,9 @@ impl SimplePlayer {
         }
 
         if let Some(handle) = self.current_handle.lock().unwrap().as_ref().copied() {
-            if let Ok(engine) = self.audio_engine.lock() {
-                if engine.resume(handle).is_ok() {
-                    *status_guard = PlayerStatus::Playing;
-                    return S_OK;
-                }
+            if self.audio_engine.resume(handle).is_ok() {
+                *status_guard = PlayerStatus::Playing;
+                return S_OK;
             }
         }
 

@@ -9,7 +9,6 @@
 //! Author: Graham Smallwood, March 2002 (C++ version)
 
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
-use std::io;
 
 /// Object ID type alias matching C++ ObjectID (u32)
 pub type ObjectID = u32;

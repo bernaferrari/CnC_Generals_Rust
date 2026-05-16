@@ -27,8 +27,6 @@ use symphonia::core::io::MediaSourceStream;
 // Always import basic channel types since they're used without features
 #[cfg(not(feature = "audio"))]
 use crossbeam_channel::{unbounded, Receiver, Sender};
-#[cfg(feature = "audio")]
-use rtrb::{Consumer, Producer, RingBuffer};
 
 use crate::common::audio::{
     AsciiString, AudioAffect, AudioEventRts, AudioHandle, AudioPriority, AudioType, Bool, Coord3D,
@@ -133,7 +131,6 @@ impl Default for Audio3DParams {
 }
 
 /// Audio source information
-#[derive(Debug)]
 pub struct AudioSource {
     /// Unique handle for this source
     pub handle: AudioHandle,
@@ -166,6 +163,23 @@ pub struct AudioSource {
     pub sink: Option<Arc<Sink>>,
     #[cfg(feature = "audio")]
     pub spatial_sink: Option<Arc<SpatialSink>>,
+}
+
+impl std::fmt::Debug for AudioSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AudioSource")
+            .field("handle", &self.handle)
+            .field("state", &self.state)
+            .field("priority", &self.priority)
+            .field("volume", &self.volume)
+            .field("pitch", &self.pitch)
+            .field("pan", &self.pan)
+            .field("looping", &self.looping)
+            .field("spatial_params", &self.spatial_params)
+            .field("duration", &self.duration)
+            .field("file_path", &self.file_path)
+            .finish()
+    }
 }
 
 impl AudioSource {
@@ -700,18 +714,22 @@ impl AudioEngine {
         audio_source.spatial_params = spatial_params.clone();
         audio_source.state = AudioSourceState::Playing;
 
-        if let Some(spatial_params) = spatial_params {
-            // Create spatial sink for 3D audio
-            let spatial_sink = Arc::new(
-                output_stream_handle
-                    .play_raw(source.convert_samples().speed(pitch).amplify(volume))?,
-            );
+        if let Some(ref sp) = spatial_params {
+            let spatial_sink = Arc::new(SpatialSink::try_new(
+                output_stream_handle,
+                sp.position,
+                sp.left_ear,
+                sp.right_ear,
+            )?);
+            spatial_sink.set_volume(volume.clamp(0.0, 1.0));
+            spatial_sink.append(source.convert_samples::<f32>().speed(pitch));
 
             audio_source.spatial_sink = Some(spatial_sink);
         } else {
             // Create regular sink for 2D audio
             let sink = Arc::new(Sink::try_new(output_stream_handle)?);
-            sink.append(source.speed(pitch).amplify(volume));
+            sink.set_volume(volume.clamp(0.0, 1.0));
+            sink.append(source.convert_samples::<f32>().speed(pitch));
 
             if looping {
                 // Note: Rodio doesn't have built-in looping, would need custom implementation
@@ -738,7 +756,7 @@ impl AudioEngine {
         response_sender: &Sender<AudioResponse>,
     ) {
         let mut sources_guard = sources.write();
-        if let Some(mut source) = sources_guard.get_mut(&handle) {
+        if let Some(source) = sources_guard.get_mut(&handle) {
             source.state = if fade_out.is_some() {
                 AudioSourceState::FadingOut
             } else {
@@ -766,7 +784,7 @@ impl AudioEngine {
         response_sender: &Sender<AudioResponse>,
     ) {
         let mut sources_guard = sources.write();
-        if let Some(mut source) = sources_guard.get_mut(&handle) {
+        if let Some(source) = sources_guard.get_mut(&handle) {
             source.state = AudioSourceState::Paused;
 
             if let Some(sink) = &source.sink {
@@ -790,7 +808,7 @@ impl AudioEngine {
         response_sender: &Sender<AudioResponse>,
     ) {
         let mut sources_guard = sources.write();
-        if let Some(mut source) = sources_guard.get_mut(&handle) {
+        if let Some(source) = sources_guard.get_mut(&handle) {
             source.state = AudioSourceState::Playing;
 
             if let Some(sink) = &source.sink {
@@ -814,7 +832,7 @@ impl AudioEngine {
         sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
     ) {
         let mut sources_guard = sources.write();
-        if let Some(mut source) = sources_guard.get_mut(&handle) {
+        if let Some(source) = sources_guard.get_mut(&handle) {
             source.volume = volume;
 
             if let Some(sink) = &source.sink {
