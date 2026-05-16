@@ -3323,6 +3323,18 @@ impl UnitAIUpdate {
 
         pathfinder.set_aircraft_goal_cells(unit_id, new_cell, radius, center_in_cell);
     }
+
+    fn has_valid_locomotor_surfaces(&self) -> bool {
+        self.unit
+            .upgrade()
+            .and_then(|unit| {
+                unit.read()
+                    .ok()
+                    .and_then(|guard| guard.get_locomotor_surface_mask())
+            })
+            .map(|surfaces| surfaces != 0)
+            .unwrap_or(false)
+    }
 }
 
 impl AIUpdateInterface for UnitAIUpdate {
@@ -6628,6 +6640,9 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn request_path(&mut self, destination: &Coord3D, _is_final_goal: bool) -> Result<(), String> {
+        if !self.has_valid_locomotor_surfaces() {
+            return Err("Attempting to path immobile unit".to_string());
+        }
         let _ = self.ignore_obstacle(None);
         if self.can_compute_quick_path() {
             self.compute_quick_path(destination);
@@ -6656,6 +6671,9 @@ impl AIUpdateInterface for UnitAIUpdate {
         victim_id: ObjectID,
         victim_pos: &Coord3D,
     ) -> Result<(), String> {
+        if !self.has_valid_locomotor_surfaces() {
+            return Err("Attempting to path immobile unit".to_string());
+        }
         let victim = get_legacy_object(victim_id);
         let _ = self.set_goal_object(victim.as_ref());
         let _ = self.ignore_obstacle(victim.as_ref());
@@ -6673,6 +6691,9 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn request_approach_path(&mut self, destination: &Coord3D) -> Result<(), String> {
+        if !self.has_valid_locomotor_surfaces() {
+            return Err("Attempting to path immobile unit".to_string());
+        }
         let _ = self.ignore_obstacle(None);
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {
@@ -7811,6 +7832,25 @@ mod tests {
         let ai = unit_ai_update_without_unit();
 
         assert_eq!(ai.get_cur_max_blocked_speed(), FAST_AS_POSSIBLE);
+    }
+
+    #[test]
+    fn unit_ai_update_rejects_path_requests_without_valid_locomotor_surfaces() {
+        let mut ai = unit_ai_update_without_unit();
+        let destination = Coord3D::new(10.0, 20.0, 0.0);
+
+        assert_eq!(
+            ai.request_path(&destination, true).unwrap_err(),
+            "Attempting to path immobile unit"
+        );
+        assert_eq!(
+            ai.request_attack_path(INVALID_ID, &destination).unwrap_err(),
+            "Attempting to path immobile unit"
+        );
+        assert_eq!(
+            ai.request_approach_path(&destination).unwrap_err(),
+            "Attempting to path immobile unit"
+        );
     }
 }
 
