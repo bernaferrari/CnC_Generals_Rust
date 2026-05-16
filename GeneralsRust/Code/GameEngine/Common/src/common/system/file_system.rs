@@ -175,7 +175,17 @@ impl FileSystem {
     ///
     /// Backends are searched in the order they are registered.
     pub fn register_backend(&mut self, backend: Box<dyn FileSystemBackend>) {
-        self.backends.push(backend);
+        let identifier = backend.identifier();
+        if let Some(existing) = self
+            .backends
+            .iter()
+            .position(|registered| registered.identifier() == identifier)
+        {
+            self.backends[existing] = backend;
+        } else {
+            self.backends.push(backend);
+        }
+        self.clear_cache();
     }
 
     /// Ensure a backend of type `T` exists, returning a mutable reference to it.
@@ -500,6 +510,21 @@ mod tests {
 
         fs.register_backend(backend);
         assert_eq!(fs.backend_count(), 1);
+    }
+
+    #[test]
+    fn registering_backend_replaces_same_identifier_and_clears_existence_cache() {
+        let mut fs = FileSystem::new();
+
+        assert!(!fs.does_file_exist("test.txt"));
+
+        fs.register_backend(Box::new(MockFileSystemBackend::new()));
+        assert_eq!(fs.backend_count(), 1);
+        assert!(fs.does_file_exist("test.txt"));
+
+        fs.register_backend(Box::new(MockFileSystemBackend::new()));
+        assert_eq!(fs.backend_count(), 1);
+        assert!(fs.does_file_exist("data/config.ini"));
     }
 
     #[test]
