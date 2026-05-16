@@ -20,7 +20,8 @@ use crate::common::rts::{
     get_science_store, AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle,
     ProductionPrerequisite, Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
 };
-use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
+use crate::common::system::{kind_of::KindOfMask, Snapshotable, Xfer, XferMode, XferVersion};
+use crate::common::thing::{get_thing_factory, BuildableStatus, ThingTemplate};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
 
@@ -1599,18 +1600,32 @@ impl Player {
         true
     }
 
-    /// Check if can build a thing (includes prereqs)
+    /// Check if can build a thing (includes prereqs when the template factory is available)
     /// C++ Reference: Player::canBuild() (Player.cpp lines 2880-2924)
-    ///
-    /// This is the simplified interface that doesn't check template-level properties.
-    /// For full C++-faithful checking, use `can_build_template`.
-    pub fn can_build(&self, _template_name: &str, is_structure: bool) -> bool {
-        // Basic check
-        if !self.allowed_to_build(is_structure) {
-            return false;
+    pub fn can_build(&self, template_name: &str, is_structure: bool) -> bool {
+        if let Ok(factory_guard) = get_thing_factory() {
+            if let Some(factory) = factory_guard.as_ref() {
+                return factory
+                    .find_template(template_name, false)
+                    .map(|template| self.can_build_thing_template(template.as_ref()))
+                    .unwrap_or(false);
+            }
         }
 
-        true
+        self.allowed_to_build(is_structure)
+    }
+
+    /// Full template check matching C++ Player::canBuild(const ThingTemplate*).
+    pub fn can_build_thing_template(&self, template: &ThingTemplate) -> bool {
+        let is_structure = template.is_kind_of(KindOfMask::STRUCTURE.bits() as u64);
+        let buildable = match template.get_buildable() {
+            BuildableStatus::Yes => 0,
+            BuildableStatus::IgnorePrerequisites => 1,
+            BuildableStatus::No => 2,
+            BuildableStatus::OnlyByAi => 3,
+        };
+
+        self.can_build_template(is_structure, buildable, template.get_prereqs())
     }
 
     /// Full prerequisite check matching C++ Player::canBuild() behavior.
