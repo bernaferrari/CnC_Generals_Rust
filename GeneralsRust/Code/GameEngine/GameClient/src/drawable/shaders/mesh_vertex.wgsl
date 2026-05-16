@@ -18,6 +18,7 @@ struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) color: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -25,8 +26,9 @@ struct VertexOutput {
     @location(0) world_pos: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
-    @location(3) color_tint: vec4<f32>,
-    @location(4) opacity: f32,
+    @location(3) vertex_color: vec4<f32>,
+    @location(4) color_tint: vec4<f32>,
+    @location(5) opacity: f32,
 };
 
 @group(0) @binding(0)
@@ -47,6 +49,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let world_normal = normalize((object.world * vec4<f32>(input.normal, 0.0)).xyz);
     output.world_normal = world_normal;
     output.uv = input.uv;
+    output.vertex_color = input.color;
     output.color_tint = object.color_tint;
     output.opacity = object.opacity;
 
