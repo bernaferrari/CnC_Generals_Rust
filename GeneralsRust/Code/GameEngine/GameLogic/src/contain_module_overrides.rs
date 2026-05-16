@@ -500,6 +500,25 @@ where
     )
 }
 
+fn cloned_module_data_or_default<TData>(
+    module_name: &str,
+    module_data: &Arc<dyn ModuleData>,
+) -> Arc<TData>
+where
+    TData: ModuleData + Clone + Default + 'static,
+{
+    Arc::new(
+        module_data
+            .as_any()
+            .downcast_ref::<TData>()
+            .cloned()
+            .unwrap_or_else(|| {
+                warn!("{module_name} module data expected; using defaults");
+                TData::default()
+            }),
+    )
+}
+
 #[derive(Debug)]
 struct ActiveCreateModule<T: CreateInterface + Snapshotable + Send + Sync + 'static> {
     module_name_key: NameKeyType,
@@ -4770,16 +4789,8 @@ fn laser_update_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .as_any()
-        .downcast_ref::<LaserClientUpdateModuleData>()
-        .cloned()
-        .unwrap_or_else(|| {
-            warn!("LaserUpdate module data expected; using defaults");
-            LaserClientUpdateModuleData::default()
-        });
-    let module_data = Arc::new(typed_data);
+    let module_data =
+        cloned_module_data_or_default::<LaserClientUpdateModuleData>("LaserUpdate", &module_data);
     Box::new(LaserClientUpdateModule::new(
         NameKeyGenerator::name_to_key("LaserUpdate"),
         module_data,
@@ -4805,16 +4816,10 @@ fn beacon_client_update_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .as_any()
-        .downcast_ref::<BeaconClientUpdateModuleData>()
-        .cloned()
-        .unwrap_or_else(|| {
-            warn!("BeaconClientUpdate module data expected; using defaults");
-            BeaconClientUpdateModuleData::default()
-        });
-    let module_data = Arc::new(typed_data);
+    let module_data = cloned_module_data_or_default::<BeaconClientUpdateModuleData>(
+        "BeaconClientUpdate",
+        &module_data,
+    );
     Box::new(BeaconClientUpdateModule::new(
         NameKeyGenerator::name_to_key("BeaconClientUpdate"),
         module_data,
