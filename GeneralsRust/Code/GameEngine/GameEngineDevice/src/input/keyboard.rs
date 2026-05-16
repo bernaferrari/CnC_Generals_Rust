@@ -176,6 +176,122 @@ pub enum KeyCode {
 }
 
 impl KeyCode {
+    /// Convert a Windows virtual-key code into a known key.
+    pub fn from_windows_virtual_key(vk: u32) -> Option<Self> {
+        match vk {
+            0x41 => Some(Self::A),
+            0x42 => Some(Self::B),
+            0x43 => Some(Self::C),
+            0x44 => Some(Self::D),
+            0x45 => Some(Self::E),
+            0x46 => Some(Self::F),
+            0x47 => Some(Self::G),
+            0x48 => Some(Self::H),
+            0x49 => Some(Self::I),
+            0x4A => Some(Self::J),
+            0x4B => Some(Self::K),
+            0x4C => Some(Self::L),
+            0x4D => Some(Self::M),
+            0x4E => Some(Self::N),
+            0x4F => Some(Self::O),
+            0x50 => Some(Self::P),
+            0x51 => Some(Self::Q),
+            0x52 => Some(Self::R),
+            0x53 => Some(Self::S),
+            0x54 => Some(Self::T),
+            0x55 => Some(Self::U),
+            0x56 => Some(Self::V),
+            0x57 => Some(Self::W),
+            0x58 => Some(Self::X),
+            0x59 => Some(Self::Y),
+            0x5A => Some(Self::Z),
+            0x30 => Some(Self::Num0),
+            0x31 => Some(Self::Num1),
+            0x32 => Some(Self::Num2),
+            0x33 => Some(Self::Num3),
+            0x34 => Some(Self::Num4),
+            0x35 => Some(Self::Num5),
+            0x36 => Some(Self::Num6),
+            0x37 => Some(Self::Num7),
+            0x38 => Some(Self::Num8),
+            0x39 => Some(Self::Num9),
+            0x70 => Some(Self::F1),
+            0x71 => Some(Self::F2),
+            0x72 => Some(Self::F3),
+            0x73 => Some(Self::F4),
+            0x74 => Some(Self::F5),
+            0x75 => Some(Self::F6),
+            0x76 => Some(Self::F7),
+            0x77 => Some(Self::F8),
+            0x78 => Some(Self::F9),
+            0x79 => Some(Self::F10),
+            0x7A => Some(Self::F11),
+            0x7B => Some(Self::F12),
+            0x1B => Some(Self::Escape),
+            0x09 => Some(Self::Tab),
+            0x14 => Some(Self::CapsLock),
+            0xA0 => Some(Self::LeftShift),
+            0xA1 => Some(Self::RightShift),
+            0xA2 => Some(Self::LeftCtrl),
+            0xA3 => Some(Self::RightCtrl),
+            0xA4 => Some(Self::LeftAlt),
+            0xA5 => Some(Self::RightAlt),
+            0x5B => Some(Self::LeftMeta),
+            0x5C => Some(Self::RightMeta),
+            0x20 => Some(Self::Space),
+            0x0D => Some(Self::Enter),
+            0x08 => Some(Self::Backspace),
+            0x2E => Some(Self::Delete),
+            0x2D => Some(Self::Insert),
+            0x25 => Some(Self::Left),
+            0x26 => Some(Self::Up),
+            0x27 => Some(Self::Right),
+            0x28 => Some(Self::Down),
+            0x24 => Some(Self::Home),
+            0x23 => Some(Self::End),
+            0x21 => Some(Self::PageUp),
+            0x22 => Some(Self::PageDown),
+            0x60 => Some(Self::Numpad0),
+            0x61 => Some(Self::Numpad1),
+            0x62 => Some(Self::Numpad2),
+            0x63 => Some(Self::Numpad3),
+            0x64 => Some(Self::Numpad4),
+            0x65 => Some(Self::Numpad5),
+            0x66 => Some(Self::Numpad6),
+            0x67 => Some(Self::Numpad7),
+            0x68 => Some(Self::Numpad8),
+            0x69 => Some(Self::Numpad9),
+            0x6A => Some(Self::NumpadMultiply),
+            0x6B => Some(Self::NumpadAdd),
+            0x6D => Some(Self::NumpadSubtract),
+            0x6E => Some(Self::NumpadDecimal),
+            0x6F => Some(Self::NumpadDivide),
+            0x90 => Some(Self::NumLock),
+            0xBA => Some(Self::Semicolon),
+            0xBB => Some(Self::Equal),
+            0xBC => Some(Self::Comma),
+            0xBD => Some(Self::Minus),
+            0xBE => Some(Self::Period),
+            0xBF => Some(Self::Slash),
+            0xC0 => Some(Self::Grave),
+            0xDB => Some(Self::LeftBracket),
+            0xDC => Some(Self::Backslash),
+            0xDD => Some(Self::RightBracket),
+            0xDE => Some(Self::Quote),
+            0xAD => Some(Self::VolumeMute),
+            0xAE => Some(Self::VolumeDown),
+            0xAF => Some(Self::VolumeUp),
+            0xB0 => Some(Self::MediaNextTrack),
+            0xB1 => Some(Self::MediaPrevTrack),
+            0xB2 => Some(Self::MediaStop),
+            0xB3 => Some(Self::MediaPlayPause),
+            0x91 => Some(Self::ScrollLock),
+            0x2C => Some(Self::PrintScreen),
+            0x13 => Some(Self::Pause),
+            _ => None,
+        }
+    }
+
     /// Check if this key is a modifier key
     pub fn is_modifier(&self) -> bool {
         matches!(
@@ -585,6 +701,19 @@ mod tests {
         assert_eq!(KeyCode::from_name("space"), Some(KeyCode::Space));
         assert_eq!(KeyCode::from_name("ENTER"), Some(KeyCode::Enter));
         assert_eq!(KeyCode::from_name("invalid"), None);
+    }
+
+    #[test]
+    fn test_windows_virtual_key_mapping() {
+        assert_eq!(KeyCode::from_windows_virtual_key(0x41), Some(KeyCode::A));
+        assert_eq!(KeyCode::from_windows_virtual_key(0x39), Some(KeyCode::Num9));
+        assert_eq!(KeyCode::from_windows_virtual_key(0x7B), Some(KeyCode::F12));
+        assert_eq!(KeyCode::from_windows_virtual_key(0x25), Some(KeyCode::Left));
+        assert_eq!(
+            KeyCode::from_windows_virtual_key(0xDE),
+            Some(KeyCode::Quote)
+        );
+        assert_eq!(KeyCode::from_windows_virtual_key(0xFF), None);
     }
 
     #[test]

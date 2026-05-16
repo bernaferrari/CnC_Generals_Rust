@@ -85,13 +85,7 @@ impl WindowsInputBackend {
     /// Convert Windows virtual key code to KeyCode
     #[allow(dead_code)] // Platform parity: Windows key mapping for future native event integration
     fn vk_to_keycode(vk: u32) -> Option<KeyCode> {
-        // Virtual key codes match our KeyCode enum by design
-        match vk {
-            0x41..=0x5A => Some(unsafe { std::mem::transmute(vk) }), // A-Z
-            0x30..=0x39 => Some(unsafe { std::mem::transmute(vk) }), // 0-9
-            0x70..=0x7B => Some(unsafe { std::mem::transmute(vk) }), // F1-F12
-            _ => Some(unsafe { std::mem::transmute(vk) }),           // Others
-        }
+        KeyCode::from_windows_virtual_key(vk)
     }
 
     /// Update modifier state from Windows message
