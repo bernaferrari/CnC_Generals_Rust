@@ -12,7 +12,7 @@
 //! - Sound and light attachments
 
 use bytemuck::{cast_slice, from_bytes, Pod, Zeroable};
-use nalgebra::{Matrix4, Point3, Quaternion, Vector3, Vector4};
+use nalgebra::{Matrix4, Point3, Quaternion, UnitQuaternion, Vector3, Vector4};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::io::{Cursor, Read, Seek, SeekFrom};
@@ -882,8 +882,9 @@ impl W3DLoader {
                 None
             };
 
-            let transform = Matrix4::new_translation(&translation)
-                * Matrix4::from(rotation);
+            let unit_quat = UnitQuaternion::new_normalize(rotation);
+            let rot_matrix = unit_quat.to_rotation_matrix().to_homogeneous();
+            let transform = Matrix4::new_translation(&translation) * rot_matrix;
 
             bind_pose.push(transform);
             inverse_bind_pose.push(transform.try_inverse().unwrap_or(Matrix4::identity()));

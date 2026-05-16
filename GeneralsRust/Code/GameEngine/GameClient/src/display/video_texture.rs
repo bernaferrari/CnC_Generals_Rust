@@ -650,7 +650,7 @@ impl VideoTexture {
     /// Otherwise transitions to `Stopped` (ready to play on demand).
     ///
     /// State transition: `Stopped` → `Loading` → `Playing` | `Stopped`
-    pub fn initialize(&mut self, device: &wgpu::Device) -> Result<(), String> {
+    pub fn initialize(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<(), String> {
         self.state = VideoState::Loading;
 
         if let Err(err) = self.decoder.init(&self.path) {
@@ -767,7 +767,7 @@ impl VideoTexture {
         self.pipeline = Some(pipeline);
         self.bind_group = Some(bind_group);
 
-        self.decode_and_upload_frame(device);
+        self.decode_and_upload_frame(device, queue);
 
         if self.config.auto_play {
             self.state = VideoState::Playing;
@@ -779,7 +779,7 @@ impl VideoTexture {
         Ok(())
     }
 
-    fn decode_and_upload_frame(&mut self, device: &wgpu::Device) {
+    fn decode_and_upload_frame(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         let frame = match self.decoder.decode_frame() {
             Ok(Some(frame)) => frame,
             Ok(None) => return,
@@ -795,7 +795,7 @@ impl VideoTexture {
             let width = frame.width().max(1);
             let height = frame.height().max(1);
 
-            device.queue().write_texture(
+            queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture,
                     mip_level: 0,

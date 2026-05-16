@@ -567,36 +567,33 @@ impl DisplayInterface for Display {
             let view_glam = glam::Mat4::from_cols_array_2d(&view_matrix.into());
             let proj_glam = glam::Mat4::from_cols_array_2d(&projection_matrix.into());
 
-            // Terrain rendering pass: render terrain chunks, water, and roads
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Display Terrain Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &self.depth_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    occlusion_query_set: None,
-                    timestamp_writes: None,
-                });
-
-                // Record terrain chunk draws (chunks, roads, water)
-                // First update terrain state (uniforms, camera, frustum), then record draws
-                if let Ok(mut terrain_guard) = THE_TERRAIN_VISUAL.lock() {
-                    if let Some(terrain) = terrain_guard.as_mut() {
-                        let _ = terrain.render(&view_glam, &proj_glam);
+            // Terrain rendering pass: guard must outlive RenderPass due to wgpu borrow on record_chunk_draws.
+            if let Ok(mut terrain_guard) = THE_TERRAIN_VISUAL.lock() {
+                if let Some(terrain) = terrain_guard.as_mut() {
+                    let _ = terrain.render(&view_glam, &proj_glam);
+                    {
+                        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Display Terrain Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                depth_slice: None,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                    store: wgpu::StoreOp::Store,
+                                },
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &self.depth_view,
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Clear(1.0),
+                                    store: wgpu::StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
+                            occlusion_query_set: None,
+                            timestamp_writes: None,
+                        });
                         terrain.record_chunk_draws(&mut pass);
                     }
                 }

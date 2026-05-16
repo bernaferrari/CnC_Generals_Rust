@@ -1131,6 +1131,12 @@ impl TheInGameUI {
         }
     }
 
+    pub fn deselect_all() {
+        // C++ parity: InGameUI::deselectAll() — clears all selections
+        // Full implementation would clear the selection list in InGameUI
+        info!("InGameUI::deselect_all() called");
+    }
+
     pub fn message(text: &str) {
         if !with_backend(|backend| backend.message(text)) {
             info!("UI message: {}", GameText::fetch(text));

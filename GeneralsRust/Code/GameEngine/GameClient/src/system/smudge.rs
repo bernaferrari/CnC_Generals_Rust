@@ -104,7 +104,7 @@ impl SmudgeManager {
     }
 
     pub fn init(&mut self) {
-        self.hardware_support = HardwareSmudgeSupport::Supported;
+        self.hardware_support = HardwareSmudgeSupport::Yes;
     }
 
     pub fn reset(&mut self) {

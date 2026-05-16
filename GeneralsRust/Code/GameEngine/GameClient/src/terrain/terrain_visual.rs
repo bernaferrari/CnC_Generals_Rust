@@ -2867,38 +2867,6 @@ impl TerrainVisualImpl {
         self.record_water_draws(pass);
     }
 
-        self.record_skybox_background_draw(pass);
-
-        if let Some(pipeline) = &self.terrain_pipeline {
-            pass.set_pipeline(pipeline);
-            if let Some(camera_bg) = &self.terrain_camera_bind_group {
-                pass.set_bind_group(0, camera_bg, &[]);
-            }
-            for chunk_id in self.visible_chunk_ids_for_draw_area() {
-                let Some(chunk) = self.chunk_manager.get_chunk(chunk_id) else {
-                    continue;
-                };
-                if let Some(binding) = self.chunk_texture_bindings.get(&chunk.id) {
-                    pass.set_bind_group(1, &binding.bind_group, &[]);
-                } else {
-                    warn!(
-                        "Missing texture bind group for chunk {}; using previous binding",
-                        chunk.id
-                    );
-                }
-
-                if let Some(mesh) = self.chunk_meshes.get(&chunk.id) {
-                    pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                    pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-                }
-            }
-        }
-
-        self.record_road_draws(pass);
-        self.record_water_draws(pass);
-    }
-
     fn record_skybox_background_draw<'pass>(&self, pass: &mut RenderPass<'pass>) {
         let (Some(pipeline), Some(bind_group)) = (
             self.skybox_background_pipeline.as_ref(),
@@ -3835,6 +3803,7 @@ impl TerrainVisualImpl {
 
         candidates
     }
+}
 
 impl Default for TerrainVisualImpl {
     fn default() -> Self {
