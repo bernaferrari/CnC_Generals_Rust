@@ -1935,14 +1935,12 @@ impl Snapshotable for Team {
         xfer.xfer_bool(&mut check_enemy_sighted)
             .map_err(|e| e.to_string())?;
         let mut see_enemy = self.see_enemy;
-        xfer.xfer_bool(&mut see_enemy)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut see_enemy).map_err(|e| e.to_string())?;
         let mut prev_see_enemy = self.prev_see_enemy;
         xfer.xfer_bool(&mut prev_see_enemy)
             .map_err(|e| e.to_string())?;
         let mut was_idle = self.was_idle;
-        xfer.xfer_bool(&mut was_idle)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut was_idle).map_err(|e| e.to_string())?;
         let mut destroy_threshold = self.destroy_threshold;
         xfer.xfer_int(&mut destroy_threshold)
             .map_err(|e| e.to_string())?;
@@ -1968,7 +1966,8 @@ impl Snapshotable for Team {
             .map_err(|e| e.to_string())?;
 
         let mut target = self.common_attack_target;
-        xfer.xfer_object_id(&mut target).map_err(|e| e.to_string())?;
+        xfer.xfer_object_id(&mut target)
+            .map_err(|e| e.to_string())?;
 
         // team_relations (inline, matching C++ TeamRelationMap::xfer pattern)
         let team_rel_count = self
@@ -1989,7 +1988,11 @@ impl Snapshotable for Team {
         }
 
         // player_relations (inline, matching C++ PlayerRelationMap::xfer pattern)
-        let player_rel_count = self.player_relations.as_ref().map(|r| r.len() as u16).unwrap_or(0);
+        let player_rel_count = self
+            .player_relations
+            .as_ref()
+            .map(|r| r.len() as u16)
+            .unwrap_or(0);
         let mut player_rel_count_xfer = player_rel_count;
         xfer.xfer_unsigned_short(&mut player_rel_count_xfer)
             .map_err(|e| e.to_string())?;
@@ -2050,8 +2053,10 @@ impl Snapshotable for Team {
         // Status flags
         xfer.xfer_bool(&mut self.entered_or_exited)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.active).map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.created).map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.active)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.created)
+            .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.check_enemy_sighted)
             .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut self.see_enemy)
@@ -2064,7 +2069,8 @@ impl Snapshotable for Team {
         // Destruction tracking
         xfer.xfer_int(&mut self.destroy_threshold)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.cur_units).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.cur_units)
+            .map_err(|e| e.to_string())?;
 
         // Current waypoint ID
         let mut waypoint_id: UnsignedInt = self.current_waypoint_id.unwrap_or(0);

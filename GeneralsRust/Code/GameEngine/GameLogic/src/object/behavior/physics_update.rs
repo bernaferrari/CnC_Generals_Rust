@@ -896,14 +896,11 @@ impl Snapshotable for PhysicsBehaviorUpdate {
 
         let handle = self.physics_handle.lock().map_err(|_| "Lock failed")?;
         let mut yaw_rate = handle.state.yaw_rate;
-        xfer.xfer_real(&mut yaw_rate)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut yaw_rate).map_err(|e| e.to_string())?;
         let mut roll_rate = handle.state.roll_rate;
-        xfer.xfer_real(&mut roll_rate)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut roll_rate).map_err(|e| e.to_string())?;
         let mut pitch_rate = handle.state.pitch_rate;
-        xfer.xfer_real(&mut pitch_rate)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut pitch_rate).map_err(|e| e.to_string())?;
         let mut accel = handle.state.accel;
         xfer.xfer_coord3d(&mut accel);
         let mut prev_accel = handle.state.prev_accel;
@@ -912,17 +909,14 @@ impl Snapshotable for PhysicsBehaviorUpdate {
         xfer.xfer_coord3d(&mut vel);
 
         let mut turning = handle.state.turning;
-        xfer.xfer_int(&mut turning)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut turning).map_err(|e| e.to_string())?;
         let mut ignore_collisions_with = handle.state.ignore_collisions_with;
         xfer.xfer_object_id(&mut ignore_collisions_with)
             .map_err(|e| e.to_string())?;
         let mut flags = handle.state.flags;
-        xfer.xfer_int(&mut flags)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut flags).map_err(|e| e.to_string())?;
         let mut mass = handle.state.mass;
-        xfer.xfer_real(&mut mass)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut mass).map_err(|e| e.to_string())?;
         let mut current_overlap = handle.state.current_overlap;
         xfer.xfer_object_id(&mut current_overlap)
             .map_err(|e| e.to_string())?;
@@ -939,8 +933,7 @@ impl Snapshotable for PhysicsBehaviorUpdate {
         xfer.xfer_real(&mut extra_friction)
             .map_err(|e| e.to_string())?;
         let mut vel_mag = handle.state.vel_mag;
-        xfer.xfer_real(&mut vel_mag)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut vel_mag).map_err(|e| e.to_string())?;
         Ok(())
     }
 

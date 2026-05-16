@@ -16,8 +16,7 @@ use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::{
     game_client_random_value, game_client_random_value_real, BoneOverrideState,
-    MeshUvOverrideState, ModelDrawState, TheGameClient, TheGameLogic,
-    TheParticleSystemManager,
+    MeshUvOverrideState, ModelDrawState, TheGameClient, TheGameLogic, TheParticleSystemManager,
 };
 use crate::upgrade::modules::model_condition::parse_model_condition_flag;
 use game_engine::common::ini::{INIError, INI};
@@ -721,7 +720,8 @@ impl DrawModuleData for W3DModelDrawModuleData {
 impl Snapshotable for W3DModelDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

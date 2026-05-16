@@ -62,7 +62,8 @@ crate::impl_legacy_module_data_with_key_field!(PowerPlantUpdateModuleData, modul
 impl Snapshotable for PowerPlantUpdateModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -202,7 +203,8 @@ impl PowerPlantUpdateInterface for PowerPlantUpdate {
 impl Snapshotable for PowerPlantUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

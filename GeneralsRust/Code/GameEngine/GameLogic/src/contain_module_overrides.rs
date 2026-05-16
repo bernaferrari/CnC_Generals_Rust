@@ -3107,7 +3107,7 @@ impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> Snapshotable
 }
 
 impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> ModuleData
-for ContainModuleDataAdapter<T>
+    for ContainModuleDataAdapter<T>
 {
     fn as_any(&self) -> &dyn Any {
         self
@@ -3355,13 +3355,15 @@ where
 {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

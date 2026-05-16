@@ -1220,8 +1220,7 @@ impl Snapshotable for AutoHealBehavior {
         xfer.xfer_unsigned_int(&mut soonest_heal_frame)
             .map_err(|e| e.to_string())?;
         let mut stopped = self.stopped;
-        xfer.xfer_bool(&mut stopped)
-            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut stopped).map_err(|e| e.to_string())?;
 
         Ok(())
     }

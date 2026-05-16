@@ -2571,7 +2571,8 @@ impl WeaponTemplate {
                 _ => {
                     log::debug!(
                         "WeaponTemplate '{}': unrecognized INI field '{}', skipping",
-                        self.name, key
+                        self.name,
+                        key
                     );
                 }
             }

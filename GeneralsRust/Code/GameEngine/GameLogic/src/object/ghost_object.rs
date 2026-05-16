@@ -68,7 +68,8 @@ impl GhostObject {
 impl Snapshotable for GhostObject {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -196,8 +197,7 @@ impl GhostObjectManager {
 
     pub fn remove_ghost_object(&mut self, ghost: &Arc<RwLock<GhostObject>>) {
         // Find and remove by pointer identity (Arc::ptr_eq).
-        self.ghost_objects
-            .retain(|g| !Arc::ptr_eq(g, ghost));
+        self.ghost_objects.retain(|g| !Arc::ptr_eq(g, ghost));
     }
 
     pub fn update_orphaned_objects(&mut self, _player_index_list: &[Int]) {
@@ -232,7 +232,8 @@ impl GhostObjectManager {
 impl Snapshotable for GhostObjectManager {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

@@ -126,7 +126,8 @@ impl ContainerIniParse for OpenContainModuleData {
 impl Snapshotable for OpenContainModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -142,7 +143,8 @@ impl Snapshotable for OpenContainModuleData {
             .map_err(|e| e.to_string())?;
         self.passengers_allowed_to_fire = passengers_allowed_to_fire;
         let mut door_open_time = self.door_open_time as i32;
-        xfer.xfer_int(&mut door_open_time).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut door_open_time)
+            .map_err(|e| e.to_string())?;
         self.door_open_time = door_open_time as u32;
         let mut allow_inside_kind_of = self.allow_inside_kind_of as u32;
         xfer.xfer_unsigned_int(&mut allow_inside_kind_of)

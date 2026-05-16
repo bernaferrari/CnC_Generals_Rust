@@ -57,13 +57,15 @@ impl DrawModuleData for W3DDebrisDrawModuleData {
 impl Snapshotable for W3DDebrisDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -357,11 +359,14 @@ impl Snapshotable for W3DDebrisDraw {
             .map_err(|e| e.to_string())?;
 
         let mut draw_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut draw_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut draw_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut drawable_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut drawable_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut module_version: XferVersion = 1;
-        xfer.xfer_version(&mut module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|e| e.to_string())?;
 
         let mut model_name = self.model_name.as_str().to_string();
         xfer.xfer_ascii_string(&mut model_name)
@@ -405,11 +410,14 @@ impl Snapshotable for W3DDebrisDraw {
         // C++ parity: DrawModule::xfer -> DrawableModule::xfer -> Module::xfer
         // Each writes a version(1) byte. Match the 3-byte base class chain.
         let mut draw_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut draw_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut draw_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut drawable_module_version: XferVersion = 1;
-        xfer.xfer_version(&mut drawable_module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut drawable_module_version, 1)
+            .map_err(|e| e.to_string())?;
         let mut module_version: XferVersion = 1;
-        xfer.xfer_version(&mut module_version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut module_version, 1)
+            .map_err(|e| e.to_string())?;
 
         let mut model_name = self.model_name.as_str().to_string();
         xfer.xfer_ascii_string(&mut model_name)

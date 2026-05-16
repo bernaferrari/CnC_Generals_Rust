@@ -428,7 +428,8 @@ impl DockUpdate {
 
 impl Snapshotable for DockUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        xfer.xfer_unsigned_int(&mut 0u32).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut 0u32)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -473,7 +474,11 @@ impl Snapshotable for DockUpdate {
                         3 => DockingState::Exiting,
                         _ => DockingState::Complete,
                     },
-                    dock_index: if dock_index_int >= 0 { Some(dock_index_int as usize) } else { None },
+                    dock_index: if dock_index_int >= 0 {
+                        Some(dock_index_int as usize)
+                    } else {
+                        None
+                    },
                     dock_start_frame,
                     priority,
                 };
