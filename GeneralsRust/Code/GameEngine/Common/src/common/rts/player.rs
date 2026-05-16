@@ -16,8 +16,8 @@
 //! - Resource gathering management
 
 use crate::common::rts::{
-    AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle, ProductionPrerequisite,
-    Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
+    get_science_store, AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle,
+    ProductionPrerequisite, Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
 };
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::collections::{HashMap, HashSet};
@@ -2170,9 +2170,10 @@ impl Player {
         if science == SCIENCE_INVALID {
             return false;
         }
-        // In full implementation, would check TheScienceStore
-        // Simplified: always true
-        true
+
+        get_science_store()
+            .map(|store| store.player_has_prereqs_for_science(self, science))
+            .unwrap_or(false)
     }
 
     /// Check if capable of purchasing science
@@ -2197,8 +2198,11 @@ impl Player {
             return false;
         }
 
-        // Check cost (simplified: assume cost of 1)
-        let cost = 1; // Would query TheScienceStore->getSciencePurchaseCost()
+        let Some(store) = get_science_store() else {
+            return false;
+        };
+
+        let cost = store.get_science_purchase_cost(science);
         if cost == 0 || cost > self.science_purchase_points {
             return false;
         }
@@ -2213,12 +2217,10 @@ impl Player {
             return false;
         }
 
-        // Deduct cost (simplified: 1 point)
-        let cost = 1;
-        self.science_purchase_points -= cost;
-        if self.science_purchase_points < 0 {
-            self.science_purchase_points = 0;
-        }
+        let cost = get_science_store()
+            .map(|store| store.get_science_purchase_cost(science))
+            .unwrap_or(0);
+        self.add_science_purchase_points(-cost);
 
         // Add the science
         self.grant_science(science);
@@ -2232,7 +2234,13 @@ impl Player {
     /// Grant a science (bypassing purchase system)
     /// C++ Reference: Player::grantScience() (Player.cpp lines 2195-2201)
     pub fn grant_science_with_check(&mut self, science: ScienceType) -> bool {
-        // In full implementation, would check TheScienceStore->isScienceGrantable()
+        if !get_science_store()
+            .map(|store| store.is_science_grantable(science))
+            .unwrap_or(false)
+        {
+            return false;
+        }
+
         self.grant_science(science);
         true
     }
