@@ -35,7 +35,7 @@ use super::{
     shader::W3DShaderManager,
     AntiAliasing, ShadowQuality, W3DError, W3DResult,
 };
-use crate::terrain::terrain_visual::get_terrain_visual;
+use crate::terrain::{terrain_visual::get_terrain_visual, TerrainVisual};
 use glam::{Mat4 as GMat4, Vec4 as GVec4};
 use log::warn;
 
@@ -54,10 +54,10 @@ pub enum W3DRendererError {
 
 fn ultraviolet_to_matrix4(mat: &Mat4) -> GMat4 {
     GMat4::from_cols(
-        GVec4::new(mat.x.x, mat.x.y, mat.x.z, mat.x.w),
-        GVec4::new(mat.y.x, mat.y.y, mat.y.z, mat.y.w),
-        GVec4::new(mat.z.x, mat.z.y, mat.z.z, mat.z.w),
-        GVec4::new(mat.w.x, mat.w.y, mat.w.z, mat.w.w),
+        GVec4::new(mat.cols[0].x, mat.cols[0].y, mat.cols[0].z, mat.cols[0].w),
+        GVec4::new(mat.cols[1].x, mat.cols[1].y, mat.cols[1].z, mat.cols[1].w),
+        GVec4::new(mat.cols[2].x, mat.cols[2].y, mat.cols[2].z, mat.cols[2].w),
+        GVec4::new(mat.cols[3].x, mat.cols[3].y, mat.cols[3].z, mat.cols[3].w),
     )
 }
 
@@ -678,6 +678,7 @@ impl W3DRenderer {
             let (pipeline, blur_pipeline, tex, view, blur_tex, blur_view, noise_tex, noise_view) =
                 Self::create_ssao_pipeline(
                     &device,
+                    &queue,
                     shader_manager,
                     settings.width,
                     settings.height,
@@ -847,6 +848,7 @@ impl W3DRenderer {
         _frame_data: &W3DFrameData,
     ) -> W3DResult<()> {
         self.current_pass = Some(W3DRenderPassType::DepthPrepass);
+        let terrain_guard = get_terrain_visual().ok();
 
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("W3D Depth Pre-pass"),
@@ -865,7 +867,7 @@ impl W3DRenderer {
 
         render_pass.set_pipeline(&self.depth_prepass_pipeline);
         render_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-        if let Ok(terrain_guard) = get_terrain_visual() {
+        if let Some(terrain_guard) = terrain_guard.as_ref() {
             if let Some(terrain_visual) = terrain_guard.as_ref() {
                 if let Err(err) = terrain_visual
                     .chunk_manager()
@@ -892,6 +894,7 @@ impl W3DRenderer {
         }
 
         self.current_pass = Some(W3DRenderPassType::GBuffer);
+        let terrain_guard = get_terrain_visual().ok();
 
         let gbuffer_pipeline = self.gbuffer_pipeline.as_ref().unwrap();
 
@@ -957,7 +960,7 @@ impl W3DRenderer {
         render_pass.set_bind_group(1, &self.material_bind_group, &[]);
         render_pass.set_bind_group(2, &self.bone_bind_group, &[]);
 
-        if let Ok(terrain_guard) = get_terrain_visual() {
+        if let Some(terrain_guard) = terrain_guard.as_ref() {
             if let Some(terrain_visual) = terrain_guard.as_ref() {
                 if let Err(err) = terrain_visual.chunk_manager().render_pass(&mut render_pass) {
                     log::warn!("Terrain G-buffer render failed: {}", err);
@@ -1020,6 +1023,7 @@ impl W3DRenderer {
         frame_data: &W3DFrameData,
     ) -> W3DResult<()> {
         self.current_pass = Some(W3DRenderPassType::Forward);
+        let mut terrain_guard = get_terrain_visual().ok();
 
         let target_view = if self.settings.enable_deferred_rendering {
             &self.hdr_view
@@ -1027,7 +1031,7 @@ impl W3DRenderer {
             surface_view
         };
 
-        if let Ok(mut terrain_guard) = get_terrain_visual() {
+        if let Some(terrain_guard) = terrain_guard.as_mut() {
             if let Some(terrain_visual) = terrain_guard.as_mut() {
                 let view_matrix = ultraviolet_to_matrix4(&frame_data.view_matrix);
                 let projection_matrix = ultraviolet_to_matrix4(&frame_data.projection_matrix);
@@ -1075,7 +1079,7 @@ impl W3DRenderer {
         render_pass.set_bind_group(2, &self.material_bind_group, &[]);
         render_pass.set_bind_group(3, &self.bone_bind_group, &[]);
 
-        if let Ok(terrain_guard) = get_terrain_visual() {
+        if let Some(terrain_guard) = terrain_guard.as_ref() {
             if let Some(terrain_visual) = terrain_guard.as_ref() {
                 terrain_visual.record_chunk_draws(&mut render_pass);
                 render_pass.set_pipeline(&self.forward_pipeline);
@@ -2342,6 +2346,7 @@ impl W3DRenderer {
 
     fn create_ssao_pipeline(
         device: &Device,
+        queue: &Queue,
         shader_manager: &W3DShaderManager,
         width: u32,
         height: u32,
@@ -2410,10 +2415,25 @@ impl W3DRenderer {
         });
         let noise_view = noise_texture.create_view(&TextureViewDescriptor::default());
 
-        // Write noise data
-        device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("SSAO Noise Encoder"),
-        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &noise_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &noise_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * 4),
+                rows_per_image: Some(4),
+            },
+            Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+        );
 
         // Create bind group layouts
         let camera_layout = Self::create_camera_bind_group_layout(device);
@@ -2719,10 +2739,11 @@ impl<'a> W3DRenderPass<'a> {
     }
 
     pub fn draw(&mut self, vertices: std::ops::Range<u32>, instances: std::ops::Range<u32>) {
+        let vertex_count = vertices.end - vertices.start;
+        let instance_count = instances.end - instances.start;
         self.inner.draw(vertices, instances);
         self.stats.draw_calls += 1;
-        self.stats.vertices_processed +=
-            (vertices.end - vertices.start) as u64 * (instances.end - instances.start) as u64;
+        self.stats.vertices_processed += vertex_count as u64 * instance_count as u64;
     }
 
     pub fn draw_indexed(
@@ -2731,10 +2752,11 @@ impl<'a> W3DRenderPass<'a> {
         base_vertex: i32,
         instances: std::ops::Range<u32>,
     ) {
+        let index_count = indices.end - indices.start;
+        let instance_count = instances.end - instances.start;
         self.inner.draw_indexed(indices, base_vertex, instances);
         self.stats.draw_calls += 1;
-        self.stats.triangles_rendered +=
-            (indices.end - indices.start) as u64 / 3 * (instances.end - instances.start) as u64;
+        self.stats.triangles_rendered += index_count as u64 / 3 * instance_count as u64;
     }
 }
 

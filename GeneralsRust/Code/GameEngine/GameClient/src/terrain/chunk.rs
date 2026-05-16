@@ -854,6 +854,11 @@ impl ChunkManager {
         )
     }
 
+    /// Validate visible chunk state while a depth-only render pass is active.
+    pub fn render_depth<'a>(&'a self, render_pass: &mut RenderPass<'a>) -> TerrainResult<()> {
+        self.render_pass(render_pass)
+    }
+
     /// Submit GPU draw calls for all visible chunks.
     ///
     /// Caller must set the terrain pipeline and camera bind group (group 0) first.
@@ -874,11 +879,9 @@ impl ChunkManager {
             &self.view_frustum.projection_matrix,
         )?;
 
-        for chunk in self
-            .chunks
-            .values()
-            .filter(|chunk| chunk.visible && !chunk.vertices.is_empty() && !chunk.indices.is_empty())
-        {
+        for chunk in self.chunks.values().filter(|chunk| {
+            chunk.visible && !chunk.vertices.is_empty() && !chunk.indices.is_empty()
+        }) {
             if let Some(bg) = bind_group_fn(chunk.id) {
                 render_pass.set_bind_group(1, &bg, &[]);
             }

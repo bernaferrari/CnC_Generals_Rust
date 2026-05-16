@@ -2,12 +2,10 @@
 //!
 //! This module provides the GameClient-facing skeleton type used by the
 //! rendering pipeline. It wraps `HTreeClass` from the `ww3d-animation`
-//! crate and converts bone transforms to the `cgmath` matrices expected
-//! by the rest of the GameClient W3D layer.
+//! crate and exposes bone transforms to the rest of the GameClient W3D layer.
 //!
 //! C++ Reference: HTreeClass in htree.h / htree.cpp
 
-use cgmath::Matrix4;
 use glam::{Mat4, Quat, Vec3};
 use ww3d_animation::HTreeClass;
 
@@ -55,12 +53,14 @@ impl W3DHTree {
 
     /// Add a bone from translation + rotation.
     pub fn add_bone(&mut self, name: &str, parent_idx: i32, translation: Vec3, rotation: Quat) {
-        self.inner.add_pivot(name, parent_idx, translation, rotation);
+        self.inner
+            .add_pivot(name, parent_idx, translation, rotation);
     }
 
     /// Add a bone providing the base transform directly.
     pub fn add_bone_from_base(&mut self, name: &str, parent_idx: i32, base_transform: Mat4) {
-        self.inner.add_pivot_from_base(name, parent_idx, base_transform);
+        self.inner
+            .add_pivot_from_base(name, parent_idx, base_transform);
     }
 
     /// Get number of bones in the hierarchy.
@@ -109,10 +109,9 @@ impl W3DHTree {
         self.inner.get_transform(index).unwrap_or(Mat4::IDENTITY)
     }
 
-    /// Retrieve the final bone transform as a `cgmath::Matrix4<f32>`.
-    /// For compatibility with the rest of the GameClient W3D layer.
-    pub fn get_bone_transform(&self, index: usize) -> Matrix4<f32> {
-        glam_to_cgmath(self.get_bone_transform_glam(index))
+    /// Retrieve the final bone transform as a `glam::Mat4`.
+    pub fn get_bone_transform(&self, index: usize) -> Mat4 {
+        self.get_bone_transform_glam(index)
     }
 
     /// Convert all bone transforms to a flat `f32` array suitable for
@@ -145,7 +144,10 @@ impl W3DHTree {
 
         for i in 0..num_bones {
             let bone_tm = self.inner.get_transform(i).unwrap_or(Mat4::IDENTITY);
-            let inv_bind = inverse_bind_matrices.get(i).copied().unwrap_or(Mat4::IDENTITY);
+            let inv_bind = inverse_bind_matrices
+                .get(i)
+                .copied()
+                .unwrap_or(Mat4::IDENTITY);
             let skinning = bone_tm * inv_bind;
             data.extend_from_slice(&skinning.to_cols_array());
         }
@@ -175,17 +177,4 @@ impl Default for W3DHTree {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Convert a `glam::Mat4` to a `cgmath::Matrix4<f32>`.
-fn glam_to_cgmath(m: Mat4) -> Matrix4<f32> {
-    let cols = m.to_cols_array();
-    // cgmath Matrix4 uses column-major storage in `x`, `y`, `z`, `w` fields
-    // where each field is a Vector4 (column).
-    Matrix4::new(
-        cols[0], cols[1], cols[2], cols[3],   // col 0
-        cols[4], cols[5], cols[6], cols[7],   // col 1
-        cols[8], cols[9], cols[10], cols[11], // col 2
-        cols[12], cols[13], cols[14], cols[15], // col 3
-    )
 }
