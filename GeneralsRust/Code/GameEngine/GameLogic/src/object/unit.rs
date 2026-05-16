@@ -6769,7 +6769,11 @@ impl AIUpdateInterface for UnitAIUpdate {
             if let Some(last) = path.last() {
                 let dx = destination.x - last.x;
                 let dy = destination.y - last.y;
-                let dz = destination.z - guard.get_position().z;
+                let path_goal_z = guard
+                    .target_position
+                    .unwrap_or_else(|| guard.get_position())
+                    .z;
+                let dz = destination.z - path_goal_z;
                 if dx * dx + dy * dy + dz * dz < 0.25 {
                     return true;
                 }
