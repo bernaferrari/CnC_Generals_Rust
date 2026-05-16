@@ -82,6 +82,7 @@ env_logger = "0.10"
 default = ["async", "ai", "scripting", "legacy_port", "allow_surrender"]
 # Compatibility flags mirroring legacy build defines for conditional code paths.
 internal = []
+legacy_perf_tests = []
 count_script_usage = []
 script_profiling = []
 allow_debug_cheats = []
