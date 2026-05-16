@@ -3,6 +3,7 @@
 // Ported to Rust
 
 use crate::prelude::*;
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 #[derive(Debug, Clone)]
 pub struct HelicopterSlowDeathUpdateModuleData {
@@ -133,42 +134,46 @@ impl HelicopterSlowDeathUpdate {
 
         UpdateSleepTime::None
     }
+}
 
-    pub fn save(&self, xfer: &mut dyn Xfer) {
-        let xfer_io = |result: std::io::Result<()>, field: &str| {
-            if let Err(err) = result {
-                panic!("HelicopterSlowDeathUpdate::save failed to xfer {field}: {err}");
-            }
-        };
-
-        xfer.xfer_version_write(1);
+impl Snapshotable for HelicopterSlowDeathUpdate {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut fall_start_frame = self.fall_start_frame;
-        xfer_io(xfer.xfer_u32(&mut fall_start_frame), "fall_start_frame");
+        xfer.xfer_unsigned_int(&mut fall_start_frame)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::crc fall_start_frame: {e:?}"))?;
         let mut death_frame = self.death_frame;
-        xfer_io(xfer.xfer_u32(&mut death_frame), "death_frame");
-        let mut thrust_direction = self.thrust_direction;
-        xfer.xfer_coord3d(&mut thrust_direction);
-        let mut rotation_rate = self.rotation_rate;
-        xfer.xfer_coord3d(&mut rotation_rate);
+        xfer.xfer_unsigned_int(&mut death_frame)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::crc death_frame: {e:?}"))?;
+        Ok(())
     }
 
-    pub fn load(&mut self, xfer: &mut dyn Xfer) {
-        let xfer_io = |result: std::io::Result<()>, field: &str| {
-            if let Err(err) = result {
-                panic!("HelicopterSlowDeathUpdate::load failed to xfer {field}: {err}");
-            }
-        };
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::xfer version failed: {e:?}"))?;
 
-        let version = xfer.xfer_version_read();
-        if version >= 1 {
-            xfer_io(
-                xfer.xfer_u32(&mut self.fall_start_frame),
-                "fall_start_frame",
-            );
-            xfer_io(xfer.xfer_u32(&mut self.death_frame), "death_frame");
-            xfer.xfer_coord3d(&mut self.thrust_direction);
-            xfer.xfer_coord3d(&mut self.rotation_rate);
-        }
+        xfer.xfer_unsigned_int(&mut self.fall_start_frame)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::xfer fall_start_frame: {e:?}"))?;
+        xfer.xfer_unsigned_int(&mut self.death_frame)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::xfer death_frame: {e:?}"))?;
+        xfer.xfer_real(&mut self.thrust_direction.x)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::xfer thrust_direction.x: {e:?}"))?;
+        xfer.xfer_real(&mut self.thrust_direction.y)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::xfer thrust_direction.y: {e:?}"))?;
+        xfer.xfer_real(&mut self.thrust_direction.z)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::xfer thrust_direction.z: {e:?}"))?;
+        xfer.xfer_real(&mut self.rotation_rate.x)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::xfer rotation_rate.x: {e:?}"))?;
+        xfer.xfer_real(&mut self.rotation_rate.y)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::xfer rotation_rate.y: {e:?}"))?;
+        xfer.xfer_real(&mut self.rotation_rate.z)
+            .map_err(|e| format!("HelicopterSlowDeathUpdate::xfer rotation_rate.z: {e:?}"))?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 

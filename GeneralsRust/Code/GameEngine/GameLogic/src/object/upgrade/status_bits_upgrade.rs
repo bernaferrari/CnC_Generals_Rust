@@ -481,7 +481,12 @@ impl Module for StatusBitsUpgrade {
 }
 
 impl Snapshotable for StatusBitsUpgrade {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: u8 = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| e.to_string())?;
+        crate::object::upgrade::upgrade_module::crc_upgrade_module_state(xfer, self.applied)?;
         Ok(())
     }
 
