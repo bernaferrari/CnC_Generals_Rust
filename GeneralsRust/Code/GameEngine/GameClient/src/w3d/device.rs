@@ -23,10 +23,10 @@ use wgpu::{
     util::DeviceExt, Adapter, Backends, BindGroupLayout, BindGroupLayoutDescriptor,
     BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, CommandEncoder,
     CompositeAlphaMode, ComputePipeline, Device, DeviceDescriptor, Dx12Compiler, Features,
-    Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits, PowerPreference,
-    PresentMode, Queue, RenderPipeline, RequestAdapterOptions, SamplerBindingType, ShaderStages,
-    Surface, SurfaceConfiguration, SurfaceError, TextureFormat, TextureSampleType, TextureUsages,
-    TextureView, TextureViewDimension,
+    Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits, MemoryHints,
+    PowerPreference, PresentMode, Queue, RenderPipeline, RequestAdapterOptions, SamplerBindingType,
+    ShaderStages, Surface, SurfaceConfiguration, SurfaceError, TextureFormat, TextureSampleType,
+    TextureUsages, TextureView, TextureViewDimension,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -144,6 +144,7 @@ impl Default for W3DDeviceSettings {
                 max_push_constant_size: 256,
                 min_uniform_buffer_offset_alignment: 256,
                 min_storage_buffer_offset_alignment: 256,
+                ..Default::default()
             },
             config: W3DConfig::default(),
         }
@@ -359,7 +360,7 @@ impl W3DDevice {
         log::info!(
             "🎮 GPU Adapter: {} ({})",
             adapter_info.name,
-            adapter_info.device_type.to_string()
+            format!("{:?}", adapter_info.device_type)
         );
         log::info!(
             "📊 Backend: {:?}, Vendor: 0x{:x}",
@@ -374,14 +375,11 @@ impl W3DDevice {
                 required_limits: settings.required_limits.clone(),
                 label: Some("W3D Revolutionary Device"),
                 memory_hints: MemoryHints::Performance,
-                trace: if cfg!(debug_assertions) {
-                    wgpu::Trace::Directory(std::path::PathBuf::from("w3d_trace"))
-                } else {
-                    wgpu::Trace::Off
-                },
+                trace: wgpu::Trace::Off,
                 ..Default::default()
             })
-            .await?;
+            .await
+            .map_err(W3DDeviceError::from)?;
 
         let device = Arc::new(device);
         let queue = Arc::new(queue);
@@ -635,8 +633,8 @@ impl W3DDevice {
     pub async fn load_w3d_model(&mut self, path: &str) -> W3DResult<W3DResourceHandle> {
         log::info!("📦 Loading W3D model: {}", path);
 
-        if let Some(handle) = self.resource_cache.get(path).copied() {
-            return Ok(handle);
+        if let Some(handle) = self.resource_cache.get(path) {
+            return Ok(*handle);
         }
 
         let loader = W3DLoader::new();

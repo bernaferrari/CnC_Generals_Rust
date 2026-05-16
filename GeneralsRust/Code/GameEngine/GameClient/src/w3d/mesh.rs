@@ -5,7 +5,7 @@ use bytemuck::{Pod, Zeroable};
 use std::sync::Arc;
 use thiserror::Error;
 use ultraviolet::{Vec2, Vec3};
-use wgpu::{Buffer, BufferDescriptor, BufferUsages, Device};
+use wgpu::{util::DeviceExt, Buffer, BufferUsages, Device};
 
 #[derive(Error, Debug)]
 pub enum W3DMeshError {
@@ -57,19 +57,29 @@ impl W3DMeshBuilder {
         self.indices.extend_from_slice(&[v0, v1, v2]);
     }
 
+    fn validate(&self) -> W3DResult<()> {
+        if self.vertices.is_empty() {
+            return Err(W3DMeshError::InvalidData("mesh has no vertices".to_string()).into());
+        }
+        if self.indices.is_empty() {
+            return Err(W3DMeshError::InvalidData("mesh has no indices".to_string()).into());
+        }
+        Ok(())
+    }
+
     pub fn build(&self, device: &Device) -> W3DResult<W3DMesh> {
-        let vertex_buffer = device.create_buffer(&BufferDescriptor {
+        self.validate()?;
+
+        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("W3D Mesh Vertices"),
-            size: (std::mem::size_of::<W3DVertex>() * self.vertices.len()) as u64,
+            contents: bytemuck::cast_slice(&self.vertices),
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
         });
 
-        let index_buffer = device.create_buffer(&BufferDescriptor {
+        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("W3D Mesh Indices"),
-            size: (std::mem::size_of::<u32>() * self.indices.len()) as u64,
+            contents: bytemuck::cast_slice(&self.indices),
             usage: BufferUsages::INDEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
         });
 
         Ok(W3DMesh {
@@ -97,5 +107,50 @@ impl W3DMeshManager {
 
     pub fn begin_frame(&mut self, _frame_index: u64) {
         // Update mesh LOD, streaming, etc.
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vertex() -> W3DVertex {
+        W3DVertex {
+            position: [0.0, 0.0, 0.0],
+            normal: [0.0, 0.0, 1.0],
+            uv: [0.0, 0.0],
+            color: [1.0, 1.0, 1.0, 1.0],
+            bone_indices: [0; 4],
+            bone_weights: [0.0; 4],
+        }
+    }
+
+    #[test]
+    fn mesh_builder_rejects_empty_geometry_before_gpu_allocation() {
+        let builder = W3DMeshBuilder::new();
+        assert!(builder.validate().is_err());
+    }
+
+    #[test]
+    fn mesh_builder_rejects_missing_indices_before_gpu_allocation() {
+        let mut builder = W3DMeshBuilder::new();
+        builder.add_vertex(vertex());
+        assert!(builder.validate().is_err());
+    }
+
+    #[test]
+    fn mesh_builder_accepts_triangle_geometry() {
+        let mut builder = W3DMeshBuilder::new();
+        builder.add_vertex(vertex());
+        builder.add_vertex(W3DVertex {
+            position: [1.0, 0.0, 0.0],
+            ..vertex()
+        });
+        builder.add_vertex(W3DVertex {
+            position: [0.0, 1.0, 0.0],
+            ..vertex()
+        });
+        builder.add_triangle(0, 1, 2);
+        assert!(builder.validate().is_ok());
     }
 }
