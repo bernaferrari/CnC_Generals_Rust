@@ -960,15 +960,11 @@ fn active_body_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<ActiveBodyModuleData>()
-        .expect("ActiveBodyModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<ActiveBodyModuleData>("ActiveBody", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("ActiveBody");
     let (owner_id, _) = resolve_owner_info(&thing);
     let body = Arc::new(Mutex::new(ActiveBody::new_with_owner(
-        typed_data.clone(),
+        data_arc.as_ref().clone(),
         owner_id,
     )));
     Box::new(ActiveBodyModule::new(
@@ -1065,14 +1061,13 @@ fn structure_body_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<StructureBodyModuleData>()
-        .expect("StructureBodyModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<StructureBodyModuleData>("StructureBody", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("StructureBody");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let body = Arc::new(Mutex::new(StructureBody::new(typed_data.clone(), owner_id)));
+    let body = Arc::new(Mutex::new(StructureBody::new(
+        data_arc.as_ref().clone(),
+        owner_id,
+    )));
     Box::new(StructureBodyModule::new(
         module_name_key,
         data_arc,
@@ -1157,15 +1152,11 @@ fn highlander_body_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<ActiveBodyModuleData>()
-        .expect("ActiveBodyModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<ActiveBodyModuleData>("HighlanderBody", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("HighlanderBody");
     let (owner_id, _) = resolve_owner_info(&thing);
     let body = Arc::new(Mutex::new(HighlanderBody::new(
-        typed_data.clone(),
+        data_arc.as_ref().clone(),
         owner_id,
     )));
     Box::new(HighlanderBodyModule::new(
