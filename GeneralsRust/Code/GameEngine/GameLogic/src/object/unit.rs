@@ -3335,6 +3335,10 @@ impl UnitAIUpdate {
             .map(|surfaces| surfaces != 0)
             .unwrap_or(false)
     }
+
+    fn safe_path_search_distance(vision_range: Real, repulsed_distance: Real) -> Real {
+        vision_range + repulsed_distance
+    }
 }
 
 impl AIUpdateInterface for UnitAIUpdate {
@@ -5742,7 +5746,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             .map_err(|_| "unit base object lock poisoned".to_string())?;
         let owner_pos = *obj_guard.get_position();
         let owner_id = obj_guard.get_id();
-        let owner_radius = obj_guard.get_geometry_info().get_major_radius();
+        let owner_vision_range = obj_guard.get_vision_range();
 
         let repulsor = get_legacy_object(repulsor_id)
             .ok_or_else(|| "request_safe_path missing repulsor object".to_string())?;
@@ -5750,10 +5754,6 @@ impl AIUpdateInterface for UnitAIUpdate {
             .read()
             .map_err(|_| "request_safe_path repulsor lock poisoned".to_string())?;
         let repulsor_pos = *repulsor_guard.get_position();
-        let repulsor_radius = repulsor_guard
-            .get_geometry_info()
-            .get_bounding_circle_radius();
-
         let locomotor_set = guard.locomotor_set.clone();
 
         drop(repulsor_guard);
@@ -5778,9 +5778,17 @@ impl AIUpdateInterface for UnitAIUpdate {
             away = Coord3D::new(1.0, 0.0, 0.0);
         }
         let away_length = (away.x * away.x + away.y * away.y).sqrt().max(0.001);
-        let safe_distance = (repulsor_radius.max(PATHFIND_CELL_SIZE_F)
-            + owner_radius.max(PATHFIND_CELL_SIZE_F))
-            * 2.0;
+        let repulsed_distance = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|data| data.repulsed_distance)
+            })
+            .unwrap_or(0.0);
+        let safe_distance = Self::safe_path_search_distance(owner_vision_range, repulsed_distance);
         let safe_destination = Coord3D::new(
             owner_pos.x + (away.x / away_length) * safe_distance,
             owner_pos.y + (away.y / away_length) * safe_distance,
@@ -7851,6 +7859,11 @@ mod tests {
             ai.request_approach_path(&destination).unwrap_err(),
             "Attempting to path immobile unit"
         );
+    }
+
+    #[test]
+    fn unit_ai_update_safe_path_distance_matches_cpp_inputs() {
+        assert!((UnitAIUpdate::safe_path_search_distance(120.0, 35.0) - 155.0).abs() < 0.001);
     }
 }
 
