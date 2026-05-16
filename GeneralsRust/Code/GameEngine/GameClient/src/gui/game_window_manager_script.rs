@@ -21,15 +21,16 @@
 //! - [`WindowScriptEngine`] — orchestrates parsing, callback resolution, and action execution
 //! - [`WindowDefaults`] — per-file default state (colors, fonts) matching C++ globals
 
+use crate::gui::callbacks as cb;
+use crate::gui::game_window::{
+    GameWindow, WindowCallbacks as GwCallbacks, WindowInstanceData, WindowMessage, WindowMsgData,
+    WindowMsgHandled, WindowWidget,
+};
+use crate::gui::shell::main_menu::get_main_menu;
+use crate::gui::window_manager::WindowLayout;
 use crate::gui::window_script::{
     parse_window_script, WindowDefinition, WindowLayoutDefinition, WindowScriptError,
 };
-use crate::gui::game_window::{
-    GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
-    WindowCallbacks as GwCallbacks, WindowInstanceData,
-};
-use crate::gui::callbacks as cb;
-use crate::gui::window_manager::WindowLayout;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -529,8 +530,7 @@ impl ScriptCallbackRegistry {
 
         self.register_win_system("MOTDSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
 
-        // PARITY_TODO: MainMenuSystem uses MenuCallbacks trait — needs Shell adapter
-        self.register_win_system("MainMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("MainMenuSystem", main_menu_system);
         self.register_win_system("OptionsMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("SinglePlayerMenuSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_system("QuitMenuSystem", cb::quit_menu_system);
@@ -608,8 +608,7 @@ impl ScriptCallbackRegistry {
         self.register_win_input("GadgetStaticTextInput", gadget_static_text_input);
         self.register_win_input("GadgetTextEntryInput", gadget_text_entry_input);
 
-        // PARITY_TODO: MainMenuInput uses MenuCallbacks trait — needs Shell adapter
-        self.register_win_input("MainMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("MainMenuInput", main_menu_input);
         self.register_win_input("MapSelectMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("OptionsMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         self.register_win_input("SinglePlayerMenuInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
@@ -672,8 +671,11 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_init_table(&mut self) {
-        // PARITY_TODO: MainMenuInit uses MenuCallbacks trait — needs Shell adapter
-        self.register_layout_init("MainMenuInit", |_layout| {});
+        self.register_layout_init("MainMenuInit", |layout| {
+            if let Err(err) = get_main_menu().init(layout, None) {
+                log::warn!("MainMenuInit failed: {}", err);
+            }
+        });
         self.register_layout_init("OptionsMenuInit", |_layout| {});
         self.register_layout_init("SaveLoadMenuInit", |layout| cb::save_load_menu_init(layout, None));
         self.register_layout_init("SaveLoadMenuFullScreenInit", |layout| cb::save_load_menu_full_screen_init(layout, None));
@@ -722,9 +724,13 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_update_table(&mut self) {
-        // PARITY_TODO: MainMenuUpdate/OptionsMenuUpdate/SinglePlayerMenuUpdate/MapSelectMenuUpdate
+        // PARITY_TODO: OptionsMenuUpdate/SinglePlayerMenuUpdate/MapSelectMenuUpdate
         // use MenuCallbacks trait — needs Shell adapter
-        self.register_layout_update("MainMenuUpdate", |_layout| {});
+        self.register_layout_update("MainMenuUpdate", |layout| {
+            if let Err(err) = get_main_menu().update(layout, None) {
+                log::warn!("MainMenuUpdate failed: {}", err);
+            }
+        });
         self.register_layout_update("OptionsMenuUpdate", |_layout| {});
         self.register_layout_update("SinglePlayerMenuUpdate", |_layout| {});
         self.register_layout_update("MapSelectMenuUpdate", |_layout| {});
@@ -763,8 +769,12 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_shutdown_table(&mut self) {
-        // PARITY_TODO: MainMenuShutdown/OptionsMenuShutdown use MenuCallbacks trait
-        self.register_layout_shutdown("MainMenuShutdown", |_layout| {});
+        // PARITY_TODO: OptionsMenuShutdown uses MenuCallbacks trait
+        self.register_layout_shutdown("MainMenuShutdown", |layout| {
+            if let Err(err) = get_main_menu().shutdown(layout, None) {
+                log::warn!("MainMenuShutdown failed: {}", err);
+            }
+        });
         self.register_layout_shutdown("OptionsMenuShutdown", |_layout| {});
         self.register_layout_shutdown("SaveLoadMenuShutdown", |layout| cb::save_load_menu_shutdown(layout, None));
         self.register_layout_shutdown("PopupCommunicatorShutdown", |layout| cb::popup_communicator_shutdown(layout, None));
@@ -921,6 +931,81 @@ fn gadget_text_entry_system(window: &GameWindow, msg: WindowMessage, _data1: Win
     }
     let _ = msg;
     WindowMsgHandled::Ignored
+}
+
+fn legacy_main_menu_message(msg: WindowMessage) -> u32 {
+    match msg {
+        WindowMessage::None => 0,
+        WindowMessage::Create => 1,
+        WindowMessage::Destroy => 2,
+        WindowMessage::Activate => 3,
+        WindowMessage::Enable => 4,
+        WindowMessage::LeftDown => 5,
+        WindowMessage::LeftUp => 6,
+        WindowMessage::LeftDoubleClick => 7,
+        WindowMessage::LeftDrag => 8,
+        WindowMessage::MiddleDown => 9,
+        WindowMessage::MiddleUp => 10,
+        WindowMessage::MiddleDoubleClick => 11,
+        WindowMessage::MiddleDrag => 12,
+        WindowMessage::RightDown => 13,
+        WindowMessage::RightUp => 14,
+        WindowMessage::RightDoubleClick => 15,
+        WindowMessage::RightDrag => 16,
+        WindowMessage::MouseEntering => 17,
+        WindowMessage::MouseLeaving => 18,
+        WindowMessage::WheelUp => 19,
+        WindowMessage::WheelDown => 20,
+        WindowMessage::Char => 21,
+        WindowMessage::ScriptCreate => 22,
+        WindowMessage::InputFocus => 23,
+        WindowMessage::MousePos => 24,
+        WindowMessage::ImeChar => 25,
+        WindowMessage::ImeString => 26,
+        WindowMessage::GadgetSelected => 16392,
+        WindowMessage::GadgetMouseEntering => 16390,
+        WindowMessage::GadgetMouseLeaving => 16391,
+        WindowMessage::GadgetEditDone => 0x0080,
+        WindowMessage::GadgetValueChanged => 0x0081,
+        WindowMessage::GadgetRightClick => 0x0082,
+        WindowMessage::User(value) => value,
+    }
+}
+
+fn main_menu_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    if get_main_menu().system(
+        window.get_id() as u32,
+        legacy_main_menu_message(msg),
+        data1,
+        data2,
+    ) {
+        WindowMsgHandled::Handled
+    } else {
+        WindowMsgHandled::Ignored
+    }
+}
+
+fn main_menu_input(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    if get_main_menu().input(
+        window.get_id() as u32,
+        legacy_main_menu_message(msg),
+        data1,
+        data2,
+    ) {
+        WindowMsgHandled::Handled
+    } else {
+        WindowMsgHandled::Ignored
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1565,6 +1650,33 @@ mod tests {
         registry.register_win_system("TestSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
         let cb = registry.get_win_system("TestSystem").unwrap();
         assert!(registry.get_win_system("Nonexistent").is_none());
+    }
+
+    #[test]
+    fn main_menu_callbacks_are_wired_to_registry() {
+        let mut registry = ScriptCallbackRegistry::new();
+        registry.populate_defaults();
+
+        assert!(registry.get_win_system("MainMenuSystem").is_some());
+        assert!(registry.get_win_input("MainMenuInput").is_some());
+        assert!(registry.get_layout_init("MainMenuInit").is_some());
+        assert!(registry.get_layout_update("MainMenuUpdate").is_some());
+        assert!(registry.get_layout_shutdown("MainMenuShutdown").is_some());
+    }
+
+    #[test]
+    fn main_menu_adapter_uses_legacy_gadget_message_ids() {
+        assert_eq!(legacy_main_menu_message(WindowMessage::Create), 1);
+        assert_eq!(legacy_main_menu_message(WindowMessage::InputFocus), 23);
+        assert_eq!(
+            legacy_main_menu_message(WindowMessage::GadgetMouseEntering),
+            16390
+        );
+        assert_eq!(
+            legacy_main_menu_message(WindowMessage::GadgetMouseLeaving),
+            16391
+        );
+        assert_eq!(legacy_main_menu_message(WindowMessage::GadgetSelected), 16392);
     }
 
     #[test]
