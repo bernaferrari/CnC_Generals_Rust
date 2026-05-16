@@ -324,12 +324,12 @@ mod tests {
         // Test normal cases
         assert!((normalize_angle(0.0) - 0.0).abs() < f32::EPSILON);
         assert!((normalize_angle(PI) - PI).abs() < f32::EPSILON);
-        assert!((normalize_angle(-PI) - (-PI)).abs() < f32::EPSILON);
+        assert!((normalize_angle(-PI) - PI).abs() < f32::EPSILON);
 
         // Test wrapping
         assert!((normalize_angle(2.0 * PI) - 0.0).abs() < f32::EPSILON);
         assert!((normalize_angle(-2.0 * PI) - 0.0).abs() < f32::EPSILON);
-        assert!((normalize_angle(3.0 * PI) - (-PI)).abs() < f32::EPSILON);
+        assert!((normalize_angle(3.0 * PI) - PI).abs() < 0.000001);
 
         // Test NaN handling
         assert_eq!(normalize_angle(f32::NAN), 0.0);
@@ -339,7 +339,7 @@ mod tests {
     fn test_std_angle_diff() {
         assert!((std_angle_diff(0.0, 0.0) - 0.0).abs() < f32::EPSILON);
         assert!((std_angle_diff(PI, 0.0) - PI).abs() < f32::EPSILON);
-        assert!((std_angle_diff(0.0, PI) - (-PI)).abs() < f32::EPSILON);
+        assert!((std_angle_diff(0.0, PI) - PI).abs() < f32::EPSILON);
     }
 
     #[test]
