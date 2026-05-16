@@ -55,11 +55,11 @@ mod recorder;
 mod state;
 
 pub use bindings::{ActionBinding, BindingConfig, InputBinding, KeyBindingManager};
-pub use gamepad::{GamepadButton, GamepadDevice, GamepadId, GamepadState};
+pub use gamepad::{GamepadButton, GamepadDevice, GamepadId, GamepadMapping, GamepadState};
 pub use hotkey::{Hotkey, HotkeyManager, HotkeyTrigger};
 pub use keyboard::{KeyCode, KeyboardDevice, KeyboardState, ModifierKeys};
 pub use mouse::{MouseButton, MouseDevice, MouseState};
-pub use recorder::{InputFrame, InputRecorder, PlaybackMode};
+pub use recorder::{InputFrame, InputRecorder, InputRecording, PlaybackMode};
 pub use state::{InputState, InputStateTracker};
 
 // Platform-specific implementations

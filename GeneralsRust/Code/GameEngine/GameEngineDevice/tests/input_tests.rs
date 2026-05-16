@@ -183,7 +183,7 @@ mod input_tests {
         recording.compress();
         assert_eq!(recording.event_count(), 1);
 
-        recorder.recording = Some(recording);
+        recorder.set_recording(recording);
 
         let result = recorder.start_playback(PlaybackMode::Once);
         assert!(result.is_ok());
