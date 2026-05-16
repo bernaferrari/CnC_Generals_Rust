@@ -997,6 +997,13 @@ impl INI {
         result
     }
 
+    /// Parse the currently prepared INI source.
+    ///
+    /// This is used by callers that stage an inline source via `with_inline_source`.
+    pub fn parse_current_file(&mut self) -> INIResult<()> {
+        self.parse_file()
+    }
+
     /// Prepare file for reading
     fn prep_file<P: AsRef<Path>>(&mut self, filename: P, load_type: INILoadType) -> INIResult<()> {
         if self.file.is_some() {

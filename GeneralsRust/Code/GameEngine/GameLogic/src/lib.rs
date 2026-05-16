@@ -44,7 +44,6 @@ pub mod effects;
 pub mod experience;
 pub mod formation;
 pub mod locomotor;
-pub mod locomotor_impl;
 pub mod map;
 pub mod messages;
 pub mod path;
@@ -127,8 +126,8 @@ pub use object::{Object, ObjectId, ObjectTemplate};
 pub use modules::{ModuleInterface, UpdateModule, UpdateModulePtr};
 
 pub use weapon::{
-    initialize_weapon_store, with_weapon_store, with_weapon_store_mut, Coord2D, Coord3D,
-    DamageType, DeathType, VeterancyLevel, Weapon, WeaponAffectsMask, WeaponAntiMask, WeaponBonus,
+    initialize_weapon_store, with_weapon_store, with_weapon_store_mut, DamageType, DeathType,
+    VeterancyLevel, Weapon, WeaponAffectsMask, WeaponAntiMask, WeaponBonus,
     WeaponBonusConditionFlags, WeaponBonusSet, WeaponCollideMask, WeaponPrefireType,
     WeaponReloadType, WeaponSlotType, WeaponStatus, WeaponStore, WeaponTemplate,
 };

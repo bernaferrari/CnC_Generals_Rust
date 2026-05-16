@@ -7,6 +7,7 @@ use game_engine::common::system::file::FileAccess;
 use game_engine::common::system::file_system::get_file_system;
 use game_engine::common::system::xfer_crc::XferCRC;
 use game_engine::common::system::xfer_load::XferLoad;
+use game_engine::common::system::Xfer;
 use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -783,7 +784,8 @@ impl ConfigurationSystem {
         ];
 
         for path in &ini_paths {
-            if Path::new(path).exists() || Self::resolve_ini_path(Path::new(path)).is_some() {
+            if Path::new(path).exists() || GlobalData::resolve_ini_path(Path::new(path)).is_some()
+            {
                 match ini.load(path, INILoadType::Overwrite) {
                     Ok(()) => debug!("XferCRC INI loaded: {}", path),
                     Err(err) => debug!("XferCRC INI skipped '{}': {}", path, err),

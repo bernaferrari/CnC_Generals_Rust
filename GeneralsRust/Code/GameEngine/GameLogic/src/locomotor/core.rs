@@ -2786,8 +2786,8 @@ impl Locomotor {
         delta_time: Real,
     ) -> (Coord3D, Real, Real, bool) {
         // Reset donut timer and braking
-        self.donut_timer =
-            TheGameLogic::get_frame() + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
+        self.donut_timer = TheGameLogic::get_frame()
+            + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
         self.set_flag(FLAG_IS_BRAKING, false);
 
         if !self.get_flag(FLAG_MAINTAIN_POS_VALID) {
@@ -2798,43 +2798,71 @@ impl Locomotor {
         let _requires_constant = match self.template.appearance {
             LocomotorAppearance::Thrust => {
                 let (pos, angle, speed) = self.maintain_current_position_thrust(
-                    current_pos, current_angle, current_speed, condition, delta_time,
+                    current_pos,
+                    current_angle,
+                    current_speed,
+                    condition,
+                    delta_time,
                 );
                 return (pos, angle, speed, true);
             }
             LocomotorAppearance::TwoLegs | LocomotorAppearance::Climber => {
                 let (pos, angle, speed) = self.maintain_current_position_other(
-                    current_pos, current_angle, current_speed, condition, delta_time,
+                    current_pos,
+                    current_angle,
+                    current_speed,
+                    condition,
+                    delta_time,
                 );
                 return (pos, angle, speed, false);
             }
             LocomotorAppearance::FourWheels | LocomotorAppearance::Motorcycle => {
                 let (pos, angle, speed) = self.maintain_current_position_other(
-                    current_pos, current_angle, current_speed, condition, delta_time,
+                    current_pos,
+                    current_angle,
+                    current_speed,
+                    condition,
+                    delta_time,
                 );
                 return (pos, angle, speed, false);
             }
             LocomotorAppearance::Treads => {
                 let (pos, angle, speed) = self.maintain_current_position_other(
-                    current_pos, current_angle, current_speed, condition, delta_time,
+                    current_pos,
+                    current_angle,
+                    current_speed,
+                    condition,
+                    delta_time,
                 );
                 return (pos, angle, speed, false);
             }
             LocomotorAppearance::Hover => {
                 let (pos, angle, speed) = self.maintain_current_position_hover(
-                    current_pos, current_angle, current_speed, condition, delta_time,
+                    current_pos,
+                    current_angle,
+                    current_speed,
+                    condition,
+                    delta_time,
                 );
                 return (pos, angle, speed, true);
             }
             LocomotorAppearance::Wings => {
                 let (pos, angle, speed) = self.maintain_current_position_wings(
-                    current_pos, current_angle, current_speed, condition, delta_time,
+                    current_pos,
+                    current_angle,
+                    current_speed,
+                    condition,
+                    delta_time,
                 );
                 return (pos, angle, speed, true);
             }
             _ => {
                 let (pos, angle, speed) = self.maintain_current_position_other(
-                    current_pos, current_angle, current_speed, condition, delta_time,
+                    current_pos,
+                    current_angle,
+                    current_speed,
+                    condition,
+                    delta_time,
                 );
                 return (pos, angle, speed, true);
             }
@@ -3044,19 +3072,15 @@ impl Locomotor {
             return None;
         }
 
-        let correction = Coord3D::new(
-            dx_acc * mass / 5.0,
-            dy_acc * mass / 5.0,
-            0.0,
-        );
+        let correction = Coord3D::new(dx_acc * mass / 5.0, dy_acc * mass / 5.0, 0.0);
         Some(correction)
     }
 
     /// Start a new move — reset donut timer, clear stuck state.
     /// Matches C++ Locomotor::startMove (Locomotor.cpp:761-765)
     pub fn start_move(&mut self) {
-        self.donut_timer =
-            TheGameLogic::get_frame() + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
+        self.donut_timer = TheGameLogic::get_frame()
+            + (DONUT_TIME_DELAY_SECONDS * LOGICFRAMES_PER_SECOND as Real) as u32;
         self.set_flag(FLAG_IS_BRAKING, false);
         self.braking_factor = 1.0;
     }
@@ -3079,7 +3103,7 @@ impl Locomotor {
 
     /// Calculate lift force to use at a given point for aircraft.
     /// Matches C++ Locomotor::calcLiftToUseAtPt (Locomotor.cpp:2022-2110)
-    pub fn calc_lift_to_use_at_pt_ex(
+    pub fn calc_lift_to_use_at_pt(
         &self,
         cur_z: Real,
         _surface_at_pt: Real,
@@ -3153,7 +3177,7 @@ impl Locomotor {
 
     /// Rotate to face a target position — returns the relative angle turned.
     /// Matches C++ Locomotor::rotateTowardsPosition (Locomotor.cpp:901-908)
-    pub fn rotate_towards_position_ex(
+    pub fn rotate_towards_position(
         &mut self,
         current_pos: Coord3D,
         current_angle: Real,
@@ -3161,13 +3185,13 @@ impl Locomotor {
         condition: BodyDamageType,
     ) -> Real {
         let turn_rate = self.get_max_turn_rate(condition);
-        self.rotate_obj_around_loco_pivot_ex(current_pos, current_angle, goal_pos, turn_rate)
+        self.rotate_obj_around_loco_pivot(current_pos, current_angle, goal_pos, turn_rate)
     }
 
     /// Rotate object around its locomotor pivot point.
     /// Returns the relative angle difference.
     /// Matches C++ Locomotor::rotateObjAroundLocoPivot (Locomotor.cpp:2113-2189)
-    pub fn rotate_obj_around_loco_pivot_ex(
+    pub fn rotate_obj_around_loco_pivot(
         &mut self,
         current_pos: Coord3D,
         current_angle: Real,
@@ -3198,8 +3222,7 @@ impl Locomotor {
             let clamped = amount.clamp(-max_turn_rate, max_turn_rate);
             clamped
         } else {
-            let desired_angle =
-                (goal_pos.y - current_pos.y).atan2(goal_pos.x - current_pos.x);
+            let desired_angle = (goal_pos.y - current_pos.y).atan2(goal_pos.x - current_pos.x);
             let amount = Self::std_angle_diff(desired_angle, current_angle);
             amount.clamp(-max_turn_rate, max_turn_rate)
         }
@@ -3208,7 +3231,7 @@ impl Locomotor {
     /// Handle Z-axis behavior — compute Z force for the current behavior mode.
     /// Returns the Z-axis acceleration to apply, and whether constant calling is required.
     /// Matches C++ Locomotor::handleBehaviorZ (Locomotor.cpp:2196-2323)
-    pub fn handle_behavior_z_ex(
+    pub fn handle_behavior_z(
         &self,
         current_pos: Coord3D,
         goal_pos: Coord3D,
@@ -3245,7 +3268,8 @@ impl Locomotor {
                     } else {
                         0.0
                     };
-                    let mut preferred = self.preferred_height + if surface_rel { surface_ht } else { 0.0 };
+                    let mut preferred =
+                        self.preferred_height + if surface_rel { surface_ht } else { 0.0 };
                     if self.uses_precise_z_pos() {
                         preferred = goal_pos.z;
                     }
@@ -3254,7 +3278,7 @@ impl Locomotor {
                     let damped = delta * self.preferred_height_damping;
                     let damped_preferred = current_pos.z + damped;
 
-                    let lift = self.calc_lift_to_use_at_pt_ex(
+                    let lift = self.calc_lift_to_use_at_pt(
                         current_pos.z,
                         surface_ht,
                         damped_preferred,
@@ -3273,7 +3297,12 @@ impl Locomotor {
 
     /// Compute Z-axis force for a movement step using compute_z_target.
     /// Helper for move_towards_angle and other methods.
-    fn compute_z_force(&self, current: Coord3D, target: Coord3D, _condition: BodyDamageType) -> Real {
+    fn compute_z_force(
+        &self,
+        current: Coord3D,
+        target: Coord3D,
+        _condition: BodyDamageType,
+    ) -> Real {
         if let Some(z_target) = self.compute_z_target(current, target) {
             let delta = z_target - current.z;
             let max_z_speed = self.template.speed_limit_z.max(0.0);
