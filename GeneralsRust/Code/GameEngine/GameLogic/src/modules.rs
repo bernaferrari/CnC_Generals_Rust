@@ -3524,6 +3524,11 @@ pub trait ProductionUpdateInterface: Send + Sync {
 pub trait ProjectileUpdateInterface {
     fn projectile_update(&mut self, object_id: ObjectID, delta_time: Real);
 
+    /// Return the launcher credited for projectile damage.
+    fn projectile_get_launcher_id(&self) -> ObjectID {
+        INVALID_ID
+    }
+
     /// Notify projectile it has been jammed (matches C++ ProjectileUpdateInterface::projectileNowJammed).
     fn projectile_now_jammed(&mut self) {
         let _ = self;

@@ -138,30 +138,6 @@ impl DamageApplicator {
         Self
     }
 
-    /// Calculate final damage amount.
-    ///
-    /// PARITY_NOTE: In C++, damage goes through ArmorTemplate::getConditionCoeff().
-    /// The fabricated ArmorType enum + DamageCalculationEngine have been removed.
-    /// Callers should use Object::attempt_damage() which handles armor internally.
-    /// This method returns base_damage unchanged as a placeholder.
-    #[allow(clippy::too_many_arguments)]
-    pub fn calculate_final_damage(
-        &self,
-        base_damage: f32,
-        _damage_type: DamageType,
-        _target_armor_type: u32,
-        _attacker_veterancy: usize,
-        _defender_veterancy: usize,
-        _difficulty: usize,
-        _target_health: f32,
-    ) -> f32 {
-        // PARITY_NOTE: In C++, the damage calculation is:
-        //   final = base * armor_coefficient * veterancy_bonus * difficulty_modifier
-        // But this is done through Object::attempt_damage() -> ArmorTemplate lookup.
-        // This placeholder returns raw base_damage until full parity path is wired.
-        base_damage
-    }
-
     /// Build a DamageInfo structure ready for application
     ///
     /// This helper creates a fully-populated DamageInfo matching C++ patterns
@@ -387,23 +363,6 @@ mod tests {
         assert_eq!(info.input.damage_type, DamageType::Explosion);
         assert_eq!(info.input.amount, 100.0);
         assert_eq!(info.input.source_id, 123);
-    }
-
-    #[test]
-    fn test_damage_applicator_returns_base_damage() {
-        let applicator = DamageApplicator::new();
-        let damage = applicator.calculate_final_damage(
-            100.0,
-            DamageType::SmallArms,
-            0, // armor_type placeholder
-            0,
-            0,
-            1,
-            200.0,
-        );
-
-        // PARITY_NOTE: Returns base_damage as placeholder until full parity path
-        assert_eq!(damage, 100.0);
     }
 
     #[test]
