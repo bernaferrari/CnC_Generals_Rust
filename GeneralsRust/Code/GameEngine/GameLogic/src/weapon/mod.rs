@@ -5287,6 +5287,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::damage::DamageInfo;
     use std::sync::OnceLock;
 
     static WEAPON_RANGE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
