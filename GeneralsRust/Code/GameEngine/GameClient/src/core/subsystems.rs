@@ -200,9 +200,39 @@ fn xfer_terrain_visual_state(
     terrain: &mut TerrainVisualStub,
     xfer: &mut dyn Xfer,
 ) -> Result<(), XferStatus> {
-    let current_version: XferVersion = 1;
+    let current_version: XferVersion = 3;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
+
+    let mut base_version: XferVersion = 1;
+    xfer.xfer_version(&mut base_version, 1)?;
+
+    let mut water_grid_enabled = false;
+    xfer.xfer_bool(&mut water_grid_enabled)?;
+    if water_grid_enabled {
+        return Err(XferStatus::InvalidData);
+    }
+
+    if version >= 2 {
+        let mut height_map_len = 0i32;
+        xfer.xfer_int(&mut height_map_len)?;
+        if height_map_len < 0 {
+            return Err(XferStatus::InvalidData);
+        }
+        if height_map_len > 0 {
+            let mut height_data = if xfer.get_xfer_mode() == XferMode::Save {
+                Vec::new()
+            } else {
+                vec![0u8; height_map_len as usize]
+            };
+            // C++ writes raw WorldHeightMap bytes here. Rust terrain visuals do not
+            // yet expose the logic-height-map byte backing store, but loading must
+            // still consume the field to keep the stream aligned.
+            unsafe {
+                xfer.xfer_user(height_data.as_mut_ptr(), height_map_len as usize)?;
+            }
+        }
+    }
 
     let mut entries = if xfer.get_xfer_mode() == XferMode::Save {
         let mut trees = terrain.tree_registrations();
@@ -2083,6 +2113,37 @@ mod tests {
         let terrain = TerrainVisualStub::default();
 
         assert_eq!(terrain.get_normal_at(10.0, 20.0).unwrap(), Vec3::Z);
+    }
+
+    #[test]
+    fn terrain_visual_xfer_empty_state_starts_with_cpp_w3d_layout() {
+        let mut terrain = TerrainVisualStub::default();
+        let path = std::env::temp_dir().join(format!(
+            "terrain_visual_xfer_empty_{}_{}.bin",
+            std::process::id(),
+            TheGameLogic::get_frame()
+        ));
+
+        {
+            let mut save = game_engine::System::XferSave::new();
+            save.open(path.to_string_lossy().into_owned()).unwrap();
+            xfer_terrain_visual_state(&mut terrain, &mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let bytes = std::fs::read(&path).unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(
+            bytes,
+            vec![
+                3, // W3DTerrainVisual xfer version
+                1, // base TerrainVisual xfer version
+                0, // water grid disabled
+                0, 0, 0, 0, // height-map byte count
+                0, 0, 0, 0, // client tree/render-object count
+            ]
+        );
     }
 
     #[test]
