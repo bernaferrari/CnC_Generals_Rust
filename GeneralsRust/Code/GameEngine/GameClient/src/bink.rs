@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use self::bink_decoder::BinkVideoDecoder;
 use crate::video_buffer::{VideoBuffer, VideoBufferType};
 use crate::video_player::{register_video_stream_provider, VideoStreamProvider};
-use crate::video_stream::VideoStreamInterface;
+use crate::video_stream::{PlaybackState, VideoStreamInterface};
 
 #[path = "bink_decoder.rs"]
 mod bink_decoder;
@@ -227,6 +227,8 @@ pub struct BinkVideoStream {
     current_rgba: Vec<u8>,
     frame_accumulator: Duration,
     last_update: Instant,
+    state: PlaybackState,
+    volume: f32,
 }
 
 impl BinkVideoStream {
@@ -238,6 +240,8 @@ impl BinkVideoStream {
             current_rgba,
             frame_accumulator: Duration::ZERO,
             last_update: Instant::now(),
+            state: PlaybackState::Playing,
+            volume: 1.0,
         })
     }
 }
@@ -252,6 +256,11 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn update(&mut self) {
+        if self.state != PlaybackState::Playing {
+            self.last_update = Instant::now();
+            return;
+        }
+
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.last_update);
         self.last_update = now;
@@ -260,7 +269,10 @@ impl VideoStreamInterface for BinkVideoStream {
         let frame_duration = self.decoder.frame_duration();
         while self.frame_accumulator >= frame_duration {
             self.frame_accumulator -= frame_duration;
-            self.decoder.advance();
+            if self.decoder.advance() {
+                self.state = PlaybackState::Complete;
+                break;
+            }
             self.frame_decompress();
         }
     }
@@ -270,7 +282,7 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn is_frame_ready(&self) -> bool {
-        true
+        self.state != PlaybackState::Complete
     }
 
     fn frame_decompress(&mut self) {
@@ -307,7 +319,9 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 
     fn frame_next(&mut self) {
-        self.decoder.advance();
+        if self.decoder.advance() {
+            self.state = PlaybackState::Complete;
+        }
         self.frame_decompress();
     }
 
@@ -322,6 +336,7 @@ impl VideoStreamInterface for BinkVideoStream {
     fn frame_goto(&mut self, index: i32) {
         self.decoder.seek(index.max(0) as u32);
         self.frame_decompress();
+        self.state = PlaybackState::Paused;
     }
 
     fn height(&self) -> i32 {
@@ -330,6 +345,34 @@ impl VideoStreamInterface for BinkVideoStream {
 
     fn width(&self) -> i32 {
         self.decoder.width() as i32
+    }
+
+    fn play(&mut self) {
+        if self.state != PlaybackState::Complete {
+            self.state = PlaybackState::Playing;
+            self.last_update = Instant::now();
+        }
+    }
+
+    fn pause(&mut self) {
+        if self.state == PlaybackState::Playing {
+            self.state = PlaybackState::Paused;
+        }
+    }
+
+    fn stop(&mut self) {
+        self.decoder.seek(0);
+        self.frame_accumulator = Duration::ZERO;
+        self.frame_decompress();
+        self.state = PlaybackState::Stopped;
+    }
+
+    fn set_volume(&mut self, volume: f32) {
+        self.volume = volume.clamp(0.0, 1.0);
+    }
+
+    fn playback_state(&self) -> PlaybackState {
+        self.state
     }
 }
 
@@ -626,5 +669,37 @@ mod tests {
         let rgba = decoder.decode_current_frame_rgba();
         assert_eq!(rgba.len(), 4 * 4 * 4);
         assert!(rgba.iter().any(|byte| *byte != 0));
+    }
+
+    #[test]
+    fn video_stream_tracks_playback_state() {
+        let path = std::env::temp_dir().join(format!(
+            "generalsrust-bink-state-{}.bik",
+            std::process::id()
+        ));
+        fs::write(&path, make_bink_blob(*b"BIKi")).expect("write synthetic bink");
+
+        let mut stream = BinkVideoStream::open(&path).expect("stream should open");
+        assert_eq!(stream.playback_state(), PlaybackState::Playing);
+
+        stream.pause();
+        assert_eq!(stream.playback_state(), PlaybackState::Paused);
+        assert!(stream.is_frame_ready());
+
+        stream.play();
+        stream.frame_next();
+        assert_eq!(stream.frame_index(), 1);
+        assert_eq!(stream.playback_state(), PlaybackState::Playing);
+
+        stream.frame_next();
+        assert_eq!(stream.frame_index(), 0);
+        assert_eq!(stream.playback_state(), PlaybackState::Complete);
+        assert!(!stream.is_frame_ready());
+
+        stream.stop();
+        assert_eq!(stream.frame_index(), 0);
+        assert_eq!(stream.playback_state(), PlaybackState::Stopped);
+
+        fs::remove_file(path).ok();
     }
 }
