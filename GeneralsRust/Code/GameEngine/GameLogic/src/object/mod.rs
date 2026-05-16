@@ -10549,7 +10549,7 @@ impl Object {
     }
 
     /// Create a test object for unit tests
-    #[cfg(test)]
+    #[cfg(any(test, feature = "internal"))]
     pub fn new_test(id: ObjectID, max_health: f32) -> Self {
         let template = Arc::new(DefaultThingTemplate::new("TestObject".to_string()));
         let mut obj = Self::new_raw(template, id, ObjectStatusMaskType::none(), None);

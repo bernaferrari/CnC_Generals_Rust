@@ -274,6 +274,9 @@ fn split_csv(value: &str) -> Vec<&str> {
 /// Strip surrounding quotes from a value.
 fn unquote(s: &str) -> &str {
     let s = s.trim();
+    if s == "\"" {
+        return "";
+    }
     if s.starts_with('"') && s.ends_with('"') && s.len() >= 2 {
         &s[1..s.len() - 1]
     } else {
@@ -1361,16 +1364,16 @@ impl WindowScriptEngine {
     /// `parseWindow()` — `instData.m_enabledText.color = defTextColor` etc.
     /// This method replicates that behavior for the parsed definition layer.
     pub fn apply_defaults_to_definition(&self, window_def: &mut WindowDefinition) {
-        // Apply default text color when no explicit text colors were parsed.
-        if window_def.enabled_text.color == 0
-            && window_def.disabled_text.color == 0
-            && window_def.hilite_text.color == 0
-        {
-            let default = self.defaults.text_color;
+        let default = self.defaults.text_color;
+        if window_def.enabled_text.color == 0 {
             window_def.enabled_text.color = default;
             window_def.enabled_text.border_color = default;
+        }
+        if window_def.disabled_text.color == 0 {
             window_def.disabled_text.color = default;
             window_def.disabled_text.border_color = default;
+        }
+        if window_def.hilite_text.color == 0 {
             window_def.hilite_text.color = default;
             window_def.hilite_text.border_color = default;
         }
