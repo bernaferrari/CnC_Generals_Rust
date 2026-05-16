@@ -12,8 +12,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[cfg(feature = "audio")]
-use fundsp::hacker::*;
-#[cfg(feature = "audio")]
 use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 
 use crate::common::audio::{AudioHandle, Coord3D, Real, TimeOfDay};

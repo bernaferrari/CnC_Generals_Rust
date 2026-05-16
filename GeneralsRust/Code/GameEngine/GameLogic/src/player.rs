@@ -3425,8 +3425,8 @@ impl Snapshotable for Player {
             .map_err(|e| e.to_string())?;
 
         // Money
-        let mut money_amount = self.money.amount;
-        xfer.xfer_u32(&mut (money_amount as u32))
+        let mut money_amount = self.money.amount as u32;
+        xfer.xfer_u32(&mut money_amount)
             .map_err(|e| e.to_string())?;
 
         // Upgrade count
@@ -3435,13 +3435,17 @@ impl Snapshotable for Player {
             .map_err(|e| e.to_string())?;
 
         // Radar info
-        xfer.xfer_int(&mut self.radar_count)
+        let mut radar_count = self.radar_count;
+        xfer.xfer_int(&mut radar_count)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.is_player_dead)
+        let mut is_player_dead = self.is_player_dead;
+        xfer.xfer_bool(&mut is_player_dead)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.disable_proof_radar_count)
+        let mut disable_proof_radar_count = self.disable_proof_radar_count;
+        xfer.xfer_int(&mut disable_proof_radar_count)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.radar_disabled)
+        let mut radar_disabled = self.radar_disabled;
+        xfer.xfer_bool(&mut radar_disabled)
             .map_err(|e| e.to_string())?;
 
         // Energy (inline, matching C++ Energy::xfer v3)
@@ -3451,18 +3455,23 @@ impl Snapshotable for Player {
         let mut owning_player_index = self.player_index;
         xfer.xfer_int(&mut owning_player_index)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_u32(&mut self.energy.power_sabotaged_till_frame)
+        let mut power_sabotaged_till_frame = self.energy.power_sabotaged_till_frame;
+        xfer.xfer_u32(&mut power_sabotaged_till_frame)
             .map_err(|e| e.to_string())?;
 
         // Sciences
-        xfer.xfer_science_vec(&mut self.sciences)
+        let mut sciences = self.sciences.clone();
+        xfer.xfer_science_vec(&mut sciences)
             .map_err(|e| e.to_string())?;
 
         // Rank/skill
-        xfer.xfer_int(&mut self.rank_level).map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.skill_points)
+        let mut rank_level = self.rank_level;
+        xfer.xfer_int(&mut rank_level).map_err(|e| e.to_string())?;
+        let mut skill_points = self.skill_points;
+        xfer.xfer_int(&mut skill_points)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.science_purchase_points)
+        let mut science_purchase_points = self.science_purchase_points;
+        xfer.xfer_int(&mut science_purchase_points)
             .map_err(|e| e.to_string())?;
         let mut level_up: Int = 0;
         xfer.xfer_int(&mut level_up).map_err(|e| e.to_string())?;
@@ -3473,15 +3482,20 @@ impl Snapshotable for Player {
             .map_err(|e| e.to_string())?;
 
         // Relations
-        xfer.xfer_bool(&mut self.can_build_units)
+        let mut can_build_units = self.can_build_units;
+        xfer.xfer_bool(&mut can_build_units)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.can_build_base)
+        let mut can_build_base = self.can_build_base;
+        xfer.xfer_bool(&mut can_build_base)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.is_observer)
+        let mut is_observer = self.is_observer;
+        xfer.xfer_bool(&mut is_observer)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_real(&mut self.skill_points_modifier)
+        let mut skill_points_modifier = self.skill_points_modifier;
+        xfer.xfer_real(&mut skill_points_modifier)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.list_in_score_screen)
+        let mut list_in_score_screen = self.list_in_score_screen;
+        xfer.xfer_bool(&mut list_in_score_screen)
             .map_err(|e| e.to_string())?;
 
         // Attacked by
@@ -3490,17 +3504,22 @@ impl Snapshotable for Player {
             xfer.xfer_bool(&mut val).map_err(|e| e.to_string())?;
         }
 
-        xfer.xfer_real(&mut self.cash_bounty_percent)
+        let mut cash_bounty_percent = self.cash_bounty_percent;
+        xfer.xfer_real(&mut cash_bounty_percent)
             .map_err(|e| e.to_string())?;
 
         // Battle plan counts
-        xfer.xfer_int(&mut self.bombard_battle_plans)
+        let mut bombard_battle_plans = self.bombard_battle_plans;
+        xfer.xfer_int(&mut bombard_battle_plans)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.hold_the_line_battle_plans)
+        let mut hold_the_line_battle_plans = self.hold_the_line_battle_plans;
+        xfer.xfer_int(&mut hold_the_line_battle_plans)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.search_and_destroy_battle_plans)
+        let mut search_and_destroy_battle_plans = self.search_and_destroy_battle_plans;
+        xfer.xfer_int(&mut search_and_destroy_battle_plans)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_bool(&mut self.units_should_hunt)
+        let mut units_should_hunt = self.units_should_hunt;
+        xfer.xfer_bool(&mut units_should_hunt)
             .map_err(|e| e.to_string())?;
 
         Ok(())
@@ -3597,14 +3616,14 @@ impl Snapshotable for Player {
 
         // Upgrade masks
         {
-            let mut in_progress = self.upgrades_in_progress.to_bits();
+            let mut in_progress = self.upgrades_in_progress.bits();
             xfer.xfer_u128(&mut in_progress).map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.upgrades_in_progress = UpgradeMaskType::from_bits_truncate(in_progress);
             }
         }
         {
-            let mut completed = self.upgrades_completed.to_bits();
+            let mut completed = self.upgrades_completed.bits();
             xfer.xfer_u128(&mut completed).map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.upgrades_completed = UpgradeMaskType::from_bits_truncate(completed);

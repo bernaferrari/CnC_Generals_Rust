@@ -1070,7 +1070,7 @@ impl SpecialAbilityUpdate {
                     {
                         let _ = spm.start_power_recharge();
                     }
-                }
+                });
             }
             _ => {
                 log::debug!("SpecialAbilityUpdate::continue_preparation: unhandled power type {:?}", template.get_special_power_type());

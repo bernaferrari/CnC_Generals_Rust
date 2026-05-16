@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
+use crate::common::{KindOf, LegacyModuleData, ObjectID, ObjectStatusMaskType, UpgradeMaskType};
 use crate::modules::UpgradeModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
@@ -33,11 +33,25 @@ impl Default for StealthUpgradeModuleData {
 
 impl ModuleData for StealthUpgradeModuleData {
     fn set_module_tag_name_key(&mut self, key: NameKeyType) {
-        LegacyModuleData::set_module_tag_name_key(self, key);
+        self.module_tag_name_key = key;
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        LegacyModuleData::get_module_tag_name_key(self)
+        self.module_tag_name_key
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+impl LegacyModuleData for StealthUpgradeModuleData {
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        self.module_tag_name_key = key;
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_tag_name_key
     }
 }
 
@@ -61,7 +75,7 @@ pub struct StealthUpgrade {
     module_name_key: NameKeyType,
     data: Arc<StealthUpgradeModuleData>,
     object_id: ObjectID,
-    applied: Bool,
+    applied: bool,
 }
 
 impl StealthUpgrade {
@@ -123,7 +137,7 @@ impl Module for StealthUpgrade {
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
-        self.data.get_module_tag_name_key()
+        ModuleData::get_module_tag_name_key(&*self.data)
     }
 
     fn get_module_data(&self) -> &dyn ModuleData {

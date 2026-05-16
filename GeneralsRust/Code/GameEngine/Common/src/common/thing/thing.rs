@@ -236,7 +236,7 @@ impl Thing for BaseThing {
     }
 
     fn is_kind_of(&self, kind: KindOfType) -> bool {
-        self.template.is_kind_of(kind)
+        self.template.is_kind_of(kind as u64)
     }
 
     fn is_kind_of_multi(

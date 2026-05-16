@@ -574,7 +574,7 @@ impl Snapshotable for PrisonBehavior {
             .map_err(|e| e.to_string())?;
 
         // extend OpenContain base class
-        self.contain.xfer(xfer)?;
+        Snapshotable::xfer(&mut self.contain, xfer)?;
 
         // visual list count and data
         let mut visual_count = self.visuals.len() as u16;

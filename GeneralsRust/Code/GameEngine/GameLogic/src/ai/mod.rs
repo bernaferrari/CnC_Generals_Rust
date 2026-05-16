@@ -1720,6 +1720,25 @@ pub struct Pathfinder {
     inner: ClassicPathfindingSystem,
 }
 
+impl Pathfinder {
+    pub fn world_to_grid(&self, world_pos: &Coord3D) -> ICoord2D {
+        let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        ICoord2D::new(
+            (world_pos.x / cell_size).floor() as i32,
+            (world_pos.y / cell_size).floor() as i32,
+        )
+    }
+
+    pub fn grid_to_world(&self, grid_pos: &ICoord2D) -> Coord3D {
+        let cell_size = self::pathfind_astar::PATHFIND_CELL_SIZE_F;
+        Coord3D::new(
+            (grid_pos.x as f32 + 0.5) * cell_size,
+            (grid_pos.y as f32 + 0.5) * cell_size,
+            0.0,
+        )
+    }
+}
+
 pub(crate) fn object_footprint_positions(obj: &Object) -> Option<Vec<Coord3D>> {
     use crate::ai::pathfind_astar::{GridCoord, PathfindLayerEnum};
     use crate::common::KindOf;

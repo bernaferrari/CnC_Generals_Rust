@@ -123,6 +123,41 @@ impl ContainerIniParse for OpenContainModuleData {
     }
 }
 
+impl Snapshotable for OpenContainModuleData {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| e.to_string())?;
+        let mut contain_max = self.contain_max;
+        xfer.xfer_int(&mut contain_max).map_err(|e| e.to_string())?;
+        self.contain_max = contain_max;
+        let mut passengers_allowed_to_fire = self.passengers_allowed_to_fire;
+        xfer.xfer_bool(&mut passengers_allowed_to_fire)
+            .map_err(|e| e.to_string())?;
+        self.passengers_allowed_to_fire = passengers_allowed_to_fire;
+        let mut door_open_time = self.door_open_time as i32;
+        xfer.xfer_int(&mut door_open_time).map_err(|e| e.to_string())?;
+        self.door_open_time = door_open_time as u32;
+        let mut allow_inside_kind_of = self.allow_inside_kind_of as u32;
+        xfer.xfer_unsigned_int(&mut allow_inside_kind_of)
+            .map_err(|e| e.to_string())?;
+        self.allow_inside_kind_of = allow_inside_kind_of as u64;
+        let mut forbid_inside_kind_of = self.forbid_inside_kind_of as u32;
+        xfer.xfer_unsigned_int(&mut forbid_inside_kind_of)
+            .map_err(|e| e.to_string())?;
+        self.forbid_inside_kind_of = forbid_inside_kind_of as u64;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
 fn parse_contain_max(
     _ini: &mut INI,
     data: &mut OpenContainModuleData,

@@ -286,6 +286,8 @@ pub enum AudioLoadError {
     DecodeError(String),
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Hound error: {0}")]
+    HoundError(#[from] hound::Error),
     #[error("Cache full")]
     CacheFull,
     #[error("Invalid audio data")]
@@ -605,7 +607,7 @@ impl AudioAssetManager {
 
         let format = AudioFormat::from_extension(&extension);
 
-        let audio_metadata = AudioMetadata {
+        let mut audio_metadata = AudioMetadata {
             sample_rate: 44100, // Default values
             channels: 2,
             sample_format: SampleFormat::F32,
@@ -624,7 +626,7 @@ impl AudioAssetManager {
         #[cfg(feature = "audio")]
         match format {
             AudioFormat::Wav => {
-                if let Ok(mut reader) = WavReader::open(file_path) {
+                if let Ok(reader) = WavReader::open(file_path) {
                     let spec = reader.spec();
                     audio_metadata.sample_rate = spec.sample_rate;
                     audio_metadata.channels = spec.channels;
@@ -637,10 +639,11 @@ impl AudioAssetManager {
                         hound::SampleFormat::Float => SampleFormat::F32,
                     };
 
-                    if let Some(samples) = reader.len() {
-                        audio_metadata.frame_count = Some(samples as u64 / spec.channels as u64);
+                    let samples_count = reader.len();
+                    if samples_count > 0 {
+                        audio_metadata.frame_count = Some(samples_count as u64 / spec.channels as u64);
                         audio_metadata.duration = Some(
-                            (samples as f64) / (spec.sample_rate as f64 * spec.channels as f64),
+                            (samples_count as f64) / (spec.sample_rate as f64 * spec.channels as f64),
                         );
                     }
                 }
@@ -796,41 +799,54 @@ impl AudioAssetManager {
             .format(&hint, mss, &format_opts, &metadata_opts)
             .map_err(|_| AudioLoadError::DecodeError("Failed to probe format".to_string()))?;
 
-        let track = format
+        let track_id = format
             .format
             .tracks()
             .iter()
             .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+            .map(|t| t.id)
             .ok_or_else(|| AudioLoadError::DecodeError("No audio track found".to_string()))?;
 
+        let codec_params = format
+            .format
+            .tracks()
+            .iter()
+            .find(|t| t.id == track_id)
+            .map(|t| t.codec_params.clone())
+            .ok_or_else(|| AudioLoadError::DecodeError("Track not found".to_string()))?;
+
         let mut decoder = symphonia::default::get_codecs()
-            .make(&track.codec_params, &decoder_opts)
+            .make(&codec_params, &decoder_opts)
             .map_err(|_| AudioLoadError::DecodeError("Failed to create decoder".to_string()))?;
 
         let mut samples = Vec::new();
 
         while let Ok(packet) = format.format.next_packet() {
-            if packet.track_id() != track.id {
+            if packet.track_id() != track_id {
                 continue;
             }
 
             match decoder.decode(&packet) {
                 Ok(decoded) => {
-                    // Convert samples to f32
-                    if let Some(buf) = decoded.make_equivalent::<f32>() {
-                        samples.extend_from_slice(buf.chan(0));
-                        if buf.spec().channels.count() > 1 {
-                            // Interleave channels
-                            for ch in 1..buf.spec().channels.count() {
-                                let channel_samples = buf.chan(ch);
-                                for (i, &sample) in channel_samples.iter().enumerate() {
-                                    if i * 2 + 1 < samples.len() {
-                                        samples.insert(i * 2 + 1, sample);
-                                    }
+                    let buf = decoded.make_equivalent::<f32>();
+                    let spec = buf.spec();
+                    let ch_count = spec.channels.count();
+                    let mut converted: Vec<f32> = Vec::new();
+
+                    converted.extend_from_slice(buf.chan(0));
+
+                    if ch_count > 1 {
+                        for ch in 1..ch_count {
+                            let channel_samples = buf.chan(ch);
+                            for (i, &sample) in channel_samples.iter().enumerate() {
+                                if i * 2 + 1 < converted.len() {
+                                    converted.insert(i * 2 + 1, sample);
                                 }
                             }
                         }
                     }
+
+                    samples.extend(converted);
                 }
                 Err(_) => continue,
             }

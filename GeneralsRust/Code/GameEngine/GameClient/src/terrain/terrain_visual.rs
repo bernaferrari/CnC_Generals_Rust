@@ -3835,7 +3835,6 @@ impl TerrainVisualImpl {
 
         candidates
     }
-}
 
 impl Default for TerrainVisualImpl {
     fn default() -> Self {

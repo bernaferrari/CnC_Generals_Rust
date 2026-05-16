@@ -3422,7 +3422,7 @@ impl Module for ContainBindingModule {
 impl Snapshotable for ContainBindingModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         if let Ok(contain) = self.contain.lock() {
-            contain.crc(xfer)
+            contain.snapshot_crc(xfer)
         } else {
             Ok(())
         }
@@ -3430,7 +3430,7 @@ impl Snapshotable for ContainBindingModule {
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         if let Ok(mut contain) = self.contain.lock() {
-            contain.xfer(xfer)
+            contain.snapshot_xfer(xfer)
         } else {
             Ok(())
         }
@@ -3438,7 +3438,7 @@ impl Snapshotable for ContainBindingModule {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         if let Ok(mut contain) = self.contain.lock() {
-            contain.load_post_process()
+            contain.snapshot_load_post_process()
         } else {
             Ok(())
         }

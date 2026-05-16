@@ -67,8 +67,12 @@ impl Snapshotable for GrantStealthBehaviorModuleData {
             .map_err(|e| e.to_string())?;
         xfer.xfer_real(&mut self.radius_grow_rate)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.kind_of)
+        let mut kind_of = self.kind_of as u32;
+        xfer.xfer_unsigned_int(&mut kind_of)
             .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
+            self.kind_of = kind_of as u64;
+        }
         Ok(())
     }
 

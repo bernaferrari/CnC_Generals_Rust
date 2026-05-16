@@ -798,7 +798,7 @@ impl SoundEffectManager {
                     Cursor::new(data)
                 }
             };
-            let source = Decoder::new(cursor)?;
+            let source = Decoder::new(cursor)?.convert_samples();
 
             let final_source: Box<dyn Source<Item = f32> + Send> = if looping {
                 if (pitch - 1.0).abs() > 0.01 {

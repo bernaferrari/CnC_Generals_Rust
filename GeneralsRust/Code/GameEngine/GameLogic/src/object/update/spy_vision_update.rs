@@ -75,8 +75,12 @@ impl Snapshotable for SpyVisionUpdateModuleData {
         let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut self.spy_on_kind_of)
+        let mut spy_on_kind_of = self.spy_on_kind_of as u32;
+        xfer.xfer_unsigned_int(&mut spy_on_kind_of)
             .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
+            self.spy_on_kind_of = spy_on_kind_of as u64;
+        }
         xfer.xfer_bool(&mut self.self_powered)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut self.self_powered_duration)
