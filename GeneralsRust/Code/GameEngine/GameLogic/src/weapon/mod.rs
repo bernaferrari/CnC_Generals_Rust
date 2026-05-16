@@ -15,6 +15,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+use crate::common::Coord3D;
+use crate::common::Relationship;
+use crate::common::LOGICFRAMES_PER_SECOND;
+use crate::common::{KindOf, PathfindLayerEnum};
+use crate::common::{Matrix3D, TurretType};
 use crate::common::{ObjectID, Real, UnsignedInt, Xfer, XferMode, XferVersion, INVALID_ID};
 use crate::effects::{FXList, ObjectCreationList};
 use crate::helpers::{
@@ -34,7 +39,6 @@ use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::system::Snapshotable;
 
 pub mod bezier; // Bezier curve system for projectile flight paths
-mod damage_application;
 pub mod damage_system;
 mod projectile_launch_cast;
 pub mod weapon;
@@ -47,16 +51,8 @@ mod weapon_template;
 // weapon.rs and weapon_template.rs contain supplementary logic that extends
 // these types.
 
-// Export damage_application with specific types to avoid DamageInfo conflict
-pub use crate::common::Coord3D;
-use crate::common::Relationship;
-use crate::common::LOGICFRAMES_PER_SECOND;
-use crate::common::{KindOf, PathfindLayerEnum};
-use crate::common::{Matrix3D, TurretType};
-pub use damage_application::{
-    should_apply_damage, DamageApplicator, DamageInfo as WeaponDamageInfo, DamageInfoInput,
-    DamageInfoOutput, Relationship as DamageRelationship, HUGE_DAMAGE_AMOUNT,
-};
+// Export damage constants from the canonical damage module
+pub use crate::damage::HUGE_DAMAGE_AMOUNT;
 pub use damage_system::*;
 pub use weapon_set::*;
 pub use weapon_store::*;
@@ -522,29 +518,14 @@ impl From<ObjectStatusTypes> for crate::common::ObjectStatusTypes {
     }
 }
 
-impl From<ObjectStatusTypes> for crate::weapon::damage_system::ObjectStatusTypes {
-    fn from(value: ObjectStatusTypes) -> crate::weapon::damage_system::ObjectStatusTypes {
-        crate::weapon::damage_system::ObjectStatusTypes::new(value.0)
+impl From<crate::common::ObjectStatusTypes> for ObjectStatusTypes {
+    fn from(value: crate::common::ObjectStatusTypes) -> Self {
+        ObjectStatusTypes::new(value as u32)
     }
 }
 
-impl From<crate::weapon::damage_system::ObjectStatusTypes> for ObjectStatusTypes {
-    fn from(value: crate::weapon::damage_system::ObjectStatusTypes) -> Self {
-        ObjectStatusTypes::new(value.bits())
-    }
-}
-
-impl From<damage_system::DamageType> for crate::damage::DamageType {
-    fn from(v: damage_system::DamageType) -> Self {
-        crate::damage::DamageType::from_u32(v as u32)
-    }
-}
-
-impl From<damage_system::DeathType> for crate::damage::DeathType {
-    fn from(v: damage_system::DeathType) -> Self {
-        crate::damage::DeathType::from_u32(v as u32)
-    }
-}
+// damage_system now re-exports canonical types from crate::damage,
+// so no From<> conversion impls needed between the two.
 
 impl From<WeaponSlotType> for crate::common::WeaponSlotType {
     fn from(value: WeaponSlotType) -> Self {
@@ -1242,7 +1223,7 @@ impl WeaponTemplate {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "No valid target specified".to_string(),
-                ))
+                ));
             }
         };
 
@@ -1308,16 +1289,14 @@ impl WeaponTemplate {
         } else {
             // Projectile weapon - calculate flight time (C++ uses simple distance/speed)
             let distance = source_pos.distance(projectile_destination);
-            let effective_speed =
-                self.weapon_speed * bonus.get_field(WeaponBonusField::Range);
+            let effective_speed = self.weapon_speed * bonus.get_field(WeaponBonusField::Range);
             let flight_time = if effective_speed > 0.0 {
                 distance / effective_speed
             } else {
                 0.0
             };
 
-            let flight_time_frames =
-                (flight_time * LOGICFRAMES_PER_SECOND as f32) as u32;
+            let flight_time_frames = (flight_time * LOGICFRAMES_PER_SECOND as f32) as u32;
             let current_frame = self.get_current_frame();
 
             // Create projectile if needed
@@ -3516,33 +3495,11 @@ impl Weapon {
         }
     }
 
-    fn build_engine_damage_info(&self, damage_info: &DamageInfo) -> crate::damage::DamageInfo {
-        let mut engine_info = crate::damage::DamageInfo::new();
-
-        engine_info.input.source_id = damage_info.input.source_id;
-        engine_info.input.source_player_mask =
-            crate::damage::PlayerMaskType::from_bits_truncate(damage_info.input.source_player_mask);
-        engine_info.input.damage_type =
-            crate::damage::DamageType::from_u32(damage_info.input.damage_type as u32);
-        engine_info.input.damage_status_type =
-            crate::common::ObjectStatusTypes::from_u32(damage_info.input.damage_status_type.bits());
-        engine_info.input.damage_fx_override =
-            crate::damage::DamageType::from_u32(damage_info.input.damage_fx_override as u32);
-        engine_info.input.death_type =
-            crate::damage::DeathType::from_u32(damage_info.input.death_type as u32);
-        engine_info.input.amount = damage_info.input.amount;
-        engine_info.input.kill = damage_info.input.kill;
-        engine_info.input.shock_wave_vector = damage_info.input.shock_wave_vector;
-        engine_info.input.shock_wave_amount = damage_info.input.shock_wave_amount;
-        engine_info.input.shock_wave_radius = damage_info.input.shock_wave_radius;
-        engine_info.input.shock_wave_taper_off = damage_info.input.shock_wave_taper_off;
-        engine_info.sync_from_input();
-
-        engine_info.output.actual_damage_dealt = damage_info.output.actual_damage_dealt;
-        engine_info.output.actual_damage_clipped = damage_info.output.actual_damage_clipped;
-        engine_info.output.no_effect = damage_info.output.no_effect;
-
-        engine_info
+    fn build_engine_damage_info(
+        &self,
+        damage_info: &crate::damage::DamageInfo,
+    ) -> crate::damage::DamageInfo {
+        damage_info.clone()
     }
 
     /// Deal damage internally (THE CRITICAL BRIDGE TO OBJECT DAMAGE)
@@ -3562,8 +3519,6 @@ impl Weapon {
         bonus: &WeaponBonus,
         is_projectile_detonation: bool,
     ) -> Result<u32, WeaponError> {
-        use crate::weapon::DamageInfo;
-
         if source_obj_id == INVALID_OBJECT_ID {
             return Ok(0);
         }
@@ -3589,7 +3544,7 @@ impl Weapon {
         }
 
         // Create base damage info
-        let mut damage_info = DamageInfo::new();
+        let mut damage_info = crate::damage::DamageInfo::new();
         damage_info.input.source_id = source_obj_id;
         damage_info.input.damage_type = self.template.damage_type.into();
         damage_info.input.damage_fx_override = self.template.damage_type.into();
@@ -3602,7 +3557,7 @@ impl Weapon {
         if let Some(source) = source_guard.as_ref() {
             if let Some(player) = source.get_controlling_player() {
                 if let Ok(player_guard) = player.read() {
-                    damage_info.input.source_player_mask = player_guard.get_player_mask().bits();
+                    damage_info.input.source_player_mask = player_guard.get_player_mask();
                 }
             }
         }
@@ -4630,7 +4585,7 @@ impl Weapon {
     fn apply_damage_to_object(
         &self,
         obj_id: ObjectId,
-        damage_info: &mut DamageInfo,
+        damage_info: &mut crate::damage::DamageInfo,
     ) -> Result<f32, WeaponError> {
         use crate::object_manager::get_object_manager;
 
@@ -5122,7 +5077,7 @@ impl WeaponStore {
             _ => {
                 return Err(GameLogicError::Configuration(
                     "Invalid target specification".to_string(),
-                ))
+                ));
             }
         }
 

@@ -1089,6 +1089,8 @@ impl RenderPipeline {
             let depth_view = frame.depth_view_arc();
             let color_view = frame.color_view_arc();
             let encoder = frame.encoder();
+            let terrain_visual_guard =
+                game_client::terrain::terrain_visual::get_terrain_visual().ok();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main terrain pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1114,13 +1116,9 @@ impl RenderPipeline {
                 occlusion_query_set: None,
             });
 
-            {
-                if let Ok(terrain_guard) =
-                    game_client::terrain::terrain_visual::get_terrain_visual()
-                {
-                    if let Some(terrain_visual) = terrain_guard.as_ref() {
-                        terrain_visual.record_chunk_draws(&mut render_pass);
-                    }
+            if let Some(terrain_guard) = terrain_visual_guard.as_ref() {
+                if let Some(terrain_visual) = terrain_guard.as_ref() {
+                    terrain_visual.record_chunk_draws(&mut render_pass);
                 }
             }
             drop(render_pass);

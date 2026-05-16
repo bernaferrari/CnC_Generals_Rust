@@ -21,6 +21,7 @@ use crate::common::{
     AsciiString, Bool, Coord3D, ICoord2D, Int, LocomotorSetType, ObjectID, Real, UnsignedInt,
     WhichTurretType, INVALID_ID, LOGICFRAMES_PER_SECOND, WEAPONSLOT_COUNT,
 };
+use crate::helpers::TheGameLogic;
 use crate::weapon::WeaponSlotType;
 
 // ---------------------------------------------------------------------------
@@ -336,7 +337,8 @@ impl ModuleData for AIUpdateModuleData {
 impl Snapshotable for AIUpdateModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -904,7 +906,7 @@ impl AIUpdateInterface {
         }
 
         self.compute_path(self.requested_destination);
-        self.waiting_for_path = self.queue_for_path_frame > 0;
+        self.waiting_for_path = self.queue_for_path_frame > TheGameLogic::get_frame();
         if !self.waiting_for_path {
             self.wake_up_now();
         }
@@ -921,13 +923,20 @@ impl AIUpdateInterface {
             return false;
         }
         self.path = Some(vec![start, destination]);
-        self.path_timestamp = 0; // will be set to current frame when pathfinder works
+        self.path_timestamp = TheGameLogic::get_frame();
+        self.blocked_frames = 0;
+        self.is_blocked = false;
+        self.is_blocked_and_stuck = false;
+        self.queue_for_path_frame = 0;
         true
     }
 
     /// C++ AIUpdateInterface::destroyPath – destroy the current path, setting it to NULL.
     pub fn destroy_path(&mut self) {
         self.path = None;
+        self.waiting_for_path = false;
+        self.is_attack_path = false;
+        self.set_locomotor_goal_none();
     }
 
     /// C++ AIUpdateInterface::requestPath – queues a request to pathfind to destination.
@@ -943,7 +952,75 @@ impl AIUpdateInterface {
         // PARITY_TODO: canComputeQuickPath() / computeQuickPath() for missiles/air
         self.waiting_for_path = true;
 
-        // PARITY_TODO: path timestamp anti-spin check once game frame accessor is wired
+        let now = TheGameLogic::get_frame();
+        if self.path_timestamp > now.saturating_sub(3) {
+            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+            if self.path.is_some() && self.is_blocked_and_stuck {
+                self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
+                self.blocked_frames = 0;
+                self.is_blocked = false;
+                self.is_blocked_and_stuck = false;
+            }
+            return;
+        }
+        self.set_queue_for_path_time(0);
+    }
+
+    /// C++ AIUpdateInterface::requestAttackPath.
+    pub fn request_attack_path(&mut self, victim_id: ObjectID, victim_pos: Coord3D) {
+        self.requested_destination = victim_pos;
+        self.requested_victim_id = victim_id;
+        self.is_attack_path = true;
+        self.is_approach_path = false;
+        self.is_safe_path = false;
+        self.waiting_for_path = true;
+
+        let now = TheGameLogic::get_frame();
+        if self.path_timestamp > now.saturating_sub(3) {
+            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
+            self.set_locomotor_goal_none();
+            return;
+        }
+        self.set_queue_for_path_time(0);
+    }
+
+    /// C++ AIUpdateInterface::requestApproachPath.
+    pub fn request_approach_path(&mut self, destination: Coord3D) {
+        self.requested_destination = destination;
+        self.is_final_goal = true;
+        self.is_attack_path = false;
+        self.requested_victim_id = INVALID_ID;
+        self.is_approach_path = true;
+        self.is_safe_path = false;
+        self.waiting_for_path = true;
+
+        let now = TheGameLogic::get_frame();
+        if self.path_timestamp > now.saturating_sub(3) {
+            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
+            return;
+        }
+        self.set_queue_for_path_time(0);
+    }
+
+    /// C++ AIUpdateInterface::requestSafePath.
+    pub fn request_safe_path(&mut self, repulsor: ObjectID) {
+        if repulsor != self.repulsor1 {
+            self.repulsor2 = self.repulsor1;
+        }
+        self.repulsor1 = repulsor;
+        self.is_final_goal = false;
+        self.is_attack_path = false;
+        self.requested_victim_id = INVALID_ID;
+        self.is_approach_path = false;
+        self.is_safe_path = true;
+        self.waiting_for_path = true;
+
+        let now = TheGameLogic::get_frame();
+        if self.path_timestamp > now.saturating_sub(3) {
+            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
+            return;
+        }
+        self.set_queue_for_path_time(0);
     }
 
     /// C++ AIUpdateInterface::isPathAvailable – checks if a path exists
@@ -1266,7 +1343,11 @@ impl AIUpdateInterface {
     /// we should re-queue for a pathfind.  Must NOT be set directly.
     /// Ported from AIUpdate.cpp:936.
     pub fn set_queue_for_path_time(&mut self, frames: UnsignedInt) {
-        self.queue_for_path_frame = if frames != 0 { frames } else { 0 };
+        self.queue_for_path_frame = if frames != 0 {
+            TheGameLogic::get_frame().saturating_add(frames)
+        } else {
+            0
+        };
     }
 
     /// C++ AIUpdateInterface::wakeUpNow – wake the AI update immediately.
@@ -1289,7 +1370,7 @@ impl AIUpdateInterface {
     }
 
     pub fn is_waiting_for_path(&self) -> bool {
-        self.waiting_for_path
+        self.waiting_for_path || self.queue_for_path_frame > TheGameLogic::get_frame()
     }
 
     pub fn is_blocked(&self) -> bool {
@@ -1322,6 +1403,14 @@ impl AIUpdateInterface {
 
     pub fn get_blocked_frames(&self) -> UnsignedInt {
         self.blocked_frames
+    }
+
+    pub fn get_queue_for_path_frame(&self) -> UnsignedInt {
+        self.queue_for_path_frame
+    }
+
+    pub fn get_path_timestamp(&self) -> UnsignedInt {
+        self.path_timestamp
     }
 
     pub fn get_current_victim_id(&self) -> ObjectID {
@@ -1444,7 +1533,8 @@ impl Module for AIUpdateInterfaceModule {
 impl Snapshotable for AIUpdateInterfaceModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1458,5 +1548,108 @@ impl Snapshotable for AIUpdateInterfaceModule {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ai_update() -> AIUpdateInterface {
+        AIUpdateInterface::new(Arc::new(AIUpdateModuleData::default()))
+    }
+
+    #[test]
+    fn set_queue_for_path_time_stores_absolute_frame() {
+        let mut ai = ai_update();
+        let now = TheGameLogic::get_frame();
+
+        ai.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+
+        assert_eq!(
+            ai.get_queue_for_path_frame(),
+            now.saturating_add(LOGICFRAMES_PER_SECOND)
+        );
+        assert!(ai.is_waiting_for_path());
+    }
+
+    #[test]
+    fn request_path_uses_cpp_repath_delay_when_path_is_fresh() {
+        let mut ai = ai_update();
+        ai.path_timestamp = TheGameLogic::get_frame();
+        ai.path = Some(vec![
+            Coord3D::new(1.0, 0.0, 0.0),
+            Coord3D::new(2.0, 0.0, 0.0),
+        ]);
+        ai.is_blocked = true;
+        ai.is_blocked_and_stuck = true;
+
+        ai.request_path(Coord3D::new(64.0, 32.0, 0.0), true);
+
+        assert_eq!(ai.requested_destination, Coord3D::new(64.0, 32.0, 0.0));
+        assert!(ai.is_final_goal);
+        assert!(!ai.is_attack_path);
+        assert_eq!(
+            ai.get_queue_for_path_frame(),
+            TheGameLogic::get_frame().saturating_add(LOGICFRAMES_PER_SECOND)
+        );
+        assert_eq!(ai.blocked_frames, 0);
+        assert!(!ai.is_blocked);
+        assert!(!ai.is_blocked_and_stuck);
+        assert_eq!(ai.ignore_collisions_until, LOGICFRAMES_PER_SECOND * 2);
+    }
+
+    #[test]
+    fn request_attack_approach_and_safe_paths_match_cpp_flags() {
+        let mut ai = ai_update();
+
+        ai.request_attack_path(123, Coord3D::new(10.0, 20.0, 0.0));
+        assert_eq!(ai.requested_victim_id, 123);
+        assert_eq!(ai.requested_destination, Coord3D::new(10.0, 20.0, 0.0));
+        assert!(ai.is_attack_path);
+        assert!(!ai.is_approach_path);
+        assert!(!ai.is_safe_path);
+        assert!(ai.is_waiting_for_path());
+
+        ai.request_approach_path(Coord3D::new(30.0, 40.0, 0.0));
+        assert_eq!(ai.requested_victim_id, INVALID_ID);
+        assert!(ai.is_final_goal);
+        assert!(!ai.is_attack_path);
+        assert!(ai.is_approach_path);
+        assert!(!ai.is_safe_path);
+
+        ai.request_safe_path(456);
+        assert_eq!(ai.repulsor1, 456);
+        assert_eq!(ai.requested_victim_id, INVALID_ID);
+        assert!(!ai.is_final_goal);
+        assert!(!ai.is_attack_path);
+        assert!(!ai.is_approach_path);
+        assert!(ai.is_safe_path);
+    }
+
+    #[test]
+    fn compute_and_destroy_path_update_cpp_state() {
+        let mut ai = ai_update();
+        ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
+        ai.is_blocked = true;
+        ai.is_blocked_and_stuck = true;
+        ai.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+
+        assert!(ai.compute_path(Coord3D::new(8.0, 9.0, 0.0)));
+        assert!(ai.get_path().is_some());
+        assert_eq!(ai.get_path_timestamp(), TheGameLogic::get_frame());
+        assert!(!ai.is_blocked);
+        assert!(!ai.is_blocked_and_stuck);
+        assert_eq!(ai.get_queue_for_path_frame(), 0);
+
+        ai.is_attack_path = true;
+        ai.waiting_for_path = true;
+        ai.set_locomotor_goal_position_explicit(Coord3D::new(2.0, 3.0, 0.0));
+        ai.destroy_path();
+
+        assert!(ai.get_path().is_none());
+        assert!(!ai.is_waiting_for_path());
+        assert!(!ai.is_attack_path);
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::None);
     }
 }

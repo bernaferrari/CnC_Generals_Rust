@@ -2,7 +2,6 @@ use crate::ai::object_registry::get_legacy_object;
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::coord::*;
 use crate::common::xfer::{Xfer, XferVersion};
-use game_engine::common::system::Snapshotable;
 use crate::common::*;
 use crate::compat::{legacy_transition, register_classic_state, ClassicState};
 use crate::game_logic::game_logic::TheGameLogic;
@@ -11,6 +10,7 @@ use crate::object::*;
 use crate::state_machine::*;
 use crate::team::TeamID;
 use crate::weapon::{Weapon, WeaponChoiceCriteria, WeaponSlotType};
+use game_engine::common::system::Snapshotable;
 use log::warn;
 
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
@@ -167,6 +167,16 @@ pub struct TurretAI {
     /// Idle scan interval range (frames)
     min_idle_scan_interval: u32,
     max_idle_scan_interval: u32,
+    /// C++ m_continuousFireExpirationFrame — controls when continuous fire stops
+    continuous_fire_expiration_frame: u32,
+    /// C++ m_playRotSound — rotation sound trigger
+    play_rot_sound: bool,
+    /// C++ m_playPitchSound — pitch sound trigger
+    play_pitch_sound: bool,
+    /// C++ m_didFire — fire event tracking
+    did_fire: bool,
+    /// C++ m_sleepUntil — frame at which turret wakes up
+    sleep_until: u32,
 }
 
 impl TurretAI {
@@ -208,6 +218,11 @@ impl TurretAI {
             recenter_time: LOGICFRAMES_PER_SECOND * 2,
             min_idle_scan_interval: 9_999_999,
             max_idle_scan_interval: 9_999_999,
+            continuous_fire_expiration_frame: 0,
+            play_rot_sound: false,
+            play_pitch_sound: false,
+            did_fire: false,
+            sleep_until: 0,
         }
     }
 
@@ -737,6 +752,46 @@ impl TurretAI {
     pub fn set_idle_scan_angle_range(&mut self, min: f32, max: f32) {
         self.min_idle_scan_angle = min;
         self.max_idle_scan_angle = max;
+    }
+
+    pub fn get_continuous_fire_expiration_frame(&self) -> u32 {
+        self.continuous_fire_expiration_frame
+    }
+
+    pub fn set_continuous_fire_expiration_frame(&mut self, frame: u32) {
+        self.continuous_fire_expiration_frame = frame;
+    }
+
+    pub fn get_sleep_until(&self) -> u32 {
+        self.sleep_until
+    }
+
+    pub fn set_sleep_until(&mut self, frame: u32) {
+        self.sleep_until = frame;
+    }
+
+    pub fn get_did_fire(&self) -> bool {
+        self.did_fire
+    }
+
+    pub fn set_did_fire(&mut self, value: bool) {
+        self.did_fire = value;
+    }
+
+    pub fn get_play_rot_sound(&self) -> bool {
+        self.play_rot_sound
+    }
+
+    pub fn set_play_rot_sound(&mut self, value: bool) {
+        self.play_rot_sound = value;
+    }
+
+    pub fn get_play_pitch_sound(&self) -> bool {
+        self.play_pitch_sound
+    }
+
+    pub fn set_play_pitch_sound(&mut self, value: bool) {
+        self.play_pitch_sound = value;
     }
 
     fn slot_index(slot: WeaponSlotType) -> usize {
@@ -1787,6 +1842,9 @@ impl ClassicState for TurretAIFireWeaponState {
 
                                                 // Notify turret AI that we fired
                                                 // This matches C++ TurretAI::notifyFired() from TurretAI.cpp:462
+                                                if let Ok(mut turret_guard) = turret_ai_arc.lock() {
+                                                    turret_guard.set_did_fire(true);
+                                                }
                                                 drop(owner_guard);
 
                                                 // Transition back to Aim state to continue tracking
@@ -2077,19 +2135,19 @@ impl Snapshotable for TurretAI {
         };
         xfer.xfer_unsigned_int(&mut target_kind_val)
             .map_err(|e| format!("TurretAI target_kind crc failed: {:?}", e))?;
-        let mut continuous_fire_expiration_frame: u32 = 0;
+        let mut continuous_fire_expiration_frame = self.continuous_fire_expiration_frame;
         xfer.xfer_unsigned_int(&mut continuous_fire_expiration_frame)
             .map_err(|e| format!("TurretAI continuous_fire_expiration crc failed: {:?}", e))?;
-        let mut play_rot_sound: bool = false;
+        let mut play_rot_sound = self.play_rot_sound;
         xfer.xfer_bool(&mut play_rot_sound)
             .map_err(|e| format!("TurretAI play_rot_sound crc failed: {:?}", e))?;
-        let mut play_pitch_sound: bool = false;
+        let mut play_pitch_sound = self.play_pitch_sound;
         xfer.xfer_bool(&mut play_pitch_sound)
             .map_err(|e| format!("TurretAI play_pitch_sound crc failed: {:?}", e))?;
         let mut positive_sweep = self.positive_sweep;
         xfer.xfer_bool(&mut positive_sweep)
             .map_err(|e| format!("TurretAI positive_sweep crc failed: {:?}", e))?;
-        let mut did_fire: bool = false;
+        let mut did_fire = self.did_fire;
         xfer.xfer_bool(&mut did_fire)
             .map_err(|e| format!("TurretAI did_fire crc failed: {:?}", e))?;
         Ok(())
@@ -2098,7 +2156,6 @@ impl Snapshotable for TurretAI {
     /// Serialize/deserialize TurretAI state
     /// Matches C++ TurretAI::xfer (version 2)
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ TurretAI.cpp line 322: currentVersion = 2
         const CURRENT_VERSION: XferVersion = 2;
         let mut version = CURRENT_VERSION;
         xfer.xfer_version(&mut version, CURRENT_VERSION)
@@ -2127,7 +2184,6 @@ impl Snapshotable for TurretAI {
             .map_err(|e| format!("TurretAI enable_sweep_until xfer failed: {:?}", e))?;
 
         // C++ line 338: xferUser(&m_target, sizeof(m_target))
-        // m_target is TurretTargetType enum (TARGET_NONE=0, TARGET_OBJECT=1, TARGET_POSITION=2)
         let mut target_kind_val = match self.target_kind {
             TurretTargetKind::None => 0u32,
             TurretTargetKind::Object => 1u32,
@@ -2145,29 +2201,24 @@ impl Snapshotable for TurretAI {
         }
 
         // C++ line 339: xferUnsignedInt(&m_continuousFireExpirationFrame)
-        // TODO: m_continuousFireExpirationFrame not yet in Rust struct — skip for now
-        let mut continuous_fire_expiration_frame: u32 = 0;
-        xfer.xfer_unsigned_int(&mut continuous_fire_expiration_frame)
+        xfer.xfer_unsigned_int(&mut self.continuous_fire_expiration_frame)
             .map_err(|e| format!("TurretAI continuous_fire_expiration xfer failed: {:?}", e))?;
 
         // C++ lines 341-348: 7 Bool fields via UNPACK_AND_XFER macro
-        // m_playRotSound — TODO: not yet in Rust struct
-        let mut play_rot_sound: bool = false;
-        xfer.xfer_bool(&mut play_rot_sound)
+        // m_playRotSound
+        xfer.xfer_bool(&mut self.play_rot_sound)
             .map_err(|e| format!("TurretAI play_rot_sound xfer failed: {:?}", e))?;
 
-        // m_playPitchSound — TODO: not yet in Rust struct
-        let mut play_pitch_sound: bool = false;
-        xfer.xfer_bool(&mut play_pitch_sound)
+        // m_playPitchSound
+        xfer.xfer_bool(&mut self.play_pitch_sound)
             .map_err(|e| format!("TurretAI play_pitch_sound xfer failed: {:?}", e))?;
 
         // m_positiveSweep
         xfer.xfer_bool(&mut self.positive_sweep)
             .map_err(|e| format!("TurretAI positive_sweep xfer failed: {:?}", e))?;
 
-        // m_didFire — TODO: not yet in Rust struct
-        let mut did_fire: bool = false;
-        xfer.xfer_bool(&mut did_fire)
+        // m_didFire
+        xfer.xfer_bool(&mut self.did_fire)
             .map_err(|e| format!("TurretAI did_fire xfer failed: {:?}", e))?;
 
         // m_enabled
@@ -2183,10 +2234,8 @@ impl Snapshotable for TurretAI {
             .map_err(|e| format!("TurretAI target_was_set_by_idle_mood xfer failed: {:?}", e))?;
 
         // C++ line 351-352: version >= 2: xferUnsignedInt(&m_sleepUntil)
-        // TODO: m_sleepUntil not yet in Rust struct — skip for now
         if version >= 2 {
-            let mut sleep_until: u32 = 0;
-            xfer.xfer_unsigned_int(&mut sleep_until)
+            xfer.xfer_unsigned_int(&mut self.sleep_until)
                 .map_err(|e| format!("TurretAI sleep_until xfer failed: {:?}", e))?;
         }
 
