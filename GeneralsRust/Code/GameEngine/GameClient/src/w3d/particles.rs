@@ -19,6 +19,8 @@ use std::sync::Arc;
 use crate::effects::decals::DecalRenderItem;
 use crate::effects::particle_manager::{ParticleSystemManager, ParticleType};
 use crate::effects::particle_renderer::{ParticleRenderer, ParticleUniforms};
+use crate::system::smudge::get_smudge_manager;
+use game_engine::common::global_data as runtime_global_data;
 
 /// W3D Particle System Bridge
 ///
@@ -78,7 +80,15 @@ impl W3DParticleSystemBridge {
         // Collect all active particle systems for rendering
         let systems: Vec<_> = particle_manager.all_particle_systems().collect();
 
-        let smudges = collect_smudge_render_items(&systems);
+        let smudges = if runtime_global_data::read().use_heat_effects {
+            collect_smudge_render_items(&systems)
+        } else {
+            Vec::new()
+        };
+        if let Ok(mut smudge_manager) = get_smudge_manager().lock() {
+            smudge_manager
+                .set_smudge_count_last_frame(i32::try_from(smudges.len()).unwrap_or(i32::MAX));
+        }
         if !smudges.is_empty() {
             renderer.render_decals(encoder, view, depth_view, &smudges, uniforms);
         }
