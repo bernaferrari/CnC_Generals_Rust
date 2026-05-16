@@ -2878,493 +2878,654 @@ impl super::science::ScienceAccess for Player {
 impl Snapshotable for Player {
     /// CRC computation for network synchronization.
     /// C++ Reference: Player::crc() lines 3939-3960
+    ///
+    /// C++ xfers:
+    ///   1. xferBool(battlePlanBonus) - whether BattlePlanBonuses is present
+    ///   2. IF present: xferReal(armorScalar), xferReal(sightRangeScalar),
+    ///      xferInt(bombardment), xferInt(holdTheLine), xferInt(searchAndDestroy),
+    ///      kindOf.xfer(validKindOf), kindOf.xfer(invalidKindOf)
+    ///   3. xferInt(skillPoints)
+    ///   4. xferInt(sciencePurchasePoints)
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Xfer skill points and science purchase points for CRC
-        let mut skill_points = self.skill_points;
-        let mut science_purchase_points = self.science_purchase_points;
+        // Battle plan bonuses - always false since we don't have a BattlePlanBonuses struct
+        let mut battle_plan_bonus = false;
+        xfer.xfer_bool(&mut battle_plan_bonus)
+            .map_err(|e| format!("CRC battle_plan_bonus failed: {}", e))?;
+        // Note: When BattlePlanBonuses is added as a Player field, this should
+        // conditionally xfer the struct fields (armorScalar, sightRangeScalar,
+        // bombardment, holdTheLine, searchAndDestroy, validKindOf, invalidKindOf).
 
+        // Skill points
+        let mut skill_points = self.skill_points;
         xfer.xfer_int(&mut skill_points)
             .map_err(|e| format!("CRC skill_points failed: {}", e))?;
+
+        // Science purchase points
+        let mut science_purchase_points = self.science_purchase_points;
         xfer.xfer_int(&mut science_purchase_points)
             .map_err(|e| format!("CRC science_purchase_points failed: {}", e))?;
-
-        // Xfer cash bounty percent
-        let mut cash_bounty = self.cash_bounty_percent;
-        xfer.xfer_real(&mut cash_bounty)
-            .map_err(|e| format!("CRC cash_bounty_percent failed: {}", e))?;
 
         Ok(())
     }
 
     /// Save/load player state.
-    /// C++ Reference: Player::xfer() lines 3975-4526
+    /// C++ Reference: Player::xfer() lines 3975-4516
+    ///
     /// Version History:
     ///   1: Initial version
-    ///   2: Skill point modifier
-    ///   3: Score screen exclusion flag
-    ///   4: Special power ready timer list
-    ///   5: ???
-    ///   6: m_unitsShouldHunt flag
-    ///   7: Preorder flag
-    ///   8: Disabled/hidden sciences
+    ///   2: Player can now have a modifier on his skill points (multiplicative)
+    ///   3: Player can be excluded from the score screen via script.
+    ///   4: Player stores a list of specialpowerreadyframe timers
+    ///   5: Sciences use xferScienceVec
+    ///   6: Store m_unitsShouldHunt
+    ///   7: Added Preorder flag
+    ///   8: Save m_disabledSciences & m_hiddenSciences
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         const CURRENT_VERSION: XferVersion = 8;
         let mut version = CURRENT_VERSION;
 
+        // --- 1. Version ---
         xfer.xfer_version(&mut version, CURRENT_VERSION)
             .map_err(|e| format!("xfer_version failed: {}", e))?;
 
-        // Money - use Money's own xfer_save/xfer_load methods
+        // --- 2. Money xferSnapshot ---
+        // C++ line 3984: xfer->xferSnapshot(&m_money)
+        // Money has its own Snapshotable xfer (version + u32 money value)
         match xfer.get_xfer_mode() {
             XferMode::Save => {
                 let money_data = self.money.xfer_save();
-                let mut len = money_data.len() as u16;
-                xfer.xfer_unsigned_short(&mut len)
-                    .map_err(|e| format!("money len xfer failed: {}", e))?;
-                for byte in &money_data {
-                    let mut b = *byte as i8;
-                    xfer.xfer_byte(&mut b)
-                        .map_err(|e| format!("money data xfer failed: {}", e))?;
+                // Money xfer is: version byte (1) + 4 bytes money value = 5 bytes raw
+                unsafe {
+                    xfer.xfer_user(money_data.as_ptr() as *mut u8, money_data.len())
+                        .map_err(|e| format!("money xfer_user failed: {}", e))?;
                 }
             }
             XferMode::Load => {
-                let mut len = 0u16;
-                xfer.xfer_unsigned_short(&mut len)
-                    .map_err(|e| format!("money len load failed: {}", e))?;
-                let mut money_data = vec![0u8; len as usize];
-                for byte in &mut money_data {
-                    let mut b = 0i8;
-                    xfer.xfer_byte(&mut b)
-                        .map_err(|e| format!("money data load failed: {}", e))?;
-                    *byte = b as u8;
+                // Money xfer starts with version byte, then u32 money value (5 bytes total)
+                let mut money_data = vec![0u8; 5];
+                unsafe {
+                    xfer.xfer_user(money_data.as_mut_ptr(), money_data.len())
+                        .map_err(|e| format!("money xfer_user load failed: {}", e))?;
                 }
                 self.money
                     .xfer_load(&money_data)
                     .map_err(|e| e.to_string())?;
             }
             XferMode::Crc => {
-                // For CRC, just hash the money amount
-                let amount = self.money.count_money();
-                let mut amount_mut = amount;
-                xfer.xfer_unsigned_int(&mut amount_mut)
-                    .map_err(|e| format!("money crc failed: {}", e))?;
+                let money_data = self.money.xfer_save();
+                unsafe {
+                    xfer.xfer_user(money_data.as_ptr() as *mut u8, money_data.len())
+                        .map_err(|e| format!("money crc failed: {}", e))?;
+                }
             }
             _ => {}
         }
 
-        // Player relations - delegate to PlayerRelationMap::xfer()
-        // C++ lines 4297-4335: PlayerRelationMap::xfer
-        self.player_relations
-            .xfer(xfer)
-            .map_err(|e| format!("player_relations xfer failed: {}", e))?;
-
-        // Rank level
-        xfer.xfer_int(&mut self.rank_level)
-            .map_err(|e| format!("rank_level xfer failed: {}", e))?;
-
-        // Skill points
-        xfer.xfer_int(&mut self.skill_points)
-            .map_err(|e| format!("skill_points xfer failed: {}", e))?;
-
-        // Science purchase points
-        xfer.xfer_int(&mut self.science_purchase_points)
-            .map_err(|e| format!("science_purchase_points xfer failed: {}", e))?;
-
-        // Player dead state
-        let mut is_dead = self.is_player_dead;
-        xfer.xfer_bool(&mut is_dead)
-            .map_err(|e| format!("is_player_dead xfer failed: {}", e))?;
-        if matches!(xfer.get_xfer_mode(), XferMode::Load) {
-            self.is_player_dead = is_dead;
-        }
-
-        // Observer flag
-        let mut observer = self.observer;
-        xfer.xfer_bool(&mut observer)
-            .map_err(|e| format!("observer xfer failed: {}", e))?;
-        if matches!(xfer.get_xfer_mode(), XferMode::Load) {
-            self.observer = observer;
-        }
-
-        // Cash bounty percent
-        xfer.xfer_real(&mut self.cash_bounty_percent)
-            .map_err(|e| format!("cash_bounty_percent xfer failed: {}", e))?;
-
-        // Score keeper - xfer the player index this keeper tracks
-        // The score keeper itself will be re-initialized on load
-        let mut score_player_idx = self.index;
-        xfer.xfer_int(&mut score_player_idx)
-            .map_err(|e| format!("score_keeper player_idx xfer failed: {}", e))?;
-        if matches!(xfer.get_xfer_mode(), XferMode::Load) {
-            self.score_keeper.reset(score_player_idx);
-        }
-
-        // Version 8+: Disabled and hidden sciences
-        if version >= 8 {
-            let mut disabled_count = self.sciences_disabled.len() as u16;
-            let mut hidden_count = self.sciences_hidden.len() as u16;
-
-            xfer.xfer_unsigned_short(&mut disabled_count)
-                .map_err(|e| format!("disabled_count xfer failed: {}", e))?;
-            xfer.xfer_unsigned_short(&mut hidden_count)
-                .map_err(|e| format!("hidden_count xfer failed: {}", e))?;
-
-            match xfer.get_xfer_mode() {
-                XferMode::Save | XferMode::Crc => {
-                    for &science in &self.sciences_disabled {
-                        let mut sci = science;
-                        xfer.xfer_int(&mut sci)
-                            .map_err(|e| format!("disabled science xfer failed: {}", e))?;
-                    }
-                    for &science in &self.sciences_hidden {
-                        let mut sci = science;
-                        xfer.xfer_int(&mut sci)
-                            .map_err(|e| format!("hidden science xfer failed: {}", e))?;
-                    }
-                }
-                XferMode::Load => {
-                    self.sciences_disabled.clear();
-                    self.sciences_hidden.clear();
-                    for _ in 0..disabled_count {
-                        let mut science = 0i32;
-                        xfer.xfer_int(&mut science)
-                            .map_err(|e| format!("load disabled science failed: {}", e))?;
-                        self.sciences_disabled.insert(science);
-                    }
-                    for _ in 0..hidden_count {
-                        let mut science = 0i32;
-                        xfer.xfer_int(&mut science)
-                            .map_err(|e| format!("load hidden science failed: {}", e))?;
-                        self.sciences_hidden.insert(science);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Upgrade list count
+        // --- 3. Upgrade list count ---
+        // C++ lines 3987-3991
         let mut upgrade_count = self.upgrade_list.len() as u16;
         xfer.xfer_unsigned_short(&mut upgrade_count)
             .map_err(|e| format!("upgrade_count xfer failed: {}", e))?;
 
+        // --- 4. Version >= 7: Preorder ---
+        // C++ lines 3993-3997
+        if version >= 7 {
+            xfer.xfer_bool(&mut self.is_preorder)
+                .map_err(|e| format!("is_preorder xfer failed: {}", e))?;
+        }
+
+        // --- 5. Version >= 8: Disabled/Hidden sciences ---
+        // C++ lines 3999-4003: xferScienceVec(&m_sciencesDisabled), xferScienceVec(&m_sciencesHidden)
+        if version >= 8 {
+            // Convert HashSet to Vec for xfer_science_vec
+            let mut disabled_vec: Vec<ScienceType> = self.sciences_disabled.iter().copied().collect();
+            let mut hidden_vec: Vec<ScienceType> = self.sciences_hidden.iter().copied().collect();
+
+            xfer.xfer_science_vec(&mut disabled_vec)
+                .map_err(|e| format!("sciences_disabled xfer failed: {}", e))?;
+            xfer.xfer_science_vec(&mut hidden_vec)
+                .map_err(|e| format!("sciences_hidden xfer failed: {}", e))?;
+
+            if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+                self.sciences_disabled = disabled_vec.into_iter().collect();
+                self.sciences_hidden = hidden_vec.into_iter().collect();
+            }
+        }
+
+        // --- 6. Upgrade instances: name + xferSnapshot ---
+        // C++ lines 4005-4053
         match xfer.get_xfer_mode() {
             XferMode::Save => {
                 for upgrade in &self.upgrade_list {
-                    let mut name_bytes: Vec<i8> =
-                        upgrade.get_name().bytes().map(|b| b as i8).collect();
-                    let mut name_len = name_bytes.len() as u16;
-                    xfer.xfer_unsigned_short(&mut name_len)
-                        .map_err(|e| format!("upgrade name len failed: {}", e))?;
-                    for byte in &mut name_bytes {
-                        xfer.xfer_byte(byte)
-                            .map_err(|e| format!("upgrade name byte failed: {}", e))?;
-                    }
+                    // Write upgrade name via xferAsciiString
+                    let mut name = upgrade.get_name().to_string();
+                    xfer.xfer_ascii_string(&mut name)
+                        .map_err(|e| format!("upgrade name xfer failed: {}", e))?;
+
+                    // xferSnapshot of upgrade data (status, start_frame, complete_frame)
                     let mut status = upgrade.get_status() as i32;
+                    let mut start_frame = upgrade.start_frame;
+                    let mut complete_frame = upgrade.complete_frame;
                     xfer.xfer_int(&mut status)
-                        .map_err(|e| format!("upgrade status failed: {}", e))?;
+                        .map_err(|e| format!("upgrade status xfer failed: {}", e))?;
+                    xfer.xfer_unsigned_int(&mut start_frame)
+                        .map_err(|e| format!("upgrade start_frame xfer failed: {}", e))?;
+                    xfer.xfer_unsigned_int(&mut complete_frame)
+                        .map_err(|e| format!("upgrade complete_frame xfer failed: {}", e))?;
                 }
             }
             XferMode::Load => {
                 self.upgrade_list.clear();
                 for _ in 0..upgrade_count {
-                    let mut name_len = 0u16;
-                    xfer.xfer_unsigned_short(&mut name_len)
-                        .map_err(|e| format!("load upgrade name len failed: {}", e))?;
-                    let mut name_bytes = vec![0i8; name_len as usize];
-                    for byte in &mut name_bytes {
-                        xfer.xfer_byte(byte)
-                            .map_err(|e| format!("load upgrade name byte failed: {}", e))?;
-                    }
-                    let name: String = name_bytes.iter().map(|&b| b as u8 as char).collect();
+                    // Read upgrade name via xferAsciiString
+                    let mut name = String::new();
+                    xfer.xfer_ascii_string(&mut name)
+                        .map_err(|e| format!("load upgrade name failed: {}", e))?;
+
+                    // Read upgrade snapshot data
                     let mut status = 0i32;
+                    let mut start_frame = 0u32;
+                    let mut complete_frame = 0u32;
                     xfer.xfer_int(&mut status)
                         .map_err(|e| format!("load upgrade status failed: {}", e))?;
-                    let status = match status {
+                    xfer.xfer_unsigned_int(&mut start_frame)
+                        .map_err(|e| format!("load upgrade start_frame failed: {}", e))?;
+                    xfer.xfer_unsigned_int(&mut complete_frame)
+                        .map_err(|e| format!("load upgrade complete_frame failed: {}", e))?;
+
+                    let status_enum = match status {
                         0 => UpgradeStatus::Pending,
                         1 => UpgradeStatus::InProduction,
-                        _ => UpgradeStatus::Complete,
+                        2 => UpgradeStatus::Complete,
+                        _ => UpgradeStatus::Pending,
                     };
                     let mut upgrade = UpgradeInfo::new(name);
-                    upgrade.set_status(status);
+                    upgrade.set_status(status_enum);
+                    upgrade.set_start_frame(start_frame);
+                    upgrade.set_complete_frame(complete_frame);
                     self.upgrade_list.push(upgrade);
                 }
             }
             _ => {}
         }
 
-        // Radar info
+        // --- 7. Radar info ---
+        // C++ lines 4055-4059
         xfer.xfer_int(&mut self.radar_count)
             .map_err(|e| format!("radar_count xfer failed: {}", e))?;
+        // --- 8. Is player dead ---
+        xfer.xfer_bool(&mut self.is_player_dead)
+            .map_err(|e| format!("is_player_dead xfer failed: {}", e))?;
+        // --- 9. Disable proof radar count ---
         xfer.xfer_int(&mut self.disable_proof_radar_count)
-            .map_err(|e| format!("disable_proof_radar_count failed: {}", e))?;
+            .map_err(|e| format!("disable_proof_radar_count xfer failed: {}", e))?;
+        // --- 10. Radar disabled ---
         xfer.xfer_bool(&mut self.radar_disabled)
             .map_err(|e| format!("radar_disabled xfer failed: {}", e))?;
 
-        // Upgrades in progress and completed (store as two u32s each since u64 may not be directly supported)
-        let mut upgrades_in_progress_lo = (self.upgrades_in_progress & 0xFFFFFFFF) as u32;
-        let mut upgrades_in_progress_hi = ((self.upgrades_in_progress >> 32) & 0xFFFFFFFF) as u32;
-        let mut upgrades_completed_lo = (self.upgrades_completed & 0xFFFFFFFF) as u32;
-        let mut upgrades_completed_hi = ((self.upgrades_completed >> 32) & 0xFFFFFFFF) as u32;
-        xfer.xfer_unsigned_int(&mut upgrades_in_progress_lo)
-            .map_err(|e| format!("upgrades_in_progress_lo failed: {}", e))?;
-        xfer.xfer_unsigned_int(&mut upgrades_in_progress_hi)
-            .map_err(|e| format!("upgrades_in_progress_hi failed: {}", e))?;
-        xfer.xfer_unsigned_int(&mut upgrades_completed_lo)
-            .map_err(|e| format!("upgrades_completed_lo failed: {}", e))?;
-        xfer.xfer_unsigned_int(&mut upgrades_completed_hi)
-            .map_err(|e| format!("upgrades_completed_hi failed: {}", e))?;
+        // --- 11. Upgrades in progress ---
+        // C++ line 4062: xfer->xferUpgradeMask(&m_upgradesInProgress)
+        let mut upgrades_in_progress_mask = self.upgrades_in_progress as u128;
+        xfer.xfer_upgrade_mask(&mut upgrades_in_progress_mask)
+            .map_err(|e| format!("upgrades_in_progress xfer failed: {}", e))?;
+
+        // --- 12. Upgrades completed ---
+        // C++ line 4065: xfer->xferUpgradeMask(&m_upgradesCompleted)
+        let mut upgrades_completed_mask = self.upgrades_completed as u128;
+        xfer.xfer_upgrade_mask(&mut upgrades_completed_mask)
+            .map_err(|e| format!("upgrades_completed xfer failed: {}", e))?;
+
         if matches!(xfer.get_xfer_mode(), XferMode::Load) {
-            self.upgrades_in_progress =
-                ((upgrades_in_progress_hi as u64) << 32) | (upgrades_in_progress_lo as u64);
-            self.upgrades_completed =
-                ((upgrades_completed_hi as u64) << 32) | (upgrades_completed_lo as u64);
+            self.upgrades_in_progress = upgrades_in_progress_mask as u64;
+            self.upgrades_completed = upgrades_completed_mask as u64;
         }
 
-        // Team prototypes
+        // --- 13. Energy xferSnapshot ---
+        // C++ line 4068: xfer->xferSnapshot(&m_energy)
+        // Energy has its own xfer method (version 3) matching C++ Energy::xfer
+        self.energy.xfer(xfer);
+
+        // --- 14. Team prototypes ---
+        // C++ lines 4074-4122: prototype count + xferUser raw TeamPrototypeID for each
         let mut prototype_count = self.team_prototypes.len() as u16;
         xfer.xfer_unsigned_short(&mut prototype_count)
-            .map_err(|e| format!("prototype_count failed: {}", e))?;
+            .map_err(|e| format!("prototype_count xfer failed: {}", e))?;
         match xfer.get_xfer_mode() {
-            XferMode::Save => {
-                for prototype_name in &self.team_prototypes {
-                    let mut name_bytes: Vec<i8> = prototype_name.bytes().map(|b| b as i8).collect();
-                    let mut name_len = name_bytes.len() as u16;
-                    xfer.xfer_unsigned_short(&mut name_len)
-                        .map_err(|e| format!("prototype name len failed: {}", e))?;
-                    for byte in &mut name_bytes {
-                        xfer.xfer_byte(byte)
-                            .map_err(|e| format!("prototype name byte failed: {}", e))?;
+            XferMode::Save | XferMode::Crc => {
+                // C++ writes raw TeamPrototypeID bytes via xferUser
+                // Since we store names, write dummy 4-byte IDs (will be resolved by TeamFactory on load)
+                for _ in 0..prototype_count {
+                    let mut dummy_id: u32 = 0;
+                    unsafe {
+                        xfer.xfer_user(
+                            &mut dummy_id as *mut u32 as *mut u8,
+                            std::mem::size_of::<u32>(),
+                        )
+                        .map_err(|e| format!("prototype id xfer failed: {}", e))?;
                     }
                 }
             }
             XferMode::Load => {
                 self.team_prototypes.clear();
                 for _ in 0..prototype_count {
-                    let mut name_len = 0u16;
-                    xfer.xfer_unsigned_short(&mut name_len)
-                        .map_err(|e| format!("load prototype name len failed: {}", e))?;
-                    let mut name_bytes = vec![0i8; name_len as usize];
-                    for byte in &mut name_bytes {
-                        xfer.xfer_byte(byte)
-                            .map_err(|e| format!("load prototype name byte failed: {}", e))?;
+                    let mut dummy_id: u32 = 0;
+                    unsafe {
+                        xfer.xfer_user(
+                            &mut dummy_id as *mut u32 as *mut u8,
+                            std::mem::size_of::<u32>(),
+                        )
+                        .map_err(|e| format!("load prototype id failed: {}", e))?;
                     }
-                    let name: String = name_bytes.iter().map(|&b| b as u8 as char).collect();
-                    self.team_prototypes.push(name);
+                    // In C++, this resolves via TheTeamFactory->findTeamPrototypeByID
+                    // Store as string representation since we don't have team factory
+                    self.team_prototypes.push(format!("team_proto_{}", dummy_id));
                 }
             }
             _ => {}
         }
 
-        // Build list count
-        let mut build_list_count = 0u16;
+        // --- 15. Build list info ---
+        // C++ lines 4124-4176: buildListInfoCount + xferSnapshot for each
+        let mut build_list_info_count = 0u16;
         let mut current: Option<&BuildListInfo> = self.build_list.as_deref();
         while let Some(info) = current {
-            build_list_count += 1;
+            build_list_info_count += 1;
             current = info.get_next();
         }
-        xfer.xfer_unsigned_short(&mut build_list_count)
-            .map_err(|e| format!("build_list_count failed: {}", e))?;
+        xfer.xfer_unsigned_short(&mut build_list_info_count)
+            .map_err(|e| format!("build_list_info_count xfer failed: {}", e))?;
 
         match xfer.get_xfer_mode() {
-            XferMode::Save => {
+            XferMode::Save | XferMode::Crc => {
                 current = self.build_list.as_deref();
                 while let Some(info) = current {
-                    let mut template_bytes: Vec<i8> =
-                        info.get_template_name().bytes().map(|b| b as i8).collect();
-                    let mut len = template_bytes.len() as u16;
-                    xfer.xfer_unsigned_short(&mut len)
-                        .map_err(|e| format!("build template len failed: {}", e))?;
-                    for byte in &mut template_bytes {
-                        xfer.xfer_byte(byte)
-                            .map_err(|e| format!("build template byte failed: {}", e))?;
-                    }
+                    // BuildListInfo xferSnapshot - inline serialization
+                    // C++ BuildListInfo::xfer writes: version, templateName, location, angle,
+                    // objectID, numRebuilds, priorityBuild, underConstruction, objectTimestamp
+                    const BUILD_LIST_VERSION: XferVersion = 1;
+                    let mut bl_version = BUILD_LIST_VERSION;
+                    xfer.xfer_version(&mut bl_version, BUILD_LIST_VERSION)
+                        .map_err(|e| format!("build_list version failed: {}", e))?;
+                    let mut name = info.get_template_name().to_string();
+                    xfer.xfer_ascii_string(&mut name)
+                        .map_err(|e| format!("build_list name failed: {}", e))?;
                     let mut x = info.get_location().x;
                     let mut y = info.get_location().y;
                     let mut z = info.get_location().z;
-                    let mut angle = info.get_angle();
-                    let mut object_id = info.get_object_id();
-                    let mut num_rebuilds = info.get_num_rebuilds();
-                    let mut priority = info.is_priority_build() as i32;
                     xfer.xfer_real(&mut x)
-                        .map_err(|e| format!("x failed: {}", e))?;
+                        .map_err(|e| format!("build_list x failed: {}", e))?;
                     xfer.xfer_real(&mut y)
-                        .map_err(|e| format!("y failed: {}", e))?;
+                        .map_err(|e| format!("build_list y failed: {}", e))?;
                     xfer.xfer_real(&mut z)
-                        .map_err(|e| format!("z failed: {}", e))?;
+                        .map_err(|e| format!("build_list z failed: {}", e))?;
+                    let mut angle = info.get_angle();
                     xfer.xfer_real(&mut angle)
-                        .map_err(|e| format!("angle failed: {}", e))?;
+                        .map_err(|e| format!("build_list angle failed: {}", e))?;
+                    let mut object_id = info.get_object_id();
                     xfer.xfer_unsigned_int(&mut object_id)
-                        .map_err(|e| format!("object_id failed: {}", e))?;
+                        .map_err(|e| format!("build_list object_id failed: {}", e))?;
+                    let mut num_rebuilds = info.get_num_rebuilds();
                     xfer.xfer_unsigned_int(&mut num_rebuilds)
-                        .map_err(|e| format!("num_rebuilds failed: {}", e))?;
-                    xfer.xfer_int(&mut priority)
-                        .map_err(|e| format!("priority failed: {}", e))?;
+                        .map_err(|e| format!("build_list num_rebuilds failed: {}", e))?;
+                    let mut priority = info.is_priority_build();
+                    xfer.xfer_bool(&mut priority)
+                        .map_err(|e| format!("build_list priority failed: {}", e))?;
+                    let mut under_construction = info.is_under_construction();
+                    xfer.xfer_bool(&mut under_construction)
+                        .map_err(|e| format!("build_list under_construction failed: {}", e))?;
+                    let mut timestamp = 0u32;
+                    xfer.xfer_unsigned_int(&mut timestamp)
+                        .map_err(|e| format!("build_list timestamp failed: {}", e))?;
                     current = info.get_next();
                 }
             }
             XferMode::Load => {
+                // C++ lines 4145-4147: destroy existing build list
                 self.build_list = None;
-                for _ in 0..build_list_count {
-                    let mut len = 0u16;
-                    xfer.xfer_unsigned_short(&mut len)
-                        .map_err(|e| format!("load build template len failed: {}", e))?;
-                    let mut template_bytes = vec![0i8; len as usize];
-                    for byte in &mut template_bytes {
-                        xfer.xfer_byte(byte)
-                            .map_err(|e| format!("load build template byte failed: {}", e))?;
-                    }
-                    let template_name: String =
-                        template_bytes.iter().map(|&b| b as u8 as char).collect();
+                for _ in 0..build_list_info_count {
+                    const BUILD_LIST_VERSION: XferVersion = 1;
+                    let mut bl_version = BUILD_LIST_VERSION;
+                    xfer.xfer_version(&mut bl_version, BUILD_LIST_VERSION)
+                        .map_err(|e| format!("load build_list version failed: {}", e))?;
+                    let mut name = String::new();
+                    xfer.xfer_ascii_string(&mut name)
+                        .map_err(|e| format!("load build_list name failed: {}", e))?;
                     let mut x = 0.0f32;
                     let mut y = 0.0f32;
                     let mut z = 0.0f32;
-                    let mut angle = 0.0f32;
-                    let mut object_id = 0u32;
-                    let mut num_rebuilds = 0u32;
-                    let mut priority = 0i32;
                     xfer.xfer_real(&mut x)
-                        .map_err(|e| format!("load x failed: {}", e))?;
+                        .map_err(|e| format!("load build_list x failed: {}", e))?;
                     xfer.xfer_real(&mut y)
-                        .map_err(|e| format!("load y failed: {}", e))?;
+                        .map_err(|e| format!("load build_list y failed: {}", e))?;
                     xfer.xfer_real(&mut z)
-                        .map_err(|e| format!("load z failed: {}", e))?;
+                        .map_err(|e| format!("load build_list z failed: {}", e))?;
+                    let mut angle = 0.0f32;
                     xfer.xfer_real(&mut angle)
-                        .map_err(|e| format!("load angle failed: {}", e))?;
+                        .map_err(|e| format!("load build_list angle failed: {}", e))?;
+                    let mut object_id = 0u32;
                     xfer.xfer_unsigned_int(&mut object_id)
-                        .map_err(|e| format!("load object_id failed: {}", e))?;
+                        .map_err(|e| format!("load build_list object_id failed: {}", e))?;
+                    let mut num_rebuilds = 0u32;
                     xfer.xfer_unsigned_int(&mut num_rebuilds)
-                        .map_err(|e| format!("load num_rebuilds failed: {}", e))?;
-                    xfer.xfer_int(&mut priority)
-                        .map_err(|e| format!("load priority failed: {}", e))?;
+                        .map_err(|e| format!("load build_list num_rebuilds failed: {}", e))?;
+                    let mut priority = false;
+                    xfer.xfer_bool(&mut priority)
+                        .map_err(|e| format!("load build_list priority failed: {}", e))?;
+                    let mut under_construction = false;
+                    xfer.xfer_bool(&mut under_construction)
+                        .map_err(|e| format!("load build_list under_construction failed: {}", e))?;
+                    let mut _timestamp = 0u32;
+                    xfer.xfer_unsigned_int(&mut _timestamp)
+                        .map_err(|e| format!("load build_list timestamp failed: {}", e))?;
+
+                    // Attach to end of list (matching C++ behavior)
                     let mut info = Box::new(BuildListInfo::new(
-                        template_name,
+                        name,
                         Coord3D::new(x, y, z),
                         angle,
                     ));
                     info.set_object_id(object_id);
                     info.set_num_rebuilds(num_rebuilds);
-                    if priority != 0 {
+                    if priority {
                         info.mark_priority_build();
                     }
-                    info.set_next(self.build_list.take());
-                    self.build_list = Some(info);
+                    info.set_under_construction(under_construction);
+
+                    if self.build_list.is_none() {
+                        self.build_list = Some(info);
+                    } else {
+                        // Walk to end and append
+                        let mut last = self.build_list.as_deref_mut().unwrap();
+                        while last.get_next().is_some() {
+                            last = last.get_next_mut().unwrap();
+                        }
+                        last.set_next(Some(info));
+                    }
                 }
             }
             _ => {}
         }
 
-        // AI present flag
-        let mut ai_present = self.ai.is_some();
-        xfer.xfer_bool(&mut ai_present)
-            .map_err(|e| format!("ai_present xfer failed: {}", e))?;
+        // --- 16. AI player data ---
+        // C++ lines 4178-4189: xferBool(aiPlayerPresent), if present xferSnapshot(&m_ai)
+        let mut ai_player_present = self.ai.is_some();
+        xfer.xfer_bool(&mut ai_player_present)
+            .map_err(|e| format!("ai_player_present xfer failed: {}", e))?;
+        // Note: AI xferSnapshot requires AIPlayer Snapshotable impl.
+        // When AI xfer is implemented, call it here if ai_player_present is true.
 
-        // Resource manager and tunnel present flags
-        let mut resource_manager_present =
-            !self.supply_centers.is_empty() || !self.supply_warehouses.is_empty();
+        // --- 17. Resource gathering manager ---
+        // C++ lines 4191-4203: xferBool(rgmPresent), if present xferSnapshot(&m_resourceGatheringManager)
+        let mut rgm_present = !self.supply_centers.is_empty() || !self.supply_warehouses.is_empty();
+        xfer.xfer_bool(&mut rgm_present)
+            .map_err(|e| format!("rgm_present xfer failed: {}", e))?;
+        // Note: ResourceGatheringManager xferSnapshot requires its Snapshotable impl.
+        // When RGM xfer is implemented, call it here if rgm_present is true.
+
+        // --- 18. Tunnel tracking system ---
+        // C++ lines 4205-4217: xferBool(tunnelTrackerPresent), if present xferSnapshot(&m_tunnelSystem)
         let mut tunnel_present = !self.tunnel_entrances.is_empty();
-        xfer.xfer_bool(&mut resource_manager_present)
-            .map_err(|e| format!("resource_manager_present failed: {}", e))?;
         xfer.xfer_bool(&mut tunnel_present)
             .map_err(|e| format!("tunnel_present xfer failed: {}", e))?;
+        // Note: TunnelTracker xferSnapshot requires its Snapshotable impl.
+        // When tunnel xfer is implemented, call it here if tunnel_present is true.
 
-        // Default team
-        let mut default_team_id = self.default_team.unwrap_or(0) as i32;
-        xfer.xfer_int(&mut default_team_id)
-            .map_err(|e| format!("default_team_id xfer failed: {}", e))?;
+        // --- 19. Default team ---
+        // C++ lines 4219-4223: xferUser(&teamID, sizeof(TeamID))
+        let mut team_id = self.default_team.unwrap_or(0);
+        unsafe {
+            xfer.xfer_user(&mut team_id as *mut u32 as *mut u8, std::mem::size_of::<u32>())
+                .map_err(|e| format!("default_team xfer failed: {}", e))?;
+        }
         if matches!(xfer.get_xfer_mode(), XferMode::Load) {
-            self.default_team = if default_team_id != 0 {
-                Some(default_team_id as u32)
-            } else {
-                None
-            };
+            self.default_team = if team_id != 0 { Some(team_id) } else { None };
         }
 
-        // Sciences
-        let mut science_count = self.sciences.len() as u16;
-        xfer.xfer_unsigned_short(&mut science_count)
-            .map_err(|e| format!("science_count xfer failed: {}", e))?;
-        match xfer.get_xfer_mode() {
-            XferMode::Save => {
-                for &science in &self.sciences {
-                    let mut sci = science;
-                    xfer.xfer_int(&mut sci)
-                        .map_err(|e| format!("science xfer failed: {}", e))?;
-                }
+        // --- 20. Sciences ---
+        // C++ lines 4225-4266: version >= 5 uses xferScienceVec, else old format
+        if version >= 5 {
+            // Convert HashSet to Vec for xfer_science_vec
+            let mut sciences_vec: Vec<ScienceType> = self.sciences.iter().copied().collect();
+            if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+                sciences_vec.clear();
             }
-            XferMode::Load => {
-                self.sciences.clear();
-                for _ in 0..science_count {
-                    let mut science = 0i32;
-                    xfer.xfer_int(&mut science)
-                        .map_err(|e| format!("load science failed: {}", e))?;
-                    self.sciences.insert(science);
-                }
+            xfer.xfer_science_vec(&mut sciences_vec)
+                .map_err(|e| format!("sciences xfer failed: {}", e))?;
+            if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+                self.sciences = sciences_vec.into_iter().collect();
             }
-            _ => {}
+        } else {
+            // Old format (version < 5): count + raw ScienceType bytes
+            let mut science_count = self.sciences.len() as u16;
+            xfer.xfer_unsigned_short(&mut science_count)
+                .map_err(|e| format!("science_count xfer failed: {}", e))?;
+            match xfer.get_xfer_mode() {
+                XferMode::Save => {
+                    for &science in &self.sciences {
+                        let mut sci = science;
+                        unsafe {
+                            xfer.xfer_user(
+                                &mut sci as *mut i32 as *mut u8,
+                                std::mem::size_of::<ScienceType>(),
+                            )
+                            .map_err(|e| format!("science xfer failed: {}", e))?;
+                        }
+                    }
+                }
+                XferMode::Load => {
+                    self.sciences.clear();
+                    for _ in 0..science_count {
+                        let mut science: ScienceType = 0;
+                        unsafe {
+                            xfer.xfer_user(
+                                &mut science as *mut i32 as *mut u8,
+                                std::mem::size_of::<ScienceType>(),
+                            )
+                            .map_err(|e| format!("load science failed: {}", e))?;
+                        }
+                        self.sciences.insert(science);
+                    }
+                }
+                _ => {}
+            }
         }
 
-        // Level up/down
+        // --- 21. Rank level ---
+        // C++ line 4269
+        xfer.xfer_int(&mut self.rank_level)
+            .map_err(|e| format!("rank_level xfer failed: {}", e))?;
+
+        // --- 22. Skill points ---
+        // C++ line 4272
+        xfer.xfer_int(&mut self.skill_points)
+            .map_err(|e| format!("skill_points xfer failed: {}", e))?;
+
+        // --- 23. Science purchase points ---
+        // C++ line 4275
+        xfer.xfer_int(&mut self.science_purchase_points)
+            .map_err(|e| format!("science_purchase_points xfer failed: {}", e))?;
+
+        // --- 24. Level up ---
+        // C++ line 4278
         xfer.xfer_int(&mut self.level_up)
             .map_err(|e| format!("level_up xfer failed: {}", e))?;
+
+        // --- 25. Level down ---
+        // C++ line 4281
         xfer.xfer_int(&mut self.level_down)
             .map_err(|e| format!("level_down xfer failed: {}", e))?;
 
-        // General name
-        let mut general_name_bytes: Vec<i8> = self.general_name.bytes().map(|b| b as i8).collect();
-        let mut general_name_len = general_name_bytes.len() as u16;
-        xfer.xfer_unsigned_short(&mut general_name_len)
-            .map_err(|e| format!("general_name_len failed: {}", e))?;
+        // --- 26. General name (UNICODE string) ---
+        // C++ line 4284: xfer->xferUnicodeString(&m_generalName)
+        xfer.xfer_unicode_string(&mut self.general_name)
+            .map_err(|e| format!("general_name xfer failed: {}", e))?;
+
+        // --- 27. Player relations ---
+        // C++ line 4287: xfer->xferSnapshot(m_playerRelations)
+        self.player_relations
+            .xfer(xfer)
+            .map_err(|e| format!("player_relations xfer failed: {}", e))?;
+
+        // --- 28. Team relations ---
+        // C++ line 4290: xfer->xferSnapshot(m_teamRelations)
+        // Note: TeamRelationMap Snapshotable impl exists in team.rs.
+        // We don't have a team_relations field on Player, so write an empty map.
+        {
+            let mut empty_team_relations = super::team::TeamRelationMap::new();
+            empty_team_relations
+                .xfer(xfer)
+                .map_err(|e| format!("team_relations xfer failed: {}", e))?;
+        }
+
+        // --- 29. Can build units ---
+        // C++ line 4293
+        xfer.xfer_bool(&mut self.can_build_units)
+            .map_err(|e| format!("can_build_units xfer failed: {}", e))?;
+
+        // --- 30. Can build base ---
+        // C++ line 4296
+        xfer.xfer_bool(&mut self.can_build_base)
+            .map_err(|e| format!("can_build_base xfer failed: {}", e))?;
+
+        // --- 31. Observer ---
+        // C++ line 4299
+        xfer.xfer_bool(&mut self.observer)
+            .map_err(|e| format!("observer xfer failed: {}", e))?;
+
+        // --- 32. Version >= 2: Skill points modifier ---
+        // C++ lines 4301-4309
+        if version >= 2 {
+            xfer.xfer_real(&mut self.skill_points_modifier)
+                .map_err(|e| format!("skill_points_modifier xfer failed: {}", e))?;
+        } else if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.skill_points_modifier = 1.0;
+        }
+
+        // --- 33. Version >= 3: List in score screen ---
+        // C++ lines 4311-4318
+        if version >= 3 {
+            xfer.xfer_bool(&mut self.list_in_score_screen)
+                .map_err(|e| format!("list_in_score_screen xfer failed: {}", e))?;
+        } else if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.list_in_score_screen = true;
+        }
+
+        // --- 34. Attacked by (raw byte blob) ---
+        // C++ line 4320: xfer->xferUser(m_attackedBy, sizeof(Bool) * MAX_PLAYER_COUNT)
+        // In C++, Bool is typedef'd to Int (4 bytes), so this is MAX_PLAYER_COUNT * 4 bytes
+        {
+            let max_players = super::player_list::MAX_PLAYER_COUNT;
+            let blob_size = max_players * std::mem::size_of::<u32>(); // Bool = Int = 4 bytes
+            match xfer.get_xfer_mode() {
+                XferMode::Save | XferMode::Crc => {
+                    let mut blob = vec![0u8; blob_size];
+                    for i in 0..max_players {
+                        let val: u32 = if i < self.attacked_by.len() && self.attacked_by[i] {
+                            1
+                        } else {
+                            0
+                        };
+                        let start = i * std::mem::size_of::<u32>();
+                        blob[start..start + 4].copy_from_slice(&val.to_le_bytes());
+                    }
+                    unsafe {
+                        xfer.xfer_user(blob.as_ptr() as *mut u8, blob_size)
+                            .map_err(|e| format!("attacked_by xfer failed: {}", e))?;
+                    }
+                }
+                XferMode::Load => {
+                    let mut blob = vec![0u8; blob_size];
+                    unsafe {
+                        xfer.xfer_user(blob.as_mut_ptr(), blob_size)
+                            .map_err(|e| format!("attacked_by load failed: {}", e))?;
+                    }
+                    for i in 0..max_players {
+                        let start = i * std::mem::size_of::<u32>();
+                        if start + 4 <= blob.len() && i < self.attacked_by.len() {
+                            let val = u32::from_le_bytes(
+                                blob[start..start + 4].try_into().unwrap_or([0; 4]),
+                            );
+                            self.attacked_by[i] = val != 0;
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // --- 35. Cash bounty percent ---
+        // C++ line 4323
+        xfer.xfer_real(&mut self.cash_bounty_percent)
+            .map_err(|e| format!("cash_bounty_percent xfer failed: {}", e))?;
+
+        // --- 36. Score keeper xferSnapshot ---
+        // C++ line 4326: xfer->xferSnapshot(&m_scoreKeeper)
+        // ScoreKeeper doesn't have Snapshotable yet; serialize inline
+        // C++ ScoreKeeper::xfer writes version + playerIndex + various score fields
+        {
+            const SCORE_KEEPER_VERSION: XferVersion = 1;
+            let mut sk_version = SCORE_KEEPER_VERSION;
+            xfer.xfer_version(&mut sk_version, SCORE_KEEPER_VERSION)
+                .map_err(|e| format!("score_keeper version failed: {}", e))?;
+            let mut player_idx = self.index;
+            xfer.xfer_int(&mut player_idx)
+                .map_err(|e| format!("score_keeper player_idx failed: {}", e))?;
+            if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+                self.score_keeper.reset(player_idx);
+            }
+        }
+
+        // --- 37. KindOf percent production change list ---
+        // C++ lines 4328-4386: count + for each: kindOf.xfer, xferReal(percent), xferUnsignedInt(ref)
+        let mut percent_production_change_count = self.kind_of_production_cost_changes.len() as u16;
+        xfer.xfer_unsigned_short(&mut percent_production_change_count)
+            .map_err(|e| format!("percent_production_change_count xfer failed: {}", e))?;
+
         match xfer.get_xfer_mode() {
             XferMode::Save => {
-                for byte in &mut general_name_bytes {
-                    xfer.xfer_byte(byte)
-                        .map_err(|e| format!("general_name byte failed: {}", e))?;
+                for &(mask, percent) in &self.kind_of_production_cost_changes {
+                    // C++ writes: kindOf.xfer (which uses xferKindOf for each bit),
+                    // then xferReal(percent), then xferUnsignedInt(ref).
+                    // For parity, we write the mask as raw bytes since xferKindOf
+                    // serializes individual bit names.
+                    // Write as a single KindOf mask value
+                    let mut kind_of_mask = mask as u32;
+                    xfer.xfer_unsigned_int(&mut kind_of_mask)
+                        .map_err(|e| format!("kindof mask xfer failed: {}", e))?;
+                    let mut pct = percent;
+                    xfer.xfer_real(&mut pct)
+                        .map_err(|e| format!("kindof percent xfer failed: {}", e))?;
+                    // ref count is always 1 for our simplified representation
+                    let mut ref_count = 1u32;
+                    xfer.xfer_unsigned_int(&mut ref_count)
+                        .map_err(|e| format!("kindof ref xfer failed: {}", e))?;
                 }
             }
             XferMode::Load => {
-                let mut name_bytes = vec![0i8; general_name_len as usize];
-                for byte in &mut name_bytes {
-                    xfer.xfer_byte(byte)
-                        .map_err(|e| format!("load general_name byte failed: {}", e))?;
+                self.kind_of_production_cost_changes.clear();
+                for _ in 0..percent_production_change_count {
+                    let mut kind_of_mask = 0u32;
+                    xfer.xfer_unsigned_int(&mut kind_of_mask)
+                        .map_err(|e| format!("load kindof mask failed: {}", e))?;
+                    let mut percent = 0.0f32;
+                    xfer.xfer_real(&mut percent)
+                        .map_err(|e| format!("load kindof percent failed: {}", e))?;
+                    let mut _ref_count = 0u32;
+                    xfer.xfer_unsigned_int(&mut _ref_count)
+                        .map_err(|e| format!("load kindof ref failed: {}", e))?;
+                    self.kind_of_production_cost_changes
+                        .push((kind_of_mask as u64, percent));
                 }
-                self.general_name = name_bytes.iter().map(|&b| b as u8 as char).collect();
             }
             _ => {}
         }
 
-        // Can build flags
-        xfer.xfer_bool(&mut self.can_build_units)
-            .map_err(|e| format!("can_build_units xfer failed: {}", e))?;
-        xfer.xfer_bool(&mut self.can_build_base)
-            .map_err(|e| format!("can_build_base xfer failed: {}", e))?;
-
-        // Version 2+: Skill point modifier
-        if version >= 2 {
-            xfer.xfer_real(&mut self.skill_points_modifier)
-                .map_err(|e| format!("skill_points_modifier xfer failed: {}", e))?;
-        }
-
-        // Version 3+: List in score screen
-        if version >= 3 {
-            xfer.xfer_bool(&mut self.list_in_score_screen)
-                .map_err(|e| format!("list_in_score_screen xfer failed: {}", e))?;
-        }
-
-        // Attacked by array
-        for i in 0..self.attacked_by.len() {
-            let mut attacked = self.attacked_by[i];
-            xfer.xfer_bool(&mut attacked)
-                .map_err(|e| format!("attacked_by[{}] xfer failed: {}", i, e))?;
-            if matches!(xfer.get_xfer_mode(), XferMode::Load) {
-                self.attacked_by[i] = attacked;
-            }
-        }
-
-        // Version 4+: Special power timers
+        // --- 38. Version >= 4: Special power ready timers ---
+        // C++ lines 4392-4434
         if version >= 4 {
-            let mut timer_count = self.special_power_timers.len() as u16;
-            xfer.xfer_unsigned_short(&mut timer_count)
-                .map_err(|e| format!("timer_count xfer failed: {}", e))?;
+            let mut timer_list_size = self.special_power_timers.len() as u16;
+            xfer.xfer_unsigned_short(&mut timer_list_size)
+                .map_err(|e| format!("timer_list_size xfer failed: {}", e))?;
             match xfer.get_xfer_mode() {
                 XferMode::Save => {
                     for (&template_id, &ready_frame) in &self.special_power_timers {
@@ -3378,7 +3539,7 @@ impl Snapshotable for Player {
                 }
                 XferMode::Load => {
                     self.special_power_timers.clear();
-                    for _ in 0..timer_count {
+                    for _ in 0..timer_list_size {
                         let mut template_id = 0u32;
                         let mut ready_frame = 0u32;
                         xfer.xfer_unsigned_int(&mut template_id)
@@ -3390,20 +3551,36 @@ impl Snapshotable for Player {
                 }
                 _ => {}
             }
+        } else if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.special_power_timers.clear();
         }
 
-        // Squads
-        let squad_count = NUM_HOTKEY_SQUADS as u16;
-        let mut squad_count_xfer = squad_count;
-        xfer.xfer_unsigned_short(&mut squad_count_xfer)
+        // --- 39. Squads (NUM_HOTKEY_SQUADS count + xferSnapshot for each) ---
+        // C++ lines 4440-4463
+        let mut squad_count = NUM_HOTKEY_SQUADS as u16;
+        xfer.xfer_unsigned_short(&mut squad_count)
             .map_err(|e| format!("squad_count xfer failed: {}", e))?;
 
+        // C++ validates squadCount == NUM_HOTKEY_SQUADS
+        if squad_count as usize != NUM_HOTKEY_SQUADS {
+            return Err(format!(
+                "Player::xfer - squad count mismatch: expected {}, got {}",
+                NUM_HOTKEY_SQUADS, squad_count
+            ));
+        }
+
         for i in 0..NUM_HOTKEY_SQUADS {
+            // Squad xferSnapshot - inline serialization matching C++ Squad::xfer
+            // C++ Squad::xfer writes version + count + ObjectID list
+            const SQUAD_VERSION: XferVersion = 1;
+            let mut sq_version = SQUAD_VERSION;
+            xfer.xfer_version(&mut sq_version, SQUAD_VERSION)
+                .map_err(|e| format!("squad[{}] version failed: {}", i, e))?;
             let mut obj_count = self.hotkey_squads[i].len() as u16;
             xfer.xfer_unsigned_short(&mut obj_count)
                 .map_err(|e| format!("squad[{}] obj_count failed: {}", i, e))?;
             match xfer.get_xfer_mode() {
-                XferMode::Save => {
+                XferMode::Save | XferMode::Crc => {
                     for &obj_id in self.hotkey_squads[i].get_object_ids() {
                         let mut id = obj_id;
                         xfer.xfer_unsigned_int(&mut id)
@@ -3423,16 +3600,22 @@ impl Snapshotable for Player {
             }
         }
 
-        // Current selection
-        let mut selection_present = true;
-        xfer.xfer_bool(&mut selection_present)
-            .map_err(|e| format!("selection_present xfer failed: {}", e))?;
-        if selection_present {
+        // --- 40. Current selection ---
+        // C++ lines 4465-4478: xferBool(currentSelectionPresent), if present xferSnapshot
+        let mut current_selection_present = true; // C++ always has m_currentSelection allocated
+        xfer.xfer_bool(&mut current_selection_present)
+            .map_err(|e| format!("current_selection_present xfer failed: {}", e))?;
+        if current_selection_present {
+            // Squad xferSnapshot for current selection
+            const SQUAD_VERSION: XferVersion = 1;
+            let mut sq_version = SQUAD_VERSION;
+            xfer.xfer_version(&mut sq_version, SQUAD_VERSION)
+                .map_err(|e| format!("current_selection version failed: {}", e))?;
             let mut obj_count = self.current_selection.len() as u16;
             xfer.xfer_unsigned_short(&mut obj_count)
                 .map_err(|e| format!("current_selection obj_count failed: {}", e))?;
             match xfer.get_xfer_mode() {
-                XferMode::Save => {
+                XferMode::Save | XferMode::Crc => {
                     for &obj_id in self.current_selection.get_object_ids() {
                         let mut id = obj_id;
                         xfer.xfer_unsigned_int(&mut id)
@@ -3452,7 +3635,45 @@ impl Snapshotable for Player {
             }
         }
 
-        // Battle plan counts
+        // --- 41. Battle plan bonuses ---
+        // C++ lines 4480-4504: xferBool(battlePlanBonus), if present xfer struct fields
+        let mut battle_plan_bonus = false; // No BattlePlanBonuses struct on Player
+        xfer.xfer_bool(&mut battle_plan_bonus)
+            .map_err(|e| format!("battle_plan_bonus xfer failed: {}", e))?;
+        if battle_plan_bonus {
+            // Read/write the struct data (armorScalar, sightRangeScalar,
+            // bombardment, holdTheLine, searchAndDestroy, validKindOf, invalidKindOf)
+            let mut armor_scalar = 0.0f32;
+            let mut sight_range_scalar = 0.0f32;
+            let mut bombardment = 0i32;
+            let mut hold_the_line = 0i32;
+            let mut search_and_destroy = 0i32;
+            xfer.xfer_real(&mut armor_scalar)
+                .map_err(|e| format!("armor_scalar xfer failed: {}", e))?;
+            xfer.xfer_real(&mut sight_range_scalar)
+                .map_err(|e| format!("sight_range_scalar xfer failed: {}", e))?;
+            xfer.xfer_int(&mut bombardment)
+                .map_err(|e| format!("bombardment xfer failed: {}", e))?;
+            xfer.xfer_int(&mut hold_the_line)
+                .map_err(|e| format!("hold_the_line xfer failed: {}", e))?;
+            xfer.xfer_int(&mut search_and_destroy)
+                .map_err(|e| format!("search_and_destroy xfer failed: {}", e))?;
+            // validKindOf and invalidKindOf - use xferKindOf for each
+            // C++ writes entry->m_validKindOf.xfer(xfer) and m_invalidKindOf.xfer(xfer)
+            // Each KindOf mask is serialized as a set of individual KindOf bit names
+            // For now, write/read as raw u32 since we don't have the full KindOf list
+            let mut valid_kind = 0u32;
+            let mut invalid_kind = 0u32;
+            // Note: C++ uses kindOf.xfer() which writes count + names. We approximate with u32.
+            // When BattlePlanBonuses struct is added, use proper xfer_kind_of.
+            xfer.xfer_unsigned_int(&mut valid_kind)
+                .map_err(|e| format!("valid_kind xfer failed: {}", e))?;
+            xfer.xfer_unsigned_int(&mut invalid_kind)
+                .map_err(|e| format!("invalid_kind xfer failed: {}", e))?;
+        }
+
+        // --- 42-44. Battle plan counts ---
+        // C++ lines 4505-4507
         xfer.xfer_int(&mut self.bombard_battle_plans)
             .map_err(|e| format!("bombard_battle_plans xfer failed: {}", e))?;
         xfer.xfer_int(&mut self.hold_the_line_battle_plans)
@@ -3460,22 +3681,20 @@ impl Snapshotable for Player {
         xfer.xfer_int(&mut self.search_and_destroy_battle_plans)
             .map_err(|e| format!("search_and_destroy_battle_plans xfer failed: {}", e))?;
 
-        // Version 6+: Units should hunt
+        // --- 45. Version >= 6: Units should hunt ---
+        // C++ lines 4509-4514
         if version >= 6 {
             xfer.xfer_bool(&mut self.units_should_hunt)
                 .map_err(|e| format!("units_should_hunt xfer failed: {}", e))?;
-        }
-
-        // Version 7+: Preorder
-        if version >= 7 {
-            xfer.xfer_bool(&mut self.is_preorder)
-                .map_err(|e| format!("is_preorder xfer failed: {}", e))?;
+        } else if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.units_should_hunt = false;
         }
 
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        // C++ Player::loadPostProcess() is empty (Player.cpp line 4522)
         Ok(())
     }
 }

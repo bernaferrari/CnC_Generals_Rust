@@ -1,7 +1,11 @@
-//! AIUpdateInterface module data + module wrapper for module system parity.
+//! AIUpdateInterface – central bridge between AI state machines and game objects.
 //!
-//! This captures the AIUpdateModuleData fields that influence per-unit AI behavior in C++,
-//! including surrender duration and auto-acquire flags.
+//! Ported from C++ AIUpdate.h / AIUpdate.cpp (5280 lines).
+//! This file contains:
+//!   - AIUpdateModuleData: INI-parsed module data
+//!   - AIUpdateInterface: runtime AI state + ~30 bridge methods for pathfinding,
+//!     locomotion, turret control, waypoints, collision, and state management
+//!   - AIUpdateInterfaceModule: thin module wrapper for the module system
 
 use std::any::Any;
 use std::sync::Arc;
@@ -14,10 +18,27 @@ use std::collections::HashMap;
 
 use crate::ai::turret::TurretAI;
 use crate::common::{
-    AsciiString, Bool, LocomotorSetType, Real, UnsignedInt, LOGICFRAMES_PER_SECOND,
-    WEAPONSLOT_COUNT,
+    AsciiString, Bool, Coord3D, ICoord2D, Int, LocomotorSetType, ObjectID, Real, UnsignedInt,
+    WhichTurretType, INVALID_ID, LOGICFRAMES_PER_SECOND, WEAPONSLOT_COUNT,
 };
 use crate::weapon::WeaponSlotType;
+
+// ---------------------------------------------------------------------------
+// Constants from C++ AIUpdate.h
+// ---------------------------------------------------------------------------
+
+/// Matches C++ FAST_AS_POSSIBLE in AIUpdate.h.
+pub const AI_FAST_AS_POSSIBLE: Real = 999_999.0;
+
+/// Maximum waypoints in the planning-mode queue (C++ MAX_WAYPOINTS = 16).
+pub const MAX_WAYPOINTS: usize = 16;
+
+/// Maximum turrets per unit (C++ MAX_TURRETS = 2).
+pub const MAX_TURRETS: usize = 2;
+
+// ---------------------------------------------------------------------------
+// Auto-acquire bit flags (C++ AutoAcquireStates)
+// ---------------------------------------------------------------------------
 
 pub const AUTO_ACQUIRE_IDLE: u32 = 0x01;
 pub const AUTO_ACQUIRE_IDLE_STEALTHED: u32 = 0x02;
@@ -34,6 +55,62 @@ const AUTO_ACQUIRE_ENEMIES_NAMES: &[&str] = &[
 ];
 
 const WEAPON_SLOT_NAMES: &[&str] = &["PRIMARY", "SECONDARY", "TERTIARY"];
+
+// ---------------------------------------------------------------------------
+// Locomotor goal type (C++ LocoGoalType in AIUpdate.h, saved in xfer)
+// ---------------------------------------------------------------------------
+
+/// Locomotor goal type – written to save files so numeric values must not change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum LocoGoalType {
+    None = 0,
+    PositionOnPath = 1,
+    PositionExplicit = 2,
+    Angle = 3,
+}
+
+impl Default for LocoGoalType {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Guard target type (C++ GuardTargetType)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum GuardTargetType {
+    Location = 0,
+    Object = 1,
+    Area = 2,
+    None_ = 3,
+}
+
+impl Default for GuardTargetType {
+    fn default() -> Self {
+        Self::None_
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Guard mode (C++ GuardMode)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum GuardMode {
+    Normal = 0,
+    GuardNormal = 1,
+}
+
+impl Default for GuardMode {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct TurretAIData {
@@ -601,6 +678,737 @@ fn parse_locomotor_set_field(
         return Err(INIError::InvalidData);
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// AIUpdateInterface – runtime AI state machine + bridge methods
+// Ported from C++ AIUpdate.h (AIUpdateInterface class, ~775 lines) and
+// AIUpdate.cpp (5280 lines).  State layout mirrors C++ member order.
+// ---------------------------------------------------------------------------
+
+pub struct AIUpdateInterface {
+    // Waypoint tracking
+    prior_waypoint_id: UnsignedInt,
+    current_waypoint_id: UnsignedInt,
+
+    // AI scanning
+    next_enemy_scan_time: UnsignedInt,
+    current_victim_id: ObjectID,
+
+    // Speed / command
+    desired_speed: Real,
+    last_command_source: u8,
+
+    // Guard
+    guard_mode: GuardMode,
+    guard_target_type: [GuardTargetType; 2],
+    location_to_guard: Coord3D,
+    object_to_guard: ObjectID,
+
+    // Attack info
+    attack_info_tag: UnsignedInt,
+
+    // Planning-mode waypoint queue
+    waypoint_queue: [Coord3D; MAX_WAYPOINTS],
+    waypoint_count: usize,
+    waypoint_index: usize,
+    completed_waypoint_id: UnsignedInt,
+
+    // Pathfinding
+    path: Option<Vec<Coord3D>>,
+    requested_victim_id: ObjectID,
+    requested_destination: Coord3D,
+    requested_destination2: Coord3D,
+    path_timestamp: UnsignedInt,
+    ignore_obstacle_id: ObjectID,
+    path_extra_distance: Real,
+    pathfind_goal_cell: ICoord2D,
+    pathfind_cur_cell: ICoord2D,
+    blocked_frames: UnsignedInt,
+    cur_max_blocked_speed: Real,
+    bump_speed_limit: Real,
+    ignore_collisions_until: UnsignedInt,
+    queue_for_path_frame: UnsignedInt,
+    final_position: Coord3D,
+    repulsor1: ObjectID,
+    repulsor2: ObjectID,
+    next_goal_path_index: Int,
+    move_out_of_way1: ObjectID,
+    move_out_of_way2: ObjectID,
+
+    // Locomotor
+    locomotor_set_tag: UnsignedInt,
+    cur_locomotor_tag: UnsignedInt,
+    cur_locomotor_set: LocomotorSetType,
+    locomotor_goal_type: LocoGoalType,
+    locomotor_goal_data: Coord3D,
+
+    // Turret AI handles
+    turret_ai: [Option<Arc<std::sync::Mutex<TurretAI>>>; MAX_TURRETS],
+    turret_sync_flag: WhichTurretType,
+
+    // Attitude / mood
+    attitude: UnsignedInt,
+    next_mood_check_time: UnsignedInt,
+
+    // Misc state
+    crate_created: ObjectID,
+    tmp_int: Int,
+
+    // Boolean flags
+    do_final_position: bool,
+    waiting_for_path: bool,
+    is_attack_path: bool,
+    is_final_goal: bool,
+    is_approach_path: bool,
+    is_safe_path: bool,
+    movement_complete: bool,
+    is_moving: bool,
+    is_blocked: bool,
+    is_blocked_and_stuck: bool,
+    upgraded_locomotors: bool,
+    can_path_through_units: bool,
+    randomly_offset_mood_check: bool,
+    is_ai_dead: bool,
+    is_recruitable: bool,
+    executing_waypoint_queue: bool,
+    retry_path: bool,
+    is_in_update: bool,
+    fix_loco_in_post_process: bool,
+    allowed_to_chase: bool,
+
+    // Module data reference
+    module_data: Arc<AIUpdateModuleData>,
+}
+
+impl std::fmt::Debug for AIUpdateInterface {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AIUpdateInterface")
+            .field("prior_waypoint_id", &self.prior_waypoint_id)
+            .field("current_waypoint_id", &self.current_waypoint_id)
+            .field("current_victim_id", &self.current_victim_id)
+            .field("desired_speed", &self.desired_speed)
+            .field("cur_locomotor_set", &self.cur_locomotor_set)
+            .field("locomotor_goal_type", &self.locomotor_goal_type)
+            .field("is_moving", &self.is_moving)
+            .field("is_ai_dead", &self.is_ai_dead)
+            .field("waiting_for_path", &self.waiting_for_path)
+            .field("is_blocked", &self.is_blocked)
+            .field("path", &self.path.is_some())
+            .finish()
+    }
+}
+
+impl AIUpdateInterface {
+    pub fn new(module_data: Arc<AIUpdateModuleData>) -> Self {
+        Self {
+            prior_waypoint_id: 0xfacade,
+            current_waypoint_id: 0xfacade,
+            next_enemy_scan_time: 0,
+            current_victim_id: INVALID_ID,
+            desired_speed: AI_FAST_AS_POSSIBLE,
+            last_command_source: 0,
+            guard_mode: GuardMode::Normal,
+            guard_target_type: [GuardTargetType::None_; 2],
+            location_to_guard: Coord3D::ZERO,
+            object_to_guard: INVALID_ID,
+            attack_info_tag: 0,
+            waypoint_queue: [Coord3D::ZERO; MAX_WAYPOINTS],
+            waypoint_count: 0,
+            waypoint_index: 0,
+            completed_waypoint_id: 0,
+            path: None,
+            requested_victim_id: INVALID_ID,
+            requested_destination: Coord3D::ZERO,
+            requested_destination2: Coord3D::ZERO,
+            path_timestamp: 0,
+            ignore_obstacle_id: INVALID_ID,
+            path_extra_distance: 0.0,
+            pathfind_goal_cell: ICoord2D::new(-1, -1),
+            pathfind_cur_cell: ICoord2D::new(-1, -1),
+            blocked_frames: 0,
+            cur_max_blocked_speed: 0.0,
+            bump_speed_limit: AI_FAST_AS_POSSIBLE,
+            ignore_collisions_until: 0,
+            queue_for_path_frame: 0,
+            final_position: Coord3D::ZERO,
+            repulsor1: INVALID_ID,
+            repulsor2: INVALID_ID,
+            next_goal_path_index: -1,
+            move_out_of_way1: INVALID_ID,
+            move_out_of_way2: INVALID_ID,
+            locomotor_set_tag: 0,
+            cur_locomotor_tag: 0,
+            cur_locomotor_set: LocomotorSetType::Invalid,
+            locomotor_goal_type: LocoGoalType::None,
+            locomotor_goal_data: Coord3D::ZERO,
+            turret_ai: [None, None],
+            turret_sync_flag: WhichTurretType::Invalid,
+            attitude: 0,
+            next_mood_check_time: 0,
+            crate_created: INVALID_ID,
+            tmp_int: 0,
+            do_final_position: false,
+            waiting_for_path: false,
+            is_attack_path: false,
+            is_final_goal: false,
+            is_approach_path: false,
+            is_safe_path: false,
+            movement_complete: false,
+            is_moving: false,
+            is_blocked: false,
+            is_blocked_and_stuck: false,
+            upgraded_locomotors: false,
+            can_path_through_units: false,
+            randomly_offset_mood_check: false,
+            is_ai_dead: false,
+            is_recruitable: true,
+            executing_waypoint_queue: false,
+            retry_path: false,
+            is_in_update: false,
+            fix_loco_in_post_process: false,
+            allowed_to_chase: true,
+            module_data,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // GROUP A – Pathfinding bridge
+    // -----------------------------------------------------------------------
+
+    /// C++ AIUpdateInterface::doPathfind – called by the pathfinder when it
+    /// processes the pathfind queue.  Full logic flow ported from AIUpdate.cpp:378.
+    pub fn do_pathfind(&mut self) {
+        if !self.waiting_for_path {
+            return;
+        }
+        self.waiting_for_path = false;
+
+        if self.is_safe_path {
+            self.destroy_path();
+            // PARITY_TODO: call pathfinder->findSafePath() once pathfinder bridge is ported
+            return;
+        }
+
+        if self.is_approach_path && !self.is_doing_ground_movement() {
+            self.is_approach_path = false;
+        }
+        if self.is_approach_path {
+            self.destroy_path();
+            // PARITY_TODO: call pathfinder->findClosestPath() once pathfinder bridge is ported
+            return;
+        }
+
+        if self.is_attack_path {
+            // PARITY_TODO: computeAttackPath() once attack-path logic is ported
+        }
+
+        self.compute_path(self.requested_destination);
+        self.waiting_for_path = self.queue_for_path_frame > 0;
+        if !self.waiting_for_path {
+            self.wake_up_now();
+        }
+    }
+
+    /// C++ AIUpdateInterface::computePath – computes a path to destination,
+    /// returns false if no path found.  Lines ~AIUpdate.cpp:440.
+    pub fn compute_path(&mut self, destination: Coord3D) -> bool {
+        self.requested_destination = destination;
+        // PARITY_TODO: delegate to pathfinder->findPath() once pathfinder bridge is ported.
+        // For now, create a simple two-point path as placeholder.
+        let start = self.final_position;
+        if start == Coord3D::ZERO {
+            return false;
+        }
+        self.path = Some(vec![start, destination]);
+        self.path_timestamp = 0; // will be set to current frame when pathfinder works
+        true
+    }
+
+    /// C++ AIUpdateInterface::destroyPath – destroy the current path, setting it to NULL.
+    pub fn destroy_path(&mut self) {
+        self.path = None;
+    }
+
+    /// C++ AIUpdateInterface::requestPath – queues a request to pathfind to destination.
+    /// Ported from AIUpdate.cpp:461.
+    pub fn request_path(&mut self, destination: Coord3D, is_final_goal: bool) {
+        self.requested_destination = destination;
+        self.is_final_goal = is_final_goal;
+        self.is_attack_path = false;
+        self.requested_victim_id = INVALID_ID;
+        self.is_approach_path = false;
+        self.is_safe_path = false;
+
+        // PARITY_TODO: canComputeQuickPath() / computeQuickPath() for missiles/air
+        self.waiting_for_path = true;
+
+        // PARITY_TODO: path timestamp anti-spin check once game frame accessor is wired
+    }
+
+    /// C++ AIUpdateInterface::isPathAvailable – checks if a path exists
+    /// between current position and destination.
+    pub fn is_path_available(&self, _destination: Coord3D) -> bool {
+        // PARITY_TODO: delegate to pathfinder once bridge is ported
+        self.path.is_some()
+    }
+
+    // -----------------------------------------------------------------------
+    // GROUP B – Locomotor bridge
+    // -----------------------------------------------------------------------
+
+    /// C++ AIUpdateInterface::doLocomotor – execute locomotor movement along path.
+    /// Returns UpdateSleepTime hint.  Ported from AIUpdate.cpp (approx line 2000+).
+    pub fn do_locomotor(&mut self) -> UnsignedInt {
+        match self.locomotor_goal_type {
+            LocoGoalType::None => {}
+            LocoGoalType::PositionOnPath => {
+                // PARITY_TODO: move along path using cur_locomotor once locomotor bridge is ported
+            }
+            LocoGoalType::PositionExplicit => {
+                // PARITY_TODO: move to explicit position
+            }
+            LocoGoalType::Angle => {
+                // PARITY_TODO: rotate to angle
+            }
+        }
+        LOGICFRAMES_PER_SECOND * 2 // default sleep
+    }
+
+    /// C++ AIUpdateInterface::setLocomotorGoalPositionOnPath – sets the
+    /// locomotor movement target from the current path.
+    pub fn set_locomotor_goal_position_on_path(&mut self) {
+        if self.path.is_none() {
+            self.locomotor_goal_type = LocoGoalType::None;
+            return;
+        }
+        // PARITY_TODO: compute actual goal position from path
+        self.locomotor_goal_type = LocoGoalType::PositionOnPath;
+    }
+
+    /// C++ AIUpdateInterface::setLocomotorGoalExplicit
+    pub fn set_locomotor_goal_position_explicit(&mut self, new_pos: Coord3D) {
+        self.locomotor_goal_type = LocoGoalType::PositionExplicit;
+        self.locomotor_goal_data = new_pos;
+    }
+
+    /// C++ AIUpdateInterface::setLocomotorGoalOrientation
+    pub fn set_locomotor_goal_orientation(&mut self, angle: Real) {
+        self.locomotor_goal_type = LocoGoalType::Angle;
+        self.locomotor_goal_data = Coord3D::new(angle, 0.0, 0.0);
+    }
+
+    /// C++ AIUpdateInterface::setLocomotorGoalNone
+    pub fn set_locomotor_goal_none(&mut self) {
+        self.locomotor_goal_type = LocoGoalType::None;
+        self.locomotor_goal_data = Coord3D::ZERO;
+    }
+
+    /// C++ AIUpdateInterface::getCurLocomotorSpeed – current speed for AI decisions.
+    /// Ported from AIUpdate.cpp:774.
+    pub fn get_cur_locomotor_speed(&self) -> Real {
+        // PARITY_TODO: query cur_locomotor->getMaxSpeedForCondition(damageState)
+        if self.cur_locomotor_tag != 0 {
+            return AI_FAST_AS_POSSIBLE;
+        }
+        0.0
+    }
+
+    /// C++ AIUpdateInterface::chooseGoodLocomotorFromCurrentSet – selects the
+    /// best locomotor from the current set for the object's current position.
+    /// Ported from AIUpdate.cpp:833.
+    pub fn choose_locomotor_from_current_set(&mut self) {
+        // PARITY_TODO: delegate to pathfinder->chooseBestLocomotorForPosition()
+        // once locomotor bridge is ported
+    }
+
+    /// C++ AIUpdateInterface::isDoingGroundMovement – true if moving along ground.
+    pub fn is_doing_ground_movement(&self) -> bool {
+        // PARITY_TODO: check cur_locomotor surface type
+        self.cur_locomotor_set != LocomotorSetType::Freefall
+            && self.cur_locomotor_set != LocomotorSetType::Supersonic
+    }
+
+    // -----------------------------------------------------------------------
+    // GROUP C – Physics / Collision
+    // -----------------------------------------------------------------------
+
+    /// C++ AIUpdateInterface::processCollision – returns true if the physics
+    /// collide should apply the force.  Determines blocking and stuck state.
+    /// Ported from AIUpdate.cpp:1410.
+    pub fn process_collision(&mut self, other_id: ObjectID) -> bool {
+        if self.ignore_collisions_until > 0 || self.can_path_through_units {
+            return false;
+        }
+
+        if !self.is_doing_ground_movement() {
+            return false;
+        }
+
+        let self_moving = self.is_moving;
+        if self_moving {
+            let blocked = self.blocked_by(other_id);
+            if blocked {
+                self.is_blocked = true;
+                let max_speed = self.calculate_max_blocked_speed(other_id);
+                if max_speed < self.cur_max_blocked_speed {
+                    self.cur_max_blocked_speed = max_speed;
+                }
+                if self.blocked_frames == 0 {
+                    self.blocked_frames = 1;
+                }
+                if !self.need_to_rotate() {
+                    self.is_blocked_and_stuck = true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// C++ AIUpdateInterface::blockedBy – returns true if we are blocked by
+    /// the other object.  Ported from AIUpdate.cpp:1272.
+    pub fn blocked_by(&self, _other_id: ObjectID) -> bool {
+        if !self.is_moving {
+            return false;
+        }
+        if self.is_approach_path {
+            return false;
+        }
+        // PARITY_TODO: full angle/distance/infantry check once Object position access is wired
+        false
+    }
+
+    /// C++ AIUpdateInterface::calculateMaxBlockedSpeed – max speed we can have
+    /// and not run into the blocking unit.  Ported from AIUpdate.cpp:1234.
+    pub fn calculate_max_blocked_speed(&self, _other_id: ObjectID) -> Real {
+        // PARITY_TODO: full vector math once Object position access is wired
+        self.cur_max_blocked_speed
+    }
+
+    /// C++ AIUpdateInterface::needToRotate – returns true if we need to rotate
+    /// to point in our path's direction.  Ported from AIUpdate.cpp:1380.
+    pub fn need_to_rotate(&self) -> bool {
+        if self.waiting_for_path {
+            return true;
+        }
+        if self.path.is_none() {
+            return false;
+        }
+        // PARITY_TODO: compute angle delta from path direction once path math is ported
+        false
+    }
+
+    // -----------------------------------------------------------------------
+    // GROUP D – Turret control
+    // -----------------------------------------------------------------------
+
+    /// C++ AIUpdateInterface::setTurretTargetObject
+    pub fn set_turret_target_object(&mut self, tur: WhichTurretType, target_id: ObjectID) {
+        let idx = match tur {
+            WhichTurretType::Main => 0,
+            WhichTurretType::Alt => 1,
+            _ => return,
+        };
+        if let Some(ref turret) = self.turret_ai[idx] {
+            if let Ok(guard) = turret.lock() {
+                // PARITY_TODO: resolve target_id to Arc<RwLock<Object>> via game logic lookup
+                // and call set_current_target() once object registry bridge is wired
+                let _ = (target_id, guard);
+            }
+        }
+    }
+
+    /// C++ AIUpdateInterface::setTurretTargetPosition
+    pub fn set_turret_target_position(&mut self, tur: WhichTurretType, pos: Coord3D) {
+        let idx = match tur {
+            WhichTurretType::Main => 0,
+            WhichTurretType::Alt => 1,
+            _ => return,
+        };
+        if let Some(ref turret) = self.turret_ai[idx] {
+            if let Ok(mut guard) = turret.lock() {
+                guard.set_target_position(Some(pos));
+            }
+        }
+    }
+
+    /// C++ AIUpdateInterface::setTurretEnabled
+    pub fn set_turret_enabled(&mut self, tur: WhichTurretType, enabled: bool) {
+        let idx = match tur {
+            WhichTurretType::Main => 0,
+            WhichTurretType::Alt => 1,
+            _ => return,
+        };
+        if let Some(ref turret) = self.turret_ai[idx] {
+            if let Ok(mut guard) = turret.lock() {
+                guard.set_turret_enabled(enabled);
+            }
+        }
+    }
+
+    /// C++ AIUpdateInterface::recenterTurret
+    pub fn recenter_turret(&mut self, tur: WhichTurretType) {
+        let idx = match tur {
+            WhichTurretType::Main => 0,
+            WhichTurretType::Alt => 1,
+            _ => return,
+        };
+        if let Some(ref turret) = self.turret_ai[idx] {
+            if let Ok(mut guard) = turret.lock() {
+                guard.recenter_turret();
+            }
+        }
+    }
+
+    /// C++ AIUpdateInterface::isTurretInNaturalPosition
+    pub fn is_turret_in_natural_position(&self, tur: WhichTurretType) -> bool {
+        let idx = match tur {
+            WhichTurretType::Main => 0,
+            WhichTurretType::Alt => 1,
+            _ => return false,
+        };
+        if let Some(ref turret) = self.turret_ai[idx] {
+            if let Ok(guard) = turret.lock() {
+                let cur = guard.get_turret_angle();
+                let nat = guard.get_natural_angle();
+                return (cur - nat).abs() < 0.01;
+            }
+        }
+        false
+    }
+
+    /// C++ AIUpdateInterface::getTurretRotAndPitch – returns (angle, pitch) or
+    /// None if the turret doesn't exist.
+    pub fn get_turret_rot_and_pitch(&self, tur: WhichTurretType) -> Option<(Real, Real)> {
+        let idx = match tur {
+            WhichTurretType::Main => 0,
+            WhichTurretType::Alt => 1,
+            _ => return None,
+        };
+        if let Some(ref turret) = self.turret_ai[idx] {
+            if let Ok(guard) = turret.lock() {
+                return Some((guard.get_turret_angle(), guard.get_turret_pitch()));
+            }
+        }
+        None
+    }
+
+    // -----------------------------------------------------------------------
+    // GROUP E – Waypoint management
+    // -----------------------------------------------------------------------
+
+    /// C++ AIUpdateInterface::queueWaypoint – add waypoint to end of move list.
+    /// Returns true if success, false if queue was full.
+    /// Ported from AIUpdate.cpp:1139.
+    pub fn queue_waypoint(&mut self, pos: Coord3D) -> bool {
+        if self.waypoint_count < MAX_WAYPOINTS {
+            self.waypoint_queue[self.waypoint_count] = pos;
+            self.waypoint_count += 1;
+            return true;
+        }
+        false
+    }
+
+    /// C++ AIUpdateInterface::executeWaypointQueue – start moving along queued waypoints.
+    /// Ported from AIUpdate.cpp:1153.
+    pub fn execute_waypoint_queue(&mut self) -> bool {
+        if self.is_ai_dead {
+            return false;
+        }
+        if self.waypoint_count > 0 {
+            self.waypoint_index = 0;
+            self.executing_waypoint_queue = true;
+            return true;
+        }
+        false
+    }
+
+    /// C++ AIUpdateInterface::clearWaypointQueue – reset the waypoint queue to empty.
+    pub fn clear_waypoint_queue(&mut self) {
+        self.waypoint_count = 0;
+        self.executing_waypoint_queue = false;
+    }
+
+    // -----------------------------------------------------------------------
+    // GROUP F – State management
+    // -----------------------------------------------------------------------
+
+    /// C++ AIUpdateInterface::friend_notifyStateMachineChanged
+    pub fn friend_notify_state_machine_changed(&mut self) {
+        self.wake_up_now();
+    }
+
+    /// C++ AIUpdateInterface::friend_startingMove
+    pub fn friend_starting_move(&mut self) {
+        self.is_moving = true;
+        self.movement_complete = false;
+        self.is_blocked = false;
+        self.is_blocked_and_stuck = false;
+        self.blocked_frames = 0;
+        self.cur_max_blocked_speed = AI_FAST_AS_POSSIBLE;
+    }
+
+    /// C++ AIUpdateInterface::friend_endingMove
+    pub fn friend_ending_move(&mut self) {
+        self.is_moving = false;
+        self.movement_complete = true;
+    }
+
+    /// C++ AIUpdateInterface::markAsDead – marks AI as dead and wakes up.
+    /// Ported from AIUpdate.cpp:1176.
+    pub fn mark_as_dead(&mut self) {
+        self.is_ai_dead = true;
+        self.wake_up_now();
+    }
+
+    /// C++ AIUpdateInterface::setQueueForPathTime – sets the frame at which
+    /// we should re-queue for a pathfind.  Must NOT be set directly.
+    /// Ported from AIUpdate.cpp:936.
+    pub fn set_queue_for_path_time(&mut self, frames: UnsignedInt) {
+        self.queue_for_path_frame = if frames != 0 { frames } else { 0 };
+    }
+
+    /// C++ AIUpdateInterface::wakeUpNow – wake the AI update immediately.
+    /// Ported from AIUpdate.cpp:956.
+    pub fn wake_up_now(&mut self) {
+        // PARITY_TODO: setWakeFrame(getObject(), UPDATE_SLEEP_NONE) once
+        // the wake-frame system is wired through
+    }
+
+    // -----------------------------------------------------------------------
+    // Accessors
+    // -----------------------------------------------------------------------
+
+    pub fn is_ai_dead(&self) -> bool {
+        self.is_ai_dead
+    }
+
+    pub fn is_moving(&self) -> bool {
+        self.is_moving
+    }
+
+    pub fn is_waiting_for_path(&self) -> bool {
+        self.waiting_for_path
+    }
+
+    pub fn is_blocked(&self) -> bool {
+        self.is_blocked
+    }
+
+    pub fn is_blocked_and_stuck(&self) -> bool {
+        self.is_blocked_and_stuck
+    }
+
+    pub fn get_desired_speed(&self) -> Real {
+        self.desired_speed
+    }
+
+    pub fn set_desired_speed(&mut self, speed: Real) {
+        self.desired_speed = speed;
+    }
+
+    pub fn get_path(&self) -> &Option<Vec<Coord3D>> {
+        &self.path
+    }
+
+    pub fn get_cur_locomotor_set(&self) -> LocomotorSetType {
+        self.cur_locomotor_set
+    }
+
+    pub fn get_locomotor_goal_type(&self) -> LocoGoalType {
+        self.locomotor_goal_type
+    }
+
+    pub fn get_blocked_frames(&self) -> UnsignedInt {
+        self.blocked_frames
+    }
+
+    pub fn get_current_victim_id(&self) -> ObjectID {
+        self.current_victim_id
+    }
+
+    pub fn set_current_victim(&mut self, victim_id: ObjectID) {
+        self.current_victim_id = victim_id;
+    }
+
+    pub fn get_ignore_obstacle_id(&self) -> ObjectID {
+        self.ignore_obstacle_id
+    }
+
+    pub fn ignore_obstacle(&mut self, id: ObjectID) {
+        self.ignore_obstacle_id = id;
+    }
+
+    pub fn set_ignore_collision_time(&mut self, frames: UnsignedInt) {
+        self.ignore_collisions_until = frames;
+    }
+
+    pub fn can_path_through_units(&self) -> bool {
+        self.can_path_through_units
+    }
+
+    pub fn set_can_path_through_units(&mut self, can_path: bool) {
+        self.can_path_through_units = can_path;
+        if can_path {
+            self.is_blocked_and_stuck = false;
+        }
+    }
+
+    pub fn is_recruitable(&self) -> bool {
+        self.is_recruitable
+    }
+
+    pub fn set_is_recruitable(&mut self, val: bool) {
+        self.is_recruitable = val;
+    }
+
+    pub fn get_final_position(&self) -> Coord3D {
+        self.final_position
+    }
+
+    pub fn set_final_position(&mut self, pos: Coord3D) {
+        self.final_position = pos;
+        self.do_final_position = false;
+    }
+
+    pub fn get_module_data(&self) -> &AIUpdateModuleData {
+        &self.module_data
+    }
+
+    pub fn are_turrets_linked(&self) -> bool {
+        self.module_data.turrets_linked()
+    }
+
+    pub fn can_auto_acquire(&self) -> bool {
+        self.module_data.auto_acquire_enemies_when_idle() != 0
+    }
+
+    pub fn set_locomotor_upgrade(&mut self, set: bool) {
+        self.upgraded_locomotors = set;
+    }
+
+    pub fn notify_crate(&mut self, id: ObjectID) {
+        self.crate_created = id;
+    }
+
+    pub fn get_crate_id(&self) -> ObjectID {
+        self.crate_created
+    }
+
+    pub fn choose_locomotor_set(&mut self, wst: LocomotorSetType) -> bool {
+        let mut actual_set = wst;
+        if wst == LocomotorSetType::Normal && self.upgraded_locomotors {
+            actual_set = LocomotorSetType::NormalUpgraded;
+        }
+        if actual_set == self.cur_locomotor_set {
+            return true;
+        }
+        // PARITY_TODO: call chooseLocomotorSetExplicit + chooseGoodLocomotorFromCurrentSet
+        // once locomotor templates are wired
+        self.cur_locomotor_set = actual_set;
+        true
+    }
 }
 
 /// Module wrapper for AIUpdateInterface to satisfy module creation parity.
