@@ -1514,11 +1514,8 @@ fn lock_weapon_create_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<LockWeaponCreateModuleData>()
-        .expect("LockWeaponCreateModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc =
+        cloned_module_data::<LockWeaponCreateModuleData>("LockWeaponCreate", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("LockWeaponCreate");
     let create = LockWeaponCreate::new(thing, Arc::clone(&data_arc));
     Box::new(LockWeaponCreateModule::new(
@@ -1599,11 +1596,8 @@ fn grant_upgrade_create_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<GrantUpgradeCreateModuleData>()
-        .expect("GrantUpgradeCreateModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc =
+        cloned_module_data::<GrantUpgradeCreateModuleData>("GrantUpgradeCreate", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("GrantUpgradeCreate");
     let create = GrantUpgradeCreate::new(thing, Arc::clone(&data_arc));
     Box::new(GrantUpgradeCreateModule::new(
@@ -1684,11 +1678,8 @@ fn veterancy_gain_create_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<VeterancyGainCreateModuleData>()
-        .expect("VeterancyGainCreateModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc =
+        cloned_module_data::<VeterancyGainCreateModuleData>("VeterancyGainCreate", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("VeterancyGainCreate");
     let create = VeterancyGainCreate::new(thing, Arc::clone(&data_arc));
     Box::new(VeterancyGainCreateModule::new(
@@ -1761,11 +1752,7 @@ fn preorder_create_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<CreateModuleData>()
-        .expect("CreateModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<CreateModuleData>("PreorderCreate", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("PreorderCreate");
     let create = PreorderCreate::new(thing);
     Box::new(SimpleCreateModule::new(module_name_key, data_arc, create))
@@ -1775,11 +1762,7 @@ fn special_power_create_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<CreateModuleData>()
-        .expect("CreateModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<CreateModuleData>("SpecialPowerCreate", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("SpecialPowerCreate");
     let create = SpecialPowerCreate::new(thing);
     Box::new(SimpleCreateModule::new(module_name_key, data_arc, create))
@@ -1789,11 +1772,7 @@ fn supply_center_create_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<CreateModuleData>()
-        .expect("CreateModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<CreateModuleData>("SupplyCenterCreate", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("SupplyCenterCreate");
     let create = SupplyCenterCreate::new(thing);
     Box::new(SimpleCreateModule::new(module_name_key, data_arc, create))
@@ -1803,11 +1782,7 @@ fn supply_warehouse_create_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<CreateModuleData>()
-        .expect("CreateModuleData expected");
-    let data_arc = Arc::new(typed_data.clone());
+    let data_arc = cloned_module_data::<CreateModuleData>("SupplyWarehouseCreate", &module_data);
     let module_name_key = NameKeyGenerator::name_to_key("SupplyWarehouseCreate");
     let create = SupplyWarehouseCreate::new(thing);
     Box::new(SimpleCreateModule::new(module_name_key, data_arc, create))
