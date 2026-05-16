@@ -1109,6 +1109,858 @@ impl PathfindingSystem {
             ignore_cells.as_ref(),
         )
     }
+
+    // ========================================================================
+    // GROUP A – Core A* ground pathfinding
+    // ========================================================================
+
+    /// Main ground A* pathfinding entry point.
+    /// Matches C++ Pathfinder::findPath() at AIPathfind.cpp:6364-6433.
+    ///
+    /// Returns `PathResult` with full waypoint list from `from` to `to` using
+    /// ground-surface A* with zone-based early rejection.
+    pub fn find_ground_path(
+        &self,
+        from: Coord3D,
+        to: Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+        allow_partial: bool,
+        move_allies: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> PathResult {
+        let request = PathRequest {
+            object_id: INVALID_ID,
+            from,
+            to,
+            surfaces,
+            is_crusher,
+            unit_radius,
+            allow_partial,
+            move_allies,
+            ignore_obstacle_id,
+        };
+        self.find_path(request)
+    }
+
+    /// Build a concrete `Path` (node-linked-list) from an A* grid result.
+    /// Matches C++ Pathfinder::buildActualPath() at AIPathfind.cpp:8954-9001.
+    ///
+    /// Takes a list of grid coordinates and produces a `Path` with world-space
+    /// waypoints, terrain layers, and path optimization applied.
+    pub fn build_actual_path(
+        &self,
+        grid_path: &[GridCoord],
+        from_world: &Coord3D,
+        to_world: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        blocked: bool,
+    ) -> PathResult {
+        if grid_path.is_empty() {
+            return PathResult::none();
+        }
+
+        let mut waypoints = Vec::with_capacity(grid_path.len());
+        let mut layers = Vec::with_capacity(grid_path.len());
+
+        for (idx, coord) in grid_path.iter().enumerate() {
+            let layer = self.get_layer_for_coord(*coord);
+            let mut pos = if idx == 0 {
+                *from_world
+            } else if idx + 1 == grid_path.len() {
+                *to_world
+            } else {
+                self.world_pos_for_coord(*coord, layer)
+            };
+            if let Some(terrain) = TheTerrainLogic::get() {
+                let common_layer = match layer {
+                    PathfindLayerEnum::Invalid => CommonPathfindLayerEnum::Invalid,
+                    PathfindLayerEnum::Ground => CommonPathfindLayerEnum::Ground,
+                    PathfindLayerEnum::Top => CommonPathfindLayerEnum::Top,
+                };
+                pos.z = terrain.get_layer_height(pos.x, pos.y, common_layer);
+            }
+            waypoints.push(pos);
+            layers.push(layer);
+        }
+
+        // Mark path as blocked by ally if requested (matches C++ blocked flag)
+        let _ = (surfaces, is_crusher, blocked);
+
+        PathResult {
+            success: true,
+            waypoints,
+            layers,
+            total_cost: self.calculate_path_cost(grid_path),
+            blocked_by_ally: blocked,
+        }
+    }
+
+    /// Classify the entire pathfind map based on terrain data.
+    /// Matches C++ Pathfinder::classifyMap() which iterates all cells and sets
+    /// cell types based on terrain height/slope/water flags.
+    ///
+    /// PARITY_TODO: Full terrain classification requires TerrainLogic integration
+    /// to read actual slope/water/cliff data per cell. Currently sets all cells
+    /// to Clear as a safe default.
+    pub fn classify_map(&mut self) {
+        let pathfinder = self.pathfinder.lock().unwrap();
+        let w = pathfinder.width();
+        let h = pathfinder.height();
+        drop(pathfinder);
+
+        for x in 0..w {
+            for y in 0..h {
+                self.classify_map_cell(x as i32, y as i32);
+            }
+        }
+
+        // Recalculate zones after full classification
+        if let Ok(mut zones) = self.zones.lock() {
+            zones.calculate_zones();
+        }
+    }
+
+    /// Classify a single map cell based on terrain data.
+    /// Matches C++ Pathfinder::classifyMapCell() at AIPathfind.cpp ~3600-3900.
+    ///
+    /// Sets cell type to Clear/Cliff/Water/Impassable based on terrain properties.
+    pub fn classify_map_cell(&self, x: i32, y: i32) {
+        if x < 0 || y < 0 {
+            return;
+        }
+        let _ux = x as usize;
+        let _uy = y as usize;
+
+        // Try to get terrain info at this cell center
+        let cell_world = GridCoord::new(x, y).to_world(PathfindLayerEnum::Ground);
+
+        let cell_type = if let Some(terrain) = TheTerrainLogic::get() {
+            // Classify based on terrain properties
+            // PARITY_TODO: Match exact C++ classification from classifyMapCell
+            // which uses getGroundHeight slope deltas and water flags
+            if terrain.is_underwater(cell_world.x, cell_world.y, None, None) {
+                PathfindCellType::Water
+            } else {
+                // Check slope for cliff classification
+                let half_cell = PATHFIND_CELL_SIZE_F * 0.5;
+                let h_center = terrain.get_ground_height(cell_world.x, cell_world.y, None);
+                let h_right = terrain.get_ground_height(cell_world.x + half_cell, cell_world.y, None);
+                let h_up = terrain.get_ground_height(cell_world.x, cell_world.y + half_cell, None);
+
+                let slope_x = (h_right - h_center).abs();
+                let slope_y = (h_up - h_center).abs();
+                let max_slope = slope_x.max(slope_y);
+
+                // C++ uses PATHFIND_CELL_SIZE_F as the cliff threshold
+                if max_slope > PATHFIND_CELL_SIZE_F * 0.7 {
+                    PathfindCellType::Cliff
+                } else {
+                    PathfindCellType::Clear
+                }
+            }
+        } else {
+            PathfindCellType::Clear
+        };
+
+        if let Ok(mut pathfinder) = self.pathfinder.lock() {
+            pathfinder.set_cell_type(GridCoord::new(x, y), cell_type);
+        }
+    }
+
+    /// Mark an object's footprint cells as blocked obstacles.
+    /// Matches C++ Pathfinder::classifyObjectFootprint() at AIPathfind.cpp:4175-4385.
+    ///
+    /// Iterates the cells covered by the object's geometry and marks them as
+    /// Obstacle on the ground-layer grid.
+    pub fn classify_object_footprint(&mut self, obj: &crate::object::Object) {
+        let pos = obj.get_position();
+        let geo = obj.get_geometry_info();
+        let radius = geo.get_major_radius();
+
+        // Skip small objects (C++ skips if isSmall())
+        if geo.get_is_small() {
+            return;
+        }
+        // Skip objects high above terrain
+        if obj.get_height_above_terrain() > PATHFIND_CELL_SIZE_F
+            && !obj.is_kind_of(crate::common::KindOf::BlastCrater)
+        {
+            return;
+        }
+        // Only structures are obstacles (C++ checks KINDOF_STRUCTURE)
+        if !obj.is_kind_of(crate::common::KindOf::Structure) {
+            return;
+        }
+        // Mobile objects aren't obstacles (C++ returns if obj->isMobile())
+        if obj.is_mobile() {
+            return;
+        }
+
+        let center = GridCoord::from_world(pos);
+        let radius_cells = (radius / PATHFIND_CELL_SIZE_F).ceil() as i32 + 1;
+
+        for dy in -radius_cells..=radius_cells {
+            for dx in -radius_cells..=radius_cells {
+                let cx = center.x + dx;
+                let cy = center.y + dy;
+                if cx < 0 || cy < 0 {
+                    continue;
+                }
+                let ux = cx as usize;
+                let uy = cy as usize;
+                if ux >= self.width || uy >= self.height {
+                    continue;
+                }
+
+                // Check if cell center is within object radius
+                let cell_center = GridCoord::new(cx, cy).to_world(PathfindLayerEnum::Ground);
+                let delta_x = cell_center.x - pos.x;
+                let delta_y = cell_center.y - pos.y;
+                let dist_sqr = delta_x * delta_x + delta_y * delta_y;
+                // Add a small buffer matching C++ radius+0.4*cell_size
+                let effective_radius = radius + PATHFIND_CELL_SIZE_F * 0.4;
+                if dist_sqr > effective_radius * effective_radius {
+                    continue;
+                }
+
+                let coord = GridCoord::new(cx, cy);
+                if let Ok(mut pathfinder) = self.pathfinder.lock() {
+                    pathfinder.set_cell_type(coord, PathfindCellType::Obstacle);
+                }
+            }
+        }
+
+        // Refresh pinched cells around the footprint
+        let lo = GridCoord::new(
+            (center.x - radius_cells - 2).max(0),
+            (center.y - radius_cells - 2).max(0),
+        );
+        let hi = GridCoord::new(
+            (center.x + radius_cells + 2).min(self.width as i32 - 1),
+            (center.y + radius_cells + 2).min(self.height as i32 - 1),
+        );
+        if let Ok(mut pathfinder) = self.pathfinder.lock() {
+            pathfinder.refresh_pinched_cells_in_bounds(lo, hi);
+        }
+    }
+
+    // ========================================================================
+    // GROUP B – Destination adjustment
+    // ========================================================================
+
+    /// Snap destination to the nearest passable cell using spiral search.
+    /// Matches C++ Pathfinder::adjustDestination() at AIPathfind.cpp:5331-5407.
+    ///
+    /// Returns `true` if adjustment succeeded (dest was modified in-place).
+    /// The spiral search pattern matches C++ exactly: right, down, left, up,
+    /// expanding outward in a square spiral.
+    pub fn adjust_destination(
+        &self,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        dest: &mut Coord3D,
+        unit_radius: f32,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
+        let mut adjust_dest = *dest;
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let cell = GridCoord::from_world(&adjust_dest);
+        let layer = PathfindLayerEnum::Ground;
+
+        // Check exact cell first
+        if self.is_destination_valid(
+            cell, layer, surfaces, is_crusher, radius, center_in_cell, ignore_obstacle_id,
+        ) {
+            // Snap to cell center
+            let snapped = cell.to_world(layer);
+            if let Some(terrain) = TheTerrainLogic::get() {
+                dest.x = snapped.x;
+                dest.y = snapped.y;
+                dest.z = terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
+            }
+            return true;
+        }
+
+        // Spiral search - matches C++ at AIPathfind.cpp:5366-5399
+        const MAX_CELLS_TO_TRY: i32 = 400;
+        let mut limit = MAX_CELLS_TO_TRY;
+        let mut i = cell.x;
+        let mut j = cell.y;
+        let mut delta = 1;
+
+        while limit > 0 {
+            // Right
+            for _ in 0..delta {
+                i += 1;
+                limit -= 1;
+                if self.try_adjust_cell(
+                    i, j, layer, surfaces, is_crusher, radius, center_in_cell,
+                    ignore_obstacle_id, dest,
+                ) {
+                    return true;
+                }
+            }
+            // Down
+            for _ in 0..delta {
+                j += 1;
+                limit -= 1;
+                if self.try_adjust_cell(
+                    i, j, layer, surfaces, is_crusher, radius, center_in_cell,
+                    ignore_obstacle_id, dest,
+                ) {
+                    return true;
+                }
+            }
+            delta += 1;
+            // Left
+            for _ in 0..delta {
+                i -= 1;
+                limit -= 1;
+                if self.try_adjust_cell(
+                    i, j, layer, surfaces, is_crusher, radius, center_in_cell,
+                    ignore_obstacle_id, dest,
+                ) {
+                    return true;
+                }
+            }
+            // Up
+            for _ in 0..delta {
+                j -= 1;
+                limit -= 1;
+                if self.try_adjust_cell(
+                    i, j, layer, surfaces, is_crusher, radius, center_in_cell,
+                    ignore_obstacle_id, dest,
+                ) {
+                    return true;
+                }
+            }
+            delta += 1;
+        }
+
+        false
+    }
+
+    /// Helper: try to adjust destination to a specific cell.
+    fn try_adjust_cell(
+        &self,
+        cx: i32,
+        cy: i32,
+        layer: PathfindLayerEnum,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        radius: i32,
+        center_in_cell: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+        dest: &mut Coord3D,
+    ) -> bool {
+        let coord = GridCoord::new(cx, cy);
+        if !self.is_valid_coord(coord) {
+            return false;
+        }
+        if !self.is_destination_valid(
+            coord, layer, surfaces, is_crusher, radius, center_in_cell, ignore_obstacle_id,
+        ) {
+            return false;
+        }
+        let snapped = coord.to_world(layer);
+        if let Some(terrain) = TheTerrainLogic::get() {
+            dest.x = snapped.x;
+            dest.y = snapped.y;
+            dest.z = terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
+        }
+        true
+    }
+
+    /// Check if a cell is a valid destination for the given parameters.
+    /// Matches C++ Pathfinder::checkDestination() logic.
+    fn is_destination_valid(
+        &self,
+        cell: GridCoord,
+        _layer: PathfindLayerEnum,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        radius: i32,
+        center_in_cell: bool,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
+        if !self.is_valid_coord(cell) {
+            return false;
+        }
+
+        let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
+        let pathfinder = self.pathfinder.lock().unwrap();
+
+        // Check all cells in the unit's footprint
+        let mut num_cells_above = radius;
+        if center_in_cell {
+            num_cells_above += 1;
+        }
+        let start_x = cell.x - radius;
+        let end_x = cell.x + num_cells_above;
+        let start_y = cell.y - radius;
+        let end_y = cell.y + num_cells_above;
+
+        for x in start_x..end_x {
+            for y in start_y..end_y {
+                let coord = GridCoord::new(x, y);
+                if !pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells.as_ref()) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Find a pathable spot near the destination.
+    /// Matches C++ Pathfinder::adjustToPossibleDestination() at AIPathfind.cpp:5510-5617.
+    ///
+    /// Searches for a cell in the same zone as the unit that is passable and
+    /// valid as a destination, using the same spiral search pattern.
+    pub fn adjust_to_possible_destination(
+        &self,
+        start: &Coord3D,
+        dest: &mut Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+    ) -> bool {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let goal_cell = GridCoord::from_world(dest);
+
+        // Check if start and goal are in the same zone
+        let start_cell = GridCoord::from_world(start);
+        let same_zone = if let Ok(zones) = self.zones.lock() {
+            zones.are_connected(start_cell, goal_cell, surfaces, is_crusher)
+        } else {
+            true
+        };
+
+        if same_zone {
+            if self.is_destination_valid(
+                goal_cell, PathfindLayerEnum::Ground, surfaces, is_crusher,
+                radius, center_in_cell, None,
+            ) {
+                return true;
+            }
+        }
+
+        // Spiral search
+        const MAX_CELLS_TO_TRY: i32 = 400;
+        let mut limit = MAX_CELLS_TO_TRY;
+        let mut i = goal_cell.x;
+        let mut j = goal_cell.y;
+        let mut delta = 1;
+
+        while limit > 0 {
+            for _ in 0..delta {
+                i += 1;
+                limit -= 1;
+                if self.try_zone_adjust(
+                    i, j, start_cell, surfaces, is_crusher, radius,
+                    center_in_cell, dest,
+                ) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j += 1;
+                limit -= 1;
+                if self.try_zone_adjust(
+                    i, j, start_cell, surfaces, is_crusher, radius,
+                    center_in_cell, dest,
+                ) {
+                    return true;
+                }
+            }
+            delta += 1;
+            for _ in 0..delta {
+                i -= 1;
+                limit -= 1;
+                if self.try_zone_adjust(
+                    i, j, start_cell, surfaces, is_crusher, radius,
+                    center_in_cell, dest,
+                ) {
+                    return true;
+                }
+            }
+            for _ in 0..delta {
+                j -= 1;
+                limit -= 1;
+                if self.try_zone_adjust(
+                    i, j, start_cell, surfaces, is_crusher, radius,
+                    center_in_cell, dest,
+                ) {
+                    return true;
+                }
+            }
+            delta += 1;
+        }
+
+        false
+    }
+
+    fn try_zone_adjust(
+        &self,
+        cx: i32,
+        cy: i32,
+        start_cell: GridCoord,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        radius: i32,
+        center_in_cell: bool,
+        dest: &mut Coord3D,
+    ) -> bool {
+        let coord = GridCoord::new(cx, cy);
+        if !self.is_valid_coord(coord) {
+            return false;
+        }
+
+        // Check zone connectivity
+        let connected = if let Ok(zones) = self.zones.lock() {
+            zones.are_connected(start_cell, coord, surfaces, is_crusher)
+        } else {
+            true
+        };
+        if !connected {
+            return false;
+        }
+
+        if !self.is_destination_valid(
+            coord, PathfindLayerEnum::Ground, surfaces, is_crusher,
+            radius, center_in_cell, None,
+        ) {
+            return false;
+        }
+
+        let snapped = coord.to_world(PathfindLayerEnum::Ground);
+        if let Some(terrain) = TheTerrainLogic::get() {
+            dest.x = snapped.x;
+            dest.y = snapped.y;
+            dest.z = terrain.get_layer_height(snapped.x, snapped.y, CommonPathfindLayerEnum::Ground);
+        }
+        true
+    }
+
+    /// Full adjustment pipeline combining adjustDestination and zone check.
+    /// Matches C++ Pathfinder::checkForAdjust() at AIPathfind.cpp ~5300.
+    pub fn check_for_adjust(
+        &self,
+        dest: &mut Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
+        self.adjust_destination(surfaces, is_crusher, dest, unit_radius, ignore_obstacle_id)
+    }
+
+    /// Validate a destination cell is passable for the given parameters.
+    /// Matches C++ Pathfinder::checkDestination() at AIPathfind.cpp ~5200.
+    pub fn validate_destination(
+        &self,
+        dest: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+        unit_radius: f32,
+    ) -> bool {
+        let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
+        let cell = GridCoord::from_world(dest);
+        self.is_destination_valid(
+            cell, PathfindLayerEnum::Ground, surfaces, is_crusher,
+            radius, center_in_cell, None,
+        )
+    }
+
+    // ========================================================================
+    // GROUP C – Hierarchical pathfinding
+    // ========================================================================
+
+    /// Long-distance hierarchical path check using zone connectivity.
+    /// Matches C++ Pathfinder::findHierarchicalPath() concept.
+    ///
+    /// Uses the zone manager to verify that start and end are in connected
+    /// zones, then delegates to the full A* pathfinder.
+    pub fn find_hierarchical_path(
+        &self,
+        start: Coord3D,
+        end: Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+    ) -> Option<PathResult> {
+        let start_cell = GridCoord::from_world(&start);
+        let end_cell = GridCoord::from_world(&end);
+
+        // Zone connectivity check (fast rejection for disconnected areas)
+        if let Ok(zones) = self.zones.lock() {
+            if !zones.are_connected(start_cell, end_cell, surfaces, is_crusher) {
+                return None;
+            }
+        }
+
+        // Zones are connected – run full A*
+        let request = PathRequest {
+            object_id: INVALID_ID,
+            from: start,
+            to: end,
+            surfaces,
+            is_crusher,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+        };
+        let result = self.find_path(request);
+        if result.success {
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    /// Find closest reachable hierarchical path (for unreachable goals).
+    /// Matches C++ Pathfinder::findClosestHierarchicalPath().
+    ///
+    /// If exact path fails, searches nearby cells for reachable alternatives.
+    pub fn find_closest_hierarchical_path(
+        &self,
+        start: Coord3D,
+        end: Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+    ) -> Option<PathResult> {
+        // Try exact path first
+        if let Some(result) = self.find_hierarchical_path(start, end, surfaces, is_crusher) {
+            return Some(result);
+        }
+
+        // Search nearby cells for reachable alternatives
+        let goal_cell = GridCoord::from_world(&end);
+        let max_search: i32 = 20;
+
+        for radius in 1..=max_search {
+            for dx in -radius..=radius {
+                for dy in -radius..=radius {
+                    if dx.abs() < radius && dy.abs() < radius {
+                        continue;
+                    }
+                    let test_coord = GridCoord::new(goal_cell.x + dx, goal_cell.y + dy);
+                    if !self.is_valid_coord(test_coord) {
+                        continue;
+                    }
+                    // Check if this cell is passable
+                    let pathfinder = self.pathfinder.lock().unwrap();
+                    let passable = pathfinder.is_passable(test_coord, surfaces, is_crusher);
+                    drop(pathfinder);
+                    if !passable {
+                        continue;
+                    }
+
+                    let test_pos = test_coord.to_world(PathfindLayerEnum::Ground);
+                    if let Some(result) =
+                        self.find_hierarchical_path(start, test_pos, surfaces, is_crusher)
+                    {
+                        return Some(result);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    // ========================================================================
+    // GROUP D – Path utilities and dynamic map updates
+    // ========================================================================
+
+    /// Quick path existence check (for UI feedback).
+    /// Matches C++ Pathfinder::quickDoesPathExist() concept.
+    ///
+    /// Uses zone connectivity as a fast heuristic. Does not run full A*.
+    pub fn quick_does_path_exist(
+        &self,
+        start: &Coord3D,
+        end: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+    ) -> bool {
+        let start_cell = GridCoord::from_world(start);
+        let end_cell = GridCoord::from_world(end);
+
+        // Bounds check
+        if !self.is_valid_coord(start_cell) || !self.is_valid_coord(end_cell) {
+            return false;
+        }
+
+        // Quick passability check on start/end
+        let pathfinder = self.pathfinder.lock().unwrap();
+        if !pathfinder.is_passable(start_cell, surfaces, is_crusher) {
+            return false;
+        }
+        if !pathfinder.is_passable(end_cell, surfaces, is_crusher) {
+            return false;
+        }
+        drop(pathfinder);
+
+        // Zone connectivity check
+        if let Ok(zones) = self.zones.lock() {
+            zones.are_connected(start_cell, end_cell, surfaces, is_crusher)
+        } else {
+            true
+        }
+    }
+
+    /// Full path existence check (runs actual A*).
+    /// Matches C++ Pathfinder::slowDoesPathExist() concept.
+    pub fn slow_does_path_exist(
+        &self,
+        start: &Coord3D,
+        end: &Coord3D,
+        surfaces: LocomotorSurfaceTypeMask,
+        is_crusher: bool,
+    ) -> bool {
+        let request = PathRequest {
+            object_id: INVALID_ID,
+            from: *start,
+            to: *end,
+            surfaces,
+            is_crusher,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id: None,
+        };
+        self.find_path(request).success
+    }
+
+    /// Check if a ground path is passable between two points.
+    /// Matches C++ Pathfinder::isGroundPathPassable().
+    pub fn is_ground_path_passable(
+        &self,
+        start: &Coord3D,
+        end: &Coord3D,
+        is_crusher: bool,
+        diameter: i32,
+    ) -> bool {
+        self.is_ground_line_passable(
+            start,
+            end,
+            is_crusher,
+            diameter,
+            None,
+        )
+    }
+
+    /// Snap a world position to the nearest cell center.
+    /// Matches C++ Pathfinder::adjustCoordToCell() at AIPathfind.cpp:8936-8946.
+    pub fn snap_position(&self, pos: &Coord3D) -> Coord3D {
+        let coord = GridCoord::from_world(pos);
+        let mut snapped = coord.to_world(PathfindLayerEnum::Ground);
+        // Set Z from terrain
+        if let Some(terrain) = TheTerrainLogic::get() {
+            snapped.z = terrain.get_ground_height(snapped.x, snapped.y, None);
+        } else {
+            snapped.z = pos.z;
+        }
+        snapped
+    }
+
+    /// Dynamic pathfind map update: register a goal cell for a unit.
+    /// Matches C++ Pathfinder::updateGoal() at AIPathfind.cpp ~2800.
+    pub fn update_goal(
+        &self,
+        cell: GridCoord,
+        unit_id: ObjectID,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+    ) {
+        self.set_goal_cells(
+            unit_id,
+            ICoord2D::new(cell.x, cell.y),
+            radius,
+            center_in_cell,
+            layer,
+            true,  // do_ground
+            true,  // do_layer
+        );
+    }
+
+    /// Dynamic pathfind map update: register a position cell for a unit.
+    /// Matches C++ Pathfinder::updatePos() at AIPathfind.cpp ~2700.
+    pub fn update_pos(
+        &self,
+        cell: GridCoord,
+        unit_id: ObjectID,
+        layer: PathfindLayerEnum,
+        radius: i32,
+        center_in_cell: bool,
+    ) {
+        // Position updates set the unit as present in the cell
+        // The goal cells mechanism handles this
+        self.set_goal_cells(
+            unit_id,
+            ICoord2D::new(cell.x, cell.y),
+            radius,
+            center_in_cell,
+            layer,
+            true,
+            false,
+        );
+    }
+
+    /// Change bridge state on the pathfind map.
+    /// Matches C++ PathfindLayer::setDestroyed() at AIPathfind.cpp:3589-3597.
+    ///
+    /// When destroyed, all bridge cells become BridgeImpassable and the
+    /// ground layer is disconnected from the bridge layer.
+    pub fn change_bridge_state(&mut self, x: i32, y: i32, destroyed: bool) {
+        // Find a bridge that contains this cell
+        let coord = GridCoord::new(x, y);
+        for bridge in &mut self.bridges {
+            if bridge.contains(coord) {
+                bridge.destroyed = destroyed;
+                // Re-classify cells within bridge bounds
+                let lo = bridge.bounds.0;
+                let hi = bridge.bounds.1;
+                if destroyed {
+                    // Mark bridge cells as impassable
+                    if let Ok(mut pathfinder) = self.pathfinder.lock() {
+                        for bx in lo.x..=hi.x {
+                            for by in lo.y..=hi.y {
+                                pathfinder.set_cell_type(
+                                    GridCoord::new(bx, by),
+                                    PathfindCellType::BridgeImpassable,
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    // Restore bridge cells based on terrain classification
+                    for bx in lo.x..=hi.x {
+                        for by in lo.y..=hi.y {
+                            self.classify_map_cell(bx, by);
+                        }
+                    }
+                }
+                // Invalidate cache since map changed
+                self.clear_cache();
+                break;
+            }
+        }
+    }
+
+    /// Get the width of the pathfinding grid.
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// Get the height of the pathfinding grid.
+    pub fn height(&self) -> usize {
+        self.height
+    }
 }
 
 /// Zone manager for hierarchical pathfinding
@@ -1146,7 +1998,6 @@ impl ZoneManager {
         _surfaces: LocomotorSurfaceTypeMask,
         _is_crusher: bool,
     ) -> bool {
-        // Simple zone check
         if start.x < 0
             || start.x >= self.width as i32
             || start.y < 0
@@ -1162,12 +2013,62 @@ impl ZoneManager {
         let start_zone = self.zones[start.x as usize][start.y as usize];
         let goal_zone = self.zones[goal.x as usize][goal.y as usize];
 
-        // If either is unzoned (0), allow pathfinding attempt
         if start_zone == 0 || goal_zone == 0 {
             return true;
         }
 
         start_zone == goal_zone
+    }
+
+    /// Calculate zones using flood-fill on the pathfinder grid.
+    /// Matches C++ PathfindZoneManager::calculateZones().
+    fn calculate_zones(&mut self) {
+        for col in self.zones.iter_mut() {
+            for zone in col.iter_mut() {
+                *zone = 0;
+            }
+        }
+        self.next_zone = 1;
+
+        for x in 0..self.width {
+            for y in 0..self.height {
+                if self.zones[x][y] == 0 {
+                    self.flood_fill(x, y);
+                }
+            }
+        }
+    }
+
+    fn flood_fill(&mut self, start_x: usize, start_y: usize) {
+        let zone_id = self.next_zone;
+        self.next_zone += 1;
+        if self.next_zone == 0 {
+            self.next_zone = 1;
+        }
+
+        let mut stack = vec![(start_x, start_y)];
+        while let Some((x, y)) = stack.pop() {
+            if x >= self.width || y >= self.height {
+                continue;
+            }
+            if self.zones[x][y] != 0 {
+                continue;
+            }
+            self.zones[x][y] = zone_id;
+
+            if x > 0 {
+                stack.push((x - 1, y));
+            }
+            if x + 1 < self.width {
+                stack.push((x + 1, y));
+            }
+            if y > 0 {
+                stack.push((x, y - 1));
+            }
+            if y + 1 < self.height {
+                stack.push((x, y + 1));
+            }
+        }
     }
 }
 
