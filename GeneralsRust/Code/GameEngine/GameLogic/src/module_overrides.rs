@@ -210,10 +210,10 @@ use crate::object::{
         structure_body::{StructureBody, StructureBodyModuleData},
         undead_body::{UndeadBody, UndeadBodyModuleData},
     },
-    collide::fire_weapon_collide::{FireWeaponCollide, FireWeaponCollideModuleData},
     collide::crate_collide::shroud_crate_collide::{
         ShroudCrateCollide, ShroudCrateCollideModuleData,
     },
+    collide::fire_weapon_collide::{FireWeaponCollide, FireWeaponCollideModuleData},
     collide::squish_collide::{SquishCollide, SquishCollideModuleData},
     create::{
         CreateModuleData, GrantUpgradeCreate, GrantUpgradeCreateModuleData, LockWeaponCreate,
@@ -429,6 +429,18 @@ fn resolve_owner_info(thing: &Arc<dyn ModuleThing>) -> (ObjectID, Coord3D) {
     (owner_id, owner_pos)
 }
 
+fn cloned_module_data<TData>(module_name: &str, module_data: &Arc<dyn ModuleData>) -> Arc<TData>
+where
+    TData: ModuleData + Clone + 'static,
+{
+    Arc::new(
+        module_data
+            .downcast_ref::<TData>()
+            .unwrap_or_else(|| panic!("{module_name} module data type expected"))
+            .clone(),
+    )
+}
+
 fn resolve_drawable_id(thing: &Arc<dyn ModuleThing>) -> u32 {
     thing
         .as_drawable()
@@ -505,7 +517,7 @@ impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> Snapshotable
 }
 
 impl<T: Clone + Send + Sync + std::fmt::Debug + 'static> ModuleData
-for ContainModuleDataAdapter<T>
+    for ContainModuleDataAdapter<T>
 {
     fn as_any(&self) -> &dyn Any {
         self
@@ -7725,14 +7737,12 @@ fn railed_transport_dock_update_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<RailedTransportDockUpdateData>()
-        .expect("RailedTransportDockUpdateData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
+    let module_data_arc = cloned_module_data::<RailedTransportDockUpdateData>(
+        "RailedTransportDockUpdate",
+        &module_data,
+    );
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior = RailedTransportDockUpdate::new(typed_data.clone(), owner_id, &owner_pos);
+    let behavior = RailedTransportDockUpdate::new((*module_data_arc).clone(), owner_id, &owner_pos);
 
     let module_name = AsciiString::from("RailedTransportDockUpdate");
     Box::new(RailedTransportDockUpdateModule::new(
@@ -7762,14 +7772,10 @@ fn supply_center_dock_update_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<SupplyCenterDockUpdateData>()
-        .expect("SupplyCenterDockUpdateData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
+    let module_data_arc =
+        cloned_module_data::<SupplyCenterDockUpdateData>("SupplyCenterDockUpdate", &module_data);
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior = SupplyCenterDockUpdate::new(typed_data.clone(), owner_id, &owner_pos);
+    let behavior = SupplyCenterDockUpdate::new((*module_data_arc).clone(), owner_id, &owner_pos);
 
     let module_name = AsciiString::from("SupplyCenterDockUpdate");
     Box::new(SupplyCenterDockUpdateModule::new(
@@ -7799,14 +7805,12 @@ fn supply_warehouse_dock_update_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<SupplyWarehouseDockUpdateData>()
-        .expect("SupplyWarehouseDockUpdateData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
+    let module_data_arc = cloned_module_data::<SupplyWarehouseDockUpdateData>(
+        "SupplyWarehouseDockUpdate",
+        &module_data,
+    );
     let (owner_id, owner_pos) = resolve_owner_info(&thing);
-    let behavior = SupplyWarehouseDockUpdate::new(typed_data.clone(), owner_id, &owner_pos);
+    let behavior = SupplyWarehouseDockUpdate::new((*module_data_arc).clone(), owner_id, &owner_pos);
 
     let module_name = AsciiString::from("SupplyWarehouseDockUpdate");
     Box::new(SupplyWarehouseDockUpdateModule::new(
