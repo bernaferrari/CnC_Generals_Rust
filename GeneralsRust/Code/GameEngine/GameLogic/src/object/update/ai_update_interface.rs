@@ -906,7 +906,10 @@ impl AIUpdateInterface {
         }
 
         if self.is_attack_path {
-            // PARITY_TODO: computeAttackPath() once attack-path logic is ported
+            // PARITY_TODO: computeAttackPath() once attack-path logic is ported.
+            // C++ clears m_isAttackPath when attack-path computation fails, then falls
+            // back to a normal path toward the requested destination.
+            self.is_attack_path = false;
         }
 
         self.compute_path(self.requested_destination);
@@ -1819,6 +1822,23 @@ mod tests {
         assert_eq!(
             ai.get_path().as_ref().unwrap().as_slice(),
             &[Coord3D::new(3.0, 4.0, 0.0), Coord3D::new(12.0, 16.0, 0.0)]
+        );
+    }
+
+    #[test]
+    fn do_pathfind_attack_fallback_clears_attack_flag_like_cpp() {
+        let mut ai = ai_update();
+        ai.set_final_position(Coord3D::new(6.0, 7.0, 0.0));
+
+        ai.request_attack_path(123, Coord3D::new(18.0, 21.0, 0.0));
+        ai.do_pathfind();
+
+        assert!(!ai.is_waiting_for_path());
+        assert!(!ai.is_attack_path);
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
+        assert_eq!(
+            ai.get_path().as_ref().unwrap().as_slice(),
+            &[Coord3D::new(6.0, 7.0, 0.0), Coord3D::new(18.0, 21.0, 0.0)]
         );
     }
 
