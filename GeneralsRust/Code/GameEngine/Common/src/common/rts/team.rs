@@ -299,8 +299,9 @@ impl TeamTemplateInfo {
 }
 
 impl Snapshotable for TeamTemplateInfo {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Empty in C++
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -407,8 +408,9 @@ impl TeamRelationMap {
 }
 
 impl Snapshotable for TeamRelationMap {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Empty in C++
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -538,8 +540,9 @@ impl PlayerRelationMap {
 }
 
 impl Snapshotable for PlayerRelationMap {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Empty in C++
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -2149,8 +2152,9 @@ impl Team {
 }
 
 impl Snapshotable for Team {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Empty in C++
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -2715,8 +2719,9 @@ impl TeamPrototype {
 }
 
 impl Snapshotable for TeamPrototype {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // CRC implementation - empty in C++
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -3135,8 +3140,9 @@ impl TeamFactory {
 }
 
 impl Snapshotable for TeamFactory {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Empty in C++
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 

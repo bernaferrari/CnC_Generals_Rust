@@ -63,8 +63,8 @@ impl ModuleData for CleanupAreaPowerModuleData {
 }
 
 impl Snapshotable for CleanupAreaPowerModuleData {
-    fn crc(&self, _xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        self.base.crc(_xfer)
+    fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+        self.base.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
@@ -164,8 +164,9 @@ impl Module for CleanupAreaPower {
 }
 
 impl Snapshotable for CleanupAreaPower {
-    fn crc(&self, _xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        // Version 1: Initial version - extends base class only
+    fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 

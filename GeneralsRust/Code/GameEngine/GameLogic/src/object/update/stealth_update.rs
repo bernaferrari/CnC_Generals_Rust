@@ -144,7 +144,9 @@ impl ModuleData for StealthUpdateModuleData {
 }
 
 impl Snapshotable for StealthUpdateModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -1287,16 +1289,16 @@ impl Snapshotable for StealthUpdate {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // Matches C++ StealthUpdate::xfer lines 1115-1183
         let mut version: game_engine::common::system::xfer::XferVersion = 2;
-        _xfer
+        xfer
             .xfer_version(&mut version, 2)
             .map_err(|e| format!("Failed xfer version: {e}"))?;
 
-        xfer_update_module_base_state(_xfer, &mut self.next_call_frame_and_phase)?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
-        _xfer
+        xfer
             .xfer_unsigned_int(
                 &mut self
                     .controller
@@ -1308,42 +1310,42 @@ impl Snapshotable for StealthUpdate {
 
         {
             let mut ctrl = self.controller.lock().map_err(|_| "Lock failed")?;
-            _xfer
+            xfer
                 .xfer_unsigned_int(&mut ctrl.detection_expires_frame)
                 .map_err(|e| format!("xfer detection_expires_frame: {e}"))?;
-            _xfer
+            xfer
                 .xfer_bool(&mut ctrl.enabled)
                 .map_err(|e| format!("xfer enabled: {e}"))?;
-            _xfer
+            xfer
                 .xfer_real(&mut ctrl.pulse_phase_rate)
                 .map_err(|e| format!("xfer pulse_phase_rate: {e}"))?;
-            _xfer
+            xfer
                 .xfer_real(&mut ctrl.pulse_phase)
                 .map_err(|e| format!("xfer pulse_phase: {e}"))?;
-            _xfer
+            xfer
                 .xfer_int(&mut ctrl.disguise_as_player_index)
                 .map_err(|e| format!("xfer disguise_as_player_index: {e}"))?;
             let mut name = ctrl.disguise_as_template_name.clone().unwrap_or_default();
-            _xfer
+            xfer
                 .xfer_ascii_string(&mut name)
                 .map_err(|e| format!("xfer disguise name: {e}"))?;
-            if _xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
+            if xfer.get_xfer_mode() == game_engine::common::system::xfer::XferMode::Load {
                 ctrl.disguise_as_template_name = if name.is_empty() { None } else { Some(name) };
             }
-            _xfer
+            xfer
                 .xfer_unsigned_int(&mut ctrl.disguise_transition_frames)
                 .map_err(|e| format!("xfer disguise_transition_frames: {e}"))?;
-            _xfer
+            xfer
                 .xfer_bool(&mut ctrl.disguise_halfpoint_reached)
                 .map_err(|e| format!("xfer disguise_halfpoint_reached: {e}"))?;
-            _xfer
+            xfer
                 .xfer_bool(&mut ctrl.transitioning_to_disguise)
                 .map_err(|e| format!("xfer transitioning_to_disguise: {e}"))?;
-            _xfer
+            xfer
                 .xfer_bool(&mut ctrl.disguised)
                 .map_err(|e| format!("xfer disguised: {e}"))?;
             if version >= 2 {
-                _xfer
+                xfer
                     .xfer_unsigned_int(&mut ctrl.frames_granted)
                     .map_err(|e| format!("xfer frames_granted: {e}"))?;
             }
