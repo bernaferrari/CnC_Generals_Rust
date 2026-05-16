@@ -1,7 +1,9 @@
 //! Geometric Utilities and Types
 //!
-//! Provides geometric calculations and data structures for 2D and 3D operations.
+//! C++ Reference: /GeneralsMD/Code/GameEngine/Source/Common/System/Geometry.cpp
+//! C++ Header:   /GeneralsMD/Code/GameEngine/Include/Common/Geometry.h
 
+use crate::common::system::{Snapshotable, Xfer, XferVersion};
 use serde::{Deserialize, Serialize};
 
 /// 2D Point structure
@@ -290,22 +292,31 @@ impl Default for Matrix3D {
     }
 }
 
-/// Geometry type enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Geometry type enumeration - matches C++ Geometry.h lines 25-33
+/// GEOMETRY_SPHERE=0, GEOMETRY_CYLINDER=1, GEOMETRY_BOX=2
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[repr(u8)]
 pub enum GeometryType {
-    Box,
-    Sphere,
-    Cylinder,
+    Sphere = 0,
+    Cylinder = 1,
+    Box = 2,
 }
 
 /// Geometry information structure
-#[derive(Debug, Clone, PartialEq)]
+/// C++ Reference: Geometry.h - mirrors m_type, m_isSmall, m_height, m_majorRadius,
+///   m_minorRadius, m_boundingCircleRadius, m_boundingSphereRadius
+/// Note: `width` and `depth` are legacy aliases for `major_radius` and `minor_radius`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GeometryInfo {
     pub geometry_type: GeometryType,
     pub is_small: bool,
-    pub width: f32,
     pub height: f32,
+    /// C++ m_majorRadius. Legacy code refers to this as `width` (half-extent in forward dir).
+    pub width: f32,
+    /// C++ m_minorRadius. Legacy code refers to this as `depth` (half-extent in side dir).
     pub depth: f32,
+    pub bounding_circle_radius: f32,
+    pub bounding_sphere_radius: f32,
 }
 
 impl GeometryInfo {
@@ -316,12 +327,138 @@ impl GeometryInfo {
         height: f32,
         depth: f32,
     ) -> Self {
+        let bounding_circle_radius = match geometry_type {
+            GeometryType::Sphere => width,
+            GeometryType::Cylinder => width,
+            GeometryType::Box => {
+                let a = width;
+                let b = depth;
+                (a * a + b * b).sqrt()
+            }
+        };
+        let bounding_sphere_radius = match geometry_type {
+            GeometryType::Sphere => width,
+            GeometryType::Cylinder => {
+                let r = width;
+                let h = height / 2.0;
+                (r * r + h * h).sqrt()
+            }
+            GeometryType::Box => {
+                let a = width;
+                let b = depth;
+                let h = height / 2.0;
+                (a * a + b * b + h * h).sqrt()
+            }
+        };
         GeometryInfo {
             geometry_type,
             is_small,
-            width,
             height,
+            width,
             depth,
+            bounding_circle_radius,
+            bounding_sphere_radius,
         }
+    }
+
+    pub fn major_radius(&self) -> f32 {
+        self.width
+    }
+
+    pub fn minor_radius(&self) -> f32 {
+        self.depth
+    }
+
+    pub fn set_major_radius(&mut self, r: f32) {
+        self.width = r;
+    }
+
+    pub fn set_minor_radius(&mut self, r: f32) {
+        self.depth = r;
+    }
+}
+
+impl Default for GeometryInfo {
+    fn default() -> Self {
+        GeometryInfo {
+            geometry_type: GeometryType::Sphere,
+            is_small: false,
+            height: 0.0,
+            width: 0.0,
+            depth: 0.0,
+            bounding_circle_radius: 0.0,
+            bounding_sphere_radius: 0.0,
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Snapshotable implementation for GeometryInfo
+// C++ Reference: Geometry.cpp lines 534-581
+// ------------------------------------------------------------------------------------------------
+
+impl Snapshotable for GeometryInfo {
+    /// CRC - matches C++ GeometryInfo::crc() (Geometry.cpp line 534)
+    /// C++ implementation is empty.
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Save/Load transfer - matches C++ GeometryInfo::xfer() (Geometry.cpp lines 544-573)
+    ///
+    /// Version Info:
+    /// 1: Initial version
+    ///
+    /// Fields xfer'd (Geometry.cpp lines 553-571):
+    ///   1. type (GeometryType via xferUser, sizeof=1 byte as u8)
+    ///   2. isSmall (Bool)
+    ///   3. height (Real)
+    ///   4. majorRadius (Real)
+    ///   5. minorRadius (Real)
+    ///   6. boundingCircleRadius (Real)
+    ///   7. boundingSphereRadius (Real)
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version: XferVersion = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("GeometryInfo::xfer version error: {}", e))?;
+
+        // C++ line 553: xferUser(&m_type, sizeof(GeometryType))
+        let mut geo_type = self.geometry_type as u8;
+        xfer.xfer_unsigned_byte(&mut geo_type)
+            .map_err(|e| format!("GeometryInfo::xfer type error: {}", e))?;
+        self.geometry_type = match geo_type {
+            0 => GeometryType::Sphere,
+            1 => GeometryType::Cylinder,
+            2 => GeometryType::Box,
+            _ => GeometryType::Sphere,
+        };
+
+        xfer.xfer_bool(&mut self.is_small)
+            .map_err(|e| format!("GeometryInfo::xfer isSmall error: {}", e))?;
+
+        xfer.xfer_real(&mut self.height)
+            .map_err(|e| format!("GeometryInfo::xfer height error: {}", e))?;
+
+        // C++ xfers m_majorRadius (our `width`) and m_minorRadius (our `depth`)
+        xfer.xfer_real(&mut self.width)
+            .map_err(|e| format!("GeometryInfo::xfer majorRadius error: {}", e))?;
+
+        xfer.xfer_real(&mut self.depth)
+            .map_err(|e| format!("GeometryInfo::xfer minorRadius error: {}", e))?;
+
+        xfer.xfer_real(&mut self.bounding_circle_radius)
+            .map_err(|e| format!("GeometryInfo::xfer boundingCircleRadius error: {}", e))?;
+
+        xfer.xfer_real(&mut self.bounding_sphere_radius)
+            .map_err(|e| format!("GeometryInfo::xfer boundingSphereRadius error: {}", e))?;
+
+        Ok(())
+    }
+
+    /// Load post process - matches C++ GeometryInfo::loadPostProcess() (Geometry.cpp line 578)
+    /// C++ implementation is empty.
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }

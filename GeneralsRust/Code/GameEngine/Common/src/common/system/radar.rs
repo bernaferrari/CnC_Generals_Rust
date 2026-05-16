@@ -9,6 +9,7 @@
 // Port from C++ Radar.cpp and Radar.h (Colin Day, January 2002)
 ///////////////////////////////////////////////////////////////////////////////
 
+use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::sync::{Arc, RwLock};
 
 /// Radar cell dimensions (matches C++ RADAR_CELL_WIDTH/HEIGHT)
@@ -1546,6 +1547,226 @@ impl RadarSystem {
     pub fn has_operational_radar(&self, _player_id: u32) -> bool {
         self.get_all_objects().any(|obj| obj.is_radar_operational())
     }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Snapshotable implementation for RadarObject
+// C++ Reference: Radar.cpp lines 130-167
+// ------------------------------------------------------------------------------------------------
+
+impl Snapshotable for RadarObject {
+    /// CRC - matches C++ RadarObject::crc() (Radar.cpp line 130)
+    /// C++ implementation is empty.
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Save/Load transfer - matches C++ RadarObject::xfer() (Radar.cpp lines 140-172)
+    ///
+    /// Version Info:
+    /// 1: Initial version
+    ///
+    /// Fields xfer'd (Radar.cpp lines 149-170):
+    ///   1. ObjectID (via xferObjectID)
+    ///   2. color (via xferColor)
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version: XferVersion = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("RadarObject::xfer version error: {}", e))?;
+
+        // C++ lines 149-167: xfer object ID
+        xfer.xfer_object_id(&mut self.object_id)
+            .map_err(|e| format!("RadarObject::xfer objectID error: {}", e))?;
+
+        // C++ line 170: xfer color
+        let mut color = self.color as i32;
+        xfer.xfer_color(&mut color)
+            .map_err(|e| format!("RadarObject::xfer color error: {}", e))?;
+        self.color = color as u32;
+
+        Ok(())
+    }
+
+    /// Load post process - matches C++ RadarObject::loadPostProcess() (Radar.cpp line 177)
+    /// C++ implementation is empty.
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+// ------------------------------------------------------------------------------------------------
+// Snapshotable implementation for RadarSystem
+// C++ Reference: Radar.cpp lines 1352-1510
+// ------------------------------------------------------------------------------------------------
+
+impl Snapshotable for RadarSystem {
+    /// CRC - matches C++ Radar::crc() (Radar.cpp line 1352)
+    /// C++ implementation is empty.
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    /// Save/Load transfer - matches C++ Radar::xfer() (Radar.cpp lines 1455-1510)
+    ///
+    /// Version Info:
+    /// 1: Initial version
+    ///
+    /// Fields xfer'd (Radar.cpp lines 1455-1509):
+    ///   1. radarHidden (Bool)
+    ///   2. radarForceOn (Bool)
+    ///   3. localObjectList (via xferRadarObjectList helper)
+    ///   4. objectList (via xferRadarObjectList helper)
+    ///   5. events array (count verified as MAX_RADAR_EVENTS, then per-event fields)
+    ///   6. nextFreeRadarEvent (Int)
+    ///   7. lastRadarEvent (Int)
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version: XferVersion = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("RadarSystem::xfer version error: {}", e))?;
+
+        // C++ line 1464: radar hidden
+        xfer.xfer_bool(&mut self.radar_hidden)
+            .map_err(|e| format!("RadarSystem::xfer radarHidden error: {}", e))?;
+
+        // C++ line 1467: radar force on
+        xfer.xfer_bool(&mut self.radar_force_on)
+            .map_err(|e| format!("RadarSystem::xfer radarForceOn error: {}", e))?;
+
+        // C++ lines 1470-1473: xfer local and regular object lists
+        xfer_radar_object_list(xfer, &mut self.local_object_list)
+            .map_err(|e| format!("RadarSystem::xfer localObjectList error: {}", e))?;
+        xfer_radar_object_list(xfer, &mut self.object_list)
+            .map_err(|e| format!("RadarSystem::xfer objectList error: {}", e))?;
+
+        // C++ lines 1476-1502: xfer radar events
+        let mut event_count_verify = MAX_RADAR_EVENTS as u16;
+        xfer.xfer_unsigned_short(&mut event_count_verify)
+            .map_err(|e| format!("RadarSystem::xfer eventCount error: {}", e))?;
+
+        for event in &mut self.events {
+            let mut event_type = event.event_type as u8;
+            xfer.xfer_unsigned_byte(&mut event_type)
+                .map_err(|e| format!("RadarSystem::xfer eventType error: {}", e))?;
+            event.event_type = match event_type {
+                0 => RadarEventType::Invalid,
+                1 => RadarEventType::Construction,
+                2 => RadarEventType::Upgrade,
+                3 => RadarEventType::UnderAttack,
+                4 => RadarEventType::Information,
+                5 => RadarEventType::BeaconPulse,
+                6 => RadarEventType::Infiltration,
+                7 => RadarEventType::BattlePlan,
+                8 => RadarEventType::StealthDiscovered,
+                9 => RadarEventType::StealthNeutralized,
+                10 => RadarEventType::Fake,
+                _ => RadarEventType::Invalid,
+            };
+
+            xfer.xfer_bool(&mut event.active)
+                .map_err(|e| format!("RadarSystem::xfer eventActive error: {}", e))?;
+            xfer.xfer_unsigned_int(&mut event.create_frame)
+                .map_err(|e| format!("RadarSystem::xfer eventCreateFrame error: {}", e))?;
+            xfer.xfer_unsigned_int(&mut event.die_frame)
+                .map_err(|e| format!("RadarSystem::xfer eventDieFrame error: {}", e))?;
+            xfer.xfer_unsigned_int(&mut event.fade_frame)
+                .map_err(|e| format!("RadarSystem::xfer eventFadeFrame error: {}", e))?;
+
+            // C++ line 1496: xferRGBAColorInt
+            let mut c1 = event.color1.to_u32();
+            xfer.xfer_unsigned_int(&mut c1)
+                .map_err(|e| format!("RadarSystem::xfer eventColor1 error: {}", e))?;
+            event.color1 = RGBAColorInt::from_u32(c1);
+
+            let mut c2 = event.color2.to_u32();
+            xfer.xfer_unsigned_int(&mut c2)
+                .map_err(|e| format!("RadarSystem::xfer eventColor2 error: {}", e))?;
+            event.color2 = RGBAColorInt::from_u32(c2);
+
+            // C++ line 1498: xferCoord3D
+            xfer.xfer_real(&mut event.world_loc.x)
+                .map_err(|e| format!("RadarSystem::xfer eventWorldLoc.x error: {}", e))?;
+            xfer.xfer_real(&mut event.world_loc.y)
+                .map_err(|e| format!("RadarSystem::xfer eventWorldLoc.y error: {}", e))?;
+            xfer.xfer_real(&mut event.world_loc.z)
+                .map_err(|e| format!("RadarSystem::xfer eventWorldLoc.z error: {}", e))?;
+
+            // C++ line 1499: xferICoord2D
+            xfer.xfer_int(&mut event.radar_loc.x)
+                .map_err(|e| format!("RadarSystem::xfer eventRadarLoc.x error: {}", e))?;
+            xfer.xfer_int(&mut event.radar_loc.y)
+                .map_err(|e| format!("RadarSystem::xfer eventRadarLoc.y error: {}", e))?;
+
+            xfer.xfer_bool(&mut event.sound_played)
+                .map_err(|e| format!("RadarSystem::xfer eventSoundPlayed error: {}", e))?;
+        }
+
+        // C++ line 1505: nextFreeRadarEvent
+        let mut next_free = self.next_free_event as i32;
+        xfer.xfer_int(&mut next_free)
+            .map_err(|e| format!("RadarSystem::xfer nextFreeRadarEvent error: {}", e))?;
+        self.next_free_event = next_free as usize;
+
+        // C++ line 1508: lastRadarEvent
+        let mut last_event = self.last_event.map(|i| i as i32).unwrap_or(-1);
+        xfer.xfer_int(&mut last_event)
+            .map_err(|e| format!("RadarSystem::xfer lastRadarEvent error: {}", e))?;
+        self.last_event = if last_event >= 0 {
+            Some(last_event as usize)
+        } else {
+            None
+        };
+
+        Ok(())
+    }
+
+    /// Load post process - matches C++ Radar::loadPostProcess() (Radar.cpp lines 1515-1524)
+    /// C++ refreshes terrain after loading. We mark terrain dirty for deferred refresh.
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.terrain_dirty = true;
+        Ok(())
+    }
+}
+
+/// Helper: xfer a radar object list (matches C++ xferRadarObjectList)
+/// C++ Reference: Radar.cpp lines 1362-1448
+fn xfer_radar_object_list(
+    xfer: &mut dyn Xfer,
+    object_list: &mut Vec<RadarObject>,
+) -> Result<(), String> {
+    const CURRENT_VERSION: XferVersion = 1;
+    let mut version: XferVersion = CURRENT_VERSION;
+    xfer.xfer_version(&mut version, CURRENT_VERSION)
+        .map_err(|e| format!("xferRadarObjectList version error: {}", e))?;
+
+    let mut count = object_list.len() as u16;
+    xfer.xfer_unsigned_short(&mut count)
+        .map_err(|e| format!("xferRadarObjectList count error: {}", e))?;
+
+    match xfer.get_xfer_mode() {
+        XferMode::Save | XferMode::Crc => {
+            for obj in object_list.iter_mut() {
+                Snapshotable::xfer(obj, xfer)?;
+            }
+        }
+        XferMode::Load => {
+            object_list.clear();
+            for _ in 0..count {
+                let mut radar_obj = RadarObject::new(0);
+                Snapshotable::xfer(&mut radar_obj, xfer)?;
+                object_list.push(radar_obj);
+            }
+        }
+        _ => {
+            return Err(format!(
+                "xferRadarObjectList - unknown xfer mode {:?}",
+                xfer.get_xfer_mode()
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 impl Default for RadarSystem {

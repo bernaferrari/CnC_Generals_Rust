@@ -299,9 +299,8 @@ impl TeamTemplateInfo {
 }
 
 impl Snapshotable for TeamTemplateInfo {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ TeamTemplateInfo::crc() is intentionally empty
         Ok(())
     }
 
@@ -408,20 +407,12 @@ impl TeamRelationMap {
 }
 
 impl Snapshotable for TeamRelationMap {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ TeamRelationMap::crc() is intentionally empty
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        // Version
-        const CURRENT_VERSION: XferVersion = 1;
-        let mut version = CURRENT_VERSION;
-        xfer.xfer_version(&mut version, CURRENT_VERSION)
-            .map_err(|e| e.to_string())?;
-
-        // Team relation count
         let mut relation_count = self.relations.len() as u16;
         xfer.xfer_unsigned_short(&mut relation_count)
             .map_err(|e| e.to_string())?;
@@ -2152,9 +2143,8 @@ impl Team {
 }
 
 impl Snapshotable for Team {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ Team::crc() is intentionally empty
         Ok(())
     }
 
@@ -2719,9 +2709,8 @@ impl TeamPrototype {
 }
 
 impl Snapshotable for TeamPrototype {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ TeamPrototype::crc() is intentionally empty
         Ok(())
     }
 
@@ -3140,9 +3129,8 @@ impl TeamFactory {
 }
 
 impl Snapshotable for TeamFactory {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ TeamFactory::crc() is intentionally empty
         Ok(())
     }
 

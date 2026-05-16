@@ -33,22 +33,11 @@ use crate::{GameLogicError, GameLogicResult};
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
 use game_engine::common::system::Snapshotable;
 
-// Advanced ballistics module
-mod armor_system;
-pub(crate) mod ballistics;
 pub mod bezier; // Bezier curve system for projectile flight paths
 mod damage_application;
-mod damage_calculator;
-mod damage_over_time;
 pub mod damage_system;
-mod healing_system;
-#[cfg(test)]
-mod projectile;
 mod projectile_launch_cast;
-mod target_acquisition;
-mod targeting;
 pub mod weapon;
-mod weapon_firing_integration;
 pub mod weapon_set;
 pub mod weapon_store;
 mod weapon_template;
@@ -58,8 +47,6 @@ mod weapon_template;
 // weapon.rs and weapon_template.rs contain supplementary logic that extends
 // these types.
 
-pub use armor_system::*;
-pub use ballistics::*;
 // Export damage_application with specific types to avoid DamageInfo conflict
 pub use crate::common::Coord3D;
 use crate::common::Relationship;
@@ -70,15 +57,7 @@ pub use damage_application::{
     should_apply_damage, DamageApplicator, DamageInfo as WeaponDamageInfo, DamageInfoInput,
     DamageInfoOutput, Relationship as DamageRelationship, HUGE_DAMAGE_AMOUNT,
 };
-pub use damage_calculator::{ArmorSet, DamageCalculator, DamageResult};
-pub use damage_over_time::*;
 pub use damage_system::*;
-pub use healing_system::*;
-#[cfg(test)]
-pub use projectile::*;
-pub use target_acquisition::*;
-pub use targeting::*;
-pub use weapon_firing_integration::*;
 pub use weapon_set::*;
 pub use weapon_store::*;
 
@@ -1327,16 +1306,18 @@ impl WeaponTemplate {
                 inflict_damage,
             )?
         } else {
-            // Projectile weapon - calculate trajectory and flight time
-            let trajectory = BallisticsCalculator::calculate_trajectory(
-                &source_pos,
-                &projectile_destination,
-                self.weapon_speed * bonus.get_field(WeaponBonusField::Range),
-                9.81, // gravity
-            )?;
+            // Projectile weapon - calculate flight time (C++ uses simple distance/speed)
+            let distance = source_pos.distance(projectile_destination);
+            let effective_speed =
+                self.weapon_speed * bonus.get_field(WeaponBonusField::Range);
+            let flight_time = if effective_speed > 0.0 {
+                distance / effective_speed
+            } else {
+                0.0
+            };
 
             let flight_time_frames =
-                (trajectory.flight_time * LOGICFRAMES_PER_SECOND as f32) as u32;
+                (flight_time * LOGICFRAMES_PER_SECOND as f32) as u32;
             let current_frame = self.get_current_frame();
 
             // Create projectile if needed
@@ -4232,13 +4213,14 @@ impl Weapon {
         lifetime: f32,
         bonus: &WeaponBonus,
     ) -> Result<ObjectId, WeaponError> {
-        let trajectory = BallisticsCalculator::calculate_trajectory(
-            source_pos,
-            target_pos,
-            speed.max(0.1),
-            9.81,
-        )
-        .map_err(|e| WeaponError::SystemError(format!("Ballistics error: {}", e)))?;
+        // PARITY_NOTE: C++ projectile creation uses simple distance/speed for flight time,
+        // not a fabricated ballistics calculator. The trajectory variable is unused here
+        // because C++ creates projectiles as Object instances with DumbProjectileBehavior/MissileAIUpdate.
+        let _flight_time = if speed > 0.1 {
+            source_pos.distance(*target_pos) / speed
+        } else {
+            lifetime
+        };
 
         log::debug!(
             "Creating projectile '{}' from {:?} to {:?}",

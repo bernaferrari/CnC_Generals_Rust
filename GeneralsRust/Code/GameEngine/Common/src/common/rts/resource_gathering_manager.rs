@@ -265,9 +265,8 @@ impl Default for ResourceGatheringManager {
 }
 
 impl Snapshotable for ResourceGatheringManager {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ ResourceGatheringManager::crc() is intentionally empty
         Ok(())
     }
 
