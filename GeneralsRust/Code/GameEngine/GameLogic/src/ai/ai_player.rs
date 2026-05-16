@@ -4146,8 +4146,8 @@ impl Snapshot for AIPlayer {
         let mut team_delay = self.team_delay as i32;
         let _ = xfer.xfer_int(&mut team_delay);
 
-        let mut team_seconds = self.team_seconds;
-        let _ = xfer.xfer_real(&mut team_seconds);
+        let mut team_seconds = self.team_seconds.round() as i32;
+        let _ = xfer.xfer_int(&mut team_seconds);
 
         let mut cur_warehouse_id = self.current_warehouse_id.unwrap_or(INVALID_ID);
         let _ = xfer.xfer_object_id(&mut cur_warehouse_id);
@@ -4264,10 +4264,10 @@ impl Snapshot for AIPlayer {
             self.team_delay = team_delay as u32;
         }
 
-        let mut team_seconds = self.team_seconds;
-        let _ = xfer.xfer_real(&mut team_seconds);
+        let mut team_seconds = self.team_seconds.round() as i32;
+        let _ = xfer.xfer_int(&mut team_seconds);
         if xfer.is_loading() {
-            self.team_seconds = team_seconds;
+            self.team_seconds = team_seconds as Real;
         }
 
         let mut cur_warehouse_id = self.current_warehouse_id.unwrap_or(INVALID_ID);
@@ -4415,5 +4415,30 @@ mod tests {
         let mut strategy_state = AiStrategyState::default();
         assert_eq!(strategy_state.current_strategy, AiStrategy::Balanced);
         assert_eq!(strategy_state.strategy_confidence, 0.0);
+    }
+
+    #[test]
+    fn ai_player_xfer_writes_team_seconds_as_cpp_int() {
+        use game_engine::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut ai_player = AIPlayer::new(7);
+        ai_player.team_seconds = 66_051.0;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("ai_player_team_seconds").unwrap();
+            ai_player.xfer(&mut save);
+            save.close().unwrap();
+        }
+
+        assert!(bytes
+            .windows(4)
+            .any(|window| window == &66_051i32.to_le_bytes()));
+        assert!(!bytes
+            .windows(4)
+            .any(|window| window == &66_051.0f32.to_le_bytes()));
     }
 }
