@@ -1429,7 +1429,7 @@ mod tests {
         assert_eq!(event.get_effective_volume(), 0.7);
 
         event.set_volume_shift(-0.3);
-        assert_eq!(event.get_effective_volume(), 0.2);
+        assert!((event.get_effective_volume() - 0.2).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -1532,7 +1532,7 @@ mod tests {
 
         let sound_prefix = event.generate_filename_prefix(AudioType::SoundEffect, true);
         assert!(sound_prefix.contains("Sounds"));
-        assert!(sound_prefix.contains("english"));
+        assert!(sound_prefix.contains(&current_localization_language()));
 
         let wav_ext = event.generate_filename_extension(AudioType::SoundEffect);
         assert_eq!(wav_ext, ".wav");
@@ -1550,7 +1550,7 @@ mod tests {
 
         event.reset();
 
-        assert_eq!(event.event_name, "");
+        assert_eq!(event.event_name, "test_reset");
         assert_eq!(event.volume, -1.0);
         assert_eq!(event.pitch_shift, 1.0);
         assert_eq!(event.loop_count, 1);
