@@ -11764,12 +11764,12 @@ impl Object {
         None
     }
 
-    pub fn get_group(&self) -> Option<Arc<RwLock<AIGroup>>> {
-        // TODO: full implementation pending AIGroup global lookup by id.
-        // C++ returns m_group pointer directly. We store group_id and need
-        // a registry lookup, which is not yet wired.
-        let _ = self.group_id;
-        None
+    pub fn get_group(&self) -> Option<Arc<RwLock<crate::ai::AiGroup>>> {
+        let group_id = self.group_id?;
+        crate::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai_guard| ai_guard.find_group(group_id))
     }
 
     // ========================================================================
