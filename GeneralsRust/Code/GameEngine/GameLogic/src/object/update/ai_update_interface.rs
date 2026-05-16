@@ -897,7 +897,11 @@ impl AIUpdateInterface {
         }
         if self.is_approach_path {
             self.destroy_path();
-            // PARITY_TODO: call pathfinder->findClosestPath() once pathfinder bridge is ported
+            // PARITY_TODO: call pathfinder->findClosestPath() once pathfinder bridge is ported.
+            // Until then, use the same path bridge as regular movement so approach
+            // requests do not complete pathless.
+            self.compute_path(self.requested_destination);
+            self.is_approach_path = true;
             return;
         }
 
@@ -1799,6 +1803,23 @@ mod tests {
 
         assert_eq!(ai.get_path().as_ref().unwrap().len(), 2);
         assert_eq!(ai.get_path_timestamp(), old_timestamp);
+    }
+
+    #[test]
+    fn do_pathfind_approach_builds_current_bridge_path() {
+        let mut ai = ai_update();
+        ai.set_final_position(Coord3D::new(3.0, 4.0, 0.0));
+
+        ai.request_approach_path(Coord3D::new(12.0, 16.0, 0.0));
+        ai.do_pathfind();
+
+        assert!(!ai.is_waiting_for_path());
+        assert!(ai.is_approach_path);
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
+        assert_eq!(
+            ai.get_path().as_ref().unwrap().as_slice(),
+            &[Coord3D::new(3.0, 4.0, 0.0), Coord3D::new(12.0, 16.0, 0.0)]
+        );
     }
 
     #[test]
