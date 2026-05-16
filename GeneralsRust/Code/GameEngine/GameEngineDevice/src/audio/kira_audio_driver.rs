@@ -10,12 +10,14 @@
 //! - Built-in sample management
 //! - Cross-platform support
 
-use super::{AudioDeviceError, Result, SampleFormat, SimpleDeviceCapabilities};
+use super::{AudioDeviceError, Result, SimpleDeviceCapabilities};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::fmt;
 use std::sync::Arc;
 
+#[cfg(feature = "audio")]
+use super::SampleFormat;
 #[cfg(feature = "audio")]
 use kira::{
     manager::{backend::cpal::CpalBackend, AudioManager, AudioManagerSettings},
@@ -87,18 +89,10 @@ impl KiraAudioDriver {
     /// Fallback constructor when audio feature is disabled
     #[cfg(not(feature = "audio"))]
     pub async fn new() -> Result<Self> {
-        let capabilities = SimpleDeviceCapabilities {
-            sample_rates: vec![44100, 48000],
-            formats: vec![SampleFormat::F32],
-            max_input_channels: 0,
-            max_output_channels: 0,
-            version: "Kira (disabled)".to_string(),
-        };
-
-        Ok(Self {
-            capabilities,
-            is_initialized: std::sync::atomic::AtomicBool::new(false),
-        })
+        Err(AudioDeviceError::InitializationFailed(
+            "Kira audio requested, but the game_engine_device audio feature is disabled"
+                .to_string(),
+        ))
     }
 
     /// Load a sound file for later playback
@@ -217,7 +211,10 @@ impl KiraAudioDriver {
         if let Some((_, mut handles)) = self.playing.remove(name) {
             for handle in handles.iter_mut() {
                 handle.stop(Tween::default()).map_err(|e| {
-                    AudioDeviceError::PlaybackFailed(format!("Failed to stop sound {}: {}", name, e))
+                    AudioDeviceError::PlaybackFailed(format!(
+                        "Failed to stop sound {}: {}",
+                        name, e
+                    ))
                 })?;
             }
         }
