@@ -928,6 +928,7 @@ impl AIUpdateInterface {
         self.is_blocked = false;
         self.is_blocked_and_stuck = false;
         self.queue_for_path_frame = 0;
+        self.set_locomotor_goal_position_on_path();
         true
     }
 
@@ -1057,10 +1058,11 @@ impl AIUpdateInterface {
     pub fn set_locomotor_goal_position_on_path(&mut self) {
         if self.path.is_none() {
             self.locomotor_goal_type = LocoGoalType::None;
+            self.locomotor_goal_data = Coord3D::ZERO;
             return;
         }
-        // PARITY_TODO: compute actual goal position from path
         self.locomotor_goal_type = LocoGoalType::PositionOnPath;
+        self.locomotor_goal_data = Coord3D::ZERO;
     }
 
     /// C++ AIUpdateInterface::setLocomotorGoalExplicit
@@ -1641,6 +1643,8 @@ mod tests {
         assert!(!ai.is_blocked);
         assert!(!ai.is_blocked_and_stuck);
         assert_eq!(ai.get_queue_for_path_frame(), 0);
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
+        assert_eq!(ai.locomotor_goal_data, Coord3D::ZERO);
 
         ai.is_attack_path = true;
         ai.waiting_for_path = true;
