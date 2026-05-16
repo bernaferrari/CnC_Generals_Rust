@@ -304,42 +304,6 @@ pub struct Object {
     #[cfg(any(debug_assertions, feature = "internal"))]
     has_died_already: bool,
 }
-yer: PathfindLayerEnum,
-    destination_layer: PathfindLayerEnum,
-
-    // Formation
-    formation_id: FormationID,
-    formation_offset: Coord2D,
-
-    // Command overrides
-    command_set_string_override: AsciiString,
-
-    // Rendering
-    safe_occlusion_frame: UnsignedInt,
-    carrier_deck_height: Real,
-
-    // Drawable association
-    drawable: Option<Arc<RwLock<Drawable>>>,
-
-    // Visibility flags for rendering (per-player fog-of-war)
-    // Track which players can see this object for rendering optimization
-    visibility_flags: [bool; MAX_PLAYER_COUNT],
-    visibility_alpha: [f32; MAX_PLAYER_COUNT], // Alpha blending for partial visibility
-    last_visibility_update_frame: UnsignedInt,
-
-    // Flags
-    is_selectable: bool,
-    modules_ready: bool,
-    single_use_command_used: bool,
-    is_receiving_difficulty_bonus: bool,
-
-    /// Guard flag to prevent double destruction when `on_destroy()` is called
-    /// both explicitly and via `Drop`.
-    destroyed: bool,
-
-    #[cfg(any(debug_assertions, feature = "internal"))]
-    has_died_already: bool,
-}
 impl fmt::Debug for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Object")
