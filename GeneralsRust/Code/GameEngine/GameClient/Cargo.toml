@@ -215,7 +215,7 @@ network = ["dep:game_network"]
 multiplayer = ["network", "quinn"]
 debug_graphics = []
 benchmark = []
-internal = []
+internal = ["gamelogic/internal"]
 allow_surrender = []
 
 # Platform-specific feature flags

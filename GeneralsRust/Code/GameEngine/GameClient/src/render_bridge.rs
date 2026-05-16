@@ -1594,17 +1594,26 @@ mod tests {
             ..Default::default()
         });
 
-        bridge.submit_projectile_stream(ProjectileStreamSubmission {
-            drawable_id: 202,
-            lines: vec![
-                vec![GameVec3::new(0.0, 0.0, 0.0), GameVec3::new(8.0, 0.0, 0.0)],
-                vec![GameVec3::new(8.0, 0.0, 0.0), GameVec3::new(12.0, 4.0, 0.0)],
-            ],
-            texture_name: "EXLaser".to_string(),
-            width: 2.5,
-            tile_factor: 1.25,
-            scroll_rate: 0.75,
-        });
+        RenderBridge::submit_projectile_stream(
+            &mut bridge,
+            ProjectileStreamSubmission {
+                drawable_id: 202,
+                lines: vec![
+                    vec![
+                        GameVec3::new(0.0, 0.0, 0.0),
+                        GameVec3::new(8.0, 0.0, 0.0),
+                    ],
+                    vec![
+                        GameVec3::new(8.0, 0.0, 0.0),
+                        GameVec3::new(12.0, 4.0, 0.0),
+                    ],
+                ],
+                texture_name: "EXLaser".to_string(),
+                width: 2.5,
+                tile_factor: 1.25,
+                scroll_rate: 0.75,
+            },
+        );
 
         bridge.flush();
 
