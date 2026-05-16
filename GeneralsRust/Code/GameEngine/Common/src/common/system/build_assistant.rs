@@ -234,11 +234,12 @@ impl GeometryInfo {
     }
 }
 
-/// Mock thing template for compilation
+/// Build-assistant view of a thing template.
 #[derive(Debug)]
 pub struct ThingTemplate {
     pub name: AsciiString,
     pub geometry_info: GeometryInfo,
+    pub line_build: bool,
 }
 
 impl ThingTemplate {
@@ -246,7 +247,13 @@ impl ThingTemplate {
         Self {
             name: AsciiString::from(name),
             geometry_info: GeometryInfo::new(GeometryType::Box, 10.0, 10.0, 20.0),
+            line_build: false,
         }
+    }
+
+    pub fn with_line_build(mut self, line_build: bool) -> Self {
+        self.line_build = line_build;
+        self
     }
 
     pub fn get_name(&self) -> &AsciiString {
@@ -256,15 +263,19 @@ impl ThingTemplate {
     pub fn get_template_geometry_info(&self) -> &GeometryInfo {
         &self.geometry_info
     }
+
+    pub fn is_line_build(&self) -> bool {
+        self.line_build
+    }
 }
 
-/// Mock player structure
+/// Build-assistant view of a player.
 #[derive(Debug)]
 pub struct Player {
     pub player_index: u32,
 }
 
-/// Mock object structure
+/// Build-assistant view of an object.
 #[derive(Debug)]
 pub struct Object {
     pub id: ObjectID,
@@ -539,9 +550,8 @@ impl BuildAssistant {
     }
 
     /// Check if a template is for line building (walls, etc.)
-    pub fn is_line_build_template(&self, _template: &ThingTemplate) -> bool {
-        // Mock implementation - would check template flags
-        false
+    pub fn is_line_build_template(&self, template: &ThingTemplate) -> bool {
+        template.is_line_build()
     }
 
     /// Check if it's possible to make a unit (ignoring money)
@@ -668,7 +678,17 @@ mod tests {
             None,
         );
 
-        assert_eq!(result, LegalBuildCode::Ok);
+        assert_eq!(result, LegalBuildCode::GenericFailure);
+    }
+
+    #[test]
+    fn test_is_line_build_template_uses_template_flag() {
+        let assistant = BuildAssistant::new();
+        let normal = ThingTemplate::new("AmericaPowerPlant");
+        let wall = ThingTemplate::new("ChinaWallSegment").with_line_build(true);
+
+        assert!(!assistant.is_line_build_template(&normal));
+        assert!(assistant.is_line_build_template(&wall));
     }
 
     #[test]
