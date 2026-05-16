@@ -3256,8 +3256,33 @@ impl Snapshotable for Player {
         let mut rgm_present = !self.supply_centers.is_empty() || !self.supply_warehouses.is_empty();
         xfer.xfer_bool(&mut rgm_present)
             .map_err(|e| format!("rgm_present xfer failed: {}", e))?;
-        // Note: ResourceGatheringManager xferSnapshot requires its Snapshotable impl.
-        // When RGM xfer is implemented, call it here if rgm_present is true.
+        if rgm_present {
+            let mut rgm_version: XferVersion = 1;
+            xfer.xfer_version(&mut rgm_version, 1)
+                .map_err(|e| format!("resource gathering manager version xfer failed: {}", e))?;
+
+            let mut warehouses: Vec<u32> = match xfer.get_xfer_mode() {
+                XferMode::Load => Vec::new(),
+                _ => self.supply_warehouses.clone(),
+            };
+            let mut centers: Vec<u32> = match xfer.get_xfer_mode() {
+                XferMode::Load => Vec::new(),
+                _ => self.supply_centers.clone(),
+            };
+
+            xfer.xfer_vec_unsigned_int(&mut warehouses)
+                .map_err(|e| format!("resource gathering warehouses xfer failed: {}", e))?;
+            xfer.xfer_vec_unsigned_int(&mut centers)
+                .map_err(|e| format!("resource gathering centers xfer failed: {}", e))?;
+
+            if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+                self.supply_warehouses = warehouses;
+                self.supply_centers = centers;
+            }
+        } else if matches!(xfer.get_xfer_mode(), XferMode::Load) {
+            self.supply_warehouses.clear();
+            self.supply_centers.clear();
+        }
 
         // --- 18. Tunnel tracking system ---
         // C++ lines 4205-4217: xferBool(tunnelTrackerPresent), if present xferSnapshot(&m_tunnelSystem)
