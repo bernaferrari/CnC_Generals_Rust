@@ -1662,6 +1662,10 @@ impl ContainModuleInterface for OpenContain {
         self.contained_object_ids.len()
     }
 
+    fn get_stealth_units_contained(&self) -> UnsignedInt {
+        OpenContain::get_stealth_units_contained(self)
+    }
+
     fn get_max_capacity(&self) -> usize {
         if self.module_data.contain_max < 0 {
             usize::MAX
