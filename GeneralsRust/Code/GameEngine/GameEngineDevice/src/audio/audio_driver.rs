@@ -247,8 +247,8 @@ pub trait AudioStream: Send + Sync {
 #[cfg(feature = "audio")]
 pub struct KiraAudioStream {
     is_running: std::sync::atomic::AtomicBool,
-    volume: std::sync::atomic::AtomicF32,
-    pitch: std::sync::atomic::AtomicF32,
+    volume_bits: std::sync::atomic::AtomicU32,
+    pitch_bits: std::sync::atomic::AtomicU32,
     latency_ms: f32,
 }
 
@@ -257,8 +257,8 @@ impl KiraAudioStream {
     pub fn new() -> Self {
         Self {
             is_running: std::sync::atomic::AtomicBool::new(false),
-            volume: std::sync::atomic::AtomicF32::new(1.0),
-            pitch: std::sync::atomic::AtomicF32::new(1.0),
+            volume_bits: std::sync::atomic::AtomicU32::new(1.0f32.to_bits()),
+            pitch_bits: std::sync::atomic::AtomicU32::new(1.0f32.to_bits()),
             latency_ms: 5.0,
         }
     }
@@ -299,14 +299,18 @@ impl AudioStream for KiraAudioStream {
     }
 
     fn set_volume(&self, volume: f32) -> Result<()> {
-        self.volume
-            .store(volume.clamp(0.0, 1.0), std::sync::atomic::Ordering::Relaxed);
+        self.volume_bits.store(
+            volume.clamp(0.0, 1.0).to_bits(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
         Ok(())
     }
 
     fn set_pitch(&self, pitch: f32) -> Result<()> {
-        self.pitch
-            .store(pitch.clamp(0.1, 10.0), std::sync::atomic::Ordering::Relaxed);
+        self.pitch_bits.store(
+            pitch.clamp(0.1, 10.0).to_bits(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
         Ok(())
     }
 }

@@ -13,17 +13,14 @@
 use super::{AudioDeviceError, Result, SampleFormat, SimpleDeviceCapabilities};
 use dashmap::DashMap;
 use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use std::time::Duration;
 
 #[cfg(feature = "audio")]
 use kira::{
     manager::{backend::cpal::CpalBackend, AudioManager, AudioManagerSettings},
-    sound::static_sound::{StaticSoundData, StaticSoundSettings},
+    sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings},
     sound::PlaybackRate,
-    spatial::{emitter::EmitterSettings, listener::ListenerSettings, scene::SpatialSceneSettings},
     tween::Tween,
     Volume,
 };
@@ -40,6 +37,10 @@ pub struct KiraAudioDriver {
     /// Loaded sounds cache
     #[cfg(feature = "audio")]
     sounds: Arc<DashMap<String, StaticSoundData>>,
+
+    /// Active playback handles keyed by Miles-level sound name.
+    #[cfg(feature = "audio")]
+    playing: Arc<DashMap<String, Vec<StaticSoundHandle>>>,
 
     /// Driver state
     is_initialized: std::sync::atomic::AtomicBool,
@@ -78,6 +79,7 @@ impl KiraAudioDriver {
             manager: Arc::new(RwLock::new(manager)),
             capabilities,
             sounds: Arc::new(DashMap::new()),
+            playing: Arc::new(DashMap::new()),
             is_initialized: std::sync::atomic::AtomicBool::new(true),
         })
     }
@@ -116,12 +118,14 @@ impl KiraAudioDriver {
 
     /// Play a loaded sound
     #[cfg(feature = "audio")]
-    pub async fn play_sound(&self, name: &str, volume: f32, _pitch: f32) -> Result<()> {
+    pub async fn play_sound(&self, name: &str, volume: f32, pitch: f32) -> Result<()> {
         if let Some(sound_data) = self.sounds.get(name) {
             let mut manager = self.manager.write();
-            let settings = StaticSoundSettings::default().volume(Volume::Amplitude(volume as f64));
+            let settings = StaticSoundSettings::default()
+                .volume(Volume::Amplitude(volume.max(0.0) as f64))
+                .playback_rate(PlaybackRate::Factor(pitch.max(0.01) as f64));
 
-            manager
+            let handle = manager
                 .play(sound_data.clone().with_settings(settings))
                 .map_err(|e| {
                     AudioDeviceError::PlaybackFailed(format!(
@@ -129,6 +133,10 @@ impl KiraAudioDriver {
                         name, e
                     ))
                 })?;
+            self.playing
+                .entry(name.to_string())
+                .or_default()
+                .push(handle);
         } else {
             return Err(AudioDeviceError::InvalidParameter(format!(
                 "Sound {} not found",
@@ -145,9 +153,10 @@ impl KiraAudioDriver {
             let mut manager = self.manager.write();
 
             // Simplified settings without spatial for now
-            let settings = StaticSoundSettings::default().volume(Volume::Amplitude(volume as f64));
+            let settings =
+                StaticSoundSettings::default().volume(Volume::Amplitude(volume.max(0.0) as f64));
 
-            manager
+            let handle = manager
                 .play(sound_data.clone().with_settings(settings))
                 .map_err(|e| {
                     AudioDeviceError::PlaybackFailed(format!(
@@ -155,6 +164,10 @@ impl KiraAudioDriver {
                         name, e
                     ))
                 })?;
+            self.playing
+                .entry(name.to_string())
+                .or_default()
+                .push(handle);
         } else {
             return Err(AudioDeviceError::InvalidParameter(format!(
                 "Sound {} not found",
@@ -164,19 +177,19 @@ impl KiraAudioDriver {
         Ok(())
     }
 
-    /// Pause a currently playing sound
+    /// Pause a currently playing sound.
     ///
     /// C++ reference: AIL_stop_sample / AIL_stop_3D_sample / AIL_pause_stream(stream, 1)
-    /// Kira does not support direct per-sound pause without storing a handle, so we
-    /// log at debug level and let the Miles-level state tracking handle the pause.
     #[cfg(feature = "audio")]
     pub async fn pause_sound(&self, name: &str) -> Result<()> {
-        log::debug!("Kira: pause requested for sound '{}' (state tracked at Miles level)", name);
-        // PARITY_NOTE: C++ calls AIL_stop_sample/AIL_stop_3D_sample here which halts
-        // playback but keeps the sample allocated. Kira's StaticSoundData is immutable
-        // once created — pausing requires the sound handle from `manager.play()`. That
-        // handle is not currently stored. The Miles layer correctly sets PlayingStatus::Paused
-        // so when the backend gains pause support, the state is already correct.
+        let Some(mut handles) = self.playing.get_mut(name) else {
+            return Ok(());
+        };
+        for handle in handles.iter_mut() {
+            handle.pause(Tween::default()).map_err(|e| {
+                AudioDeviceError::PlaybackFailed(format!("Failed to pause sound {}: {}", name, e))
+            })?;
+        }
         Ok(())
     }
 
@@ -185,9 +198,14 @@ impl KiraAudioDriver {
     /// C++ reference: AIL_resume_sample / AIL_resume_3D_sample / AIL_pause_stream(stream, 0)
     #[cfg(feature = "audio")]
     pub async fn resume_sound(&self, name: &str) -> Result<()> {
-        log::debug!("Kira: resume requested for sound '{}' (state tracked at Miles level)", name);
-        // PARITY_NOTE: Same as pause — needs stored sound handle from Kira to actually
-        // resume. Miles layer sets PlayingStatus::Playing so state is correct.
+        let Some(mut handles) = self.playing.get_mut(name) else {
+            return Ok(());
+        };
+        for handle in handles.iter_mut() {
+            handle.resume(Tween::default()).map_err(|e| {
+                AudioDeviceError::PlaybackFailed(format!("Failed to resume sound {}: {}", name, e))
+            })?;
+        }
         Ok(())
     }
 
@@ -196,6 +214,13 @@ impl KiraAudioDriver {
     /// C++ reference: releasePlayingAudio stops and frees the Miles sample handle.
     #[cfg(feature = "audio")]
     pub async fn stop_sound(&self, name: &str) -> Result<()> {
+        if let Some((_, mut handles)) = self.playing.remove(name) {
+            for handle in handles.iter_mut() {
+                handle.stop(Tween::default()).map_err(|e| {
+                    AudioDeviceError::PlaybackFailed(format!("Failed to stop sound {}: {}", name, e))
+                })?;
+            }
+        }
         self.sounds.remove(name);
         log::debug!("Kira: sound '{}' stopped and unloaded", name);
         Ok(())
@@ -205,10 +230,19 @@ impl KiraAudioDriver {
     ///
     /// C++ reference: AIL_set_sample_volume / AIL_set_3D_sample_volume
     #[cfg(feature = "audio")]
-    pub async fn set_volume(&self, _name: &str, _volume: f32) -> Result<()> {
-        // Volume is applied per-play via StaticSoundSettings in play_sound.
-        // To support live volume changes we would need stored sound handles.
-        log::debug!("Kira: volume change requested (applied at next play via settings)");
+    pub async fn set_volume(&self, name: &str, volume: f32) -> Result<()> {
+        let Some(mut handles) = self.playing.get_mut(name) else {
+            return Ok(());
+        };
+        let volume = Volume::Amplitude(volume.max(0.0) as f64);
+        for handle in handles.iter_mut() {
+            handle.set_volume(volume, Tween::default()).map_err(|e| {
+                AudioDeviceError::PlaybackFailed(format!(
+                    "Failed to set volume for sound {}: {}",
+                    name, e
+                ))
+            })?;
+        }
         Ok(())
     }
 
@@ -245,6 +279,7 @@ impl KiraAudioDriver {
     /// Shutdown the audio driver
     #[cfg(feature = "audio")]
     pub async fn shutdown(&self) -> Result<()> {
+        self.playing.clear();
         self.sounds.clear();
         self.is_initialized
             .store(false, std::sync::atomic::Ordering::Relaxed);
