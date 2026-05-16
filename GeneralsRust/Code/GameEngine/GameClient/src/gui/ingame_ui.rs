@@ -7,7 +7,9 @@
 //! Original C++ file: GameClient/InGameUI.cpp
 //! Original Author: Michael S. Booth, March 2001
 
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -21,6 +23,8 @@ use super::window_video_manager::with_window_video_manager;
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
 use crate::game_text::GameText;
 use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
+use crate::gui::game_window::{GameWindow, WindowStatus};
+use crate::gui::window_manager::with_window_manager_ref;
 use crate::helpers::TheInGameUI;
 use crate::input::keyboard::KeyboardState;
 use crate::input::mouse::{with_mouse, ButtonState, MouseButton, MouseState};
@@ -3531,7 +3535,8 @@ impl Default for SelectionBox {
 impl Snapshotable for InGameUI {
     fn crc(&self, xfer: &mut dyn Xfer) -> std::result::Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -4094,6 +4099,38 @@ impl InGameUI {
         !recorder_playback_active || look_at_mouse_moved_recently
     }
 
+    fn is_left_hud_window_name(name: &str) -> bool {
+        name.eq_ignore_ascii_case("ControlBar.wnd:LeftHUD")
+            || name.eq_ignore_ascii_case("LeftHUD")
+            || name.ends_with(":LeftHUD")
+    }
+
+    fn window_chain_blocks_world_input(mut window: Option<Rc<RefCell<GameWindow>>>) -> bool {
+        while let Some(current) = window {
+            let guard = current.borrow();
+            if Self::is_left_hud_window_name(guard.get_name()) {
+                return false;
+            }
+
+            if !guard.get_status().contains(WindowStatus::SEE_THRU) {
+                return true;
+            }
+
+            window = guard.get_parent();
+        }
+
+        false
+    }
+
+    fn cursor_is_under_opaque_window() -> bool {
+        let (x, y) = with_mouse(|mouse| mouse.state().position());
+        with_window_manager_ref(|manager| {
+            Self::window_chain_blocks_world_input(
+                manager.get_window_under_cursor(x as i32, y as i32, false),
+            )
+        })
+    }
+
     fn command_hint_update_allowed(
         is_scrolling: bool,
         is_selecting: bool,
@@ -4472,22 +4509,21 @@ impl InGameUI {
         };
         let hint_type = Self::command_hint_after_shroud_projection(hint_type, target_shroud);
 
-        // C++: underWindow — WindowManager not yet ported; no opaque window
-        // can cover the game area in the current architecture, so underWindow = false.
-        let _under_window = false;
+        let under_window = Self::cursor_is_under_opaque_window();
 
         match self.mouse_mode {
             MouseMode::Default => {
                 // C++: InGameUI.cpp:2585-2688
                 // This section only applies when there is no specific cursor mode happening.
                 // C++: if (underWindow || (srcObj && !srcObj->isLocallyControlled()))
-                // underWindow = false (WindowManager not ported; no opaque window covers game area)
                 let source_context = self
                     .selected_source_id_for_command_hint()
                     .and_then(Self::command_hint_source_context);
-                if Self::default_command_hint_blocked_by_source(
-                    source_context.map(|(locally_controlled, _)| locally_controlled),
-                ) {
+                if under_window
+                    || Self::default_command_hint_blocked_by_source(
+                        source_context.map(|(locally_controlled, _)| locally_controlled),
+                    )
+                {
                     self.set_mouse_cursor(MouseCursor::Arrow);
                     return;
                 }
@@ -4672,7 +4708,10 @@ impl InGameUI {
             }
             MouseMode::BuildPlace => {
                 // C++: InGameUI.cpp:2689-2708
-                // underWindow = false (WindowManager not ported)
+                if under_window {
+                    self.set_mouse_cursor(MouseCursor::Arrow);
+                    return;
+                }
 
                 match hint_type {
                     CommandHintType::MoveTo
@@ -4695,7 +4734,11 @@ impl InGameUI {
             }
             MouseMode::GuiCommand => {
                 // C++: InGameUI.cpp:2710-2769
-                // underWindow = false (WindowManager not ported)
+                if under_window {
+                    self.set_mouse_cursor(MouseCursor::Arrow);
+                    self.clear_radius_cursor();
+                    return;
+                }
 
                 if let Some(pending) = TheInGameUI::get_pending_command() {
                     let cursor_name = &pending.cursor_name;
@@ -4736,8 +4779,10 @@ impl InGameUI {
             return;
         }
 
-        // C++: underWindow — WindowManager not yet ported; underWindow = false
-        let _under_window = false;
+        if Self::cursor_is_under_opaque_window() {
+            self.set_mouse_cursor(MouseCursor::Arrow);
+            return;
+        }
 
         // Phase 2: Update moused_over_drawable_id
         // C++: InGameUI.cpp:2254-2454 — extensive tooltip/drawable logic
@@ -5078,6 +5123,61 @@ mod tests {
         assert!(InGameUI::mouseover_cursor_update_allowed(false, true));
         assert!(InGameUI::mouseover_cursor_update_allowed(true, true));
         assert!(!InGameUI::mouseover_cursor_update_allowed(true, false));
+    }
+
+    fn test_window(name: &str, status: WindowStatus) -> Rc<RefCell<GameWindow>> {
+        let window = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let mut guard = window.borrow_mut();
+            guard.set_name(name);
+            guard.set_status_exact(status);
+        }
+        window
+    }
+
+    #[test]
+    fn opaque_window_blocks_world_input_like_cpp() {
+        let window = test_window(
+            "Popup.wnd:Dialog",
+            WindowStatus::ENABLED | WindowStatus::ACTIVE,
+        );
+
+        assert!(InGameUI::window_chain_blocks_world_input(Some(window)));
+    }
+
+    #[test]
+    fn see_through_window_does_not_block_world_input() {
+        let window = test_window(
+            "ControlBar.wnd:Transparent",
+            WindowStatus::ENABLED | WindowStatus::ACTIVE | WindowStatus::SEE_THRU,
+        );
+
+        assert!(!InGameUI::window_chain_blocks_world_input(Some(window)));
+    }
+
+    #[test]
+    fn opaque_parent_blocks_see_through_child() {
+        let parent = test_window(
+            "Popup.wnd:Panel",
+            WindowStatus::ENABLED | WindowStatus::ACTIVE,
+        );
+        let child = test_window(
+            "Popup.wnd:PassThroughChild",
+            WindowStatus::ENABLED | WindowStatus::ACTIVE | WindowStatus::SEE_THRU,
+        );
+        child.borrow_mut().set_parent(Some(&parent));
+
+        assert!(InGameUI::window_chain_blocks_world_input(Some(child)));
+    }
+
+    #[test]
+    fn left_hud_window_keeps_world_input_unblocked() {
+        let window = test_window(
+            "ControlBar.wnd:LeftHUD",
+            WindowStatus::ENABLED | WindowStatus::ACTIVE,
+        );
+
+        assert!(!InGameUI::window_chain_blocks_world_input(Some(window)));
     }
 
     #[test]
