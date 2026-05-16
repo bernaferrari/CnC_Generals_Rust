@@ -304,7 +304,7 @@ pub type LayoutShutdownFn = Box<dyn Fn(&WindowLayout)>;
 pub type WinSystemFn = Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
 pub type WinInputFn = Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
 pub type WinTooltipFn = Box<dyn Fn(&GameWindow, u32)>;
-pub type WinDrawFn = Box<dyn Fn(&GameWindow)>;
+pub type WinDrawFn = Box<dyn Fn(&GameWindow, &WindowInstanceData)>;
 
 /// Registry that maps callback name strings to handler closures.
 ///
@@ -395,7 +395,7 @@ impl ScriptCallbackRegistry {
 
     /// Register a window draw callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->gameWinDrawFunc()`.
-    pub fn register_win_draw<F: Fn(&GameWindow) + 'static>(&mut self, name: &str, callback: F) {
+    pub fn register_win_draw<F: Fn(&GameWindow, &WindowInstanceData) + 'static>(&mut self, name: &str, callback: F) {
         self.win_draw.insert(name.to_string(), Box::new(callback));
     }
 
@@ -486,9 +486,8 @@ impl ScriptCallbackRegistry {
     /// The closures registered here use simplified signatures that match the
     /// registry's typed callback types.  Where a concrete Rust handler exists
     /// (e.g. `challenge_menu_system`), the closure forwards to it; otherwise
-    /// a stub is registered that returns the safe default (false = not handled,
-    /// or no-op).  Stubs are annotated with `PARITY_TODO` so they can be
-    /// wired up as implementations land.
+    /// a stub is registered only for callbacks that are intentionally deferred
+    /// with GameNetwork or known legacy no-op/default handlers.
     pub fn populate_defaults(&mut self) {
         self.populate_win_draw_table();
         self.populate_win_system_table();
@@ -500,11 +499,8 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_win_draw_table(&mut self) {
-        // PARITY_TODO: Draw functions take (&GameWindow, &WindowInstanceData) but
-        // WinDrawFn = Fn(&GameWindow). Need to update the type to include inst_data
-        // before wiring ime_candidate_main_draw / ime_candidate_text_area_draw.
-        self.register_win_draw("IMECandidateMainDraw", |_win| {});
-        self.register_win_draw("IMECandidateTextAreaDraw", |_win| {});
+        self.register_win_draw("IMECandidateMainDraw", cb::ime_candidate_main_draw);
+        self.register_win_draw("IMECandidateTextAreaDraw", cb::ime_candidate_text_area_draw);
     }
 
     fn populate_win_system_table(&mut self) {
@@ -720,8 +716,6 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_update_table(&mut self) {
-        // PARITY_TODO: remaining no-op menu updates below need concrete adapters
-        // or are intentionally deferred network callbacks.
         self.register_layout_update("MainMenuUpdate", |layout| {
             if let Err(err) = get_main_menu().update(layout, None) {
                 log::warn!("MainMenuUpdate failed: {}", err);
@@ -765,8 +759,6 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_shutdown_table(&mut self) {
-        // PARITY_TODO: remaining no-op menu shutdowns below need concrete adapters
-        // or are intentionally deferred network callbacks.
         self.register_layout_shutdown("MainMenuShutdown", |layout| {
             if let Err(err) = get_main_menu().shutdown(layout, None) {
                 log::warn!("MainMenuShutdown failed: {}", err);
@@ -1633,15 +1625,15 @@ impl ScriptCallbackRegistry {
         Some(cb)
     }
 
-    pub fn create_draw_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow)>> {
+    pub fn create_draw_callback(&self, name: &str) -> Option<Box<dyn Fn(&GameWindow, &WindowInstanceData)>> {
         let normalized = normalize_callback_name(name);
         if normalized.is_empty() {
             return None;
         }
         let cb = self.win_draw.get(&normalized)?;
         let cb_ref: &'static WinDrawFn = unsafe { std::mem::transmute(cb) };
-        let cb = Box::new(move |win: &GameWindow| {
-            cb_ref(win)
+        let cb = Box::new(move |win: &GameWindow, inst: &WindowInstanceData| {
+            cb_ref(win, inst)
         });
         Some(cb)
     }
@@ -1670,8 +1662,8 @@ impl ScriptCallbackRegistry {
             }));
         }
         if let Some(cb) = self.create_draw_callback(draw_name) {
-            callbacks.draw = Some(Box::new(move |win: &GameWindow, _inst: &WindowInstanceData| {
-                cb(win);
+            callbacks.draw = Some(Box::new(move |win: &GameWindow, inst: &WindowInstanceData| {
+                cb(win, inst);
             }));
         }
         callbacks
@@ -2155,6 +2147,21 @@ mod tests {
         assert!(registry.get_layout_init("MainMenuInit").is_some());
         assert!(registry.get_layout_update("MainMenuUpdate").is_some());
         assert!(registry.get_layout_shutdown("MainMenuShutdown").is_some());
+    }
+
+    #[test]
+    fn ime_draw_callbacks_are_wired_with_instance_data() {
+        let mut registry = ScriptCallbackRegistry::new();
+        registry.populate_defaults();
+
+        assert!(registry.get_win_draw("IMECandidateMainDraw").is_some());
+        assert!(registry.get_win_draw("IMECandidateTextAreaDraw").is_some());
+        assert!(registry
+            .create_draw_callback("IMECandidateMainDraw")
+            .is_some());
+        assert!(registry
+            .create_draw_callback("IMECandidateTextAreaDraw")
+            .is_some());
     }
 
     #[test]
