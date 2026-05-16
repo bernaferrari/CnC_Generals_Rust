@@ -21,12 +21,12 @@ use thiserror::Error;
 use ultraviolet::{Mat4, Rotor3, Vec3, Vec4};
 use wgpu::{
     util::DeviceExt, Adapter, Backends, BindGroupLayout, BindGroupLayoutDescriptor,
-    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferDescriptor, BufferUsages,
-    CommandEncoder, CompositeAlphaMode, ComputePipeline, Device, DeviceDescriptor, Dx12Compiler,
-    Features, Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits,
-    PowerPreference, PresentMode, Queue, RenderPipeline, RequestAdapterOptions, SamplerBindingType,
-    ShaderStages, Surface, SurfaceConfiguration, SurfaceError, TextureFormat, TextureSampleType,
-    TextureUsages, TextureView, TextureViewDimension,
+    BindGroupLayoutEntry, BindingType, Buffer, BufferBindingType, BufferUsages, CommandEncoder,
+    CompositeAlphaMode, ComputePipeline, Device, DeviceDescriptor, Dx12Compiler, Features,
+    Gles3MinorVersion, Instance, InstanceDescriptor, InstanceFlags, Limits, PowerPreference,
+    PresentMode, Queue, RenderPipeline, RequestAdapterOptions, SamplerBindingType, ShaderStages,
+    Surface, SurfaceConfiguration, SurfaceError, TextureFormat, TextureSampleType, TextureUsages,
+    TextureView, TextureViewDimension,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -717,26 +717,6 @@ impl W3DDevice {
         // Get memory usage
         self.current_frame.stats.gpu_memory_used = self.memory_manager.gpu_memory_used();
         self.current_frame.stats.cpu_memory_used = self.memory_manager.cpu_memory_used();
-    }
-
-    /// Create a placeholder resource (for development)
-    fn create_placeholder_resource(&mut self, name: &str) -> W3DResourceHandle {
-        let buffer = self.device.create_buffer(&BufferDescriptor {
-            label: Some(&format!("Placeholder: {}", name)),
-            size: 1024,
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let resource = W3DResource::Buffer {
-            buffer,
-            size: 1024,
-            usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
-        };
-
-        let handle = W3DResourceHandle(self.resources.insert(resource));
-        self.resource_cache.insert(name.to_string(), handle);
-        handle
     }
 
     /// Cleanup expired resources
