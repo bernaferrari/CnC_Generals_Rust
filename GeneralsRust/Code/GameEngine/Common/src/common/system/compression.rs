@@ -238,44 +238,6 @@ impl CompressionEngine {
         Ok(result)
     }
 
-    /// Compress data using LZ4 (mock implementation)
-    fn compress_lz4(&self, data: &[u8], _level: CompressionLevel) -> Result<Vec<u8>, io::Error> {
-        // Mock LZ4 compression - in real implementation would use lz4 crate
-        // For now, just return the original data with a header
-        let mut result = Vec::with_capacity(data.len() + 8);
-        result.extend_from_slice(&(data.len() as u32).to_le_bytes()); // Original size
-        result.extend_from_slice(b"LZ4\0"); // Magic
-        result.extend_from_slice(data); // Mock: just copy data
-        Ok(result)
-    }
-
-    /// Decompress LZ4 data (mock implementation)
-    fn decompress_lz4(&self, compressed_data: &[u8]) -> Result<Vec<u8>, io::Error> {
-        if compressed_data.len() < 8 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Invalid LZ4 data",
-            ));
-        }
-
-        let _original_size = u32::from_le_bytes([
-            compressed_data[0],
-            compressed_data[1],
-            compressed_data[2],
-            compressed_data[3],
-        ]) as usize;
-
-        if &compressed_data[4..8] != b"LZ4\0" {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Invalid LZ4 magic",
-            ));
-        }
-
-        // Mock: just return the data after header
-        Ok(compressed_data[8..].to_vec())
-    }
-
     /// RefPack decompression (mock implementation)
     fn decompress_refpack(&self, compressed_data: &[u8]) -> Result<Vec<u8>, io::Error> {
         if compressed_data.len() < 12 {
@@ -316,7 +278,12 @@ impl CompressionInterface for CompressionEngine {
             CompressionType::Zlib | CompressionType::RefPack => {
                 compress_data(data, compression_type, level)?
             }
-            CompressionType::LZ4 => self.compress_lz4(data, level)?,
+            CompressionType::LZ4 => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "LZ4 is not a Generals C++ compression type",
+                ));
+            }
         };
 
         let original_size = data.len();
@@ -350,7 +317,10 @@ impl CompressionInterface for CompressionEngine {
                 decompress_data(compressed_data)
             }
             CompressionType::Zlib => self.decompress_zlib(compressed_data),
-            CompressionType::LZ4 => self.decompress_lz4(compressed_data),
+            CompressionType::LZ4 => Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "LZ4 is not a Generals C++ compression type",
+            )),
             CompressionType::RefPack => self.decompress_refpack(compressed_data),
         }
     }
@@ -363,18 +333,15 @@ impl CompressionInterface for CompressionEngine {
         match compression_type {
             CompressionType::None => input_size,
             CompressionType::Zlib => input_size + (input_size / 1000) + 12, // zlib overhead
-            CompressionType::LZ4 => input_size + (input_size / 255) + 16,   // LZ4 overhead
-            CompressionType::RefPack => input_size + 32,                    // RefPack overhead
+            CompressionType::LZ4 => 0,
+            CompressionType::RefPack => input_size + 32, // RefPack overhead
         }
     }
 
     fn is_compression_supported(&self, compression_type: CompressionType) -> bool {
         matches!(
             compression_type,
-            CompressionType::None
-                | CompressionType::Zlib
-                | CompressionType::LZ4
-                | CompressionType::RefPack
+            CompressionType::None | CompressionType::Zlib | CompressionType::RefPack
         )
     }
 }
@@ -438,17 +405,19 @@ mod tests {
     }
 
     #[test]
-    fn test_lz4_mock_compression() {
+    fn lz4_is_explicitly_unsupported() {
         let engine = CompressionEngine::new();
         let data = b"Hello, World!";
 
-        let result = engine
+        assert!(!engine.is_compression_supported(CompressionType::LZ4));
+        assert_eq!(
+            engine.get_max_compressed_size(1000, CompressionType::LZ4),
+            0
+        );
+        assert!(engine
             .compress(data, CompressionType::LZ4, CompressionLevel::Fast)
-            .unwrap();
-        let decompressed = engine
-            .decompress(&result.compressed_data, CompressionType::LZ4, None)
-            .unwrap();
-        assert_eq!(decompressed, data);
+            .is_err());
+        assert!(engine.decompress(data, CompressionType::LZ4, None).is_err());
     }
 
     #[test]
