@@ -26,7 +26,7 @@ use crate::gui::game_window::{
     GameWindow, WindowCallbacks as GwCallbacks, WindowInstanceData, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowWidget,
 };
-use crate::gui::get_disconnect_menu;
+use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
 use crate::gui::shell::main_menu::get_main_menu;
 use crate::gui::window_manager::WindowLayout;
 use crate::gui::window_script::{
@@ -584,7 +584,7 @@ impl ScriptCallbackRegistry {
         self.register_win_system("GeneralsExpPointsSystem", cb::generals_exp_points_system);
         self.register_win_system("DifficultySelectSystem", cb::difficulty_select_system);
         self.register_win_system("IdleWorkerSystem", idle_worker_system);
-        self.register_win_system("EstablishConnectionsControlSystem", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_system("EstablishConnectionsControlSystem", establish_connections_control_system);
         self.register_win_system("GameInfoWindowSystem", cb::game_info_window_system);
         self.register_win_system("ScoreScreenSystem", cb::score_screen_system);
         self.register_win_system("DownloadMenuSystem", cb::download_menu_system);
@@ -648,9 +648,9 @@ impl ScriptCallbackRegistry {
         self.register_win_input("ReplayControlInput", cb::replay_control_input);
 
         self.register_win_input("InGameChatInput", in_game_chat_input);
-        self.register_win_input("DisconnectControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("DisconnectControlInput", default_input_callback);
         self.register_win_input("DiplomacyInput", diplomacy_input);
-        self.register_win_input("EstablishConnectionsControlInput", |_win, _msg, _d1, _d2| WindowMsgHandled::Ignored);
+        self.register_win_input("EstablishConnectionsControlInput", default_input_callback);
         self.register_win_input("LeftHUDInput", left_hud_input);
         self.register_win_input("ScoreScreenInput", cb::score_screen_input);
         self.register_win_input("SaveLoadMenuInput", cb::save_load_menu_input);
@@ -1203,6 +1203,26 @@ fn disconnect_control_system(
     let menu = get_disconnect_menu();
     let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
     menu.system(window, msg, data1, data2)
+}
+
+fn establish_connections_control_system(
+    window: &GameWindow,
+    msg: WindowMessage,
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+) -> WindowMsgHandled {
+    let menu = get_establish_connections_menu();
+    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
+    menu.system(window, msg, data1, data2)
+}
+
+fn default_input_callback(
+    _window: &GameWindow,
+    _msg: WindowMessage,
+    _data1: WindowMsgData,
+    _data2: WindowMsgData,
+) -> WindowMsgHandled {
+    WindowMsgHandled::Ignored
 }
 
 fn single_player_menu() -> Option<Arc<RwLock<cb::SinglePlayerMenu>>> {
@@ -2170,6 +2190,7 @@ mod tests {
             "ControlBarObserverSystem",
             "InGameChatSystem",
             "DisconnectControlSystem",
+            "EstablishConnectionsControlSystem",
             "DiplomacySystem",
             "IdleWorkerSystem",
         ] {
@@ -2179,6 +2200,8 @@ mod tests {
         for name in [
             "ControlBarInput",
             "InGameChatInput",
+            "DisconnectControlInput",
+            "EstablishConnectionsControlInput",
             "DiplomacyInput",
             "LeftHUDInput",
         ] {
