@@ -3454,11 +3454,33 @@ impl AIUpdateInterface for UnitAIUpdate {
             }
         }
 
-        if let Some(machine) = self.turret_primary_machine.as_ref() {
-            let _ = machine.update();
-        }
-        if let Some(machine) = self.turret_secondary_machine.as_ref() {
-            let _ = machine.update();
+        let update_turrets = self
+            .unit
+            .upgrade()
+            .and_then(|unit| unit.read().ok().map(|guard| guard.base_object()))
+            .and_then(|base| {
+                base.read().ok().map(|obj| {
+                    !obj.is_effectively_dead()
+                        && !obj.is_disabled_by_type(DisabledType::Paralyzed)
+                        && !obj.is_disabled_by_type(DisabledType::DisabledUnmanned)
+                        && !obj.is_disabled_by_type(DisabledType::DisabledEmp)
+                        && !obj.is_disabled_by_type(DisabledType::DisabledSubdued)
+                        && !obj.is_disabled_by_type(DisabledType::DisabledHacked)
+                })
+            })
+            .unwrap_or(false);
+
+        if update_turrets {
+            if let Some(machine) = self.turret_primary_machine.as_ref() {
+                if let Some(turret) = machine.get_turret_ai() {
+                    let _ = TurretAI::update_turret_ai_handle(&turret);
+                }
+            }
+            if let Some(machine) = self.turret_secondary_machine.as_ref() {
+                if let Some(turret) = machine.get_turret_ai() {
+                    let _ = TurretAI::update_turret_ai_handle(&turret);
+                }
+            }
         }
 
         if let Some(mut dock_machine) = self.dock_machine.take() {
