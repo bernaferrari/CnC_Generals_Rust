@@ -346,7 +346,49 @@ impl DebrisDrawInterface for W3DDebrisDraw {
 }
 
 impl Snapshotable for W3DDebrisDraw {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        const CURRENT_VERSION: XferVersion = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| e.to_string())?;
+
+        let mut draw_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut draw_module_version, 1).map_err(|e| e.to_string())?;
+        let mut drawable_module_version: XferVersion = 1;
+        xfer.xfer_version(&mut drawable_module_version, 1).map_err(|e| e.to_string())?;
+        let mut module_version: XferVersion = 1;
+        xfer.xfer_version(&mut module_version, 1).map_err(|e| e.to_string())?;
+
+        let mut model_name = self.model_name.as_str().to_string();
+        xfer.xfer_ascii_string(&mut model_name)
+            .map_err(|e| e.to_string())?;
+
+        let mut packed_color = color_to_packed_i32(self.model_color);
+        xfer.xfer_color(&mut packed_color)
+            .map_err(|e| e.to_string())?;
+
+        let mut anim_initial = self.anim_initial.as_str().to_string();
+        xfer.xfer_ascii_string(&mut anim_initial)
+            .map_err(|e| e.to_string())?;
+
+        let mut anim_flying = self.anim_flying.as_str().to_string();
+        xfer.xfer_ascii_string(&mut anim_flying)
+            .map_err(|e| e.to_string())?;
+
+        let mut anim_final = self.anim_final.as_str().to_string();
+        xfer.xfer_ascii_string(&mut anim_final)
+            .map_err(|e| e.to_string())?;
+
+        let mut state = debris_state_to_i32(self.current_state);
+        xfer.xfer_int(&mut state).map_err(|e| e.to_string())?;
+
+        let mut frames = self.state_frame_count as i32;
+        xfer.xfer_int(&mut frames).map_err(|e| e.to_string())?;
+
+        let mut final_stopped = self.final_stopped;
+        xfer.xfer_bool(&mut final_stopped)
+            .map_err(|e| e.to_string())?;
+
         Ok(())
     }
 

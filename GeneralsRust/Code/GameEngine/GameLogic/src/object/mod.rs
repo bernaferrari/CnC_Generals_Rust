@@ -11421,6 +11421,428 @@ impl Object {
         None
     }
 
+    // ========================================================================
+    // SPECIAL POWER DISPATCH (3 methods)
+    // C++ Reference: Object.cpp doSpecialPower, doSpecialPowerAtObject, doSpecialPowerAtLocation
+    // ========================================================================
+
+    pub fn do_special_power(
+        &self,
+        special_power_template_name: &str,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+        forced: bool,
+    ) {
+        if self.is_disabled() {
+            return;
+        }
+
+        if !forced {
+            // TODO: full implementation pending TheSpecialPowerStore::canUseSpecialPower
+        }
+
+        self.with_special_power_module_mut_by_name(special_power_template_name, |sp_module| {
+            sp_module.do_special_power(command_options);
+        });
+    }
+
+    pub fn do_special_power_at_object(
+        &self,
+        special_power_template_name: &str,
+        target_obj_id: ObjectID,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+        forced: bool,
+    ) {
+        if self.is_disabled() {
+            return;
+        }
+
+        if !forced {
+            // TODO: full implementation pending TheSpecialPowerStore::canUseSpecialPower
+        }
+
+        self.with_special_power_module_mut_by_name(special_power_template_name, |sp_module| {
+            sp_module.do_special_power_at_object(target_obj_id, command_options);
+        });
+    }
+
+    pub fn do_special_power_at_location(
+        &self,
+        special_power_template_name: &str,
+        location: &Coord3D,
+        command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
+        forced: bool,
+    ) {
+        if self.is_disabled() {
+            return;
+        }
+
+        if !forced {
+            // TODO: full implementation pending TheSpecialPowerStore::canUseSpecialPower
+        }
+
+        self.with_special_power_module_mut_by_name(special_power_template_name, |sp_module| {
+            sp_module.do_special_power_at_location(location, INVALID_ANGLE, command_options);
+        });
+    }
+
+    // ========================================================================
+    // SPECIAL POWER LOOKUP (5 methods)
+    // C++ Reference: Object.cpp findSpecialPowerModuleInterface, etc.
+    // ========================================================================
+
+    pub fn find_special_power_module_interface(
+        &self,
+        special_power_type: SpecialPowerType,
+    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(sp) = guard.get_special_power_module_interface() {
+                if let Some(template_any) = sp.get_special_power_template() {
+                    if let Some(template) = template_any.downcast_ref::<Arc<SpecialPowerTemplate>>()
+                    {
+                        if template.get_special_power_type() == special_power_type
+                            || special_power_type == SpecialPowerType::Invalid
+                        {
+                            drop(guard);
+                            return Some(behavior.clone());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn find_any_shortcut_special_power_module_interface(
+        &self,
+    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(sp) = guard.get_special_power_module_interface() {
+                if let Some(template_any) = sp.get_special_power_template() {
+                    if let Some(template) = template_any.downcast_ref::<Arc<SpecialPowerTemplate>>()
+                    {
+                        if template.is_shortcut_power() {
+                            drop(guard);
+                            return Some(behavior.clone());
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    pub fn find_special_power_with_overridable_destination_active(
+        &self,
+        _special_power_type: SpecialPowerType,
+    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(sp_interface) = guard.get_special_power_update_interface() {
+                if sp_interface.does_special_power_have_overridable_destination_active() {
+                    drop(guard);
+                    return Some(behavior.clone());
+                }
+            }
+        }
+        None
+    }
+
+    pub fn find_special_power_with_overridable_destination(
+        &self,
+        _special_power_type: SpecialPowerType,
+    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(sp_interface) = guard.get_special_power_update_interface() {
+                if sp_interface.does_special_power_have_overridable_destination() {
+                    drop(guard);
+                    return Some(behavior.clone());
+                }
+            }
+        }
+        None
+    }
+
+    pub fn has_any_special_power(&self) -> bool {
+        !self.special_power_bits.is_empty()
+    }
+
+    // ========================================================================
+    // WEAPON COMBAT (5 methods)
+    // C++ Reference: Object.cpp getMostPercentReadyToFireAnyWeapon, etc.
+    // ========================================================================
+
+    pub fn get_most_percent_ready_to_fire_any_weapon(&self) -> f32 {
+        self.weapon_set.get_most_percent_ready_to_fire_any_weapon()
+    }
+
+    pub fn get_weapon_in_weapon_slot_command_source_mask(&self, slot: WeaponSlotType) -> u32 {
+        self.weapon_set.get_nth_command_source_mask(slot)
+    }
+
+    pub fn get_last_victim_id(&self) -> ObjectID {
+        self.firing_tracker
+            .as_ref()
+            .and_then(|t| t.lock().ok())
+            .map(|t| t.get_last_shot_victim())
+            .unwrap_or(INVALID_ID)
+    }
+
+    pub fn find_waypoint_following_capable_weapon(&mut self) -> Option<&mut Weapon> {
+        self.weapon_set.find_waypoint_following_capable_weapon()
+    }
+
+    pub fn clear_leech_range_mode_for_all_weapons(&mut self) {
+        self.weapon_set.clear_leech_range_mode_for_all_weapons();
+    }
+
+    // ========================================================================
+    // COUNTERMEASURES (3 methods)
+    // C++ Reference: Object.cpp hasCountermeasures, reportMissileForCountermeasures, etc.
+    // ========================================================================
+
+    pub fn has_countermeasures(&self) -> bool {
+        for behavior in &self.behaviors {
+            let Ok(guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(cbi) = guard.get_countermeasures_behavior_interface_const() {
+                if cbi.is_active() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    pub fn report_missile_for_countermeasures(&self, missile_id: ObjectID) {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if let Some(cbi) = guard.get_countermeasures_behavior_interface() {
+                let _ = cbi.report_missile_for_countermeasures(missile_id);
+            }
+        }
+    }
+
+    pub fn get_countermeasures_behavior_interface(
+        &self,
+    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if guard.get_countermeasures_behavior_interface().is_some() {
+                drop(guard);
+                return Some(behavior.clone());
+            }
+        }
+        None
+    }
+
+    // ========================================================================
+    // MODULE INTERFACE ACCESSORS (5 methods)
+    // C++ Reference: Object.cpp getProjectileUpdateInterface, etc.
+    // ========================================================================
+
+    pub fn get_projectile_update_interface(
+        &self,
+    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if guard.get_projectile_update_interface().is_some() {
+                drop(guard);
+                return Some(behavior.clone());
+            }
+        }
+        None
+    }
+
+    pub fn get_spawn_behavior_interface_public(
+        &self,
+    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if guard.get_spawn_behavior_interface().is_some() {
+                drop(guard);
+                return Some(behavior.clone());
+            }
+        }
+        None
+    }
+
+    pub fn get_production_update_interface(
+        &self,
+    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if guard.get_production_update_interface().is_some() {
+                drop(guard);
+                return Some(behavior.clone());
+            }
+        }
+        None
+    }
+
+    pub fn get_dock_update_interface(&self) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+        for behavior in &self.behaviors {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            if guard.get_dock_update_interface().is_some() {
+                drop(guard);
+                return Some(behavior.clone());
+            }
+        }
+        None
+    }
+
+    pub fn get_group(&self) -> Option<Arc<RwLock<AIGroup>>> {
+        // TODO: full implementation pending AIGroup global lookup by id.
+        // C++ returns m_group pointer directly. We store group_id and need
+        // a registry lookup, which is not yet wired.
+        let _ = self.group_id;
+        None
+    }
+
+    // ========================================================================
+    // HEALTH BOX VISUAL (2 methods)
+    // C++ Reference: Object.cpp getHealthBoxPosition, getHealthBoxDimensions
+    // ========================================================================
+
+    pub fn get_health_box_position(&self) -> Coord3D {
+        let pos = *self.get_position();
+        let mut result = Coord3D::new(
+            pos.x + self.health_box_offset.x,
+            pos.y + self.health_box_offset.y,
+            pos.z + self.geometry_info.get_max_height_above_position() + 10.0
+                + self.health_box_offset.z,
+        );
+
+        if self.is_kind_of(KindOf::MobNexus) {
+            result.z += 20.0;
+        }
+
+        result
+    }
+
+    pub fn get_health_box_dimensions(&self) -> (f32, f32) {
+        let max_hp = self
+            .body
+            .as_ref()
+            .and_then(|b| b.lock().ok())
+            .map(|g| g.get_max_health())
+            .unwrap_or(100.0);
+
+        if self.is_kind_of(KindOf::Structure) {
+            let height = 5.0_f32.max(max_hp / 50.0).min(3.0);
+            let width = 100.0_f32.max(max_hp / 10.0).min(150.0);
+            (height, width)
+        } else if self.is_kind_of(KindOf::MobNexus) {
+            let height = 5.0_f32.max(max_hp / 50.0).min(3.0);
+            let width = 66.0_f32.max(max_hp / 10.0).min(100.0);
+            (height, width)
+        } else if self.is_kind_of(KindOf::IgnoredInGui) {
+            (0.0, 0.0)
+        } else {
+            let height = 5.0_f32.max(max_hp / 50.0).min(3.0);
+            let width = 35.0_f32.max(max_hp / 10.0).min(150.0);
+            (height, width)
+        }
+    }
+
+    // ========================================================================
+    // MISCELLANEOUS (5 methods)
+    // ========================================================================
+
+    pub fn is_salvage_crate(&self) -> bool {
+        for behavior in &self.behaviors {
+            let Ok(guard) = behavior.lock() else {
+                continue;
+            };
+            if guard.as_any().is::<crate::object::collide::crate_collide::salvage_crate_collide::SalvageCrateCollide>() {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn is_hero(&self) -> bool {
+        if let Some(contain) = self.get_contain() {
+            if let Ok(guard) = contain.lock() {
+                for &contained_id in guard.get_contained_objects() {
+                    if let Some(obj_arc) = OBJECT_REGISTRY.get_object(contained_id) {
+                        if let Ok(obj_guard) = obj_arc.read() {
+                            if obj_guard.is_kind_of(KindOf::Hero) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.is_kind_of(KindOf::Hero)
+    }
+
+    pub fn force_refresh_sub_object_upgrade_status(&mut self) {
+        for entry in &self.upgrade_module_handles {
+            entry.with_module(|module| {
+                if let Some(UpgradeModuleKindMut::SubObjects(_sub_obj)) =
+                    module_upgrade_kind(module)
+                {
+                    // TODO: full implementation pending SubObjectsUpgrade::forceRefreshUpgrade.
+                    // C++ calls upgrade->forceRefreshUpgrade() on each SubObjects upgrade module.
+                }
+            });
+        }
+    }
+
+    pub fn get_disabled_until(&self, disabled_type: DisabledType) -> UnsignedInt {
+        if disabled_type == DisabledType::DisabledAny {
+            let mut highest_frame: UnsignedInt = 0;
+            for i in 0..DISABLED_COUNT {
+                if let Some(dt) = disabled_type_from_index(i) {
+                    if self.disabled_mask.test(dt) && self.disabled_till_frame[i] > highest_frame {
+                        highest_frame = self.disabled_till_frame[i];
+                    }
+                }
+            }
+            highest_frame
+        } else if let Some(index) = self.get_disabled_type_index(disabled_type) {
+            if self.disabled_mask.test(disabled_type) {
+                return self.disabled_till_frame[index];
+            }
+            0
+        } else {
+            0
+        }
+    }
+
+    pub fn get_num_consecutive_shots_fired_at_target(&self, victim_id: ObjectID) -> i32 {
+        self.firing_tracker
+            .as_ref()
+            .and_then(|t| t.lock().ok())
+            .map(|t| t.get_num_consecutive_shots_at_victim(victim_id))
+            .unwrap_or(0)
+    }
+
     /// Try to get a read reference to this object (for compatibility with Arc<RwLock<Object>>).
     pub fn try_read(&self) -> Result<&Self, String> {
         Ok(self)

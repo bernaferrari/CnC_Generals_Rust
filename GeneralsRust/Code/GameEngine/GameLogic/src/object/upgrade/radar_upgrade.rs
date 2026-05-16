@@ -201,8 +201,11 @@ impl Module for RadarUpgrade {
 }
 
 impl Snapshotable for RadarUpgrade {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        Ok(())
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|err| format!("{:?} crc version: {err:?}", std::any::type_name::<Self>()))?;
+        crate::object::upgrade::upgrade_module::crc_upgrade_module_state(xfer, self.applied)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {

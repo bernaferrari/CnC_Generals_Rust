@@ -16,7 +16,8 @@
 //! Original C++ Author: EA Developers
 //! Rust conversion: 2025
 
-use crate::common::{Bool, Coord2D, Coord3D, ObjectID, Real, UnsignedInt};
+use crate::common::{Bool, Coord2D, Coord3D, Int, ObjectID, Real, UnsignedInt};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
@@ -422,6 +423,103 @@ impl DockUpdate {
 
             i += 1;
         }
+    }
+}
+
+impl Snapshotable for DockUpdate {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        xfer.xfer_unsigned_int(&mut 0u32).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
+            .map_err(|e| format!("DockUpdate::xfer version failed: {e}"))?;
+
+        xfer.xfer_unsigned_int(&mut self.current_frame)
+            .map_err(|e| format!("DockUpdate::xfer current_frame failed: {e}"))?;
+
+        let mut queue_len = self.queue.len() as Int;
+        xfer.xfer_int(&mut queue_len)
+            .map_err(|e| format!("DockUpdate::xfer queue_len failed: {e}"))?;
+
+        if xfer.is_reading() {
+            self.queue.clear();
+            for _ in 0..queue_len.max(0) as usize {
+                let mut unit_id: ObjectID = 0;
+                xfer.xfer_object_id(&mut unit_id)
+                    .map_err(|e| format!("DockUpdate::xfer queue unit_id failed: {e}"))?;
+                let mut state_int: Int = 0;
+                xfer.xfer_int(&mut state_int)
+                    .map_err(|e| format!("DockUpdate::xfer queue state failed: {e}"))?;
+                let mut dock_index_int: Int = -1;
+                xfer.xfer_int(&mut dock_index_int)
+                    .map_err(|e| format!("DockUpdate::xfer queue dock_index failed: {e}"))?;
+                let mut dock_start_frame: UnsignedInt = 0;
+                xfer.xfer_unsigned_int(&mut dock_start_frame)
+                    .map_err(|e| format!("DockUpdate::xfer queue dock_start_frame failed: {e}"))?;
+                let mut priority: Int = 0;
+                xfer.xfer_int(&mut priority)
+                    .map_err(|e| format!("DockUpdate::xfer queue priority failed: {e}"))?;
+
+                let entry = DockQueueEntry {
+                    unit_id,
+                    state: match state_int {
+                        0 => DockingState::Approaching,
+                        1 => DockingState::Waiting,
+                        2 => DockingState::Docked,
+                        3 => DockingState::Exiting,
+                        _ => DockingState::Complete,
+                    },
+                    dock_index: if dock_index_int >= 0 { Some(dock_index_int as usize) } else { None },
+                    dock_start_frame,
+                    priority,
+                };
+                self.queue.push_back(entry);
+            }
+        } else {
+            for entry in &self.queue {
+                let mut unit_id = entry.unit_id;
+                xfer.xfer_object_id(&mut unit_id)
+                    .map_err(|e| format!("DockUpdate::xfer queue unit_id failed: {e}"))?;
+                let mut state_int: Int = match entry.state {
+                    DockingState::Approaching => 0,
+                    DockingState::Waiting => 1,
+                    DockingState::Docked => 2,
+                    DockingState::Exiting => 3,
+                    DockingState::Complete => 4,
+                };
+                xfer.xfer_int(&mut state_int)
+                    .map_err(|e| format!("DockUpdate::xfer queue state failed: {e}"))?;
+                let mut dock_index_int: Int = entry.dock_index.map(|i| i as Int).unwrap_or(-1);
+                xfer.xfer_int(&mut dock_index_int)
+                    .map_err(|e| format!("DockUpdate::xfer queue dock_index failed: {e}"))?;
+                let mut dock_start_frame = entry.dock_start_frame;
+                xfer.xfer_unsigned_int(&mut dock_start_frame)
+                    .map_err(|e| format!("DockUpdate::xfer queue dock_start_frame failed: {e}"))?;
+                let mut priority = entry.priority;
+                xfer.xfer_int(&mut priority)
+                    .map_err(|e| format!("DockUpdate::xfer queue priority failed: {e}"))?;
+            }
+        }
+
+        let mut docks_len = self.docks.len() as Int;
+        xfer.xfer_int(&mut docks_len)
+            .map_err(|e| format!("DockUpdate::xfer docks_len failed: {e}"))?;
+        for dock in &mut self.docks {
+            xfer.xfer_bool(&mut dock.occupied)
+                .map_err(|e| format!("DockUpdate::xfer dock occupied failed: {e}"))?;
+            xfer.xfer_object_id(&mut dock.occupant_id)
+                .map_err(|e| format!("DockUpdate::xfer dock occupant_id failed: {e}"))?;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 

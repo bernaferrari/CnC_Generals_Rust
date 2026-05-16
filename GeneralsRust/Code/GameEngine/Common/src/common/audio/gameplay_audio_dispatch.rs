@@ -106,6 +106,20 @@ pub fn dispatch_ui_sound(event_name: &str) {
     });
 }
 
+/// Play a generic positional sound at world coordinates.
+///
+/// This matches C++ `TheAudio->addAudioEvent(&sound)` where `sound` is an
+/// `AudioEventRTS` constructed with just a name and position (as used by
+/// `SoundFXNugget::doFXPos` in FXList.cpp line 80-87).
+pub fn dispatch_positional_sound(event_name: &str, x: f32, y: f32, z: f32) {
+    if event_name.is_empty() {
+        return;
+    }
+    let _ = with_dispatch(|dispatch| {
+        dispatch.play_positional_sound(event_name, x, y, z);
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
