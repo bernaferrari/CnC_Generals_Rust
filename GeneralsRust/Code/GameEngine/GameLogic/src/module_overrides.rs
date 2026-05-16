@@ -1960,13 +1960,8 @@ fn fire_weapon_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<FireWeaponCollideModuleData>()
-        .expect("FireWeaponCollideModuleData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
-    let die_data_arc = Arc::new(typed_data.clone());
+    let module_data_arc =
+        cloned_module_data::<FireWeaponCollideModuleData>("FireWeaponCollide", &module_data);
     let object_id = thing
         .as_object()
         .map(|object| object.get_object_id())
@@ -2075,12 +2070,8 @@ fn squish_collide_module_factory(
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
-    let typed_data = module_data
-        .as_ref()
-        .downcast_ref::<SquishCollideModuleData>()
-        .expect("SquishCollideModuleData expected");
-
-    let module_data_arc = Arc::new(typed_data.clone());
+    let module_data_arc =
+        cloned_module_data::<SquishCollideModuleData>("SquishCollide", &module_data);
     let object_id = thing
         .as_object()
         .map(|object| object.get_object_id())
