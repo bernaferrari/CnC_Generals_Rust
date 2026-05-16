@@ -3665,7 +3665,9 @@ impl PlayerSupplyManager {
 
 // C++ parity: WorkerAIUpdateModuleData and WorkerAIUpdate save/load
 impl Snapshotable for WorkerAIUpdateData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -3688,7 +3690,9 @@ impl Snapshotable for WorkerAIUpdateData {
 }
 
 impl Snapshotable for WorkerAIUpdate {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 

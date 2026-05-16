@@ -3353,14 +3353,15 @@ impl<T> Snapshotable for BodyBindingModule<T>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
 {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // BodyBindingModule is a binding wrapper; the actual body state is
-        // attached to the object via attach_body_to_object. The body module
-        // itself handles its own xfer through the object's module list.
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 

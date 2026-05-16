@@ -32,10 +32,14 @@ impl ModuleData for WeaponSetUpgradeModuleData {
 }
 
 impl Snapshotable for WeaponSetUpgradeModuleData {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
     fn load_post_process(&mut self) -> Result<(), String> {

@@ -226,7 +226,9 @@ impl Snapshot for NullSnapshot {
         Ok(())
     }
 
-    fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1)?;
         Ok(())
     }
 

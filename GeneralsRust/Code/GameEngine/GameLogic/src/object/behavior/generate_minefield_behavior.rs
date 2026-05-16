@@ -1278,7 +1278,9 @@ impl DieModuleInterface for GenerateMinefieldBehavior {
 }
 
 impl Snapshotable for GenerateMinefieldBehavior {
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 

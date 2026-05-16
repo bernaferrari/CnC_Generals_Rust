@@ -552,9 +552,9 @@ impl Default for PlayerRelationMap {
 impl Snapshotable for PlayerRelationMap {
     /// CRC computation for network synchronization.
     /// C++ Reference: PlayerRelationMap::crc() lines 165-168
-    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
-        // C++ implementation is empty - relationships are not included in CRC
-        // The Player class handles its own CRC separately
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
         Ok(())
     }
 

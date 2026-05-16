@@ -363,38 +363,38 @@ impl AIInternalMoveToState {
         diff_x * diff_x + diff_y * diff_y <= tolerance_sqr
     }
 
-    pub fn xfer(&mut self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+    pub fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: XferVersion = 1;
-        _xfer
+        xfer
             .xfer_version(&mut version, 1)
             .map_err(|e| format!("AIInternalMoveToState xfer version failed: {:?}", e))?;
 
-        _xfer
+        xfer
             .xfer_real(&mut self.goal_position.x)
             .map_err(|e| format!("AIInternalMoveToState xfer goal_position.x failed: {:?}", e))?;
-        _xfer
+        xfer
             .xfer_real(&mut self.goal_position.y)
             .map_err(|e| format!("AIInternalMoveToState xfer goal_position.y failed: {:?}", e))?;
-        _xfer
+        xfer
             .xfer_real(&mut self.goal_position.z)
             .map_err(|e| format!("AIInternalMoveToState xfer goal_position.z failed: {:?}", e))?;
 
         let mut goal_layer_value = self.goal_layer as u32;
-        _xfer
+        xfer
             .xfer_unsigned_int(&mut goal_layer_value)
             .map_err(|e| format!("AIInternalMoveToState xfer goal_layer failed: {:?}", e))?;
-        if _xfer.get_xfer_mode() == XferMode::Load {
+        if xfer.get_xfer_mode() == XferMode::Load {
             self.goal_layer = PathfindLayerEnum::from_u32(goal_layer_value);
         }
 
-        game_engine::system::Xfer::xfer_bool(_xfer, &mut self.waiting_for_path).map_err(|e| {
+        game_engine::system::Xfer::xfer_bool(xfer, &mut self.waiting_for_path).map_err(|e| {
             format!(
                 "AIInternalMoveToState xfer waiting_for_path failed: {:?}",
                 e
             )
         })?;
 
-        _xfer
+        xfer
             .xfer_real(&mut self.path_goal_position.x)
             .map_err(|e| {
                 format!(
@@ -402,7 +402,7 @@ impl AIInternalMoveToState {
                     e
                 )
             })?;
-        _xfer
+        xfer
             .xfer_real(&mut self.path_goal_position.y)
             .map_err(|e| {
                 format!(
@@ -410,7 +410,7 @@ impl AIInternalMoveToState {
                     e
                 )
             })?;
-        _xfer
+        xfer
             .xfer_real(&mut self.path_goal_position.z)
             .map_err(|e| {
                 format!(
@@ -418,10 +418,10 @@ impl AIInternalMoveToState {
                     e
                 )
             })?;
-        _xfer
+        xfer
             .xfer_unsigned_int(&mut self.path_timestamp)
             .map_err(|e| format!("AIInternalMoveToState xfer path_timestamp failed: {:?}", e))?;
-        _xfer
+        xfer
             .xfer_unsigned_int(&mut self.blocked_repath_timestamp)
             .map_err(|e| {
                 format!(
@@ -429,7 +429,7 @@ impl AIInternalMoveToState {
                     e
                 )
             })?;
-        game_engine::system::Xfer::xfer_bool(_xfer, &mut self.adjusts_destination).map_err(
+        game_engine::system::Xfer::xfer_bool(xfer, &mut self.adjusts_destination).map_err(
             |e| {
                 format!(
                     "AIInternalMoveToState xfer adjusts_destination failed: {:?}",
