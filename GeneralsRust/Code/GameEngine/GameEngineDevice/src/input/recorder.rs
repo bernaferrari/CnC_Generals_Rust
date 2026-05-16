@@ -262,10 +262,18 @@ impl InputRecorder {
         self.recording.take()
     }
 
+    /// Replace the current recording with an already constructed one.
+    pub fn set_recording(&mut self, recording: InputRecording) {
+        self.recording = Some(recording);
+        self.is_playing = false;
+        self.playback_frame = 0;
+        self.playback_start = None;
+    }
+
     /// Load a recording
     pub fn load(&mut self, path: impl AsRef<Path>) -> Result<()> {
         let recording = InputRecording::load(path)?;
-        self.recording = Some(recording);
+        self.set_recording(recording);
         Ok(())
     }
 
