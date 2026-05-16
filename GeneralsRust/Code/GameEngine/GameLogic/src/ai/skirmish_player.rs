@@ -2452,9 +2452,6 @@ impl Snapshot for AISkirmishPlayer {
 
         let mut cur_right_flank_right_defense_angle = self.cur_right_flank_right_defense_angle;
         let _ = xfer.xfer_real(&mut cur_right_flank_right_defense_angle);
-
-        let mut frame_to_check_enemy = self.frame_to_check_enemy;
-        let _ = xfer.xfer_unsigned_int(&mut frame_to_check_enemy);
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
@@ -2511,12 +2508,6 @@ impl Snapshot for AISkirmishPlayer {
             self.cur_right_flank_right_defense_angle = cur_right_flank_right_defense_angle;
         }
 
-        let mut frame_to_check_enemy = self.frame_to_check_enemy;
-        let _ = xfer.xfer_unsigned_int(&mut frame_to_check_enemy);
-        if xfer.is_loading() {
-            self.frame_to_check_enemy = frame_to_check_enemy;
-        }
-
         // PARITY_NOTE: C++ also xfers m_currentEnemy (Player*), but in Rust
         // we use Weak<RwLock<Player>> which cannot be directly serialized.
         // The enemy is re-acquired via acquire_enemy() on load.
@@ -2524,5 +2515,31 @@ impl Snapshot for AISkirmishPlayer {
 
     fn load_post_process(&mut self) {
         self.current_enemy = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    #[test]
+    fn skirmish_xfer_does_not_write_runtime_enemy_check_frame() {
+        let mut player = AISkirmishPlayer::new(3);
+        player.frame_to_check_enemy = 0x1234_5678;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("skirmish_player_frame").unwrap();
+            player.xfer(&mut save);
+            save.close().unwrap();
+        }
+
+        assert!(!bytes
+            .windows(4)
+            .any(|window| window == &0x1234_5678u32.to_le_bytes()));
     }
 }
