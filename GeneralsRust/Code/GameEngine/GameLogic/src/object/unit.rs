@@ -5760,15 +5760,16 @@ impl AIUpdateInterface for UnitAIUpdate {
         let owner_id = obj_guard.get_id();
         let owner_vision_range = obj_guard.get_vision_range();
 
-        let repulsor = get_legacy_object(repulsor_id)
-            .ok_or_else(|| "request_safe_path missing repulsor object".to_string())?;
-        let repulsor_guard = repulsor
-            .read()
-            .map_err(|_| "request_safe_path repulsor lock poisoned".to_string())?;
-        let repulsor_pos = *repulsor_guard.get_position();
+        let repulsor_pos = get_legacy_object(repulsor_id)
+            .and_then(|repulsor| {
+                repulsor
+                    .read()
+                    .ok()
+                    .map(|repulsor_guard| *repulsor_guard.get_position())
+            })
+            .unwrap_or_else(|| Coord3D::new(-1000.0, -1000.0, 0.0));
         let locomotor_set = guard.locomotor_set.clone();
 
-        drop(repulsor_guard);
         drop(obj_guard);
         drop(guard);
 
