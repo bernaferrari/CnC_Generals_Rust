@@ -3531,6 +3531,13 @@ impl Weapon {
 
         let source_arc = TheGameLogic::find_object_by_id(source_obj_id);
         let source_guard = source_arc.as_ref().and_then(|arc| arc.read().ok());
+        let damage_source_id = self.projectile_damage_source_id(source_obj_id);
+        let damage_source_arc = if damage_source_id == source_obj_id {
+            source_arc.clone()
+        } else {
+            TheGameLogic::find_object_by_id(damage_source_id)
+        };
+        let damage_source_guard = damage_source_arc.as_ref().and_then(|arc| arc.read().ok());
 
         let mut impact_pos = *impact_pos;
         let mut primary_victim_id = None;
@@ -3545,7 +3552,7 @@ impl Weapon {
 
         // Create base damage info
         let mut damage_info = crate::damage::DamageInfo::new();
-        damage_info.input.source_id = source_obj_id;
+        damage_info.input.source_id = damage_source_id;
         damage_info.input.damage_type = self.template.damage_type.into();
         damage_info.input.damage_fx_override = self.template.damage_type.into();
         damage_info.input.damage_status_type = self.template.damage_status_type.into();
@@ -3554,7 +3561,7 @@ impl Weapon {
         damage_info.input.shock_wave_amount = self.template.shock_wave_amount;
         damage_info.input.shock_wave_radius = self.template.shock_wave_radius;
         damage_info.input.shock_wave_taper_off = self.template.shock_wave_taper_off;
-        if let Some(source) = source_guard.as_ref() {
+        if let Some(source) = damage_source_guard.as_ref() {
             if let Some(player) = source.get_controlling_player() {
                 if let Ok(player_guard) = player.read() {
                     damage_info.input.source_player_mask = player_guard.get_player_mask();
@@ -4527,6 +4534,33 @@ impl Weapon {
         }
 
         Ok(())
+    }
+
+    fn projectile_damage_source_id(&self, source_obj_id: ObjectId) -> ObjectId {
+        let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) else {
+            return source_obj_id;
+        };
+        let Ok(source) = source_arc.read() else {
+            return source_obj_id;
+        };
+        if !source.is_kind_of(KindOf::Projectile) {
+            return source_obj_id;
+        }
+
+        for behavior in source.get_behavior_modules() {
+            let Ok(mut guard) = behavior.lock() else {
+                continue;
+            };
+            let Some(projectile) = guard.get_projectile_update_interface() else {
+                continue;
+            };
+            let launcher_id = projectile.projectile_get_launcher_id();
+            if launcher_id != INVALID_ID {
+                return launcher_id;
+            }
+        }
+
+        source_obj_id
     }
 
     /// Find objects in radius - queries spatial partition for objects in blast radius

@@ -1189,6 +1189,10 @@ impl ProjectileUpdateInterface for DumbProjectileBehavior {
         let _ = UpdateModuleInterface::update(self);
     }
 
+    fn projectile_get_launcher_id(&self) -> ObjectID {
+        self.launcher_id
+    }
+
     fn projectile_now_jammed(&mut self) {
         if let Some(object) = OBJECT_REGISTRY.get_object(self.object_id) {
             if let Ok(mut guard) = object.write() {
