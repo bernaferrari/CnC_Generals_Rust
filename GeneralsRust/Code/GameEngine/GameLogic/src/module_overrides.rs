@@ -1,3 +1,11 @@
+// STALE MODULE: this file is not exported from GameLogic/src/lib.rs and is not
+// part of the active crate build. The active override implementation is
+// contain_module_overrides.rs. Keep this compile fence so accidental reactivation
+// fails loudly instead of silently compiling stale parity code.
+compile_error!(
+    "module_overrides.rs is stale/uncompiled; use contain_module_overrides.rs or intentionally rewire this module"
+);
+
 use std::any::Any;
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 
