@@ -4887,22 +4887,11 @@ macro_rules! special_power_factories {
             thing: Arc<dyn ModuleThing>,
             module_data: Arc<dyn ModuleData>,
         ) -> Box<dyn Module> {
-            let typed_data = module_data
-                .as_ref()
-                .as_any()
-                .downcast_ref::<$data_ty>()
-                .cloned()
-                .unwrap_or_else(|| {
-                    warn!(concat!(
-                        $module_name,
-                        " module data expected; using defaults"
-                    ));
-                    <$data_ty>::default()
-                });
+            let typed_data = cloned_module_data_or_default::<$data_ty>($module_name, &module_data);
             Box::new(<$module_ty>::new(
                 NameKeyGenerator::name_to_key($module_name),
                 resolve_owner_id(&thing),
-                Arc::new(typed_data),
+                typed_data,
             ))
         }
     };
