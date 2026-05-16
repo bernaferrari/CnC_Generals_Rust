@@ -28,6 +28,7 @@ pub struct MeshVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
+    pub color: [f32; 4],
 }
 
 impl MeshVertex {
@@ -35,7 +36,8 @@ impl MeshVertex {
         Self {
             position: pos,
             normal: nrm,
-            uv: uv,
+            uv,
+            color: [1.0, 1.0, 1.0, 1.0],
         }
     }
 }
@@ -227,6 +229,12 @@ impl DrawableDrawPipeline {
                     format: wgpu::VertexFormat::Float32x2,
                     offset: 24,
                     shader_location: 2,
+                },
+                // color
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x4,
+                    offset: 32,
+                    shader_location: 3,
                 },
             ],
         };

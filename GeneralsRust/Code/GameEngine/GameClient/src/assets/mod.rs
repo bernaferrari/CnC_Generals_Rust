@@ -946,10 +946,16 @@ impl AssetManager {
                 );
                 return;
             };
-            vertices.extend(mesh.vertices.iter().map(|vertex| MeshVertex {
-                position: [vertex.position.x, vertex.position.y, vertex.position.z],
-                normal: [vertex.normal.x, vertex.normal.y, vertex.normal.z],
-                uv: [vertex.uv.x, vertex.uv.y],
+            vertices.extend(mesh.vertices.iter().map(|vertex| {
+                MeshVertex {
+                    position: [vertex.position.x, vertex.position.y, vertex.position.z],
+                    normal: [vertex.normal.x, vertex.normal.y, vertex.normal.z],
+                    uv: [vertex.uv.x, vertex.uv.y],
+                    color: vertex
+                        .color
+                        .map(|color| [color.x, color.y, color.z, color.w])
+                        .unwrap_or([1.0, 1.0, 1.0, 1.0]),
+                }
             }));
             for index in &mesh.indices {
                 let Some(adjusted_index) = base_vertex.checked_add(*index) else {

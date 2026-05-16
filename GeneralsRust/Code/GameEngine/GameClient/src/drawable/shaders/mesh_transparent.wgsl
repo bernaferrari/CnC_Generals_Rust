@@ -6,8 +6,9 @@ struct VertexOutput {
     @location(0) world_pos: vec3<f32>,
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
-    @location(3) color_tint: vec4<f32>,
-    @location(4) opacity: f32,
+    @location(3) vertex_color: vec4<f32>,
+    @location(4) color_tint: vec4<f32>,
+    @location(5) opacity: f32,
 };
 
 @fragment
@@ -19,7 +20,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let lighting = ambient + diffuse * 0.7;
 
     // Base color with tint
-    var color = input.color_tint;
+    var color = input.vertex_color * input.color_tint;
 
     // Apply lighting
     color = vec4<f32>(color.rgb * lighting, color.a);
