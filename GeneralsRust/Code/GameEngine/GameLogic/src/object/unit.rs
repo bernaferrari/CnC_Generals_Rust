@@ -5615,6 +5615,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
+        self.queue_for_path_frame = 0;
         self.path_timestamp = TheGameLogic::get_frame();
 
         Ok(())
@@ -5724,6 +5725,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         });
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
+        self.queue_for_path_frame = 0;
         self.path_timestamp = TheGameLogic::get_frame();
 
         if let Some(locomotor) = guard.current_locomotor.as_ref() {
