@@ -2121,14 +2121,34 @@ impl Drawable {
         &mut self,
         clip: &AnimationClip,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Find the appropriate keyframes for current time
-        for keyframe in &clip.keyframes {
-            if keyframe.time <= self.animation_time {
-                // This is a simplified version - real implementation would interpolate between keyframes
-                self.bone_transforms = keyframe.bone_transforms.clone();
-                break;
-            }
+        if clip.keyframes.is_empty() {
+            return Ok(());
         }
+
+        if self.animation_time <= clip.keyframes[0].time {
+            self.bone_transforms = clip.keyframes[0].bone_transforms.clone();
+            return Ok(());
+        }
+
+        for window in clip.keyframes.windows(2) {
+            let previous = &window[0];
+            let next = &window[1];
+            if self.animation_time > next.time {
+                continue;
+            }
+
+            let span = (next.time - previous.time).max(f32::EPSILON);
+            let t = ((self.animation_time - previous.time) / span).clamp(0.0, 1.0);
+            self.bone_transforms =
+                interpolate_bone_transforms(&previous.bone_transforms, &next.bone_transforms, t);
+            return Ok(());
+        }
+
+        self.bone_transforms = clip
+            .keyframes
+            .last()
+            .map(|keyframe| keyframe.bone_transforms.clone())
+            .unwrap_or_default();
         Ok(())
     }
 
@@ -3004,6 +3024,41 @@ impl Drawable {
                 });
             });
         }
+    }
+}
+
+fn interpolate_bone_transforms(previous: &[Matrix3D], next: &[Matrix3D], t: Real) -> Vec<Matrix3D> {
+    let len = previous.len().max(next.len());
+    let mut transforms = Vec::with_capacity(len);
+    for index in 0..len {
+        let prev = previous.get(index).copied();
+        let next = next.get(index).copied();
+        transforms.push(match (prev, next) {
+            (Some(prev), Some(next)) => interpolate_transform(prev, next, t),
+            (Some(prev), None) => prev,
+            (None, Some(next)) => next,
+            (None, None) => Matrix3D::IDENTITY,
+        });
+    }
+    transforms
+}
+
+fn interpolate_transform(previous: Matrix3D, next: Matrix3D, t: Real) -> Matrix3D {
+    let (prev_scale, prev_rotation, prev_translation) = previous.to_scale_rotation_translation();
+    let (next_scale, next_rotation, next_translation) = next.to_scale_rotation_translation();
+
+    let scale = prev_scale.lerp(next_scale, t);
+    let rotation = normalized_slerp(prev_rotation, next_rotation, t);
+    let translation = prev_translation.lerp(next_translation, t);
+    Matrix3D::from_scale_rotation_translation(scale, rotation, translation)
+}
+
+fn normalized_slerp(previous: Quat, next: Quat, t: Real) -> Quat {
+    let rotation = previous.slerp(next, t);
+    if rotation.is_finite() {
+        rotation
+    } else {
+        Quat::IDENTITY
     }
 }
 
