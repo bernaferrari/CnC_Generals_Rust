@@ -10,7 +10,7 @@ use super::{ContainerIniParse, ContainerInterface, OpenContain};
 use crate::common::{
     CommandSourceType, Coord3D, DisabledType, GameResult, KindOf, ModelConditionFlags,
     ModelConditionState, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PlayerMaskType,
-    Relationship, WeaponBonusConditionType, INVALID_ID,
+    Relationship, UnsignedInt, WeaponBonusConditionType, INVALID_ID,
 };
 use crate::damage::{BodyDamageType, DamageInfo, DamageType, DeathType};
 use crate::error::GameLogicError as GameError;
@@ -2544,6 +2544,10 @@ impl ContainModuleInterface for GarrisonContain {
 
     fn is_immune_to_clear_building_attacks(&self) -> bool {
         GarrisonContain::is_immune_to_clear_building_attacks(self)
+    }
+
+    fn get_stealth_units_contained(&self) -> UnsignedInt {
+        self.base.get_stealth_units_contained()
     }
 
     fn get_apparent_controlling_player(
