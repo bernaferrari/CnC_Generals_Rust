@@ -135,7 +135,7 @@ impl ResourceGatheringManager {
             if let Some((cost, distance_sq)) =
                 compute_relative_cost(world, query_object_id, warehouse_id)
             {
-                if distance_sq <= max_distance_sq
+                if distance_sq < max_distance_sq
                     && cost
                         < best
                             .map(|(_, best_cost)| best_cost)
@@ -437,6 +437,23 @@ mod tests {
         manager.add_supply_warehouse(200);
 
         // Warehouse 100 is outside scan range; 200 should be selected.
+        assert_eq!(manager.find_best_supply_warehouse(1, &world), Some(200));
+    }
+
+    #[test]
+    fn best_warehouse_rejects_scan_distance_boundary() {
+        let world = FakeWorld::new()
+            .with_object(1)
+            .with_object(100)
+            .with_object(200)
+            .with_distance(1, 100, 50.0)
+            .with_distance(1, 200, 49.0)
+            .with_scan_distance(1, 50.0);
+
+        let mut manager = ResourceGatheringManager::new();
+        manager.add_supply_warehouse(100);
+        manager.add_supply_warehouse(200);
+
         assert_eq!(manager.find_best_supply_warehouse(1, &world), Some(200));
     }
 
