@@ -131,8 +131,19 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
     }
 
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
-        // For now, treat unicode same as ASCII (UTF-8)
-        self.xfer_ascii_string(unicode_string_data)
+        let utf16: Vec<u16> = unicode_string_data.encode_utf16().collect();
+        if utf16.len() > 255 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "XferSave cannot save this unicode string because it's too long (max 255)",
+            ));
+        }
+        let mut len = utf16.len() as u8;
+        self.xfer_unsigned_byte(&mut len)?;
+        for unit in utf16 {
+            self.writer.write_all(&unit.to_le_bytes())?;
+        }
+        Ok(())
     }
 
     /// # Safety
@@ -142,5 +153,23 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
         let slice = std::slice::from_raw_parts(data, data_size);
         self.writer.write_all(slice)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn unicode_string_writes_cpp_wide_char_layout() {
+        let mut bytes = Vec::new();
+        {
+            let mut xfer = XferSave::new(Cursor::new(&mut bytes), 1);
+            let mut value = String::from("A\u{00df}\u{6f22}");
+            xfer.xfer_unicode_string(&mut value).unwrap();
+        }
+
+        assert_eq!(bytes, vec![3, 0x41, 0x00, 0xdf, 0x00, 0x22, 0x6f,]);
     }
 }
