@@ -1568,6 +1568,7 @@ impl GameLogic {
         crate::terrain::init_terrain_physics_integration();
 
         crate::special_power_module::initialize();
+        crate::control_bar::register_academy_template_context_provider();
         if let Err(e) = crate::control_bar::initialize_control_bar_bridge_from_common() {
             warn!("Control bar bridge initialization failed: {}", e);
         }
