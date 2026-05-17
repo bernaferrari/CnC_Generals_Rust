@@ -2896,8 +2896,18 @@ impl Snapshotable for MissileAIUpdateBehavior {
     }
 }
 
-fn missile_ai_update_data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
-    Box::new(MissileAIUpdateModuleData::default())
+fn missile_ai_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = MissileAIUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse MissileAIUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
 }
 
 fn missile_ai_update_module_factory(
