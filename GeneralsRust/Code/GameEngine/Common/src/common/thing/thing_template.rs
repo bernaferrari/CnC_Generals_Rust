@@ -164,14 +164,25 @@ pub enum RadarPriorityType {
     Critical,
 }
 
-/// Editor sorting types
+/// Editor sorting types, preserving C++ Common/ThingSort.h discriminants.
+#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditorSortingType {
-    Invalid = 0,
-    Unit,
-    Building,
-    Infrastructure,
-    Civilian,
+    None = 0,
+    Structure,
+    Infantry,
+    Vehicle,
+    Shrubbery,
+    MiscManMade,
+    MiscNatural,
+    Debris,
+    System,
+    Audio,
+    Test,
+    ForReview,
+    Road,
+    Waypoint,
+    NumSortingTypes,
 }
 
 /// Shadow types
@@ -1025,7 +1036,7 @@ impl ThingTemplate {
 
             display_name: UnicodeString::new(),
             display_color: Color::white(),
-            editor_sorting: EditorSortingType::Invalid,
+            editor_sorting: EditorSortingType::None,
 
             geometry_info: GeometryInfo::new(GeometryType::Sphere, false, 1.0, 1.0, 1.0),
             asset_scale: 1.0,
@@ -1743,7 +1754,8 @@ impl ThingTemplate {
 
         // Mark build facilities
         // This would iterate through prerequisites and mark templates as build facilities
-        if self.is_kind_of(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits() as u64) {
+        if self.is_kind_of(crate::common::system::kind_of::KindOfMask::COMMANDCENTER.bits() as u64)
+        {
             self.is_build_facility = true;
         }
 
@@ -2240,11 +2252,21 @@ fn parse_color_int(s: &str) -> Result<Color, ()> {
 
 fn parse_editor_sorting(s: &str) -> EditorSortingType {
     match s.trim() {
-        "Unit" => EditorSortingType::Unit,
-        "Building" => EditorSortingType::Building,
-        "Infrastructure" => EditorSortingType::Infrastructure,
-        "Civilian" => EditorSortingType::Civilian,
-        _ => EditorSortingType::Invalid,
+        "NONE" | "None" | "Invalid" => EditorSortingType::None,
+        "STRUCTURE" | "Structure" | "Building" => EditorSortingType::Structure,
+        "INFANTRY" | "Infantry" | "Unit" => EditorSortingType::Infantry,
+        "VEHICLE" | "Vehicle" => EditorSortingType::Vehicle,
+        "SHRUBBERY" | "Shrubbery" => EditorSortingType::Shrubbery,
+        "MISC_MAN_MADE" | "MiscManMade" | "Infrastructure" => EditorSortingType::MiscManMade,
+        "MISC_NATURAL" | "MiscNatural" | "Civilian" => EditorSortingType::MiscNatural,
+        "DEBRIS" | "Debris" => EditorSortingType::Debris,
+        "SYSTEM" | "System" => EditorSortingType::System,
+        "AUDIO" | "Audio" => EditorSortingType::Audio,
+        "TEST" | "Test" => EditorSortingType::Test,
+        "FOR_REVIEW" | "ForReview" => EditorSortingType::ForReview,
+        "ROAD" | "Road" => EditorSortingType::Road,
+        "WAYPOINT" | "Waypoint" => EditorSortingType::Waypoint,
+        _ => EditorSortingType::None,
     }
 }
 
@@ -2315,6 +2337,51 @@ mod tests {
     };
     use crate::common::thing::module::ModuleType;
     use std::sync::Arc;
+
+    #[test]
+    fn editor_sorting_matches_cpp_thing_sort_order() {
+        assert_eq!(EditorSortingType::None as u8, 0);
+        assert_eq!(EditorSortingType::Structure as u8, 1);
+        assert_eq!(EditorSortingType::Infantry as u8, 2);
+        assert_eq!(EditorSortingType::Vehicle as u8, 3);
+        assert_eq!(EditorSortingType::Shrubbery as u8, 4);
+        assert_eq!(EditorSortingType::MiscManMade as u8, 5);
+        assert_eq!(EditorSortingType::MiscNatural as u8, 6);
+        assert_eq!(EditorSortingType::Debris as u8, 7);
+        assert_eq!(EditorSortingType::System as u8, 8);
+        assert_eq!(EditorSortingType::Audio as u8, 9);
+        assert_eq!(EditorSortingType::Test as u8, 10);
+        assert_eq!(EditorSortingType::ForReview as u8, 11);
+        assert_eq!(EditorSortingType::Road as u8, 12);
+        assert_eq!(EditorSortingType::Waypoint as u8, 13);
+
+        assert_eq!(
+            parse_editor_sorting("STRUCTURE"),
+            EditorSortingType::Structure
+        );
+        assert_eq!(
+            parse_editor_sorting("INFANTRY"),
+            EditorSortingType::Infantry
+        );
+        assert_eq!(
+            parse_editor_sorting("MISC_MAN_MADE"),
+            EditorSortingType::MiscManMade
+        );
+        assert_eq!(
+            parse_editor_sorting("WAYPOINT"),
+            EditorSortingType::Waypoint
+        );
+
+        assert_eq!(
+            parse_editor_sorting("Building"),
+            EditorSortingType::Structure
+        );
+        assert_eq!(parse_editor_sorting("Unit"), EditorSortingType::Infantry);
+        assert_eq!(
+            parse_editor_sorting("Civilian"),
+            EditorSortingType::MiscNatural
+        );
+    }
 
     #[test]
     fn find_weapon_template_set_respects_flags() {
@@ -2611,11 +2678,20 @@ impl Snapshotable for ThingTemplate {
         xfer.xfer_unsigned_byte(&mut editor_sorting)
             .map_err(xfer_err)?;
         self.editor_sorting = match editor_sorting {
-            1 => EditorSortingType::Unit,
-            2 => EditorSortingType::Building,
-            3 => EditorSortingType::Infrastructure,
-            4 => EditorSortingType::Civilian,
-            _ => EditorSortingType::Invalid,
+            1 => EditorSortingType::Structure,
+            2 => EditorSortingType::Infantry,
+            3 => EditorSortingType::Vehicle,
+            4 => EditorSortingType::Shrubbery,
+            5 => EditorSortingType::MiscManMade,
+            6 => EditorSortingType::MiscNatural,
+            7 => EditorSortingType::Debris,
+            8 => EditorSortingType::System,
+            9 => EditorSortingType::Audio,
+            10 => EditorSortingType::Test,
+            11 => EditorSortingType::ForReview,
+            12 => EditorSortingType::Road,
+            13 => EditorSortingType::Waypoint,
+            _ => EditorSortingType::None,
         };
 
         // GeometryInfo fields (xfered inline since GeometryInfo is not Snapshotable)
