@@ -160,7 +160,7 @@ pub struct BuildListInfo {
     /// Whether currently under construction
     under_construction: bool,
     /// Timestamp when object was created
-    _object_timestamp: u32,
+    object_timestamp: u32,
     /// Next entry in the linked list
     next: Option<Box<BuildListInfo>>,
 }
@@ -179,7 +179,7 @@ impl BuildListInfo {
             num_rebuilds: 0,
             priority_build: false,
             under_construction: false,
-            _object_timestamp: 0,
+            object_timestamp: 0,
             next: None,
         }
     }
@@ -249,6 +249,23 @@ impl BuildListInfo {
         if self.num_rebuilds > 0 && self.num_rebuilds != Self::UNLIMITED_REBUILDS {
             self.num_rebuilds -= 1;
         }
+    }
+
+    /// Increment rebuild count
+    pub fn increment_num_rebuilds(&mut self) {
+        if self.num_rebuilds != Self::UNLIMITED_REBUILDS {
+            self.num_rebuilds += 1;
+        }
+    }
+
+    /// Get frame when the object was built
+    pub fn get_object_timestamp(&self) -> u32 {
+        self.object_timestamp
+    }
+
+    /// Set frame when the object was built
+    pub fn set_object_timestamp(&mut self, frame: u32) {
+        self.object_timestamp = frame;
     }
 
     /// Get next entry
@@ -3319,7 +3336,7 @@ impl Snapshotable for Player {
                     let mut under_construction = info.is_under_construction();
                     xfer.xfer_bool(&mut under_construction)
                         .map_err(|e| format!("build_list under_construction failed: {}", e))?;
-                    let mut timestamp = 0u32;
+                    let mut timestamp = info.get_object_timestamp();
                     xfer.xfer_unsigned_int(&mut timestamp)
                         .map_err(|e| format!("build_list timestamp failed: {}", e))?;
                     current = info.get_next();
@@ -3360,14 +3377,15 @@ impl Snapshotable for Player {
                     let mut under_construction = false;
                     xfer.xfer_bool(&mut under_construction)
                         .map_err(|e| format!("load build_list under_construction failed: {}", e))?;
-                    let mut _timestamp = 0u32;
-                    xfer.xfer_unsigned_int(&mut _timestamp)
+                    let mut timestamp = 0u32;
+                    xfer.xfer_unsigned_int(&mut timestamp)
                         .map_err(|e| format!("load build_list timestamp failed: {}", e))?;
 
                     // Attach to end of list (matching C++ behavior)
                     let mut info = Box::new(BuildListInfo::new(name, Coord3D::new(x, y, z), angle));
                     info.set_object_id(object_id);
                     info.set_num_rebuilds(num_rebuilds);
+                    info.set_object_timestamp(timestamp);
                     if priority {
                         info.mark_priority_build();
                     }
@@ -4003,6 +4021,20 @@ mod tests {
         assert_eq!(build_info.get_template_name(), "AmericaCommandCenter");
         assert_eq!(build_info.get_object_id(), 1);
         assert!(!build_info.is_priority_build());
+
+        let mut info = BuildListInfo::new("AmericaBarracks".to_string(), location, 0.0);
+        info.set_num_rebuilds(1);
+        info.increment_num_rebuilds();
+        assert_eq!(info.get_num_rebuilds(), 2);
+        info.decrement_num_rebuilds();
+        assert_eq!(info.get_num_rebuilds(), 1);
+        info.set_num_rebuilds(BuildListInfo::UNLIMITED_REBUILDS);
+        info.increment_num_rebuilds();
+        assert_eq!(info.get_num_rebuilds(), BuildListInfo::UNLIMITED_REBUILDS);
+        info.decrement_num_rebuilds();
+        assert_eq!(info.get_num_rebuilds(), BuildListInfo::UNLIMITED_REBUILDS);
+        info.set_object_timestamp(1234);
+        assert_eq!(info.get_object_timestamp(), 1234);
 
         // Add priority build
         let location2 = Coord3D::new(150.0, 250.0, 0.0);
