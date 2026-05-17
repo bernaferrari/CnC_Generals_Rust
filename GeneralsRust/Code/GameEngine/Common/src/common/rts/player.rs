@@ -22,7 +22,9 @@ use crate::common::rts::{
     get_science_store, AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle,
     ProductionPrerequisite, Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
 };
-use crate::common::system::{kind_of::KindOfMask, Snapshotable, Xfer, XferMode, XferVersion};
+use crate::common::system::{
+    kind_of::KindOfMask, Point2D, Snapshotable, Xfer, XferMode, XferVersion,
+};
 use crate::common::thing::{get_thing_factory, BuildableStatus, ThingTemplate};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Weak};
@@ -35,6 +37,8 @@ pub const INVALID_OBJECT_ID: ObjectID = 0xFFFFFFFF;
 
 /// Invalid hotkey squad constant (matches C++ NO_HOTKEY_SQUAD)
 pub const NO_HOTKEY_SQUAD: i32 = -1;
+
+const MAX_BUILD_LIST_RESOURCE_GATHERERS: usize = 10;
 
 // =========================================================
 // Forward Declarations / Trait Definitions
@@ -145,22 +149,48 @@ impl Coord3D {
 /// C++ Reference: BuildListInfo class
 #[derive(Debug, Clone)]
 pub struct BuildListInfo {
+    /// Name of the building entry in WorldBuilder/build lists
+    building_name: String,
     /// Template name of the building to construct
     template_name: String,
     /// Location to build at
     location: Coord3D,
+    /// Offset to natural rally point
+    rally_point_offset: Point2D,
     /// Angle of the building
     angle: f32,
+    /// Whether the structure exists at map start
+    initially_built: bool,
     /// Object ID if building exists
     object_id: ObjectID,
     /// Number of times to rebuild (0xFFFF_FFFF = unlimited)
     num_rebuilds: u32,
+    /// Script attached to this build-list entry
+    script: String,
+    /// Initial health percent
+    health: i32,
+    /// Whether this structure can emit low-power/attack warnings
+    whiner: bool,
+    /// Whether this structure cannot be sold
+    unsellable: bool,
+    /// Whether this structure can be repaired
+    repairable: bool,
+    /// Whether AI is allowed to build without script enabling it
+    automatically_build: bool,
     /// Whether this is a priority build
     priority_build: bool,
     /// Whether currently under construction
     under_construction: bool,
     /// Timestamp when object was created
     object_timestamp: u32,
+    /// Gatherers assigned to this supply building entry
+    resource_gatherers: [ObjectID; MAX_BUILD_LIST_RESOURCE_GATHERERS],
+    /// Whether this entry represents a supply building
+    supply_building: bool,
+    /// Desired gatherer count
+    desired_gatherers: i32,
+    /// Current gatherer count
+    current_gatherers: i32,
     /// Next entry in the linked list
     next: Option<Box<BuildListInfo>>,
 }
@@ -172,16 +202,39 @@ impl BuildListInfo {
     /// Create a new build list info entry
     pub fn new(template_name: String, location: Coord3D, angle: f32) -> Self {
         Self {
+            building_name: String::new(),
             template_name,
             location,
+            rally_point_offset: Point2D::new(0.0, 0.0),
             angle,
+            initially_built: false,
             object_id: INVALID_OBJECT_ID,
             num_rebuilds: 0,
+            script: String::new(),
+            health: 100,
+            whiner: true,
+            unsellable: false,
+            repairable: true,
+            automatically_build: true,
             priority_build: false,
             under_construction: false,
             object_timestamp: 0,
+            resource_gatherers: [INVALID_OBJECT_ID; MAX_BUILD_LIST_RESOURCE_GATHERERS],
+            supply_building: false,
+            desired_gatherers: 0,
+            current_gatherers: 0,
             next: None,
         }
+    }
+
+    /// Get the build-list entry name
+    pub fn get_building_name(&self) -> &str {
+        &self.building_name
+    }
+
+    /// Set the build-list entry name
+    pub fn set_building_name(&mut self, name: String) {
+        self.building_name = name;
     }
 
     /// Get the template name
@@ -194,9 +247,29 @@ impl BuildListInfo {
         &self.location
     }
 
+    /// Get the rally-point offset
+    pub fn get_rally_offset(&self) -> &Point2D {
+        &self.rally_point_offset
+    }
+
+    /// Set the rally-point offset
+    pub fn set_rally_offset(&mut self, offset: Point2D) {
+        self.rally_point_offset = offset;
+    }
+
     /// Get the angle
     pub fn get_angle(&self) -> f32 {
         self.angle
+    }
+
+    /// Whether this entry is initially built
+    pub fn is_initially_built(&self) -> bool {
+        self.initially_built
+    }
+
+    /// Set whether this entry is initially built
+    pub fn set_initially_built(&mut self, built: bool) {
+        self.initially_built = built;
     }
 
     /// Get the object ID
@@ -227,6 +300,16 @@ impl BuildListInfo {
     /// Check if priority build
     pub fn is_priority_build(&self) -> bool {
         self.priority_build
+    }
+
+    /// Whether AI automatically builds this entry
+    pub fn is_automatic_build(&self) -> bool {
+        self.automatically_build
+    }
+
+    /// Set whether AI automatically builds this entry
+    pub fn set_automatic_build(&mut self, automatic: bool) {
+        self.automatically_build = automatic;
     }
 
     /// Set under construction flag
@@ -266,6 +349,83 @@ impl BuildListInfo {
     /// Set frame when the object was built
     pub fn set_object_timestamp(&mut self, frame: u32) {
         self.object_timestamp = frame;
+    }
+
+    pub fn get_script(&self) -> &str {
+        &self.script
+    }
+
+    pub fn set_script(&mut self, script: String) {
+        self.script = script;
+    }
+
+    pub fn get_health(&self) -> i32 {
+        self.health
+    }
+
+    pub fn set_health(&mut self, health: i32) {
+        self.health = health;
+    }
+
+    pub fn get_whiner(&self) -> bool {
+        self.whiner
+    }
+
+    pub fn set_whiner(&mut self, whiner: bool) {
+        self.whiner = whiner;
+    }
+
+    pub fn get_unsellable(&self) -> bool {
+        self.unsellable
+    }
+
+    pub fn set_unsellable(&mut self, unsellable: bool) {
+        self.unsellable = unsellable;
+    }
+
+    pub fn get_repairable(&self) -> bool {
+        self.repairable
+    }
+
+    pub fn set_repairable(&mut self, repairable: bool) {
+        self.repairable = repairable;
+    }
+
+    pub fn is_supply_building(&self) -> bool {
+        self.supply_building
+    }
+
+    pub fn set_supply_building(&mut self, supply: bool) {
+        self.supply_building = supply;
+    }
+
+    pub fn get_gatherer_id(&self, index: usize) -> ObjectID {
+        self.resource_gatherers
+            .get(index)
+            .copied()
+            .unwrap_or(INVALID_OBJECT_ID)
+    }
+
+    pub fn set_gatherer_id(&mut self, index: usize, id: ObjectID) {
+        if let Some(gatherer) = self.resource_gatherers.get_mut(index) {
+            *gatherer = id;
+        }
+    }
+
+    pub fn get_desired_gatherers(&self) -> i32 {
+        self.desired_gatherers
+    }
+
+    pub fn set_desired_gatherers(&mut self, desired: i32) {
+        self.desired_gatherers = desired;
+    }
+
+    pub fn get_current_gatherers(&self) -> i32 {
+        self.current_gatherers
+    }
+
+    pub fn set_current_gatherers(&mut self, current: i32) {
+        self.current_gatherers = current;
     }
 
     /// Get next entry
@@ -3303,42 +3463,82 @@ impl Snapshotable for Player {
                 current = self.build_list.as_deref();
                 while let Some(info) = current {
                     // BuildListInfo xferSnapshot - inline serialization
-                    // C++ BuildListInfo::xfer writes: version, templateName, location, angle,
-                    // objectID, numRebuilds, priorityBuild, underConstruction, objectTimestamp
-                    const BUILD_LIST_VERSION: XferVersion = 1;
+                    // C++ BuildListInfo::xfer version 2.
+                    const BUILD_LIST_VERSION: XferVersion = 2;
                     let mut bl_version = BUILD_LIST_VERSION;
                     xfer.xfer_version(&mut bl_version, BUILD_LIST_VERSION)
                         .map_err(|e| format!("build_list version failed: {}", e))?;
+                    let mut building_name = info.get_building_name().to_string();
+                    xfer.xfer_ascii_string(&mut building_name)
+                        .map_err(|e| format!("build_list building_name failed: {}", e))?;
                     let mut name = info.get_template_name().to_string();
                     xfer.xfer_ascii_string(&mut name)
                         .map_err(|e| format!("build_list name failed: {}", e))?;
-                    let mut x = info.get_location().x;
-                    let mut y = info.get_location().y;
-                    let mut z = info.get_location().z;
-                    xfer.xfer_real(&mut x)
-                        .map_err(|e| format!("build_list x failed: {}", e))?;
-                    xfer.xfer_real(&mut y)
-                        .map_err(|e| format!("build_list y failed: {}", e))?;
-                    xfer.xfer_real(&mut z)
-                        .map_err(|e| format!("build_list z failed: {}", e))?;
+                    let mut location_x = info.get_location().x;
+                    let mut location_y = info.get_location().y;
+                    let mut location_z = info.get_location().z;
+                    xfer.xfer_real(&mut location_x)
+                        .map_err(|e| format!("build_list location_x failed: {}", e))?;
+                    xfer.xfer_real(&mut location_y)
+                        .map_err(|e| format!("build_list location_y failed: {}", e))?;
+                    xfer.xfer_real(&mut location_z)
+                        .map_err(|e| format!("build_list location_z failed: {}", e))?;
+                    let mut rally_offset = *info.get_rally_offset();
+                    xfer.xfer_coord_2d(&mut rally_offset)
+                        .map_err(|e| format!("build_list rally_offset failed: {}", e))?;
                     let mut angle = info.get_angle();
                     xfer.xfer_real(&mut angle)
                         .map_err(|e| format!("build_list angle failed: {}", e))?;
-                    let mut object_id = info.get_object_id();
-                    xfer.xfer_unsigned_int(&mut object_id)
-                        .map_err(|e| format!("build_list object_id failed: {}", e))?;
+                    let mut initially_built = info.is_initially_built();
+                    xfer.xfer_bool(&mut initially_built)
+                        .map_err(|e| format!("build_list initially_built failed: {}", e))?;
                     let mut num_rebuilds = info.get_num_rebuilds();
                     xfer.xfer_unsigned_int(&mut num_rebuilds)
                         .map_err(|e| format!("build_list num_rebuilds failed: {}", e))?;
-                    let mut priority = info.is_priority_build();
-                    xfer.xfer_bool(&mut priority)
-                        .map_err(|e| format!("build_list priority failed: {}", e))?;
-                    let mut under_construction = info.is_under_construction();
-                    xfer.xfer_bool(&mut under_construction)
-                        .map_err(|e| format!("build_list under_construction failed: {}", e))?;
+                    let mut script = info.get_script().to_string();
+                    xfer.xfer_ascii_string(&mut script)
+                        .map_err(|e| format!("build_list script failed: {}", e))?;
+                    let mut health = info.get_health();
+                    xfer.xfer_int(&mut health)
+                        .map_err(|e| format!("build_list health failed: {}", e))?;
+                    let mut whiner = info.get_whiner();
+                    xfer.xfer_bool(&mut whiner)
+                        .map_err(|e| format!("build_list whiner failed: {}", e))?;
+                    let mut unsellable = info.get_unsellable();
+                    xfer.xfer_bool(&mut unsellable)
+                        .map_err(|e| format!("build_list unsellable failed: {}", e))?;
+                    let mut repairable = info.get_repairable();
+                    xfer.xfer_bool(&mut repairable)
+                        .map_err(|e| format!("build_list repairable failed: {}", e))?;
+                    let mut automatically_build = info.is_automatic_build();
+                    xfer.xfer_bool(&mut automatically_build)
+                        .map_err(|e| format!("build_list automatically_build failed: {}", e))?;
+                    let mut object_id = info.get_object_id();
+                    xfer.xfer_object_id(&mut object_id)
+                        .map_err(|e| format!("build_list object_id failed: {}", e))?;
                     let mut timestamp = info.get_object_timestamp();
                     xfer.xfer_unsigned_int(&mut timestamp)
                         .map_err(|e| format!("build_list timestamp failed: {}", e))?;
+                    let mut under_construction = info.is_under_construction();
+                    xfer.xfer_bool(&mut under_construction)
+                        .map_err(|e| format!("build_list under_construction failed: {}", e))?;
+                    for index in 0..MAX_BUILD_LIST_RESOURCE_GATHERERS {
+                        let mut gatherer_id = info.get_gatherer_id(index);
+                        xfer.xfer_object_id(&mut gatherer_id)
+                            .map_err(|e| format!("build_list gatherer failed: {}", e))?;
+                    }
+                    let mut supply_building = info.is_supply_building();
+                    xfer.xfer_bool(&mut supply_building)
+                        .map_err(|e| format!("build_list supply_building failed: {}", e))?;
+                    let mut desired_gatherers = info.get_desired_gatherers();
+                    xfer.xfer_int(&mut desired_gatherers)
+                        .map_err(|e| format!("build_list desired_gatherers failed: {}", e))?;
+                    let mut priority = info.is_priority_build();
+                    xfer.xfer_bool(&mut priority)
+                        .map_err(|e| format!("build_list priority failed: {}", e))?;
+                    let mut current_gatherers = info.get_current_gatherers();
+                    xfer.xfer_int(&mut current_gatherers)
+                        .map_err(|e| format!("build_list current_gatherers failed: {}", e))?;
                     current = info.get_next();
                 }
             }
@@ -3346,46 +3546,106 @@ impl Snapshotable for Player {
                 // C++ lines 4145-4147: destroy existing build list
                 self.build_list = None;
                 for _ in 0..build_list_info_count {
-                    const BUILD_LIST_VERSION: XferVersion = 1;
+                    const BUILD_LIST_VERSION: XferVersion = 2;
                     let mut bl_version = BUILD_LIST_VERSION;
                     xfer.xfer_version(&mut bl_version, BUILD_LIST_VERSION)
                         .map_err(|e| format!("load build_list version failed: {}", e))?;
+                    let mut building_name = String::new();
+                    xfer.xfer_ascii_string(&mut building_name)
+                        .map_err(|e| format!("load build_list building_name failed: {}", e))?;
                     let mut name = String::new();
                     xfer.xfer_ascii_string(&mut name)
                         .map_err(|e| format!("load build_list name failed: {}", e))?;
-                    let mut x = 0.0f32;
-                    let mut y = 0.0f32;
-                    let mut z = 0.0f32;
-                    xfer.xfer_real(&mut x)
-                        .map_err(|e| format!("load build_list x failed: {}", e))?;
-                    xfer.xfer_real(&mut y)
-                        .map_err(|e| format!("load build_list y failed: {}", e))?;
-                    xfer.xfer_real(&mut z)
-                        .map_err(|e| format!("load build_list z failed: {}", e))?;
+                    let mut location_x = 0.0f32;
+                    let mut location_y = 0.0f32;
+                    let mut location_z = 0.0f32;
+                    xfer.xfer_real(&mut location_x)
+                        .map_err(|e| format!("load build_list location_x failed: {}", e))?;
+                    xfer.xfer_real(&mut location_y)
+                        .map_err(|e| format!("load build_list location_y failed: {}", e))?;
+                    xfer.xfer_real(&mut location_z)
+                        .map_err(|e| format!("load build_list location_z failed: {}", e))?;
+                    let location = Coord3D::new(location_x, location_y, location_z);
+                    let mut rally_offset = Point2D::new(0.0, 0.0);
+                    xfer.xfer_coord_2d(&mut rally_offset)
+                        .map_err(|e| format!("load build_list rally_offset failed: {}", e))?;
                     let mut angle = 0.0f32;
                     xfer.xfer_real(&mut angle)
                         .map_err(|e| format!("load build_list angle failed: {}", e))?;
-                    let mut object_id = 0u32;
-                    xfer.xfer_unsigned_int(&mut object_id)
-                        .map_err(|e| format!("load build_list object_id failed: {}", e))?;
+                    let mut initially_built = false;
+                    xfer.xfer_bool(&mut initially_built)
+                        .map_err(|e| format!("load build_list initially_built failed: {}", e))?;
                     let mut num_rebuilds = 0u32;
                     xfer.xfer_unsigned_int(&mut num_rebuilds)
                         .map_err(|e| format!("load build_list num_rebuilds failed: {}", e))?;
-                    let mut priority = false;
-                    xfer.xfer_bool(&mut priority)
-                        .map_err(|e| format!("load build_list priority failed: {}", e))?;
-                    let mut under_construction = false;
-                    xfer.xfer_bool(&mut under_construction)
-                        .map_err(|e| format!("load build_list under_construction failed: {}", e))?;
+                    let mut script = String::new();
+                    xfer.xfer_ascii_string(&mut script)
+                        .map_err(|e| format!("load build_list script failed: {}", e))?;
+                    let mut health = 100;
+                    xfer.xfer_int(&mut health)
+                        .map_err(|e| format!("load build_list health failed: {}", e))?;
+                    let mut whiner = true;
+                    xfer.xfer_bool(&mut whiner)
+                        .map_err(|e| format!("load build_list whiner failed: {}", e))?;
+                    let mut unsellable = false;
+                    xfer.xfer_bool(&mut unsellable)
+                        .map_err(|e| format!("load build_list unsellable failed: {}", e))?;
+                    let mut repairable = true;
+                    xfer.xfer_bool(&mut repairable)
+                        .map_err(|e| format!("load build_list repairable failed: {}", e))?;
+                    let mut automatically_build = true;
+                    xfer.xfer_bool(&mut automatically_build).map_err(|e| {
+                        format!("load build_list automatically_build failed: {}", e)
+                    })?;
+                    let mut object_id = 0u32;
+                    xfer.xfer_object_id(&mut object_id)
+                        .map_err(|e| format!("load build_list object_id failed: {}", e))?;
                     let mut timestamp = 0u32;
                     xfer.xfer_unsigned_int(&mut timestamp)
                         .map_err(|e| format!("load build_list timestamp failed: {}", e))?;
+                    let mut under_construction = false;
+                    xfer.xfer_bool(&mut under_construction)
+                        .map_err(|e| format!("load build_list under_construction failed: {}", e))?;
+                    let mut resource_gatherers =
+                        [INVALID_OBJECT_ID; MAX_BUILD_LIST_RESOURCE_GATHERERS];
+                    for gatherer_id in &mut resource_gatherers {
+                        xfer.xfer_object_id(gatherer_id)
+                            .map_err(|e| format!("load build_list gatherer failed: {}", e))?;
+                    }
+                    let mut supply_building = false;
+                    xfer.xfer_bool(&mut supply_building)
+                        .map_err(|e| format!("load build_list supply_building failed: {}", e))?;
+                    let mut desired_gatherers = 0;
+                    xfer.xfer_int(&mut desired_gatherers)
+                        .map_err(|e| format!("load build_list desired_gatherers failed: {}", e))?;
+                    let mut priority = false;
+                    xfer.xfer_bool(&mut priority)
+                        .map_err(|e| format!("load build_list priority failed: {}", e))?;
+                    let mut current_gatherers = 0;
+                    if bl_version >= 2 {
+                        xfer.xfer_int(&mut current_gatherers).map_err(|e| {
+                            format!("load build_list current_gatherers failed: {}", e)
+                        })?;
+                    }
 
                     // Attach to end of list (matching C++ behavior)
-                    let mut info = Box::new(BuildListInfo::new(name, Coord3D::new(x, y, z), angle));
+                    let mut info = Box::new(BuildListInfo::new(name, location, angle));
+                    info.set_building_name(building_name);
+                    info.set_rally_offset(rally_offset);
+                    info.set_initially_built(initially_built);
                     info.set_object_id(object_id);
                     info.set_num_rebuilds(num_rebuilds);
+                    info.set_script(script);
+                    info.set_health(health);
+                    info.set_whiner(whiner);
+                    info.set_unsellable(unsellable);
+                    info.set_repairable(repairable);
+                    info.set_automatic_build(automatically_build);
                     info.set_object_timestamp(timestamp);
+                    info.resource_gatherers = resource_gatherers;
+                    info.set_supply_building(supply_building);
+                    info.set_desired_gatherers(desired_gatherers);
+                    info.set_current_gatherers(current_gatherers);
                     if priority {
                         info.mark_priority_build();
                     }
@@ -4035,6 +4295,36 @@ mod tests {
         assert_eq!(info.get_num_rebuilds(), BuildListInfo::UNLIMITED_REBUILDS);
         info.set_object_timestamp(1234);
         assert_eq!(info.get_object_timestamp(), 1234);
+        info.set_building_name("MainBase".to_string());
+        info.set_rally_offset(Point2D::new(3.0, 4.0));
+        info.set_initially_built(true);
+        info.set_script("BuildScript".to_string());
+        info.set_health(80);
+        info.set_whiner(false);
+        info.set_unsellable(true);
+        info.set_repairable(false);
+        info.set_automatic_build(false);
+        info.set_supply_building(true);
+        info.set_gatherer_id(0, 77);
+        info.set_desired_gatherers(4);
+        info.set_current_gatherers(2);
+        assert_eq!(info.get_building_name(), "MainBase");
+        assert_eq!(*info.get_rally_offset(), Point2D::new(3.0, 4.0));
+        assert!(info.is_initially_built());
+        assert_eq!(info.get_script(), "BuildScript");
+        assert_eq!(info.get_health(), 80);
+        assert!(!info.get_whiner());
+        assert!(info.get_unsellable());
+        assert!(!info.get_repairable());
+        assert!(!info.is_automatic_build());
+        assert!(info.is_supply_building());
+        assert_eq!(info.get_gatherer_id(0), 77);
+        assert_eq!(
+            info.get_gatherer_id(MAX_BUILD_LIST_RESOURCE_GATHERERS),
+            INVALID_OBJECT_ID
+        );
+        assert_eq!(info.get_desired_gatherers(), 4);
+        assert_eq!(info.get_current_gatherers(), 2);
 
         // Add priority build
         let location2 = Coord3D::new(150.0, 250.0, 0.0);
