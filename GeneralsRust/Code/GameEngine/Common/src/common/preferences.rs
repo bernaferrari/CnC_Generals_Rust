@@ -291,6 +291,12 @@ impl LadderPreferences {
             return false;
         }
 
+        self.rebuild_ladders_from_prefs();
+        true
+    }
+
+    fn rebuild_ladders_from_prefs(&mut self) {
+        self.ladders.clear();
         for (key, value) in self.prefs.entries() {
             let Some(split) = key.rfind(':') else {
                 continue;
@@ -298,9 +304,6 @@ impl LadderPreferences {
             let addr_raw = &key[..split];
             let port_raw = &key[split + 1..];
             let port = port_raw.parse::<u16>().unwrap_or(0);
-            if port == 0 || addr_raw.is_empty() {
-                continue;
-            }
             let address = quoted_printable_to_ascii_string(addr_raw);
 
             let Some(split) = value.rfind(':') else {
@@ -309,9 +312,6 @@ impl LadderPreferences {
             let name_raw = &value[..split];
             let time_raw = &value[split + 1..];
             let last_play_date = time_raw.parse::<i64>().unwrap_or(0);
-            if last_play_date == 0 || name_raw.is_empty() {
-                continue;
-            }
             let name = quoted_printable_to_unicode_string(name_raw);
             let pref = LadderPref {
                 name,
@@ -321,8 +321,6 @@ impl LadderPreferences {
             };
             self.ladders.insert(pref.last_play_date, pref);
         }
-
-        true
     }
 
     pub fn write(&mut self) -> bool {
@@ -939,6 +937,20 @@ mod tests {
         };
         prefs.add_recent_ladder(ladder);
         assert_eq!(prefs.get_recent_ladders().len(), 1);
+    }
+
+    #[test]
+    fn ladder_preferences_preserve_cpp_zero_fields() {
+        let mut prefs = LadderPreferences::new();
+        prefs.prefs.set_string(":0", ":0".to_string());
+
+        prefs.rebuild_ladders_from_prefs();
+
+        let ladder = prefs.get_recent_ladders().get(&0).unwrap();
+        assert_eq!(ladder.address, "");
+        assert_eq!(ladder.port, 0);
+        assert_eq!(ladder.name, "");
+        assert_eq!(ladder.last_play_date, 0);
     }
 
     #[test]
