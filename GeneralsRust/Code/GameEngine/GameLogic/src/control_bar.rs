@@ -3,8 +3,16 @@ use std::sync::{RwLock, RwLockReadGuard};
 
 use crate::command_button::{CommandButton, CommandButtonId, CommandSet, MAX_COMMANDS_PER_SET};
 use crate::common::types::ControlBarInterface;
+use crate::common::KindOf;
+use crate::object_manager::get_object_manager;
+use crate::player::player_list;
 use game_engine::common::ini::ini_command_button::get_control_bar;
 use game_engine::common::ini::ini_command_set::get_command_set_manager;
+use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::rts::{CommandSetHandle, PlayerHandle, ThingTemplateHandle};
+use game_engine::rts::academy_stats::{
+    set_academy_template_context_provider, AcademyTemplateContext,
+};
 use once_cell::sync::OnceCell;
 use std::sync::Arc;
 
@@ -135,6 +143,85 @@ pub fn refresh_control_bar_bridge_from_common() -> Result<(), String> {
 
 pub fn get_control_bar_bridge() -> Option<RwLockReadGuard<'static, ControlBarBridge>> {
     CONTROL_BAR_BRIDGE.get().and_then(|cell| cell.read().ok())
+}
+
+pub fn register_academy_template_context_provider() {
+    set_academy_template_context_provider(|player| find_academy_template_context(player));
+}
+
+fn find_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplateContext> {
+    if !player.is_valid() || player.value() > i32::MAX as u32 {
+        return None;
+    }
+
+    let player_index = player.value() as i32;
+    let player_arc = player_list()
+        .read()
+        .ok()
+        .and_then(|players| players.get_player(player_index).cloned())?;
+    let object_ids = get_object_manager()
+        .read()
+        .ok()?
+        .get_objects_owned_by_player(player.value());
+    let control_bar = get_control_bar_bridge()?;
+    let object_manager = get_object_manager();
+    let object_manager = object_manager.read().ok()?;
+
+    for object_id in object_ids {
+        let Some(object_arc) = object_manager.get_object(object_id) else {
+            continue;
+        };
+        let command_set_name = object_arc
+            .read()
+            .ok()
+            .and_then(|object| {
+                object
+                    .base
+                    .read()
+                    .ok()
+                    .map(|base| base.get_command_set_string().to_string())
+            })
+            .unwrap_or_default();
+        if command_set_name.is_empty() {
+            continue;
+        }
+
+        let Some(command_set) = control_bar.find_command_set_by_name(&command_set_name) else {
+            continue;
+        };
+        let mut context = AcademyTemplateContext {
+            dozer_command_set: CommandSetHandle::new(NameKeyGenerator::name_to_key(
+                command_set.name.as_str(),
+            )),
+            ..AcademyTemplateContext::default()
+        };
+
+        for index in 0..MAX_COMMANDS_PER_SET {
+            let Some(button) = command_set.get_command_button(index) else {
+                continue;
+            };
+            let Some(template) = button.get_thing_template() else {
+                continue;
+            };
+
+            if template.is_kind_of(KindOf::CommandCenter) {
+                context.command_center_template = ThingTemplateHandle::new(template.get_id());
+            } else if template.is_kind_of(KindOf::FSSupplyCenter) {
+                context.supply_center_template = ThingTemplateHandle::new(template.get_id());
+                context.supply_center_cost = player_arc
+                    .read()
+                    .ok()
+                    .map(|player| template.calc_cost_to_build(Some(&*player)).max(0) as u32)
+                    .unwrap_or_else(|| template.get_build_cost().max(0) as u32);
+            }
+        }
+
+        if context.command_center_template.is_valid() || context.supply_center_template.is_valid() {
+            return Some(context);
+        }
+    }
+
+    None
 }
 
 pub fn set_command_set_slot_override(
