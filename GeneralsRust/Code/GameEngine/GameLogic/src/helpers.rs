@@ -395,6 +395,10 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         Some(self.inner.get_buildable())
     }
 
+    fn get_production_prerequisites(&self) -> &[game_engine::common::rts::ProductionPrerequisite] {
+        self.inner.get_prereqs()
+    }
+
     fn get_threat_value(&self) -> UnsignedInt {
         self.inner.get_threat_value() as UnsignedInt
     }

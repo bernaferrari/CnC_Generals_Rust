@@ -2724,6 +2724,10 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_buildable_status(&self) -> Option<game_engine::common::thing::BuildableStatus> {
         None
     }
+    /// C++ ThingTemplate production prerequisites.
+    fn get_production_prerequisites(&self) -> &[game_engine::common::rts::ProductionPrerequisite] {
+        &[]
+    }
     /// C++ ThingTemplate::getThreatValue().
     fn get_threat_value(&self) -> UnsignedInt {
         0
@@ -3833,6 +3837,10 @@ impl ThingTemplate for Arc<DefaultThingTemplate> {
         (**self).get_buildable_status()
     }
 
+    fn get_production_prerequisites(&self) -> &[game_engine::common::rts::ProductionPrerequisite] {
+        (**self).get_production_prerequisites()
+    }
+
     fn get_threat_value(&self) -> UnsignedInt {
         (**self).get_threat_value()
     }
@@ -4066,6 +4074,10 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
 
     fn get_buildable_status(&self) -> Option<game_engine::common::thing::BuildableStatus> {
         (**self).get_buildable_status()
+    }
+
+    fn get_production_prerequisites(&self) -> &[game_engine::common::rts::ProductionPrerequisite] {
+        (**self).get_production_prerequisites()
     }
 
     fn get_threat_value(&self) -> UnsignedInt {
