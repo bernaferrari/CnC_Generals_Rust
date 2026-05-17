@@ -15,8 +15,9 @@
 //! - Squad system (hotkey squads and current selection)
 //! - Resource gathering management
 
-use crate::common::ini::get_rank_info_store;
 use crate::common::global_data;
+use crate::common::ini::get_rank_info_store;
+use crate::common::rts::player_template::PlayerTemplate;
 use crate::common::rts::{
     get_science_store, AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle,
     ProductionPrerequisite, Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
@@ -905,6 +906,33 @@ pub struct Player {
 }
 
 impl Player {
+    fn current_player_template(&self) -> Option<PlayerTemplate> {
+        let store = crate::common::rts::player_template::get_player_template_store();
+
+        if !self.player_name.is_empty() {
+            if let Some(template) = store.find_template(&self.player_name) {
+                return Some(template.clone());
+            }
+        }
+
+        if !self.side.is_empty() {
+            if let Some(template) = store.iter().find(|template| template.side == self.side) {
+                return Some(template.clone());
+            }
+        }
+
+        if !self.base_side.is_empty() {
+            if let Some(template) = store
+                .iter()
+                .find(|template| template.base_side == self.base_side)
+            {
+                return Some(template.clone());
+            }
+        }
+
+        None
+    }
+
     /// Create a new Player with the given index
     ///
     /// C++ Reference: Player::Player() (Player.cpp lines 193-250)
@@ -1203,7 +1231,10 @@ impl Player {
     pub fn reset_rank(&mut self) {
         self.rank_level = 1;
         self.skill_points = 0;
-        self.science_purchase_points = 0;
+        self.science_purchase_points = self
+            .current_player_template()
+            .map(|template| template.intrinsic_science_purchase_points.max(0))
+            .unwrap_or(0);
         self.sciences.clear();
 
         let rank_store = get_rank_info_store();
@@ -1215,17 +1246,19 @@ impl Player {
             self.level_down = 0;
 
             if let Some(rank) = rank_store.get_rank_info(self.rank_level) {
-                self.science_purchase_points = rank.science_purchase_points_granted as i32;
+                self.science_purchase_points += rank.science_purchase_points_granted as i32;
                 for &science in &rank.sciences_granted {
                     self.grant_science(science);
                 }
             }
 
+            self.reset_sciences();
             return;
         }
 
         self.level_up = 100;
         self.level_down = 0;
+        self.reset_sciences();
     }
 
     /// Reset sciences to just intrinsic ones from player template
@@ -1233,8 +1266,23 @@ impl Player {
     pub fn reset_sciences(&mut self) {
         self.sciences.clear();
 
-        // C++ lines 456-464: Would grant intrinsic sciences from player template
-        // For now, this is a no-op since we don't have PlayerTemplate access
+        if let Some(template) = self.current_player_template() {
+            if let Some(science_store) = get_science_store() {
+                for science_name in &template.intrinsic_sciences {
+                    let science = science_store.get_science_from_internal_name(science_name);
+                    self.grant_science(science);
+                }
+            }
+        }
+
+        let rank_store = get_rank_info_store();
+        for rank_level in 1..=self.rank_level {
+            if let Some(rank) = rank_store.get_rank_info(rank_level) {
+                for &science in &rank.sciences_granted {
+                    self.grant_science(science);
+                }
+            }
+        }
     }
 
     // =========================================================
@@ -1436,8 +1484,9 @@ impl Player {
     /// Check if this is a playable side
     /// C++ Reference: Player::isPlayableSide() (Player.cpp lines 3185-3190)
     pub fn is_playable_side(&self) -> bool {
-        // Would check player template - simplified
-        !self.observer && !self.side.is_empty()
+        self.current_player_template()
+            .map(|template| template.is_playable_side())
+            .unwrap_or(false)
     }
 
     /// Check if player preordered
@@ -2041,14 +2090,8 @@ impl Player {
     /// Complete rank reset to initial state
     /// C++ Reference: Player::resetRank() (Player.cpp lines 2142-2163)
     pub fn reset_rank_full(&mut self) {
-        self.rank_level = 1;
-        self.skill_points = 0;
-        self.level_up = 100; // Would get from RankInfo
-        self.level_down = 0;
-        self.sciences.clear();
-        self.science_purchase_points = 0; // Would get from player template
+        self.reset_rank();
         self.general_name = "General".to_string();
-        self.reset_sciences();
     }
 
     /// Get all sciences
@@ -2324,12 +2367,9 @@ impl Player {
     /// Reset sciences to default state
     /// C++ Reference: Player::resetSciences() (Player.cpp lines 2118-2140)
     pub fn reset_sciences_full(&mut self) {
-        self.sciences.clear();
         self.sciences_disabled.clear();
         self.sciences_hidden.clear();
-
-        // In full implementation, would grant intrinsic sciences from player template
-        // and rank sciences from RankInfo
+        self.reset_sciences();
     }
 
     // =========================================================
@@ -3055,7 +3095,8 @@ impl Snapshotable for Player {
         // C++ lines 3999-4003: xferScienceVec(&m_sciencesDisabled), xferScienceVec(&m_sciencesHidden)
         if version >= 8 {
             // Convert HashSet to Vec for xfer_science_vec
-            let mut disabled_vec: Vec<ScienceType> = self.sciences_disabled.iter().copied().collect();
+            let mut disabled_vec: Vec<ScienceType> =
+                self.sciences_disabled.iter().copied().collect();
             let mut hidden_vec: Vec<ScienceType> = self.sciences_hidden.iter().copied().collect();
 
             xfer.xfer_science_vec(&mut disabled_vec)
@@ -3195,7 +3236,8 @@ impl Snapshotable for Player {
                     }
                     // In C++, this resolves via TheTeamFactory->findTeamPrototypeByID
                     // Store as string representation since we don't have team factory
-                    self.team_prototypes.push(format!("team_proto_{}", dummy_id));
+                    self.team_prototypes
+                        .push(format!("team_proto_{}", dummy_id));
                 }
             }
             _ => {}
@@ -3296,11 +3338,7 @@ impl Snapshotable for Player {
                         .map_err(|e| format!("load build_list timestamp failed: {}", e))?;
 
                     // Attach to end of list (matching C++ behavior)
-                    let mut info = Box::new(BuildListInfo::new(
-                        name,
-                        Coord3D::new(x, y, z),
-                        angle,
-                    ));
+                    let mut info = Box::new(BuildListInfo::new(name, Coord3D::new(x, y, z), angle));
                     info.set_object_id(object_id);
                     info.set_num_rebuilds(num_rebuilds);
                     if priority {
@@ -3376,8 +3414,11 @@ impl Snapshotable for Player {
         // C++ lines 4219-4223: xferUser(&teamID, sizeof(TeamID))
         let mut team_id = self.default_team.unwrap_or(0);
         unsafe {
-            xfer.xfer_user(&mut team_id as *mut u32 as *mut u8, std::mem::size_of::<u32>())
-                .map_err(|e| format!("default_team xfer failed: {}", e))?;
+            xfer.xfer_user(
+                &mut team_id as *mut u32 as *mut u8,
+                std::mem::size_of::<u32>(),
+            )
+            .map_err(|e| format!("default_team xfer failed: {}", e))?;
         }
         if matches!(xfer.get_xfer_mode(), XferMode::Load) {
             self.default_team = if team_id != 0 { Some(team_id) } else { None };
