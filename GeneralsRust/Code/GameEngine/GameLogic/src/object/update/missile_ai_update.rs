@@ -337,10 +337,21 @@ impl MissileAIUpdate {
             return true;
         }
 
-        // Check if should collide with this specific object
-        if let Some(_other_id) = other {
-            // Would call: m_detonationWeaponTmpl->shouldProjectileCollideWith(...)
-            // Matches C++ lines 305-314
+        if let Some(other_id) = other {
+            if let Some(template) = self
+                .detonation_weapon_tmpl
+                .as_ref()
+                .and_then(|weak| weak.upgrade())
+            {
+                if !template.should_projectile_collide_with(
+                    self.launcher_id,
+                    self.object_id,
+                    other_id,
+                    self.victim_id,
+                ) {
+                    return true;
+                }
+            }
 
             // Special garrison kill logic
             // Matches C++ lines 316-352
@@ -1453,6 +1464,55 @@ mod tests {
         assert!(missile.projectile_handle_collision(None));
         assert_eq!(missile.state, MissileState::KillSelf);
         assert!(object
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::NoCollisions));
+
+        reset_game_logic_objects();
+    }
+
+    #[test]
+    fn projectile_collision_respects_weapon_collision_filter() {
+        let _guard = game_logic_test_guard();
+        reset_game_logic_objects();
+
+        let projectile = register_test_object(1012);
+        register_test_object(1013);
+        let (_weapon, weak_weapon) = test_weapon_template();
+        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let mut missile = MissileAIUpdate::new(data, 0);
+        missile.object_id = 1012;
+        missile.is_armed = true;
+        missile.detonation_weapon_tmpl = Some(weak_weapon);
+
+        assert!(missile.projectile_handle_collision(Some(1013)));
+        assert_eq!(missile.state, MissileState::PreLaunch);
+        assert!(!projectile
+            .read()
+            .unwrap()
+            .test_status(crate::common::ObjectStatusTypes::NoCollisions));
+
+        reset_game_logic_objects();
+    }
+
+    #[test]
+    fn projectile_collision_always_hits_intended_victim() {
+        let _guard = game_logic_test_guard();
+        reset_game_logic_objects();
+
+        let projectile = register_test_object(1014);
+        register_test_object(1015);
+        let (_weapon, weak_weapon) = test_weapon_template();
+        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let mut missile = MissileAIUpdate::new(data, 0);
+        missile.object_id = 1014;
+        missile.victim_id = 1015;
+        missile.is_armed = true;
+        missile.detonation_weapon_tmpl = Some(weak_weapon);
+
+        assert!(missile.projectile_handle_collision(Some(1015)));
+        assert_eq!(missile.state, MissileState::KillSelf);
+        assert!(projectile
             .read()
             .unwrap()
             .test_status(crate::common::ObjectStatusTypes::NoCollisions));
