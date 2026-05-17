@@ -111,14 +111,20 @@ pub fn popup_communicator_system(
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let state_handle = popup_communicator_state();
-            let guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            let mut guard = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             let button_ok_id = guard.button_ok_id.unwrap_or(0);
 
             if control_id == button_ok_id {
-                if let Some(layout) = window.get_layout() {
+                if let Some(parent) = guard.parent.as_ref() {
                     with_window_manager(|manager| {
-                        manager.destroy_layout(&layout);
+                        let _ = manager.unset_modal(parent);
                     });
+                }
+                let layout = window.get_layout();
+                guard.parent = None;
+                guard.button_ok = None;
+                if let Some(layout) = layout {
+                    with_window_manager(|manager| manager.destroy_layout(&layout));
                 }
             }
             WindowMsgHandled::Handled
