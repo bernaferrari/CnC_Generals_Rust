@@ -3663,6 +3663,76 @@ impl PlayerSupplyManager {
     }
 }
 
+// C++ parity: SupplyTruckAIUpdate saves its state machine, preferred dock,
+// carried box count, and force-wanting latch. The force-busy latch is transient
+// in the original class and is intentionally not serialized.
+impl Snapshotable for SupplyTruckAIUpdate {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+
+        let mut version: u8 = 1;
+        xfer_io(xfer.xfer_version(&mut version, 1))?;
+
+        if let Some(state_machine) = &mut self.state_machine {
+            state_machine
+                .machine
+                .lock()
+                .map_err(|_| "SupplyTruckStateMachine lock poisoned".to_string())?
+                .xfer(xfer)
+                .map_err(|e| e.to_string())?;
+            self.sync_state_from_machine();
+        } else {
+            let mut state_disc = supply_truck_state_to_id(self.state);
+            xfer_io(xfer.xfer_unsigned_int(&mut state_disc))?;
+            if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+                self.state = supply_truck_state_from_id(state_disc);
+            }
+        }
+
+        let mut preferred_dock = self.preferred_dock.unwrap_or(INVALID_ID);
+        xfer_io(xfer.xfer_unsigned_int(&mut preferred_dock))?;
+        if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+            self.preferred_dock = (preferred_dock != INVALID_ID).then_some(preferred_dock);
+        }
+
+        xfer_io(xfer.xfer_int(&mut self.number_boxes))?;
+        xfer_io(xfer.xfer_bool(&mut self.force_wanting_state))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+fn supply_truck_state_to_id(state: SupplyTruckState) -> u32 {
+    match state {
+        SupplyTruckState::Idle => ST_IDLE,
+        SupplyTruckState::Busy => ST_BUSY,
+        SupplyTruckState::Wanting => ST_WANTING,
+        SupplyTruckState::Regrouping => ST_REGROUPING,
+        SupplyTruckState::Docking => ST_DOCKING,
+    }
+}
+
+fn supply_truck_state_from_id(state_id: u32) -> SupplyTruckState {
+    match state_id {
+        ST_BUSY => SupplyTruckState::Busy,
+        ST_WANTING => SupplyTruckState::Wanting,
+        ST_REGROUPING => SupplyTruckState::Regrouping,
+        ST_DOCKING => SupplyTruckState::Docking,
+        _ => SupplyTruckState::Idle,
+    }
+}
+
 // C++ parity: WorkerAIUpdateModuleData and WorkerAIUpdate save/load
 impl Snapshotable for WorkerAIUpdateData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -3768,4 +3838,45 @@ impl Snapshotable for WorkerAIUpdate {
     }
 }
 
-// Mock-based tests removed to avoid mocks in fidelity-critical code.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::system::xfer_load::XferLoad;
+    use game_engine::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    #[test]
+    fn supply_truck_xfer_preserves_cpp_saved_fields() {
+        let data = SupplyTruckAIUpdateData {
+            max_boxes: 4,
+            ..Default::default()
+        };
+        let mut original = SupplyTruckAIUpdate::new(data.clone(), 42, 3);
+        original.state = SupplyTruckState::Docking;
+        original.number_boxes = 2;
+        original.preferred_dock = Some(9001);
+        original.force_wanting_state = true;
+        original.force_busy_state = true;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            original.xfer(&mut save).unwrap();
+        }
+
+        let mut loaded = SupplyTruckAIUpdate::new(data, 42, 3);
+        loaded.force_busy_state = false;
+        {
+            let cursor = Cursor::new(bytes.as_slice());
+            let mut load = XferLoad::new(cursor, 1);
+            loaded.xfer(&mut load).unwrap();
+        }
+
+        assert_eq!(loaded.state, SupplyTruckState::Docking);
+        assert_eq!(loaded.number_boxes, 2);
+        assert_eq!(loaded.preferred_dock, Some(9001));
+        assert!(loaded.force_wanting_state);
+        assert!(!loaded.force_busy_state);
+    }
+}
