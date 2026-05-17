@@ -5,10 +5,12 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use crate::ai::AiCommandParams;
+use crate::ai::states::AICommandParmsStorage;
+use crate::ai::{AiCommandParams, AiCommandType};
 use crate::common::CommandSourceType;
 use crate::common::{
-    Bool, Color, GameLogicRandomValueReal, Int, ObjectID, Real, UnsignedInt, VeterancyLevel,
+    Bool, Color, Coord3D, GameLogicRandomValueReal, Int, ObjectID, Real, UnsignedInt,
+    VeterancyLevel, INVALID_ID,
 };
 use crate::helpers::{
     game_client_random_value_real, TheAudio, TheGameLogic, TheGameText, TheInGameUI,
@@ -754,6 +756,133 @@ impl HackInternetAIUpdate {
     }
 }
 
+impl Snapshotable for HackInternetAIUpdate {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+
+        let mut version: u8 = 1;
+        xfer_io(xfer.xfer_version(&mut version, 1))?;
+
+        let mut state_id = hack_internet_state_id(self.state);
+        let mut frames_remaining = hack_internet_state_frames(self.state);
+        xfer_io(xfer.xfer_unsigned_int(&mut state_id))?;
+        xfer_io(xfer.xfer_unsigned_int(&mut frames_remaining))?;
+        if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+            self.state = hack_internet_state_from_xfer(state_id, frames_remaining);
+        }
+
+        let mut has_pending_command = self.pending_command.is_some();
+        xfer_io(xfer.xfer_bool(&mut has_pending_command))?;
+        if has_pending_command {
+            let mut storage = self
+                .pending_command
+                .as_ref()
+                .map(hack_internet_command_storage_from_params)
+                .unwrap_or_else(hack_internet_default_command_storage);
+            storage.do_xfer(xfer)?;
+            if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+                self.pending_command = Some(hack_internet_command_params_from_storage(&storage));
+            }
+        } else if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+            self.pending_command = None;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+fn hack_internet_state_id(state: HackInternetState) -> UnsignedInt {
+    match state {
+        HackInternetState::Idle => 0,
+        HackInternetState::Unpacking { .. } => 1,
+        HackInternetState::Hacking { .. } => 2,
+        HackInternetState::Packing { .. } => 3,
+    }
+}
+
+fn hack_internet_state_frames(state: HackInternetState) -> UnsignedInt {
+    match state {
+        HackInternetState::Idle => 0,
+        HackInternetState::Unpacking { frames_remaining }
+        | HackInternetState::Hacking { frames_remaining }
+        | HackInternetState::Packing { frames_remaining } => frames_remaining,
+    }
+}
+
+fn hack_internet_state_from_xfer(
+    state_id: UnsignedInt,
+    frames_remaining: UnsignedInt,
+) -> HackInternetState {
+    match state_id {
+        1 => HackInternetState::Unpacking { frames_remaining },
+        2 => HackInternetState::Hacking { frames_remaining },
+        3 => HackInternetState::Packing { frames_remaining },
+        _ => HackInternetState::Idle,
+    }
+}
+
+fn hack_internet_default_command_storage() -> AICommandParmsStorage {
+    AICommandParmsStorage {
+        cmd: AiCommandType::NoCommand,
+        cmd_source: CommandSourceType::FromAi,
+        pos: Coord3D::ZERO,
+        obj: INVALID_ID,
+        other_obj: INVALID_ID,
+        team_name: String::new(),
+        coords: Vec::new(),
+        waypoint: None,
+        polygon: None,
+        int_value: 0,
+        damage: crate::damage::DamageInfo::new(),
+        command_button: None,
+        command_button_name: String::new(),
+        path: None,
+    }
+}
+
+fn hack_internet_command_storage_from_params(params: &AiCommandParams) -> AICommandParmsStorage {
+    let mut storage = hack_internet_default_command_storage();
+    storage.cmd = params.cmd;
+    storage.cmd_source = params.cmd_source;
+    storage.pos = params.pos;
+    storage.obj = params.obj.unwrap_or(INVALID_ID);
+    storage.other_obj = params.other_obj.unwrap_or(INVALID_ID);
+    storage.team_name = params.team.clone().unwrap_or_default();
+    storage.coords = params.coords.clone();
+    storage.int_value = params.int_value;
+    storage
+}
+
+fn hack_internet_command_params_from_storage(storage: &AICommandParmsStorage) -> AiCommandParams {
+    let mut params = AiCommandParams::new(storage.cmd, storage.cmd_source);
+    params.pos = storage.pos;
+    if storage.obj != INVALID_ID {
+        params.obj = Some(storage.obj);
+    }
+    if storage.other_obj != INVALID_ID {
+        params.other_obj = Some(storage.other_obj);
+    }
+    if !storage.team_name.is_empty() {
+        params.team = Some(storage.team_name.clone());
+    }
+    params.coords = storage.coords.clone();
+    params.waypoint = storage.waypoint.as_ref().map(|waypoint| waypoint.id);
+    params.polygon = storage.polygon.as_ref().map(|polygon| polygon.get_id());
+    params.int_value = storage.int_value;
+    params
+}
+
 fn format_add_cash(amount: Int) -> String {
     let template = TheGameText::fetch("GUI:AddCash");
     if template.contains("%d") || template.contains("%i") {
@@ -780,6 +909,9 @@ impl HackInternetAIUpdateInterface for HackInternetAIUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::xfer_load::XferLoad;
+    use game_engine::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     fn parse_field(data: &mut HackInternetAIUpdateModuleData, token: &str, values: &[&str]) {
         let field = HACK_INTERNET_AI_UPDATE_FIELDS
@@ -829,5 +961,54 @@ mod tests {
         assert_eq!(data.elite_cash_amount, 7);
         assert_eq!(data.heroic_cash_amount, 8);
         assert_eq!(data.xp_per_cash_update, 9);
+    }
+
+    #[test]
+    fn hack_internet_xfer_preserves_pending_command_and_state_timer() {
+        let mut original = HackInternetAIUpdate::new(HackInternetAIUpdateData::default(), 77);
+        original.state = HackInternetState::Packing {
+            frames_remaining: 123,
+        };
+
+        let mut command =
+            AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromAi);
+        command.pos = Coord3D::new(12.0, 34.0, 56.0);
+        command.obj = Some(4321);
+        command.other_obj = Some(8765);
+        command.team = Some("Hackers".to_string());
+        command.coords = vec![Coord3D::new(1.0, 2.0, 3.0)];
+        command.int_value = 44;
+        original.pending_command = Some(command);
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            original.xfer(&mut save).unwrap();
+        }
+
+        let mut loaded = HackInternetAIUpdate::new(HackInternetAIUpdateData::default(), 77);
+        {
+            let cursor = Cursor::new(bytes.as_slice());
+            let mut load = XferLoad::new(cursor, 1);
+            loaded.xfer(&mut load).unwrap();
+        }
+
+        assert_eq!(
+            loaded.state,
+            HackInternetState::Packing {
+                frames_remaining: 123
+            }
+        );
+
+        let pending = loaded.pending_command.expect("pending command restored");
+        assert_eq!(pending.cmd, AiCommandType::MoveToPosition);
+        assert_eq!(pending.cmd_source, CommandSourceType::FromAi);
+        assert_eq!(pending.pos, Coord3D::new(12.0, 34.0, 56.0));
+        assert_eq!(pending.obj, Some(4321));
+        assert_eq!(pending.other_obj, Some(8765));
+        assert_eq!(pending.team.as_deref(), Some("Hackers"));
+        assert_eq!(pending.coords, vec![Coord3D::new(1.0, 2.0, 3.0)]);
+        assert_eq!(pending.int_value, 44);
     }
 }
