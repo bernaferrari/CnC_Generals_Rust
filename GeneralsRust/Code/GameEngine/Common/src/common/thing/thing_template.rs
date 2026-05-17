@@ -1296,6 +1296,12 @@ impl ThingTemplate {
     pub fn get_buildable(&self) -> BuildableStatus {
         self.buildable
     }
+    pub fn get_max_simultaneous_of_type(&self) -> u16 {
+        self.max_simultaneous_of_type
+    }
+    pub fn get_max_simultaneous_link_key(&self) -> NameKeyType {
+        self.max_simultaneous_link_key
+    }
 
     /// ThingTemplate.h line 520: `UnsignedInt getOcclusionDelay() const`
     pub fn get_occlusion_delay(&self) -> u32 {
