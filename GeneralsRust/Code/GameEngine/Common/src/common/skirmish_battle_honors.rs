@@ -97,15 +97,19 @@ impl SkirmishBattleHonors {
     }
 
     pub fn write(&mut self) -> bool {
+        self.sync_data();
+        self.write_file()
+    }
+
+    fn sync_data(&mut self) {
         self.set_int("Honors", self.honors as i32);
         self.set_int("Wins", self.wins);
         self.set_int("Losses", self.losses);
         self.set_int("WinStreak", self.win_streak);
         self.set_int("BestWinStreak", self.best_win_streak);
         let last_general = self.last_general.clone();
-        self.set_string("LastGeneral", &last_general);
-        self.set_int("NumGamesLoyal", self.num_games_loyal);
-        self.write_file()
+        self.set_string("LastHouse", &last_general);
+        self.set_int("LoyalGames", self.num_games_loyal);
     }
 
     pub fn get_honors(&self) -> u32 {
@@ -113,7 +117,7 @@ impl SkirmishBattleHonors {
     }
 
     pub fn set_honors(&mut self, honors: i32) {
-        self.honors = honors.max(0) as u32;
+        self.honors |= honors.max(0) as u32;
     }
 
     pub fn award_honor(&mut self, honor: u32) {
@@ -152,6 +156,38 @@ impl SkirmishBattleHonors {
         self.best_win_streak = best_win_streak;
     }
 
+    pub fn get_challenge_medals(&self) -> i32 {
+        self.get_int("Challenge", 0)
+    }
+
+    pub fn set_challenge_medals(&mut self, medals: i32) {
+        self.set_int("Challenge", medals);
+    }
+
+    pub fn built_scud(&self) -> bool {
+        self.get_bool("SCUD", false)
+    }
+
+    pub fn set_built_scud(&mut self) {
+        self.set_bool("SCUD", true);
+    }
+
+    pub fn built_particle_cannon(&self) -> bool {
+        self.get_bool("PPC", false)
+    }
+
+    pub fn set_built_particle_cannon(&mut self) {
+        self.set_bool("PPC", true);
+    }
+
+    pub fn built_nuke(&self) -> bool {
+        self.get_bool("Nuke", false)
+    }
+
+    pub fn set_built_nuke(&mut self) {
+        self.set_bool("Nuke", true);
+    }
+
     pub fn get_last_general(&self) -> String {
         self.last_general.clone()
     }
@@ -169,12 +205,11 @@ impl SkirmishBattleHonors {
     }
 
     pub fn get_china_campaign_complete(&self, difficulty: i32) -> bool {
-        self.get_bool(&format!("ChinaCampaign_{}", difficulty), false)
+        self.get_bool(&format!("CHINACampaign_{}", difficulty), false)
     }
 
     pub fn set_china_campaign_complete(&mut self, difficulty: i32) {
-        self.set_bool(&format!("ChinaCampaign_{}", difficulty), true);
-        self.award_honor(BATTLE_HONOR_CAMPAIGN_CHINA);
+        self.set_bool(&format!("CHINACampaign_{}", difficulty), true);
     }
 
     pub fn get_gla_campaign_complete(&self, difficulty: i32) -> bool {
@@ -183,7 +218,6 @@ impl SkirmishBattleHonors {
 
     pub fn set_gla_campaign_complete(&mut self, difficulty: i32) {
         self.set_bool(&format!("GLACampaign_{}", difficulty), true);
-        self.award_honor(BATTLE_HONOR_CAMPAIGN_GLA);
     }
 
     pub fn get_usa_campaign_complete(&self, difficulty: i32) -> bool {
@@ -192,7 +226,6 @@ impl SkirmishBattleHonors {
 
     pub fn set_usa_campaign_complete(&mut self, difficulty: i32) {
         self.set_bool(&format!("USACampaign_{}", difficulty), true);
-        self.award_honor(BATTLE_HONOR_CAMPAIGN_USA);
     }
 
     pub fn get_challenge_campaign_complete(&self, general_index: usize, difficulty: i32) -> bool {
@@ -207,11 +240,10 @@ impl SkirmishBattleHonors {
             return;
         }
         self.set_bool(&challenge_campaign_key(general_index, difficulty), true);
-        self.award_honor(BATTLE_HONOR_CHALLENGE_MODE);
     }
 
     pub fn get_endurance_medal(&self, map_name: &str, ai_difficulty: i32) -> i32 {
-        self.get_int(&format!("Endurance_{}_{}", map_name, ai_difficulty), 0)
+        self.get_int(&format!("{}_{}", map_name, ai_difficulty), 0)
     }
 
     pub fn set_endurance_medal(
@@ -220,10 +252,7 @@ impl SkirmishBattleHonors {
         ai_difficulty: i32,
         opponents_beaten: i32,
     ) {
-        self.set_int(
-            &format!("Endurance_{}_{}", map_name, ai_difficulty),
-            opponents_beaten,
-        );
+        self.set_int(&format!("{}_{}", map_name, ai_difficulty), opponents_beaten);
     }
 
     pub fn increment_endurance_medal(&mut self, map_name: &str, ai_difficulty: i32) {
@@ -238,8 +267,8 @@ impl SkirmishBattleHonors {
         self.losses = self.get_int("Losses", 0);
         self.win_streak = self.get_int("WinStreak", 0);
         self.best_win_streak = self.get_int("BestWinStreak", 0);
-        self.last_general = self.get_string("LastGeneral", "");
-        self.num_games_loyal = self.get_int("NumGamesLoyal", 0);
+        self.last_general = self.get_string("LastHouse", "");
+        self.num_games_loyal = self.get_int("LoyalGames", 0);
     }
 
     fn get_int(&self, key: &str, default: i32) -> i32 {
@@ -357,7 +386,7 @@ mod tests {
             Some(&"1".to_string())
         );
         assert!(!honors.data.contains_key("Challenge_3_2"));
-        assert_ne!(honors.get_honors() & BATTLE_HONOR_CHALLENGE_MODE, 0);
+        assert_eq!(honors.get_honors() & BATTLE_HONOR_CHALLENGE_MODE, 0);
     }
 
     #[test]
@@ -371,5 +400,46 @@ mod tests {
         assert!(!honors
             .data
             .contains_key(&challenge_campaign_key(MAX_GLOBAL_GENERAL_TYPES, 1)));
+    }
+
+    #[test]
+    fn skirmish_honor_profile_keys_match_cpp() {
+        let mut honors = SkirmishBattleHonors::new();
+        honors.clear();
+
+        honors.set_honors(BATTLE_HONOR_AIR_WING as i32);
+        honors.set_honors(BATTLE_HONOR_BATTLE_TANK as i32);
+        assert_ne!(honors.get_honors() & BATTLE_HONOR_AIR_WING, 0);
+        assert_ne!(honors.get_honors() & BATTLE_HONOR_BATTLE_TANK, 0);
+
+        honors.set_last_general("America".to_string());
+        honors.set_num_games_loyal(7);
+        honors.set_challenge_medals(3);
+        honors.set_built_scud();
+        honors.set_built_particle_cannon();
+        honors.set_built_nuke();
+        honors.set_china_campaign_complete(2);
+        honors.set_endurance_medal("Maps/Official/TournamentDesert.map", 1, 5);
+        honors.sync_data();
+
+        assert_eq!(honors.data.get("LastHouse"), Some(&"America".to_string()));
+        assert_eq!(honors.data.get("LoyalGames"), Some(&"7".to_string()));
+        assert_eq!(honors.get_challenge_medals(), 3);
+        assert!(honors.built_scud());
+        assert!(honors.built_particle_cannon());
+        assert!(honors.built_nuke());
+        assert!(honors.get_china_campaign_complete(2));
+        assert!(honors.data.contains_key("CHINACampaign_2"));
+        assert!(!honors.data.contains_key("ChinaCampaign_2"));
+        assert_eq!(
+            honors.get_endurance_medal("Maps/Official/TournamentDesert.map", 1),
+            5
+        );
+        assert!(honors
+            .data
+            .contains_key("Maps/Official/TournamentDesert.map_1"));
+        assert!(!honors
+            .data
+            .contains_key("Endurance_Maps/Official/TournamentDesert.map_1"));
     }
 }
