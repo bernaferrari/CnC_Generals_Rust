@@ -14,6 +14,7 @@ use std::time::Instant;
 
 use super::game_message::*;
 use super::message_stream::{take_emitted_messages, GameMessageDisposition, GameMessageTranslator};
+use super::player_state::get_local_player_id;
 use super::selection_xlat::SelectionTranslator;
 use super::translators::CommandTranslator;
 use crate::helpers::TheInGameUI;
@@ -215,7 +216,7 @@ impl InputProcessor {
     /// Port of C++ raw input message creation
     fn convert_input_to_messages(&mut self, event: InputEvent) -> Vec<GameMessage> {
         let mut messages = Vec::new();
-        let player_id = 0; // Would get from game state
+        let player_id = get_local_player_id();
 
         match event {
             InputEvent::MouseMove { x, y, timestamp } => {
@@ -698,6 +699,10 @@ pub struct InputProcessorStatistics {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::message_stream::player_state::set_local_player_id;
+    use std::sync::Mutex;
+
+    static LOCAL_PLAYER_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_input_processor_creation() {
@@ -721,6 +726,28 @@ mod tests {
 
         assert!(messages.len() >= 1);
         assert_eq!(processor.mouse_position(), (100.0, 200.0));
+    }
+
+    #[test]
+    fn test_input_messages_use_current_local_player_id() {
+        let _guard = LOCAL_PLAYER_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        set_local_player_id(3);
+        let mut processor = InputProcessor::with_default_config();
+
+        let messages = processor.process_input_event(InputEvent::MouseMove {
+            x: 64.0,
+            y: 96.0,
+            timestamp: Instant::now(),
+        });
+
+        assert!(!messages.is_empty());
+        assert!(messages
+            .iter()
+            .all(|message| message.get_player_index() == 3));
+
+        set_local_player_id(0);
     }
 
     #[test]
