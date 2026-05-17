@@ -497,9 +497,9 @@ impl ControlBarCommandProcessor {
             return false;
         };
 
-        let template_id: u16 = thing_template.get_name().len() as u16; // TODO: use real template ID when available
+        let template_id = thing_template.get_id();
         if let Ok(mut stream) = get_message_stream().write() {
-            stream.append_message(GameMessageType::QueueUnitCreate(template_id as u32));
+            stream.append_message(GameMessageType::QueueUnitCreate(template_id));
             return true;
         }
         false
