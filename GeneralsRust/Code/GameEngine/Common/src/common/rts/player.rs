@@ -2974,7 +2974,7 @@ impl Player {
         self.production_cost_changes
             .get(thing_name)
             .copied()
-            .unwrap_or(1.0)
+            .unwrap_or(0.0)
     }
 
     /// Set production time change for a thing
@@ -2988,7 +2988,7 @@ impl Player {
         self.production_time_changes
             .get(thing_name)
             .copied()
-            .unwrap_or(1.0)
+            .unwrap_or(0.0)
     }
 
     /// Get production cost change based on KindOf mask.
@@ -4528,8 +4528,9 @@ mod tests {
     fn test_production_changes() {
         let mut player = Player::new(0);
 
-        // Default cost is 1.0 (100%)
-        assert!((player.get_production_cost_change("SomeUnit") - 1.0).abs() < f32::EPSILON);
+        // Default percent change is 0.0; callers apply it as 1 + percent.
+        assert!((player.get_production_cost_change("SomeUnit") - 0.0).abs() < f32::EPSILON);
+        assert!((player.get_production_time_change("SomeUnit") - 0.0).abs() < f32::EPSILON);
 
         // Set production cost change (90% = 0.9)
         player.set_production_cost_change("SomeUnit".to_string(), 0.9);
