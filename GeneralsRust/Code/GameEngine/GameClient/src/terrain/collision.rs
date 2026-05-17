@@ -186,6 +186,38 @@ pub struct CollisionCell {
     pub properties: Vec<SurfaceProperties>,
 }
 
+impl CollisionCell {
+    fn sample_height_bilinear(&self, local_x: f32, local_y: f32) -> Option<f32> {
+        match self.height_samples.len() {
+            0 => None,
+            1 => self.height_samples.first().copied(),
+            len => {
+                let side = (len as f32).sqrt() as usize;
+                if side < 2 || side * side != len {
+                    return self.height_samples.first().copied();
+                }
+
+                let sample_x = local_x.clamp(0.0, 1.0) * (side - 1) as f32;
+                let sample_y = local_y.clamp(0.0, 1.0) * (side - 1) as f32;
+                let x0 = sample_x.floor() as usize;
+                let y0 = sample_y.floor() as usize;
+                let x1 = (x0 + 1).min(side - 1);
+                let y1 = (y0 + 1).min(side - 1);
+                let tx = sample_x - x0 as f32;
+                let ty = sample_y - y0 as f32;
+
+                let h00 = self.height_samples[y0 * side + x0];
+                let h10 = self.height_samples[y0 * side + x1];
+                let h01 = self.height_samples[y1 * side + x0];
+                let h11 = self.height_samples[y1 * side + x1];
+                let top = h00 + (h10 - h00) * tx;
+                let bottom = h01 + (h11 - h01) * tx;
+                Some(top + (bottom - top) * ty)
+            }
+        }
+    }
+}
+
 /// Triangle for collision detection
 #[derive(Debug, Clone)]
 pub struct CollisionTriangle {
@@ -581,7 +613,11 @@ impl CollisionGrid {
 
             // Fall back to height samples if available
             if !cell.height_samples.is_empty() {
-                return Some(cell.height_samples[0]); // Simplified - should interpolate
+                let local_x = (position.x - (self.origin.x + grid_pos.0 as f32 * self.cell_size))
+                    / self.cell_size;
+                let local_y = (position.y - (self.origin.y + grid_pos.1 as f32 * self.cell_size))
+                    / self.cell_size;
+                return cell.sample_height_bilinear(local_x, local_y);
             }
         }
 
@@ -960,6 +996,23 @@ mod tests {
         // Test material query
         let material = grid.query_material(Point2::new(10.0, 8.0));
         assert!(material.is_some());
+    }
+
+    #[test]
+    fn test_collision_grid_height_sample_bilinear_fallback() {
+        let mut grid = CollisionGrid::new(10.0, Point2::new(0.0, 0.0), (10, 10));
+        grid.cells.insert(
+            (0, 0),
+            CollisionCell {
+                triangles: Vec::new(),
+                height_samples: vec![0.0, 10.0, 20.0, 30.0],
+                materials: Vec::new(),
+                properties: Vec::new(),
+            },
+        );
+
+        let height = grid.query_height(Point2::new(5.0, 5.0));
+        assert_eq!(height, Some(15.0));
     }
 
     #[test]
