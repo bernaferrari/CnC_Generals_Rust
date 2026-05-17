@@ -7,12 +7,15 @@
 //! countermeasure resistance, and multi-stage flight patterns.
 
 use crate::common::{
-    Bool, Coord3D, KindOfMaskType, Matrix3D, ModuleData, ObjectID, ObjectStatusMaskType,
-    PathfindLayerEnum, Real, UnsignedInt, INVALID_ID, KIND_OF_MASK_NONE, MODELCONDITION_JAMMED,
+    kindof_from_name, Bool, Coord3D, KindOfMaskType, Matrix3D, ModuleData, ObjectID,
+    ObjectStatusMaskType, PathfindLayerEnum, Real, UnsignedInt, INVALID_ID, KIND_OF_MASK_ALL,
+    KIND_OF_MASK_NONE, MODELCONDITION_JAMMED, SECONDS_PER_LOGICFRAME_REAL,
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::effects::FXList;
-use crate::helpers::{get_game_logic_random_value_real, TheGameLogic, TheTerrainLogic};
+use crate::helpers::{
+    get_game_logic_random_value_real, TheFXListStore, TheGameLogic, TheTerrainLogic,
+};
 use crate::locomotor::BodyDamageType;
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, PhysicsBehaviorExt, ProjectileUpdateInterface,
@@ -25,6 +28,7 @@ use crate::player::CMD_FROM_AI;
 use crate::weapon::{WeaponSlotType, WeaponTemplate};
 use crate::GameLogicResult;
 use game_engine::common::ini::ini_particle_sys::ParticleSystemTemplate;
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
 use glam::Vec4;
 use std::sync::{Arc, Weak};
@@ -152,6 +156,218 @@ impl Default for MissileAIUpdateModuleData {
 }
 
 crate::impl_behavior_module_data_via_base!(MissileAIUpdateModuleData, base);
+
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Option<&'a str> {
+    tokens.iter().copied().find(|token| *token != "=")
+}
+
+fn parse_bool_field(
+    _ini: &mut INI,
+    setter: &mut dyn FnMut(Bool),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    setter(INI::parse_bool(value)?);
+    Ok(())
+}
+
+fn parse_real_field(
+    _ini: &mut INI,
+    setter: &mut dyn FnMut(Real),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    setter(INI::parse_real(value)?);
+    Ok(())
+}
+
+fn parse_velocity_field(
+    _ini: &mut INI,
+    setter: &mut dyn FnMut(Real),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    setter(INI::parse_real(value)? * SECONDS_PER_LOGICFRAME_REAL);
+    Ok(())
+}
+
+fn parse_duration_field(
+    _ini: &mut INI,
+    setter: &mut dyn FnMut(UnsignedInt),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    setter(INI::parse_duration_unsigned_int(value)?);
+    Ok(())
+}
+
+fn parse_unsigned_field(
+    _ini: &mut INI,
+    setter: &mut dyn FnMut(UnsignedInt),
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    setter(INI::parse_unsigned_int(value)?);
+    Ok(())
+}
+
+fn parse_kind_of_mask(label: &str, tokens: &[&str]) -> KindOfMaskType {
+    let mut mask = KIND_OF_MASK_NONE;
+    for token in tokens.iter().copied().filter(|token| *token != "=") {
+        if token == label || token.eq_ignore_ascii_case("NONE") {
+            continue;
+        }
+        if token.eq_ignore_ascii_case("ALL") {
+            return KIND_OF_MASK_ALL;
+        }
+
+        let normalized = token
+            .trim()
+            .trim_matches(',')
+            .strip_prefix("KINDOF_")
+            .or_else(|| token.trim().trim_matches(',').strip_prefix("KINDOF"))
+            .unwrap_or_else(|| token.trim().trim_matches(','));
+        if let Some(kind) = kindof_from_name(normalized) {
+            mask |= 1u64 << (kind as u32);
+        } else {
+            log::warn!("MissileAIUpdate.{} unknown KindOf token '{}'", label, token);
+        }
+    }
+    mask
+}
+
+fn parse_garrison_hit_kill_fx(
+    _ini: &mut INI,
+    data: &mut MissileAIUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    data.garrison_hit_kill_fx = TheFXListStore::lookup_fx_list(value);
+    if !value.eq_ignore_ascii_case("NONE") && data.garrison_hit_kill_fx.is_none() {
+        log::warn!("MissileAIUpdate: unresolved GarrisonHitKillFX '{}'", value);
+    }
+    Ok(())
+}
+
+fn parse_ignition_fx(
+    _ini: &mut INI,
+    data: &mut MissileAIUpdateModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
+    data.ignition_fx = TheFXListStore::lookup_fx_list(value);
+    if !value.eq_ignore_ascii_case("NONE") && data.ignition_fx.is_none() {
+        log::warn!("MissileAIUpdate: unresolved IgnitionFX '{}'", value);
+    }
+    Ok(())
+}
+
+const MISSILE_AI_UPDATE_FIELDS: &[FieldParse<MissileAIUpdateModuleData>] = &[
+    FieldParse {
+        token: "TryToFollowTarget",
+        parse: |ini, data, tokens| {
+            parse_bool_field(ini, &mut |v| data.try_to_follow_target = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "FuelLifetime",
+        parse: |ini, data, tokens| {
+            parse_duration_field(ini, &mut |v| data.fuel_lifetime = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "IgnitionDelay",
+        parse: |ini, data, tokens| {
+            parse_duration_field(ini, &mut |v| data.ignition_delay = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "InitialVelocity",
+        parse: |ini, data, tokens| {
+            parse_velocity_field(ini, &mut |v| data.initial_velocity = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "DistanceToTravelBeforeTurning",
+        parse: |ini, data, tokens| {
+            parse_real_field(ini, &mut |v| data.initial_distance = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "DistanceToTargetBeforeDiving",
+        parse: |ini, data, tokens| parse_real_field(ini, &mut |v| data.dive_distance = v, tokens),
+    },
+    FieldParse {
+        token: "DistanceToTargetForLock",
+        parse: |ini, data, tokens| parse_real_field(ini, &mut |v| data.lock_distance = v, tokens),
+    },
+    FieldParse {
+        token: "IgnitionFX",
+        parse: parse_ignition_fx,
+    },
+    FieldParse {
+        token: "UseWeaponSpeed",
+        parse: |ini, data, tokens| {
+            parse_bool_field(ini, &mut |v| data.use_weapon_speed = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "DetonateOnNoFuel",
+        parse: |ini, data, tokens| {
+            parse_bool_field(ini, &mut |v| data.detonate_on_no_fuel = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "DistanceScatterWhenJammed",
+        parse: |ini, data, tokens| {
+            parse_real_field(ini, &mut |v| data.distance_scatter_when_jammed = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "GarrisonHitKillRequiredKindOf",
+        parse: |_ini, data, tokens| {
+            data.garrison_hit_kill_kindof =
+                parse_kind_of_mask("GarrisonHitKillRequiredKindOf", tokens);
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "GarrisonHitKillForbiddenKindOf",
+        parse: |_ini, data, tokens| {
+            data.garrison_hit_kill_kindof_not =
+                parse_kind_of_mask("GarrisonHitKillForbiddenKindOf", tokens);
+            Ok(())
+        },
+    },
+    FieldParse {
+        token: "GarrisonHitKillCount",
+        parse: |ini, data, tokens| {
+            parse_unsigned_field(ini, &mut |v| data.garrison_hit_kill_count = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "GarrisonHitKillFX",
+        parse: parse_garrison_hit_kill_fx,
+    },
+    FieldParse {
+        token: "DetonateCallsKill",
+        parse: |ini, data, tokens| {
+            parse_bool_field(ini, &mut |v| data.detonate_calls_kill = v, tokens)
+        },
+    },
+    FieldParse {
+        token: "KillSelfDelay",
+        parse: |ini, data, tokens| {
+            parse_duration_field(ini, &mut |v| data.kill_self_delay = v, tokens)
+        },
+    },
+];
+
+impl MissileAIUpdateModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, MISSILE_AI_UPDATE_FIELDS)
+    }
+}
 
 /// Missile AI Update Module
 /// Matches C++ MissileAIUpdate class from MissileAIUpdate.cpp lines 97-127
@@ -1814,5 +2030,32 @@ mod tests {
         assert_eq!(loaded.frames_till_decoyed, saved.frames_till_decoyed);
         assert_eq!(loaded.no_damage, saved.no_damage);
         assert_eq!(loaded.is_jammed, saved.is_jammed);
+    }
+
+    #[test]
+    fn parses_missile_module_data_tokens() {
+        let mut data = MissileAIUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        parse_bool_field(
+            &mut ini,
+            &mut |value| data.try_to_follow_target = value,
+            &["No"],
+        )
+        .unwrap();
+        parse_duration_field(&mut ini, &mut |value| data.ignition_delay = value, &["1s"]).unwrap();
+        parse_velocity_field(
+            &mut ini,
+            &mut |value| data.initial_velocity = value,
+            &["30.0"],
+        )
+        .unwrap();
+        data.garrison_hit_kill_kindof =
+            parse_kind_of_mask("GarrisonHitKillRequiredKindOf", &["INFANTRY", "HERO"]);
+
+        assert!(!data.try_to_follow_target);
+        assert_eq!(data.ignition_delay, 30);
+        assert!((data.initial_velocity - 1.0).abs() < 0.001);
+        assert_ne!(data.garrison_hit_kill_kindof, KIND_OF_MASK_NONE);
     }
 }
