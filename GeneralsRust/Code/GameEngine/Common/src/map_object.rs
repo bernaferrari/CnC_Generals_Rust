@@ -79,6 +79,14 @@ impl MapObject {
         self.angle = normalize_angle(angle);
     }
 
+    pub fn set_location(&mut self, location: Coord3D) {
+        self.location = location;
+    }
+
+    pub fn get_flags(&self) -> u32 {
+        self.flags
+    }
+
     pub fn set_flag(&mut self, flag: u32) {
         self.flags |= flag;
     }
@@ -115,6 +123,18 @@ impl MapObject {
         (self.runtime_flags & MO_SCORCH) != 0
     }
 
+    pub fn set_is_light(&mut self) {
+        self.runtime_flags |= MO_LIGHT;
+    }
+
+    pub fn set_is_waypoint(&mut self) {
+        self.runtime_flags |= MO_WAYPOINT;
+    }
+
+    pub fn set_is_scorch(&mut self) {
+        self.runtime_flags |= MO_SCORCH;
+    }
+
     pub fn get_properties(&self) -> &std::collections::HashMap<String, String> {
         &self.properties
     }
@@ -131,12 +151,24 @@ impl MapObject {
         self.angle
     }
 
+    pub fn get_color(&self) -> i32 {
+        self.color
+    }
+
+    pub fn set_color(&mut self, color: i32) {
+        self.color = color;
+    }
+
     pub fn get_name(&self) -> &str {
         &self.object_name
     }
 
     pub fn set_name(&mut self, name: &str) {
         self.object_name = name.to_string();
+    }
+
+    pub fn duplicate(&self) -> Self {
+        self.clone()
     }
 }
 
@@ -146,4 +178,46 @@ fn normalize_angle(angle: f32) -> f32 {
         a += 360.0;
     }
     a
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_object_accessors_match_cpp_flags() {
+        let mut object = MapObject::new(
+            Coord3D::new(1.0, 2.0, 3.0),
+            "WaypointObject",
+            -90.0,
+            FLAG_ROAD_POINT1,
+        );
+
+        object.set_angle(-90.0);
+        assert_eq!(object.get_angle(), 270.0);
+        object.set_location(Coord3D::new(4.0, 5.0, 6.0));
+        assert_eq!(object.get_location().x, 4.0);
+
+        object.set_flag(FLAG_BRIDGE_POINT2);
+        assert!(object.get_flag(FLAG_ROAD_POINT1));
+        assert!(object.get_flag(FLAG_BRIDGE_POINT2));
+        object.clear_flag(FLAG_ROAD_POINT1);
+        assert_eq!(object.get_flags(), FLAG_BRIDGE_POINT2);
+
+        object.set_color(0x123456);
+        object.set_selected(true);
+        object.set_is_light();
+        object.set_is_waypoint();
+        object.set_is_scorch();
+        assert_eq!(object.get_color(), 0x123456);
+        assert!(object.is_selected());
+        assert!(object.is_light());
+        assert!(object.is_waypoint());
+        assert!(object.is_scorch());
+
+        let duplicate = object.duplicate();
+        assert_eq!(duplicate.get_name(), "WaypointObject");
+        assert_eq!(duplicate.get_flags(), object.get_flags());
+        assert_eq!(duplicate.runtime_flags, object.runtime_flags);
+    }
 }
