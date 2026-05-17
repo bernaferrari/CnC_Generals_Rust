@@ -7,14 +7,15 @@
 //! countermeasure resistance, and multi-stage flight patterns.
 
 use crate::common::{
-    kindof_from_name, Bool, Coord3D, KindOfMaskType, Matrix3D, ModuleData, ObjectID,
+    kindof_from_name, AsciiString, Bool, Coord3D, KindOfMaskType, Matrix3D, ModuleData, ObjectID,
     ObjectStatusMaskType, PathfindLayerEnum, Real, UnsignedInt, INVALID_ID, KIND_OF_MASK_ALL,
     KIND_OF_MASK_NONE, MODELCONDITION_JAMMED, SECONDS_PER_LOGICFRAME_REAL,
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::effects::FXList;
 use crate::helpers::{
-    get_game_logic_random_value_real, TheFXListStore, TheGameLogic, TheTerrainLogic,
+    get_game_logic_random_value_real, TheFXListStore, TheGameLogic, TheParticleSystemManager,
+    TheTerrainLogic,
 };
 use crate::locomotor::BodyDamageType;
 use crate::modules::{
@@ -35,6 +36,7 @@ use std::sync::{Arc, Weak};
 
 const BIGNUM: Real = 99999.0;
 const APPROACH_HEIGHT: Real = 10.0;
+const INVALID_PARTICLE_SYSTEM_ID: UnsignedInt = 0;
 
 fn terrain_layer_to_logic_layer(layer: crate::path::PathfindLayerEnum) -> PathfindLayerEnum {
     match layer {
@@ -457,7 +459,7 @@ impl MissileAIUpdate {
             detonation_weapon_tmpl: None,
             exhaust_sys_tmpl: None,
             is_tracking_target: false,
-            exhaust_id: INVALID_ID,
+            exhaust_id: INVALID_PARTICLE_SYSTEM_ID,
             extra_bonus_flags: crate::common::types::WeaponBonusConditionFlags::none(),
             original_target_pos: Coord3D::new(0.0, 0.0, 0.0),
             frames_till_decoyed: 0,
@@ -473,6 +475,49 @@ impl MissileAIUpdate {
             self.state = new_state;
             self.state_timestamp = current_frame;
         }
+    }
+
+    fn exhaust_template_name(&self) -> String {
+        self.exhaust_sys_tmpl
+            .as_ref()
+            .map(|template| template.name.as_str().to_string())
+            .unwrap_or_default()
+    }
+
+    fn restore_exhaust_template_by_name(&mut self, name: String) {
+        if name.is_empty() || self.exhaust_sys_tmpl.is_some() {
+            return;
+        }
+        self.exhaust_sys_tmpl = Some(Arc::new(ParticleSystemTemplate::new(AsciiString::from(
+            name.as_str(),
+        ))));
+    }
+
+    fn create_exhaust(&mut self) {
+        if self.exhaust_id != INVALID_PARTICLE_SYSTEM_ID {
+            return;
+        }
+        let Some(template) = self.exhaust_sys_tmpl.as_ref() else {
+            return;
+        };
+        let Some(manager) = TheParticleSystemManager::get() else {
+            return;
+        };
+        if let Some(id) =
+            manager.create_attached_particle_system_id(Some(template.name.as_str()), self.object_id)
+        {
+            self.exhaust_id = id;
+        }
+    }
+
+    fn toss_exhaust(&mut self) {
+        if self.exhaust_id == INVALID_PARTICLE_SYSTEM_ID {
+            return;
+        }
+        if let Some(manager) = TheParticleSystemManager::get() {
+            manager.destroy_particle_system(self.exhaust_id);
+        }
+        self.exhaust_id = INVALID_PARTICLE_SYSTEM_ID;
     }
 
     /// Launch missile at object or position
@@ -922,10 +967,7 @@ impl MissileAIUpdate {
         // Play ignition FX
         // FXList::doFXObj(d->m_ignitionFX, getObject());
 
-        // Create exhaust particle system
-        // if (m_exhaustSysTmpl != NULL) {
-        //     m_exhaustID = TheParticleSystemManager->createAttachedParticleSystemID(...)
-        // }
+        self.create_exhaust();
 
         // Arm the warhead
         self.is_armed = true;
@@ -952,7 +994,7 @@ impl MissileAIUpdate {
             }
 
             self.set_locomotor_acceleration_and_turn(0.0, 0.0);
-            // Toss exhaust
+            self.toss_exhaust();
         } else {
             self.set_locomotor_acceleration_and_turn(
                 self.max_accel,
@@ -1586,6 +1628,9 @@ impl Snapshotable for MissileAIUpdate {
         let mut max_accel = self.max_accel;
         xfer.xfer_real(&mut max_accel)
             .map_err(|e| format!("MissileAIUpdate crc max_accel: {:?}", e))?;
+        let mut exhaust_name = self.exhaust_template_name();
+        xfer.xfer_ascii_string(&mut exhaust_name)
+            .map_err(|e| format!("MissileAIUpdate crc exhaust_name: {:?}", e))?;
         let mut is_tracking_target = self.is_tracking_target;
         xfer.xfer_bool(&mut is_tracking_target)
             .map_err(|e| format!("MissileAIUpdate crc is_tracking_target: {:?}", e))?;
@@ -1654,6 +1699,12 @@ impl Snapshotable for MissileAIUpdate {
             .map_err(|e| format!("MissileAIUpdate xfer prev_pos.z: {:?}", e))?;
         xfer.xfer_real(&mut self.max_accel)
             .map_err(|e| format!("MissileAIUpdate xfer max_accel: {:?}", e))?;
+        let mut exhaust_name = self.exhaust_template_name();
+        xfer.xfer_ascii_string(&mut exhaust_name)
+            .map_err(|e| format!("MissileAIUpdate xfer exhaust_name: {:?}", e))?;
+        if xfer.is_reading() {
+            self.restore_exhaust_template_by_name(exhaust_name);
+        }
         xfer.xfer_bool(&mut self.is_tracking_target)
             .map_err(|e| format!("MissileAIUpdate xfer is_tracking_target: {:?}", e))?;
         let mut extra_bonus_flags = self.extra_bonus_flags.bits();
@@ -2007,6 +2058,9 @@ mod tests {
         saved.extra_bonus_flags = crate::common::types::WeaponBonusConditionFlags::GARRISONED
             | crate::common::types::WeaponBonusConditionFlags::FRENZY_TWO;
         saved.exhaust_id = 99;
+        saved.exhaust_sys_tmpl = Some(Arc::new(ParticleSystemTemplate::new(AsciiString::from(
+            "TestMissileExhaust",
+        ))));
         saved.original_target_pos = Coord3D::new(1.0, 2.0, 3.0);
         saved.frames_till_decoyed = 123;
         saved.no_damage = true;
@@ -2027,9 +2081,21 @@ mod tests {
 
         assert_eq!(loaded.extra_bonus_flags, saved.extra_bonus_flags);
         assert_eq!(loaded.exhaust_id, saved.exhaust_id);
+        assert_eq!(loaded.exhaust_template_name(), "TestMissileExhaust");
         assert_eq!(loaded.frames_till_decoyed, saved.frames_till_decoyed);
         assert_eq!(loaded.no_damage, saved.no_damage);
         assert_eq!(loaded.is_jammed, saved.is_jammed);
+    }
+
+    #[test]
+    fn toss_exhaust_invalidates_id_without_manager() {
+        let data = Arc::new(MissileAIUpdateModuleData::default());
+        let mut missile = MissileAIUpdate::new(data, 0);
+        missile.exhaust_id = 44;
+
+        missile.toss_exhaust();
+
+        assert_eq!(missile.exhaust_id, INVALID_PARTICLE_SYSTEM_ID);
     }
 
     #[test]
