@@ -20,8 +20,9 @@ use crate::common::ini::get_rank_info_store;
 use crate::common::rts::player_template::PlayerTemplate;
 use crate::common::rts::resource_gathering_manager::{ResourceGatheringManager, ResourceWorld};
 use crate::common::rts::{
-    get_science_store, AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle,
-    ProductionPrerequisite, Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
+    get_science_store, AcademyStats, Energy, Handicap, MissionStats, Money, NameKeyType,
+    PlayerHandle, ProductionPrerequisite, Relationship, ScienceType, ScoreKeeper, TeamID,
+    SCIENCE_INVALID,
 };
 use crate::common::system::{
     kind_of::KindOfMask, Point2D, Snapshotable, Xfer, XferMode, XferVersion,
@@ -40,6 +41,104 @@ pub const INVALID_OBJECT_ID: ObjectID = 0xFFFFFFFF;
 pub const NO_HOTKEY_SQUAD: i32 = -1;
 
 const MAX_BUILD_LIST_RESOURCE_GATHERERS: usize = 10;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildLimitTemplateInfo {
+    name: String,
+    max_simultaneous_of_type: u32,
+    max_simultaneous_link_key: NameKeyType,
+    is_structure: bool,
+}
+
+impl BuildLimitTemplateInfo {
+    pub fn new(
+        name: impl Into<String>,
+        max_simultaneous_of_type: u32,
+        max_simultaneous_link_key: NameKeyType,
+        is_structure: bool,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            max_simultaneous_of_type,
+            max_simultaneous_link_key,
+            is_structure,
+        }
+    }
+
+    pub fn from_thing_template(template: &ThingTemplate) -> Self {
+        Self::new(
+            template.get_name().as_str(),
+            template.get_max_simultaneous_of_type() as u32,
+            template.get_max_simultaneous_link_key(),
+            template.is_kind_of(KindOfMask::STRUCTURE.bits() as u64),
+        )
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn max_simultaneous_of_type(&self) -> u32 {
+        self.max_simultaneous_of_type
+    }
+
+    pub fn max_simultaneous_link_key(&self) -> NameKeyType {
+        self.max_simultaneous_link_key
+    }
+
+    pub fn is_structure(&self) -> bool {
+        self.is_structure
+    }
+
+    fn matches_template(&self, other: &BuildLimitTemplateInfo) -> bool {
+        self.name == other.name
+            || (self.max_simultaneous_link_key != 0
+                && self.max_simultaneous_link_key == other.max_simultaneous_link_key)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildLimitObjectInfo {
+    template: BuildLimitTemplateInfo,
+    effectively_dead: bool,
+    queued_units: Vec<BuildLimitTemplateInfo>,
+}
+
+impl BuildLimitObjectInfo {
+    pub fn new(template: BuildLimitTemplateInfo) -> Self {
+        Self {
+            template,
+            effectively_dead: false,
+            queued_units: Vec::new(),
+        }
+    }
+
+    pub fn effectively_dead(mut self, effectively_dead: bool) -> Self {
+        self.effectively_dead = effectively_dead;
+        self
+    }
+
+    pub fn with_queued_units(mut self, queued_units: Vec<BuildLimitTemplateInfo>) -> Self {
+        self.queued_units = queued_units;
+        self
+    }
+
+    pub fn template(&self) -> &BuildLimitTemplateInfo {
+        &self.template
+    }
+
+    pub fn is_effectively_dead(&self) -> bool {
+        self.effectively_dead
+    }
+
+    pub fn queued_units(&self) -> &[BuildLimitTemplateInfo] {
+        &self.queued_units
+    }
+}
+
+pub trait BuildLimitWorld {
+    fn build_limit_objects_for_player(&self, player_index: i32) -> Vec<BuildLimitObjectInfo>;
+}
 
 // =========================================================
 // Forward Declarations / Trait Definitions
@@ -1957,8 +2056,51 @@ impl Player {
         if max_simultaneous == 0 {
             return true;
         }
-        // Would count existing units and queued units
-        // Simplified: assume can build
+        true
+    }
+
+    /// Check max-simultaneous limits against typed object-world data.
+    ///
+    /// This matches C++ `Player::canBuildMoreOfType`: live owned objects count
+    /// by equivalent template name or shared MaxSimultaneousLinkKey, and
+    /// non-structure templates also count queued unit production.
+    pub fn can_build_more_of_template_with_world<W: BuildLimitWorld>(
+        &self,
+        template: &BuildLimitTemplateInfo,
+        world: &W,
+    ) -> bool {
+        let max_simultaneous = template.max_simultaneous_of_type();
+        if max_simultaneous == 0 {
+            return true;
+        }
+
+        let check_production_queue = !template.is_structure();
+        let mut count = 0u32;
+
+        for object in world.build_limit_objects_for_player(self.index) {
+            if object.is_effectively_dead() {
+                continue;
+            }
+
+            if template.matches_template(object.template()) {
+                count += 1;
+                if count >= max_simultaneous {
+                    return false;
+                }
+            }
+
+            if check_production_queue {
+                for queued_template in object.queued_units() {
+                    if template.matches_template(queued_template) {
+                        count += 1;
+                        if count >= max_simultaneous {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
         true
     }
 
@@ -4249,6 +4391,29 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct TestBuildLimitWorld {
+        objects_by_player: HashMap<i32, Vec<BuildLimitObjectInfo>>,
+    }
+
+    impl TestBuildLimitWorld {
+        fn add_object(&mut self, player_index: i32, object: BuildLimitObjectInfo) {
+            self.objects_by_player
+                .entry(player_index)
+                .or_default()
+                .push(object);
+        }
+    }
+
+    impl BuildLimitWorld for TestBuildLimitWorld {
+        fn build_limit_objects_for_player(&self, player_index: i32) -> Vec<BuildLimitObjectInfo> {
+            self.objects_by_player
+                .get(&player_index)
+                .cloned()
+                .unwrap_or_default()
+        }
+    }
+
     #[test]
     fn test_player_creation() {
         let player = Player::new(3);
@@ -4585,6 +4750,66 @@ mod tests {
         player.add_to_current_selection(6);
         player.clear_current_selection();
         assert!(player.get_current_selection().is_empty());
+    }
+
+    #[test]
+    fn player_build_limit_counts_live_objects_and_linked_templates() {
+        let player = Player::new(2);
+        let target = BuildLimitTemplateInfo::new("AmericaParticleCannonUplink", 2, 777, true);
+        let same_link = BuildLimitTemplateInfo::new("ChinaNuclearMissileLauncher", 1, 777, true);
+        let dead_same_name = BuildLimitObjectInfo::new(BuildLimitTemplateInfo::new(
+            "AmericaParticleCannonUplink",
+            1,
+            0,
+            true,
+        ))
+        .effectively_dead(true);
+
+        let mut world = TestBuildLimitWorld::default();
+        world.add_object(2, BuildLimitObjectInfo::new(target.clone()));
+        world.add_object(2, BuildLimitObjectInfo::new(same_link));
+        world.add_object(2, dead_same_name);
+        world.add_object(3, BuildLimitObjectInfo::new(target.clone()));
+
+        assert!(!player.can_build_more_of_template_with_world(&target, &world));
+    }
+
+    #[test]
+    fn player_build_limit_counts_queued_units_only_for_non_structures() {
+        let player = Player::new(1);
+        let tank = BuildLimitTemplateInfo::new("AmericaTank", 2, 900, false);
+        let linked_tank = BuildLimitTemplateInfo::new("AmericaTankVariant", 1, 900, false);
+        let factory = BuildLimitTemplateInfo::new("AmericaWarFactory", 0, 0, true);
+
+        let mut world = TestBuildLimitWorld::default();
+        world.add_object(
+            1,
+            BuildLimitObjectInfo::new(factory).with_queued_units(vec![tank.clone(), linked_tank]),
+        );
+
+        assert!(!player.can_build_more_of_template_with_world(&tank, &world));
+
+        let structure = BuildLimitTemplateInfo::new("AmericaStrategyCenter", 2, 1200, true);
+        let linked_structure =
+            BuildLimitTemplateInfo::new("AmericaStrategyCenterAlt", 1, 1200, true);
+        let mut structure_world = TestBuildLimitWorld::default();
+        structure_world.add_object(
+            1,
+            BuildLimitObjectInfo::new(BuildLimitTemplateInfo::new("AmericaDozer", 0, 0, false))
+                .with_queued_units(vec![structure.clone(), linked_structure]),
+        );
+
+        assert!(player.can_build_more_of_template_with_world(&structure, &structure_world));
+    }
+
+    #[test]
+    fn player_build_limit_zero_max_is_unlimited() {
+        let player = Player::new(0);
+        let unlimited = BuildLimitTemplateInfo::new("AmericaRanger", 0, 0, false);
+        let mut world = TestBuildLimitWorld::default();
+        world.add_object(0, BuildLimitObjectInfo::new(unlimited.clone()));
+
+        assert!(player.can_build_more_of_template_with_world(&unlimited, &world));
     }
 
     #[test]
