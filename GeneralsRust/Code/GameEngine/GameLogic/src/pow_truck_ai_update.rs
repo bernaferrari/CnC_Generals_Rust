@@ -105,7 +105,7 @@ fn parse_bored_time(
     data: &mut POWTruckAIUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
+    let Some(token) = first_non_equals(tokens) else {
         return Err(INIError::InvalidData);
     };
     data.base.bored_time_in_frames = INI::parse_duration_unsigned_int(token)?;
@@ -118,11 +118,16 @@ fn parse_hang_around_distance(
     data: &mut POWTruckAIUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let Some(token) = tokens.first().copied() else {
+    let Some(token) = first_non_equals(tokens) else {
         return Err(INIError::InvalidData);
     };
     data.base.hang_around_prison_distance = INI::parse_real(token)?;
     Ok(())
+}
+
+#[cfg(feature = "allow_surrender")]
+fn first_non_equals<'a>(tokens: &'a [&'a str]) -> Option<&'a str> {
+    tokens.iter().copied().find(|token| *token != "=")
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -136,6 +141,31 @@ const POW_TRUCK_AI_UPDATE_FIELDS: &[FieldParse<POWTruckAIUpdateModuleData>] = &[
         parse: parse_hang_around_distance,
     },
 ];
+
+#[cfg(all(test, feature = "allow_surrender"))]
+mod tests {
+    use super::*;
+
+    fn parse_field(data: &mut POWTruckAIUpdateModuleData, token: &str, values: &[&str]) {
+        let field = POW_TRUCK_AI_UPDATE_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
+    #[test]
+    fn pow_truck_fields_accept_ini_equals_token() {
+        let mut data = POWTruckAIUpdateModuleData::default();
+
+        parse_field(&mut data, "BoredTime", &["=", "1500"]);
+        parse_field(&mut data, "AtPrisonDistance", &["=", "23.5"]);
+
+        assert_eq!(data.base.bored_time_in_frames, 45);
+        assert_eq!(data.base.hang_around_prison_distance, 23.5);
+    }
+}
 
 /// Module wrapper for POWTruckAIUpdate to align with module system expectations.
 #[cfg(feature = "allow_surrender")]
