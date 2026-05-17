@@ -2795,6 +2795,7 @@ impl Player {
         }
 
         let link_key = template.get_max_simultaneous_link_key();
+        let check_production_queue = !template.is_kind_of(crate::common::KindOf::Structure);
         let mut count = 0u32;
         for &object_id in &self.owned_objects {
             let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
@@ -2815,6 +2816,41 @@ impl Player {
                 count += 1;
                 if count >= max_simultaneous {
                     return false;
+                }
+            }
+
+            if check_production_queue {
+                let Some(production_behavior) = object_guard.get_production_update_interface()
+                else {
+                    continue;
+                };
+                let Ok(mut behavior_guard) = production_behavior.lock() else {
+                    continue;
+                };
+                let Some(production) = behavior_guard.get_production_update_interface() else {
+                    continue;
+                };
+
+                for entry in production.get_queue_entries() {
+                    if entry.production_type
+                        != crate::object::production::queue::ProductionType::Unit
+                    {
+                        continue;
+                    }
+                    let Some(queued_template) =
+                        crate::helpers::TheThingFactory::find_template(&entry.template_name)
+                    else {
+                        continue;
+                    };
+                    if template.is_equivalent_to(queued_template.as_ref())
+                        || (link_key != 0
+                            && link_key == queued_template.get_max_simultaneous_link_key())
+                    {
+                        count += 1;
+                        if count >= max_simultaneous {
+                            return false;
+                        }
+                    }
                 }
             }
         }
