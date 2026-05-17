@@ -964,8 +964,11 @@ impl MissileAIUpdate {
         // curLoco->setMaxAcceleration(m_maxAccel);
         // curLoco->setMaxTurnRate(0);
 
-        // Play ignition FX
-        // FXList::doFXObj(d->m_ignitionFX, getObject());
+        if let Some(fx) = &self.data.ignition_fx {
+            if let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) {
+                let _ = fx.do_fx_obj(&object_arc, None);
+            }
+        }
 
         self.create_exhaust();
 
