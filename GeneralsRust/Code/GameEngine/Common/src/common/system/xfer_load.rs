@@ -233,8 +233,17 @@ impl<R: Read> Xfer for XferLoad<R> {
     }
 
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
-        // For now, treat unicode same as ASCII (UTF-8)
-        self.xfer_ascii_string(unicode_string_data)
+        let mut len = 0u8;
+        self.xfer_unsigned_byte(&mut len)?;
+        let mut units = Vec::with_capacity(len as usize);
+        for _ in 0..len {
+            let mut bytes = [0u8; 2];
+            self.reader.read_exact(&mut bytes)?;
+            units.push(u16::from_le_bytes(bytes));
+        }
+        *unicode_string_data = String::from_utf16(&units)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "Invalid UTF-16"))?;
+        Ok(())
     }
 
     /// # Safety
@@ -245,5 +254,22 @@ impl<R: Read> Xfer for XferLoad<R> {
         self.reader.read_exact(slice)?;
         self.bytes_read += data_size as u64;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn unicode_string_reads_cpp_wide_char_layout() {
+        let bytes = vec![3, 0x41, 0x00, 0xdf, 0x00, 0x22, 0x6f];
+        let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+        let mut value = String::new();
+
+        xfer.xfer_unicode_string(&mut value).unwrap();
+
+        assert_eq!(value, "A\u{00df}\u{6f22}");
     }
 }

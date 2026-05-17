@@ -31,6 +31,12 @@ fn fold_crc_bytes(mut crc: u32, data: &[u8]) -> u32 {
     crc
 }
 
+fn utf16_le_bytes(data: &str) -> Vec<u8> {
+    data.encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>()
+}
+
 /// CRC accumulator that tracks cumulative hash
 pub struct XferCRC<X: Xfer> {
     #[allow(dead_code)] // C++ parity: inner Xfer is stored for potential future delegation
@@ -244,7 +250,7 @@ impl<X: Xfer> Xfer for XferCRC<X> {
     }
 
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
-        self.update_crc(unicode_string_data.as_bytes());
+        self.update_crc(&utf16_le_bytes(unicode_string_data));
         Ok(())
     }
 
@@ -321,7 +327,22 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
     }
 
     fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> io::Result<()> {
-        self.inner.xfer_unicode_string(unicode_string_data)
+        let utf16 = utf16_le_bytes(unicode_string_data);
+        let units = utf16.len() / 2;
+        if units > 255 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "XferDeepCRC unicode string too long (max 255)",
+            ));
+        }
+        let mut len = units as u8;
+        self.xfer_unsigned_byte(&mut len)?;
+        if !utf16.is_empty() {
+            unsafe {
+                self.xfer_implementation(utf16.as_ptr() as *mut u8, utf16.len())?;
+            }
+        }
+        Ok(())
     }
 
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
