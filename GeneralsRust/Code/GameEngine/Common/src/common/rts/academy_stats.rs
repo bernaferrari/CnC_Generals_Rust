@@ -93,6 +93,8 @@ pub struct AcademyStats {
     dozer_command_set: CommandSetHandle,
     /// Whether the side is unknown
     unknown_side: bool,
+    /// Cached template base side for faction-specific advice.
+    base_side: String,
     /// Command center template for this player's faction
     command_center_template: ThingTemplateHandle,
 
@@ -160,6 +162,7 @@ impl AcademyStats {
             first_update: true,
             dozer_command_set: CommandSetHandle::INVALID,
             unknown_side: false,
+            base_side: String::new(),
             command_center_template: ThingTemplateHandle::INVALID,
 
             spent_cash_before_building_supply_center: false,
@@ -224,21 +227,21 @@ impl AcademyStats {
     /// Initialize for a specific player
     /// Based on C++ AcademyStats.cpp:78-261
     pub fn init(&mut self, player: PlayerHandle) {
+        self.init_for_base_side(player, None);
+    }
+
+    pub fn init_for_base_side(&mut self, player: PlayerHandle, base_side: Option<&str>) {
         // C++ line 85-86: Set next update frame
         self.next_update_frame = time::frame() + FRAMES_BETWEEN_UPDATES;
         self.first_update = true;
-        self.unknown_side = false;
+        self.base_side = base_side.unwrap_or("").to_string();
+        self.unknown_side = !Self::is_known_base_side(&self.base_side);
 
         // C++ line 90: Init the player
         self.player = player;
 
-        // Note: Template initialization (C++ lines 91-135) would require PlayerTemplate
-        // and CommandSet systems to be available. For now, we initialize with defaults.
-        // When these systems are available, we should:
-        // 1. Get player template
-        // 2. Check if side is USA/China/GLA (otherwise set unknown_side = true)
-        // 3. Find dozer command set
-        // 4. Extract supply center and command center templates from command set
+        // CommandSet/object discovery still belongs to GameLogic, but C++ also
+        // caches template base-side data here for advice filtering.
 
         self.dozer_command_set = CommandSetHandle::INVALID;
         self.command_center_template = ThingTemplateHandle::INVALID;
@@ -291,6 +294,24 @@ impl AcademyStats {
         self.disguisable_vehicles_built = 0;
         self.vehicles_disguised = 0;
         self.firestorms_created = 0;
+    }
+
+    fn is_known_base_side(base_side: &str) -> bool {
+        base_side.eq_ignore_ascii_case("USA")
+            || base_side.eq_ignore_ascii_case("America")
+            || base_side.eq_ignore_ascii_case("China")
+            || base_side.eq_ignore_ascii_case("GLA")
+    }
+
+    fn is_base_side(&self, expected: &str) -> bool {
+        self.base_side.eq_ignore_ascii_case(expected)
+            || (expected.eq_ignore_ascii_case("USA")
+                && self.base_side.eq_ignore_ascii_case("America"))
+    }
+
+    pub fn set_base_side_context(&mut self, base_side: &str) {
+        self.base_side = base_side.to_string();
+        self.unknown_side = !Self::is_known_base_side(&self.base_side);
     }
 
     pub fn set_player_handle(&mut self, player: PlayerHandle) {
@@ -879,10 +900,12 @@ impl AcademyStats {
         }
 
         // C++ lines 793-808: Advice #20 - Pick up salvage (GLA only)
-        // Note: Would need PlayerTemplate to check if player is GLA
-        // For now, we skip faction-specific checks
-        if self.salvage_collected == 0 {
-            // Only show for GLA players when faction system is available
+        if self.is_base_side("GLA") && self.salvage_collected == 0 {
+            available_tips += 1;
+            if choosing && (info.num_tips as usize) < max_advice_tips {
+                info.add_tip("ACADEMY:PickUpSalvage".to_string());
+            }
+            _num_available -= 1;
         }
 
         // C++ lines 810-822: Advice #21 - Use guard ability
@@ -990,10 +1013,12 @@ impl AcademyStats {
         }
 
         // C++ lines 1008-1023: Advice #35 - Create firestorms (China only)
-        // Note: Would need PlayerTemplate to check if player is China
-        // For now, we skip faction-specific checks
-        if self.firestorms_created == 0 {
-            // Only show for China players when faction system is available
+        if self.is_base_side("China") && self.firestorms_created == 0 {
+            available_tips += 1;
+            if choosing && (info.num_tips as usize) < max_advice_tips {
+                info.add_tip("ACADEMY:Firestorm".to_string());
+            }
+            _num_available -= 1;
         }
 
         // C++ lines 1025-1030: Recursive call to randomly choose if we were just counting
@@ -1031,7 +1056,9 @@ impl AcademyStats {
         data.extend_from_slice(&(self.unknown_side as u8).to_le_bytes());
 
         // Tier 1 (Basic advice)
-        data.extend_from_slice(&(self.spent_cash_before_building_supply_center as u8).to_le_bytes());
+        data.extend_from_slice(
+            &(self.spent_cash_before_building_supply_center as u8).to_le_bytes(),
+        );
         data.extend_from_slice(&self.supply_centers_built.to_le_bytes());
         data.extend_from_slice(&self.supply_center_cost.to_le_bytes());
         data.extend_from_slice(&(self.researched_radar as u8).to_le_bytes());
@@ -1065,7 +1092,9 @@ impl AcademyStats {
         data.extend_from_slice(&self.double_click_attack_move_orders_given.to_le_bytes());
         data.extend_from_slice(&(self.built_barracks_within_five_minutes as u8).to_le_bytes());
         data.extend_from_slice(&(self.built_war_factory_within_ten_minutes as u8).to_le_bytes());
-        data.extend_from_slice(&(self.built_tech_structure_within_fifteen_minutes as u8).to_le_bytes());
+        data.extend_from_slice(
+            &(self.built_tech_structure_within_fifteen_minutes as u8).to_le_bytes(),
+        );
         data.extend_from_slice(&self.last_income_frame.to_le_bytes());
         data.extend_from_slice(&self.max_frames_between_income.to_le_bytes());
 
@@ -1101,7 +1130,8 @@ impl AcademyStats {
                 *off = data.len();
                 return 0;
             }
-            let val = u32::from_le_bytes([data[*off], data[*off + 1], data[*off + 2], data[*off + 3]]);
+            let val =
+                u32::from_le_bytes([data[*off], data[*off + 1], data[*off + 2], data[*off + 3]]);
             *off += 4;
             val
         };

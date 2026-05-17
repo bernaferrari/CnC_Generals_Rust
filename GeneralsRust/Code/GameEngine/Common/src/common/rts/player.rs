@@ -933,6 +933,19 @@ impl Player {
         None
     }
 
+    fn refresh_academy_base_side_context(&mut self) {
+        if let Some(template) = self.current_player_template() {
+            self.academy_stats
+                .set_base_side_context(&template.base_side);
+            self.observer = template.is_observer;
+            if self.observer {
+                self.is_player_dead = true;
+            }
+        } else {
+            self.academy_stats.set_base_side_context(&self.base_side);
+        }
+    }
+
     /// Create a new Player with the given index
     ///
     /// C++ Reference: Player::Player() (Player.cpp lines 193-250)
@@ -1158,6 +1171,8 @@ impl Player {
     /// # Arguments
     /// * `name` - Optional player name to set
     pub fn init(&mut self, name: Option<String>) {
+        let template = self.current_player_template();
+
         // C++ lines 257-259: Reset skill point modifier
         self.skill_points_modifier = 1.0;
         self.attacked_frame = 0;
@@ -1210,13 +1225,23 @@ impl Player {
         // C++ line 354: Reset score keeper
         self.score_keeper.reset(self.index);
 
+        if let Some(template) = &template {
+            self.observer = template.is_observer;
+            self.is_player_dead = self.observer;
+        }
+
         // C++ lines 357-358: Reset rank and sciences
         self.reset_rank();
         self.sciences_disabled.clear();
         self.sciences_hidden.clear();
 
         // C++ lines 369-371: Initialize academy stats
-        self.academy_stats.init(handle);
+        self.academy_stats.init_for_base_side(
+            handle,
+            template
+                .as_ref()
+                .map(|template| template.base_side.as_str()),
+        );
 
         // C++ line 376: Reset retaliation mode
         self.logical_retaliation_mode_enabled = false;
@@ -2879,11 +2904,13 @@ impl Player {
     /// Set player side
     pub fn set_side(&mut self, side: String) {
         self.side = side;
+        self.refresh_academy_base_side_context();
     }
 
     /// Set player base side
     pub fn set_base_side(&mut self, base_side: String) {
         self.base_side = base_side;
+        self.refresh_academy_base_side_context();
     }
 
     /// Set player display name
