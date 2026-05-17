@@ -18,6 +18,7 @@
 use crate::common::global_data;
 use crate::common::ini::get_rank_info_store;
 use crate::common::rts::player_template::PlayerTemplate;
+use crate::common::rts::resource_gathering_manager::{ResourceGatheringManager, ResourceWorld};
 use crate::common::rts::{
     get_science_store, AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle,
     ProductionPrerequisite, Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
@@ -2719,16 +2720,53 @@ impl Player {
     /// Find best supply warehouse for a query object
     /// C++ Reference: ResourceGatheringManager::findBestSupplyWarehouse()
     pub fn find_best_supply_warehouse(&self, _query_object_id: ObjectID) -> Option<ObjectID> {
-        // Simplified: return first available warehouse
-        // Full implementation would check distances and validity
         self.supply_warehouses.first().copied()
+    }
+
+    /// Find best supply warehouse using world state for C++ ResourceGatheringManager parity.
+    pub fn find_best_supply_warehouse_with_world<W: ResourceWorld>(
+        &mut self,
+        query_object_id: ObjectID,
+        world: &W,
+    ) -> Option<ObjectID> {
+        let mut manager = self.resource_manager_from_player_lists();
+        let best = manager.find_best_supply_warehouse(query_object_id, world);
+        self.sync_supply_lists_from_manager(&manager);
+        best
     }
 
     /// Find best supply center for a query object
     /// C++ Reference: ResourceGatheringManager::findBestSupplyCenter()
     pub fn find_best_supply_center(&self, _query_object_id: ObjectID) -> Option<ObjectID> {
-        // Simplified: return first available center
         self.supply_centers.first().copied()
+    }
+
+    /// Find best supply center using world state for C++ ResourceGatheringManager parity.
+    pub fn find_best_supply_center_with_world<W: ResourceWorld>(
+        &mut self,
+        query_object_id: ObjectID,
+        world: &W,
+    ) -> Option<ObjectID> {
+        let mut manager = self.resource_manager_from_player_lists();
+        let best = manager.find_best_supply_center(query_object_id, world);
+        self.sync_supply_lists_from_manager(&manager);
+        best
+    }
+
+    fn resource_manager_from_player_lists(&self) -> ResourceGatheringManager {
+        let mut manager = ResourceGatheringManager::new();
+        for &warehouse_id in &self.supply_warehouses {
+            manager.add_supply_warehouse(warehouse_id);
+        }
+        for &center_id in &self.supply_centers {
+            manager.add_supply_center(center_id);
+        }
+        manager
+    }
+
+    fn sync_supply_lists_from_manager(&mut self, manager: &ResourceGatheringManager) {
+        self.supply_warehouses = manager.get_supply_warehouses().iter().copied().collect();
+        self.supply_centers = manager.get_supply_centers().iter().copied().collect();
     }
 
     // =========================================================
@@ -4155,6 +4193,62 @@ impl Snapshotable for Player {
 mod tests {
     use super::*;
 
+    #[derive(Default)]
+    struct TestResourceWorld {
+        existing: HashSet<ObjectID>,
+        distances: HashMap<(ObjectID, ObjectID), f32>,
+        preferred: Option<ObjectID>,
+        blocked: HashSet<ObjectID>,
+        scan_distance: Option<f32>,
+        query_has_ai: bool,
+    }
+
+    impl TestResourceWorld {
+        fn new(query_id: ObjectID) -> Self {
+            let mut world = Self {
+                query_has_ai: true,
+                ..Default::default()
+            };
+            world.existing.insert(query_id);
+            world
+        }
+
+        fn add_destination(&mut self, query_id: ObjectID, dest_id: ObjectID, distance_sq: f32) {
+            self.existing.insert(dest_id);
+            self.distances.insert((query_id, dest_id), distance_sq);
+        }
+    }
+
+    impl ResourceWorld for TestResourceWorld {
+        fn object_exists(&self, id: ObjectID) -> bool {
+            self.existing.contains(&id)
+        }
+
+        fn has_ai(&self, _id: ObjectID) -> bool {
+            self.query_has_ai
+        }
+
+        fn can_transfer_supplies_at(&self, _query_id: ObjectID, dest_id: ObjectID) -> bool {
+            !self.blocked.contains(&dest_id)
+        }
+
+        fn is_clear_to_approach(&self, dest_id: ObjectID, _query_id: ObjectID) -> bool {
+            !self.blocked.contains(&dest_id)
+        }
+
+        fn distance_squared(&self, query_id: ObjectID, dest_id: ObjectID) -> Option<f32> {
+            self.distances.get(&(query_id, dest_id)).copied()
+        }
+
+        fn preferred_dock(&self, _query_id: ObjectID) -> Option<ObjectID> {
+            self.preferred
+        }
+
+        fn warehouse_scan_distance(&self, _query_id: ObjectID) -> Option<f32> {
+            self.scan_distance
+        }
+    }
+
     #[test]
     fn test_player_creation() {
         let player = Player::new(3);
@@ -4367,6 +4461,63 @@ mod tests {
         let best = player.find_best_supply_warehouse(99);
         assert!(best.is_some());
         assert_eq!(best.unwrap(), 10);
+    }
+
+    #[test]
+    fn player_supply_world_lookup_matches_resource_manager_selection() {
+        let query_id = 99;
+        let mut player = Player::new(0);
+        player.add_supply_warehouse(10);
+        player.add_supply_warehouse(11);
+        player.add_supply_warehouse(12);
+        player.add_supply_warehouse(13);
+        player.add_supply_center(20);
+        player.add_supply_center(21);
+        player.add_supply_center(22);
+
+        let mut world = TestResourceWorld::new(query_id);
+        world.add_destination(query_id, 10, 90.0);
+        world.add_destination(query_id, 11, 40.0);
+        world.add_destination(query_id, 20, 250.0);
+        world.add_destination(query_id, 21, 30.0);
+        world.blocked.insert(11);
+
+        assert_eq!(
+            player.find_best_supply_warehouse_with_world(query_id, &world),
+            Some(10)
+        );
+        assert_eq!(player.get_supply_warehouses(), &[10, 11]);
+
+        assert_eq!(
+            player.find_best_supply_center_with_world(query_id, &world),
+            Some(21)
+        );
+        assert_eq!(player.get_supply_centers(), &[20, 21]);
+    }
+
+    #[test]
+    fn player_supply_world_lookup_honors_preferred_and_scan_distance() {
+        let query_id = 7;
+        let mut player = Player::new(0);
+        player.add_supply_warehouse(100);
+        player.add_supply_warehouse(101);
+
+        let mut world = TestResourceWorld::new(query_id);
+        world.add_destination(query_id, 100, 9.0);
+        world.add_destination(query_id, 101, 400.0);
+        world.preferred = Some(101);
+        world.scan_distance = Some(4.0);
+
+        assert_eq!(
+            player.find_best_supply_warehouse_with_world(query_id, &world),
+            Some(101)
+        );
+
+        world.preferred = None;
+        assert_eq!(
+            player.find_best_supply_warehouse_with_world(query_id, &world),
+            Some(100)
+        );
     }
 
     #[test]
