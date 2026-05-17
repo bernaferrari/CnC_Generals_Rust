@@ -1,6 +1,7 @@
 //! Skirmish preference storage (Skirmish.ini).
 
 use crate::map_util::{get_default_map, is_valid_map};
+use game_engine::common::ini::get_global_data;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_network::{Money, PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_RANDOM};
@@ -160,8 +161,7 @@ impl SkirmishPreferences {
     }
 
     pub fn set_preferred_map(&mut self, value: String) {
-        let encoded = quoted_printable_encode(&value);
-        self.data.insert(MAP_KEY.to_string(), encoded);
+        self.data.insert(MAP_KEY.to_string(), value);
     }
 
     pub fn get_superweapon_restricted(&self) -> bool {
@@ -223,14 +223,9 @@ fn default_starting_cash() -> u32 {
 }
 
 fn preferences_file() -> PathBuf {
-    let mut path = if let Some(home) = std::env::var_os("HOME") {
-        PathBuf::from(home)
-    } else if let Some(appdata) = std::env::var_os("APPDATA") {
-        PathBuf::from(appdata)
-    } else {
-        PathBuf::from(".")
-    };
-    path.push(".generals");
+    let mut path = get_global_data()
+        .map(|data| PathBuf::from(data.read().get_path_user_data()))
+        .unwrap_or_else(|| PathBuf::from("UserData/"));
     path.push("Skirmish.ini");
     path
 }
@@ -281,4 +276,20 @@ fn quoted_printable_decode(input: &str) -> String {
         idx += 1;
     }
     String::from_utf8_lossy(&output).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_preferred_map_preserves_cpp_raw_value() {
+        let mut prefs = SkirmishPreferences::default();
+        prefs.set_preferred_map("Maps\\Official Map".to_string());
+
+        assert_eq!(
+            prefs.data.get(MAP_KEY).map(String::as_str),
+            Some("Maps\\Official Map")
+        );
+    }
 }
