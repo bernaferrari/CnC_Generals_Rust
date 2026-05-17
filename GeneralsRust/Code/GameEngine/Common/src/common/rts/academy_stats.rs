@@ -9,6 +9,8 @@
 use crate::common::time;
 
 use super::handles::{CommandSetHandle, FrameNumber, PlayerHandle, ThingTemplateHandle};
+use once_cell::sync::OnceCell;
+use std::sync::{Arc, RwLock};
 
 /// Maximum number of advice tips to provide at once (C++ AcademyStats.h:39)
 pub const MAX_ADVICE_TIPS: usize = 1;
@@ -18,6 +20,47 @@ const FRAMES_BETWEEN_UPDATES: u32 = 30;
 
 /// Logic frames per second (C++ GameCommon.h)
 const LOGICFRAMES_PER_SECOND: u32 = 30;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct AcademyTemplateContext {
+    pub dozer_command_set: CommandSetHandle,
+    pub command_center_template: ThingTemplateHandle,
+    pub supply_center_template: ThingTemplateHandle,
+    pub supply_center_cost: u32,
+}
+
+type AcademyTemplateContextProvider =
+    Arc<dyn Fn(PlayerHandle) -> Option<AcademyTemplateContext> + Send + Sync>;
+
+static ACADEMY_TEMPLATE_CONTEXT_PROVIDER: OnceCell<RwLock<Option<AcademyTemplateContextProvider>>> =
+    OnceCell::new();
+
+pub fn set_academy_template_context_provider<F>(provider: F)
+where
+    F: Fn(PlayerHandle) -> Option<AcademyTemplateContext> + Send + Sync + 'static,
+{
+    let provider_slot = ACADEMY_TEMPLATE_CONTEXT_PROVIDER.get_or_init(|| RwLock::new(None));
+    *provider_slot
+        .write()
+        .expect("AcademyTemplateContext provider lock poisoned") = Some(Arc::new(provider));
+}
+
+pub fn clear_academy_template_context_provider() {
+    if let Some(provider_slot) = ACADEMY_TEMPLATE_CONTEXT_PROVIDER.get() {
+        *provider_slot
+            .write()
+            .expect("AcademyTemplateContext provider lock poisoned") = None;
+    }
+}
+
+fn query_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplateContext> {
+    let provider_slot = ACADEMY_TEMPLATE_CONTEXT_PROVIDER.get()?;
+    let provider = provider_slot
+        .read()
+        .expect("AcademyTemplateContext provider lock poisoned")
+        .clone()?;
+    provider(player)
+}
 
 /// Academy advice information structure
 #[derive(Debug, Clone)]
@@ -249,6 +292,15 @@ impl AcademyStats {
 
         // C++ line 147-150: Default supply center cost
         self.supply_center_cost = 1000;
+
+        if let Some(context) = query_academy_template_context(player) {
+            self.dozer_command_set = context.dozer_command_set;
+            self.command_center_template = context.command_center_template;
+            self.supply_center_template = context.supply_center_template;
+            if context.supply_center_cost > 0 {
+                self.supply_center_cost = context.supply_center_cost;
+            }
+        }
 
         // Tier 1 (Basic advice) - C++ lines 145-189
         self.spent_cash_before_building_supply_center = false;
@@ -1045,7 +1097,7 @@ impl AcademyStats {
 
     pub fn serialize(&self) -> Vec<u8> {
         let mut data = Vec::new();
-        let version: u8 = 1;
+        let version: u8 = 2;
 
         // Version header
         data.extend_from_slice(&version.to_le_bytes());
@@ -1054,6 +1106,8 @@ impl AcademyStats {
         data.extend_from_slice(&self.next_update_frame.to_le_bytes());
         data.extend_from_slice(&(self.first_update as u8).to_le_bytes());
         data.extend_from_slice(&(self.unknown_side as u8).to_le_bytes());
+        data.extend_from_slice(&(self.base_side.len() as u32).to_le_bytes());
+        data.extend_from_slice(self.base_side.as_bytes());
 
         // Tier 1 (Basic advice)
         data.extend_from_slice(
@@ -1149,6 +1203,18 @@ impl AcademyStats {
         self.next_update_frame = read_u32(data, &mut offset);
         self.first_update = read_bool(data, &mut offset);
         self.unknown_side = read_bool(data, &mut offset);
+        if version >= 2 {
+            let len = read_u32(data, &mut offset) as usize;
+            if offset + len <= data.len() {
+                self.base_side = String::from_utf8_lossy(&data[offset..offset + len]).into_owned();
+                offset += len;
+            } else {
+                self.base_side.clear();
+                offset = data.len();
+            }
+        } else {
+            self.base_side.clear();
+        }
 
         // Tier 1
         self.spent_cash_before_building_supply_center = read_bool(data, &mut offset);
@@ -1218,6 +1284,7 @@ mod tests {
 
     #[test]
     fn test_academy_stats_init() {
+        clear_academy_template_context_provider();
         let mut stats = AcademyStats::new();
         let player = PlayerHandle::new(1);
 
@@ -1229,6 +1296,30 @@ mod tests {
         assert_eq!(stats.supply_center_cost, 1000);
         assert!(!stats.researched_radar);
         assert_eq!(stats.peons_built, 0);
+    }
+
+    #[test]
+    fn test_academy_stats_uses_template_context_provider() {
+        let player = PlayerHandle::new(7);
+        set_academy_template_context_provider(move |handle| {
+            (handle == player).then_some(AcademyTemplateContext {
+                dozer_command_set: CommandSetHandle::new(11),
+                command_center_template: ThingTemplateHandle::new(12),
+                supply_center_template: ThingTemplateHandle::new(13),
+                supply_center_cost: 1500,
+            })
+        });
+
+        let mut stats = AcademyStats::new();
+        stats.init_for_base_side(player, Some("China"));
+
+        assert_eq!(stats.dozer_command_set, CommandSetHandle::new(11));
+        assert_eq!(stats.command_center_template, ThingTemplateHandle::new(12));
+        assert_eq!(stats.supply_center_template, ThingTemplateHandle::new(13));
+        assert_eq!(stats.supply_center_cost, 1500);
+        assert!(!stats.unknown_side);
+
+        clear_academy_template_context_provider();
     }
 
     #[test]
@@ -1311,6 +1402,7 @@ mod tests {
     fn test_income_tracking() {
         let mut stats = AcademyStats::new();
 
+        time::advance();
         stats.record_income();
         assert!(stats.last_income_frame > 0);
 
@@ -1435,18 +1527,24 @@ mod tests {
 
     #[test]
     fn test_serialization_stubs() {
-        let stats = AcademyStats::new();
+        let mut stats = AcademyStats::new();
+        stats.init_for_base_side(PlayerHandle::new(1), Some("China"));
+        stats.record_building_capture();
 
         // Test CRC
-        assert_eq!(stats.crc(), 0);
+        assert_ne!(stats.crc(), 0);
 
         // Test serialize
         let data = stats.serialize();
-        assert!(data.is_empty()); // Placeholder implementation
+        assert!(!data.is_empty());
+
+        let mut loaded = AcademyStats::new();
+        loaded.deserialize(&data);
+        assert_eq!(loaded.base_side, "China");
+        assert_eq!(loaded.structures_captured, 1);
 
         // Test load_post_process doesn't crash
-        let mut stats2 = AcademyStats::new();
-        stats2.load_post_process();
+        loaded.load_post_process();
     }
 
     #[test]
