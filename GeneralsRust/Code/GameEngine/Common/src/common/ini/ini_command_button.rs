@@ -197,7 +197,7 @@ impl Default for CommandButton {
             conflicting_label: String::new(),
             button_image: String::new(),
             cursor_name: String::new(),
-            button_border_type: "SYSTEM".to_string(),
+            button_border_type: "NONE".to_string(),
             descriptive_text: String::new(),
             conflicting_element: String::new(),
             purchase_cost: 0,
@@ -213,7 +213,7 @@ impl Default for CommandButton {
             upgrade_discount: 1.0,
             disable_on_modes: Vec::new(),
             options: CommandButtonOptions::default(),
-            radius_cursor_type: String::new(),
+            radius_cursor_type: "NONE".to_string(),
             invalid_cursor_name: String::new(),
             unit_specific_sound: AudioEventRTS::default(),
             maximum_cast_range: 0.0,
@@ -906,6 +906,8 @@ mod tests {
         assert_eq!(button.get_name(), "TestButton");
         assert_eq!(button.purchase_cost, 0);
         assert_eq!(button.upgrade_discount, 1.0);
+        assert_eq!(button.button_border_type, "NONE");
+        assert_eq!(button.radius_cursor_type, "NONE");
         assert!(!button.is_override());
     }
 
