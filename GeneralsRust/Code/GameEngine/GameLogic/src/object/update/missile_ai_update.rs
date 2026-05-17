@@ -907,12 +907,20 @@ impl MissileAIUpdate {
             return; // Already jammed
         }
 
-        // Set jammed model condition
-        // getObject()->setModelConditionState(MODELCONDITION_JAMMED);
+        if let Some(object) = TheGameLogic::find_object_by_id(self.object_id) {
+            if let Ok(mut guard) = object.write() {
+                guard.set_model_condition_state(MODELCONDITION_JAMMED);
+            }
+        }
 
-        // Scatter target position
         let scatter = self.data.distance_scatter_when_jammed;
-        let mut target_position = self.original_target_pos;
+        let mut target_position = if self.is_tracking_target {
+            self.current_goal_object()
+                .and_then(|goal| goal.read().ok().map(|guard| *guard.get_position()))
+                .unwrap_or_else(|| self.current_goal_position())
+        } else {
+            self.current_goal_position()
+        };
 
         target_position.x += get_game_logic_random_value_real(-scatter, scatter);
         target_position.y += get_game_logic_random_value_real(-scatter, scatter);
@@ -922,8 +930,9 @@ impl MissileAIUpdate {
                 terrain.get_layer_height(target_position.x, target_position.y, layer);
         }
 
-        // Retarget to scattered position
-        // aiMoveToPosition(&targetPosition, CMD_FROM_AI);
+        if let Some(ai) = self.current_ai_interface() {
+            ai.ai_move_to_position(&target_position, false, CMD_FROM_AI);
+        }
 
         self.is_tracking_target = false;
         self.original_target_pos = target_position;
