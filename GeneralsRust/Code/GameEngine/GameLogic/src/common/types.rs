@@ -2728,6 +2728,14 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
     fn get_production_prerequisites(&self) -> &[game_engine::common::rts::ProductionPrerequisite] {
         &[]
     }
+    /// C++ ThingTemplate::getMaxSimultaneousOfType().
+    fn get_max_simultaneous_of_type(&self) -> u32 {
+        0
+    }
+    /// C++ ThingTemplate::getMaxSimultaneousLinkKey().
+    fn get_max_simultaneous_link_key(&self) -> u32 {
+        0
+    }
     /// C++ ThingTemplate::getThreatValue().
     fn get_threat_value(&self) -> UnsignedInt {
         0
@@ -3841,6 +3849,14 @@ impl ThingTemplate for Arc<DefaultThingTemplate> {
         (**self).get_production_prerequisites()
     }
 
+    fn get_max_simultaneous_of_type(&self) -> u32 {
+        (**self).get_max_simultaneous_of_type()
+    }
+
+    fn get_max_simultaneous_link_key(&self) -> u32 {
+        (**self).get_max_simultaneous_link_key()
+    }
+
     fn get_threat_value(&self) -> UnsignedInt {
         (**self).get_threat_value()
     }
@@ -4078,6 +4094,14 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
 
     fn get_production_prerequisites(&self) -> &[game_engine::common::rts::ProductionPrerequisite] {
         (**self).get_production_prerequisites()
+    }
+
+    fn get_max_simultaneous_of_type(&self) -> u32 {
+        (**self).get_max_simultaneous_of_type()
+    }
+
+    fn get_max_simultaneous_link_key(&self) -> u32 {
+        (**self).get_max_simultaneous_link_key()
     }
 
     fn get_threat_value(&self) -> UnsignedInt {

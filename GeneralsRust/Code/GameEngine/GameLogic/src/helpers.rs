@@ -399,6 +399,14 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
         self.inner.get_prereqs()
     }
 
+    fn get_max_simultaneous_of_type(&self) -> u32 {
+        self.inner.get_max_simultaneous_of_type() as u32
+    }
+
+    fn get_max_simultaneous_link_key(&self) -> u32 {
+        self.inner.get_max_simultaneous_link_key()
+    }
+
     fn get_threat_value(&self) -> UnsignedInt {
         self.inner.get_threat_value() as UnsignedInt
     }
