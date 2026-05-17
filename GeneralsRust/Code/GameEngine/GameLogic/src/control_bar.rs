@@ -235,7 +235,11 @@ pub fn set_command_set_slot_override(
     let mut guard = cell
         .write()
         .map_err(|_| "ControlBarBridge lock poisoned".to_string())?;
-    guard.set_command_set_slot_override(command_set_name, slot, button_name)
+    guard.set_command_set_slot_override(command_set_name, slot, button_name)?;
+    if let Ok(mut logic) = crate::system::game_logic::lock_game_logic() {
+        logic.set_control_bar_override(command_set_name, slot as i32, button_name);
+    }
+    Ok(())
 }
 
 /// Hooks for notifying the live UI to refresh control bar state.
