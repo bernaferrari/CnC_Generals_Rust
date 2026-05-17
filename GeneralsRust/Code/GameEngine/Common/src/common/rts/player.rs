@@ -16,6 +16,7 @@
 //! - Resource gathering management
 
 use crate::common::ini::get_rank_info_store;
+use crate::common::global_data;
 use crate::common::rts::{
     get_science_store, AcademyStats, Energy, Handicap, MissionStats, Money, PlayerHandle,
     ProductionPrerequisite, Relationship, ScienceType, ScoreKeeper, TeamID, SCIENCE_INVALID,
@@ -2916,9 +2917,9 @@ impl Player {
     /// Get supply box value
     /// C++ Reference: Player::getSupplyBoxValue() (Player.cpp lines 1928-1933)
     pub fn get_supply_box_value(&self) -> u32 {
-        // Would return TheGlobalData->m_baseValuePerSupplyBox
-        // Simplified: return a default value
-        100
+        global_data::read_safe()
+            .map(|data| data.base_value_per_supply_box.max(0) as u32)
+            .unwrap_or(0)
     }
 
     // =========================================================
