@@ -2749,7 +2749,39 @@ impl Player {
             }
         }
 
+        if !self.ignores_prereqs() {
+            for prereq in template.get_production_prerequisites() {
+                if !self.is_production_prerequisite_satisfied(prereq) {
+                    return false;
+                }
+            }
+        }
+
         true
+    }
+
+    fn is_production_prerequisite_satisfied(
+        &self,
+        prereq: &game_engine::common::rts::ProductionPrerequisite,
+    ) -> Bool {
+        prereq.is_satisfied_with_counter(
+            |science| self.has_science(science),
+            |handles, ignore_dead, counts| {
+                let templates: Vec<_> = handles
+                    .iter()
+                    .filter_map(|handle| {
+                        crate::helpers::TheThingFactory::find_template_by_id(handle.value())
+                    })
+                    .collect();
+
+                if templates.len() != handles.len() {
+                    counts.fill(0);
+                    return;
+                }
+
+                self.count_objects_by_thing_template(&templates, ignore_dead, false, counts);
+            },
+        )
     }
 
     /// Hunting behavior

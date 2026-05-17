@@ -349,20 +349,42 @@ impl ProductionPrerequisite {
     ///
     /// Matches C++ ProductionPrerequisite.cpp lines 123-160: isSatisfied
     pub fn is_satisfied(&self, player: &Player) -> bool {
-        // C++ lines 127-128: Null check (we use references in Rust, so this is implicit)
-        // if (!player) return false;
+        self.is_satisfied_with_counter(
+            |science| player.has_science(science),
+            |templates, ignore_dead, counts| {
+                if let Some(counter) = PREREQ_OBJECT_COUNTER.get() {
+                    counter.count_objects_by_thing_template(player, templates, ignore_dead, counts);
+                } else {
+                    counts.fill(0);
+                }
+            },
+        )
+    }
 
-        // C++ lines 130-135: Check all required sciences
+    /// Check whether prerequisites are satisfied using runtime-provided science and object-count
+    /// hooks. This lets GameLogic evaluate the same data without downcasting to Common::Player.
+    pub fn is_satisfied_with_counter<HasScience, CountObjects>(
+        &self,
+        has_science: HasScience,
+        mut count_objects: CountObjects,
+    ) -> bool
+    where
+        HasScience: Fn(ScienceType) -> bool,
+        CountObjects: FnMut(&[ThingTemplateHandle], bool, &mut [i32]),
+    {
         for &science in &self.prereq_sciences {
-            // Use the Player's has_science method (via ScienceAccess trait)
-            if !player.has_science(science) {
+            if !has_science(science) {
                 return false;
             }
         }
 
-        // C++ lines 137-139: Calculate how many of each prereq unit the player owns
+        let cnt = std::cmp::min(self.prereq_units.len(), MAX_PREREQ);
+        let templates: Vec<ThingTemplateHandle> = self.prereq_units[..cnt]
+            .iter()
+            .map(|rec| rec.unit.unwrap_or(ThingTemplateHandle::INVALID))
+            .collect();
         let mut own_count = [0i32; MAX_PREREQ];
-        let cnt = self.calc_num_prereq_units_owned(player, &mut own_count);
+        count_objects(&templates, false, &mut own_count[..cnt]);
 
         // C++ lines 141-149: Handle OR cases (start at index 1)
         // This lumps together OR'd prerequisites so that if the player has ANY of them,
