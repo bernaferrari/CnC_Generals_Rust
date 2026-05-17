@@ -7,8 +7,8 @@
 //! countermeasure resistance, and multi-stage flight patterns.
 
 use crate::common::{
-    Bool, Coord3D, KindOfMaskType, Matrix3D, ModuleData, ObjectID, ObjectStatusMaskType, Real,
-    UnsignedInt, INVALID_ID, KIND_OF_MASK_NONE, MODELCONDITION_JAMMED,
+    Bool, Coord3D, KindOfMaskType, Matrix3D, ModuleData, ObjectID, ObjectStatusMaskType,
+    PathfindLayerEnum, Real, UnsignedInt, INVALID_ID, KIND_OF_MASK_NONE, MODELCONDITION_JAMMED,
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::effects::FXList;
@@ -31,6 +31,21 @@ use std::sync::{Arc, Weak};
 
 const BIGNUM: Real = 99999.0;
 const APPROACH_HEIGHT: Real = 10.0;
+
+fn terrain_layer_to_logic_layer(layer: crate::path::PathfindLayerEnum) -> PathfindLayerEnum {
+    match layer {
+        crate::path::PathfindLayerEnum::Ground => PathfindLayerEnum::Ground,
+        crate::path::PathfindLayerEnum::Top => PathfindLayerEnum::Top,
+        crate::path::PathfindLayerEnum::Bridge1 => PathfindLayerEnum::Bridge1,
+        crate::path::PathfindLayerEnum::Bridge2 => PathfindLayerEnum::Bridge2,
+        crate::path::PathfindLayerEnum::Bridge3 => PathfindLayerEnum::Bridge3,
+        crate::path::PathfindLayerEnum::Bridge4 => PathfindLayerEnum::Bridge4,
+        crate::path::PathfindLayerEnum::Wall => PathfindLayerEnum::Wall,
+        crate::path::PathfindLayerEnum::Invalid | crate::path::PathfindLayerEnum::Last => {
+            PathfindLayerEnum::Ground
+        }
+    }
+}
 
 /// Missile state machine states
 /// Matches C++ MissileStateType from MissileAIUpdate.h
@@ -569,11 +584,48 @@ impl MissileAIUpdate {
             MissileState::Dead => self.do_dead_state(),
         }
 
-        // Bridge collision detection
-        // Matches C++ lines 714-740
-        // Would check layer transitions for bridge hits
+        self.handle_bridge_layer_collision();
 
         Ok(())
+    }
+
+    fn handle_bridge_layer_collision(&mut self) {
+        let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
+            return;
+        };
+        let Ok(mut object_guard) = object_arc.write() else {
+            return;
+        };
+        let old_layer = object_guard.get_layer();
+        let Ok(terrain) = crate::terrain::THE_TERRAIN_LOGIC.read() else {
+            return;
+        };
+
+        let new_layer_path = terrain.get_highest_layer_for_destination(object_guard.get_position());
+        let new_layer = terrain_layer_to_logic_layer(new_layer_path);
+        object_guard.set_layer(new_layer);
+
+        if !self.projectile_is_armed()
+            || old_layer == PathfindLayerEnum::Ground
+            || new_layer != PathfindLayerEnum::Ground
+        {
+            return;
+        }
+
+        let mut test_pos = *object_guard.get_position();
+        test_pos.z = 9999.0;
+        let test_layer = terrain.get_highest_layer_for_destination(&test_pos);
+        if terrain_layer_to_logic_layer(test_layer) != old_layer {
+            return;
+        }
+
+        const FUDGE: Real = 2.0;
+        test_pos.z =
+            terrain.get_layer_height(test_pos.x, test_pos.y, test_layer, None, true) + FUDGE;
+        let _ = object_guard.set_position(&test_pos);
+        drop(object_guard);
+        drop(terrain);
+        self.detonate();
     }
 
     fn handle_countermeasure_diversion(&mut self) {
