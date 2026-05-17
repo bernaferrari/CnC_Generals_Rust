@@ -10,6 +10,7 @@ use crate::modules::{
     BehaviorModuleInterface, ProductionUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::behavior_module::BehaviorModuleData;
+use crate::object::production::queue::{BuildQueueEntry, ProductionType};
 use crate::object::Object as GameObject;
 use game_engine::common::system::{Snapshotable, Xfer};
 use std::collections::VecDeque;
@@ -265,6 +266,40 @@ impl ProductionUpdateInterface for ProductionUpdate {
 
     fn get_queue_size(&self) -> usize {
         self.production_queue.len()
+    }
+
+    fn get_queue_entries(&self) -> Vec<BuildQueueEntry> {
+        let mut entries = Vec::with_capacity(self.production_queue.len() + 1);
+
+        if let Some(current) = &self.current_entry {
+            entries.push(BuildQueueEntry::new(
+                current.template_name.clone(),
+                ProductionType::Unit,
+                current.cost,
+                current.build_time,
+                0,
+            ));
+        }
+
+        let index_offset = entries.len();
+        entries.extend(
+            self.production_queue
+                .iter()
+                .enumerate()
+                .map(|(index, entry)| {
+                    let mut queue_entry = BuildQueueEntry::new(
+                        entry.template_name.clone(),
+                        ProductionType::Unit,
+                        entry.cost,
+                        entry.build_time,
+                        0,
+                    );
+                    queue_entry.queue_index = index_offset + index;
+                    queue_entry
+                }),
+        );
+
+        entries
     }
 
     fn get_production_progress(&self) -> f32 {
