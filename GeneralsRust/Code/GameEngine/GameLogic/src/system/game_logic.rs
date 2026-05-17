@@ -249,31 +249,39 @@ fn xfer_sorted_string_int_map(
     Ok(())
 }
 
-fn xfer_sorted_string_unit_map(
+fn xfer_control_bar_overrides(
     xfer: &mut dyn Xfer,
-    map: &mut HashMap<String, ()>,
+    map: &mut HashMap<String, Option<String>>,
 ) -> Result<(), XferStatus> {
-    let mut count = if xfer.get_xfer_mode() == XferMode::Load {
-        0u32
-    } else {
-        map.len() as u32
-    };
-    xfer.xfer_unsigned_int(&mut count)?;
-
     match xfer.get_xfer_mode() {
         XferMode::Save | XferMode::Crc => {
-            let mut keys: Vec<_> = map.keys().cloned().collect();
-            keys.sort();
-            for mut key in keys {
+            let mut entries: Vec<_> = map
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone().unwrap_or_default()))
+                .collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+
+            for (mut key, mut value) in entries {
                 xfer.xfer_string(&mut key)?;
+                xfer.xfer_string(&mut value)?;
             }
+
+            let mut empty = String::new();
+            xfer.xfer_string(&mut empty)?;
         }
         XferMode::Load => {
             map.clear();
-            for _ in 0..count {
+            loop {
                 let mut key = String::new();
                 xfer.xfer_string(&mut key)?;
-                map.insert(key, ());
+                if key.is_empty() {
+                    break;
+                }
+
+                let mut value = String::new();
+                xfer.xfer_string(&mut value)?;
+                let value = if value.is_empty() { None } else { Some(value) };
+                map.insert(key, value);
             }
         }
         XferMode::Invalid => return Err(XferStatus::ModeUnknown),
@@ -311,7 +319,7 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
     xfer.xfer_int(&mut logic.rank_level_limit)?;
     xfer.xfer_unsigned_short(&mut logic.superweapon_restriction)?;
     xfer_sorted_string_int_map(xfer, &mut logic.buildable_status_overrides)?;
-    xfer_sorted_string_unit_map(xfer, &mut logic.control_bar_overrides)?;
+    xfer_control_bar_overrides(xfer, &mut logic.control_bar_overrides)?;
 
     let mut rank_points = crate::helpers::TheGameLogic::get_rank_points_to_add_at_game_start();
     xfer.xfer_int(&mut rank_points)?;
@@ -1379,7 +1387,7 @@ pub struct GameLogic {
     global_weapon_bonus_set: WeaponBonusSet,
 
     // Control bar button overrides (C++ GameLogic.h line 266: ControlBarOverrideMap)
-    control_bar_overrides: HashMap<String, ()>,
+    control_bar_overrides: HashMap<String, Option<String>>,
 
     // C++ parity: m_objectTOC — compact thing-template name→id map for save/load
     object_toc: Vec<ObjectTOCEntry>,
@@ -4350,21 +4358,33 @@ impl GameLogic {
     // =========================================================================
 
     /// PARITY_NOTE: GameLogic::setControlBarOverride(AsciiString, Int, ConstCommandButtonPtr) C++ line 4389.
-    pub fn set_control_bar_override(&mut self, command_set_name: &str, slot: i32) {
-        if slot < 0 || slot > 9 {
+    pub fn set_control_bar_override(
+        &mut self,
+        command_set_name: &str,
+        slot: i32,
+        command_button_name: Option<&str>,
+    ) {
+        if !(0..crate::command_button::MAX_COMMANDS_PER_SET as i32).contains(&slot) {
             return;
         }
         let key = format!("{}{}", slot, command_set_name);
-        self.control_bar_overrides.insert(key, ());
+        self.control_bar_overrides
+            .insert(key, command_button_name.map(str::to_string));
     }
 
     /// PARITY_NOTE: GameLogic::findControlBarOverride(AsciiString, Int, ConstCommandButtonPtr&) C++ line 4398.
-    pub fn find_control_bar_override(&self, command_set_name: &str, slot: i32) -> bool {
-        if slot < 0 || slot > 9 {
-            return false;
+    pub fn find_control_bar_override(
+        &self,
+        command_set_name: &str,
+        slot: i32,
+    ) -> Option<Option<&str>> {
+        if !(0..crate::command_button::MAX_COMMANDS_PER_SET as i32).contains(&slot) {
+            return None;
         }
         let key = format!("{}{}", slot, command_set_name);
-        self.control_bar_overrides.contains_key(&key)
+        self.control_bar_overrides
+            .get(&key)
+            .map(|value| value.as_deref())
     }
 
     // =========================================================================
@@ -4850,6 +4870,7 @@ pub fn lock_game_logic() -> Result<MutexGuard<'static, GameLogic>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::{XferLoad, XferSave};
     use std::sync::{Mutex, OnceLock};
 
     fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -4884,6 +4905,64 @@ mod tests {
         logic.reset();
         assert_eq!(logic.frame, 0);
         assert_eq!(logic.game_time, 0.0);
+    }
+
+    #[test]
+    fn control_bar_overrides_preserve_null_and_button_slots_like_cpp() {
+        let mut logic = GameLogic::new();
+
+        logic.set_control_bar_override("AmericaVehicleCommandSet", 0, Some("Command_Construct"));
+        logic.set_control_bar_override("AmericaVehicleCommandSet", 17, None);
+        logic.set_control_bar_override("AmericaVehicleCommandSet", 18, Some("Ignored"));
+
+        assert_eq!(
+            logic.find_control_bar_override("AmericaVehicleCommandSet", 0),
+            Some(Some("Command_Construct"))
+        );
+        assert_eq!(
+            logic.find_control_bar_override("AmericaVehicleCommandSet", 17),
+            Some(None)
+        );
+        assert_eq!(
+            logic.find_control_bar_override("AmericaVehicleCommandSet", 18),
+            None
+        );
+    }
+
+    #[test]
+    fn control_bar_overrides_xfer_as_cpp_key_value_sentinel_list() {
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "0AmericaVehicleCommandSet".to_string(),
+            Some("Command_Construct".to_string()),
+        );
+        overrides.insert("17AmericaVehicleCommandSet".to_string(), None);
+
+        let path = std::env::temp_dir().join(format!(
+            "generalsrust_control_bar_overrides_{}.xfer",
+            std::process::id()
+        ));
+        let path_string = path.to_string_lossy().to_string();
+
+        let mut save = XferSave::new();
+        save.open(path_string.clone()).unwrap();
+        xfer_control_bar_overrides(&mut save, &mut overrides).unwrap();
+        save.close().unwrap();
+
+        let mut loaded = HashMap::new();
+        let mut load = XferLoad::new();
+        load.open(path_string.clone()).unwrap();
+        xfer_control_bar_overrides(&mut load, &mut loaded).unwrap();
+        load.close().unwrap();
+        let _ = std::fs::remove_file(path);
+
+        assert_eq!(
+            loaded
+                .get("0AmericaVehicleCommandSet")
+                .and_then(|v| v.as_deref()),
+            Some("Command_Construct")
+        );
+        assert_eq!(loaded.get("17AmericaVehicleCommandSet"), Some(&None));
     }
 
     #[test]
