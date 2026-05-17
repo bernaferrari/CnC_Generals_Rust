@@ -290,6 +290,15 @@ fn xfer_control_bar_overrides(
     Ok(())
 }
 
+fn control_bar_override_key(command_set_name: &str, slot: i32) -> Option<String> {
+    if !(0..crate::command_button::MAX_COMMANDS_PER_SET as i32).contains(&slot) {
+        return None;
+    }
+
+    let slot_prefix = char::from_u32('0' as u32 + slot as u32)?;
+    Some(format!("{}{}", slot_prefix, command_set_name))
+}
+
 fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
     let current_version: XferVersion = 1;
     let mut version = current_version;
@@ -4364,10 +4373,9 @@ impl GameLogic {
         slot: i32,
         command_button_name: Option<&str>,
     ) {
-        if !(0..crate::command_button::MAX_COMMANDS_PER_SET as i32).contains(&slot) {
+        let Some(key) = control_bar_override_key(command_set_name, slot) else {
             return;
-        }
-        let key = format!("{}{}", slot, command_set_name);
+        };
         self.control_bar_overrides
             .insert(key, command_button_name.map(str::to_string));
     }
@@ -4378,10 +4386,7 @@ impl GameLogic {
         command_set_name: &str,
         slot: i32,
     ) -> Option<Option<&str>> {
-        if !(0..crate::command_button::MAX_COMMANDS_PER_SET as i32).contains(&slot) {
-            return None;
-        }
-        let key = format!("{}{}", slot, command_set_name);
+        let key = control_bar_override_key(command_set_name, slot)?;
         self.control_bar_overrides
             .get(&key)
             .map(|value| value.as_deref())
@@ -4936,7 +4941,7 @@ mod tests {
             "0AmericaVehicleCommandSet".to_string(),
             Some("Command_Construct".to_string()),
         );
-        overrides.insert("17AmericaVehicleCommandSet".to_string(), None);
+        overrides.insert("AAmericaVehicleCommandSet".to_string(), None);
 
         let path = std::env::temp_dir().join(format!(
             "generalsrust_control_bar_overrides_{}.xfer",
@@ -4962,7 +4967,7 @@ mod tests {
                 .and_then(|v| v.as_deref()),
             Some("Command_Construct")
         );
-        assert_eq!(loaded.get("17AmericaVehicleCommandSet"), Some(&None));
+        assert_eq!(loaded.get("AAmericaVehicleCommandSet"), Some(&None));
     }
 
     #[test]
