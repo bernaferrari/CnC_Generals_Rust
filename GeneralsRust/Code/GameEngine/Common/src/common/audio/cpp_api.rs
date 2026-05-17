@@ -118,20 +118,17 @@ pub extern "C" fn AudioManager_SetVolume(affects: AudioAffect, volume: Real) {
     });
     
     with_global_audio(|system| {
-        match affects {
-            AudioAffect::Music => {
-                system.set_category_volume(SoundCategory::Music, volume);
-            },
-            AudioAffect::Sound | AudioAffect::Sound3D | AudioAffect::SoundEffects => {
-                system.set_master_volume(volume);
-            },
-            AudioAffect::Speech => {
-                system.set_category_volume(SoundCategory::Speech, volume);
-            },
-            AudioAffect::Ambient => {
-                system.set_category_volume(SoundCategory::Ambient, volume);
-            },
-            _ => {}
+        if affects.has(AudioAffect::Music) {
+            system.set_category_volume(SoundCategory::Music, volume);
+        }
+        if affects.has(AudioAffect::Sound) || affects.has(AudioAffect::Sound3D) {
+            system.set_master_volume(volume);
+        }
+        if affects.has(AudioAffect::Speech) {
+            system.set_category_volume(SoundCategory::Speech, volume);
+        }
+        if affects.has(AudioAffect::Ambient) {
+            system.set_category_volume(SoundCategory::Ambient, volume);
         }
     });
 }

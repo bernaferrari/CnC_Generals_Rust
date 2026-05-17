@@ -124,7 +124,7 @@ const ST_EVERYONE: u32 = 0x0100;
 
 #[inline]
 fn affect_has(mask: AudioAffect, flag: AudioAffect) -> bool {
-    ((mask as u32) & (flag as u32)) != 0
+    mask.has(flag)
 }
 
 fn event_matches_audio_affect(event: &AudioEventRts, which: AudioAffect) -> bool {
@@ -158,16 +158,53 @@ pub static SPEAKER_TYPES: &[&str] = &[
 ];
 
 /// Audio affect flags - what audio types to affect
+#[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AudioAffect {
     Music = 0x01,
     Sound = 0x02,
     Sound3D = 0x04,
-    Speech = 0x08,
-    SystemSetting = 0x10,
     SoundEffects = 0x06, // Sound | Sound3D
-    Ambient = 0x20,
+    Speech = 0x08,
     All = 0x0F,
+    SystemSetting = 0x10,
+    MusicSystemSetting = 0x11,
+    SoundSystemSetting = 0x12,
+    Sound3DSystemSetting = 0x14,
+    SoundEffectsSystemSetting = 0x16,
+    SpeechSystemSetting = 0x18,
+    AllSystemSetting = 0x1F,
+    Ambient = 0x20,
+}
+
+impl AudioAffect {
+    pub const fn bits(self) -> u32 {
+        self as u32
+    }
+
+    pub const fn has(self, flag: AudioAffect) -> bool {
+        (self.bits() & flag.bits()) != 0
+    }
+
+    pub const fn from_bits(bits: u32) -> Option<Self> {
+        match bits {
+            0x01 => Some(Self::Music),
+            0x02 => Some(Self::Sound),
+            0x04 => Some(Self::Sound3D),
+            0x06 => Some(Self::SoundEffects),
+            0x08 => Some(Self::Speech),
+            0x0F => Some(Self::All),
+            0x10 => Some(Self::SystemSetting),
+            0x11 => Some(Self::MusicSystemSetting),
+            0x12 => Some(Self::SoundSystemSetting),
+            0x14 => Some(Self::Sound3DSystemSetting),
+            0x16 => Some(Self::SoundEffectsSystemSetting),
+            0x18 => Some(Self::SpeechSystemSetting),
+            0x1F => Some(Self::AllSystemSetting),
+            0x20 => Some(Self::Ambient),
+            _ => None,
+        }
+    }
 }
 
 /// Audio settings configuration
@@ -1948,4 +1985,37 @@ pub fn initialize_global_audio_manager() -> Arc<Mutex<AudioManager>> {
 /// Access the global audio manager if it has been initialised.
 pub fn get_global_audio_manager() -> Option<Arc<Mutex<AudioManager>>> {
     THE_AUDIO.get().cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_affect_system_setting_combinations_match_cpp_flags() {
+        assert_eq!(
+            AudioAffect::from_bits(AudioAffect::Music.bits() | AudioAffect::SystemSetting.bits()),
+            Some(AudioAffect::MusicSystemSetting)
+        );
+        assert_eq!(
+            AudioAffect::from_bits(AudioAffect::Sound.bits() | AudioAffect::Sound3D.bits()),
+            Some(AudioAffect::SoundEffects)
+        );
+        assert_eq!(
+            AudioAffect::from_bits(AudioAffect::All.bits() | AudioAffect::SystemSetting.bits()),
+            Some(AudioAffect::AllSystemSetting)
+        );
+
+        let mut audio_manager = AudioManager::new();
+        audio_manager.set_volume(0.25, AudioAffect::AllSystemSetting);
+        assert_eq!(audio_manager.system_music_volume, 0.25);
+        assert_eq!(audio_manager.system_sound_volume, 0.25);
+        assert_eq!(audio_manager.system_sound_3d_volume, 0.25);
+        assert_eq!(audio_manager.system_speech_volume, 0.25);
+
+        audio_manager.set_on(false, AudioAffect::SoundEffects);
+        assert!(!audio_manager.is_on(AudioAffect::Sound));
+        assert!(!audio_manager.is_on(AudioAffect::Sound3D));
+        assert!(audio_manager.is_on(AudioAffect::Music));
+    }
 }

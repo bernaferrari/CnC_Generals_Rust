@@ -600,37 +600,40 @@ impl AudioManager {
 
     /// Set audio system on/off state
     pub fn set_on(&mut self, turn_on: Bool, which_to_affect: AudioAffect) {
-        match which_to_affect {
-            AudioAffect::Music => self.music_on = turn_on,
-            AudioAffect::Sound => self.sound_on = turn_on,
-            AudioAffect::Sound3D => self.sound_3d_on = turn_on,
-            AudioAffect::Speech => self.speech_on = turn_on,
-            AudioAffect::All => {
-                self.music_on = turn_on;
-                self.sound_on = turn_on;
-                self.sound_3d_on = turn_on;
-                self.speech_on = turn_on;
-            }
-            _ => {}
+        if which_to_affect.has(AudioAffect::Music) {
+            self.music_on = turn_on;
+        }
+        if which_to_affect.has(AudioAffect::Sound) {
+            self.sound_on = turn_on;
+        }
+        if which_to_affect.has(AudioAffect::Sound3D) {
+            self.sound_3d_on = turn_on;
+        }
+        if which_to_affect.has(AudioAffect::Speech) {
+            self.speech_on = turn_on;
         }
     }
 
     /// Get audio system on/off state
     pub fn is_on(&self, which_to_get: AudioAffect) -> Bool {
-        match which_to_get {
-            AudioAffect::Music => self.music_on,
-            AudioAffect::Sound => self.sound_on,
-            AudioAffect::Sound3D => self.sound_3d_on,
-            AudioAffect::Speech => self.speech_on,
-            _ => false,
+        if which_to_get.has(AudioAffect::Music) {
+            self.music_on
+        } else if which_to_get.has(AudioAffect::Sound) {
+            self.sound_on
+        } else if which_to_get.has(AudioAffect::Sound3D) {
+            self.sound_3d_on
+        } else if which_to_get.has(AudioAffect::Speech) {
+            self.speech_on
+        } else {
+            false
         }
     }
 
     /// Set volume for different audio types
     pub fn set_volume(&mut self, volume: Real, which_to_affect: AudioAffect) {
-        let is_system_setting = matches!(which_to_affect, AudioAffect::SystemSetting);
+        let is_system_setting = which_to_affect.has(AudioAffect::SystemSetting);
 
-        if matches!(which_to_affect, AudioAffect::Music | AudioAffect::All) {
+        if which_to_affect.has(AudioAffect::Music) {
             if is_system_setting {
                 self.system_music_volume = volume;
             } else {
@@ -639,7 +642,7 @@ impl AudioManager {
             self.music_volume = self.script_music_volume * self.system_music_volume;
         }
 
-        if matches!(which_to_affect, AudioAffect::Sound | AudioAffect::All) {
+        if which_to_affect.has(AudioAffect::Sound) {
             if is_system_setting {
                 self.system_sound_volume = volume;
             } else {
@@ -648,7 +651,7 @@ impl AudioManager {
             self.sound_volume = self.script_sound_volume * self.system_sound_volume;
         }
 
-        if matches!(which_to_affect, AudioAffect::Sound3D | AudioAffect::All) {
+        if which_to_affect.has(AudioAffect::Sound3D) {
             if is_system_setting {
                 self.system_sound_3d_volume = volume;
             } else {
@@ -657,7 +660,7 @@ impl AudioManager {
             self.sound_3d_volume = self.script_sound_3d_volume * self.system_sound_3d_volume;
         }
 
-        if matches!(which_to_affect, AudioAffect::Speech | AudioAffect::All) {
+        if which_to_affect.has(AudioAffect::Speech) {
             if is_system_setting {
                 self.system_speech_volume = volume;
             } else {
@@ -671,12 +674,16 @@ impl AudioManager {
 
     /// Get volume for different audio types
     pub fn get_volume(&self, which_to_get: AudioAffect) -> Real {
-        match which_to_get {
-            AudioAffect::Music => self.music_volume,
-            AudioAffect::Sound => self.sound_volume,
-            AudioAffect::Sound3D => self.sound_3d_volume,
-            AudioAffect::Speech => self.speech_volume,
-            _ => 0.0,
+        if which_to_get.has(AudioAffect::Music) {
+            self.music_volume
+        } else if which_to_get.has(AudioAffect::Sound) {
+            self.sound_volume
+        } else if which_to_get.has(AudioAffect::Sound3D) {
+            self.sound_3d_volume
+        } else if which_to_get.has(AudioAffect::Speech) {
+            self.speech_volume
+        } else {
+            0.0
         }
     }
 
@@ -711,14 +718,11 @@ impl AudioManager {
             if let Some(source) = self.playing_sources.get(&handle) {
                 let should_stop = match &source.audio_event.get_audio_event_info() {
                     Some(info) => match info.sound_type {
-                        AudioType::Music => matches!(which, AudioAffect::Music | AudioAffect::All),
-                        AudioType::SoundEffect => matches!(
-                            which,
-                            AudioAffect::Sound | AudioAffect::Sound3D | AudioAffect::All
-                        ),
-                        AudioType::Streaming => {
-                            matches!(which, AudioAffect::Speech | AudioAffect::All)
+                        AudioType::Music => which.has(AudioAffect::Music),
+                        AudioType::SoundEffect => {
+                            which.has(AudioAffect::Sound) || which.has(AudioAffect::Sound3D)
                         }
+                        AudioType::Streaming => which.has(AudioAffect::Speech),
                     },
                     None => false,
                 };
@@ -735,12 +739,11 @@ impl AudioManager {
         for source in self.playing_sources.values() {
             let should_pause = match &source.audio_event.get_audio_event_info() {
                 Some(info) => match info.sound_type {
-                    AudioType::Music => matches!(which, AudioAffect::Music | AudioAffect::All),
-                    AudioType::SoundEffect => matches!(
-                        which,
-                        AudioAffect::Sound | AudioAffect::Sound3D | AudioAffect::All
-                    ),
-                    AudioType::Streaming => matches!(which, AudioAffect::Speech | AudioAffect::All),
+                    AudioType::Music => which.has(AudioAffect::Music),
+                    AudioType::SoundEffect => {
+                        which.has(AudioAffect::Sound) || which.has(AudioAffect::Sound3D)
+                    }
+                    AudioType::Streaming => which.has(AudioAffect::Speech),
                 },
                 None => false,
             };
@@ -757,12 +760,11 @@ impl AudioManager {
         for source in self.playing_sources.values() {
             let should_resume = match &source.audio_event.get_audio_event_info() {
                 Some(info) => match info.sound_type {
-                    AudioType::Music => matches!(which, AudioAffect::Music | AudioAffect::All),
-                    AudioType::SoundEffect => matches!(
-                        which,
-                        AudioAffect::Sound | AudioAffect::Sound3D | AudioAffect::All
-                    ),
-                    AudioType::Streaming => matches!(which, AudioAffect::Speech | AudioAffect::All),
+                    AudioType::Music => which.has(AudioAffect::Music),
+                    AudioType::SoundEffect => {
+                        which.has(AudioAffect::Sound) || which.has(AudioAffect::Sound3D)
+                    }
+                    AudioType::Streaming => which.has(AudioAffect::Speech),
                 },
                 None => false,
             };
@@ -921,8 +923,6 @@ impl AudioManager {
             }
             self.kill_audio_event_immediately(handle);
         }
-            self.kill_audio_event_immediately(handle);
-        }
     }
 }
 
@@ -943,11 +943,6 @@ impl AudioManager {
     /// Generate filename for audio event
     fn generate_filename(&self, event: &mut AudioEventRts) {
         event.generate_filename();
-    }
-
-    /// Generate play info (pitch, volume shifts, delays)
-    fn generate_play_info(&self, event: &mut AudioEventRts) {
-        event.generate_play_info();
     }
 
     /// Generate play info (pitch, volume shifts, delays)
@@ -985,44 +980,6 @@ impl AudioManager {
         if file_path.is_empty() {
             return AHSV_ERROR;
         }
-
-        let audio_data = match self.audio_cache.get_or_load(&file_path) {
-            Some(data) => data,
-            None => {
-                eprintln!("Failed to load music file: {}", file_path);
-                return AHSV_ERROR;
-            }
-        };
-
-        let cursor = std::io::Cursor::new((*audio_data).clone());
-        let source = match Decoder::new(cursor) {
-            Ok(source) => source,
-            Err(e) => {
-                eprintln!("Failed to decode music file {}: {}", file_path, e);
-                return AHSV_ERROR;
-            }
-        };
-
-        let sink = Sink::try_new(&self.stream_handle).unwrap();
-        let volume = self.calculate_effective_volume(&event);
-        sink.set_volume(volume);
-        sink.append(source);
-
-        let playing_source = PlayingAudioSource {
-            handle,
-            audio_event: event.clone(),
-            sink: Arc::new(Mutex::new(sink)),
-            start_time: Instant::now(),
-            is_looping: true,
-            is_3d: false,
-            volume,
-            position: None,
-            file_path,
-        };
-
-        self.playing_sources.insert(handle, playing_source);
-        handle
-    }
 
         let audio_data = match self.audio_cache.get_or_load(&file_path) {
             Some(data) => data,
@@ -1527,11 +1484,6 @@ impl AudioManager {
         }
         false
     }
-                }
-            }
-        }
-        false
-    }
 
     pub fn is_music_playing_from_cd(&self) -> Bool {
         self.music_playing_from_cd
@@ -1554,36 +1506,11 @@ impl AudioManager {
             + self.get_file_length_ms(tmp_event.get_filename())
             + self.get_file_length_ms(tmp_event.get_decay_filename())
     }
-        }
-
-        tmp_event.generate_filename();
-        tmp_event.generate_play_info();
-
-        self.get_file_length_ms(tmp_event.get_attack_filename())
-            + self.get_file_length_ms(tmp_event.get_filename())
-            + self.get_file_length_ms(tmp_event.get_decay_filename())
-    }
 
     pub fn get_file_length_ms(&self, file_path: &str) -> Real {
         if file_path.trim().is_empty() {
             return 0.0;
         }
-
-        let normalized = file_path.replace('\\', "/");
-        let path = Path::new(&normalized);
-
-        if let Ok(data) = std::fs::read(path) {
-            let cursor = std::io::Cursor::new(data.clone());
-            if let Ok(source) = Decoder::new(cursor) {
-                let duration = source.total_duration();
-                if let Some(dur) = duration {
-                    return dur.as_millis() as Real;
-                }
-            }
-        }
-
-        0.0
-    }
 
         let normalized = file_path.replace('\\', "/");
         let path = Path::new(&normalized);
