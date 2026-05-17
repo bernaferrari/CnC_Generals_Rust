@@ -911,9 +911,24 @@ impl WindowManager {
                 return Err(WindowError::InvalidWindow);
             }
             self.keyboard_focus = Some(Rc::downgrade(new_focus));
-            new_focus
-                .borrow_mut()
-                .send_system_message(WindowMessage::InputFocus, 1, 0);
+
+            let mut wants_focus = false;
+            let mut focus_probe = Some(new_focus.clone());
+            while let Some(window) = focus_probe {
+                let result =
+                    window
+                        .borrow_mut()
+                        .send_system_message(WindowMessage::InputFocus, 1, 0);
+                if result == WindowMsgHandled::Handled {
+                    wants_focus = true;
+                    break;
+                }
+                focus_probe = window.borrow().get_parent();
+            }
+
+            if !wants_focus {
+                self.keyboard_focus = None;
+            }
         } else {
             self.keyboard_focus = None;
         }
@@ -4543,6 +4558,18 @@ mod tests {
         let mut manager = WindowManager::new();
         let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
         let window2 = manager.create_window(None, 100, 100, 100, 100).unwrap();
+        window1
+            .borrow_mut()
+            .set_system_callback(|_, msg, _, _| match msg {
+                WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
+        window2
+            .borrow_mut()
+            .set_system_callback(|_, msg, _, _| match msg {
+                WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
 
         assert!(manager.get_focus().is_none());
 
@@ -4556,6 +4583,36 @@ mod tests {
 
         manager.set_focus(None).unwrap();
         assert!(manager.get_focus().is_none());
+    }
+
+    #[test]
+    fn test_focus_requires_input_focus_acceptance() {
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+
+        manager.set_focus(Some(&window)).unwrap();
+
+        assert!(manager.get_focus().is_none());
+    }
+
+    #[test]
+    fn test_focus_acceptance_can_come_from_parent() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 20, 20)
+            .unwrap();
+        parent
+            .borrow_mut()
+            .set_system_callback(|_, msg, data1, _| match msg {
+                WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
+
+        manager.set_focus(Some(&child)).unwrap();
+
+        let focused = manager.get_focus().unwrap();
+        assert!(Rc::ptr_eq(&child, &focused));
     }
 
     #[test]
@@ -4628,6 +4685,14 @@ mod tests {
         let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
         let window2 = manager.create_window(None, 100, 0, 100, 100).unwrap();
         let window3 = manager.create_window(None, 200, 0, 100, 100).unwrap();
+        for window in [&window1, &window2, &window3] {
+            window
+                .borrow_mut()
+                .set_system_callback(|_, msg, _, _| match msg {
+                    WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                    _ => WindowMsgHandled::Ignored,
+                });
+        }
 
         manager.register_tab_list(vec![window1.clone(), window2.clone(), window3.clone()]);
 
