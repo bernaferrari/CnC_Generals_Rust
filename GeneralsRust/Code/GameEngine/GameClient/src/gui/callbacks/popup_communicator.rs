@@ -105,7 +105,8 @@ pub fn popup_communicator_system(
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => {
-            // TODO: C++ writes *(Bool*)mData2 = TRUE when mData1 != 0 to accept focus
+            // C++ writes TRUE through mData2 when mData1 is TRUE; WindowManager
+            // treats Handled as the Rust focus-acceptance signal.
             WindowMsgHandled::Handled
         }
         WindowMessage::GadgetSelected => {
