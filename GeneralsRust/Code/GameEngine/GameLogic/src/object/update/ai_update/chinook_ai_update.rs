@@ -7,6 +7,7 @@ use std::any::Any;
 use std::sync::{Arc, Mutex, RwLock};
 
 use crate::action_manager::{ActionManager, CanEnterType};
+use crate::ai::states::AICommandParmsStorage;
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
     AsciiString, Bool, Coord3D, DrawableID, Int, KindOf, Matrix3D, ObjectID, Real, UnsignedInt,
@@ -1822,6 +1823,121 @@ impl SupplyTruckAIInterface for ChinookAIUpdate {
     }
 }
 
+impl Snapshotable for ChinookAIUpdate {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: u8 = 0;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |r: std::io::Result<()>| r.map_err(|e| e.to_string());
+
+        let mut version: u8 = 2;
+        xfer_io(xfer.xfer_version(&mut version, 2))?;
+
+        self.base.xfer(xfer)?;
+
+        let mut has_pending_command = self.pending_command.is_some();
+        xfer_io(xfer.xfer_bool(&mut has_pending_command))?;
+        if has_pending_command {
+            let mut storage = self
+                .pending_command
+                .as_ref()
+                .map(chinook_command_storage_from_params)
+                .unwrap_or_else(chinook_default_command_storage);
+            storage.do_xfer(xfer)?;
+            if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+                self.pending_command = Some(chinook_command_params_from_storage(&storage));
+            }
+        } else if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+            self.pending_command = None;
+        }
+
+        let mut flight_status = self.flight_status as i32;
+        xfer_io(xfer.xfer_int(&mut flight_status))?;
+        if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+            self.flight_status = chinook_flight_status_from_i32(flight_status);
+        }
+
+        xfer_io(xfer.xfer_unsigned_int(&mut self.airfield_for_healing))?;
+
+        if version >= 2 {
+            xfer_io(xfer.xfer_real(&mut self.original_pos.x))?;
+            xfer_io(xfer.xfer_real(&mut self.original_pos.y))?;
+            xfer_io(xfer.xfer_real(&mut self.original_pos.z))?;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+fn chinook_flight_status_from_i32(value: i32) -> ChinookFlightStatus {
+    match value {
+        0 => ChinookFlightStatus::TakingOff,
+        2 => ChinookFlightStatus::DoingCombatDrop,
+        3 => ChinookFlightStatus::Landing,
+        4 => ChinookFlightStatus::Landed,
+        _ => ChinookFlightStatus::Flying,
+    }
+}
+
+fn chinook_default_command_storage() -> AICommandParmsStorage {
+    AICommandParmsStorage {
+        cmd: AiCommandType::NoCommand,
+        cmd_source: CommandSourceType::FromAi,
+        pos: Coord3D::ZERO,
+        obj: INVALID_ID,
+        other_obj: INVALID_ID,
+        team_name: String::new(),
+        coords: Vec::new(),
+        waypoint: None,
+        polygon: None,
+        int_value: 0,
+        damage: crate::damage::DamageInfo::new(),
+        command_button: None,
+        command_button_name: String::new(),
+        path: None,
+    }
+}
+
+fn chinook_command_storage_from_params(params: &AiCommandParams) -> AICommandParmsStorage {
+    let mut storage = chinook_default_command_storage();
+    storage.cmd = params.cmd;
+    storage.cmd_source = params.cmd_source;
+    storage.pos = params.pos;
+    storage.obj = params.obj.unwrap_or(INVALID_ID);
+    storage.other_obj = params.other_obj.unwrap_or(INVALID_ID);
+    storage.team_name = params.team.clone().unwrap_or_default();
+    storage.coords = params.coords.clone();
+    storage.int_value = params.int_value;
+    storage
+}
+
+fn chinook_command_params_from_storage(storage: &AICommandParmsStorage) -> AiCommandParams {
+    let mut params = AiCommandParams::new(storage.cmd, storage.cmd_source);
+    params.pos = storage.pos;
+    if storage.obj != INVALID_ID {
+        params.obj = Some(storage.obj);
+    }
+    if storage.other_obj != INVALID_ID {
+        params.other_obj = Some(storage.other_obj);
+    }
+    if !storage.team_name.is_empty() {
+        params.team = Some(storage.team_name.clone());
+    }
+    params.coords = storage.coords.clone();
+    params.waypoint = storage.waypoint.as_ref().map(|waypoint| waypoint.id);
+    params.polygon = storage.polygon.as_ref().map(|polygon| polygon.get_id());
+    params.int_value = storage.int_value;
+    params
+}
+
 /// Module wrapper for ChinookAIUpdate to align with module system expectations.
 #[derive(Debug)]
 pub struct ChinookAIUpdateModule {
@@ -1870,6 +1986,9 @@ impl Snapshotable for ChinookAIUpdateModule {
 mod tests {
     use super::*;
     use crate::common::LocomotorSetType;
+    use game_engine::system::xfer_load::XferLoad;
+    use game_engine::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     fn parse_field(data: &mut ChinookAIUpdateModuleData, token: &str, values: &[&str]) {
         let field = CHINOOK_AI_UPDATE_FIELDS
@@ -1956,5 +2075,56 @@ mod tests {
         assert!(!data.wait_for_ropes_to_drop);
         assert_eq!(data.rotor_wash_particle_system.as_str(), "ChinookDust");
         assert_eq!(data.upgraded_supply_boost, 4);
+    }
+
+    #[test]
+    fn chinook_xfer_preserves_cpp_runtime_fields() {
+        let data = ChinookAIUpdateData::default();
+        let mut original = ChinookAIUpdate::new(data.clone(), 77, 1);
+        original.base.set_preferred_dock(1234);
+        original.base.set_force_wanting_state(true);
+        original.flight_status = ChinookFlightStatus::Landing;
+        original.airfield_for_healing = 5678;
+        original.original_pos = Coord3D::new(10.0, 20.0, 30.0);
+
+        let mut command =
+            AiCommandParams::new(AiCommandType::CombatDrop, CommandSourceType::FromAi);
+        command.pos = Coord3D::new(40.0, 50.0, 60.0);
+        command.obj = Some(4321);
+        command.other_obj = Some(8765);
+        command.team = Some("TeamAlpha".to_string());
+        command.coords = vec![Coord3D::new(1.0, 2.0, 3.0)];
+        command.int_value = 99;
+        original.pending_command = Some(command);
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            original.xfer(&mut save).unwrap();
+        }
+
+        let mut loaded = ChinookAIUpdate::new(data, 77, 1);
+        {
+            let cursor = Cursor::new(bytes.as_slice());
+            let mut load = XferLoad::new(cursor, 1);
+            loaded.xfer(&mut load).unwrap();
+        }
+
+        assert_eq!(loaded.base.get_preferred_dock(), Some(1234));
+        assert!(loaded.base.is_forced_into_wanting_state());
+        assert_eq!(loaded.flight_status, ChinookFlightStatus::Landing);
+        assert_eq!(loaded.airfield_for_healing, 5678);
+        assert_eq!(loaded.original_pos, Coord3D::new(10.0, 20.0, 30.0));
+
+        let pending = loaded.pending_command.expect("pending command restored");
+        assert_eq!(pending.cmd, AiCommandType::CombatDrop);
+        assert_eq!(pending.cmd_source, CommandSourceType::FromAi);
+        assert_eq!(pending.pos, Coord3D::new(40.0, 50.0, 60.0));
+        assert_eq!(pending.obj, Some(4321));
+        assert_eq!(pending.other_obj, Some(8765));
+        assert_eq!(pending.team.as_deref(), Some("TeamAlpha"));
+        assert_eq!(pending.coords, vec![Coord3D::new(1.0, 2.0, 3.0)]);
+        assert_eq!(pending.int_value, 99);
     }
 }
