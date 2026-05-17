@@ -2757,6 +2757,10 @@ impl Player {
             }
         }
 
+        if !self.can_build_more_of_type(template) {
+            return false;
+        }
+
         true
     }
 
@@ -2782,6 +2786,40 @@ impl Player {
                 self.count_objects_by_thing_template(&templates, ignore_dead, false, counts);
             },
         )
+    }
+
+    fn can_build_more_of_type(&self, template: &dyn crate::common::ThingTemplate) -> Bool {
+        let max_simultaneous = template.get_max_simultaneous_of_type();
+        if max_simultaneous == 0 {
+            return true;
+        }
+
+        let link_key = template.get_max_simultaneous_link_key();
+        let mut count = 0u32;
+        for &object_id in &self.owned_objects {
+            let Some(object_arc) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
+            else {
+                continue;
+            };
+            let Ok(object_guard) = object_arc.read() else {
+                continue;
+            };
+            if object_guard.is_effectively_dead() {
+                continue;
+            }
+
+            let object_template = object_guard.get_template();
+            if template.is_equivalent_to(object_template.as_ref())
+                || (link_key != 0 && link_key == object_template.get_max_simultaneous_link_key())
+            {
+                count += 1;
+                if count >= max_simultaneous {
+                    return false;
+                }
+            }
+        }
+
+        true
     }
 
     /// Hunting behavior
