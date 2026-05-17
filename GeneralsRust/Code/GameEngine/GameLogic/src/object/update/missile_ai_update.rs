@@ -535,8 +535,6 @@ impl MissileAIUpdate {
         self.launcher_id = launcher.unwrap_or(INVALID_ID);
         self.detonation_weapon_tmpl = detonation_weapon;
 
-        // Position projectile for launch would happen here via Weapon::positionProjectileForLaunch
-
         self.projectile_fire_at_object_or_position(
             victim,
             victim_pos,
@@ -584,8 +582,7 @@ impl MissileAIUpdate {
             0.0
         };
 
-        // Initial physics application would happen here
-        // Force = mass * velocity, applied along direction vector with Z boost
+        // The behavior wrapper applies the initial motive force and transform before delegating.
 
         self.switch_to_state(MissileState::Launch, TheGameLogic::get_frame());
         self.is_tracking_target = false;
@@ -593,7 +590,6 @@ impl MissileAIUpdate {
         // Set up target tracking
         if let Some(victim_id) = victim {
             if self.data.try_to_follow_target {
-                // aiMoveToObject would be called here
                 self.original_target_pos = *victim_pos;
                 self.is_tracking_target = true;
                 self.victim_id = victim_id;
@@ -601,7 +597,6 @@ impl MissileAIUpdate {
         } else {
             // Position-only target
             self.original_target_pos = *victim_pos;
-            // aiMoveToPosition would be called here
             self.victim_id = INVALID_ID;
         }
 
@@ -939,17 +934,13 @@ impl MissileAIUpdate {
     /// Pre-launch state: disable movement
     /// Matches C++ MissileAIUpdate::doPrelaunchState from MissileAIUpdate.cpp lines 403-411
     fn do_prelaunch_state(&mut self) {
-        // Set max acceleration and turn rate to 0
-        // curLoco->setMaxAcceleration(0);
-        // curLoco->setMaxTurnRate(0);
+        self.set_locomotor_acceleration_and_turn(0.0, 0.0);
     }
 
     /// Launch state: wait for ignition delay
     /// Matches C++ MissileAIUpdate::doLaunchState from MissileAIUpdate.cpp lines 434-448
     fn do_launch_state(&mut self, current_frame: UnsignedInt) {
-        // Disable turning during launch
-        // curLoco->setMaxAcceleration(0);
-        // curLoco->setMaxTurnRate(0);
+        self.set_locomotor_acceleration_and_turn(0.0, 0.0);
 
         let delay = self.data.ignition_delay;
         if current_frame >= self.state_timestamp + delay {
@@ -960,9 +951,7 @@ impl MissileAIUpdate {
     /// Ignition state: arm warhead, start exhaust, enable movement
     /// Matches C++ MissileAIUpdate::doIgnitionState from MissileAIUpdate.cpp lines 451-474
     fn do_ignition_state(&mut self, current_frame: UnsignedInt) {
-        // Enable acceleration but no turning yet
-        // curLoco->setMaxAcceleration(m_maxAccel);
-        // curLoco->setMaxTurnRate(0);
+        self.set_locomotor_acceleration_and_turn(self.max_accel, 0.0);
 
         if let Some(fx) = &self.data.ignition_fx {
             if let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) {
