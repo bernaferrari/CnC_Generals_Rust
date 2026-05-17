@@ -141,10 +141,12 @@ impl Snapshotable for JetAIUpdateModuleData {
         xfer_io(xfer.xfer_real(&mut self.sneaky_offset_when_attacking))?;
         let mut attacking_loco = self.attacking_loco as i32;
         xfer_io(xfer.xfer_int(&mut attacking_loco))?;
+        self.attacking_loco = locomotor_set_from_xfer(attacking_loco)?;
         xfer_io(xfer.xfer_unsigned_int(&mut self.attack_loco_persist_time))?;
         xfer_io(xfer.xfer_unsigned_int(&mut self.attackers_miss_persist_time))?;
         let mut returning_loco = self.returning_loco as i32;
         xfer_io(xfer.xfer_int(&mut returning_loco))?;
+        self.returning_loco = locomotor_set_from_xfer(returning_loco)?;
         xfer_io(xfer.xfer_unsigned_int(&mut self.lockon_time))?;
         xfer_io(xfer.xfer_ascii_string(self.lockon_cursor.as_mut_string_buffer()))?;
         xfer_io(xfer.xfer_real(&mut self.lockon_initial_dist))?;
@@ -207,6 +209,20 @@ fn parse_locomotor_set(
     };
     setter(set);
     Ok(())
+}
+
+fn locomotor_set_from_xfer(value: i32) -> Result<LocomotorSetType, String> {
+    match value {
+        0 => Ok(LocomotorSetType::Normal),
+        1 => Ok(LocomotorSetType::NormalUpgraded),
+        2 => Ok(LocomotorSetType::Freefall),
+        3 => Ok(LocomotorSetType::Wander),
+        4 => Ok(LocomotorSetType::Panic),
+        5 => Ok(LocomotorSetType::Taxiing),
+        6 => Ok(LocomotorSetType::Supersonic),
+        7 => Ok(LocomotorSetType::Sluggish),
+        _ => Err(format!("invalid JetAIUpdate locomotor set {value}")),
+    }
 }
 
 fn parse_angle_field(setter: &mut dyn FnMut(Real), tokens: &[&str]) -> Result<(), INIError> {
@@ -2339,6 +2355,9 @@ impl Snapshotable for JetAIUpdateModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     fn parse_field(data: &mut JetAIUpdateModuleData, token: &str, values: &[&str]) {
         let field = JET_AI_UPDATE_FIELDS
@@ -2399,5 +2418,31 @@ mod tests {
         );
         assert!(data.lockon_blinky);
         assert_eq!(data.return_to_base_idle_time, 90);
+    }
+
+    #[test]
+    fn jet_xfer_restores_locomotor_sets() {
+        let mut original = JetAIUpdateModuleData {
+            attacking_loco: LocomotorSetType::Supersonic,
+            returning_loco: LocomotorSetType::Taxiing,
+            ..JetAIUpdateModuleData::default()
+        };
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            original.xfer(&mut save).unwrap();
+        }
+
+        let mut restored = JetAIUpdateModuleData::default();
+        {
+            let cursor = Cursor::new(bytes);
+            let mut load = XferLoad::new(cursor, 1);
+            restored.xfer(&mut load).unwrap();
+        }
+
+        assert_eq!(restored.attacking_loco, LocomotorSetType::Supersonic);
+        assert_eq!(restored.returning_loco, LocomotorSetType::Taxiing);
     }
 }
