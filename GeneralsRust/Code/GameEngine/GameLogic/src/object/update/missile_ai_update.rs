@@ -7,8 +7,8 @@
 //! countermeasure resistance, and multi-stage flight patterns.
 
 use crate::common::{
-    Bool, Coord3D, Matrix3D, ModuleData, ObjectID, ObjectStatusMaskType, Real, UnsignedInt,
-    INVALID_ID, MODELCONDITION_JAMMED,
+    Bool, Coord3D, KindOfMaskType, Matrix3D, ModuleData, ObjectID, ObjectStatusMaskType, Real,
+    UnsignedInt, INVALID_ID, KIND_OF_MASK_NONE, MODELCONDITION_JAMMED,
 };
 use crate::damage::{DamageInfo, DamageInfoInput, DamageType, DeathType};
 use crate::effects::FXList;
@@ -95,6 +95,12 @@ pub struct MissileAIUpdateModuleData {
     /// Kill garrison count for special warheads
     pub garrison_hit_kill_count: UnsignedInt,
 
+    /// Required KindOf mask for garrison occupants killed by this missile
+    pub garrison_hit_kill_kindof: KindOfMaskType,
+
+    /// Forbidden KindOf mask for garrison occupants killed by this missile
+    pub garrison_hit_kill_kindof_not: KindOfMaskType,
+
     /// FX for garrison kills
     pub garrison_hit_kill_fx: Option<Arc<FXList>>,
 
@@ -121,6 +127,8 @@ impl Default for MissileAIUpdateModuleData {
             use_weapon_speed: false,
             detonate_on_no_fuel: false,
             garrison_hit_kill_count: 0,
+            garrison_hit_kill_kindof: KIND_OF_MASK_NONE,
+            garrison_hit_kill_kindof_not: KIND_OF_MASK_NONE,
             garrison_hit_kill_fx: None,
             detonate_calls_kill: false,
             kill_self_delay: 3, // Long enough for contrail to catch up
@@ -355,9 +363,8 @@ impl MissileAIUpdate {
 
             // Special garrison kill logic
             // Matches C++ lines 316-352
-            if self.data.garrison_hit_kill_count > 0 {
-                // Would check if target is garrisonable building
-                // Kill units inside if criteria met
+            if self.handle_garrison_hit_kill(other_id) {
+                return true;
             }
         }
 
@@ -365,6 +372,80 @@ impl MissileAIUpdate {
         self.detonate();
         self.set_no_collisions_status();
 
+        true
+    }
+
+    fn handle_garrison_hit_kill(&self, other_id: ObjectID) -> bool {
+        if self.data.garrison_hit_kill_count == 0 {
+            return false;
+        }
+
+        let Some(other_arc) = TheGameLogic::find_object_by_id(other_id) else {
+            return false;
+        };
+        let contained_ids = {
+            let Ok(other_guard) = other_arc.read() else {
+                return false;
+            };
+            let Some(contain_handle) = other_guard.get_contain() else {
+                return false;
+            };
+            let Ok(contain_guard) = contain_handle.lock() else {
+                return false;
+            };
+            let immune = other_guard
+                .get_garrison_contain_module_data()
+                .ok()
+                .map(|data| data.immune_to_clear_building_attacks)
+                .unwrap_or(false);
+            if contain_guard.get_contained_count() == 0
+                || !contain_guard.is_garrisonable()
+                || immune
+            {
+                return false;
+            }
+            contain_guard.get_contained_objects().to_vec()
+        };
+
+        let mut num_killed = 0;
+        for contained_id in contained_ids {
+            if num_killed >= self.data.garrison_hit_kill_count {
+                break;
+            }
+            let Some(contained_arc) = TheGameLogic::find_object_by_id(contained_id) else {
+                continue;
+            };
+            let Ok(mut contained_guard) = contained_arc.write() else {
+                continue;
+            };
+            if contained_guard.is_effectively_dead()
+                || !contained_guard.is_kind_of_multi(
+                    self.data.garrison_hit_kill_kindof,
+                    self.data.garrison_hit_kill_kindof_not,
+                )
+            {
+                continue;
+            }
+
+            if self.launcher_id != INVALID_ID {
+                if let Some(launcher_arc) = TheGameLogic::find_object_by_id(self.launcher_id) {
+                    if let Ok(mut launcher_guard) = launcher_arc.write() {
+                        launcher_guard.score_the_kill(&contained_guard);
+                    }
+                }
+            }
+            contained_guard.kill(None, None);
+            num_killed += 1;
+        }
+
+        if num_killed == 0 {
+            return false;
+        }
+
+        if let Some(fx) = &self.data.garrison_hit_kill_fx {
+            let _ = fx.do_fx_obj(&other_arc, None);
+        }
+        let _ = TheGameLogic::destroy_object_by_id(self.object_id);
         true
     }
 
