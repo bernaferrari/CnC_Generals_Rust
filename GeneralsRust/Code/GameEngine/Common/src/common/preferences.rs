@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use crate::common::ini::ini_challenge_generals::get_challenge_generals;
 use crate::common::ini::ini_map_cache::{get_map_cache, init_global_map_cache};
 use crate::common::ini::ini_multiplayer::with_multiplayer_settings;
 use crate::common::ini::ini_webpage_url::get_registry_language;
@@ -572,6 +573,12 @@ impl CustomMatchPreferences {
             if template.starting_building.is_empty() {
                 return PLAYERTEMPLATE_RANDOM;
             }
+            let generals = get_challenge_generals();
+            if let Some(general) = generals.get_general_by_template_name(&template.name) {
+                if !general.is_starting_enabled() {
+                    return PLAYERTEMPLATE_RANDOM;
+                }
+            }
         } else {
             return PLAYERTEMPLATE_RANDOM;
         }
@@ -950,6 +957,36 @@ mod tests {
         prefs.set_disallow_asian_text(true);
         assert!(prefs.get_use_stats());
         assert!(prefs.get_disallow_asian_text());
+    }
+
+    #[test]
+    fn custom_match_rejects_locked_challenge_general_preference() {
+        use crate::common::ini::ini_challenge_generals::{
+            get_challenge_generals_mut, ChallengeGenerals,
+        };
+        use crate::common::rts::player_template::{get_player_template_store_mut, PlayerTemplate};
+
+        {
+            let mut store = get_player_template_store_mut();
+            store.clear();
+            let mut template = PlayerTemplate::new("FactionLockedGeneral".to_string());
+            template.starting_building = "CommandCenter".to_string();
+            store.add_template(template);
+        }
+        {
+            let mut generals = get_challenge_generals_mut();
+            *generals = ChallengeGenerals::new();
+            generals.positions[0].player_template_name = "FactionLockedGeneral".to_string();
+            generals.positions[0].starts_enabled = false;
+        }
+
+        let mut prefs = CustomMatchPreferences::new();
+        prefs.prefs.set_int("PlayerTemplate", 0);
+
+        assert_eq!(prefs.get_preferred_faction(), PLAYERTEMPLATE_RANDOM);
+
+        get_player_template_store_mut().clear();
+        *get_challenge_generals_mut() = ChallengeGenerals::new();
     }
 
     #[test]
