@@ -304,6 +304,44 @@ pub fn init_load_screen(kind: LoadScreenKind, context: &LoadScreenInitContext) -
     })
 }
 
+pub fn load_screen_init_context_from_game_info(
+    game_info: &crate::game_network::GameInfo,
+) -> LoadScreenInitContext {
+    let slots: Vec<_> = (0..MAX_LOAD_SCREEN_SLOTS)
+        .filter_map(|player_id| {
+            let slot = game_info.get_slot(player_id)?;
+            slot.is_occupied().then(|| LoadScreenSlotInitContext {
+                player_id: player_id as i32,
+                player_name: slot.get_name().to_string(),
+                side_name: slot.get_apparent_player_template_display_name(),
+                team_number: slot.get_team_number(),
+                apparent_color: (slot.get_apparent_color() >= 0)
+                    .then_some(slot.get_apparent_color()),
+                is_ai: slot.is_ai(),
+                visible: true,
+            })
+        })
+        .collect();
+
+    let local_player_id = game_info.get_local_slot_num();
+    let local_slot = if local_player_id >= 0 {
+        slots.iter().find(|slot| slot.player_id == local_player_id)
+    } else {
+        slots.first()
+    };
+
+    if let Some(local_slot) = local_slot {
+        LoadScreenInitContext {
+            local_player_name: local_slot.player_name.clone(),
+            local_side_name: local_slot.side_name.clone(),
+            local_team_number: local_slot.player_id,
+            slots,
+        }
+    } else {
+        LoadScreenInitContext::default()
+    }
+}
+
 pub fn reset_load_screen(kind: LoadScreenKind) {
     let descriptor = descriptor_for_kind(kind);
     with_window_manager(|wm| {
@@ -1264,6 +1302,7 @@ fn current_challenge_movie_label() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::game_network::{GameInfo, GameSlot, SlotState};
     use crate::gui::gadgets::progressbar::ProgressBar;
     use crate::gui::game_window::WindowWidget;
     use game_engine::common::language::Language;
@@ -1539,6 +1578,42 @@ mod tests {
         assert_eq!(slots[0].player_name, "Fallback");
         assert_eq!(slots[0].side_name, "GLA");
         assert_eq!(multiplayer_team_text(&slots[0]), "Team:5");
+    }
+
+    #[test]
+    fn game_info_context_preserves_original_slot_ids_and_apparent_colors() {
+        let mut game_info = GameInfo::new();
+
+        let mut alice = GameSlot::new();
+        alice.set_state(SlotState::Player, "Alice".to_string(), 0);
+        alice.set_player_template(-1);
+        alice.set_team_number(0);
+        alice.set_color(2);
+
+        let mut empty = GameSlot::new();
+        empty.set_state(SlotState::Open, String::new(), 0);
+
+        let mut bob = GameSlot::new();
+        bob.set_state(SlotState::BrutalAI, String::new(), 0);
+        bob.set_player_template(-1);
+        bob.set_team_number(-1);
+        bob.set_color(5);
+
+        game_info.set_slot(0, alice);
+        game_info.set_slot(1, empty);
+        game_info.set_slot(2, bob);
+
+        let context = load_screen_init_context_from_game_info(&game_info);
+
+        assert_eq!(context.local_player_name, "Alice");
+        assert_eq!(context.local_team_number, 0);
+        assert_eq!(context.slots.len(), 2);
+        assert_eq!(context.slots[0].player_id, 0);
+        assert_eq!(context.slots[0].apparent_color, Some(2));
+        assert_eq!(context.slots[1].player_id, 2);
+        assert_eq!(context.slots[1].team_number, -1);
+        assert_eq!(context.slots[1].apparent_color, Some(5));
+        assert!(context.slots[1].is_ai);
     }
 
     #[test]
