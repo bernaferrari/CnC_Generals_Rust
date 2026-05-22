@@ -8,6 +8,9 @@ use crate::game_text::GameText;
 use super::campaign_manager::{
     get_campaign_manager, Mission, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES,
 };
+use super::challenge_generals::{
+    get_challenge_generals, init_challenge_generals, ChallengeGenerals, GeneralPersona,
+};
 use super::game_window::Image as WindowImage;
 use super::{with_window_manager, WindowManager, WindowStatus};
 use std::sync::{Mutex, OnceLock};
@@ -81,6 +84,35 @@ struct SinglePlayerLoadScreenState {
 
 static SINGLE_PLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<SinglePlayerLoadScreenState>> =
     OnceLock::new();
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ChallengePersonaText {
+    big_name: String,
+    name: String,
+    rank: String,
+    strategy: String,
+    portrait_large: Option<String>,
+    portrait_movie_left: String,
+    portrait_movie_right: String,
+    name_sound: String,
+    taunt_sounds: [String; 3],
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ChallengeLoadScreenState {
+    player: Option<ChallengePersonaText>,
+    opponent: Option<ChallengePersonaText>,
+    text_pos_big_name_right: usize,
+    text_pos_name_right: usize,
+    text_pos_birthplace_right: usize,
+    text_pos_strategy_right: usize,
+    text_pos_big_name_left: usize,
+    text_pos_name_left: usize,
+    text_pos_birthplace_left: usize,
+    text_pos_strategy_left: usize,
+}
+
+static CHALLENGE_LOAD_SCREEN_STATE: OnceLock<Mutex<ChallengeLoadScreenState>> = OnceLock::new();
 
 impl Default for LoadScreenInitContext {
     fn default() -> Self {
@@ -326,16 +358,56 @@ fn with_single_player_load_screen_state<R>(
 }
 
 fn initialize_challenge_windows(wm: &mut WindowManager) {
+    with_challenge_load_screen_state(|state| *state = ChallengeLoadScreenState::default());
+
     for name in [
+        "ChallengeLoadScreen.wnd:PortraitLeft",
+        "ChallengeLoadScreen.wnd:PortraitRight",
         "ChallengeLoadScreen.wnd:CircleAlphaOuter",
         "ChallengeLoadScreen.wnd:CircleAlphaInner",
         "ChallengeLoadScreen.wnd:VersusBackdrop",
         "ChallengeLoadScreen.wnd:OverlayVs",
         "ChallengeLoadScreen.wnd:PortraitMovieLeft",
         "ChallengeLoadScreen.wnd:PortraitMovieRight",
+        "ChallengeLoadScreen.wnd:BioNameLeft",
+        "ChallengeLoadScreen.wnd:BioBirthplaceLeft",
+        "ChallengeLoadScreen.wnd:BioStrategyLeft",
+        "ChallengeLoadScreen.wnd:BigNameEntryLeft",
+        "ChallengeLoadScreen.wnd:BioNameEntryLeft",
+        "ChallengeLoadScreen.wnd:BioBirthplaceEntryLeft",
+        "ChallengeLoadScreen.wnd:BioStrategyEntryLeft",
+        "ChallengeLoadScreen.wnd:BioNameRight",
+        "ChallengeLoadScreen.wnd:BioBirthplaceRight",
+        "ChallengeLoadScreen.wnd:BioStrategyRight",
+        "ChallengeLoadScreen.wnd:BigNameEntryRight",
+        "ChallengeLoadScreen.wnd:BioNameEntryRight",
+        "ChallengeLoadScreen.wnd:BioBirthplaceEntryRight",
+        "ChallengeLoadScreen.wnd:BioStrategyEntryRight",
     ] {
         hide_window(wm, name, true);
     }
+
+    if let Some((player, opponent)) = current_challenge_persona_text() {
+        with_challenge_load_screen_state(|state| {
+            state.player = Some(player.clone());
+            state.opponent = Some(opponent.clone());
+        });
+        if let Some(image) = player.portrait_large.as_deref() {
+            set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitLeft", 0, image, true);
+        }
+        if let Some(image) = opponent.portrait_large.as_deref() {
+            set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitRight", 0, image, true);
+        }
+    }
+}
+
+fn with_challenge_load_screen_state<R>(f: impl FnOnce(&mut ChallengeLoadScreenState) -> R) -> R {
+    let state =
+        CHALLENGE_LOAD_SCREEN_STATE.get_or_init(|| Mutex::new(ChallengeLoadScreenState::default()));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut guard)
 }
 
 fn initialize_multiplayer_windows(
@@ -473,6 +545,50 @@ fn single_player_mission_text(mission: &Mission) -> SinglePlayerMissionText {
             .map(|label| GameText::fetch(label)),
         location: GameText::fetch(&mission.location_name_label),
     }
+}
+
+fn challenge_persona_text(persona: &GeneralPersona) -> ChallengePersonaText {
+    let name = GameText::fetch(persona.bio_name());
+    ChallengePersonaText {
+        big_name: name.clone(),
+        name,
+        rank: GameText::fetch(persona.bio_rank()),
+        strategy: GameText::fetch(persona.bio_strategy()),
+        portrait_large: persona.bio_portrait_large().map(str::to_string),
+        portrait_movie_left: persona.portrait_movie_left_name().to_string(),
+        portrait_movie_right: persona.portrait_movie_right_name().to_string(),
+        name_sound: persona.name_sound().to_string(),
+        taunt_sounds: [
+            persona.taunt_sound_1().to_string(),
+            persona.taunt_sound_2().to_string(),
+            persona.taunt_sound_3().to_string(),
+        ],
+    }
+}
+
+fn challenge_persona_text_for_current_mission(
+    campaign_name: &str,
+    mission_general_name: &str,
+    generals: &ChallengeGenerals,
+) -> Option<(ChallengePersonaText, ChallengePersonaText)> {
+    let player = generals.player_general_by_campaign_name(campaign_name)?;
+    let opponent = generals.general_by_general_name(mission_general_name)?;
+    Some((
+        challenge_persona_text(player),
+        challenge_persona_text(opponent),
+    ))
+}
+
+fn current_challenge_persona_text() -> Option<(ChallengePersonaText, ChallengePersonaText)> {
+    let campaign_manager = get_campaign_manager();
+    let campaign = campaign_manager.get_current_campaign()?;
+    let mission = campaign_manager.get_current_mission()?;
+    if get_challenge_generals().is_none() {
+        init_challenge_generals();
+    }
+    let generals = get_challenge_generals()?;
+    let generals = generals.lock().ok()?;
+    challenge_persona_text_for_current_mission(&campaign.name, &mission.general_name, &generals)
 }
 
 #[cfg(test)]
@@ -650,6 +766,79 @@ mod tests {
         assert_eq!(cached.current_objective_width_offset, 0);
         assert_eq!(cached.current_objective_line_character, 0);
         assert!(!cached.finished_objective_text);
+
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn challenge_persona_text_matches_cpp_load_screen_fields() {
+        Language::clear_localized_strings();
+        Language::register_localized_string("CHALLENGE:PlayerName", "General Player");
+        Language::register_localized_string("CHALLENGE:PlayerRank", "General");
+        Language::register_localized_string("CHALLENGE:PlayerStrategy", "Air superiority");
+        Language::register_localized_string("CHALLENGE:OpponentName", "General Opponent");
+        Language::register_localized_string("CHALLENGE:OpponentRank", "Prince");
+        Language::register_localized_string("CHALLENGE:OpponentStrategy", "Ambush");
+
+        let mut generals = ChallengeGenerals::new();
+        {
+            let positions = generals.challenge_generals_mut();
+            positions[0].set_campaign("ChallengeCampaign".to_string());
+            positions[0].set_bio_name("CHALLENGE:PlayerName".to_string());
+            positions[0].set_bio_rank("CHALLENGE:PlayerRank".to_string());
+            positions[0].set_bio_strategy("CHALLENGE:PlayerStrategy".to_string());
+            positions[0].set_bio_portrait_large(Some("PlayerPortrait".to_string()));
+            positions[0].set_portrait_movie_left_name("PlayerMovieLeft".to_string());
+            positions[0].set_portrait_movie_right_name("PlayerMovieRight".to_string());
+            positions[0].set_name_sound("PlayerNameSound".to_string());
+            positions[0].set_taunt_sound_1("PlayerTaunt1".to_string());
+            positions[0].set_taunt_sound_2("PlayerTaunt2".to_string());
+            positions[0].set_taunt_sound_3("PlayerTaunt3".to_string());
+
+            positions[1].set_bio_name("CHALLENGE:OpponentName".to_string());
+            positions[1].set_bio_rank("CHALLENGE:OpponentRank".to_string());
+            positions[1].set_bio_strategy("CHALLENGE:OpponentStrategy".to_string());
+            positions[1].set_bio_portrait_large(Some("OpponentPortrait".to_string()));
+            positions[1].set_portrait_movie_left_name("OpponentMovieLeft".to_string());
+            positions[1].set_portrait_movie_right_name("OpponentMovieRight".to_string());
+            positions[1].set_name_sound("OpponentNameSound".to_string());
+            positions[1].set_taunt_sound_1("OpponentTaunt1".to_string());
+            positions[1].set_taunt_sound_2("OpponentTaunt2".to_string());
+            positions[1].set_taunt_sound_3("OpponentTaunt3".to_string());
+        }
+
+        let (player, opponent) = challenge_persona_text_for_current_mission(
+            "ChallengeCampaign",
+            "CHALLENGE:OpponentName",
+            &generals,
+        )
+        .expect("challenge personas");
+
+        assert_eq!(player.big_name, "General Player");
+        assert_eq!(player.name, "General Player");
+        assert_eq!(player.rank, "General");
+        assert_eq!(player.strategy, "Air superiority");
+        assert_eq!(player.portrait_large.as_deref(), Some("PlayerPortrait"));
+        assert_eq!(player.portrait_movie_left, "PlayerMovieLeft");
+        assert_eq!(player.portrait_movie_right, "PlayerMovieRight");
+        assert_eq!(player.name_sound, "PlayerNameSound");
+        assert_eq!(
+            player.taunt_sounds,
+            ["PlayerTaunt1", "PlayerTaunt2", "PlayerTaunt3"]
+        );
+
+        assert_eq!(opponent.big_name, "General Opponent");
+        assert_eq!(opponent.name, "General Opponent");
+        assert_eq!(opponent.rank, "Prince");
+        assert_eq!(opponent.strategy, "Ambush");
+        assert_eq!(opponent.portrait_large.as_deref(), Some("OpponentPortrait"));
+        assert_eq!(opponent.portrait_movie_left, "OpponentMovieLeft");
+        assert_eq!(opponent.portrait_movie_right, "OpponentMovieRight");
+        assert_eq!(opponent.name_sound, "OpponentNameSound");
+        assert_eq!(
+            opponent.taunt_sounds,
+            ["OpponentTaunt1", "OpponentTaunt2", "OpponentTaunt3"]
+        );
 
         Language::clear_localized_strings();
     }
