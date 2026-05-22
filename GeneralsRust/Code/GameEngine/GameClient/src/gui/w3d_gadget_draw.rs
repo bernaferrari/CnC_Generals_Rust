@@ -859,6 +859,31 @@ mod tests {
         inst_data.text_label.clear();
         assert_eq!(combobox_title_text(&inst_data), None);
     }
+
+    #[test]
+    fn radio_button_image_slots_match_cpp_state_order() {
+        assert_eq!(
+            radio_button_image_slots(true, false, false),
+            RadioButtonImageSlots {
+                state: RadioDrawState::Selected,
+                left: 3,
+                center: 4,
+                right: 5,
+            }
+        );
+        assert_eq!(
+            radio_button_image_slots(false, false, true).state,
+            RadioDrawState::Disabled
+        );
+        assert_eq!(
+            radio_button_image_slots(false, true, true).state,
+            RadioDrawState::Hilite
+        );
+        assert_eq!(
+            radio_button_image_slots(false, true, false).state,
+            RadioDrawState::Enabled
+        );
+    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -2765,7 +2790,11 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
         (&inst_data.enabled_draw_data, &inst_data.enabled_text)
     };
     let back = &draw_data[0];
-    let radio_box = &draw_data[1];
+    let radio_box = if is_radio_selected(window) {
+        &draw_data[2]
+    } else {
+        &draw_data[1]
+    };
 
     let rect = press_scaled_rect(window);
     let origin_x = rect.x as i32;
@@ -2840,10 +2869,54 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
         });
     }
 
-    if is_radio_selected(window) {
-        draw_radio_button_text(window, inst_data);
+    draw_radio_button_text(window, inst_data);
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RadioDrawState {
+    Enabled,
+    Disabled,
+    Hilite,
+    Selected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RadioButtonImageSlots {
+    state: RadioDrawState,
+    left: usize,
+    center: usize,
+    right: usize,
+}
+
+fn radio_button_image_slots(selected: bool, enabled: bool, hilited: bool) -> RadioButtonImageSlots {
+    if selected {
+        RadioButtonImageSlots {
+            state: RadioDrawState::Selected,
+            left: 3,
+            center: 4,
+            right: 5,
+        }
+    } else if !enabled {
+        RadioButtonImageSlots {
+            state: RadioDrawState::Disabled,
+            left: 0,
+            center: 1,
+            right: 2,
+        }
+    } else if hilited {
+        RadioButtonImageSlots {
+            state: RadioDrawState::Hilite,
+            left: 0,
+            center: 1,
+            right: 2,
+        }
     } else {
-        draw_radio_button_text(window, inst_data);
+        RadioButtonImageSlots {
+            state: RadioDrawState::Enabled,
+            left: 0,
+            center: 1,
+            right: 2,
+        }
     }
 }
 
@@ -2901,37 +2974,22 @@ fn draw_radio_button_image_strip(
 }
 
 pub fn w3d_gadget_radio_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let draw_data = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
-        &inst_data.disabled_draw_data
-    } else if inst_data.state.contains(WindowState::HILITED) {
-        &inst_data.hilite_draw_data
-    } else {
-        &inst_data.enabled_draw_data
-    };
     let selected = is_radio_selected(window);
-    let image_set = if selected {
-        (
-            &draw_data[0].image,
-            &draw_data[1].image,
-            &draw_data[2].image,
-        )
-    } else if inst_data.state.contains(WindowState::HILITED)
-        && draw_data[3].image.is_some()
-        && draw_data[4].image.is_some()
-        && draw_data[5].image.is_some()
-    {
-        (
-            &draw_data[3].image,
-            &draw_data[4].image,
-            &draw_data[5].image,
-        )
-    } else {
-        (
-            &draw_data[0].image,
-            &draw_data[1].image,
-            &draw_data[2].image,
-        )
+    let slots = radio_button_image_slots(
+        selected,
+        window.is_enabled() && !inst_data.state.contains(WindowState::DISABLED),
+        inst_data.state.contains(WindowState::HILITED),
+    );
+    let draw_data = match slots.state {
+        RadioDrawState::Enabled => &inst_data.enabled_draw_data,
+        RadioDrawState::Disabled => &inst_data.disabled_draw_data,
+        RadioDrawState::Hilite | RadioDrawState::Selected => &inst_data.hilite_draw_data,
     };
+    let image_set = (
+        &draw_data[slots.left].image,
+        &draw_data[slots.center].image,
+        &draw_data[slots.right].image,
+    );
 
     if let (Some(left), Some(center), Some(right)) = image_set {
         let rect = press_scaled_rect(window);
