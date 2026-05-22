@@ -721,13 +721,127 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_to_i32;
+    use super::*;
 
     #[test]
     fn test_truncate_to_i32_matches_cpp_cast_behavior() {
         assert_eq!(truncate_to_i32(76.8), 76);
         assert_eq!(truncate_to_i32(76.2), 76);
         assert_eq!(truncate_to_i32(-3.7), -3);
+    }
+
+    #[test]
+    fn progress_bar_image_draws_match_cpp_piece_layout() {
+        let draws = progress_bar_image_draws(0, 0, 100, 20, 0, 0, 30, 5, 5, 8, 10, 10);
+
+        assert_eq!(
+            &draws[0..3],
+            &[
+                ProgressBarImageDraw {
+                    image_slot: 2,
+                    start_x: 5,
+                    start_y: 0,
+                    end_x: 13,
+                    end_y: 20,
+                    clip: None,
+                },
+                ProgressBarImageDraw {
+                    image_slot: 2,
+                    start_x: 13,
+                    start_y: 0,
+                    end_x: 21,
+                    end_y: 20,
+                    clip: None,
+                },
+                ProgressBarImageDraw {
+                    image_slot: 2,
+                    start_x: 21,
+                    start_y: 0,
+                    end_x: 29,
+                    end_y: 20,
+                    clip: None,
+                },
+            ]
+        );
+        assert!(draws.iter().any(|draw| {
+            draw.image_slot == 2
+                && draw.start_x == 93
+                && draw.end_x == 101
+                && draw.clip == Some(region_from_corners(93, 0, 95, 20))
+        }));
+        assert!(draws.iter().any(|draw| {
+            draw.image_slot == 0
+                && draw.start_x == 0
+                && draw.end_x == 5
+                && draw.start_y == 0
+                && draw.end_y == 20
+        }));
+        assert!(draws.iter().any(|draw| {
+            draw.image_slot == 1
+                && draw.start_x == 95
+                && draw.end_x == 100
+                && draw.start_y == 0
+                && draw.end_y == 20
+        }));
+
+        let filled_bar: Vec<_> = draws
+            .iter()
+            .filter(|draw| draw.image_slot == 6)
+            .map(|draw| (draw.start_x, draw.end_x, draw.start_y, draw.end_y))
+            .collect();
+        assert_eq!(filled_bar, vec![(10, 20, 5, 15), (20, 30, 5, 15)]);
+
+        let empty_bar: Vec<_> = draws
+            .iter()
+            .filter(|draw| draw.image_slot == 5)
+            .map(|draw| (draw.start_x, draw.end_x, draw.start_y, draw.end_y))
+            .collect();
+        assert_eq!(
+            empty_bar,
+            vec![
+                (30, 40, 5, 15),
+                (40, 50, 5, 15),
+                (50, 60, 5, 15),
+                (60, 70, 5, 15),
+                (70, 80, 5, 15),
+                (80, 90, 5, 15),
+            ]
+        );
+    }
+
+    #[test]
+    fn progress_bar_image_draws_preserve_cpp_offsets() {
+        let draws = progress_bar_image_draws(20, 30, 60, 14, 3, 2, 50, 4, 6, 9, 5, 7);
+
+        assert_eq!(
+            draws.iter().find(|draw| draw.image_slot == 0).unwrap(),
+            &ProgressBarImageDraw {
+                image_slot: 0,
+                start_x: 23,
+                start_y: 32,
+                end_x: 27,
+                end_y: 46,
+                clip: None,
+            }
+        );
+        assert_eq!(
+            draws.iter().find(|draw| draw.image_slot == 1).unwrap(),
+            &ProgressBarImageDraw {
+                image_slot: 1,
+                start_x: 77,
+                start_y: 32,
+                end_x: 83,
+                end_y: 46,
+                clip: None,
+            }
+        );
+        assert!(draws.iter().any(|draw| {
+            draw.image_slot == 6
+                && draw.start_x == 30
+                && draw.start_y == 37
+                && draw.end_x == 35
+                && draw.end_y == 41
+        }));
     }
 }
 
@@ -2172,72 +2286,178 @@ fn draw_progress_bar_solid(
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct ProgressBarImageDraw {
+    image_slot: usize,
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+    clip: Option<IRegion2D>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn progress_bar_image_draws(
+    origin_x: i32,
+    origin_y: i32,
+    size_x: i32,
+    size_y: i32,
+    x_offset: i32,
+    y_offset: i32,
+    progress: i32,
+    back_left_width: i32,
+    back_right_width: i32,
+    back_center_width: i32,
+    bar_center_width: i32,
+    bar_right_width: i32,
+) -> Vec<ProgressBarImageDraw> {
+    let back_center_width = back_center_width.max(1);
+    let bar_center_width = bar_center_width.max(1);
+    let bar_right_width = bar_right_width.max(1);
+    let left_end_x = origin_x + back_left_width + x_offset;
+    let right_start_x = origin_x + size_x - back_right_width + x_offset;
+    let strip_y = origin_y + y_offset;
+    let strip_bottom_y = strip_y + size_y;
+    let mut draws = Vec::new();
+
+    let center_width = right_start_x - left_end_x;
+    let center_pieces = center_width / back_center_width;
+    let mut x = left_end_x;
+    for _ in 0..center_pieces {
+        draws.push(ProgressBarImageDraw {
+            image_slot: 2,
+            start_x: x,
+            start_y: strip_y,
+            end_x: x + back_center_width,
+            end_y: strip_bottom_y,
+            clip: None,
+        });
+        x += back_center_width;
+    }
+
+    let clipped_center_width = right_start_x - x;
+    if clipped_center_width > 0 {
+        draws.push(ProgressBarImageDraw {
+            image_slot: 2,
+            start_x: x,
+            start_y: strip_y,
+            end_x: x + back_center_width,
+            end_y: strip_bottom_y,
+            clip: Some(region_from_corners(
+                x,
+                strip_y,
+                right_start_x,
+                strip_bottom_y,
+            )),
+        });
+    }
+
+    draws.push(ProgressBarImageDraw {
+        image_slot: 0,
+        start_x: origin_x + x_offset,
+        start_y: strip_y,
+        end_x: left_end_x,
+        end_y: strip_bottom_y,
+        clip: None,
+    });
+    draws.push(ProgressBarImageDraw {
+        image_slot: 1,
+        start_x: right_start_x,
+        start_y: strip_y,
+        end_x: right_start_x + back_right_width,
+        end_y: strip_bottom_y,
+        clip: None,
+    });
+
+    let bar_draw_width = ((size_x - 20) * progress) / 100;
+    let filled_pieces = bar_draw_width / bar_center_width;
+    let bar_y = origin_y + y_offset + 5;
+    let bar_bottom_y = bar_y + size_y - 10;
+    let mut bar_x = origin_x + 10;
+    for _ in 0..filled_pieces {
+        draws.push(ProgressBarImageDraw {
+            image_slot: 6,
+            start_x: bar_x,
+            start_y: bar_y,
+            end_x: bar_x + bar_center_width,
+            end_y: bar_bottom_y,
+            clip: None,
+        });
+        bar_x += bar_center_width;
+    }
+
+    bar_x = origin_x + 10 + bar_center_width * filled_pieces;
+    let remaining_pieces = ((size_x - 20) / bar_center_width) - filled_pieces;
+    for _ in 0..remaining_pieces {
+        draws.push(ProgressBarImageDraw {
+            image_slot: 5,
+            start_x: bar_x,
+            start_y: bar_y,
+            end_x: bar_x + bar_right_width,
+            end_y: bar_bottom_y,
+            clip: None,
+        });
+        bar_x += bar_right_width;
+    }
+
+    draws
+}
+
 fn draw_progress_bar_image(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
-    back: &super::game_window::WindowDrawData,
-    bar: &super::game_window::WindowDrawData,
+    draw_data: &[super::game_window::WindowDrawData],
 ) {
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
     let progress = progress_percent(window).clamp(0, 100);
 
-    let y_offset = inst_data.image_offset.y;
-
-    if let Some(image) = &back.image {
-        with_window_manager_ref(|manager| {
-            manager.win_draw_image(
-                image,
-                origin_x + inst_data.image_offset.x,
-                origin_y + inst_data.image_offset.y,
-                origin_x + inst_data.image_offset.x + size_x,
-                origin_y + inst_data.image_offset.y + size_y,
-                WIN_COLOR_UNDEFINED,
-            );
-        });
+    let required_images = [0, 1, 2, 5, 6];
+    if required_images.iter().any(|slot| {
+        draw_data
+            .get(*slot)
+            .and_then(|data| data.image.as_ref())
+            .is_none()
+    }) {
+        return;
     }
+    let image = |slot: usize| draw_data[slot].image.as_ref().expect("checked image");
+    let draws = progress_bar_image_draws(
+        origin_x,
+        origin_y,
+        size_x,
+        size_y,
+        inst_data.image_offset.x,
+        inst_data.image_offset.y,
+        progress,
+        image(0).width,
+        image(1).width,
+        image(2).width,
+        image(6).width,
+        image(5).width,
+    );
 
-    if let Some(image) = &bar.image {
-        let bar_width = ((size_x - 20) * progress) / 100;
-        if bar_width > 0 {
-            let start_x = origin_x + 10;
-            let start_y = origin_y + y_offset + 5;
-            let end_x = start_x + bar_width;
-            let end_y = start_y + size_y - 10;
-            let rect = UIRect::new(
-                start_x as f32,
-                start_y as f32,
-                bar_width as f32,
-                (end_y - start_y) as f32,
+    for draw in draws {
+        let image = image(draw.image_slot);
+        if let Some(clip) = draw.clip {
+            draw_window_image_clipped(
+                image,
+                draw.start_x,
+                draw.start_y,
+                draw.end_x,
+                draw.end_y,
+                &clip,
             );
-            let _ = with_ui_renderer_mut(|renderer| {
-                let texture = {
-                    let collection = get_mapped_image_collection();
-                    let mut collection = collection.write();
-                    if let Some(mapped) = collection.find_image_by_name_mut(&image.name) {
-                        if mapped.get_gpu_texture().is_none() {
-                            let _ = mapped.create_gpu_texture(renderer.device(), renderer.queue());
-                        }
-                        mapped.get_gpu_texture().map(|gpu| {
-                            let uv = mapped.get_uv();
-                            (
-                                std::sync::Arc::new(gpu.view().clone()),
-                                UIRect::new(uv.min.x, uv.min.y, uv.width(), uv.height()),
-                            )
-                        })
-                    } else {
-                        None
-                    }
-                };
-                if let Some((texture, tex_rect)) = texture {
-                    renderer.draw_textured_rect(
-                        rect,
-                        texture,
-                        [1.0, 1.0, 1.0, 1.0],
-                        Some(tex_rect),
-                        0.0,
-                    );
-                }
+        } else {
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    image,
+                    draw.start_x,
+                    draw.start_y,
+                    draw.end_x,
+                    draw.end_y,
+                    WIN_COLOR_UNDEFINED,
+                );
             });
         }
     }
@@ -2266,27 +2486,18 @@ pub fn w3d_gadget_progress_bar_image_draw(window: &GameWindow, inst_data: &Windo
     } else {
         (&inst_data.enabled_draw_data, &inst_data.enabled_text)
     };
-    let back = &draw_data[0];
-    let bar = &draw_data[1];
-    draw_progress_bar_image(window, inst_data, back, bar);
+    draw_progress_bar_image(window, inst_data, draw_data);
 }
 
 pub fn w3d_gadget_progress_bar_image_draw_a(window: &GameWindow, inst_data: &WindowInstanceData) {
     let progress = progress_percent(window).clamp(0, 100);
-    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
-    {
-        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
-    } else if inst_data.state.contains(WindowState::HILITED) {
-        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
-    } else {
-        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
-    };
+    let draw_data = &inst_data.enabled_draw_data;
 
-    let bar_center = &draw_data[1].image;
-    let bar_right = &draw_data[2].image;
-    let left = &draw_data[3].image;
-    let right = &draw_data[4].image;
-    let center = &draw_data[5].image;
+    let bar_center = &draw_data[6].image;
+    let bar_right = &draw_data[5].image;
+    let left = &draw_data[0].image;
+    let right = &draw_data[1].image;
+    let center = &draw_data[2].image;
 
     let (Some(bar_center), Some(_bar_right), Some(_left), Some(_right), Some(_center)) =
         (bar_center, bar_right, left, right, center)
@@ -4180,6 +4391,7 @@ fn draw_window_image_clipped(
     end_y: i32,
     clip_region: &IRegion2D,
 ) {
+    let _ = ensure_client_mapped_image(&image.name);
     let collection = get_mapped_image_collection();
     let Some(collection) = collection.try_read() else {
         return;
