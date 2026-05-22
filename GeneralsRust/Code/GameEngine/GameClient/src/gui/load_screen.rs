@@ -882,6 +882,17 @@ fn initialize_multiplayer_windows(
     prefix: &str,
     context: &LoadScreenInitContext,
 ) {
+    if let Some(portrait_image) =
+        multiplayer_local_general_faction_logo(&context.local_side_name, prefix)
+    {
+        set_window_image(
+            wm,
+            &format!("{prefix}:LocalGeneralPortrait"),
+            0,
+            portrait_image,
+            false,
+        );
+    }
     set_window_text(
         wm,
         &format!("{prefix}:LocalGeneralFeatures"),
@@ -994,6 +1005,35 @@ fn gamespy_stats_suffixes() -> [&'static str; 4] {
         "WinRank",
         "WinOfficer",
     ]
+}
+
+fn multiplayer_local_general_faction_logo(side_name: &str, prefix: &str) -> Option<&'static str> {
+    let gamespy = prefix.eq_ignore_ascii_case("GameSpyLoadScreen.wnd");
+    let side = side_name.trim();
+    if side.eq_ignore_ascii_case("USA")
+        || side.eq_ignore_ascii_case("America")
+        || side.eq_ignore_ascii_case("FactionAmerica")
+    {
+        Some(if gamespy {
+            "SAFactionLogo144_US"
+        } else {
+            "SAFactionLogoLg_US"
+        })
+    } else if side.eq_ignore_ascii_case("GLA") || side.eq_ignore_ascii_case("FactionGLA") {
+        Some(if gamespy {
+            "SUFactionLogo144_GLA"
+        } else {
+            "SUFactionLogoLg_GLA"
+        })
+    } else if side.eq_ignore_ascii_case("China") || side.eq_ignore_ascii_case("FactionChina") {
+        Some(if gamespy {
+            "SNFactionLogo144_China"
+        } else {
+            "SNFactionLogoLg_China"
+        })
+    } else {
+        None
+    }
 }
 
 fn set_progress_window(wm: &mut WindowManager, name: &str, percent: f32) {
@@ -1249,6 +1289,7 @@ mod tests {
     fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
         named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
         named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
 
@@ -1277,6 +1318,10 @@ mod tests {
             window_text(&wm, "MultiplayerLoadScreen.wnd:StaticTextTeam1"),
             "Team:3"
         );
+        assert_eq!(
+            window_image_name(&wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait", 0),
+            Some("SAFactionLogoLg_US".to_string())
+        );
         assert!(!window_hidden(
             &wm,
             "MultiplayerLoadScreen.wnd:ProgressLoad1"
@@ -1296,6 +1341,7 @@ mod tests {
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "GameSpyLoadScreen.wnd", 3);
         create_gamespy_slot_windows(&mut wm, 3);
+        named_test_window(&mut wm, "GameSpyLoadScreen.wnd:LocalGeneralPortrait");
         named_test_window(&mut wm, "GameSpyLoadScreen.wnd:LocalGeneralFeatures");
         named_test_window(&mut wm, "GameSpyLoadScreen.wnd:LocalGeneralName");
 
@@ -1324,6 +1370,10 @@ mod tests {
         assert_eq!(
             window_text(&wm, "GameSpyLoadScreen.wnd:StaticTextTeam1"),
             "Team:AI"
+        );
+        assert_eq!(
+            window_image_name(&wm, "GameSpyLoadScreen.wnd:LocalGeneralPortrait", 0),
+            Some("SAFactionLogo144_US".to_string())
         );
         assert!(window_hidden(&wm, "GameSpyLoadScreen.wnd:WinPlayer2"));
     }
@@ -1370,6 +1420,26 @@ mod tests {
             Some(("MissionLoad_China", "LoadingBar_ProgressCenter1"))
         );
         assert_eq!(single_player_campaign_images("Challenge"), None);
+    }
+
+    #[test]
+    fn multiplayer_local_general_faction_logos_match_cpp_fallbacks() {
+        assert_eq!(
+            multiplayer_local_general_faction_logo("USA", "MultiplayerLoadScreen.wnd"),
+            Some("SAFactionLogoLg_US")
+        );
+        assert_eq!(
+            multiplayer_local_general_faction_logo("FactionGLA", "MultiplayerLoadScreen.wnd"),
+            Some("SUFactionLogoLg_GLA")
+        );
+        assert_eq!(
+            multiplayer_local_general_faction_logo("China", "GameSpyLoadScreen.wnd"),
+            Some("SNFactionLogo144_China")
+        );
+        assert_eq!(
+            multiplayer_local_general_faction_logo("Random", "GameSpyLoadScreen.wnd"),
+            None
+        );
     }
 
     #[test]
@@ -1554,6 +1624,15 @@ mod tests {
             .expect(name)
             .borrow()
             .is_hidden()
+    }
+
+    fn window_image_name(wm: &WindowManager, name: &str, index: usize) -> Option<String> {
+        wm.find_window_by_name(name)
+            .expect(name)
+            .borrow()
+            .get_enabled_draw_data(index)?
+            .image
+            .map(|image| image.name)
     }
 
     fn reset_shell_game_first_load_for_tests(value: bool) {
