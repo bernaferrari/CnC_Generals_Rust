@@ -1970,6 +1970,7 @@ impl CnCGameEngine {
 
         if let Some(player) = player {
             let slot = game_client::gui::load_screen::LoadScreenSlotInitContext {
+                player_id: player.id as i32,
                 player_name: player.name.clone(),
                 side_name: player.team.get_name().to_string(),
                 team_number: player.id as i32,
