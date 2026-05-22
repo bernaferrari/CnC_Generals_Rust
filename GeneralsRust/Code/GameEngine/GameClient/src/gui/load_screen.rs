@@ -4,6 +4,7 @@ pub use super::loading_screen::*;
 
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
+use crate::map_util::get_map_preview_image;
 
 use super::campaign_manager::{
     get_campaign_manager, Mission, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES,
@@ -79,6 +80,7 @@ pub struct LoadScreenInitContext {
     pub local_player_name: String,
     pub local_side_name: String,
     pub local_team_number: i32,
+    pub map_name: Option<String>,
     pub slots: Vec<LoadScreenSlotInitContext>,
 }
 
@@ -201,6 +203,7 @@ impl Default for LoadScreenInitContext {
             local_player_name: "Player".to_string(),
             local_side_name: "USA".to_string(),
             local_team_number: 0,
+            map_name: None,
             slots: Vec::new(),
         }
     }
@@ -335,6 +338,7 @@ pub fn load_screen_init_context_from_game_info(
             local_player_name: local_slot.player_name.clone(),
             local_side_name: local_slot.side_name.clone(),
             local_team_number: local_slot.player_id,
+            map_name: (!game_info.get_map().is_empty()).then(|| game_info.get_map().to_string()),
             slots,
         }
     } else {
@@ -1011,6 +1015,7 @@ fn initialize_multiplayer_windows(
         &format!("{prefix}:LocalGeneralName"),
         &context.local_side_name,
     );
+    initialize_multiplayer_map_preview(wm, prefix, context.map_name.as_deref());
 
     let slots = multiplayer_slot_contexts(context);
     with_multiplayer_load_screen_state(|state| {
@@ -1072,6 +1077,25 @@ fn initialize_multiplayer_windows(
             hide_window(wm, &format!("{prefix}:{suffix}{slot}"), true);
         }
     }
+}
+
+fn initialize_multiplayer_map_preview(
+    wm: &mut WindowManager,
+    prefix: &str,
+    map_name: Option<&str>,
+) {
+    let preview_window_name = format!("{prefix}:WinMapPreview");
+    let Some(preview) = wm.find_window_by_name(&preview_window_name) else {
+        return;
+    };
+
+    let preview_image = map_name.and_then(get_map_preview_image);
+    let Some(preview_image) = preview_image else {
+        preview.borrow_mut().clear_status(WindowStatus::IMAGE);
+        return;
+    };
+
+    set_window_image(wm, &preview_window_name, 0, &preview_image, true);
 }
 
 fn initialize_gamespy_windows(wm: &mut WindowManager, context: &LoadScreenInitContext) {
@@ -1310,9 +1334,17 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
 
     static TEST_LANGUAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    static TEST_LOAD_SCREEN_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn lock_test_language() -> std::sync::MutexGuard<'static, ()> {
         TEST_LANGUAGE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn lock_test_load_screen_state() -> std::sync::MutexGuard<'static, ()> {
+        TEST_LOAD_SCREEN_STATE_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -1424,16 +1456,23 @@ mod tests {
 
     #[test]
     fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
         named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
         named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
         named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:WinMapPreview");
+        wm.find_window_by_name("MultiplayerLoadScreen.wnd:WinMapPreview")
+            .expect("preview")
+            .borrow_mut()
+            .set_status(WindowStatus::IMAGE);
 
         let context = LoadScreenInitContext {
             local_player_name: "Local".to_string(),
             local_side_name: "USA".to_string(),
             local_team_number: 0,
+            map_name: None,
             slots: vec![
                 load_screen_slot_with_color("Alice", "USA", 0, Some(2), false, true),
                 load_screen_slot("Empty", "GLA", 1, false, false),
@@ -1463,6 +1502,10 @@ mod tests {
             window_image_name(&wm, "MultiplayerLoadScreen.wnd:ProgressLoad1", 6),
             Some("LoadingBar_ProgressCenter4".to_string())
         );
+        assert!(
+            !window_status(&wm, "MultiplayerLoadScreen.wnd:WinMapPreview")
+                .contains(WindowStatus::IMAGE)
+        );
         assert!(!window_hidden(
             &wm,
             "MultiplayerLoadScreen.wnd:ProgressLoad1"
@@ -1479,6 +1522,7 @@ mod tests {
 
     #[test]
     fn gamespy_init_keeps_player_row_for_ai_but_hides_ai_stats() {
+        let _state_guard = lock_test_load_screen_state();
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "GameSpyLoadScreen.wnd", 3);
         create_gamespy_slot_windows(&mut wm, 3);
@@ -1490,6 +1534,7 @@ mod tests {
             local_player_name: "Local".to_string(),
             local_side_name: "USA".to_string(),
             local_team_number: 0,
+            map_name: None,
             slots: vec![
                 load_screen_slot("Human", "USA", 0, false, true),
                 load_screen_slot("AI", "GLA", -1, true, true),
@@ -1521,6 +1566,7 @@ mod tests {
 
     #[test]
     fn multiplayer_process_progress_uses_cpp_player_lookup_mapping() {
+        let _state_guard = lock_test_load_screen_state();
         reset_multiplayer_load_screen_state();
         let mut wm = WindowManager::new();
         create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
@@ -1532,6 +1578,7 @@ mod tests {
             local_player_name: "Alice".to_string(),
             local_side_name: "USA".to_string(),
             local_team_number: 0,
+            map_name: None,
             slots: vec![
                 load_screen_slot("Alice", "USA", 0, false, true),
                 load_screen_slot("Empty", "GLA", 1, false, false),
@@ -1570,6 +1617,7 @@ mod tests {
             local_player_name: "Fallback".to_string(),
             local_side_name: "GLA".to_string(),
             local_team_number: 4,
+            map_name: None,
             slots: Vec::new(),
         };
 
@@ -1584,6 +1632,7 @@ mod tests {
     #[test]
     fn game_info_context_preserves_original_slot_ids_and_apparent_colors() {
         let mut game_info = GameInfo::new();
+        game_info.set_map("Maps/Test/Test.map".to_string());
 
         let mut alice = GameSlot::new();
         alice.set_state(SlotState::Player, "Alice".to_string(), 0);
@@ -1606,6 +1655,7 @@ mod tests {
 
         let context = load_screen_init_context_from_game_info(&game_info);
 
+        assert_eq!(context.map_name.as_deref(), Some("Maps/Test/Test.map"));
         assert_eq!(context.local_player_name, "Alice");
         assert_eq!(context.local_team_number, 0);
         assert_eq!(context.slots.len(), 2);
@@ -1883,6 +1933,13 @@ mod tests {
             .get_enabled_draw_data(index)?
             .image
             .map(|image| image.name)
+    }
+
+    fn window_status(wm: &WindowManager, name: &str) -> WindowStatus {
+        wm.find_window_by_name(name)
+            .expect(name)
+            .borrow()
+            .get_status()
     }
 
     fn progress_value(name: &str) -> Option<f32> {
