@@ -3597,7 +3597,9 @@ impl CnCGameEngine {
         ui_manager
             .initialize()
             .map_err(|err| anyhow::anyhow!("failed to initialize startup UI: {err}"))?;
-        ui_manager.transition_to_screen(Screen::Loading);
+        // C++ parity: loading visuals are GameClient .wnd load screens
+        // (ShellGameLoadScreen/SinglePlayerLoadScreen/etc.), not Main/src/ui.
+        ui_manager.suspend_for_shell_overlay();
         let initial_state = GameState::Loading;
         let pending_state = None;
 
@@ -5143,11 +5145,13 @@ impl CnCGameEngine {
             }
             GameState::Loading => {
                 info!("Entering Loading state");
-                // Show loading screen, prepare assets
+                // C++ drives loading through LoadScreen subclasses created from
+                // .wnd files. Keep the temporary Rust UI manager suspended so it
+                // cannot paint a second custom loading screen above/beside that
+                // window-manager-owned surface.
                 self.ensure_shell_loading_overlay();
                 self.update_shell_loading_progress(0.0, Some("Loading assets..."));
-                self.ui_manager
-                    .transition_to_screen(crate::ui::Screen::Loading);
+                self.ui_manager.suspend_for_shell_overlay();
                 self.set_runtime_ui_state_projection(UISystemState::Loading);
                 self.last_slow_menu_tick_log = None;
             }
@@ -5961,6 +5965,16 @@ impl CnCGameEngine {
                     self.request_state_change(GameState::Exiting);
                 }
                 UIEvent::ChangeScreen(screen) => {
+                    if screen == Screen::Loading
+                        && matches!(self.current_state, GameState::Menu | GameState::Loading)
+                    {
+                        self.ensure_shell_loading_overlay();
+                        self.update_shell_loading_progress(0.0, Some("Loading assets..."));
+                        self.ui_manager.suspend_for_shell_overlay();
+                        self.set_runtime_ui_state_projection(UISystemState::Loading);
+                        continue;
+                    }
+
                     if self.current_state == GameState::Menu && screen.is_shell_owned_pregame() {
                         self.route_shell_owned_screen_change(screen);
                         continue;
@@ -6239,7 +6253,7 @@ impl CnCGameEngine {
             return;
         }
 
-        self.ui_manager.transition_to_screen(Screen::Loading);
+        self.transition_to_state(GameState::Loading);
         match self.save_file_manager.load_game(slot, &mut self.game_logic) {
             Ok(save_info) => {
                 info!(
