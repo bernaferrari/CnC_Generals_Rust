@@ -592,6 +592,7 @@ fn with_single_player_load_screen_state<R>(
 
 fn initialize_challenge_windows(wm: &mut WindowManager) {
     with_challenge_load_screen_state(|state| *state = ChallengeLoadScreenState::default());
+    with_window_video_manager(|manager| manager.init());
 
     for name in [
         "ChallengeLoadScreen.wnd:PortraitLeft",
@@ -2076,6 +2077,21 @@ mod tests {
             assert!(!window.borrow().is_hidden(), "{name}");
         }
 
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn challenge_init_resets_window_video_manager_like_cpp() {
+        let _language_guard = lock_test_language();
+        setup_current_challenge_for_tests("ChallengeIntro");
+        let mut wm = WindowManager::new();
+        challenge_test_windows(&mut wm);
+        with_window_video_manager(|manager| manager.set_global_flags_for_tests(true, true));
+
+        initialize_challenge_windows(&mut wm);
+
+        let flags = with_window_video_manager(|manager| manager.global_flags_for_tests());
+        assert_eq!(flags, (false, false));
         Language::clear_localized_strings();
     }
 
