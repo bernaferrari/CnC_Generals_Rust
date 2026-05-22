@@ -5961,6 +5961,11 @@ impl CnCGameEngine {
                     self.request_state_change(GameState::Exiting);
                 }
                 UIEvent::ChangeScreen(screen) => {
+                    if self.current_state == GameState::Menu && screen.is_shell_owned_pregame() {
+                        self.route_shell_owned_screen_change(screen);
+                        continue;
+                    }
+
                     self.ui_manager.transition_to_screen(screen);
                     match screen {
                         Screen::MainMenu => {
@@ -5986,6 +5991,24 @@ impl CnCGameEngine {
                 }
                 _ => {}
             }
+        }
+    }
+
+    fn route_shell_owned_screen_change(&mut self, screen: Screen) {
+        match screen {
+            Screen::MainMenu => self.enter_shell_menu_from_runtime_host(None),
+            Screen::Options => self.enter_shell_options_from_runtime_host(),
+            Screen::Credits => {
+                self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd")
+            }
+            Screen::LoadGame => {
+                self.enter_shell_screen_from_runtime_host(Some("LoadGame"), "Menus/SaveLoad.wnd")
+            }
+            Screen::Skirmish => self.enter_shell_screen_from_runtime_host(
+                Some("Skirmish"),
+                "Menus/SkirmishGameOptionsMenu.wnd",
+            ),
+            _ => {}
         }
     }
 
