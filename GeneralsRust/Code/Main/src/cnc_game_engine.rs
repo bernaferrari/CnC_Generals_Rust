@@ -1710,9 +1710,7 @@ impl CnCGameEngine {
                 self.request_state_change(GameState::Exiting);
             }
             "menu" => {
-                self.set_runtime_host_ui_screen_override(None);
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.request_state_change(GameState::Menu);
+                self.enter_shell_menu_from_runtime_host(None);
             }
             "toggle_pause" => match self.current_state {
                 GameState::InGame => self.request_state_change(GameState::Paused),
@@ -1720,62 +1718,36 @@ impl CnCGameEngine {
                 _ => {}
             },
             "open_message_of_the_day" | "open_motd" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("MessageOfDay"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_menu_from_runtime_host(Some("MessageOfDay"));
             }
             "open_get_updates" | "open_updates" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("GetUpdates"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_menu_from_runtime_host(Some("GetUpdates"));
             }
             "open_world_builder" | "launch_world_builder" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("WorldBuilder"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_menu_from_runtime_host(Some("WorldBuilder"));
             }
             "open_options" => {
                 self.set_runtime_host_ui_screen_override(None);
-                self.ui_manager.transition_to_screen(Screen::Options);
-                if self.current_state == GameState::InGame {
-                    self.request_state_change(GameState::Paused);
-                } else if self.current_state != GameState::Paused {
-                    self.request_state_change(GameState::Menu);
+                if matches!(self.current_state, GameState::InGame | GameState::Paused) {
+                    self.ui_manager.transition_to_screen(Screen::Options);
+                    if self.current_state == GameState::InGame {
+                        self.request_state_change(GameState::Paused);
+                    }
+                } else {
+                    self.enter_shell_options_from_runtime_host();
                 }
             }
             "open_credits" => {
-                self.set_runtime_host_ui_screen_override(None);
-                self.ui_manager.transition_to_screen(Screen::Credits);
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_screen_from_runtime_host(Some("Credits"), "Menus/CreditsMenu.wnd");
             }
             "open_single_player_menu" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("SinglePlayer"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_menu_from_runtime_host(Some("SinglePlayer"));
             }
             "open_multiplayer_menu" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("Multiplayer"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_menu_from_runtime_host(Some("Multiplayer"));
             }
             "open_load_replay_menu" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("LoadReplay"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_menu_from_runtime_host(Some("LoadReplay"));
             }
             "open_difficulty_menu" => {
                 let campaign = args
@@ -1788,53 +1760,31 @@ impl CnCGameEngine {
                     "china" => "DifficultyChina",
                     _ => "DifficultyUsa",
                 };
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some(override_screen));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_menu_from_runtime_host(Some(override_screen));
             }
             "open_skirmish_menu" => {
-                self.set_runtime_host_ui_screen_override(None);
-                self.ui_manager.transition_to_screen(Screen::Skirmish);
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_screen_from_runtime_host(
+                    Some("Skirmish"),
+                    "Menus/SkirmishGameOptionsMenu.wnd",
+                );
             }
             "open_load_game" => {
-                self.set_runtime_host_ui_screen_override(None);
-                self.ui_manager.transition_to_screen(Screen::LoadGame);
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_menu_from_runtime_host(Some("LoadGame"));
             }
             "open_online" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("Online"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_menu_from_runtime_host(Some("Online"));
             }
             "open_network" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("Network"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_screen_from_runtime_host(Some("Network"), "Menus/LanLobbyMenu.wnd");
             }
             "open_replay" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("Replay"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_screen_from_runtime_host(Some("Replay"), "Menus/ReplayMenu.wnd");
             }
             "open_challenge_menu" => {
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("Challenge"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_screen_from_runtime_host(
+                    Some("Challenge"),
+                    "Menus/ChallengeMenu.wnd",
+                );
             }
             "start_game" => {
                 let mode = Self::parse_runtime_host_mode(args.get("mode").map(String::as_str));
@@ -1869,17 +1819,54 @@ impl CnCGameEngine {
                 warn!(
                     "Runtime host replay command requested for slot '{slot}', replay startup path is not wired yet"
                 );
-                self.ui_manager.transition_to_screen(Screen::MainMenu);
-                self.set_runtime_host_ui_screen_override(Some("Replay"));
-                if self.current_state != GameState::Menu {
-                    self.request_state_change(GameState::Menu);
-                }
+                self.enter_shell_screen_from_runtime_host(Some("Replay"), "Menus/ReplayMenu.wnd");
             }
             _ => {
                 debug!(
                     "Ignoring unknown runtime host command '{}'",
                     raw_command.trim()
                 );
+            }
+        }
+    }
+
+    fn enter_shell_menu_from_runtime_host(&mut self, override_screen: Option<&'static str>) {
+        self.set_runtime_host_ui_screen_override(override_screen);
+        self.ui_manager.suspend_for_shell_overlay();
+        if self.current_state != GameState::Menu {
+            self.request_state_change(GameState::Menu);
+        }
+    }
+
+    fn enter_shell_screen_from_runtime_host(
+        &mut self,
+        override_screen: Option<&'static str>,
+        layout_file: &'static str,
+    ) {
+        self.enter_shell_menu_from_runtime_host(override_screen);
+        #[cfg(feature = "game_client")]
+        {
+            self.show_shell_menu();
+            if let Err(err) = game_client::gui::get_shell().push(layout_file, false) {
+                warn!("Runtime host failed to push shell screen {layout_file}: {err:?}");
+            }
+        }
+    }
+
+    fn enter_shell_options_from_runtime_host(&mut self) {
+        self.enter_shell_menu_from_runtime_host(Some("Options"));
+        #[cfg(feature = "game_client")]
+        {
+            self.show_shell_menu();
+            let mut shell = game_client::gui::get_shell();
+            if let Some(layout) = shell.get_options_layout(true) {
+                if let Err(err) = layout.run_init(None) {
+                    warn!("Runtime host failed to init shell options layout: {err:?}");
+                }
+                layout.hide(false);
+                layout.bring_forward();
+            } else {
+                warn!("Runtime host failed to create shell options layout");
             }
         }
     }
@@ -2017,32 +2004,34 @@ impl CnCGameEngine {
                 return;
             }
 
-            game_client::gui::with_window_manager(|wm| {
-                match wm.create_layout_with_windows("Menus/MainMenu.wnd") {
-                    Ok((layout, _info)) => {
-                        layout.borrow().run_init(None);
-                        if let Some(root) = wm.find_window_by_name("MainMenu.wnd:MainMenuParent") {
-                            let _ = root.borrow_mut().hide(false);
-                            let _ = root.borrow_mut().bring_to_front();
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Failed to load MainMenu.wnd: {:?}", e);
-                        error!(
-                            "MainMenu.wnd could not be loaded — the main menu will not be visible. \
-                             Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
-                             The game will continue without a main menu."
-                        );
-                    }
+            let mut shell = game_client::gui::get_shell();
+            shell.show_shell_map(true);
+            let result = if shell.get_screen_count() == 0 {
+                shell.push("Menus/MainMenu.wnd", false)
+            } else {
+                if let Some(top) = shell.top() {
+                    top.hide(false);
+                    top.bring_forward();
                 }
-            });
+                Ok(())
+            };
+
+            if let Err(e) = result {
+                warn!("Failed to activate MainMenu.wnd through Shell: {:?}", e);
+                error!(
+                    "MainMenu.wnd could not be loaded — the main menu will not be visible. \
+                     Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
+                     The game will continue without a main menu."
+                );
+                return;
+            }
 
             self.shell_menu_active = true;
-            info!("Shell menu created from Menus/MainMenu.wnd");
+            info!("Shell menu activated from Menus/MainMenu.wnd");
         }
     }
 
-    /// C++ parity: Shell::pop() — destroy menu layout when leaving Menu state.
+    /// C++ parity: Shell::hideShell() — run top-layout shutdown when leaving Menu state.
     fn hide_shell_menu(&mut self) {
         #[cfg(feature = "game_client")]
         {
@@ -2050,12 +2039,9 @@ impl CnCGameEngine {
                 return;
             }
 
-            game_client::gui::with_window_manager(|wm| {
-                if let Some(root) = wm.find_window_by_name("MainMenu.wnd:MainMenuParent") {
-                    let _ = wm.destroy_window(root);
-                }
-                wm.flush_destroy_queue();
-            });
+            if let Err(err) = game_client::gui::get_shell().hide_shell() {
+                warn!("Failed to hide shell menu: {:?}", err);
+            }
 
             self.shell_menu_active = false;
         }
@@ -3203,7 +3189,7 @@ impl CnCGameEngine {
             self.last_shell_prewarm_log = None;
             self.shell_prewarm_completion_logged = true;
 
-            self.ui_manager.transition_to_screen(Screen::MainMenu);
+            self.ui_manager.suspend_for_shell_overlay();
             self.set_runtime_ui_state_projection(UISystemState::MainMenu);
         }
 
@@ -5147,10 +5133,7 @@ impl CnCGameEngine {
                 self.active_menu_shell_hook = None;
                 info!("Menu transition: calling hide_gameplay_layouts");
                 self.hide_gameplay_layouts();
-                info!("Menu transition: calling ui_manager.transition_to_screen(MainMenu)");
-                self.ui_manager
-                    .transition_to_screen(crate::ui::Screen::MainMenu);
-                info!("Menu transition: ui_manager.transition_to_screen done");
+                self.ui_manager.suspend_for_shell_overlay();
                 self.set_runtime_ui_state_projection(UISystemState::MainMenu);
                 info!("Menu transition: calling prime_subsystems_before_menu_transition");
                 self.prime_subsystems_before_menu_transition();
@@ -5418,9 +5401,6 @@ impl CnCGameEngine {
                 }
 
                 self.set_runtime_ui_state_projection(UISystemState::MainMenu);
-                if let Err(err) = self.ui_manager.update(dt) {
-                    warn!("UI manager update failed in menu state: {}", err);
-                }
 
                 #[cfg(feature = "game_client")]
                 {

@@ -39,7 +39,7 @@ use crate::gui::challenge_generals::{
 };
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::menu_flags::get_dont_show_main_menu;
-use crate::gui::shell::{get_shell, request_shell_menu_scheme};
+use crate::gui::shell::get_shell;
 use crate::gui::window_manager::{
     with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
 };
@@ -556,7 +556,6 @@ impl MainMenu {
             global.write().break_the_movie = false;
         }
 
-        get_shell().show_shell_map(true);
         set_main_menu_cursor_visibility(true);
 
         // Reset state - matches C++ lines 431-442
@@ -639,8 +638,6 @@ impl MainMenu {
             tear_down_gamespy();
         }
 
-        // Load main menu scheme - matches C++ line 618
-        request_shell_menu_scheme("MainMenu");
         state.raise_message_boxes = true;
         // Campaign not selected - matches C++ line 630
         state.campaign_selected = false;
@@ -698,8 +695,6 @@ impl MainMenu {
         if pop_immediate {
             // Complete shutdown immediately - matches C++ lines 673-682
             self.finish_shutdown_complete(Some(layout), &mut state)?;
-            drop(state);
-            self.complete_shell_shutdown()?;
             log::info!("Main menu shutdown complete");
             return Ok(());
         }
