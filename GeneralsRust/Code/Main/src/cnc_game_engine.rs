@@ -1969,10 +1969,18 @@ impl CnCGameEngine {
             .or_else(|| self.game_logic.get_player(self.current_player_id));
 
         if let Some(player) = player {
+            let slot = game_client::gui::load_screen::LoadScreenSlotInitContext {
+                player_name: player.name.clone(),
+                side_name: player.team.get_name().to_string(),
+                team_number: player.id as i32,
+                is_ai: false,
+                visible: true,
+            };
             game_client::gui::load_screen::LoadScreenInitContext {
-                local_player_name: player.name.clone(),
-                local_side_name: player.team.get_name().to_string(),
-                local_team_number: player.id as i32,
+                local_player_name: slot.player_name.clone(),
+                local_side_name: slot.side_name.clone(),
+                local_team_number: slot.team_number,
+                slots: vec![slot],
             }
         } else {
             game_client::gui::load_screen::LoadScreenInitContext::default()
