@@ -9,7 +9,8 @@ use super::campaign_manager::{
     get_campaign_manager, Mission, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES,
 };
 use super::challenge_generals::{
-    get_challenge_generals, init_challenge_generals, ChallengeGenerals, GeneralPersona,
+    get_challenge_generals, get_challenge_generals_mut, init_challenge_generals, ChallengeGenerals,
+    GeneralPersona,
 };
 use super::game_window::Image as WindowImage;
 use super::window_video_manager::{with_window_video_manager, WindowVideoPlayType};
@@ -117,6 +118,8 @@ struct ChallengePersonaText {
 struct ChallengeLoadScreenState {
     player: Option<ChallengePersonaText>,
     opponent: Option<ChallengePersonaText>,
+    high_spec_prelude_active: bool,
+    current_frame: i32,
     text_pos_big_name_right: usize,
     text_pos_name_right: usize,
     text_pos_birthplace_right: usize,
@@ -291,6 +294,8 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
                 "SinglePlayerLoadScreen.wnd:Percent",
                 &format!("{}%", percent as i32),
             );
+        } else if kind == LoadScreenKind::Challenge {
+            update_challenge_load_screen_prelude(wm);
         }
     });
 }
@@ -490,9 +495,12 @@ fn initialize_challenge_windows(wm: &mut WindowManager) {
     }
 
     if let Some((player, opponent)) = current_challenge_persona_text() {
+        let movie_label = current_challenge_movie_label();
         with_challenge_load_screen_state(|state| {
             state.player = Some(player.clone());
             state.opponent = Some(opponent.clone());
+            state.high_spec_prelude_active = movie_label.is_some();
+            state.current_frame = 0;
         });
         if let Some(image) = player.portrait_large.as_deref() {
             set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitLeft", 0, image, true);
@@ -500,7 +508,15 @@ fn initialize_challenge_windows(wm: &mut WindowManager) {
         if let Some(image) = opponent.portrait_large.as_deref() {
             set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitRight", 0, image, true);
         }
-        activate_challenge_pieces_min_spec_windows(wm);
+        if let Some(movie_label) = movie_label {
+            play_challenge_movie(
+                wm,
+                "ChallengeLoadScreen.wnd:ParentChallengeLoadScreen",
+                &movie_label,
+            );
+        } else {
+            activate_challenge_pieces_min_spec_windows(wm);
+        }
     }
 }
 
@@ -519,6 +535,21 @@ pub fn activate_challenge_load_screen_frame(frame: i32) {
 
 pub fn activate_challenge_load_screen_min_spec() {
     with_window_manager(activate_challenge_pieces_min_spec_windows);
+}
+
+fn update_challenge_load_screen_prelude(wm: &mut WindowManager) {
+    let frame = with_challenge_load_screen_state(|state| {
+        if !state.high_spec_prelude_active {
+            return None;
+        }
+        state.current_frame += 1;
+        Some(state.current_frame)
+    });
+
+    if let Some(frame) = frame {
+        activate_challenge_pieces_frame_windows(wm, frame);
+        with_window_video_manager(|manager| manager.update());
+    }
 }
 
 fn activate_challenge_pieces_frame_windows(wm: &mut WindowManager, frame: i32) {
@@ -921,6 +952,13 @@ fn current_challenge_persona_text() -> Option<(ChallengePersonaText, ChallengePe
     challenge_persona_text_for_current_mission(&campaign.name, &mission.general_name, &generals)
 }
 
+fn current_challenge_movie_label() -> Option<String> {
+    let campaign_manager = get_campaign_manager();
+    let mission = campaign_manager.get_current_mission()?;
+    let movie_label = mission.movie_label.trim();
+    (!movie_label.is_empty()).then(|| movie_label.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1244,6 +1282,7 @@ mod tests {
     }
 
     fn challenge_test_windows(wm: &mut WindowManager) {
+        named_test_window(wm, "ChallengeLoadScreen.wnd:ParentChallengeLoadScreen");
         for name in CHALLENGE_BIO_LABEL_WINDOWS
             .iter()
             .chain(CHALLENGE_BIO_ENTRY_WINDOWS.iter())
@@ -1264,6 +1303,50 @@ mod tests {
         {
             named_test_window(wm, name);
         }
+    }
+
+    fn setup_current_challenge_for_tests(movie_label: &str) {
+        Language::clear_localized_strings();
+        Language::register_localized_string("CHALLENGE:PlayerName", "General Player");
+        Language::register_localized_string("CHALLENGE:PlayerRank", "General");
+        Language::register_localized_string("CHALLENGE:PlayerStrategy", "Air superiority");
+        Language::register_localized_string("CHALLENGE:OpponentName", "General Opponent");
+        Language::register_localized_string("CHALLENGE:OpponentRank", "Prince");
+        Language::register_localized_string("CHALLENGE:OpponentStrategy", "Ambush");
+
+        init_challenge_generals();
+        let mut generals = get_challenge_generals_mut().expect("challenge generals");
+        let positions = generals.challenge_generals_mut();
+        positions[0] = GeneralPersona::new();
+        positions[0].set_campaign("challengecampaign".to_string());
+        positions[0].set_bio_name("CHALLENGE:PlayerName".to_string());
+        positions[0].set_bio_rank("CHALLENGE:PlayerRank".to_string());
+        positions[0].set_bio_strategy("CHALLENGE:PlayerStrategy".to_string());
+        positions[0].set_bio_portrait_large(Some("PlayerPortrait".to_string()));
+        positions[0].set_portrait_movie_left_name("PlayerMovieLeft".to_string());
+        positions[0].set_portrait_movie_right_name("PlayerMovieRight".to_string());
+        positions[0].set_name_sound("PlayerNameSound".to_string());
+
+        positions[1] = GeneralPersona::new();
+        positions[1].set_bio_name("CHALLENGE:OpponentName".to_string());
+        positions[1].set_bio_rank("CHALLENGE:OpponentRank".to_string());
+        positions[1].set_bio_strategy("CHALLENGE:OpponentStrategy".to_string());
+        positions[1].set_bio_portrait_large(Some("OpponentPortrait".to_string()));
+        positions[1].set_portrait_movie_left_name("OpponentMovieLeft".to_string());
+        positions[1].set_portrait_movie_right_name("OpponentMovieRight".to_string());
+        positions[1].set_name_sound("OpponentNameSound".to_string());
+        drop(generals);
+
+        let mut manager = get_campaign_manager();
+        {
+            let campaign = manager.new_campaign("challengecampaign".to_string());
+            campaign.first_mission = "mission1".to_string();
+            campaign.is_challenge_campaign = true;
+            let mission = campaign.new_mission("mission1".to_string());
+            mission.general_name = "CHALLENGE:OpponentName".to_string();
+            mission.movie_label = movie_label.to_string();
+        }
+        manager.set_campaign_and_mission("challengecampaign", "mission1");
     }
 
     fn cache_challenge_test_personas() {
@@ -1302,6 +1385,60 @@ mod tests {
                 ..ChallengeLoadScreenState::default()
             };
         });
+    }
+
+    #[test]
+    fn challenge_init_with_movie_waits_for_frame_activation_like_cpp_high_spec() {
+        let _language_guard = lock_test_language();
+        setup_current_challenge_for_tests("ChallengeIntro");
+        let mut wm = WindowManager::new();
+        challenge_test_windows(&mut wm);
+
+        initialize_challenge_windows(&mut wm);
+
+        for name in CHALLENGE_BIO_LABEL_WINDOWS
+            .iter()
+            .chain(CHALLENGE_BIO_ENTRY_WINDOWS.iter())
+            .copied()
+        {
+            let window = wm.find_window_by_name(name).expect(name);
+            assert!(window.borrow().is_hidden(), "{name}");
+        }
+
+        for _ in 0..FRAME_TITLES_START {
+            update_challenge_load_screen_prelude(&mut wm);
+        }
+
+        for name in CHALLENGE_BIO_LABEL_WINDOWS {
+            let window = wm.find_window_by_name(name).expect(name);
+            assert!(!window.borrow().is_hidden(), "{name}");
+        }
+
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn challenge_init_without_movie_uses_cpp_min_spec_final_reveal() {
+        let _language_guard = lock_test_language();
+        setup_current_challenge_for_tests("");
+        let mut wm = WindowManager::new();
+        challenge_test_windows(&mut wm);
+
+        initialize_challenge_windows(&mut wm);
+
+        for name in CHALLENGE_BIO_LABEL_WINDOWS {
+            let window = wm.find_window_by_name(name).expect(name);
+            assert!(!window.borrow().is_hidden(), "{name}");
+        }
+        assert_eq!(
+            wm.find_window_by_name("ChallengeLoadScreen.wnd:BioStrategyEntryRight")
+                .expect("right strategy")
+                .borrow()
+                .get_text(),
+            "Ambush"
+        );
+
+        Language::clear_localized_strings();
     }
 
     #[test]
