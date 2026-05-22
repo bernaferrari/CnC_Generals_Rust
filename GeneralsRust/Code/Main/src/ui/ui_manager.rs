@@ -658,7 +658,6 @@ impl UIManager {
                     self.transition_to_screen(screen);
                 }
                 UIEvent::StartGame { mode, faction, map } => {
-                    self.transition_to_screen(Screen::GameHUD);
                     let mode_label = format!("{:?}", mode);
                     info!(
                         "{}",
@@ -677,7 +676,6 @@ impl UIManager {
                         .push(UIEvent::StartGame { mode, faction, map });
                 }
                 UIEvent::LoadGame(save_path) => {
-                    self.transition_to_screen(Screen::Loading);
                     info!(
                         "{}",
                         localization::localize_with_args(
@@ -708,7 +706,6 @@ impl UIManager {
                             "Restarting mission"
                         )
                     );
-                    self.transition_to_screen(Screen::Loading);
                     self.event_queue.push(UIEvent::RestartMission);
                 }
                 UIEvent::ExitToMenu => {
@@ -864,5 +861,27 @@ mod tests {
         let mut manager = UIManager::new(1024, 768);
         manager.queue_event(UIEvent::ChangeScreen(Screen::FactionSelection));
         assert_eq!(manager.event_queue.len(), 1);
+    }
+
+    #[test]
+    fn game_load_events_do_not_activate_custom_loading_screen() {
+        let mut manager = UIManager::new(1024, 768);
+        manager.suspend_for_shell_overlay();
+
+        manager.queue_event(UIEvent::StartGame {
+            mode: GameMode::Skirmish,
+            faction: "America".to_string(),
+            map: "Maps/Test/Test.map".to_string(),
+        });
+        manager.update(1.0 / 30.0).unwrap();
+        assert_eq!(manager.current_screen, None);
+
+        manager.queue_event(UIEvent::LoadGame("quicksave".to_string()));
+        manager.update(1.0 / 30.0).unwrap();
+        assert_eq!(manager.current_screen, None);
+
+        manager.queue_event(UIEvent::RestartMission);
+        manager.update(1.0 / 30.0).unwrap();
+        assert_eq!(manager.current_screen, None);
     }
 }
