@@ -2003,6 +2003,7 @@ impl CnCGameEngine {
                 local_player_name: slot.player_name.clone(),
                 local_side_name: slot.side_name.clone(),
                 local_team_number: slot.team_number,
+                map_name: None,
                 slots: vec![slot],
             }
         } else {
