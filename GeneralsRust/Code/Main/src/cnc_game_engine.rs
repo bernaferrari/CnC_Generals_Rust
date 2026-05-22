@@ -3196,7 +3196,7 @@ impl CnCGameEngine {
             self.last_shell_prewarm_log = None;
             self.shell_prewarm_completion_logged = true;
 
-            self.ui_manager.transition_to_screen(Screen::MainMenu);
+            self.ui_manager.suspend_for_shell_overlay();
             self.set_runtime_ui_state_projection(UISystemState::MainMenu);
         }
 
@@ -5294,10 +5294,7 @@ impl CnCGameEngine {
                 self.active_menu_shell_hook = None;
                 info!("Menu transition: calling hide_gameplay_layouts");
                 self.hide_gameplay_layouts();
-                info!("Menu transition: calling ui_manager.transition_to_screen(MainMenu)");
-                self.ui_manager
-                    .transition_to_screen(crate::ui::Screen::MainMenu);
-                info!("Menu transition: ui_manager.transition_to_screen done");
+                self.ui_manager.suspend_for_shell_overlay();
                 self.set_runtime_ui_state_projection(UISystemState::MainMenu);
                 info!("Menu transition: calling prime_subsystems_before_menu_transition");
                 self.prime_subsystems_before_menu_transition();
@@ -5565,9 +5562,6 @@ impl CnCGameEngine {
                 }
 
                 self.set_runtime_ui_state_projection(UISystemState::MainMenu);
-                if let Err(err) = self.ui_manager.update(dt) {
-                    warn!("UI manager update failed in menu state: {}", err);
-                }
 
                 #[cfg(feature = "game_client")]
                 {
