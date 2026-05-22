@@ -18,7 +18,7 @@ use super::{with_window_manager, WindowManager, WindowStatus};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_LOAD_SCREEN_SLOTS: usize = 8;
 const FRAME_FUDGE_ADD: f32 = 30.0;
@@ -120,6 +120,8 @@ struct ChallengeLoadScreenState {
     opponent: Option<ChallengePersonaText>,
     high_spec_prelude_active: bool,
     current_frame: i32,
+    postlude_audio_played: bool,
+    ambient_loop_handle: u32,
     text_pos_big_name_right: usize,
     text_pos_name_right: usize,
     text_pos_birthplace_right: usize,
@@ -281,6 +283,9 @@ pub fn reset_load_screen(kind: LoadScreenKind) {
             wm.flush_destroy_queue();
         }
     });
+    if kind == LoadScreenKind::Challenge {
+        reset_challenge_load_screen_audio_state();
+    }
 }
 
 pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
@@ -296,6 +301,9 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
             );
         } else if kind == LoadScreenKind::Challenge {
             update_challenge_load_screen_prelude(wm);
+            if raw_percent >= 100.0 {
+                finish_challenge_load_screen_audio_postlude();
+            }
         }
     });
 }
@@ -501,6 +509,8 @@ fn initialize_challenge_windows(wm: &mut WindowManager) {
             state.opponent = Some(opponent.clone());
             state.high_spec_prelude_active = movie_label.is_some();
             state.current_frame = 0;
+            state.postlude_audio_played = false;
+            state.ambient_loop_handle = 0;
         });
         if let Some(image) = player.portrait_large.as_deref() {
             set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitLeft", 0, image, true);
@@ -516,6 +526,7 @@ fn initialize_challenge_windows(wm: &mut WindowManager) {
             );
         } else {
             activate_challenge_pieces_min_spec_windows(wm);
+            finish_challenge_load_screen_audio_postlude();
         }
     }
 }
@@ -549,6 +560,69 @@ fn update_challenge_load_screen_prelude(wm: &mut WindowManager) {
     if let Some(frame) = frame {
         activate_challenge_pieces_frame_windows(wm, frame);
         with_window_video_manager(|manager| manager.update());
+    }
+}
+
+fn finish_challenge_load_screen_audio_postlude() {
+    let postlude = with_challenge_load_screen_state(|state| {
+        if state.postlude_audio_played {
+            return None;
+        }
+        let taunt = {
+            let opponent = state.opponent.as_ref()?;
+            challenge_taunt_sound(opponent, challenge_taunt_seed()).map(str::to_string)
+        };
+        state.postlude_audio_played = true;
+        state.high_spec_prelude_active = false;
+        Some(taunt)
+    });
+
+    let Some(taunt) = postlude else {
+        return;
+    };
+    if let Some(taunt) = taunt {
+        play_audio_event(&taunt);
+    }
+    let ambient_handle = add_audio_event("LoadScreenAmbient");
+    with_challenge_load_screen_state(|state| {
+        state.ambient_loop_handle = ambient_handle;
+    });
+}
+
+fn reset_challenge_load_screen_audio_state() {
+    let ambient_handle = with_challenge_load_screen_state(|state| {
+        let handle = state.ambient_loop_handle;
+        state.high_spec_prelude_active = false;
+        state.current_frame = 0;
+        state.postlude_audio_played = false;
+        state.ambient_loop_handle = 0;
+        handle
+    });
+    if ambient_handle != 0 {
+        if let Some(audio) = TheAudio::get() {
+            audio.remove_audio_event(ambient_handle);
+        }
+    }
+}
+
+fn challenge_taunt_seed() -> usize {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.subsec_nanos() as usize)
+        .unwrap_or(0)
+}
+
+fn challenge_taunt_sound(persona: &ChallengePersonaText, seed: usize) -> Option<&str> {
+    let sounds: Vec<&str> = persona
+        .taunt_sounds
+        .iter()
+        .map(String::as_str)
+        .filter(|sound| !sound.is_empty())
+        .collect();
+    if sounds.is_empty() {
+        None
+    } else {
+        Some(sounds[seed % sounds.len()])
     }
 }
 
@@ -762,12 +836,33 @@ fn play_challenge_movie(wm: &mut WindowManager, window_name: &str, movie_name: &
 }
 
 fn play_audio_event(event_name: &str) {
+    let _ = add_audio_event(event_name);
+}
+
+#[cfg(not(test))]
+fn add_audio_event(event_name: &str) -> u32 {
     if event_name.is_empty() {
-        return;
+        return 0;
     }
     if let Some(audio) = TheAudio::get() {
         let event = AudioEventRts::new(event_name);
-        audio.add_audio_event(&event);
+        audio.add_audio_event(&event)
+    } else {
+        0
+    }
+}
+
+#[cfg(test)]
+fn add_audio_event(event_name: &str) -> u32 {
+    if event_name.is_empty() {
+        0
+    } else {
+        event_name
+            .bytes()
+            .fold(1_u32, |hash, byte| {
+                hash.wrapping_mul(31).wrapping_add(byte as u32)
+            })
+            .max(1)
     }
 }
 
@@ -1437,8 +1532,45 @@ mod tests {
                 .get_text(),
             "Ambush"
         );
+        let postlude_played = with_challenge_load_screen_state(|state| state.postlude_audio_played);
+        assert!(postlude_played);
 
         Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn challenge_postlude_audio_fires_once_and_selects_opponent_taunt() {
+        cache_challenge_test_personas();
+
+        assert_eq!(
+            challenge_taunt_sound(
+                &with_challenge_load_screen_state(|state| state.opponent.clone().unwrap()),
+                0
+            ),
+            Some("OpponentTaunt1")
+        );
+        assert_eq!(
+            challenge_taunt_sound(
+                &with_challenge_load_screen_state(|state| state.opponent.clone().unwrap()),
+                4
+            ),
+            Some("OpponentTaunt2")
+        );
+
+        finish_challenge_load_screen_audio_postlude();
+        let first = with_challenge_load_screen_state(|state| {
+            (
+                state.postlude_audio_played,
+                state.high_spec_prelude_active,
+                state.ambient_loop_handle,
+            )
+        });
+        assert!(first.0);
+        assert!(!first.1);
+
+        finish_challenge_load_screen_audio_postlude();
+        let second = with_challenge_load_screen_state(|state| state.ambient_loop_handle);
+        assert_eq!(second, first.2);
     }
 
     #[test]
