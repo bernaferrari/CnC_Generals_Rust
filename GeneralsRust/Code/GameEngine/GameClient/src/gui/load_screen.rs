@@ -12,12 +12,24 @@ use super::challenge_generals::{
     get_challenge_generals, init_challenge_generals, ChallengeGenerals, GeneralPersona,
 };
 use super::game_window::Image as WindowImage;
+use super::window_video_manager::{with_window_video_manager, WindowVideoPlayType};
 use super::{with_window_manager, WindowManager, WindowStatus};
+use gamelogic::common::audio::AudioEventRts;
+use gamelogic::helpers::TheAudio;
 use std::sync::{Mutex, OnceLock};
 
 const MAX_LOAD_SCREEN_SLOTS: usize = 8;
 const FRAME_FUDGE_ADD: f32 = 30.0;
 const FRAME_FUDGE_SCALE: f32 = 1.3;
+const FRAME_TITLES_START: i32 = 20;
+const FRAME_TELETYPE_START: i32 = 24;
+const FRAME_PORTRAITS_START: i32 = 35;
+const FRAME_OUTER_CIRCLE_ALPHA_SHOW: i32 = 63;
+const FRAME_INNER_CIRCLE_ALPHA_SHOW: i32 = 74;
+const FRAME_INNER_BACKDROP_ALPHA_SHOW: i32 = 80;
+const FRAME_VS_ANIM_START: i32 = 98;
+const FRAME_RIGHT_VOICE: i32 = 140;
+const TELETYPE_UPDATE_FREQ: i32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadScreenGameMode {
@@ -113,6 +125,39 @@ struct ChallengeLoadScreenState {
 }
 
 static CHALLENGE_LOAD_SCREEN_STATE: OnceLock<Mutex<ChallengeLoadScreenState>> = OnceLock::new();
+
+const CHALLENGE_BIO_LABEL_WINDOWS: &[&str] = &[
+    "ChallengeLoadScreen.wnd:BioNameLeft",
+    "ChallengeLoadScreen.wnd:BioBirthplaceLeft",
+    "ChallengeLoadScreen.wnd:BioStrategyLeft",
+    "ChallengeLoadScreen.wnd:BioNameRight",
+    "ChallengeLoadScreen.wnd:BioBirthplaceRight",
+    "ChallengeLoadScreen.wnd:BioStrategyRight",
+];
+
+const CHALLENGE_BIO_ENTRY_WINDOWS: &[&str] = &[
+    "ChallengeLoadScreen.wnd:BigNameEntryLeft",
+    "ChallengeLoadScreen.wnd:BioNameEntryLeft",
+    "ChallengeLoadScreen.wnd:BioBirthplaceEntryLeft",
+    "ChallengeLoadScreen.wnd:BioStrategyEntryLeft",
+    "ChallengeLoadScreen.wnd:BigNameEntryRight",
+    "ChallengeLoadScreen.wnd:BioNameEntryRight",
+    "ChallengeLoadScreen.wnd:BioBirthplaceEntryRight",
+    "ChallengeLoadScreen.wnd:BioStrategyEntryRight",
+];
+
+impl ChallengeLoadScreenState {
+    fn reset_teletype_positions(&mut self) {
+        self.text_pos_big_name_right = 0;
+        self.text_pos_name_right = 0;
+        self.text_pos_birthplace_right = 0;
+        self.text_pos_strategy_right = 0;
+        self.text_pos_big_name_left = 0;
+        self.text_pos_name_left = 0;
+        self.text_pos_birthplace_left = 0;
+        self.text_pos_strategy_left = 0;
+    }
+}
 
 impl Default for LoadScreenInitContext {
     fn default() -> Self {
@@ -398,6 +443,7 @@ fn initialize_challenge_windows(wm: &mut WindowManager) {
         if let Some(image) = opponent.portrait_large.as_deref() {
             set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitRight", 0, image, true);
         }
+        activate_challenge_pieces_min_spec_windows(wm);
     }
 }
 
@@ -408,6 +454,233 @@ fn with_challenge_load_screen_state<R>(f: impl FnOnce(&mut ChallengeLoadScreenSt
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     f(&mut guard)
+}
+
+pub fn activate_challenge_load_screen_frame(frame: i32) {
+    with_window_manager(|wm| activate_challenge_pieces_frame_windows(wm, frame));
+}
+
+pub fn activate_challenge_load_screen_min_spec() {
+    with_window_manager(activate_challenge_pieces_min_spec_windows);
+}
+
+fn activate_challenge_pieces_frame_windows(wm: &mut WindowManager, frame: i32) {
+    let personas = with_challenge_load_screen_state(|state| {
+        let player = state.player.clone()?;
+        let opponent = state.opponent.clone()?;
+        Some((player, opponent))
+    });
+    let Some((player, opponent)) = personas else {
+        return;
+    };
+
+    match frame {
+        FRAME_TITLES_START => {
+            for name in CHALLENGE_BIO_LABEL_WINDOWS {
+                hide_window(wm, name, false);
+            }
+        }
+        FRAME_TELETYPE_START => {
+            with_challenge_load_screen_state(ChallengeLoadScreenState::reset_teletype_positions);
+            for name in CHALLENGE_BIO_ENTRY_WINDOWS {
+                hide_window(wm, name, false);
+                set_window_text(wm, name, "");
+            }
+        }
+        FRAME_PORTRAITS_START => {
+            play_challenge_movie(
+                wm,
+                "ChallengeLoadScreen.wnd:PortraitMovieLeft",
+                &player.portrait_movie_left,
+            );
+            play_challenge_movie(
+                wm,
+                "ChallengeLoadScreen.wnd:PortraitMovieRight",
+                &opponent.portrait_movie_right,
+            );
+            hide_window(wm, "ChallengeLoadScreen.wnd:PortraitMovieLeft", false);
+            hide_window(wm, "ChallengeLoadScreen.wnd:PortraitMovieRight", false);
+            play_audio_event(&player.name_sound);
+        }
+        FRAME_OUTER_CIRCLE_ALPHA_SHOW => {
+            hide_window(wm, "ChallengeLoadScreen.wnd:CircleAlphaOuter", false);
+        }
+        FRAME_INNER_CIRCLE_ALPHA_SHOW => {
+            hide_window(wm, "ChallengeLoadScreen.wnd:CircleAlphaInner", false);
+        }
+        FRAME_INNER_BACKDROP_ALPHA_SHOW => {
+            hide_window(wm, "ChallengeLoadScreen.wnd:VersusBackdrop", false);
+        }
+        FRAME_VS_ANIM_START => {
+            hide_window(wm, "ChallengeLoadScreen.wnd:VersusBackdrop", false);
+            hide_window(wm, "ChallengeLoadScreen.wnd:OverlayVs", false);
+            play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall");
+            play_audio_event("Taunts_GCAnnouncer12");
+        }
+        FRAME_RIGHT_VOICE => {
+            play_audio_event(&opponent.name_sound);
+        }
+        _ => {}
+    }
+
+    if frame > FRAME_TELETYPE_START && frame % TELETYPE_UPDATE_FREQ == 0 {
+        with_challenge_load_screen_state(|state| {
+            state.text_pos_name_left = update_teletype_text(
+                wm,
+                "ChallengeLoadScreen.wnd:BioNameEntryLeft",
+                &player.name,
+                state.text_pos_name_left,
+            );
+            state.text_pos_big_name_left = update_teletype_text(
+                wm,
+                "ChallengeLoadScreen.wnd:BigNameEntryLeft",
+                &player.big_name,
+                state.text_pos_big_name_left,
+            );
+            state.text_pos_birthplace_left = update_teletype_text(
+                wm,
+                "ChallengeLoadScreen.wnd:BioBirthplaceEntryLeft",
+                &player.rank,
+                state.text_pos_birthplace_left,
+            );
+            state.text_pos_strategy_left = update_teletype_text(
+                wm,
+                "ChallengeLoadScreen.wnd:BioStrategyEntryLeft",
+                &player.strategy,
+                state.text_pos_strategy_left,
+            );
+            state.text_pos_name_right = update_teletype_text(
+                wm,
+                "ChallengeLoadScreen.wnd:BioNameEntryRight",
+                &opponent.name,
+                state.text_pos_name_right,
+            );
+            state.text_pos_big_name_right = update_teletype_text(
+                wm,
+                "ChallengeLoadScreen.wnd:BigNameEntryRight",
+                &opponent.big_name,
+                state.text_pos_big_name_right,
+            );
+            state.text_pos_birthplace_right = update_teletype_text(
+                wm,
+                "ChallengeLoadScreen.wnd:BioBirthplaceEntryRight",
+                &opponent.rank,
+                state.text_pos_birthplace_right,
+            );
+            state.text_pos_strategy_right = update_teletype_text(
+                wm,
+                "ChallengeLoadScreen.wnd:BioStrategyEntryRight",
+                &opponent.strategy,
+                state.text_pos_strategy_right,
+            );
+        });
+    }
+}
+
+fn activate_challenge_pieces_min_spec_windows(wm: &mut WindowManager) {
+    let personas = with_challenge_load_screen_state(|state| {
+        let player = state.player.clone()?;
+        let opponent = state.opponent.clone()?;
+        Some((player, opponent))
+    });
+    let Some((player, opponent)) = personas else {
+        return;
+    };
+
+    for name in CHALLENGE_BIO_LABEL_WINDOWS
+        .iter()
+        .chain(CHALLENGE_BIO_ENTRY_WINDOWS.iter())
+    {
+        hide_window(wm, name, false);
+    }
+
+    set_challenge_bio_entry_text(wm, "Left", &player);
+    set_challenge_bio_entry_text(wm, "Right", &opponent);
+
+    if let Some(image) = player.portrait_large.as_deref() {
+        set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitLeft", 0, image, true);
+    }
+    if let Some(image) = opponent.portrait_large.as_deref() {
+        set_window_image(wm, "ChallengeLoadScreen.wnd:PortraitRight", 0, image, true);
+    }
+    hide_window(wm, "ChallengeLoadScreen.wnd:PortraitLeft", false);
+    hide_window(wm, "ChallengeLoadScreen.wnd:PortraitRight", false);
+    hide_window(wm, "ChallengeLoadScreen.wnd:CircleAlphaOuter", false);
+    hide_window(wm, "ChallengeLoadScreen.wnd:CircleAlphaInner", false);
+    hide_window(wm, "ChallengeLoadScreen.wnd:VersusBackdrop", false);
+    hide_window(wm, "ChallengeLoadScreen.wnd:OverlayVs", false);
+    play_challenge_movie(wm, "ChallengeLoadScreen.wnd:OverlayVs", "VSSmall");
+}
+
+fn set_challenge_bio_entry_text(
+    wm: &mut WindowManager,
+    side: &str,
+    persona: &ChallengePersonaText,
+) {
+    set_window_text(
+        wm,
+        &format!("ChallengeLoadScreen.wnd:BigNameEntry{side}"),
+        &persona.big_name,
+    );
+    set_window_text(
+        wm,
+        &format!("ChallengeLoadScreen.wnd:BioNameEntry{side}"),
+        &persona.name,
+    );
+    set_window_text(
+        wm,
+        &format!("ChallengeLoadScreen.wnd:BioBirthplaceEntry{side}"),
+        &persona.rank,
+    );
+    set_window_text(
+        wm,
+        &format!("ChallengeLoadScreen.wnd:BioStrategyEntry{side}"),
+        &persona.strategy,
+    );
+}
+
+fn update_teletype_text(
+    wm: &mut WindowManager,
+    window_name: &str,
+    full_text: &str,
+    current_text_pos: usize,
+) -> usize {
+    let Some(window) = wm.find_window_by_name(window_name) else {
+        return current_text_pos;
+    };
+    let Some(next_char) = full_text.chars().nth(current_text_pos) else {
+        return current_text_pos;
+    };
+    let mut window = window.borrow_mut();
+    let mut current = window.get_text().to_string();
+    current.push(next_char);
+    let _ = window.set_text(&current);
+    current_text_pos + 1
+}
+
+fn play_challenge_movie(wm: &mut WindowManager, window_name: &str, movie_name: &str) {
+    if movie_name.is_empty() {
+        return;
+    }
+    if let Some(window) = wm.find_window_by_name(window_name) {
+        with_window_video_manager(|manager| {
+            manager.play_movie(
+                window,
+                movie_name.to_string(),
+                WindowVideoPlayType::ShowLastFrame,
+            )
+        });
+    }
+}
+
+fn play_audio_event(event_name: &str) {
+    if event_name.is_empty() {
+        return;
+    }
+    if let Some(audio) = TheAudio::get() {
+        let event = AudioEventRts::new(event_name);
+        audio.add_audio_event(&event);
+    }
 }
 
 fn initialize_multiplayer_windows(
@@ -841,5 +1114,186 @@ mod tests {
         );
 
         Language::clear_localized_strings();
+    }
+
+    fn named_test_window(wm: &mut WindowManager, name: &str) {
+        let window = wm.create_window(None, 0, 0, 100, 20).expect("window");
+        let mut window = window.borrow_mut();
+        window.set_name(name);
+        let _ = window.hide(true);
+    }
+
+    fn challenge_test_windows(wm: &mut WindowManager) {
+        for name in CHALLENGE_BIO_LABEL_WINDOWS
+            .iter()
+            .chain(CHALLENGE_BIO_ENTRY_WINDOWS.iter())
+            .copied()
+            .chain(
+                [
+                    "ChallengeLoadScreen.wnd:PortraitLeft",
+                    "ChallengeLoadScreen.wnd:PortraitRight",
+                    "ChallengeLoadScreen.wnd:PortraitMovieLeft",
+                    "ChallengeLoadScreen.wnd:PortraitMovieRight",
+                    "ChallengeLoadScreen.wnd:CircleAlphaOuter",
+                    "ChallengeLoadScreen.wnd:CircleAlphaInner",
+                    "ChallengeLoadScreen.wnd:VersusBackdrop",
+                    "ChallengeLoadScreen.wnd:OverlayVs",
+                ]
+                .into_iter(),
+            )
+        {
+            named_test_window(wm, name);
+        }
+    }
+
+    fn cache_challenge_test_personas() {
+        with_challenge_load_screen_state(|state| {
+            *state = ChallengeLoadScreenState {
+                player: Some(ChallengePersonaText {
+                    big_name: "General Player".to_string(),
+                    name: "General Player".to_string(),
+                    rank: "General".to_string(),
+                    strategy: "Air superiority".to_string(),
+                    portrait_large: Some("PlayerPortrait".to_string()),
+                    portrait_movie_left: "PlayerMovieLeft".to_string(),
+                    portrait_movie_right: "PlayerMovieRight".to_string(),
+                    name_sound: "PlayerNameSound".to_string(),
+                    taunt_sounds: [
+                        "PlayerTaunt1".to_string(),
+                        "PlayerTaunt2".to_string(),
+                        "PlayerTaunt3".to_string(),
+                    ],
+                }),
+                opponent: Some(ChallengePersonaText {
+                    big_name: "General Opponent".to_string(),
+                    name: "General Opponent".to_string(),
+                    rank: "Prince".to_string(),
+                    strategy: "Ambush".to_string(),
+                    portrait_large: Some("OpponentPortrait".to_string()),
+                    portrait_movie_left: "OpponentMovieLeft".to_string(),
+                    portrait_movie_right: "OpponentMovieRight".to_string(),
+                    name_sound: "OpponentNameSound".to_string(),
+                    taunt_sounds: [
+                        "OpponentTaunt1".to_string(),
+                        "OpponentTaunt2".to_string(),
+                        "OpponentTaunt3".to_string(),
+                    ],
+                }),
+                ..ChallengeLoadScreenState::default()
+            };
+        });
+    }
+
+    #[test]
+    fn challenge_frame_activation_matches_cpp_teletype_gates() {
+        cache_challenge_test_personas();
+        let mut wm = WindowManager::new();
+        challenge_test_windows(&mut wm);
+
+        activate_challenge_pieces_frame_windows(&mut wm, FRAME_TITLES_START);
+        for name in CHALLENGE_BIO_LABEL_WINDOWS {
+            let window = wm.find_window_by_name(name).expect(name);
+            assert!(!window.borrow().is_hidden(), "{name}");
+        }
+        for name in CHALLENGE_BIO_ENTRY_WINDOWS {
+            let window = wm.find_window_by_name(name).expect(name);
+            assert!(window.borrow().is_hidden(), "{name}");
+        }
+
+        activate_challenge_pieces_frame_windows(&mut wm, FRAME_TELETYPE_START);
+        for name in CHALLENGE_BIO_ENTRY_WINDOWS {
+            let window = wm.find_window_by_name(name).expect(name);
+            let window = window.borrow();
+            assert!(!window.is_hidden(), "{name}");
+            assert_eq!(window.get_text(), "");
+        }
+
+        activate_challenge_pieces_frame_windows(&mut wm, FRAME_TELETYPE_START + 1);
+        assert_eq!(
+            wm.find_window_by_name("ChallengeLoadScreen.wnd:BioNameEntryLeft")
+                .expect("left name")
+                .borrow()
+                .get_text(),
+            ""
+        );
+
+        activate_challenge_pieces_frame_windows(&mut wm, FRAME_TELETYPE_START + 2);
+        assert_eq!(
+            wm.find_window_by_name("ChallengeLoadScreen.wnd:BioNameEntryLeft")
+                .expect("left name")
+                .borrow()
+                .get_text(),
+            "G"
+        );
+        assert_eq!(
+            wm.find_window_by_name("ChallengeLoadScreen.wnd:BioBirthplaceEntryRight")
+                .expect("right rank")
+                .borrow()
+                .get_text(),
+            "P"
+        );
+    }
+
+    #[test]
+    fn challenge_min_spec_activation_matches_cpp_final_reveal() {
+        cache_challenge_test_personas();
+        let mut wm = WindowManager::new();
+        challenge_test_windows(&mut wm);
+
+        activate_challenge_pieces_min_spec_windows(&mut wm);
+
+        for name in CHALLENGE_BIO_LABEL_WINDOWS
+            .iter()
+            .chain(CHALLENGE_BIO_ENTRY_WINDOWS.iter())
+            .copied()
+            .chain(
+                [
+                    "ChallengeLoadScreen.wnd:PortraitLeft",
+                    "ChallengeLoadScreen.wnd:PortraitRight",
+                    "ChallengeLoadScreen.wnd:CircleAlphaOuter",
+                    "ChallengeLoadScreen.wnd:CircleAlphaInner",
+                    "ChallengeLoadScreen.wnd:VersusBackdrop",
+                    "ChallengeLoadScreen.wnd:OverlayVs",
+                ]
+                .into_iter(),
+            )
+        {
+            let window = wm.find_window_by_name(name).expect(name);
+            assert!(!window.borrow().is_hidden(), "{name}");
+        }
+
+        assert_eq!(
+            wm.find_window_by_name("ChallengeLoadScreen.wnd:BigNameEntryLeft")
+                .expect("left big name")
+                .borrow()
+                .get_text(),
+            "General Player"
+        );
+        assert_eq!(
+            wm.find_window_by_name("ChallengeLoadScreen.wnd:BioBirthplaceEntryRight")
+                .expect("right rank")
+                .borrow()
+                .get_text(),
+            "Prince"
+        );
+        assert_eq!(
+            wm.find_window_by_name("ChallengeLoadScreen.wnd:BioStrategyEntryRight")
+                .expect("right strategy")
+                .borrow()
+                .get_text(),
+            "Ambush"
+        );
+
+        let left_portrait = wm
+            .find_window_by_name("ChallengeLoadScreen.wnd:PortraitLeft")
+            .expect("left portrait");
+        let left_portrait = left_portrait.borrow();
+        assert_eq!(
+            left_portrait
+                .get_enabled_draw_data(0)
+                .and_then(|draw| draw.image)
+                .map(|image| image.name),
+            Some("PlayerPortrait".to_string())
+        );
     }
 }
