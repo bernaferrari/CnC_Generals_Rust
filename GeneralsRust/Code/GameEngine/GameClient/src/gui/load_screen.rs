@@ -88,6 +88,7 @@ pub struct LoadScreenSlotInitContext {
     pub player_name: String,
     pub side_name: String,
     pub team_number: i32,
+    pub apparent_color: Option<i32>,
     pub is_ai: bool,
     pub visible: bool,
 }
@@ -987,6 +988,15 @@ fn initialize_multiplayer_windows(
     for slot in 0..MAX_LOAD_SCREEN_SLOTS {
         if let Some(slot_context) = slots.get(slot) {
             set_progress_window(wm, &format!("{prefix}:ProgressLoad{slot}"), 0.0);
+            if let Some(progress_image) = multiplayer_progress_bar_image(slot_context) {
+                set_window_image(
+                    wm,
+                    &format!("{prefix}:ProgressLoad{slot}"),
+                    6,
+                    &progress_image,
+                    false,
+                );
+            }
             set_window_text(
                 wm,
                 &format!("{prefix}:StaticTextPlayer{slot}"),
@@ -1062,6 +1072,7 @@ fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenS
             player_name: context.local_player_name.clone(),
             side_name: context.local_side_name.clone(),
             team_number: context.local_team_number,
+            apparent_color: None,
             is_ai: false,
             visible: true,
         }]
@@ -1076,6 +1087,12 @@ fn multiplayer_team_text(slot: &LoadScreenSlotInitContext) -> String {
     } else {
         format!("Team:{}", slot.team_number + 1)
     }
+}
+
+fn multiplayer_progress_bar_image(slot: &LoadScreenSlotInitContext) -> Option<String> {
+    slot.apparent_color
+        .filter(|color| *color >= 0)
+        .map(|color| format!("LoadingBar_ProgressCenter{color}"))
 }
 
 fn gamespy_stats_suffixes() -> [&'static str; 4] {
@@ -1378,9 +1395,9 @@ mod tests {
             local_side_name: "USA".to_string(),
             local_team_number: 0,
             slots: vec![
-                load_screen_slot("Alice", "USA", 0, false, true),
+                load_screen_slot_with_color("Alice", "USA", 0, Some(2), false, true),
                 load_screen_slot("Empty", "GLA", 1, false, false),
-                load_screen_slot("Bob", "China", 2, false, true),
+                load_screen_slot_with_color("Bob", "China", 2, Some(4), false, true),
             ],
         };
 
@@ -1401,6 +1418,10 @@ mod tests {
         assert_eq!(
             window_image_name(&wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait", 0),
             Some("SAFactionLogoLg_US".to_string())
+        );
+        assert_eq!(
+            window_image_name(&wm, "MultiplayerLoadScreen.wnd:ProgressLoad1", 6),
+            Some("LoadingBar_ProgressCenter4".to_string())
         );
         assert!(!window_hidden(
             &wm,
@@ -1518,6 +1539,21 @@ mod tests {
         assert_eq!(slots[0].player_name, "Fallback");
         assert_eq!(slots[0].side_name, "GLA");
         assert_eq!(multiplayer_team_text(&slots[0]), "Team:5");
+    }
+
+    #[test]
+    fn multiplayer_progress_bar_images_match_cpp_apparent_color_names() {
+        let colored = load_screen_slot_with_color("Player", "USA", 3, Some(6), false, true);
+        assert_eq!(
+            multiplayer_progress_bar_image(&colored),
+            Some("LoadingBar_ProgressCenter6".to_string())
+        );
+
+        let fallback = load_screen_slot("Player", "USA", 3, false, true);
+        assert_eq!(multiplayer_progress_bar_image(&fallback), None);
+
+        let invalid = load_screen_slot_with_color("Player", "USA", 3, Some(-1), false, true);
+        assert_eq!(multiplayer_progress_bar_image(&invalid), None);
     }
 
     #[test]
@@ -1727,11 +1763,23 @@ mod tests {
         is_ai: bool,
         visible: bool,
     ) -> LoadScreenSlotInitContext {
+        load_screen_slot_with_color(player_name, side_name, team_number, None, is_ai, visible)
+    }
+
+    fn load_screen_slot_with_color(
+        player_name: &str,
+        side_name: &str,
+        team_number: i32,
+        apparent_color: Option<i32>,
+        is_ai: bool,
+        visible: bool,
+    ) -> LoadScreenSlotInitContext {
         LoadScreenSlotInitContext {
             player_id: team_number,
             player_name: player_name.to_string(),
             side_name: side_name.to_string(),
             team_number,
+            apparent_color,
             is_ai,
             visible,
         }
