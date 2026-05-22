@@ -684,10 +684,7 @@ mod tests {
     fn startup_ai_data_preload_paths_match_cpp_order() {
         assert_eq!(
             CnCGameEngine::startup_ai_data_ini_paths(),
-            [
-                "Data/INI/Default/AIData.ini",
-                "Data/INI/AIData.ini",
-            ]
+            ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini",]
         );
     }
 
@@ -847,7 +844,6 @@ use crate::graphics::{
     graphics_system::MAX_STAGE_TEXTURES, render_pipeline::gameplay_to_render_transform,
     GraphicsSystem, RenderPipeline,
 };
-
 
 #[cfg(feature = "internal")]
 pub mod parity_test_support {
@@ -1125,6 +1121,8 @@ pub struct CnCGameEngine {
     startup_health_summary_logged: bool,
     last_caustic_warmup_attempt: Option<Instant>,
     loading_overlay_active: bool,
+    #[cfg(feature = "game_client")]
+    active_load_screen: Option<game_client::gui::load_screen::LoadScreenKind>,
     shell_menu_active: bool, // C++ parity: Shell::push("Menus/MainMenu.wnd") / Shell::pop()
 
     // Game client — C++ parity: TheGameClient singleton, wired into Main's frame loop
@@ -1775,7 +1773,10 @@ impl CnCGameEngine {
                 self.enter_shell_menu_from_runtime_host(Some("Online"));
             }
             "open_network" => {
-                self.enter_shell_screen_from_runtime_host(Some("Network"), "Menus/LanLobbyMenu.wnd");
+                self.enter_shell_screen_from_runtime_host(
+                    Some("Network"),
+                    "Menus/LanLobbyMenu.wnd",
+                );
             }
             "open_replay" => {
                 self.enter_shell_screen_from_runtime_host(Some("Replay"), "Menus/ReplayMenu.wnd");
@@ -1914,6 +1915,70 @@ impl CnCGameEngine {
         }
     }
 
+    #[cfg(feature = "game_client")]
+    fn load_screen_game_mode(mode: GameMode) -> game_client::gui::load_screen::LoadScreenGameMode {
+        match mode {
+            GameMode::SinglePlayer => {
+                game_client::gui::load_screen::LoadScreenGameMode::SinglePlayer
+            }
+            GameMode::Skirmish => game_client::gui::load_screen::LoadScreenGameMode::Skirmish,
+            GameMode::Multiplayer => game_client::gui::load_screen::LoadScreenGameMode::Multiplayer,
+            GameMode::Replay => game_client::gui::load_screen::LoadScreenGameMode::Replay,
+            GameMode::Internet => game_client::gui::load_screen::LoadScreenGameMode::Internet,
+            GameMode::Lan => game_client::gui::load_screen::LoadScreenGameMode::Lan,
+            GameMode::Shell => game_client::gui::load_screen::LoadScreenGameMode::Shell,
+            GameMode::None => game_client::gui::load_screen::LoadScreenGameMode::None,
+        }
+    }
+
+    #[cfg(feature = "game_client")]
+    fn select_cpp_load_screen(
+        &self,
+        mode: GameMode,
+        loading_save_game: bool,
+    ) -> Option<game_client::gui::load_screen::LoadScreenKind> {
+        let (has_current_campaign, current_campaign_is_challenge) = {
+            let campaign_manager = game_client::gui::campaign_manager::get_campaign_manager();
+            campaign_manager
+                .get_current_campaign()
+                .map(|campaign| (true, campaign.is_challenge_campaign()))
+                .unwrap_or((false, false))
+        };
+
+        game_client::gui::load_screen::select_load_screen(
+            game_client::gui::load_screen::LoadScreenRequest {
+                mode: Self::load_screen_game_mode(mode),
+                loading_save_game,
+                has_current_campaign,
+                current_campaign_is_challenge,
+            },
+        )
+    }
+
+    #[cfg(feature = "game_client")]
+    fn prepare_cpp_load_screen_for_mode(&mut self, mode: GameMode, loading_save_game: bool) {
+        self.active_load_screen = self.select_cpp_load_screen(mode, loading_save_game);
+    }
+
+    #[cfg(feature = "game_client")]
+    fn load_screen_init_context(&self) -> game_client::gui::load_screen::LoadScreenInitContext {
+        let player = self
+            .game_logic
+            .local_player_id()
+            .and_then(|id| self.game_logic.get_player(id))
+            .or_else(|| self.game_logic.get_player(self.current_player_id));
+
+        if let Some(player) = player {
+            game_client::gui::load_screen::LoadScreenInitContext {
+                local_player_name: player.name.clone(),
+                local_side_name: player.team.get_name().to_string(),
+                local_team_number: player.id as i32,
+            }
+        } else {
+            game_client::gui::load_screen::LoadScreenInitContext::default()
+        }
+    }
+
     fn ensure_shell_loading_overlay(&mut self) {
         if self.startup_loading_phase.trim().is_empty() {
             self.startup_loading_phase = DEFAULT_LOADING_PHASE.to_string();
@@ -1926,49 +1991,31 @@ impl CnCGameEngine {
                 return;
             }
 
-            game_client::gui::with_window_manager(|wm| {
-                // C++ parity: ShellGameLoadScreen::init()
-                // Step 1: winCreateFromScript("Menus/ShellGameLoadScreen.wnd")
-                if let Err(e) = wm.create_layout_with_windows("Menus/ShellGameLoadScreen.wnd") {
-                    warn!(
-                        "Failed to load ShellGameLoadScreen.wnd: {:?}, loading screen unavailable",
-                        e
-                    );
-                    error!(
-                        "ShellGameLoadScreen.wnd could not be loaded — the loading overlay will not be visible. \
-                         Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
-                         The game will continue without a loading screen."
-                    );
-                    return;
-                }
+            let kind = self
+                .active_load_screen
+                .or_else(|| self.select_cpp_load_screen(self.game_logic.game_mode(), false))
+                .unwrap_or(game_client::gui::load_screen::LoadScreenKind::ShellGame);
+            self.active_load_screen = Some(kind);
 
-                // Step 2: Find progress bar — winGetWindowFromId(m_loadScreen, "ProgressLoad")
-                if let Some(progress_bar) = wm.find_window_by_name(LOAD_SCREEN_PROGRESS) {
-                    let mut pb = progress_bar.borrow_mut();
-                    if let Some(game_client::gui::WindowWidget::ProgressBar(ref mut bar)) =
-                        pb.widget_mut()
-                    {
-                        bar.set_percentage(0.0);
-                    }
-                    let _ = pb.hide(true);
-                }
-
-                // Step 3: winHide(FALSE) + winBringToTop() on root window
-                if let Some(load_screen) = wm.find_window_by_name(LOAD_SCREEN_ROOT) {
-                    let _ = load_screen.borrow_mut().hide(false);
-                    let _ = load_screen.borrow_mut().bring_to_front();
-                }
-
-                // Step 4: Unhide progress bar — m_progressBar->winHide(FALSE)
-                if let Some(progress_bar) = wm.find_window_by_name(LOAD_SCREEN_PROGRESS) {
-                    let _ = progress_bar.borrow_mut().hide(false);
-                }
-            });
+            let context = self.load_screen_init_context();
+            if !game_client::gui::load_screen::init_load_screen(kind, &context) {
+                warn!(
+                    "Failed to load {:?} load screen from .wnd assets; loading screen unavailable",
+                    kind
+                );
+                error!(
+                    "The selected load screen could not be loaded — the loading overlay will not be visible. \
+                     Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
+                     The game will continue without a loading screen."
+                );
+                self.active_load_screen = None;
+                return;
+            }
 
             self.loading_overlay_active = true;
             LOADING_PROGRESS.with(|p| p.set(0.0));
             LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
-            info!("Loading screen overlay created from ShellGameLoadScreen.wnd");
+            info!("Loading screen overlay created as {:?}", kind);
         }
     }
 
@@ -1983,12 +2030,9 @@ impl CnCGameEngine {
                 return;
             }
 
-            game_client::gui::with_window_manager(|wm| {
-                if let Some(load_screen) = wm.find_window_by_name(LOAD_SCREEN_ROOT) {
-                    let _ = wm.destroy_window(load_screen);
-                }
-                wm.flush_destroy_queue();
-            });
+            if let Some(kind) = self.active_load_screen.take() {
+                game_client::gui::load_screen::reset_load_screen(kind);
+            }
 
             self.loading_overlay_active = false;
         }
@@ -2079,17 +2123,10 @@ impl CnCGameEngine {
             LOADING_PROGRESS.with(|p| p.set(self.startup_last_reported_progress));
             LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
 
-            let percent = self.startup_last_reported_progress * 100.0;
-            game_client::gui::with_window_manager(|wm| {
-                if let Some(pb) = wm.find_window_by_name(LOAD_SCREEN_PROGRESS) {
-                    let mut pb_mut = pb.borrow_mut();
-                    if let Some(game_client::gui::WindowWidget::ProgressBar(ref mut bar)) =
-                        pb_mut.widget_mut()
-                    {
-                        bar.set_percentage(percent);
-                    }
-                }
-            });
+            if let Some(kind) = self.active_load_screen {
+                let percent = self.startup_last_reported_progress * 100.0;
+                game_client::gui::load_screen::update_load_screen(kind, percent);
+            }
         }
     }
 
@@ -3403,7 +3440,9 @@ impl CnCGameEngine {
         // C++ parity: BIG archives MUST be initialized BEFORE asset manager so textures/INI can be read
         info!("📦 Initializing BIG archive file system...");
         if let Err(err) = crate::assets::archive::init_archive_file_system().await {
-            warn!("BIG archive file system init failed: {err}. Continuing without archive support.");
+            warn!(
+                "BIG archive file system init failed: {err}. Continuing without archive support."
+            );
         }
 
         // C++ parity: initialize the asset manager during engine setup so startup loading
@@ -3638,6 +3677,8 @@ impl CnCGameEngine {
             startup_health_summary_logged: false,
             last_caustic_warmup_attempt: None,
             loading_overlay_active: false,
+            #[cfg(feature = "game_client")]
+            active_load_screen: None,
             shell_menu_active: false,
 
             #[cfg(feature = "game_client")]
@@ -4001,10 +4042,7 @@ impl CnCGameEngine {
     /// C++ parity: GameEngine.cpp:480 — AIData.ini load paths.
     /// Loaded after Upgrade, before Crate.
     fn startup_ai_data_ini_paths() -> [&'static str; 2] {
-        [
-            "Data/INI/Default/AIData.ini",
-            "Data/INI/AIData.ini",
-        ]
+        ["Data/INI/Default/AIData.ini", "Data/INI/AIData.ini"]
     }
 
     /// Load AIData.ini (Default + override) into the AI data store.
@@ -6253,6 +6291,8 @@ impl CnCGameEngine {
             return;
         }
 
+        #[cfg(feature = "game_client")]
+        self.prepare_cpp_load_screen_for_mode(self.game_logic.game_mode(), true);
         self.transition_to_state(GameState::Loading);
         match self.save_file_manager.load_game(slot, &mut self.game_logic) {
             Ok(save_info) => {
@@ -6323,6 +6363,8 @@ impl CnCGameEngine {
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
     fn start_game_from_ui(&mut self, mode: GameMode, faction: String, map: String) {
         // Show loading screen before starting map load (matches C++ loading screen flow)
+        #[cfg(feature = "game_client")]
+        self.prepare_cpp_load_screen_for_mode(mode, false);
         self.transition_to_state(GameState::Loading);
 
         let faction_team = Self::team_from_faction(&faction);
