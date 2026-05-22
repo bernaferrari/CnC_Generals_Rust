@@ -1,5 +1,11 @@
 //! Main Menu System
 //!
+//! Deprecated for shell/pre-game ownership: C++ parity now flows through
+//! `game_client::gui::shell` and `Menus/MainMenu.wnd`. Keep this module only for
+//! legacy tests and as a reference until all non-shell UI callers have been
+//! audited. New menu behavior should be ported in
+//! `GeneralsRust/Code/GameEngine/GameClient/src/gui/shell/main_menu.rs`.
+//!
 //! This module implements the main menu screen with options for starting games,
 //! loading saves, accessing multiplayer, options, and exiting the game.
 
