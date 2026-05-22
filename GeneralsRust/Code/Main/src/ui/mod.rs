@@ -100,6 +100,14 @@ pub enum Screen {
 }
 
 impl Screen {
+    /// Pre-game screens owned by the ported C++ Shell/.wnd stack, not by Main/src/ui.
+    pub const fn is_shell_owned_pregame(self) -> bool {
+        matches!(
+            self,
+            Self::MainMenu | Self::Options | Self::LoadGame | Self::Skirmish | Self::Credits
+        )
+    }
+
     /// Screen used while the engine is booting before the first menu-ready handoff.
     pub fn startup_entry_screen(quick_start: bool) -> Self {
         // C++ `-quickstart` suppresses the intro/title path and lands directly
@@ -675,6 +683,20 @@ mod tests {
 
             assert_eq!(Screen::startup_entry_screen(false), Screen::MainMenu);
         });
+    }
+
+    #[test]
+    fn shell_owned_pregame_screens_are_explicit() {
+        assert!(Screen::MainMenu.is_shell_owned_pregame());
+        assert!(Screen::Options.is_shell_owned_pregame());
+        assert!(Screen::LoadGame.is_shell_owned_pregame());
+        assert!(Screen::Skirmish.is_shell_owned_pregame());
+        assert!(Screen::Credits.is_shell_owned_pregame());
+
+        assert!(!Screen::Loading.is_shell_owned_pregame());
+        assert!(!Screen::GameHUD.is_shell_owned_pregame());
+        assert!(!Screen::PauseMenu.is_shell_owned_pregame());
+        assert!(!Screen::Victory.is_shell_owned_pregame());
     }
 }
 
