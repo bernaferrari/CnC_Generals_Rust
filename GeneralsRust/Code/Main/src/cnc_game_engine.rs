@@ -19,7 +19,7 @@ use crate::localization;
 use crate::platform::{create_platform_message_handler, WindowMessageProcessor};
 use crate::runtime::attachments::AttachmentDispatcher;
 use crate::save_load::{
-    init_game_state_system, GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
+    init_game_state_system, CampaignId, GameDifficulty, SaveFileManager, SaveFileType, SaveGameInfo,
 };
 use crate::subsystem_manager::{
     get_subsystem_manager, init_subsystem_manager, with_subsystem_mut, AudioManagerSubsystem,
@@ -86,10 +86,12 @@ impl NetworkClock {
 #[cfg(test)]
 mod tests {
     use super::{
-        should_exit_for_smoke_test, should_keep_logic_running_while_iconic, CnCGameEngine,
-        GameMode, GameState, StartupNewGameDispatch,
+        load_screen_descriptor_for_mode, should_exit_for_smoke_test,
+        should_keep_logic_running_while_iconic, CnCGameEngine, GameMode, GameState, LoadScreenKind,
+        StartupNewGameDispatch,
     };
     use crate::command_line::CommandLineArgs;
+    use crate::save_load::CampaignId;
     use std::fs;
     use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -180,6 +182,84 @@ mod tests {
             1.0,
             true
         ));
+    }
+
+    #[test]
+    fn load_screen_selection_matches_cpp_game_logic_modes() {
+        assert_eq!(
+            load_screen_descriptor_for_mode(GameMode::Shell, false, None).map(|desc| desc.kind),
+            Some(LoadScreenKind::ShellGame)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(GameMode::Replay, false, None).map(|desc| desc.kind),
+            Some(LoadScreenKind::ShellGame)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(GameMode::Skirmish, false, None).map(|desc| desc.kind),
+            Some(LoadScreenKind::MultiPlayer)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(GameMode::Lan, false, None).map(|desc| desc.kind),
+            Some(LoadScreenKind::MultiPlayer)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(GameMode::Multiplayer, false, None)
+                .map(|desc| desc.kind),
+            Some(LoadScreenKind::MultiPlayer)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(GameMode::Internet, false, None).map(|desc| desc.kind),
+            Some(LoadScreenKind::GameSpy)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(GameMode::None, false, None),
+            None
+        );
+    }
+
+    #[test]
+    fn single_player_load_screen_selection_matches_cpp_campaign_rules() {
+        assert_eq!(
+            load_screen_descriptor_for_mode(GameMode::SinglePlayer, false, None)
+                .map(|desc| desc.kind),
+            Some(LoadScreenKind::ShellGame)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(
+                GameMode::SinglePlayer,
+                false,
+                Some(CampaignId::USACampaign)
+            )
+            .map(|desc| desc.kind),
+            Some(LoadScreenKind::SinglePlayer)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(
+                GameMode::SinglePlayer,
+                false,
+                Some(CampaignId::Challenge)
+            )
+            .map(|desc| desc.kind),
+            Some(LoadScreenKind::Challenge)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(
+                GameMode::SinglePlayer,
+                false,
+                Some(CampaignId::USAGeneral)
+            )
+            .map(|desc| desc.kind),
+            Some(LoadScreenKind::Challenge)
+        );
+        assert_eq!(
+            load_screen_descriptor_for_mode(
+                GameMode::SinglePlayer,
+                true,
+                Some(CampaignId::USACampaign)
+            )
+            .map(|desc| desc.kind),
+            Some(LoadScreenKind::ShellGame)
+        );
     }
 
     #[test]
@@ -797,9 +877,118 @@ thread_local! {
     static LOADING_PHASE: std::cell::RefCell<String> = std::cell::RefCell::new(String::new());
 }
 
-// Window names from ShellGameLoadScreen.wnd (C++ parity: winCreateFromScript)
-const LOAD_SCREEN_ROOT: &str = "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen";
-const LOAD_SCREEN_PROGRESS: &str = "ShellGameLoadScreen.wnd:ProgressLoad";
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LoadScreenDescriptor {
+    kind: LoadScreenKind,
+    layout: &'static str,
+    root_window: &'static str,
+    primary_progress: &'static str,
+    progress_prefix: &'static str,
+    progress_slots: usize,
+    apply_single_player_progress_fudge: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LoadScreenKind {
+    ShellGame,
+    SinglePlayer,
+    Challenge,
+    MultiPlayer,
+    GameSpy,
+}
+
+const SHELL_GAME_LOAD_SCREEN: LoadScreenDescriptor = LoadScreenDescriptor {
+    kind: LoadScreenKind::ShellGame,
+    layout: "Menus/ShellGameLoadScreen.wnd",
+    root_window: "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen",
+    primary_progress: "ShellGameLoadScreen.wnd:ProgressLoad",
+    progress_prefix: "ShellGameLoadScreen.wnd:ProgressLoad",
+    progress_slots: 1,
+    apply_single_player_progress_fudge: false,
+};
+
+const SINGLE_PLAYER_LOAD_SCREEN: LoadScreenDescriptor = LoadScreenDescriptor {
+    kind: LoadScreenKind::SinglePlayer,
+    layout: "Menus/SinglePlayerLoadScreen.wnd",
+    root_window: "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+    primary_progress: "SinglePlayerLoadScreen.wnd:ProgressLoad",
+    progress_prefix: "SinglePlayerLoadScreen.wnd:ProgressLoad",
+    progress_slots: 1,
+    apply_single_player_progress_fudge: true,
+};
+
+const CHALLENGE_LOAD_SCREEN: LoadScreenDescriptor = LoadScreenDescriptor {
+    kind: LoadScreenKind::Challenge,
+    layout: "Menus/ChallengeLoadScreen.wnd",
+    root_window: "ChallengeLoadScreen.wnd:ParentChallengeLoadScreen",
+    primary_progress: "ChallengeLoadScreen.wnd:ProgressLoad",
+    progress_prefix: "ChallengeLoadScreen.wnd:ProgressLoad",
+    progress_slots: 1,
+    apply_single_player_progress_fudge: true,
+};
+
+const MULTIPLAYER_LOAD_SCREEN: LoadScreenDescriptor = LoadScreenDescriptor {
+    kind: LoadScreenKind::MultiPlayer,
+    layout: "Menus/MultiplayerLoadScreen.wnd",
+    root_window: "MultiplayerLoadScreen.wnd:ParentMultiplayerLoadScreen",
+    primary_progress: "MultiplayerLoadScreen.wnd:ProgressLoad0",
+    progress_prefix: "MultiplayerLoadScreen.wnd:ProgressLoad",
+    progress_slots: 8,
+    apply_single_player_progress_fudge: false,
+};
+
+const GAMESPY_LOAD_SCREEN: LoadScreenDescriptor = LoadScreenDescriptor {
+    kind: LoadScreenKind::GameSpy,
+    layout: "Menus/GameSpyLoadScreen.wnd",
+    root_window: "GameSpyLoadScreen.wnd:ParentMultiplayerLoadScreen",
+    primary_progress: "GameSpyLoadScreen.wnd:ProgressLoad0",
+    progress_prefix: "GameSpyLoadScreen.wnd:ProgressLoad",
+    progress_slots: 8,
+    apply_single_player_progress_fudge: false,
+};
+
+fn load_screen_descriptor_for_mode(
+    mode: GameMode,
+    loading_save_game: bool,
+    current_campaign: Option<CampaignId>,
+) -> Option<LoadScreenDescriptor> {
+    match mode {
+        GameMode::Shell | GameMode::Replay => Some(SHELL_GAME_LOAD_SCREEN),
+        GameMode::SinglePlayer => {
+            if loading_save_game {
+                return Some(SHELL_GAME_LOAD_SCREEN);
+            }
+
+            match current_campaign {
+                Some(campaign) if campaign_is_challenge(campaign) => Some(CHALLENGE_LOAD_SCREEN),
+                Some(_) => Some(SINGLE_PLAYER_LOAD_SCREEN),
+                None => Some(SHELL_GAME_LOAD_SCREEN),
+            }
+        }
+        GameMode::Skirmish | GameMode::Lan | GameMode::Multiplayer => Some(MULTIPLAYER_LOAD_SCREEN),
+        GameMode::Internet => Some(GAMESPY_LOAD_SCREEN),
+        GameMode::None => None,
+    }
+}
+
+fn campaign_is_challenge(campaign: CampaignId) -> bool {
+    matches!(
+        campaign,
+        CampaignId::USAGeneral
+            | CampaignId::ChinaGeneral
+            | CampaignId::GLAGeneral
+            | CampaignId::Challenge
+    )
+}
+
+fn load_screen_progress_percent(descriptor: LoadScreenDescriptor, progress: f32) -> f32 {
+    let percent = progress.clamp(0.0, 1.0) * 100.0;
+    if descriptor.apply_single_player_progress_fudge {
+        ((percent + 30.0) / 1.3).clamp(0.0, 100.0)
+    } else {
+        percent
+    }
+}
 
 fn pack_ui_mouse_data(x: i32, y: i32) -> u32 {
     ((y as u32) << 16) | ((x as u32) & 0xFFFF)
@@ -1125,6 +1314,8 @@ pub struct CnCGameEngine {
     startup_health_summary_logged: bool,
     last_caustic_warmup_attempt: Option<Instant>,
     loading_overlay_active: bool,
+    selected_loading_screen: Option<LoadScreenDescriptor>,
+    active_loading_screen: Option<LoadScreenDescriptor>,
     shell_menu_active: bool, // C++ parity: Shell::push("Menus/MainMenu.wnd") / Shell::pop()
 
     // Game client — C++ parity: TheGameClient singleton, wired into Main's frame loop
@@ -1914,11 +2105,39 @@ impl CnCGameEngine {
         }
     }
 
+    fn current_campaign_id_for_load_screen() -> Option<CampaignId> {
+        crate::save_load::game_state::global_campaign_manager()
+            .ok()
+            .and_then(|manager| {
+                manager
+                    .lock()
+                    .ok()
+                    .and_then(|guard| guard.current_campaign_id())
+            })
+    }
+
+    fn select_loading_screen_for_mode(&mut self, mode: GameMode, loading_save_game: bool) {
+        self.selected_loading_screen = load_screen_descriptor_for_mode(
+            mode,
+            loading_save_game,
+            Self::current_campaign_id_for_load_screen(),
+        );
+    }
+
     fn ensure_shell_loading_overlay(&mut self) {
         if self.startup_loading_phase.trim().is_empty() {
             self.startup_loading_phase = DEFAULT_LOADING_PHASE.to_string();
         }
         self.set_runtime_ui_state_projection(UISystemState::Loading);
+
+        let Some(descriptor) = self
+            .selected_loading_screen
+            .or_else(|| load_screen_descriptor_for_mode(self.game_logic.game_mode(), false, None))
+        else {
+            self.loading_overlay_active = false;
+            self.active_loading_screen = None;
+            return;
+        };
 
         #[cfg(feature = "game_client")]
         {
@@ -1926,49 +2145,70 @@ impl CnCGameEngine {
                 return;
             }
 
+            let mut loaded = false;
             game_client::gui::with_window_manager(|wm| {
-                // C++ parity: ShellGameLoadScreen::init()
-                // Step 1: winCreateFromScript("Menus/ShellGameLoadScreen.wnd")
-                if let Err(e) = wm.create_layout_with_windows("Menus/ShellGameLoadScreen.wnd") {
+                // C++ parity: GameLogic::getLoadScreen() + LoadScreen::init()
+                if let Err(e) = wm.create_layout_with_windows(descriptor.layout) {
                     warn!(
-                        "Failed to load ShellGameLoadScreen.wnd: {:?}, loading screen unavailable",
-                        e
+                        "Failed to load {}: {:?}, loading screen unavailable",
+                        descriptor.layout, e
                     );
                     error!(
-                        "ShellGameLoadScreen.wnd could not be loaded — the loading overlay will not be visible. \
+                        "{} could not be loaded — the loading overlay will not be visible. \
                          Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
-                         The game will continue without a loading screen."
+                         The game will continue without a loading screen.",
+                        descriptor.layout
                     );
                     return;
                 }
+                loaded = true;
 
-                // Step 2: Find progress bar — winGetWindowFromId(m_loadScreen, "ProgressLoad")
-                if let Some(progress_bar) = wm.find_window_by_name(LOAD_SCREEN_PROGRESS) {
-                    let mut pb = progress_bar.borrow_mut();
-                    if let Some(game_client::gui::WindowWidget::ProgressBar(ref mut bar)) =
-                        pb.widget_mut()
+                if descriptor.progress_slots <= 1 {
+                    if let Some(progress_bar) = wm.find_window_by_name(descriptor.primary_progress)
                     {
-                        bar.set_percentage(0.0);
+                        let mut pb = progress_bar.borrow_mut();
+                        if let Some(game_client::gui::WindowWidget::ProgressBar(ref mut bar)) =
+                            pb.widget_mut()
+                        {
+                            bar.set_percentage(0.0);
+                        }
+                        if descriptor.kind == LoadScreenKind::ShellGame {
+                            let _ = pb.hide(true);
+                        }
                     }
-                    let _ = pb.hide(true);
+                } else {
+                    for slot in 0..descriptor.progress_slots {
+                        let name = format!("{}{}", descriptor.progress_prefix, slot);
+                        if let Some(progress_bar) = wm.find_window_by_name(&name) {
+                            let mut pb = progress_bar.borrow_mut();
+                            if let Some(game_client::gui::WindowWidget::ProgressBar(ref mut bar)) =
+                                pb.widget_mut()
+                            {
+                                bar.set_percentage(0.0);
+                            }
+                        }
+                    }
                 }
 
-                // Step 3: winHide(FALSE) + winBringToTop() on root window
-                if let Some(load_screen) = wm.find_window_by_name(LOAD_SCREEN_ROOT) {
+                if let Some(load_screen) = wm.find_window_by_name(descriptor.root_window) {
                     let _ = load_screen.borrow_mut().hide(false);
                     let _ = load_screen.borrow_mut().bring_to_front();
                 }
 
-                // Step 4: Unhide progress bar — m_progressBar->winHide(FALSE)
-                if let Some(progress_bar) = wm.find_window_by_name(LOAD_SCREEN_PROGRESS) {
+                if let Some(progress_bar) = wm.find_window_by_name(descriptor.primary_progress) {
                     let _ = progress_bar.borrow_mut().hide(false);
                 }
             });
 
+            if !loaded {
+                return;
+            }
+
             self.loading_overlay_active = true;
+            self.active_loading_screen = Some(descriptor);
             LOADING_PROGRESS.with(|p| p.set(0.0));
             LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
-            info!("Loading screen overlay created from ShellGameLoadScreen.wnd");
+            info!("Loading screen overlay created from {}", descriptor.layout);
         }
     }
 
@@ -1984,13 +2224,18 @@ impl CnCGameEngine {
             }
 
             game_client::gui::with_window_manager(|wm| {
-                if let Some(load_screen) = wm.find_window_by_name(LOAD_SCREEN_ROOT) {
+                let descriptor = self
+                    .active_loading_screen
+                    .or(self.selected_loading_screen)
+                    .unwrap_or(SHELL_GAME_LOAD_SCREEN);
+                if let Some(load_screen) = wm.find_window_by_name(descriptor.root_window) {
                     let _ = wm.destroy_window(load_screen);
                 }
                 wm.flush_destroy_queue();
             });
 
             self.loading_overlay_active = false;
+            self.active_loading_screen = None;
         }
     }
 
@@ -2079,9 +2324,19 @@ impl CnCGameEngine {
             LOADING_PROGRESS.with(|p| p.set(self.startup_last_reported_progress));
             LOADING_PHASE.with(|p| *p.borrow_mut() = self.startup_loading_phase.clone());
 
-            let percent = self.startup_last_reported_progress * 100.0;
+            let Some(descriptor) = self
+                .active_loading_screen
+                .or(self.selected_loading_screen)
+                .or_else(|| {
+                    load_screen_descriptor_for_mode(self.game_logic.game_mode(), false, None)
+                })
+            else {
+                return;
+            };
+            let percent =
+                load_screen_progress_percent(descriptor, self.startup_last_reported_progress);
             game_client::gui::with_window_manager(|wm| {
-                if let Some(pb) = wm.find_window_by_name(LOAD_SCREEN_PROGRESS) {
+                if let Some(pb) = wm.find_window_by_name(descriptor.primary_progress) {
                     let mut pb_mut = pb.borrow_mut();
                     if let Some(game_client::gui::WindowWidget::ProgressBar(ref mut bar)) =
                         pb_mut.widget_mut()
@@ -3638,6 +3893,8 @@ impl CnCGameEngine {
             startup_health_summary_logged: false,
             last_caustic_warmup_attempt: None,
             loading_overlay_active: false,
+            selected_loading_screen: Some(SHELL_GAME_LOAD_SCREEN),
+            active_loading_screen: None,
             shell_menu_active: false,
 
             #[cfg(feature = "game_client")]
@@ -6253,6 +6510,7 @@ impl CnCGameEngine {
             return;
         }
 
+        self.select_loading_screen_for_mode(self.game_logic.game_mode(), true);
         self.transition_to_state(GameState::Loading);
         match self.save_file_manager.load_game(slot, &mut self.game_logic) {
             Ok(save_info) => {
@@ -6323,6 +6581,7 @@ impl CnCGameEngine {
     /// Restart the simulation with UI-selected parameters and refresh view/minimap.
     fn start_game_from_ui(&mut self, mode: GameMode, faction: String, map: String) {
         // Show loading screen before starting map load (matches C++ loading screen flow)
+        self.select_loading_screen_for_mode(mode, false);
         self.transition_to_state(GameState::Loading);
 
         let faction_team = Self::team_from_faction(&faction);
