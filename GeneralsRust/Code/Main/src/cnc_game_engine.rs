@@ -1962,6 +1962,27 @@ impl CnCGameEngine {
 
     #[cfg(feature = "game_client")]
     fn load_screen_init_context(&self) -> game_client::gui::load_screen::LoadScreenInitContext {
+        let game_info_context = match self.game_logic.game_mode() {
+            GameMode::Lan | GameMode::Multiplayer => Some({
+                let setup = game_client::gui::get_lan_setup();
+                game_client::gui::load_screen::load_screen_init_context_from_game_info(
+                    setup.game_info(),
+                )
+            }),
+            GameMode::Skirmish => Some({
+                let setup = game_client::gui::get_skirmish_setup();
+                game_client::gui::load_screen::load_screen_init_context_from_game_info(
+                    setup.game_info().game_info(),
+                )
+            }),
+            _ => None,
+        };
+        if let Some(context) = game_info_context {
+            if !context.slots.is_empty() {
+                return context;
+            }
+        }
+
         let player = self
             .game_logic
             .local_player_id()
