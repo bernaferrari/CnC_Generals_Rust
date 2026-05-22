@@ -79,6 +79,16 @@ pub struct LoadScreenInitContext {
     pub local_player_name: String,
     pub local_side_name: String,
     pub local_team_number: i32,
+    pub slots: Vec<LoadScreenSlotInitContext>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LoadScreenSlotInitContext {
+    pub player_name: String,
+    pub side_name: String,
+    pub team_number: i32,
+    pub is_ai: bool,
+    pub visible: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -173,6 +183,7 @@ impl Default for LoadScreenInitContext {
             local_player_name: "Player".to_string(),
             local_side_name: "USA".to_string(),
             local_team_number: 0,
+            slots: Vec::new(),
         }
     }
 }
@@ -882,23 +893,37 @@ fn initialize_multiplayer_windows(
         &context.local_side_name,
     );
 
-    set_window_text(
-        wm,
-        &format!("{prefix}:StaticTextPlayer0"),
-        &context.local_player_name,
-    );
-    set_window_text(
-        wm,
-        &format!("{prefix}:StaticTextSide0"),
-        &context.local_side_name,
-    );
-    set_window_text(
-        wm,
-        &format!("{prefix}:StaticTextTeam0"),
-        &format!("Team:{}", context.local_team_number.saturating_add(1)),
-    );
+    let slots = multiplayer_slot_contexts(context);
+    for slot in 0..MAX_LOAD_SCREEN_SLOTS {
+        if let Some(slot_context) = slots.get(slot) {
+            set_progress_window(wm, &format!("{prefix}:ProgressLoad{slot}"), 0.0);
+            set_window_text(
+                wm,
+                &format!("{prefix}:StaticTextPlayer{slot}"),
+                &slot_context.player_name,
+            );
+            set_window_text(
+                wm,
+                &format!("{prefix}:StaticTextSide{slot}"),
+                &slot_context.side_name,
+            );
+            set_window_text(
+                wm,
+                &format!("{prefix}:StaticTextTeam{slot}"),
+                &multiplayer_team_text(slot_context),
+            );
 
-    for slot in 1..MAX_LOAD_SCREEN_SLOTS {
+            for suffix in ["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"] {
+                hide_window(wm, &format!("{prefix}:{suffix}{slot}"), false);
+            }
+            hide_window(
+                wm,
+                &format!("{prefix}:ProgressLoad{slot}"),
+                slot_context.is_ai,
+            );
+            continue;
+        }
+
         for suffix in [
             "ProgressLoad",
             "StaticTextPlayer",
@@ -913,17 +938,62 @@ fn initialize_multiplayer_windows(
 fn initialize_gamespy_windows(wm: &mut WindowManager, context: &LoadScreenInitContext) {
     initialize_multiplayer_windows(wm, "GameSpyLoadScreen.wnd", context);
 
-    for slot in 1..MAX_LOAD_SCREEN_SLOTS {
-        for suffix in [
-            "WinPlayer",
-            "StaticTextTotalDisconnects",
-            "StaticTextWinLoss",
-            "WinRank",
-            "WinOfficer",
-        ] {
-            hide_window(wm, &format!("GameSpyLoadScreen.wnd:{suffix}{slot}"), true);
+    let slots = multiplayer_slot_contexts(context);
+    for slot in 0..MAX_LOAD_SCREEN_SLOTS {
+        let slot_context = slots.get(slot);
+        hide_window(
+            wm,
+            &format!("GameSpyLoadScreen.wnd:WinPlayer{slot}"),
+            slot_context.is_none(),
+        );
+        let hide_stats = slot_context.map(|slot| slot.is_ai).unwrap_or(true);
+        for suffix in gamespy_stats_suffixes() {
+            hide_window(
+                wm,
+                &format!("GameSpyLoadScreen.wnd:{suffix}{slot}"),
+                hide_stats,
+            );
         }
     }
+}
+
+fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenSlotInitContext> {
+    let slots: Vec<_> = context
+        .slots
+        .iter()
+        .filter(|slot| slot.visible)
+        .take(MAX_LOAD_SCREEN_SLOTS)
+        .cloned()
+        .collect();
+
+    if slots.is_empty() {
+        vec![LoadScreenSlotInitContext {
+            player_name: context.local_player_name.clone(),
+            side_name: context.local_side_name.clone(),
+            team_number: context.local_team_number,
+            is_ai: false,
+            visible: true,
+        }]
+    } else {
+        slots
+    }
+}
+
+fn multiplayer_team_text(slot: &LoadScreenSlotInitContext) -> String {
+    if slot.is_ai && slot.team_number == -1 {
+        "Team:AI".to_string()
+    } else {
+        format!("Team:{}", slot.team_number + 1)
+    }
+}
+
+fn gamespy_stats_suffixes() -> [&'static str; 4] {
+    [
+        "StaticTextTotalDisconnects",
+        "StaticTextWinLoss",
+        "WinRank",
+        "WinOfficer",
+    ]
 }
 
 fn set_progress_window(wm: &mut WindowManager, name: &str, percent: f32) {
@@ -1057,6 +1127,8 @@ fn current_challenge_movie_label() -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::gadgets::progressbar::ProgressBar;
+    use crate::gui::game_window::WindowWidget;
     use game_engine::common::language::Language;
     use std::sync::{Mutex, OnceLock};
 
@@ -1171,6 +1243,106 @@ mod tests {
             "MultiplayerLoadScreen.wnd:ProgressLoad0"
         );
         assert_eq!(multiplayer.slot_count, MAX_LOAD_SCREEN_SLOTS);
+    }
+
+    #[test]
+    fn multiplayer_init_compacts_visible_context_slots_like_cpp() {
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Local".to_string(),
+            local_side_name: "USA".to_string(),
+            local_team_number: 0,
+            slots: vec![
+                load_screen_slot("Alice", "USA", 0, false, true),
+                load_screen_slot("Empty", "GLA", 1, false, false),
+                load_screen_slot("Bob", "China", 2, false, true),
+            ],
+        };
+
+        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:StaticTextPlayer0"),
+            "Alice"
+        );
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:StaticTextPlayer1"),
+            "Bob"
+        );
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:StaticTextTeam1"),
+            "Team:3"
+        );
+        assert!(!window_hidden(
+            &wm,
+            "MultiplayerLoadScreen.wnd:ProgressLoad1"
+        ));
+        assert!(window_hidden(
+            &wm,
+            "MultiplayerLoadScreen.wnd:ProgressLoad2"
+        ));
+        assert!(window_hidden(
+            &wm,
+            "MultiplayerLoadScreen.wnd:StaticTextPlayer2"
+        ));
+    }
+
+    #[test]
+    fn gamespy_init_keeps_player_row_for_ai_but_hides_ai_stats() {
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "GameSpyLoadScreen.wnd", 3);
+        create_gamespy_slot_windows(&mut wm, 3);
+        named_test_window(&mut wm, "GameSpyLoadScreen.wnd:LocalGeneralFeatures");
+        named_test_window(&mut wm, "GameSpyLoadScreen.wnd:LocalGeneralName");
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Local".to_string(),
+            local_side_name: "USA".to_string(),
+            local_team_number: 0,
+            slots: vec![
+                load_screen_slot("Human", "USA", 0, false, true),
+                load_screen_slot("AI", "GLA", -1, true, true),
+            ],
+        };
+
+        initialize_gamespy_windows(&mut wm, &context);
+
+        assert!(!window_hidden(&wm, "GameSpyLoadScreen.wnd:WinPlayer0"));
+        assert!(!window_hidden(
+            &wm,
+            "GameSpyLoadScreen.wnd:StaticTextWinLoss0"
+        ));
+        assert!(!window_hidden(&wm, "GameSpyLoadScreen.wnd:WinPlayer1"));
+        assert!(window_hidden(
+            &wm,
+            "GameSpyLoadScreen.wnd:StaticTextWinLoss1"
+        ));
+        assert_eq!(
+            window_text(&wm, "GameSpyLoadScreen.wnd:StaticTextTeam1"),
+            "Team:AI"
+        );
+        assert!(window_hidden(&wm, "GameSpyLoadScreen.wnd:WinPlayer2"));
+    }
+
+    #[test]
+    fn load_screen_init_context_default_preserves_single_local_slot() {
+        let context = LoadScreenInitContext {
+            local_player_name: "Fallback".to_string(),
+            local_side_name: "GLA".to_string(),
+            local_team_number: 4,
+            slots: Vec::new(),
+        };
+
+        let slots = multiplayer_slot_contexts(&context);
+
+        assert_eq!(slots.len(), 1);
+        assert_eq!(slots[0].player_name, "Fallback");
+        assert_eq!(slots[0].side_name, "GLA");
+        assert_eq!(multiplayer_team_text(&slots[0]), "Team:5");
     }
 
     #[test]
@@ -1323,6 +1495,65 @@ mod tests {
         let mut window = window.borrow_mut();
         window.set_name(name);
         let _ = window.hide(true);
+    }
+
+    fn named_progress_test_window(wm: &mut WindowManager, name: &str) {
+        let window = wm.create_window(None, 0, 0, 100, 20).expect("window");
+        let mut window = window.borrow_mut();
+        window.set_name(name);
+        window.set_widget(WindowWidget::ProgressBar(ProgressBar::new(
+            0, 0, 0, 100, 20,
+        )));
+        let _ = window.hide(true);
+    }
+
+    fn create_multiplayer_slot_windows(wm: &mut WindowManager, prefix: &str, count: usize) {
+        for slot in 0..count {
+            named_progress_test_window(wm, &format!("{prefix}:ProgressLoad{slot}"));
+            for suffix in ["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"] {
+                named_test_window(wm, &format!("{prefix}:{suffix}{slot}"));
+            }
+        }
+    }
+
+    fn create_gamespy_slot_windows(wm: &mut WindowManager, count: usize) {
+        for slot in 0..count {
+            named_test_window(wm, &format!("GameSpyLoadScreen.wnd:WinPlayer{slot}"));
+            for suffix in gamespy_stats_suffixes() {
+                named_test_window(wm, &format!("GameSpyLoadScreen.wnd:{suffix}{slot}"));
+            }
+        }
+    }
+
+    fn load_screen_slot(
+        player_name: &str,
+        side_name: &str,
+        team_number: i32,
+        is_ai: bool,
+        visible: bool,
+    ) -> LoadScreenSlotInitContext {
+        LoadScreenSlotInitContext {
+            player_name: player_name.to_string(),
+            side_name: side_name.to_string(),
+            team_number,
+            is_ai,
+            visible,
+        }
+    }
+
+    fn window_text(wm: &WindowManager, name: &str) -> String {
+        wm.find_window_by_name(name)
+            .expect(name)
+            .borrow()
+            .get_text()
+            .to_string()
+    }
+
+    fn window_hidden(wm: &WindowManager, name: &str) -> bool {
+        wm.find_window_by_name(name)
+            .expect(name)
+            .borrow()
+            .is_hidden()
     }
 
     fn reset_shell_game_first_load_for_tests(value: bool) {
