@@ -2,7 +2,11 @@
 
 pub use super::loading_screen::*;
 
-use super::{with_window_manager, WindowManager};
+use crate::display::image::get_mapped_image_collection;
+
+use super::campaign_manager::get_campaign_manager;
+use super::game_window::Image as WindowImage;
+use super::{with_window_manager, WindowManager, WindowStatus};
 
 const MAX_LOAD_SCREEN_SLOTS: usize = 8;
 const FRAME_FUDGE_ADD: f32 = 30.0;
@@ -176,7 +180,16 @@ pub fn reset_load_screen(kind: LoadScreenKind) {
 pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
     let descriptor = descriptor_for_kind(kind);
     let percent = transformed_progress_percent(descriptor, raw_percent);
-    with_window_manager(|wm| set_progress_window(wm, descriptor.primary_progress, percent));
+    with_window_manager(|wm| {
+        set_progress_window(wm, descriptor.primary_progress, percent);
+        if kind == LoadScreenKind::SinglePlayer {
+            set_window_text(
+                wm,
+                "SinglePlayerLoadScreen.wnd:Percent",
+                &format!("{}%", percent as i32),
+            );
+        }
+    });
 }
 
 fn initialize_progress_windows(wm: &mut WindowManager, descriptor: LoadScreenDescriptor) {
@@ -230,6 +243,25 @@ fn initialize_single_player_windows(wm: &mut WindowManager) {
             &format!("SinglePlayerLoadScreen.wnd:StaticTextCameoText{cameo}"),
             true,
         );
+    }
+
+    if let Some(campaign) = get_campaign_manager().get_current_campaign() {
+        if let Some((background, progress)) = single_player_campaign_images(&campaign.name) {
+            set_window_image(
+                wm,
+                "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+                0,
+                background,
+                true,
+            );
+            set_window_image(
+                wm,
+                "SinglePlayerLoadScreen.wnd:ProgressLoad",
+                6,
+                progress,
+                false,
+            );
+        }
     }
 }
 
@@ -321,9 +353,48 @@ fn set_window_text(wm: &mut WindowManager, name: &str, text: &str) {
     }
 }
 
+fn set_window_image(
+    wm: &mut WindowManager,
+    window_name: &str,
+    image_index: usize,
+    image_name: &str,
+    mark_image_status: bool,
+) {
+    let mut image = WindowImage {
+        name: image_name.to_string(),
+        width: 0,
+        height: 0,
+    };
+    if let Some(collection) = get_mapped_image_collection().try_read() {
+        if let Some(found) = collection.find_image_by_name(image_name) {
+            image.width = found.get_image_width();
+            image.height = found.get_image_height();
+        }
+    }
+
+    if let Some(window) = wm.find_window_by_name(window_name) {
+        let mut window = window.borrow_mut();
+        if window.set_enabled_image(image_index, image).is_ok() && mark_image_status {
+            window.set_status(WindowStatus::IMAGE);
+        }
+    }
+}
+
 fn hide_window(wm: &mut WindowManager, name: &str, hidden: bool) {
     if let Some(window) = wm.find_window_by_name(name) {
         let _ = window.borrow_mut().hide(hidden);
+    }
+}
+
+fn single_player_campaign_images(campaign_name: &str) -> Option<(&'static str, &'static str)> {
+    if campaign_name.eq_ignore_ascii_case("USA") {
+        Some(("MissionLoad_USA", "LoadingBar_ProgressCenter2"))
+    } else if campaign_name.eq_ignore_ascii_case("GLA") {
+        Some(("MissionLoad_GLA", "LoadingBar_ProgressCenter3"))
+    } else if campaign_name.eq_ignore_ascii_case("China") {
+        Some(("MissionLoad_China", "LoadingBar_ProgressCenter1"))
+    } else {
+        None
     }
 }
 
@@ -443,5 +514,22 @@ mod tests {
 
         let shell = descriptor_for_kind(LoadScreenKind::ShellGame);
         assert!((transformed_progress_percent(shell, 42.0) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn single_player_campaign_images_match_cpp_side_mapping() {
+        assert_eq!(
+            single_player_campaign_images("USA"),
+            Some(("MissionLoad_USA", "LoadingBar_ProgressCenter2"))
+        );
+        assert_eq!(
+            single_player_campaign_images("gla"),
+            Some(("MissionLoad_GLA", "LoadingBar_ProgressCenter3"))
+        );
+        assert_eq!(
+            single_player_campaign_images("China"),
+            Some(("MissionLoad_China", "LoadingBar_ProgressCenter1"))
+        );
+        assert_eq!(single_player_campaign_images("Challenge"), None);
     }
 }
