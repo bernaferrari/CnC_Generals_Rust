@@ -8,7 +8,7 @@ use crate::gui::gadgets::tabcontrol::{
 };
 use crate::gui::gadgets::{ClockMode, PushButton, TabControl, TextAlignment, VerticalAlignment};
 use crate::gui::game_window::{
-    read_video_frame, resolve_window_text, WindowState, WindowStatus, WIN_COLOR_UNDEFINED,
+    read_video_frame, resolve_window_text, Point2D, WindowState, WindowStatus, WIN_COLOR_UNDEFINED,
 };
 use crate::gui::shell::get_shell;
 use crate::gui::ui_globals::with_ui_renderer_mut;
@@ -882,6 +882,25 @@ mod tests {
         assert_eq!(
             radio_button_image_slots(false, true, false).state,
             RadioDrawState::Enabled
+        );
+    }
+
+    #[test]
+    fn checkbox_box_image_slot_matches_cpp_checked_state() {
+        assert_eq!(checkbox_box_image_slot(false), 1);
+        assert_eq!(checkbox_box_image_slot(true), 2);
+    }
+
+    #[test]
+    fn checkbox_box_image_rect_matches_cpp_offsets() {
+        assert_eq!(
+            checkbox_box_image_rect(10, 20, 18, Point2D { x: 4, y: 9 }),
+            CheckBoxImageRect {
+                start_x: 14,
+                start_y: 23,
+                end_x: 26,
+                end_y: 35,
+            }
         );
     }
 }
@@ -2624,6 +2643,40 @@ fn is_check_box_checked(window: &GameWindow) -> bool {
     window.instance_data().state.contains(WindowState::PUSHED)
 }
 
+fn checkbox_box_image_slot(checked: bool) -> usize {
+    if checked {
+        2
+    } else {
+        1
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CheckBoxImageRect {
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+}
+
+fn checkbox_box_image_rect(
+    origin_x: i32,
+    origin_y: i32,
+    size_y: i32,
+    image_offset: Point2D,
+) -> CheckBoxImageRect {
+    let start_x = origin_x + image_offset.x;
+    let start_y = origin_y + 3;
+    let end_x = start_x + (size_y - 6);
+    let end_y = start_y + (size_y - 6);
+    CheckBoxImageRect {
+        start_x,
+        start_y,
+        end_x,
+        end_y,
+    }
+}
+
 pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
     {
@@ -2707,18 +2760,25 @@ pub fn w3d_gadget_check_box_image_draw(window: &GameWindow, inst_data: &WindowIn
     } else {
         (&inst_data.enabled_draw_data, &inst_data.enabled_text)
     };
-    let check_box = &draw_data[0];
+    let checked = is_check_box_checked(window);
+    let check_box = &draw_data[checkbox_box_image_slot(checked)];
     if let Some(image) = &check_box.image {
         let rect = press_scaled_rect(window);
-        let origin_x = rect.x as i32;
-        let origin_y = rect.y as i32;
-        let size_y = rect.height as i32;
-        let start_x = origin_x + inst_data.image_offset.x;
-        let start_y = origin_y + inst_data.image_offset.y + 3;
-        let end_x = start_x + (size_y - 6);
-        let end_y = start_y + (size_y - 6);
+        let image_rect = checkbox_box_image_rect(
+            rect.x as i32,
+            rect.y as i32,
+            rect.height as i32,
+            inst_data.image_offset,
+        );
         with_window_manager_ref(|manager| {
-            manager.win_draw_image(image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
+            manager.win_draw_image(
+                image,
+                image_rect.start_x,
+                image_rect.start_y,
+                image_rect.end_x,
+                image_rect.end_y,
+                WIN_COLOR_UNDEFINED,
+            );
         });
     }
     draw_check_box_text(window, inst_data);
