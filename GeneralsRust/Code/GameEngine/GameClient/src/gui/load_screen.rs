@@ -84,11 +84,27 @@ pub struct LoadScreenInitContext {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadScreenSlotInitContext {
+    pub player_id: i32,
     pub player_name: String,
     pub side_name: String,
     pub team_number: i32,
     pub is_ai: bool,
     pub visible: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MultiplayerLoadScreenState {
+    player_lookup: [i32; MAX_LOAD_SCREEN_SLOTS],
+    local_player_id: i32,
+}
+
+impl Default for MultiplayerLoadScreenState {
+    fn default() -> Self {
+        Self {
+            player_lookup: [-1; MAX_LOAD_SCREEN_SLOTS],
+            local_player_id: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -110,6 +126,7 @@ struct SinglePlayerLoadScreenState {
 static SINGLE_PLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<SinglePlayerLoadScreenState>> =
     OnceLock::new();
 static SHELL_GAME_FIRST_LOAD: OnceLock<Mutex<bool>> = OnceLock::new();
+static MULTIPLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<MultiplayerLoadScreenState>> = OnceLock::new();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ChallengePersonaText {
@@ -296,12 +313,20 @@ pub fn reset_load_screen(kind: LoadScreenKind) {
     });
     if kind == LoadScreenKind::Challenge {
         reset_challenge_load_screen_audio_state();
+    } else if descriptor.slot_count > 0 {
+        reset_multiplayer_load_screen_state();
     }
 }
 
 pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
     let descriptor = descriptor_for_kind(kind);
     let percent = transformed_progress_percent(descriptor, raw_percent);
+    if descriptor.slot_count > 0 {
+        let local_player_id = with_multiplayer_load_screen_state(|state| state.local_player_id);
+        if process_load_screen_progress(kind, local_player_id, percent) {
+            return;
+        }
+    }
     with_window_manager(|wm| {
         set_progress_window(wm, descriptor.primary_progress, percent);
         if kind == LoadScreenKind::SinglePlayer {
@@ -317,6 +342,34 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
             }
         }
     });
+}
+
+pub fn process_load_screen_progress(kind: LoadScreenKind, player_id: i32, percentage: f32) -> bool {
+    let descriptor = descriptor_for_kind(kind);
+    if descriptor.slot_count == 0 || !(0.0..=100.0).contains(&percentage) {
+        return false;
+    }
+
+    let compact_slot = with_multiplayer_load_screen_state(|state| {
+        if player_id < 0 || player_id as usize >= MAX_LOAD_SCREEN_SLOTS {
+            None
+        } else {
+            let compact_slot = state.player_lookup[player_id as usize];
+            (compact_slot >= 0).then_some(compact_slot as usize)
+        }
+    });
+    let Some(compact_slot) = compact_slot else {
+        return false;
+    };
+
+    with_window_manager(|wm| {
+        set_progress_window(
+            wm,
+            &format!("{}{}", descriptor.progress_prefix, compact_slot),
+            percentage,
+        );
+    });
+    true
 }
 
 fn initialize_progress_windows(wm: &mut WindowManager, descriptor: LoadScreenDescriptor) {
@@ -379,6 +432,21 @@ fn with_shell_game_first_load<R>(f: impl FnOnce(&mut bool) -> R) -> R {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     f(&mut guard)
+}
+
+fn with_multiplayer_load_screen_state<R>(
+    f: impl FnOnce(&mut MultiplayerLoadScreenState) -> R,
+) -> R {
+    let state = MULTIPLAYER_LOAD_SCREEN_STATE
+        .get_or_init(|| Mutex::new(MultiplayerLoadScreenState::default()));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut guard)
+}
+
+fn reset_multiplayer_load_screen_state() {
+    with_multiplayer_load_screen_state(|state| *state = MultiplayerLoadScreenState::default());
 }
 
 #[cfg(not(test))]
@@ -905,6 +973,17 @@ fn initialize_multiplayer_windows(
     );
 
     let slots = multiplayer_slot_contexts(context);
+    with_multiplayer_load_screen_state(|state| {
+        *state = MultiplayerLoadScreenState::default();
+        state.local_player_id = context.local_team_number;
+        for (compact_slot, slot_context) in slots.iter().enumerate() {
+            if slot_context.player_id >= 0
+                && (slot_context.player_id as usize) < MAX_LOAD_SCREEN_SLOTS
+            {
+                state.player_lookup[slot_context.player_id as usize] = compact_slot as i32;
+            }
+        }
+    });
     for slot in 0..MAX_LOAD_SCREEN_SLOTS {
         if let Some(slot_context) = slots.get(slot) {
             set_progress_window(wm, &format!("{prefix}:ProgressLoad{slot}"), 0.0);
@@ -979,6 +1058,7 @@ fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenS
 
     if slots.is_empty() {
         vec![LoadScreenSlotInitContext {
+            player_id: context.local_team_number,
             player_name: context.local_player_name.clone(),
             side_name: context.local_side_name.clone(),
             team_number: context.local_team_number,
@@ -1379,6 +1459,51 @@ mod tests {
     }
 
     #[test]
+    fn multiplayer_process_progress_uses_cpp_player_lookup_mapping() {
+        reset_multiplayer_load_screen_state();
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Alice".to_string(),
+            local_side_name: "USA".to_string(),
+            local_team_number: 0,
+            slots: vec![
+                load_screen_slot("Alice", "USA", 0, false, true),
+                load_screen_slot("Empty", "GLA", 1, false, false),
+                load_screen_slot("Bob", "China", 2, false, true),
+            ],
+        };
+
+        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+        with_window_manager(|global_wm| {
+            *global_wm = wm;
+        });
+
+        assert!(process_load_screen_progress(
+            LoadScreenKind::Multiplayer,
+            2,
+            62.0
+        ));
+        assert_eq!(
+            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
+            Some(0.62)
+        );
+        assert_eq!(
+            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+            Some(0.0)
+        );
+        assert!(!process_load_screen_progress(
+            LoadScreenKind::Multiplayer,
+            1,
+            30.0
+        ));
+    }
+
+    #[test]
     fn load_screen_init_context_default_preserves_single_local_slot() {
         let context = LoadScreenInitContext {
             local_player_name: "Fallback".to_string(),
@@ -1603,6 +1728,7 @@ mod tests {
         visible: bool,
     ) -> LoadScreenSlotInitContext {
         LoadScreenSlotInitContext {
+            player_id: team_number,
             player_name: player_name.to_string(),
             side_name: side_name.to_string(),
             team_number,
@@ -1633,6 +1759,14 @@ mod tests {
             .get_enabled_draw_data(index)?
             .image
             .map(|image| image.name)
+    }
+
+    fn progress_value(name: &str) -> Option<f32> {
+        with_window_manager(|wm| {
+            let window = wm.find_window_by_name(name)?;
+            let mut window = window.borrow_mut();
+            Some(window.progress_bar_mut()?.value())
+        })
     }
 
     fn reset_shell_game_first_load_for_tests(value: bool) {
