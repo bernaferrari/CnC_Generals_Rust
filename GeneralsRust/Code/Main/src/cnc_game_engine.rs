@@ -2004,6 +2004,7 @@ impl CnCGameEngine {
                 local_side_name: slot.side_name.clone(),
                 local_team_number: slot.team_number,
                 map_name: None,
+                start_positions: Vec::new(),
                 slots: vec![slot],
             }
         } else {

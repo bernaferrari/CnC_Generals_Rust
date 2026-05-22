@@ -4,7 +4,7 @@ pub use super::loading_screen::*;
 
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
-use crate::map_util::get_map_preview_image;
+use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 
 use super::campaign_manager::{
     get_campaign_manager, Mission, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES,
@@ -13,11 +13,14 @@ use super::challenge_generals::{
     get_challenge_generals, get_challenge_generals_mut, init_challenge_generals, ChallengeGenerals,
     GeneralPersona,
 };
-use super::game_window::Image as WindowImage;
+use super::game_window::{GameWindow, Image as WindowImage};
 use super::window_video_manager::{with_window_video_manager, WindowVideoPlayType};
 use super::{with_window_manager, WindowManager, WindowStatus};
+use game_engine::common::ini::ini_map_cache::MapMetaData;
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -81,6 +84,7 @@ pub struct LoadScreenInitContext {
     pub local_side_name: String,
     pub local_team_number: i32,
     pub map_name: Option<String>,
+    pub start_positions: Vec<Option<usize>>,
     pub slots: Vec<LoadScreenSlotInitContext>,
 }
 
@@ -204,6 +208,7 @@ impl Default for LoadScreenInitContext {
             local_side_name: "USA".to_string(),
             local_team_number: 0,
             map_name: None,
+            start_positions: Vec::new(),
             slots: Vec::new(),
         }
     }
@@ -325,6 +330,14 @@ pub fn load_screen_init_context_from_game_info(
             })
         })
         .collect();
+    let start_positions = (0..MAX_LOAD_SCREEN_SLOTS)
+        .map(|player_id| {
+            let slot = game_info.get_slot(player_id)?;
+            let start_pos = slot.get_apparent_start_pos();
+            (start_pos >= 0 && slot.get_player_template() > crate::game_network::PLAYERTEMPLATE_MIN)
+                .then_some(start_pos as usize)
+        })
+        .collect();
 
     let local_player_id = game_info.get_local_slot_num();
     let local_slot = if local_player_id >= 0 {
@@ -339,6 +352,7 @@ pub fn load_screen_init_context_from_game_info(
             local_side_name: local_slot.side_name.clone(),
             local_team_number: local_slot.player_id,
             map_name: (!game_info.get_map().is_empty()).then(|| game_info.get_map().to_string()),
+            start_positions,
             slots,
         }
     } else {
@@ -1015,7 +1029,12 @@ fn initialize_multiplayer_windows(
         &format!("{prefix}:LocalGeneralName"),
         &context.local_side_name,
     );
-    initialize_multiplayer_map_preview(wm, prefix, context.map_name.as_deref());
+    initialize_multiplayer_map_preview(
+        wm,
+        prefix,
+        context.map_name.as_deref(),
+        &context.start_positions,
+    );
 
     let slots = multiplayer_slot_contexts(context);
     with_multiplayer_load_screen_state(|state| {
@@ -1083,6 +1102,7 @@ fn initialize_multiplayer_map_preview(
     wm: &mut WindowManager,
     prefix: &str,
     map_name: Option<&str>,
+    start_positions: &[Option<usize>],
 ) {
     let preview_window_name = format!("{prefix}:WinMapPreview");
     let Some(preview) = wm.find_window_by_name(&preview_window_name) else {
@@ -1092,10 +1112,128 @@ fn initialize_multiplayer_map_preview(
     let preview_image = map_name.and_then(get_map_preview_image);
     let Some(preview_image) = preview_image else {
         preview.borrow_mut().clear_status(WindowStatus::IMAGE);
+        update_multiplayer_start_position_buttons(wm, prefix, None, start_positions);
         return;
     };
 
     set_window_image(wm, &preview_window_name, 0, &preview_image, true);
+    let metadata = map_name.and_then(multiplayer_map_metadata);
+    update_multiplayer_start_position_buttons(wm, prefix, metadata.as_ref(), start_positions);
+}
+
+fn multiplayer_map_metadata(map_name: &str) -> Option<MapMetaData> {
+    let cache = get_map_cache_manager();
+    let mut cache = cache
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.update_cache();
+    cache.find_map(map_name)
+}
+
+fn map_start_waypoint_name(index: usize) -> String {
+    format!("Player_{}_Start", index + 1)
+}
+
+fn update_multiplayer_start_position_buttons(
+    wm: &mut WindowManager,
+    prefix: &str,
+    metadata: Option<&MapMetaData>,
+    start_positions: &[Option<usize>],
+) {
+    let preview_window_name = format!("{prefix}:WinMapPreview");
+    let Some(preview) = wm.find_window_by_name(&preview_window_name) else {
+        return;
+    };
+
+    let Some(metadata) = metadata.filter(|metadata| metadata.is_multiplayer) else {
+        for slot in 0..MAX_LOAD_SCREEN_SLOTS {
+            hide_window(wm, &format!("{prefix}:ButtonMapStartPosition{slot}"), true);
+        }
+        return;
+    };
+
+    position_multiplayer_start_position_buttons(wm, prefix, &preview, metadata);
+    apply_multiplayer_start_position_labels(wm, prefix, metadata, start_positions);
+}
+
+fn position_multiplayer_start_position_buttons(
+    wm: &mut WindowManager,
+    prefix: &str,
+    preview: &Rc<RefCell<GameWindow>>,
+    metadata: &MapMetaData,
+) {
+    let preview = preview.borrow();
+    let (map_x, map_y) = preview.get_screen_position();
+    let (map_w, map_h) = preview.get_size();
+    let extent = metadata.extent;
+    let (ul, lr) = find_draw_positions(map_x, map_y, map_w, map_h, extent);
+    let extent_width = (extent.hi.x - extent.lo.x).max(1.0);
+    let extent_height = (extent.hi.y - extent.lo.y).max(1.0);
+    drop(preview);
+
+    let mut placed_buttons: Vec<(i32, i32, i32, i32)> = Vec::new();
+    for slot in 0..MAX_LOAD_SCREEN_SLOTS {
+        let button_name = format!("{prefix}:ButtonMapStartPosition{slot}");
+        let Some(button) = wm.find_window_by_name(&button_name) else {
+            continue;
+        };
+        let waypoint = if (slot as i32) < metadata.num_players {
+            metadata.get_waypoint(&map_start_waypoint_name(slot))
+        } else {
+            None
+        };
+        let mut button = button.borrow_mut();
+        if let Some(coord) = waypoint {
+            let ratio_x = (coord.x - extent.lo.x) / extent_width;
+            let ratio_y = (extent.hi.y - coord.y) / extent_height;
+            let draw_x = ul.x as f32 + (lr.x - ul.x) as f32 * ratio_x;
+            let draw_y = ul.y as f32 + (lr.y - ul.y) as f32 * ratio_y;
+            let (btn_w, btn_h) = button.get_size();
+            let mut new_x = draw_x.round() as i32 - btn_w / 2 - map_x;
+            let mut new_y = draw_y.round() as i32 - btn_h / 2 - map_y;
+            let gadget_size = btn_w.max(btn_h);
+            for (x, y, w, h) in &placed_buttons {
+                if new_x >= *x && new_x < *x + *w && new_y >= *y && new_y < *y + *h {
+                    if new_y + gadget_size + 1 < map_h {
+                        new_y += gadget_size + 1;
+                    } else {
+                        new_x += gadget_size + 1;
+                    }
+                }
+            }
+            let _ = button.set_position(new_x, new_y);
+            let _ = button.hide(false);
+            let _ = button.enable(true);
+            placed_buttons.push((new_x, new_y, btn_w, btn_h));
+        } else {
+            let _ = button.hide(true);
+        }
+    }
+}
+
+fn apply_multiplayer_start_position_labels(
+    wm: &mut WindowManager,
+    prefix: &str,
+    metadata: &MapMetaData,
+    start_positions: &[Option<usize>],
+) {
+    for slot in 0..MAX_LOAD_SCREEN_SLOTS {
+        set_window_text(wm, &format!("{prefix}:ButtonMapStartPosition{slot}"), "");
+    }
+
+    let max_players = metadata.num_players.max(0) as usize;
+    for (player_index, start_pos) in start_positions.iter().enumerate() {
+        let Some(start_pos) = start_pos else {
+            continue;
+        };
+        if *start_pos < max_players {
+            set_window_text(
+                wm,
+                &format!("{prefix}:ButtonMapStartPosition{start_pos}"),
+                &GameText::fetch(&format!("NUMBER:{}", player_index + 1)),
+            );
+        }
+    }
 }
 
 fn initialize_gamespy_windows(wm: &mut WindowManager, context: &LoadScreenInitContext) {
@@ -1330,6 +1468,7 @@ mod tests {
     use crate::game_network::{GameInfo, GameSlot, SlotState};
     use crate::gui::gadgets::progressbar::ProgressBar;
     use crate::gui::game_window::WindowWidget;
+    use game_engine::common::ini::ini_map_cache::{Coord3D, Region3D};
     use game_engine::common::language::Language;
     use std::sync::{Mutex, OnceLock};
 
@@ -1473,6 +1612,7 @@ mod tests {
             local_side_name: "USA".to_string(),
             local_team_number: 0,
             map_name: None,
+            start_positions: Vec::new(),
             slots: vec![
                 load_screen_slot_with_color("Alice", "USA", 0, Some(2), false, true),
                 load_screen_slot("Empty", "GLA", 1, false, false),
@@ -1535,6 +1675,7 @@ mod tests {
             local_side_name: "USA".to_string(),
             local_team_number: 0,
             map_name: None,
+            start_positions: Vec::new(),
             slots: vec![
                 load_screen_slot("Human", "USA", 0, false, true),
                 load_screen_slot("AI", "GLA", -1, true, true),
@@ -1579,6 +1720,7 @@ mod tests {
             local_side_name: "USA".to_string(),
             local_team_number: 0,
             map_name: None,
+            start_positions: Vec::new(),
             slots: vec![
                 load_screen_slot("Alice", "USA", 0, false, true),
                 load_screen_slot("Empty", "GLA", 1, false, false),
@@ -1618,6 +1760,7 @@ mod tests {
             local_side_name: "GLA".to_string(),
             local_team_number: 4,
             map_name: None,
+            start_positions: Vec::new(),
             slots: Vec::new(),
         };
 
@@ -1630,6 +1773,105 @@ mod tests {
     }
 
     #[test]
+    fn multiplayer_start_position_buttons_match_map_waypoints_and_apparent_slots() {
+        let _state_guard = lock_test_load_screen_state();
+        let _language_guard = lock_test_language();
+        Language::clear_localized_strings();
+        let mut wm = WindowManager::new();
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:WinMapPreview");
+        wm.find_window_by_name("MultiplayerLoadScreen.wnd:WinMapPreview")
+            .expect("preview")
+            .borrow_mut()
+            .set_size(100, 100)
+            .expect("preview size");
+        create_multiplayer_start_position_windows(&mut wm, "MultiplayerLoadScreen.wnd");
+
+        let mut metadata = MapMetaData::new();
+        metadata.is_multiplayer = true;
+        metadata.num_players = 3;
+        metadata.extent =
+            Region3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(100.0, 100.0, 0.0));
+        metadata.set_waypoint("Player_1_Start".to_string(), Coord3D::new(25.0, 75.0, 0.0));
+        metadata.set_waypoint("Player_2_Start".to_string(), Coord3D::new(75.0, 25.0, 0.0));
+        metadata.set_waypoint("Player_3_Start".to_string(), Coord3D::new(25.0, 75.0, 0.0));
+
+        update_multiplayer_start_position_buttons(
+            &mut wm,
+            "MultiplayerLoadScreen.wnd",
+            Some(&metadata),
+            &[Some(1), None, Some(0)],
+        );
+
+        assert!(!window_hidden(
+            &wm,
+            "MultiplayerLoadScreen.wnd:ButtonMapStartPosition0"
+        ));
+        assert!(!window_hidden(
+            &wm,
+            "MultiplayerLoadScreen.wnd:ButtonMapStartPosition1"
+        ));
+        assert!(!window_hidden(
+            &wm,
+            "MultiplayerLoadScreen.wnd:ButtonMapStartPosition2"
+        ));
+        assert!(window_hidden(
+            &wm,
+            "MultiplayerLoadScreen.wnd:ButtonMapStartPosition3"
+        ));
+        assert_eq!(
+            window_position(&wm, "MultiplayerLoadScreen.wnd:ButtonMapStartPosition0"),
+            (20, 20)
+        );
+        assert_eq!(
+            window_position(&wm, "MultiplayerLoadScreen.wnd:ButtonMapStartPosition1"),
+            (70, 70)
+        );
+        assert_eq!(
+            window_position(&wm, "MultiplayerLoadScreen.wnd:ButtonMapStartPosition2"),
+            (20, 31)
+        );
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:ButtonMapStartPosition0"),
+            GameText::fetch("NUMBER:3")
+        );
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:ButtonMapStartPosition1"),
+            GameText::fetch("NUMBER:1")
+        );
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:ButtonMapStartPosition2"),
+            ""
+        );
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn multiplayer_start_position_buttons_hide_without_multiplayer_metadata() {
+        let _state_guard = lock_test_load_screen_state();
+        let mut wm = WindowManager::new();
+        named_test_window(&mut wm, "GameSpyLoadScreen.wnd:WinMapPreview");
+        create_multiplayer_start_position_windows(&mut wm, "GameSpyLoadScreen.wnd");
+
+        let mut metadata = MapMetaData::new();
+        metadata.is_multiplayer = false;
+        metadata.num_players = 2;
+
+        update_multiplayer_start_position_buttons(
+            &mut wm,
+            "GameSpyLoadScreen.wnd",
+            Some(&metadata),
+            &[Some(0)],
+        );
+
+        for slot in 0..MAX_LOAD_SCREEN_SLOTS {
+            assert!(window_hidden(
+                &wm,
+                &format!("GameSpyLoadScreen.wnd:ButtonMapStartPosition{slot}")
+            ));
+        }
+    }
+
+    #[test]
     fn game_info_context_preserves_original_slot_ids_and_apparent_colors() {
         let mut game_info = GameInfo::new();
         game_info.set_map("Maps/Test/Test.map".to_string());
@@ -1639,6 +1881,7 @@ mod tests {
         alice.set_player_template(-1);
         alice.set_team_number(0);
         alice.set_color(2);
+        alice.set_start_pos(1);
 
         let mut empty = GameSlot::new();
         empty.set_state(SlotState::Open, String::new(), 0);
@@ -1648,6 +1891,7 @@ mod tests {
         bob.set_player_template(-1);
         bob.set_team_number(-1);
         bob.set_color(5);
+        bob.set_start_pos(0);
 
         game_info.set_slot(0, alice);
         game_info.set_slot(1, empty);
@@ -1656,6 +1900,9 @@ mod tests {
         let context = load_screen_init_context_from_game_info(&game_info);
 
         assert_eq!(context.map_name.as_deref(), Some("Maps/Test/Test.map"));
+        assert_eq!(context.start_positions[0], Some(1));
+        assert_eq!(context.start_positions[1], None);
+        assert_eq!(context.start_positions[2], Some(0));
         assert_eq!(context.local_player_name, "Alice");
         assert_eq!(context.local_team_number, 0);
         assert_eq!(context.slots.len(), 2);
@@ -1873,6 +2120,18 @@ mod tests {
         }
     }
 
+    fn create_multiplayer_start_position_windows(wm: &mut WindowManager, prefix: &str) {
+        for slot in 0..MAX_LOAD_SCREEN_SLOTS {
+            let name = format!("{prefix}:ButtonMapStartPosition{slot}");
+            named_test_window(wm, &name);
+            wm.find_window_by_name(&name)
+                .expect("start position button")
+                .borrow_mut()
+                .set_size(10, 10)
+                .expect("button size");
+        }
+    }
+
     fn create_gamespy_slot_windows(wm: &mut WindowManager, count: usize) {
         for slot in 0..count {
             named_test_window(wm, &format!("GameSpyLoadScreen.wnd:WinPlayer{slot}"));
@@ -1924,6 +2183,13 @@ mod tests {
             .expect(name)
             .borrow()
             .is_hidden()
+    }
+
+    fn window_position(wm: &WindowManager, name: &str) -> (i32, i32) {
+        wm.find_window_by_name(name)
+            .expect(name)
+            .borrow()
+            .get_position()
     }
 
     fn window_image_name(wm: &WindowManager, name: &str, index: usize) -> Option<String> {
