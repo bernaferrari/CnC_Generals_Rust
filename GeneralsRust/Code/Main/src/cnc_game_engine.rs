@@ -2017,28 +2017,22 @@ impl CnCGameEngine {
                 return;
             }
 
-            game_client::gui::with_window_manager(|wm| {
-                match wm.create_layout_with_windows("Menus/MainMenu.wnd") {
-                    Ok((layout, _info)) => {
-                        layout.borrow().run_init(None);
-                        if let Some(root) = wm.find_window_by_name("MainMenu.wnd:MainMenuParent") {
-                            let _ = root.borrow_mut().hide(false);
-                            let _ = root.borrow_mut().bring_to_front();
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Failed to load MainMenu.wnd: {:?}", e);
-                        error!(
-                            "MainMenu.wnd could not be loaded — the main menu will not be visible. \
-                             Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
-                             The game will continue without a main menu."
-                        );
-                    }
+            let mut shell = game_client::gui::get_shell();
+            shell.show_shell_map(true);
+            match shell.show_shell(true) {
+                Ok(()) => {
+                    self.shell_menu_active = true;
+                    info!("Shell menu activated through Shell::show_shell");
                 }
-            });
-
-            self.shell_menu_active = true;
-            info!("Shell menu created from Menus/MainMenu.wnd");
+                Err(e) => {
+                    warn!("Failed to activate shell menu: {:?}", e);
+                    error!(
+                        "MainMenu.wnd could not be loaded through Shell::show_shell — the main menu will not be visible. \
+                         Ensure game assets (BIG archives or extracted Data/) are in the correct path. \
+                         The game will continue without a main menu."
+                    );
+                }
+            }
         }
     }
 
@@ -2050,14 +2044,12 @@ impl CnCGameEngine {
                 return;
             }
 
-            game_client::gui::with_window_manager(|wm| {
-                if let Some(root) = wm.find_window_by_name("MainMenu.wnd:MainMenuParent") {
-                    let _ = wm.destroy_window(root);
-                }
-                wm.flush_destroy_queue();
-            });
+            if let Err(err) = game_client::gui::get_shell().hide_shell() {
+                warn!("Failed to hide shell menu: {:?}", err);
+            }
 
             self.shell_menu_active = false;
+            info!("Shell menu hidden through Shell::hide_shell");
         }
     }
 
@@ -4791,6 +4783,74 @@ impl CnCGameEngine {
         self.message_processor.is_active()
     }
 
+    #[inline]
+    fn is_shell_input_state(&self) -> bool {
+        matches!(self.current_state, GameState::Menu)
+    }
+
+    fn enqueue_shell_key_input(&self, key: &Key, state: ElementState) {
+        let Some(key_code) = Self::to_legacy_raw_key_code(key) else {
+            return;
+        };
+        let key_state = self.legacy_key_state_bits(state);
+        let message_type = match state {
+            ElementState::Pressed => {
+                game_engine::common::message_stream::GameMessageType::RawKeyDown(key_code)
+            }
+            ElementState::Released => {
+                game_engine::common::message_stream::GameMessageType::RawKeyUp(key_code)
+            }
+        };
+
+        if let Ok(mut stream) = game_engine::common::message_stream::get_message_stream().write() {
+            let message = stream.append_message(message_type);
+            message.append_integer_argument(key_code as i32);
+            message.append_integer_argument(key_state as i32);
+        }
+    }
+
+    fn enqueue_shell_mouse_input(
+        &self,
+        message_type: game_engine::common::message_stream::GameMessageType,
+    ) {
+        if let Ok(mut stream) = game_engine::common::message_stream::get_message_stream().write() {
+            let _ = stream.append_message(message_type);
+        }
+    }
+
+    fn legacy_key_state_bits(&self, state: ElementState) -> u32 {
+        const KEY_STATE_UP: u32 = 0x0001;
+        const KEY_STATE_DOWN: u32 = 0x0002;
+        const KEY_STATE_CONTROL: u32 = 0x0004 | 0x0008;
+        const KEY_STATE_SHIFT: u32 = 0x0010 | 0x0020 | 0x0400;
+        const KEY_STATE_ALT: u32 = 0x0040 | 0x0080;
+
+        let mut bits = match state {
+            ElementState::Pressed => KEY_STATE_DOWN,
+            ElementState::Released => KEY_STATE_UP,
+        };
+        bits |= self.legacy_modifier_bits();
+        bits
+    }
+
+    fn legacy_modifier_bits(&self) -> u32 {
+        const KEY_STATE_CONTROL: u32 = 0x0004 | 0x0008;
+        const KEY_STATE_SHIFT: u32 = 0x0010 | 0x0020 | 0x0400;
+        const KEY_STATE_ALT: u32 = 0x0040 | 0x0080;
+
+        let mut bits = 0;
+        if self.keys_pressed.contains(&Key::Named(NamedKey::Control)) {
+            bits |= KEY_STATE_CONTROL;
+        }
+        if self.keys_pressed.contains(&Key::Named(NamedKey::Shift)) {
+            bits |= KEY_STATE_SHIFT;
+        }
+        if self.keys_pressed.contains(&Key::Named(NamedKey::Alt)) {
+            bits |= KEY_STATE_ALT;
+        }
+        bits
+    }
+
     pub fn input(&mut self, event: &WindowEvent) -> bool {
         match event {
             WindowEvent::KeyboardInput {
@@ -4807,6 +4867,9 @@ impl CnCGameEngine {
                 match state {
                     ElementState::Pressed => {
                         self.keys_pressed.insert(key.clone());
+                        if self.is_shell_input_state() {
+                            self.enqueue_shell_key_input(key, *state);
+                        }
                         if route_keyboard_to_legacy_ui {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
                                 let _ = self.ui_manager.handle_key_press(ui_key);
@@ -4816,6 +4879,9 @@ impl CnCGameEngine {
                     }
                     ElementState::Released => {
                         self.keys_pressed.remove(key);
+                        if self.is_shell_input_state() {
+                            self.enqueue_shell_key_input(key, *state);
+                        }
                     }
                 }
                 true
@@ -4823,6 +4889,35 @@ impl CnCGameEngine {
             WindowEvent::MouseInput { state, button, .. } => {
                 let x = self.mouse_position.0 as i32;
                 let y = self.mouse_position.1 as i32;
+                if self.is_shell_input_state() {
+                    let pos = game_engine::common::message_stream::ICoord2D::new(x, y);
+                    let modifiers = self.legacy_modifier_bits();
+                    let time = self.frame_counter;
+                    let message_type = match (button, state) {
+                        (MouseButton::Left, ElementState::Pressed) => {
+                            game_engine::common::message_stream::GameMessageType::RawMouseLeftButtonDown(pos, modifiers, time)
+                        }
+                        (MouseButton::Left, ElementState::Released) => {
+                            game_engine::common::message_stream::GameMessageType::RawMouseLeftButtonUp(pos, modifiers, time)
+                        }
+                        (MouseButton::Right, ElementState::Pressed) => {
+                            game_engine::common::message_stream::GameMessageType::RawMouseRightButtonDown(pos, modifiers, time)
+                        }
+                        (MouseButton::Right, ElementState::Released) => {
+                            game_engine::common::message_stream::GameMessageType::RawMouseRightButtonUp(pos, modifiers, time)
+                        }
+                        (MouseButton::Middle, ElementState::Pressed) => {
+                            game_engine::common::message_stream::GameMessageType::RawMouseMiddleButtonDown(pos, modifiers, time)
+                        }
+                        (MouseButton::Middle, ElementState::Released) => {
+                            game_engine::common::message_stream::GameMessageType::RawMouseMiddleButtonUp(pos, modifiers, time)
+                        }
+                        _ => {
+                            game_engine::common::message_stream::GameMessageType::RawMousePosition(pos)
+                        }
+                    };
+                    self.enqueue_shell_mouse_input(message_type);
+                }
                 let route_mouse_to_legacy_ui =
                     matches!(self.current_state, GameState::InGame | GameState::Paused);
                 if route_mouse_to_legacy_ui {
@@ -4878,6 +4973,15 @@ impl CnCGameEngine {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_position = (position.x as f32, position.y as f32);
+                if self.is_shell_input_state() {
+                    let pos = game_engine::common::message_stream::ICoord2D::new(
+                        position.x as i32,
+                        position.y as i32,
+                    );
+                    self.enqueue_shell_mouse_input(
+                        game_engine::common::message_stream::GameMessageType::RawMousePosition(pos),
+                    );
+                }
                 if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.update_mouse_world_position();
                     self.ui_manager
@@ -4886,6 +4990,15 @@ impl CnCGameEngine {
                 true
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                if self.is_shell_input_state() {
+                    let amount = match delta {
+                        winit::event::MouseScrollDelta::LineDelta(_, y) => (*y * 120.0) as i32,
+                        winit::event::MouseScrollDelta::PixelDelta(position) => position.y as i32,
+                    };
+                    self.enqueue_shell_mouse_input(
+                        game_engine::common::message_stream::GameMessageType::RawMouseWheel(amount),
+                    );
+                }
                 if matches!(self.current_state, GameState::InGame | GameState::Paused) {
                     self.handle_mouse_wheel(delta);
                 }
@@ -4972,6 +5085,39 @@ impl CnCGameEngine {
                     _ => None,
                 }
             }
+            _ => None,
+        }
+    }
+
+    fn to_legacy_raw_key_code(key: &Key) -> Option<u32> {
+        match key {
+            Key::Named(NamedKey::Escape) => Some(0x1B),
+            Key::Named(NamedKey::Enter) => Some(0x0D),
+            Key::Named(NamedKey::Space) => Some(0x20),
+            Key::Named(NamedKey::Tab) => Some(0x09),
+            Key::Named(NamedKey::Backspace) => Some(0x08),
+            Key::Named(NamedKey::Delete) => Some(0x2E),
+            Key::Named(NamedKey::ArrowLeft) => Some(0x25),
+            Key::Named(NamedKey::ArrowUp) => Some(0x26),
+            Key::Named(NamedKey::ArrowRight) => Some(0x27),
+            Key::Named(NamedKey::ArrowDown) => Some(0x28),
+            Key::Named(NamedKey::Home) => Some(0x24),
+            Key::Named(NamedKey::End) => Some(0x23),
+            Key::Named(NamedKey::PageUp) => Some(0x21),
+            Key::Named(NamedKey::PageDown) => Some(0x22),
+            Key::Named(NamedKey::F1) => Some(0x70),
+            Key::Named(NamedKey::F2) => Some(0x71),
+            Key::Named(NamedKey::F3) => Some(0x72),
+            Key::Named(NamedKey::F4) => Some(0x73),
+            Key::Named(NamedKey::F5) => Some(0x74),
+            Key::Named(NamedKey::F6) => Some(0x75),
+            Key::Named(NamedKey::F7) => Some(0x76),
+            Key::Named(NamedKey::F8) => Some(0x77),
+            Key::Named(NamedKey::F9) => Some(0x78),
+            Key::Named(NamedKey::F10) => Some(0x79),
+            Key::Named(NamedKey::F11) => Some(0x7A),
+            Key::Named(NamedKey::F12) => Some(0x7B),
+            Key::Character(ch) => ch.chars().next().map(|c| c.to_ascii_uppercase() as u32),
             _ => None,
         }
     }
