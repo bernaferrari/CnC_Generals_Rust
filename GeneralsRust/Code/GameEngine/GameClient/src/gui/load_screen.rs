@@ -96,6 +96,7 @@ struct SinglePlayerLoadScreenState {
 
 static SINGLE_PLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<SinglePlayerLoadScreenState>> =
     OnceLock::new();
+static SHELL_GAME_FIRST_LOAD: OnceLock<Mutex<bool>> = OnceLock::new();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ChallengePersonaText {
@@ -314,7 +315,7 @@ fn initialize_kind_windows(
     context: &LoadScreenInitContext,
 ) {
     match kind {
-        LoadScreenKind::ShellGame => {}
+        LoadScreenKind::ShellGame => initialize_shell_game_windows(wm),
         LoadScreenKind::SinglePlayer => initialize_single_player_windows(wm),
         LoadScreenKind::Challenge => initialize_challenge_windows(wm),
         LoadScreenKind::Multiplayer => {
@@ -322,6 +323,33 @@ fn initialize_kind_windows(
         }
         LoadScreenKind::GameSpy => initialize_gamespy_windows(wm, context),
     }
+}
+
+fn initialize_shell_game_windows(wm: &mut WindowManager) {
+    let is_first_load = with_shell_game_first_load(|first_load| {
+        let was_first_load = *first_load;
+        *first_load = false;
+        was_first_load
+    });
+
+    if is_first_load {
+        set_window_image(
+            wm,
+            "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen",
+            0,
+            "TitleScreen",
+            true,
+        );
+        hide_window(wm, "ShellGameLoadScreen.wnd:StaticTextLegal", false);
+    }
+}
+
+fn with_shell_game_first_load<R>(f: impl FnOnce(&mut bool) -> R) -> R {
+    let state = SHELL_GAME_FIRST_LOAD.get_or_init(|| Mutex::new(true));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut guard)
 }
 
 fn initialize_single_player_windows(wm: &mut WindowManager) {
@@ -868,6 +896,16 @@ fn current_challenge_persona_text() -> Option<(ChallengePersonaText, ChallengePe
 mod tests {
     use super::*;
     use game_engine::common::language::Language;
+    use std::sync::{Mutex, OnceLock};
+
+    static TEST_LANGUAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn lock_test_language() -> std::sync::MutexGuard<'static, ()> {
+        TEST_LANGUAGE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn selection_matches_cpp_game_logic_modes() {
@@ -1002,6 +1040,7 @@ mod tests {
 
     #[test]
     fn single_player_mission_text_fetches_cpp_labels() {
+        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         Language::register_localized_string("MISSION:Objective0", "Capture the base");
         Language::register_localized_string("MISSION:Objective2", "Hold position");
@@ -1045,6 +1084,7 @@ mod tests {
 
     #[test]
     fn challenge_persona_text_matches_cpp_load_screen_fields() {
+        let _language_guard = lock_test_language();
         Language::clear_localized_strings();
         Language::register_localized_string("CHALLENGE:PlayerName", "General Player");
         Language::register_localized_string("CHALLENGE:PlayerRank", "General");
@@ -1121,6 +1161,52 @@ mod tests {
         let mut window = window.borrow_mut();
         window.set_name(name);
         let _ = window.hide(true);
+    }
+
+    fn reset_shell_game_first_load_for_tests(value: bool) {
+        with_shell_game_first_load(|first_load| *first_load = value);
+    }
+
+    #[test]
+    fn shell_game_first_load_matches_cpp_title_and_legal_state() {
+        reset_shell_game_first_load_for_tests(true);
+        let mut wm = WindowManager::new();
+        let root = wm.create_window(None, 0, 0, 800, 600).expect("root");
+        root.borrow_mut()
+            .set_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen");
+        named_test_window(&mut wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
+
+        initialize_shell_game_windows(&mut wm);
+
+        let root = wm
+            .find_window_by_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen")
+            .expect("root");
+        assert_eq!(
+            root.borrow()
+                .get_enabled_draw_data(0)
+                .and_then(|draw| draw.image)
+                .map(|image| image.name),
+            Some("TitleScreen".to_string())
+        );
+        let legal = wm
+            .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
+            .expect("legal");
+        assert!(!legal.borrow().is_hidden());
+
+        let mut second_wm = WindowManager::new();
+        let second_root = second_wm.create_window(None, 0, 0, 800, 600).expect("root");
+        second_root
+            .borrow_mut()
+            .set_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen");
+        named_test_window(&mut second_wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
+
+        initialize_shell_game_windows(&mut second_wm);
+
+        let second_legal = second_wm
+            .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
+            .expect("legal");
+        assert!(second_legal.borrow().is_hidden());
+        reset_shell_game_first_load_for_tests(true);
     }
 
     fn challenge_test_windows(wm: &mut WindowManager) {
