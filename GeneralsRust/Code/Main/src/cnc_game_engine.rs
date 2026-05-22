@@ -62,8 +62,9 @@ use std::time::{Duration, Instant, SystemTime};
 use wgpu::util::DeviceExt;
 use winit::{
     self,
+    application::ApplicationHandler,
     event::{ElementState, Event, KeyEvent, MouseButton, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, NamedKey},
     window::{Window, WindowAttributes},
 };
@@ -8430,6 +8431,34 @@ impl Wake for NoopWake {
     fn wake(self: Arc<Self>) {}
 }
 
+fn create_startup_window(
+    elwt: &ActiveEventLoop,
+    attributes: WindowAttributes,
+    runtime_headless_mode: bool,
+) -> Result<Arc<Window>> {
+    let created_window = Arc::new(elwt.create_window(attributes)?);
+
+    info!(
+        "Window created: {}x{} ({})",
+        created_window.inner_size().width,
+        created_window.inner_size().height,
+        if created_window.fullscreen().is_some() {
+            "Fullscreen"
+        } else {
+            "Windowed"
+        }
+    );
+
+    if runtime_headless_mode {
+        created_window.set_visible(false);
+    } else {
+        created_window.set_visible(true);
+    }
+    created_window.request_redraw();
+
+    Ok(created_window)
+}
+
 #[derive(Debug, Clone)]
 struct RuntimeHostSnapshot {
     state: String,
@@ -8842,6 +8871,612 @@ impl RuntimeHostBridge {
     }
 }
 
+const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
+const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
+const MINIMIZED_POLL_INTERVAL: Duration = Duration::from_millis(5);
+
+struct CnCGameApplication {
+    pending_window_attributes: Option<WindowAttributes>,
+    window: Option<Arc<Window>>,
+    pending_engine_window: Option<Arc<Window>>,
+    engine_init_future: Option<Pin<Box<dyn Future<Output = Result<CnCGameEngine>>>>>,
+    engine_init_started_at: Option<Instant>,
+    engine_init_last_log_at: Option<Instant>,
+    engine: Option<CnCGameEngine>,
+    shutdown_logged: bool,
+    next_redraw_at: Instant,
+    last_slow_frame_log: Option<Instant>,
+    slow_frame_count: u32,
+    slow_frame_peak: Duration,
+    slow_ww3d_peak: Duration,
+    slow_update_peak: Duration,
+    slow_render_peak: Duration,
+    last_render_health_log: Instant,
+    runtime_headless_mode: bool,
+    runtime_host_bridge: Option<RuntimeHostBridge>,
+    runtime_window_minimized: bool,
+    cmd_args: Arc<CommandLineArgs>,
+    #[cfg(feature = "integration-diagnostics")]
+    integration_bridge: Option<IntegrationTelemetryBridge>,
+    #[cfg(feature = "integration-diagnostics")]
+    runtime_handle: tokio::runtime::Handle,
+}
+
+impl CnCGameApplication {
+    fn new(window_attributes: WindowAttributes, cmd_args: Arc<CommandLineArgs>) -> Self {
+        let runtime_headless_mode = RuntimeHostBridge::is_headless_mode(cmd_args.as_ref());
+        let mut runtime_host_bridge = RuntimeHostBridge::from_command_line(cmd_args.as_ref());
+        if let Some(bridge) = runtime_host_bridge.as_mut() {
+            bridge.publish_booting();
+        }
+
+        Self {
+            pending_window_attributes: Some(window_attributes),
+            window: None,
+            pending_engine_window: None,
+            engine_init_future: None,
+            engine_init_started_at: None,
+            engine_init_last_log_at: None,
+            engine: None,
+            shutdown_logged: false,
+            next_redraw_at: Instant::now(),
+            last_slow_frame_log: None,
+            slow_frame_count: 0,
+            slow_frame_peak: Duration::ZERO,
+            slow_ww3d_peak: Duration::ZERO,
+            slow_update_peak: Duration::ZERO,
+            slow_render_peak: Duration::ZERO,
+            last_render_health_log: Instant::now(),
+            runtime_headless_mode,
+            runtime_host_bridge,
+            runtime_window_minimized: false,
+            cmd_args,
+            #[cfg(feature = "integration-diagnostics")]
+            integration_bridge: None,
+            #[cfg(feature = "integration-diagnostics")]
+            runtime_handle: tokio::runtime::Handle::current(),
+        }
+    }
+
+    fn create_window_if_needed(&mut self, elwt: &ActiveEventLoop) -> bool {
+        if self.window.is_some() || self.engine.is_some() {
+            return true;
+        }
+        let Some(attributes) = self.pending_window_attributes.take() else {
+            return true;
+        };
+        let created_window =
+            match create_startup_window(elwt, attributes, self.runtime_headless_mode) {
+                Ok(window) => window,
+                Err(err) => {
+                    error!("Failed to create window: {err}");
+                    elwt.exit();
+                    return false;
+                }
+            };
+        self.window = Some(created_window.clone());
+        self.pending_engine_window = Some(created_window);
+        true
+    }
+
+    fn poll_engine_init(&mut self, elwt: &ActiveEventLoop) {
+        if self.engine.is_some() {
+            return;
+        }
+
+        if let Some(bridge) = self.runtime_host_bridge.as_mut() {
+            bridge.publish_booting();
+            for command in bridge.drain_commands() {
+                if command.trim().eq_ignore_ascii_case("exit") {
+                    info!("Runtime host received exit command during startup");
+                    elwt.exit();
+                    return;
+                }
+            }
+        }
+
+        if self.engine_init_future.is_none() {
+            if let Some(created_window) = self.pending_engine_window.take() {
+                #[cfg(target_os = "windows")]
+                {
+                    use raw_window_handle::HasWindowHandle;
+                    if let Ok(handle) = created_window.window_handle() {
+                        if let raw_window_handle::RawWindowHandle::Win32(win) = handle.as_raw() {
+                            crate::win_main::APPLICATION_WINDOW.store(
+                                win.hwnd.get() as *mut std::ffi::c_void,
+                                std::sync::atomic::Ordering::Relaxed,
+                            );
+                            debug!("Win32 window handle stored");
+                        }
+                    }
+                }
+
+                self.engine_init_started_at = Some(Instant::now());
+                self.engine_init_last_log_at = None;
+                created_window.set_title("Command & Conquer Generals Zero Hour - Initializing");
+                self.engine_init_future = Some(Box::pin(CnCGameEngine::new(
+                    created_window.clone(),
+                    self.cmd_args.clone(),
+                )));
+            }
+        }
+
+        if let Some(init_future) = self.engine_init_future.as_mut() {
+            let waker: Waker = Waker::from(Arc::new(NoopWake));
+            let mut cx = Context::from_waker(&waker);
+            match init_future.as_mut().poll(&mut cx) {
+                Poll::Ready(Ok(new_engine)) => {
+                    if let Some(created_window) = self.window.as_ref() {
+                        info!("C&C Game engine initialized successfully!");
+                        if !self.runtime_headless_mode {
+                            created_window.focus_window();
+                        }
+                        created_window.request_redraw();
+                    }
+                    self.engine_init_future = None;
+                    self.engine_init_started_at = None;
+                    self.engine_init_last_log_at = None;
+                    if let Some(bridge) = self.runtime_host_bridge.as_mut() {
+                        let snapshot = new_engine.runtime_host_status_snapshot();
+                        bridge.publish_runtime(&snapshot);
+                    }
+                    self.engine = Some(new_engine);
+                    #[cfg(feature = "integration-diagnostics")]
+                    if self.cmd_args.wants_integration_diagnostics() {
+                        match pollster::block_on(IntegrationTelemetryBridge::new(
+                            IntegrationConfig::default(),
+                        )) {
+                            Ok(bridge) => {
+                                info!("Integration diagnostics bridge initialized");
+                                self.integration_bridge = Some(bridge);
+                            }
+                            Err(err) => {
+                                error!(
+                                    "Failed to initialize integration diagnostics bridge: {err:?}. Continuing without telemetry overlay."
+                                );
+                            }
+                        }
+                    }
+                }
+                Poll::Ready(Err(err)) => {
+                    error!("Failed to initialize C&C game engine: {err}");
+                    self.engine_init_future = None;
+                    elwt.exit();
+                }
+                Poll::Pending => {
+                    if let Some(started_at) = self.engine_init_started_at {
+                        let should_log = self
+                            .engine_init_last_log_at
+                            .map(|last| last.elapsed() >= Duration::from_millis(500))
+                            .unwrap_or_else(|| started_at.elapsed() >= Duration::from_millis(500));
+                        if should_log {
+                            info!(
+                                "Engine bootstrap still in progress ({:.2}s elapsed)",
+                                started_at.elapsed().as_secs_f32()
+                            );
+                            self.engine_init_last_log_at = Some(Instant::now());
+                        }
+                    }
+                }
+            }
+        }
+
+        self.next_redraw_at = Instant::now() + STARTUP_POLL_INTERVAL;
+        elwt.set_control_flow(ControlFlow::WaitUntil(self.next_redraw_at));
+    }
+
+    fn process_shutdown(&mut self, elwt: &ActiveEventLoop) -> bool {
+        let Some(engine) = self.engine.as_mut() else {
+            return false;
+        };
+        if !engine.is_quitting() {
+            return false;
+        }
+        if !self.shutdown_logged {
+            info!("Engine shutting down");
+            self.shutdown_logged = true;
+        }
+        if let Some(bridge) = self.runtime_host_bridge.as_mut() {
+            let snapshot = engine.runtime_host_status_snapshot();
+            bridge.publish_runtime(&snapshot);
+        }
+        elwt.exit();
+        true
+    }
+
+    fn process_platform_event(&mut self, elwt: &ActiveEventLoop, event: &Event<()>) -> bool {
+        let Some(engine) = self.engine.as_mut() else {
+            return false;
+        };
+        match engine.process_platform_event(event) {
+            Ok(handled) => {
+                if handled {
+                    return true;
+                }
+            }
+            Err(err) => {
+                error!("Platform message handling error: {err}");
+            }
+        }
+
+        if engine.is_quit_requested() {
+            if !engine.is_quitting() && !engine.is_state_change_pending(GameState::Exiting) {
+                info!("Platform requested quit");
+                engine.request_state_change(GameState::Exiting);
+            }
+            elwt.set_control_flow(ControlFlow::WaitUntil(self.next_redraw_at));
+            return true;
+        }
+        false
+    }
+
+    fn drive_frame(&mut self, elwt: &ActiveEventLoop, render_frame: bool) {
+        let Some(current_window) = self.window.as_ref().cloned() else {
+            return;
+        };
+        let Some(engine) = self.engine.as_mut() else {
+            return;
+        };
+
+        if let Some(bridge) = self.runtime_host_bridge.as_mut() {
+            for command in bridge.drain_commands() {
+                engine.apply_runtime_host_command(&command);
+            }
+        }
+
+        let frame_started = Instant::now();
+        let mut ww3d_elapsed = Duration::ZERO;
+        let frame_timing = if matches!(
+            engine.get_state(),
+            GameState::Loading | GameState::Menu | GameState::InGame | GameState::Paused
+        ) {
+            let ww3d_started = Instant::now();
+            let timing = match ww3d_engine::update() {
+                Ok(_) => match ww3d_engine::timing() {
+                    Ok(timing) => {
+                        let sync_ms =
+                            (timing.total_seconds() * 1000.0).clamp(0.0, u32::MAX as f32) as u32;
+                        WW3D::sync(sync_ms);
+                        Some(timing)
+                    }
+                    Err(err) => {
+                        error!("Failed to fetch WW3D frame timing: {err:?}");
+                        None
+                    }
+                },
+                Err(err) => {
+                    error!("WW3D engine update failed: {err:?}");
+                    None
+                }
+            };
+            ww3d_elapsed = ww3d_started.elapsed();
+            timing
+        } else {
+            None
+        };
+
+        let update_started = Instant::now();
+        if let Some(timing) = frame_timing {
+            #[cfg(feature = "integration-diagnostics")]
+            if let Some(bridge) = self.integration_bridge.as_mut() {
+                if let Err(err) = self
+                    .runtime_handle
+                    .block_on(bridge.pump_with_timing(engine, timing))
+                {
+                    error!("Integration telemetry pump failed: {err:?}. Disabling bridge.");
+                    self.integration_bridge = None;
+                }
+            }
+            engine.update_with_timing(&timing);
+        } else {
+            engine.update_with_frame_clock();
+        }
+        let update_elapsed = update_started.elapsed();
+        static DRIVE_FRAME_COUNT: std::sync::atomic::AtomicU32 =
+            std::sync::atomic::AtomicU32::new(0);
+        let dfn = DRIVE_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
+            info!(
+                "drive_frame #{} update_done {:?} state={:?} render_frame={}",
+                dfn,
+                update_elapsed,
+                engine.get_state(),
+                render_frame
+            );
+        }
+
+        let render_started = Instant::now();
+        if render_frame {
+            if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
+                info!("drive_frame #{} calling render()", dfn);
+            }
+            match engine.render() {
+                Ok(_) => {}
+                Err(err) => {
+                    error!("RENDER ERROR: {:?}", err);
+                    if let Some(source_err) = err.source() {
+                        if let Some(surface_err) = source_err.downcast_ref::<wgpu::SurfaceError>() {
+                            match surface_err {
+                                wgpu::SurfaceError::Lost => {
+                                    error!("SURFACE LOST: Attempting resize");
+                                    engine.resize(current_window.inner_size());
+                                }
+                                wgpu::SurfaceError::OutOfMemory => {
+                                    error!("OUT OF MEMORY: Exiting");
+                                    elwt.exit();
+                                }
+                                _ => {
+                                    error!("Other surface error: {:?}", surface_err);
+                                }
+                            }
+                        } else {
+                            error!("Non-surface error: {:?}", source_err);
+                        }
+                    } else {
+                        error!("No source error available");
+                    }
+                }
+            }
+        }
+        let render_elapsed = render_started.elapsed();
+
+        let frame_elapsed = frame_started.elapsed();
+        if frame_elapsed >= Duration::from_millis(120) {
+            self.slow_frame_count = self.slow_frame_count.saturating_add(1);
+            self.slow_frame_peak = self.slow_frame_peak.max(frame_elapsed);
+            self.slow_ww3d_peak = self.slow_ww3d_peak.max(ww3d_elapsed);
+            self.slow_update_peak = self.slow_update_peak.max(update_elapsed);
+            self.slow_render_peak = self.slow_render_peak.max(render_elapsed);
+        }
+        if frame_elapsed >= Duration::from_millis(300) {
+            let should_log = self
+                .last_slow_frame_log
+                .map(|last| frame_started.duration_since(last) >= Duration::from_secs(1))
+                .unwrap_or(true);
+            if should_log {
+                warn!(
+                    "Severe slow frame {:?} in {:?} (ww3d={:?}, update={:?}, render={:?}, startup_progress={:.0}%)",
+                    frame_elapsed,
+                    engine.get_state(),
+                    ww3d_elapsed,
+                    update_elapsed,
+                    render_elapsed,
+                    engine.startup_last_reported_progress * 100.0
+                );
+                self.last_slow_frame_log = Some(frame_started);
+            }
+        }
+        if frame_started.duration_since(self.last_render_health_log) >= Duration::from_secs(5) {
+            if self.slow_frame_count == 0 {
+                info!(
+                    "Render health: ok (state={:?}, render_items={}, no slow frames >120ms in last 5s, startup_progress={:.0}%)",
+                    engine.get_state(),
+                    engine.render_pipeline.debug_render_item_count(),
+                    engine.startup_last_reported_progress * 100.0
+                );
+            } else {
+                info!(
+                    "Render health: slow_frames={} peak={:?} (ww3d_peak={:?}, update_peak={:?}, render_peak={:?}, state={:?}, render_items={}, startup_progress={:.0}%)",
+                    self.slow_frame_count,
+                    self.slow_frame_peak,
+                    self.slow_ww3d_peak,
+                    self.slow_update_peak,
+                    self.slow_render_peak,
+                    engine.get_state(),
+                    engine.render_pipeline.debug_render_item_count(),
+                    engine.startup_last_reported_progress * 100.0
+                );
+            }
+            self.slow_frame_count = 0;
+            self.slow_frame_peak = Duration::ZERO;
+            self.slow_ww3d_peak = Duration::ZERO;
+            self.slow_update_peak = Duration::ZERO;
+            self.slow_render_peak = Duration::ZERO;
+            self.last_render_health_log = frame_started;
+        }
+
+        if should_exit_for_smoke_test(
+            self.cmd_args.wants_smoke_test(),
+            engine.get_state(),
+            engine.startup_last_reported_progress,
+            engine.is_state_change_pending(GameState::Exiting),
+        ) {
+            info!("Smoke test reached main menu; exiting successfully");
+            engine.transition_to_state(GameState::Exiting);
+            elwt.exit();
+            return;
+        }
+
+        if let Some(bridge) = self.runtime_host_bridge.as_mut() {
+            let snapshot = engine.runtime_host_status_snapshot();
+            bridge.publish_runtime(&snapshot);
+        }
+    }
+}
+
+impl ApplicationHandler for CnCGameApplication {
+    fn resumed(&mut self, elwt: &ActiveEventLoop) {
+        elwt.set_control_flow(ControlFlow::WaitUntil(self.next_redraw_at));
+        if self.create_window_if_needed(elwt) {
+            self.poll_engine_init(elwt);
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        elwt: &ActiveEventLoop,
+        window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        if self.engine.is_none() {
+            if self
+                .window
+                .as_ref()
+                .is_some_and(|current_window| window_id == current_window.id())
+                && matches!(event, WindowEvent::CloseRequested)
+            {
+                info!("Close requested before engine startup completed");
+                elwt.exit();
+            }
+            return;
+        }
+
+        if self.process_shutdown(elwt) {
+            return;
+        }
+
+        let Some(current_window) = self.window.as_ref().cloned() else {
+            return;
+        };
+        if window_id != current_window.id() {
+            return;
+        }
+
+        let platform_event = Event::WindowEvent {
+            window_id,
+            event: event.clone(),
+        };
+        if self.process_platform_event(elwt, &platform_event) {
+            return;
+        }
+
+        let Some(engine) = self.engine.as_mut() else {
+            return;
+        };
+        if engine.input(&event) {
+            return;
+        }
+
+        match event {
+            WindowEvent::CloseRequested => {
+                info!("Close requested by window");
+                engine.request_state_change(GameState::Exiting);
+            }
+            WindowEvent::Destroyed => {
+                info!("Window destroyed - forcing exit");
+                engine.request_state_change(GameState::Exiting);
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state: ElementState::Pressed,
+                        logical_key: Key::Named(NamedKey::Escape),
+                        ..
+                    },
+                ..
+            } => match engine.get_state() {
+                GameState::InGame => {
+                    info!("Escape pressed in InGame state - pausing");
+                    engine.request_state_change(GameState::Paused);
+                }
+                GameState::Paused => {
+                    info!("Escape pressed in Paused state - resuming");
+                    engine.request_state_change(GameState::InGame);
+                }
+                GameState::Menu | GameState::Loading => {
+                    info!("Escape pressed in Menu/Loading - exiting");
+                    engine.request_state_change(GameState::Exiting);
+                }
+                GameState::Victory | GameState::Defeat => {
+                    info!("Escape pressed in endgame - returning to menu");
+                    engine.request_state_change(GameState::Menu);
+                }
+                GameState::Exiting | GameState::Initializing => {}
+            },
+            WindowEvent::Resized(physical_size) => {
+                self.runtime_window_minimized |=
+                    physical_size.width == 0 || physical_size.height == 0;
+                update_iconic_state_and_wake_audio(
+                    &current_window,
+                    &mut self.runtime_window_minimized,
+                );
+                if !self.runtime_window_minimized {
+                    engine.resize(physical_size);
+                }
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                update_iconic_state_and_wake_audio(
+                    &current_window,
+                    &mut self.runtime_window_minimized,
+                );
+                if !self.runtime_window_minimized {
+                    engine.resize(current_window.inner_size());
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                update_iconic_state_and_wake_audio(
+                    &current_window,
+                    &mut self.runtime_window_minimized,
+                );
+                let runtime_window_suspended = self.runtime_window_minimized;
+                if self.runtime_headless_mode {
+                    self.drive_frame(elwt, true);
+                } else if runtime_window_suspended {
+                    if should_keep_logic_running_while_iconic(engine.game_logic.game_mode()) {
+                        self.drive_frame(elwt, false);
+                    }
+                } else {
+                    self.drive_frame(elwt, true);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, elwt: &ActiveEventLoop) {
+        if self.engine.is_none() {
+            self.poll_engine_init(elwt);
+            return;
+        }
+
+        if self.process_shutdown(elwt) {
+            return;
+        }
+        if self.process_platform_event(elwt, &Event::AboutToWait) {
+            return;
+        }
+
+        let Some(current_window) = self.window.as_ref().cloned() else {
+            return;
+        };
+        let now = Instant::now();
+        if now >= self.next_redraw_at {
+            update_iconic_state_and_wake_audio(&current_window, &mut self.runtime_window_minimized);
+            let runtime_window_suspended = self.runtime_window_minimized;
+            if self.runtime_headless_mode {
+                self.drive_frame(elwt, true);
+            } else if self.cmd_args.wants_smoke_test() {
+                self.drive_frame(elwt, false);
+                if self.engine.as_ref().is_some_and(CnCGameEngine::is_quitting) {
+                    elwt.exit();
+                    return;
+                }
+                self.next_redraw_at = now + STARTUP_POLL_INTERVAL;
+            } else if runtime_window_suspended {
+                if self.engine.as_ref().is_some_and(|engine| {
+                    should_keep_logic_running_while_iconic(engine.game_logic.game_mode())
+                }) {
+                    self.drive_frame(elwt, false);
+                }
+                self.next_redraw_at = now + MINIMIZED_POLL_INTERVAL;
+            } else {
+                current_window.request_redraw();
+                self.next_redraw_at = now + FRAME_INTERVAL;
+            }
+        }
+        elwt.set_control_flow(ControlFlow::WaitUntil(self.next_redraw_at));
+    }
+
+    fn exiting(&mut self, _elwt: &ActiveEventLoop) {
+        #[cfg(feature = "integration-diagnostics")]
+        if let Some(bridge) = self.integration_bridge.take() {
+            if let Err(err) = self.runtime_handle.block_on(bridge.shutdown()) {
+                error!("Failed to shut down integration telemetry bridge: {err:?}");
+            }
+        }
+    }
+}
+
 /// Run the actual C&C game
 pub async fn run_cnc_game(
     event_loop: EventLoop<()>,
@@ -8851,549 +9486,9 @@ pub async fn run_cnc_game(
     info!("🎮 Starting Command & Conquer Generals Zero Hour - Real Game");
 
     register_real_game_client_bootstrap();
-
-    let mut pending_window_attributes = Some(window_attributes);
-    let mut window: Option<Arc<Window>> = None;
-    let mut pending_engine_window: Option<Arc<Window>> = None;
-    let mut engine_init_future: Option<Pin<Box<dyn Future<Output = Result<CnCGameEngine>>>>> = None;
-    let mut engine_init_started_at: Option<Instant> = None;
-    let mut engine_init_last_log_at: Option<Instant> = None;
-    let mut engine: Option<CnCGameEngine> = None;
-    let mut shutdown_logged = false;
-    let mut next_redraw_at = Instant::now();
-    let mut last_slow_frame_log = None::<Instant>;
-    let mut slow_frame_count = 0u32;
-    let mut slow_frame_peak = Duration::ZERO;
-    let mut slow_ww3d_peak = Duration::ZERO;
-    let mut slow_update_peak = Duration::ZERO;
-    let mut slow_render_peak = Duration::ZERO;
-    let mut last_render_health_log = Instant::now();
-    const FRAME_INTERVAL: Duration = Duration::from_micros(16_667);
-    const STARTUP_POLL_INTERVAL: Duration = Duration::from_millis(5);
-    const MINIMIZED_POLL_INTERVAL: Duration = Duration::from_millis(5);
-    let runtime_headless_mode = RuntimeHostBridge::is_headless_mode(cmd_args.as_ref());
-    let mut runtime_host_bridge = RuntimeHostBridge::from_command_line(cmd_args.as_ref());
-    if let Some(bridge) = runtime_host_bridge.as_mut() {
-        bridge.publish_booting();
-    }
-    let mut runtime_window_minimized = false;
-
-    #[cfg(feature = "integration-diagnostics")]
-    let mut integration_bridge: Option<IntegrationTelemetryBridge> = None;
-    #[cfg(feature = "integration-diagnostics")]
-    let runtime_handle = tokio::runtime::Handle::current();
-
-    #[allow(deprecated)]
-    event_loop.run(move |event, elwt| {
-        elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
-
-        let mut drive_frame = |
-            engine: &mut CnCGameEngine,
-            current_window: &Arc<Window>,
-            runtime_host_bridge: &mut Option<RuntimeHostBridge>,
-            render_frame: bool,
-        | {
-            if let Some(bridge) = runtime_host_bridge.as_mut() {
-                for command in bridge.drain_commands() {
-                    engine.apply_runtime_host_command(&command);
-                }
-            }
-
-            let frame_started = Instant::now();
-            let mut ww3d_elapsed = Duration::ZERO;
-            let frame_timing = if matches!(
-                engine.get_state(),
-                GameState::Loading | GameState::Menu | GameState::InGame | GameState::Paused
-            ) {
-                let ww3d_started = Instant::now();
-                let timing = match ww3d_engine::update() {
-                    Ok(_) => match ww3d_engine::timing() {
-                        Ok(timing) => {
-                            let sync_ms = (timing.total_seconds() * 1000.0)
-                                .clamp(0.0, u32::MAX as f32)
-                                as u32;
-                            WW3D::sync(sync_ms);
-                            Some(timing)
-                        }
-                        Err(err) => {
-                            error!("Failed to fetch WW3D frame timing: {err:?}");
-                            None
-                        }
-                    },
-                    Err(err) => {
-                        error!("WW3D engine update failed: {err:?}");
-                        None
-                    }
-                };
-                ww3d_elapsed = ww3d_started.elapsed();
-                timing
-            } else {
-                None
-            };
-
-            let update_started = Instant::now();
-            if let Some(timing) = frame_timing {
-                #[cfg(feature = "integration-diagnostics")]
-                if let Some(bridge) = integration_bridge.as_mut() {
-                    if let Err(err) = runtime_handle.block_on(bridge.pump_with_timing(engine, timing))
-                    {
-                        error!(
-                            "Integration telemetry pump failed: {err:?}. Disabling bridge."
-                        );
-                        integration_bridge = None;
-                    }
-                }
-                engine.update_with_timing(&timing);
-            } else {
-                engine.update_with_frame_clock();
-            }
-            let update_elapsed = update_started.elapsed();
-            static DRIVE_FRAME_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-            let dfn = DRIVE_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
-                info!("drive_frame #{} update_done {:?} state={:?} render_frame={}", dfn, update_elapsed, engine.get_state(), render_frame);
-            }
-
-            let render_started = Instant::now();
-            if render_frame {
-                if dfn < 15 || (dfn < 50 && matches!(engine.get_state(), GameState::Menu)) {
-                    info!("drive_frame #{} calling render()", dfn);
-                }
-                match engine.render() {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("❌ RENDER ERROR: {:?}", e);
-                        if let Some(source_err) = e.source() {
-                            if let Some(surface_err) =
-                                source_err.downcast_ref::<wgpu::SurfaceError>()
-                            {
-                                match surface_err {
-                                    wgpu::SurfaceError::Lost => {
-                                        error!("🔄 SURFACE LOST: Attempting resize");
-                                        engine.resize(current_window.inner_size());
-                                    }
-                                    wgpu::SurfaceError::OutOfMemory => {
-                                        error!("💥 OUT OF MEMORY: Exiting");
-                                        elwt.exit();
-                                    }
-                                    _ => {
-                                        error!("🚨 Other surface error: {:?}", surface_err);
-                                    }
-                                }
-                            } else {
-                                error!("🚨 Non-surface error: {:?}", source_err);
-                            }
-                        } else {
-                            error!("🚨 No source error available");
-                        }
-                    }
-                }
-            }
-            let render_elapsed = render_started.elapsed();
-
-            let frame_elapsed = frame_started.elapsed();
-            if frame_elapsed >= Duration::from_millis(120) {
-                slow_frame_count = slow_frame_count.saturating_add(1);
-                slow_frame_peak = slow_frame_peak.max(frame_elapsed);
-                slow_ww3d_peak = slow_ww3d_peak.max(ww3d_elapsed);
-                slow_update_peak = slow_update_peak.max(update_elapsed);
-                slow_render_peak = slow_render_peak.max(render_elapsed);
-            }
-            if frame_elapsed >= Duration::from_millis(300) {
-                let should_log = last_slow_frame_log
-                    .map(|last| frame_started.duration_since(last) >= Duration::from_secs(1))
-                    .unwrap_or(true);
-                if should_log {
-                    warn!(
-                        "Severe slow frame {:?} in {:?} (ww3d={:?}, update={:?}, render={:?}, startup_progress={:.0}%)",
-                        frame_elapsed,
-                        engine.get_state(),
-                        ww3d_elapsed,
-                        update_elapsed,
-                        render_elapsed,
-                        engine.startup_last_reported_progress * 100.0
-                    );
-                    last_slow_frame_log = Some(frame_started);
-                }
-            }
-            if frame_started.duration_since(last_render_health_log) >= Duration::from_secs(5) {
-                if slow_frame_count == 0 {
-                    info!(
-                        "Render health: ok (state={:?}, render_items={}, no slow frames >120ms in last 5s, startup_progress={:.0}%)",
-                        engine.get_state(),
-                        engine.render_pipeline.debug_render_item_count(),
-                        engine.startup_last_reported_progress * 100.0
-                    );
-                } else {
-                    info!(
-                        "Render health: slow_frames={} peak={:?} (ww3d_peak={:?}, update_peak={:?}, render_peak={:?}, state={:?}, render_items={}, startup_progress={:.0}%)",
-                        slow_frame_count,
-                        slow_frame_peak,
-                        slow_ww3d_peak,
-                        slow_update_peak,
-                        slow_render_peak,
-                        engine.get_state(),
-                        engine.render_pipeline.debug_render_item_count(),
-                        engine.startup_last_reported_progress * 100.0
-                    );
-                }
-                slow_frame_count = 0;
-                slow_frame_peak = Duration::ZERO;
-                slow_ww3d_peak = Duration::ZERO;
-                slow_update_peak = Duration::ZERO;
-                slow_render_peak = Duration::ZERO;
-                last_render_health_log = frame_started;
-            }
-
-            if should_exit_for_smoke_test(
-                cmd_args.wants_smoke_test(),
-                engine.get_state(),
-                engine.startup_last_reported_progress,
-                engine.is_state_change_pending(GameState::Exiting),
-            ) {
-                info!("Smoke test reached main menu; exiting successfully");
-                engine.transition_to_state(GameState::Exiting);
-                elwt.exit();
-                return;
-            }
-
-            if let Some(bridge) = runtime_host_bridge.as_mut() {
-                let snapshot = engine.runtime_host_status_snapshot();
-                bridge.publish_runtime(&snapshot);
-            }
-        };
-
-        if matches!(event, Event::Resumed) && engine.is_none() {
-            let Some(attributes) = pending_window_attributes.take() else {
-                error!("Missing window attributes during startup resume");
-                elwt.exit();
-                return;
-            };
-
-            let created_window = match elwt.create_window(attributes) {
-                Ok(window) => Arc::new(window),
-                Err(err) => {
-                    error!("Failed to create window: {err}");
-                    elwt.exit();
-                    return;
-                }
-            };
-
-            info!(
-                "Window created: {}x{} ({})",
-                created_window.inner_size().width,
-                created_window.inner_size().height,
-                if created_window.fullscreen().is_some() {
-                    "Fullscreen"
-                } else {
-                    "Windowed"
-                }
-            );
-
-            if runtime_headless_mode {
-                created_window.set_visible(false);
-            } else {
-                created_window.set_visible(true);
-            }
-            created_window.request_redraw();
-            window = Some(created_window.clone());
-            pending_engine_window = Some(created_window);
-            return;
-        }
-
-        if engine.is_none() {
-            match event {
-                Event::WindowEvent { ref event, window_id } => {
-                    if let Some(current_window) = window.as_ref() {
-                        if window_id == current_window.id()
-                            && matches!(event, WindowEvent::CloseRequested)
-                        {
-                            info!("Close requested before engine startup completed");
-                            elwt.exit();
-                            return;
-                        }
-                    }
-                }
-                Event::AboutToWait => {
-                    if let Some(bridge) = runtime_host_bridge.as_mut() {
-                        bridge.publish_booting();
-                        for command in bridge.drain_commands() {
-                            if command.trim().eq_ignore_ascii_case("exit") {
-                                info!("Runtime host received exit command during startup");
-                                elwt.exit();
-                                return;
-                            }
-                        }
-                    }
-
-                    if engine_init_future.is_none() {
-                        if let Some(created_window) = pending_engine_window.take() {
-                            #[cfg(target_os = "windows")]
-                            {
-                                use raw_window_handle::HasWindowHandle;
-                                if let Ok(handle) = created_window.window_handle() {
-                                    if let raw_window_handle::RawWindowHandle::Win32(win) =
-                                        handle.as_raw()
-                                    {
-                                        crate::win_main::APPLICATION_WINDOW.store(
-                                            win.hwnd.get() as *mut std::ffi::c_void,
-                                            std::sync::atomic::Ordering::Relaxed,
-                                        );
-                                        debug!("Win32 window handle stored");
-                                    }
-                                }
-                            }
-
-                            engine_init_started_at = Some(Instant::now());
-                            engine_init_last_log_at = None;
-                            created_window
-                                .set_title("Command & Conquer Generals Zero Hour - Initializing");
-                            engine_init_future = Some(Box::pin(CnCGameEngine::new(
-                                created_window.clone(),
-                                cmd_args.clone(),
-                            )));
-                        }
-                    }
-
-                    if let Some(init_future) = engine_init_future.as_mut() {
-                        let waker: Waker = Waker::from(Arc::new(NoopWake));
-                        let mut cx = Context::from_waker(&waker);
-                        match init_future.as_mut().poll(&mut cx) {
-                            Poll::Ready(Ok(new_engine)) => {
-                                if let Some(created_window) = window.as_ref() {
-                                    info!("C&C Game engine initialized successfully!");
-                                    if !runtime_headless_mode {
-                                        created_window.focus_window();
-                                    }
-                                    created_window.request_redraw();
-                                }
-                                engine_init_future = None;
-                                engine_init_started_at = None;
-                                engine_init_last_log_at = None;
-                                let new_engine = new_engine;
-                                if let Some(bridge) = runtime_host_bridge.as_mut() {
-                                    let snapshot = new_engine.runtime_host_status_snapshot();
-                                    bridge.publish_runtime(&snapshot);
-                                }
-                                engine = Some(new_engine);
-                                #[cfg(feature = "integration-diagnostics")]
-                                if cmd_args.wants_integration_diagnostics() {
-                                    match pollster::block_on(IntegrationTelemetryBridge::new(
-                                        IntegrationConfig::default(),
-                                    )) {
-                                        Ok(bridge) => {
-                                            info!("Integration diagnostics bridge initialized");
-                                            integration_bridge = Some(bridge);
-                                        }
-                                        Err(err) => {
-                                            error!(
-                                                "Failed to initialize integration diagnostics bridge: {err:?}. Continuing without telemetry overlay."
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            Poll::Ready(Err(err)) => {
-                                error!("Failed to initialize C&C game engine: {err}");
-                                engine_init_future = None;
-                                elwt.exit();
-                            }
-                            Poll::Pending => {
-                                if let Some(started_at) = engine_init_started_at {
-                                    let should_log = engine_init_last_log_at
-                                        .map(|last| {
-                                            last.elapsed() >= Duration::from_millis(500)
-                                        })
-                                        .unwrap_or_else(|| started_at.elapsed() >= Duration::from_millis(500));
-                                    if should_log {
-                                        info!(
-                                            "Engine bootstrap still in progress ({:.2}s elapsed)",
-                                            started_at.elapsed().as_secs_f32()
-                                        );
-                                        engine_init_last_log_at = Some(Instant::now());
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    next_redraw_at = Instant::now() + STARTUP_POLL_INTERVAL;
-                    elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
-                }
-                _ => {}
-            }
-            return;
-        }
-
-        let Some(current_window) = window.as_ref() else {
-            return;
-        };
-        let Some(engine) = engine.as_mut() else {
-            return;
-        };
-
-        if engine.is_quitting() {
-            if !shutdown_logged {
-                info!("Engine shutting down");
-                shutdown_logged = true;
-            }
-            if let Some(bridge) = runtime_host_bridge.as_mut() {
-                let snapshot = engine.runtime_host_status_snapshot();
-                bridge.publish_runtime(&snapshot);
-            }
-            elwt.exit();
-            return;
-        }
-
-        match engine.process_platform_event(&event) {
-            Ok(handled) => {
-                if handled {
-                    return;
-                }
-            }
-            Err(e) => {
-                error!("Platform message handling error: {}", e);
-            }
-        }
-
-        if engine.is_quit_requested() {
-            if !engine.is_quitting() && !engine.is_state_change_pending(GameState::Exiting) {
-                info!("Platform requested quit");
-                engine.request_state_change(GameState::Exiting);
-            }
-            return;
-        }
-
-        match event {
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == current_window.id() => {
-                if !engine.input(event) {
-                    match event {
-                        WindowEvent::CloseRequested => {
-                            info!("Close requested by window");
-                            engine.request_state_change(GameState::Exiting);
-                        }
-                        WindowEvent::Destroyed => {
-                            info!("Window destroyed - forcing exit");
-                            engine.request_state_change(GameState::Exiting);
-                        }
-                        WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    logical_key: Key::Named(NamedKey::Escape),
-                                    ..
-                                },
-                            ..
-                        } => match engine.get_state() {
-                            GameState::InGame => {
-                                info!("Escape pressed in InGame state - pausing");
-                                engine.request_state_change(GameState::Paused);
-                            }
-                            GameState::Paused => {
-                                info!("Escape pressed in Paused state - resuming");
-                                engine.request_state_change(GameState::InGame);
-                            }
-                            GameState::Menu | GameState::Loading => {
-                                info!("Escape pressed in Menu/Loading - exiting");
-                                engine.request_state_change(GameState::Exiting);
-                            }
-                            GameState::Victory | GameState::Defeat => {
-                                info!("Escape pressed in endgame - returning to menu");
-                                engine.request_state_change(GameState::Menu);
-                            }
-                            GameState::Exiting | GameState::Initializing => {}
-                        },
-                        WindowEvent::Resized(physical_size) => {
-                            runtime_window_minimized |=
-                                physical_size.width == 0 || physical_size.height == 0;
-                            update_iconic_state_and_wake_audio(
-                                current_window,
-                                &mut runtime_window_minimized,
-                            );
-                            if !runtime_window_minimized {
-                                engine.resize(*physical_size);
-                            }
-                        }
-                        WindowEvent::ScaleFactorChanged { .. } => {
-                            // Keep UI/layout hit-testing in sync on HiDPI transitions (macOS).
-                            update_iconic_state_and_wake_audio(
-                                current_window,
-                                &mut runtime_window_minimized,
-                            );
-                            if !runtime_window_minimized {
-                                engine.resize(current_window.inner_size());
-                            }
-                        }
-                        WindowEvent::RedrawRequested => {
-                            update_iconic_state_and_wake_audio(
-                                current_window,
-                                &mut runtime_window_minimized,
-                            );
-                            let runtime_window_suspended = runtime_window_minimized;
-                            if runtime_headless_mode {
-                                drive_frame(engine, current_window, &mut runtime_host_bridge, true);
-                            } else if runtime_window_suspended {
-                                if should_keep_logic_running_while_iconic(
-                                    engine.game_logic.game_mode(),
-                                ) {
-                                    drive_frame(
-                                        engine,
-                                        current_window,
-                                        &mut runtime_host_bridge,
-                                        false,
-                                    );
-                                }
-                            } else {
-                                drive_frame(engine, current_window, &mut runtime_host_bridge, true);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            Event::AboutToWait => {
-                let now = Instant::now();
-                if now >= next_redraw_at {
-                    update_iconic_state_and_wake_audio(
-                        current_window,
-                        &mut runtime_window_minimized,
-                    );
-                    let runtime_window_suspended = runtime_window_minimized;
-                    if runtime_headless_mode {
-                        drive_frame(engine, current_window, &mut runtime_host_bridge, true);
-                    } else if cmd_args.wants_smoke_test() {
-                        drive_frame(engine, current_window, &mut runtime_host_bridge, false);
-                        if engine.is_quitting() {
-                            elwt.exit();
-                            return;
-                        }
-                        next_redraw_at = now + STARTUP_POLL_INTERVAL;
-                    } else if runtime_window_suspended {
-                        if should_keep_logic_running_while_iconic(engine.game_logic.game_mode()) {
-                            drive_frame(engine, current_window, &mut runtime_host_bridge, false);
-                        }
-                        next_redraw_at = now + MINIMIZED_POLL_INTERVAL;
-                    } else {
-                        current_window.request_redraw();
-                        next_redraw_at = now + FRAME_INTERVAL;
-                    }
-                }
-                elwt.set_control_flow(ControlFlow::WaitUntil(next_redraw_at));
-            }
-            Event::LoopExiting => {
-                #[cfg(feature = "integration-diagnostics")]
-                if let Some(bridge) = integration_bridge.take() {
-                    if let Err(err) = runtime_handle.block_on(bridge.shutdown()) {
-                        error!("Failed to shut down integration telemetry bridge: {err:?}");
-                    }
-                }
-            }
-            _ => {}
-        }
-    })?;
+    let mut app = CnCGameApplication::new(window_attributes, cmd_args);
+    event_loop.set_control_flow(ControlFlow::WaitUntil(app.next_redraw_at));
+    event_loop.run_app(&mut app)?;
 
     info!("C&C Game ended successfully");
     Ok(())
