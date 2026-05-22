@@ -2782,6 +2782,9 @@ impl Shell {
 
         // Create new layout - in a real implementation, this would load from file
         let mut new_screen = Box::new(BasicWindowLayout::new(layout_file.to_string()));
+        if layout_file.eq_ignore_ascii_case("Menus/MainMenu.wnd") {
+            self.load_scheme("MainMenu");
+        }
 
         // Add to stack
         self.screen_stack.push(new_screen);
