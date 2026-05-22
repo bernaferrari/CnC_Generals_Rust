@@ -3,10 +3,14 @@
 pub use super::loading_screen::*;
 
 use crate::display::image::get_mapped_image_collection;
+use crate::game_text::GameText;
 
-use super::campaign_manager::get_campaign_manager;
+use super::campaign_manager::{
+    get_campaign_manager, Mission, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES,
+};
 use super::game_window::Image as WindowImage;
 use super::{with_window_manager, WindowManager, WindowStatus};
+use std::sync::{Mutex, OnceLock};
 
 const MAX_LOAD_SCREEN_SLOTS: usize = 8;
 const FRAME_FUDGE_ADD: f32 = 30.0;
@@ -58,6 +62,25 @@ pub struct LoadScreenInitContext {
     pub local_side_name: String,
     pub local_team_number: i32,
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SinglePlayerMissionText {
+    objective_lines: [String; MAX_OBJECTIVE_LINES],
+    unit_descriptions: [String; MAX_DISPLAYED_UNITS],
+    location: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SinglePlayerLoadScreenState {
+    mission_text: SinglePlayerMissionText,
+    current_objective_line: usize,
+    current_objective_width_offset: i32,
+    current_objective_line_character: usize,
+    finished_objective_text: bool,
+}
+
+static SINGLE_PLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<SinglePlayerLoadScreenState>> =
+    OnceLock::new();
 
 impl Default for LoadScreenInitContext {
     fn default() -> Self {
@@ -225,11 +248,13 @@ fn initialize_kind_windows(
 }
 
 fn initialize_single_player_windows(wm: &mut WindowManager) {
+    with_single_player_load_screen_state(|state| *state = SinglePlayerLoadScreenState::default());
+
     set_window_text(wm, "SinglePlayerLoadScreen.wnd:Percent", "0%");
     hide_window(wm, "SinglePlayerLoadScreen.wnd:Percent", true);
     hide_window(wm, "SinglePlayerLoadScreen.wnd:ObjectivesWin", true);
 
-    for line in 0..5 {
+    for line in 0..MAX_OBJECTIVE_LINES {
         set_window_text(
             wm,
             &format!("SinglePlayerLoadScreen.wnd:StaticTextLine{line}"),
@@ -245,7 +270,8 @@ fn initialize_single_player_windows(wm: &mut WindowManager) {
         );
     }
 
-    if let Some(campaign) = get_campaign_manager().get_current_campaign() {
+    let campaign_manager = get_campaign_manager();
+    if let Some(campaign) = campaign_manager.get_current_campaign() {
         if let Some((background, progress)) = single_player_campaign_images(&campaign.name) {
             set_window_image(
                 wm,
@@ -263,6 +289,40 @@ fn initialize_single_player_windows(wm: &mut WindowManager) {
             );
         }
     }
+
+    if let Some(mission) = campaign_manager.get_current_mission() {
+        let text = single_player_mission_text(mission);
+        with_single_player_load_screen_state(|state| {
+            state.mission_text = text.clone();
+            state.current_objective_line = 0;
+            state.current_objective_width_offset = 0;
+            state.current_objective_line_character = 0;
+            state.finished_objective_text = false;
+        });
+        for unit in 0..MAX_DISPLAYED_UNITS {
+            set_window_text(
+                wm,
+                &format!("SinglePlayerLoadScreen.wnd:StaticTextCameoText{unit}"),
+                &text.unit_descriptions[unit],
+            );
+        }
+        set_window_text(
+            wm,
+            "SinglePlayerLoadScreen.wnd:StaticTextCameoText3",
+            &text.location,
+        );
+    }
+}
+
+fn with_single_player_load_screen_state<R>(
+    f: impl FnOnce(&mut SinglePlayerLoadScreenState) -> R,
+) -> R {
+    let state = SINGLE_PLAYER_LOAD_SCREEN_STATE
+        .get_or_init(|| Mutex::new(SinglePlayerLoadScreenState::default()));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut guard)
 }
 
 fn initialize_challenge_windows(wm: &mut WindowManager) {
@@ -398,9 +458,27 @@ fn single_player_campaign_images(campaign_name: &str) -> Option<(&'static str, &
     }
 }
 
+fn single_player_mission_text(mission: &Mission) -> SinglePlayerMissionText {
+    SinglePlayerMissionText {
+        objective_lines: mission.mission_objectives_label.each_ref().map(|label| {
+            if label.is_empty() {
+                String::new()
+            } else {
+                GameText::fetch(label)
+            }
+        }),
+        unit_descriptions: mission
+            .unit_names
+            .each_ref()
+            .map(|label| GameText::fetch(label)),
+        location: GameText::fetch(&mission.location_name_label),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::language::Language;
 
     #[test]
     fn selection_matches_cpp_game_logic_modes() {
@@ -531,5 +609,48 @@ mod tests {
             Some(("MissionLoad_China", "LoadingBar_ProgressCenter1"))
         );
         assert_eq!(single_player_campaign_images("Challenge"), None);
+    }
+
+    #[test]
+    fn single_player_mission_text_fetches_cpp_labels() {
+        Language::clear_localized_strings();
+        Language::register_localized_string("MISSION:Objective0", "Capture the base");
+        Language::register_localized_string("MISSION:Objective2", "Hold position");
+        Language::register_localized_string("UNIT:Ranger", "Ranger");
+        Language::register_localized_string("UNIT:Humvee", "Humvee");
+        Language::register_localized_string("MISSION:Location", "Northern sector");
+
+        let mut mission = Mission::new();
+        mission.mission_objectives_label[0] = "MISSION:Objective0".to_string();
+        mission.mission_objectives_label[2] = "MISSION:Objective2".to_string();
+        mission.unit_names[0] = "UNIT:Ranger".to_string();
+        mission.unit_names[1] = "UNIT:Humvee".to_string();
+        mission.location_name_label = "MISSION:Location".to_string();
+
+        let text = single_player_mission_text(&mission);
+
+        assert_eq!(text.objective_lines[0], "Capture the base");
+        assert_eq!(text.objective_lines[1], "");
+        assert_eq!(text.objective_lines[2], "Hold position");
+        assert_eq!(text.unit_descriptions[0], "Ranger");
+        assert_eq!(text.unit_descriptions[1], "Humvee");
+        assert_eq!(text.unit_descriptions[2], "");
+        assert_eq!(text.location, "Northern sector");
+
+        with_single_player_load_screen_state(|state| {
+            state.mission_text = text.clone();
+            state.current_objective_line = 0;
+            state.current_objective_width_offset = 0;
+            state.current_objective_line_character = 0;
+            state.finished_objective_text = false;
+        });
+        let cached = with_single_player_load_screen_state(|state| state.clone());
+        assert_eq!(cached.mission_text.objective_lines[0], "Capture the base");
+        assert_eq!(cached.current_objective_line, 0);
+        assert_eq!(cached.current_objective_width_offset, 0);
+        assert_eq!(cached.current_objective_line_character, 0);
+        assert!(!cached.finished_objective_text);
+
+        Language::clear_localized_strings();
     }
 }
