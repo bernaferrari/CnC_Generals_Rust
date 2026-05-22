@@ -143,6 +143,17 @@ impl WindowVideoManager {
         self.pause_all_movies = false;
     }
 
+    #[cfg(test)]
+    pub fn set_global_flags_for_tests(&mut self, stop_all_movies: bool, pause_all_movies: bool) {
+        self.stop_all_movies = stop_all_movies;
+        self.pause_all_movies = pause_all_movies;
+    }
+
+    #[cfg(test)]
+    pub fn global_flags_for_tests(&self) -> (bool, bool) {
+        (self.stop_all_movies, self.pause_all_movies)
+    }
+
     pub fn reset(&mut self) {
         self.playing_videos.clear();
         self.stop_all_movies = false;
