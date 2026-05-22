@@ -17,6 +17,7 @@ use super::{with_window_manager, WindowManager, WindowStatus};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 const MAX_LOAD_SCREEN_SLOTS: usize = 8;
 const FRAME_FUDGE_ADD: f32 = 30.0;
@@ -30,6 +31,7 @@ const FRAME_INNER_BACKDROP_ALPHA_SHOW: i32 = 80;
 const FRAME_VS_ANIM_START: i32 = 98;
 const FRAME_RIGHT_VOICE: i32 = 140;
 const TELETYPE_UPDATE_FREQ: i32 = 2;
+const SHELL_GAME_LEGAL_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadScreenGameMode {
@@ -341,6 +343,9 @@ fn initialize_shell_game_windows(wm: &mut WindowManager) {
             true,
         );
         hide_window(wm, "ShellGameLoadScreen.wnd:StaticTextLegal", false);
+        hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", true);
+        run_shell_game_legal_hold(wm);
+        hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", false);
     }
 }
 
@@ -350,6 +355,30 @@ fn with_shell_game_first_load<R>(f: impl FnOnce(&mut bool) -> R) -> R {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     f(&mut guard)
+}
+
+#[cfg(not(test))]
+fn shell_game_legal_hold_duration() -> Duration {
+    Duration::from_millis(3000)
+}
+
+#[cfg(test)]
+fn shell_game_legal_hold_duration() -> Duration {
+    Duration::ZERO
+}
+
+fn run_shell_game_legal_hold(wm: &mut WindowManager) {
+    let hold_duration = shell_game_legal_hold_duration();
+    if hold_duration.is_zero() {
+        wm.update();
+        return;
+    }
+
+    let show_start = Instant::now();
+    while show_start.elapsed() < hold_duration {
+        wm.update();
+        std::thread::sleep(SHELL_GAME_LEGAL_UPDATE_INTERVAL);
+    }
 }
 
 fn initialize_single_player_windows(wm: &mut WindowManager) {
@@ -1175,6 +1204,7 @@ mod tests {
         root.borrow_mut()
             .set_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen");
         named_test_window(&mut wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
+        named_test_window(&mut wm, "ShellGameLoadScreen.wnd:ProgressLoad");
 
         initialize_shell_game_windows(&mut wm);
 
@@ -1192,6 +1222,10 @@ mod tests {
             .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
             .expect("legal");
         assert!(!legal.borrow().is_hidden());
+        let progress = wm
+            .find_window_by_name("ShellGameLoadScreen.wnd:ProgressLoad")
+            .expect("progress");
+        assert!(!progress.borrow().is_hidden());
 
         let mut second_wm = WindowManager::new();
         let second_root = second_wm.create_window(None, 0, 0, 800, 600).expect("root");
