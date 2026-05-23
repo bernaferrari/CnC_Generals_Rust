@@ -2735,12 +2735,7 @@ fn draw_check_box_text(window: &GameWindow, inst_data: &WindowInstanceData) {
 }
 
 fn is_check_box_checked(window: &GameWindow) -> bool {
-    if let Some(widget) = window.widget() {
-        if let super::game_window::WindowWidget::CheckBox(checkbox) = widget {
-            return checkbox.is_checked();
-        }
-    }
-    window.instance_data().state.contains(WindowState::PUSHED)
+    window.instance_data().state.contains(WindowState::SELECTED)
 }
 
 fn check_box_image_source(state: WindowState, enabled: bool) -> (PushButtonDrawBank, usize) {

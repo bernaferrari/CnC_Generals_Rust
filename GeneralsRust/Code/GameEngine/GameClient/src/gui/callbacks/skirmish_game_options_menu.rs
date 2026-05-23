@@ -301,13 +301,8 @@ fn combo_selected_id(window_id: i32) -> Option<u32> {
 }
 
 fn checkbox_is_checked(window_id: i32) -> Option<bool> {
-    with_window_manager(|manager| manager.get_window_by_id(window_id)).and_then(|window| {
-        let guard = window.borrow();
-        guard.widget().and_then(|widget| match widget {
-            crate::gui::WindowWidget::CheckBox(check) => Some(check.is_checked()),
-            _ => None,
-        })
-    })
+    with_window_manager(|manager| manager.get_window_by_id(window_id))
+        .map(|window| window.borrow().is_check_box_checked())
 }
 
 fn local_player_name(state: &SkirmishGameOptionsState) -> String {
@@ -521,12 +516,9 @@ fn populate_global_controls() {
             "SkirmishGameOptionsMenu.wnd:CheckboxLimitSuperweapons",
         ))
     }) {
-        let mut guard = window.borrow_mut();
-        if let Some(check) = guard.check_box_mut() {
-            let setup = get_skirmish_setup();
-            let enabled = setup.game_info().game_info().get_superweapon_restriction() != 0;
-            check.set_checked(enabled);
-        }
+        let setup = get_skirmish_setup();
+        let enabled = setup.game_info().game_info().get_superweapon_restriction() != 0;
+        window.borrow_mut().set_check_box_checked(enabled);
     }
 }
 
