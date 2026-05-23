@@ -40,8 +40,6 @@ pub type WindowMsgData = u32;
 /// Result type for window operations
 pub type WindowResult<T> = Result<T, WindowError>;
 
-const KEY_STATE_DOWN: WindowMsgData = 0x0002;
-
 /// Invalid window ID constant
 pub const WINDOW_ID_INVALID: WindowId = 0;
 
@@ -50,7 +48,6 @@ pub const WIN_COLOR_UNDEFINED: u32 = 0xFFFFFFFF;
 
 /// Gadget system message IDs
 const GGM_LEFT_DRAG: u32 = 16384;
-const GBM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 10;
 
 // Window style flags (GWS_*)
 pub const GWS_PUSH_BUTTON: u32 = 0x0000_0001;
@@ -595,26 +592,18 @@ impl GameWindow {
     }
 
     fn sync_state_from_widget(&mut self) {
-        let (pressed, hilited, selected, mirrors_selected, has_widget) =
-            if let Some(widget) = self.widget.as_ref() {
-                let widget_state = widget.state();
-                let (selected, mirrors_selected) = match widget {
-                    WindowWidget::CheckBox(checkbox) => (checkbox.is_checked(), true),
-                    WindowWidget::RadioButton(radio) => (radio.is_selected(), true),
-                    _ => (false, false),
-                };
-                (
-                    matches!(widget_state, GadgetState::Pressed),
-                    matches!(widget_state, GadgetState::Hovered | GadgetState::Pressed),
-                    selected,
-                    mirrors_selected,
-                    true,
-                )
-            } else {
-                let pressed = self.inst_data.state.contains(WindowState::PUSHED);
-                let hilited = self.inst_data.state.contains(WindowState::HILITED) || pressed;
-                (pressed, hilited, false, false, false)
-            };
+        let (pressed, hilited, has_widget) = if let Some(widget) = self.widget.as_ref() {
+            let widget_state = widget.state();
+            (
+                matches!(widget_state, GadgetState::Pressed),
+                matches!(widget_state, GadgetState::Hovered | GadgetState::Pressed),
+                true,
+            )
+        } else {
+            let pressed = self.inst_data.state.contains(WindowState::PUSHED);
+            let hilited = self.inst_data.state.contains(WindowState::HILITED) || pressed;
+            (pressed, hilited, false)
+        };
 
         if has_widget {
             let mut state = self.inst_data.state;
@@ -624,12 +613,6 @@ impl GameWindow {
             }
             if pressed {
                 state.insert(WindowState::PUSHED);
-            }
-            if mirrors_selected {
-                state.remove(WindowState::SELECTED);
-                if selected {
-                    state.insert(WindowState::SELECTED);
-                }
             }
             self.inst_data.state = state;
         }
@@ -1405,128 +1388,6 @@ impl GameWindow {
         }
     }
 
-    pub fn is_check_box_checked(&self) -> bool {
-        self.inst_data.state.contains(WindowState::SELECTED)
-    }
-
-    pub fn set_check_box_checked(&mut self, checked: bool) {
-        self.set_check_box_checked_internal(checked, true);
-    }
-
-    fn set_check_box_checked_internal(&mut self, checked: bool, notify_owner: bool) {
-        if checked {
-            self.inst_data.state.insert(WindowState::SELECTED);
-        } else {
-            self.inst_data.state.remove(WindowState::SELECTED);
-        }
-
-        if let Some(WindowWidget::CheckBox(widget)) = self.widget.as_mut() {
-            widget.set_checked(checked);
-        }
-
-        if notify_owner {
-            let data1 = self.id as WindowMsgData;
-            if let Some(parent) = self.get_parent() {
-                let _ = parent.borrow_mut().send_system_message(
-                    WindowMessage::GadgetSelected,
-                    data1,
-                    0,
-                );
-            } else {
-                let _ = self.send_system_message(WindowMessage::GadgetSelected, data1, 0);
-            }
-        }
-    }
-
-    pub fn toggle_check_box_checked(&mut self) {
-        self.set_check_box_checked(!self.is_check_box_checked());
-    }
-
-    pub fn is_radio_button_selected(&self) -> bool {
-        self.inst_data.state.contains(WindowState::SELECTED)
-    }
-
-    pub fn set_radio_button_selected(&mut self, send_msg: bool) {
-        self.set_radio_button_selected_internal(send_msg);
-    }
-
-    pub fn clear_radio_button_selected(&mut self) {
-        self.inst_data.state.remove(WindowState::SELECTED);
-        if let Some(WindowWidget::RadioButton(widget)) = self.widget.as_mut() {
-            widget.deselect();
-        }
-    }
-
-    fn set_radio_button_selected_internal(&mut self, send_msg: bool) -> bool {
-        if self.inst_data.state.contains(WindowState::SELECTED) {
-            return false;
-        }
-
-        if send_msg {
-            let data1 = self.id as WindowMsgData;
-            if let Some(parent) = self.get_parent() {
-                let _ = parent.borrow_mut().send_system_message(
-                    WindowMessage::GadgetSelected,
-                    data1,
-                    0,
-                );
-            } else {
-                let _ = self.send_system_message(WindowMessage::GadgetSelected, data1, 0);
-            }
-        }
-
-        let group_id = self.widget.as_ref().and_then(|widget| match widget {
-            WindowWidget::RadioButton(radio) => Some(radio.group().id()),
-            _ => None,
-        });
-        if let Some(group_id) = group_id {
-            self.unselect_other_radio_buttons(group_id);
-        }
-
-        if let Some(WindowWidget::RadioButton(widget)) = self.widget.as_mut() {
-            widget.select();
-        }
-        self.inst_data.state.insert(WindowState::SELECTED);
-        true
-    }
-
-    fn unselect_other_radio_buttons(&self, group_id: u64) {
-        if group_id == 0 {
-            return;
-        }
-
-        let self_id = self.id;
-        with_window_manager(|manager| {
-            fn visit(window: &Rc<RefCell<GameWindow>>, group_id: u64, except_id: WindowId) {
-                let children = {
-                    let mut guard = window.borrow_mut();
-                    if guard.id != except_id {
-                        let same_group = guard.widget().is_some_and(|widget| match widget {
-                            WindowWidget::RadioButton(radio) => radio.group().id() == group_id,
-                            _ => false,
-                        });
-                        if same_group {
-                            guard.inst_data.state.remove(WindowState::SELECTED);
-                            if let Some(WindowWidget::RadioButton(radio)) = guard.widget_mut() {
-                                radio.deselect();
-                            }
-                        }
-                    }
-                    guard.children().to_vec()
-                };
-
-                for child in children {
-                    visit(&child, group_id, except_id);
-                }
-            }
-
-            let roots = manager.get_window_list().to_vec();
-            for root in roots {
-                visit(&root, group_id, self_id);
-            }
-        });
-    }
-
     pub fn progress_bar_mut(&mut self) -> Option<&mut ProgressBar> {
         match self.widget.as_mut() {
             Some(WindowWidget::ProgressBar(widget)) => Some(widget),
@@ -1670,88 +1531,8 @@ impl GameWindow {
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
-        data2: WindowMsgData,
+        _data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        let is_checkbox = matches!(self.widget, Some(WindowWidget::CheckBox(_)));
-        let is_radio = matches!(self.widget, Some(WindowWidget::RadioButton(_)));
-        if self.widget.is_none() {
-            return WindowMsgHandled::Ignored;
-        }
-
-        if (is_checkbox || is_radio)
-            && matches!(
-                msg,
-                WindowMessage::MouseEntering | WindowMessage::MouseLeaving
-            )
-            && (self.inst_data.style & GWS_MOUSE_TRACK == 0)
-        {
-            return WindowMsgHandled::Handled;
-        }
-
-        if is_radio && msg == WindowMessage::LeftUp {
-            if !self.inst_data.state.contains(WindowState::SELECTED) {
-                self.set_radio_button_selected_internal(true);
-                return WindowMsgHandled::Handled;
-            }
-            if !self.inst_data.state.contains(WindowState::HILITED) {
-                return WindowMsgHandled::Ignored;
-            }
-            return WindowMsgHandled::Handled;
-        }
-
-        if is_checkbox && msg == WindowMessage::LeftUp {
-            if !self.inst_data.state.contains(WindowState::HILITED) {
-                return WindowMsgHandled::Ignored;
-            }
-        }
-
-        if is_checkbox && msg == WindowMessage::RightUp {
-            if !self.status.contains(WindowStatus::RIGHT_CLICK) {
-                return WindowMsgHandled::Ignored;
-            }
-            if !self.inst_data.state.contains(WindowState::SELECTED) {
-                return WindowMsgHandled::Ignored;
-            }
-
-            let data1 = self.id as WindowMsgData;
-            if let Some(parent) = self.get_parent() {
-                let _ = parent.borrow_mut().send_system_message(
-                    WindowMessage::GadgetRightClick,
-                    data1,
-                    0,
-                );
-            } else {
-                let _ = self.send_system_message(WindowMessage::GadgetRightClick, data1, 0);
-            }
-            self.set_check_box_checked_internal(false, false);
-            return WindowMsgHandled::Handled;
-        }
-
-        if (is_checkbox || is_radio) && msg == WindowMessage::Char && (data2 & KEY_STATE_DOWN) == 0
-        {
-            return WindowMsgHandled::Handled;
-        }
-
-        if is_radio && msg == WindowMessage::Char {
-            match map_keycode(data1) {
-                KeyCode::Space | KeyCode::Enter => {
-                    if !self.inst_data.state.contains(WindowState::SELECTED) {
-                        self.set_radio_button_selected_internal(true);
-                    }
-                    return WindowMsgHandled::Handled;
-                }
-                KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
-                    with_window_manager(|manager| manager.navigate_tab(TabDirection::Next));
-                    return WindowMsgHandled::Handled;
-                }
-                KeyCode::Left | KeyCode::Up => {
-                    with_window_manager(|manager| manager.navigate_tab(TabDirection::Previous));
-                    return WindowMsgHandled::Handled;
-                }
-                _ => {}
-            }
-        }
-
         let Some(widget) = self.widget.as_mut() else {
             return WindowMsgHandled::Ignored;
         };
@@ -1866,7 +1647,7 @@ impl GameWindow {
             let (msg, data1) = match message {
                 GadgetMessage::Clicked { .. } => (WindowMessage::GadgetSelected, self.id as u32),
                 GadgetMessage::RightClicked { .. } => {
-                    if !is_checkbox && !self.status.contains(WindowStatus::RIGHT_CLICK) {
+                    if !self.status.contains(WindowStatus::RIGHT_CLICK) {
                         continue;
                     }
                     (WindowMessage::GadgetRightClick, self.id as u32)
@@ -1907,7 +1688,7 @@ impl GameWindow {
             } else {
                 self.send_system_message(msg, data1, 0)
             };
-            if result == WindowMsgHandled::Handled || is_checkbox || is_radio {
+            if result == WindowMsgHandled::Handled {
                 handled = true;
             }
         }
@@ -1943,13 +1724,6 @@ impl GameWindow {
 
         if self.widget.is_none() {
             return WindowMsgHandled::Ignored;
-        }
-
-        if matches!(self.widget, Some(WindowWidget::RadioButton(_)))
-            && msg == WindowMessage::User(GBM_SET_SELECTION)
-        {
-            self.set_radio_button_selected_internal(data1 != 0);
-            return WindowMsgHandled::Handled;
         }
 
         if matches!(self.widget, Some(WindowWidget::ComboBox(_))) {
@@ -3056,69 +2830,53 @@ pub fn default_tooltip_callback(
 }
 
 fn map_keycode(data: WindowMsgData) -> KeyCode {
-    match data {
+    let key = (data & 0xFF) as u8;
+    match key {
         8 => KeyCode::Backspace,
         9 => KeyCode::Tab,
         13 => KeyCode::Enter,
         27 => KeyCode::Escape,
         32 => KeyCode::Space,
         127 => KeyCode::Delete,
-        0x0f => KeyCode::Tab,
-        0x1c => KeyCode::Enter,
-        0x39 => KeyCode::Space,
-        0x25 | 0xcb | 0x1000 => KeyCode::Left,
-        0x27 | 0xcd | 0x1001 => KeyCode::Right,
-        0x26 | 0xc8 | 0x1002 => KeyCode::Up,
-        0x28 | 0xd0 | 0x1003 => KeyCode::Down,
-        0x24 | 0xc7 | 0x1004 => KeyCode::Home,
-        0x23 | 0xcf | 0x1005 => KeyCode::End,
-        0x21 | 0xc9 | 0x1006 => KeyCode::PageUp,
-        0x22 | 0xd1 | 0x1007 => KeyCode::PageDown,
-        0x2e | 0xd3 => KeyCode::Delete,
+        b'0' => KeyCode::Num0,
+        b'1' => KeyCode::Num1,
+        b'2' => KeyCode::Num2,
+        b'3' => KeyCode::Num3,
+        b'4' => KeyCode::Num4,
+        b'5' => KeyCode::Num5,
+        b'6' => KeyCode::Num6,
+        b'7' => KeyCode::Num7,
+        b'8' => KeyCode::Num8,
+        b'9' => KeyCode::Num9,
+        b'a' | b'A' => KeyCode::A,
+        b'b' | b'B' => KeyCode::B,
+        b'c' | b'C' => KeyCode::C,
+        b'd' | b'D' => KeyCode::D,
+        b'e' | b'E' => KeyCode::E,
+        b'f' | b'F' => KeyCode::F,
+        b'g' | b'G' => KeyCode::G,
+        b'h' | b'H' => KeyCode::H,
+        b'i' | b'I' => KeyCode::I,
+        b'j' | b'J' => KeyCode::J,
+        b'k' | b'K' => KeyCode::K,
+        b'l' | b'L' => KeyCode::L,
+        b'm' | b'M' => KeyCode::M,
+        b'n' | b'N' => KeyCode::N,
+        b'o' | b'O' => KeyCode::O,
+        b'p' | b'P' => KeyCode::P,
+        b'q' | b'Q' => KeyCode::Q,
+        b'r' | b'R' => KeyCode::R,
+        b's' | b'S' => KeyCode::S,
+        b't' | b'T' => KeyCode::T,
+        b'u' | b'U' => KeyCode::U,
+        b'v' | b'V' => KeyCode::V,
+        b'w' | b'W' => KeyCode::W,
+        b'x' | b'X' => KeyCode::X,
+        b'y' | b'Y' => KeyCode::Y,
+        b'z' | b'Z' => KeyCode::Z,
         _ => {
-            let key = (data & 0xFF) as u8;
-            match key {
-                b'0' => KeyCode::Num0,
-                b'1' => KeyCode::Num1,
-                b'2' => KeyCode::Num2,
-                b'3' => KeyCode::Num3,
-                b'4' => KeyCode::Num4,
-                b'5' => KeyCode::Num5,
-                b'6' => KeyCode::Num6,
-                b'7' => KeyCode::Num7,
-                b'8' => KeyCode::Num8,
-                b'9' => KeyCode::Num9,
-                b'a' | b'A' => KeyCode::A,
-                b'b' | b'B' => KeyCode::B,
-                b'c' | b'C' => KeyCode::C,
-                b'd' | b'D' => KeyCode::D,
-                b'e' | b'E' => KeyCode::E,
-                b'f' | b'F' => KeyCode::F,
-                b'g' | b'G' => KeyCode::G,
-                b'h' | b'H' => KeyCode::H,
-                b'i' | b'I' => KeyCode::I,
-                b'j' | b'J' => KeyCode::J,
-                b'k' | b'K' => KeyCode::K,
-                b'l' | b'L' => KeyCode::L,
-                b'm' | b'M' => KeyCode::M,
-                b'n' | b'N' => KeyCode::N,
-                b'o' | b'O' => KeyCode::O,
-                b'p' | b'P' => KeyCode::P,
-                b'q' | b'Q' => KeyCode::Q,
-                b'r' | b'R' => KeyCode::R,
-                b's' | b'S' => KeyCode::S,
-                b't' | b'T' => KeyCode::T,
-                b'u' | b'U' => KeyCode::U,
-                b'v' | b'V' => KeyCode::V,
-                b'w' | b'W' => KeyCode::W,
-                b'x' | b'X' => KeyCode::X,
-                b'y' | b'Y' => KeyCode::Y,
-                b'z' | b'Z' => KeyCode::Z,
-                _ => {
-                    let ch = key as char;
-                    KeyCode::Char(ch)
-                }
-            }
+            let ch = key as char;
+            KeyCode::Char(ch)
         }
     }
 }
@@ -3171,291 +2929,6 @@ mod tests {
         window.clear_status(WindowStatus::ENABLED);
         assert!(!window.get_status().contains(WindowStatus::ENABLED));
         assert!(window.get_status().contains(WindowStatus::ACTIVE));
-    }
-
-    #[test]
-    fn checkbox_set_checked_updates_selected_state_bit() {
-        let mut window = GameWindow::new();
-        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
-
-        window.set_check_box_checked(true);
-        assert!(window.is_check_box_checked());
-        assert!(window.instance_data().state.contains(WindowState::SELECTED));
-        assert!(matches!(
-            window.widget(),
-            Some(WindowWidget::CheckBox(check)) if check.is_checked()
-        ));
-
-        window.set_check_box_checked(false);
-        assert!(!window.is_check_box_checked());
-        assert!(!window.instance_data().state.contains(WindowState::SELECTED));
-        assert!(matches!(
-            window.widget(),
-            Some(WindowWidget::CheckBox(check)) if !check.is_checked()
-        ));
-    }
-
-    #[test]
-    fn checkbox_input_syncs_checked_widget_to_selected_state_bit() {
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED);
-        window.instance_data_mut().style = GWS_MOUSE_TRACK;
-        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::MouseEntering, 0, 0),
-            WindowMsgHandled::Handled
-        );
-        let _ = window.send_input_message(WindowMessage::LeftUp, 0, 0);
-
-        assert!(window.is_check_box_checked());
-        assert!(window.instance_data().state.contains(WindowState::SELECTED));
-    }
-
-    #[test]
-    fn checkbox_mouse_tracking_gates_hilite_and_left_up_toggle() {
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED);
-        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::MouseEntering, 0, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(!window.instance_data().state.contains(WindowState::HILITED));
-        assert_eq!(
-            window.send_input_message(WindowMessage::LeftUp, 0, 0),
-            WindowMsgHandled::Ignored
-        );
-        assert!(!window.is_check_box_checked());
-
-        window.instance_data_mut().style = GWS_MOUSE_TRACK;
-        assert_eq!(
-            window.send_input_message(WindowMessage::MouseEntering, 0, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(window.instance_data().state.contains(WindowState::HILITED));
-        assert_eq!(
-            window.send_input_message(WindowMessage::LeftUp, 0, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(window.is_check_box_checked());
-    }
-
-    #[test]
-    fn checkbox_char_toggles_only_on_key_down_state() {
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED);
-        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
-        assert_eq!(
-            window.send_system_message(WindowMessage::InputFocus, 1, 0),
-            WindowMsgHandled::Handled
-        );
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::Char, 32, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(!window.is_check_box_checked());
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::Char, 32, KEY_STATE_DOWN),
-            WindowMsgHandled::Handled
-        );
-        assert!(window.is_check_box_checked());
-    }
-
-    #[test]
-    fn checkbox_right_up_notifies_before_clearing_selected() {
-        let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let observed_for_callback = observed.clone();
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED | WindowStatus::RIGHT_CLICK);
-        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
-        window.set_check_box_checked_internal(true, false);
-        window.set_system_callback(move |window, msg, _data1, _data2| {
-            if msg == WindowMessage::GadgetRightClick {
-                observed_for_callback
-                    .lock()
-                    .unwrap()
-                    .push(window.is_check_box_checked());
-                WindowMsgHandled::Handled
-            } else {
-                WindowMsgHandled::Ignored
-            }
-        });
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::RightUp, 0, 0),
-            WindowMsgHandled::Handled
-        );
-
-        assert_eq!(*observed.lock().unwrap(), vec![true]);
-        assert!(!window.is_check_box_checked());
-    }
-
-    #[test]
-    fn checkbox_right_up_without_right_click_status_does_not_clear() {
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED);
-        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
-        window.set_check_box_checked_internal(true, false);
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::RightUp, 0, 0),
-            WindowMsgHandled::Ignored
-        );
-        assert!(window.is_check_box_checked());
-    }
-
-    #[test]
-    fn checkbox_programmatic_set_notifies_owner_every_call() {
-        let parent = Rc::new(RefCell::new(GameWindow::new()));
-        let child = Rc::new(RefCell::new(GameWindow::new()));
-        child.borrow_mut().set_id(77);
-        child.borrow_mut().set_parent(Some(&parent));
-        child
-            .borrow_mut()
-            .set_widget(WindowWidget::CheckBox(CheckBox::new(77, 0, 0, 20)));
-        parent.borrow_mut().add_child(child.clone());
-
-        let selected_messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let selected_messages_for_callback = selected_messages.clone();
-        parent
-            .borrow_mut()
-            .set_system_callback(move |_window, msg, data1, _data2| {
-                if msg == WindowMessage::GadgetSelected {
-                    selected_messages_for_callback.lock().unwrap().push(data1);
-                    WindowMsgHandled::Handled
-                } else {
-                    WindowMsgHandled::Ignored
-                }
-            });
-
-        child.borrow_mut().set_check_box_checked(true);
-        child.borrow_mut().set_check_box_checked(true);
-
-        assert_eq!(*selected_messages.lock().unwrap(), vec![77, 77]);
-        assert!(child.borrow().is_check_box_checked());
-    }
-
-    #[test]
-    fn radio_selection_syncs_selected_state_bit() {
-        let group = crate::gui::gadgets::RadioButtonGroup::new(10);
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED);
-        window.set_widget(WindowWidget::RadioButton(RadioButton::new(
-            7, 0, 0, 20, group,
-        )));
-
-        assert!(window.set_radio_button_selected_internal(false));
-        assert!(window.is_radio_button_selected());
-        assert!(window.instance_data().state.contains(WindowState::SELECTED));
-        assert!(matches!(
-            window.widget(),
-            Some(WindowWidget::RadioButton(radio)) if radio.is_selected()
-        ));
-    }
-
-    #[test]
-    fn radio_mouse_tracking_gates_hilite_but_unselected_left_up_selects() {
-        let group = crate::gui::gadgets::RadioButtonGroup::new(10);
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED);
-        window.set_widget(WindowWidget::RadioButton(RadioButton::new(
-            7, 0, 0, 20, group,
-        )));
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::MouseEntering, 0, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(!window.instance_data().state.contains(WindowState::HILITED));
-        assert_eq!(
-            window.send_input_message(WindowMessage::LeftUp, 0, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(window.is_radio_button_selected());
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::LeftUp, 0, 0),
-            WindowMsgHandled::Ignored
-        );
-    }
-
-    #[test]
-    fn radio_char_selects_only_on_key_down_state() {
-        let group = crate::gui::gadgets::RadioButtonGroup::new(10);
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED);
-        window.set_widget(WindowWidget::RadioButton(RadioButton::new(
-            7, 0, 0, 20, group,
-        )));
-        assert_eq!(
-            window.send_system_message(WindowMessage::InputFocus, 1, 0),
-            WindowMsgHandled::Handled
-        );
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::Char, 32, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(!window.is_radio_button_selected());
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::Char, 32, KEY_STATE_DOWN),
-            WindowMsgHandled::Handled
-        );
-        assert!(window.is_radio_button_selected());
-    }
-
-    #[test]
-    fn radio_set_selection_system_message_honors_send_msg_flag() {
-        let parent = Rc::new(RefCell::new(GameWindow::new()));
-        let child = Rc::new(RefCell::new(GameWindow::new()));
-        child.borrow_mut().set_id(77);
-        child.borrow_mut().set_parent(Some(&parent));
-        child
-            .borrow_mut()
-            .set_widget(WindowWidget::RadioButton(RadioButton::new(
-                77,
-                0,
-                0,
-                20,
-                crate::gui::gadgets::RadioButtonGroup::new(10),
-            )));
-        parent.borrow_mut().add_child(child.clone());
-
-        let selected_messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let selected_messages_for_callback = selected_messages.clone();
-        parent
-            .borrow_mut()
-            .set_system_callback(move |_window, msg, data1, _data2| {
-                if msg == WindowMessage::GadgetSelected {
-                    selected_messages_for_callback.lock().unwrap().push(data1);
-                    WindowMsgHandled::Handled
-                } else {
-                    WindowMsgHandled::Ignored
-                }
-            });
-
-        assert_eq!(
-            child
-                .borrow_mut()
-                .send_system_message(WindowMessage::User(GBM_SET_SELECTION), 0, 0),
-            WindowMsgHandled::Handled
-        );
-        assert!(child.borrow().is_radio_button_selected());
-        assert!(selected_messages.lock().unwrap().is_empty());
-
-        child.borrow_mut().clear_radio_button_selected();
-        assert_eq!(
-            child
-                .borrow_mut()
-                .send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
-            WindowMsgHandled::Handled
-        );
-        assert_eq!(*selected_messages.lock().unwrap(), vec![77]);
     }
 
     #[test]

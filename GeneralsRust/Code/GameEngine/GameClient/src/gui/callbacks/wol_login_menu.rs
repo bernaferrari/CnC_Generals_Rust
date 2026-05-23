@@ -365,14 +365,21 @@ fn set_combo_box_items(
 
 fn set_check_box(window: &Option<Rc<RefCell<GameWindow>>>, checked: bool) {
     if let Some(window) = window {
-        window.borrow_mut().set_check_box_checked(checked);
+        if let Some(widget) = window.borrow_mut().check_box_mut() {
+            widget.set_checked(checked);
+        }
     }
 }
 
 fn is_check_box_checked(window: &Option<Rc<RefCell<GameWindow>>>) -> bool {
     window
         .as_ref()
-        .map(|window| window.borrow().is_check_box_checked())
+        .and_then(|window| {
+            window.borrow().widget().and_then(|widget| match widget {
+                crate::gui::WindowWidget::CheckBox(checkbox) => Some(checkbox.is_checked()),
+                _ => None,
+            })
+        })
         .unwrap_or(false)
 }
 
