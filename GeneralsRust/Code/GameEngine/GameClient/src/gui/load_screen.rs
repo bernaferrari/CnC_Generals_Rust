@@ -17,6 +17,7 @@ use super::game_window::{GameWindow, Image as WindowImage};
 use super::window_video_manager::{with_window_video_manager, WindowVideoPlayType};
 use super::{with_window_manager, WindowManager, WindowStatus};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
+use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
 use std::cell::RefCell;
@@ -82,6 +83,7 @@ pub struct LoadScreenDescriptor {
 pub struct LoadScreenInitContext {
     pub local_player_name: String,
     pub local_side_name: String,
+    pub local_player_template: Option<i32>,
     pub local_team_number: i32,
     pub map_name: Option<String>,
     pub start_positions: Vec<Option<usize>>,
@@ -93,6 +95,7 @@ pub struct LoadScreenSlotInitContext {
     pub player_id: i32,
     pub player_name: String,
     pub side_name: String,
+    pub player_template: i32,
     pub team_number: i32,
     pub apparent_color: Option<i32>,
     pub is_ai: bool,
@@ -206,6 +209,7 @@ impl Default for LoadScreenInitContext {
         Self {
             local_player_name: "Player".to_string(),
             local_side_name: "USA".to_string(),
+            local_player_template: None,
             local_team_number: 0,
             map_name: None,
             start_positions: Vec::new(),
@@ -322,6 +326,7 @@ pub fn load_screen_init_context_from_game_info(
                 player_id: player_id as i32,
                 player_name: slot.get_name().to_string(),
                 side_name: slot.get_apparent_player_template_display_name(),
+                player_template: slot.get_player_template(),
                 team_number: slot.get_team_number(),
                 apparent_color: (slot.get_apparent_color() >= 0)
                     .then_some(slot.get_apparent_color()),
@@ -350,6 +355,7 @@ pub fn load_screen_init_context_from_game_info(
         LoadScreenInitContext {
             local_player_name: local_slot.player_name.clone(),
             local_side_name: local_slot.side_name.clone(),
+            local_player_template: Some(local_slot.player_template),
             local_team_number: local_slot.player_id,
             map_name: (!game_info.get_map().is_empty()).then(|| game_info.get_map().to_string()),
             start_positions,
@@ -1008,9 +1014,8 @@ fn initialize_multiplayer_windows(
     prefix: &str,
     context: &LoadScreenInitContext,
 ) {
-    if let Some(portrait_image) =
-        multiplayer_local_general_faction_logo(&context.local_side_name, prefix)
-    {
+    let presentation = multiplayer_local_general_presentation(context, prefix);
+    if let Some(portrait_image) = presentation.portrait.as_deref() {
         set_window_image(
             wm,
             &format!("{prefix}:LocalGeneralPortrait"),
@@ -1022,12 +1027,12 @@ fn initialize_multiplayer_windows(
     set_window_text(
         wm,
         &format!("{prefix}:LocalGeneralFeatures"),
-        &context.local_side_name,
+        &presentation.features_text,
     );
     set_window_text(
         wm,
         &format!("{prefix}:LocalGeneralName"),
-        &context.local_side_name,
+        &presentation.name_text,
     );
     initialize_multiplayer_map_preview(
         wm,
@@ -1272,6 +1277,7 @@ fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenS
             player_id: context.local_team_number,
             player_name: context.local_player_name.clone(),
             side_name: context.local_side_name.clone(),
+            player_template: context.local_player_template.unwrap_or(-1),
             team_number: context.local_team_number,
             apparent_color: None,
             is_ai: false,
@@ -1303,6 +1309,101 @@ fn gamespy_stats_suffixes() -> [&'static str; 4] {
         "WinRank",
         "WinOfficer",
     ]
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MultiplayerLocalGeneralPresentation {
+    portrait: Option<String>,
+    features_text: String,
+    name_text: String,
+}
+
+fn multiplayer_local_general_presentation(
+    context: &LoadScreenInitContext,
+    prefix: &str,
+) -> MultiplayerLocalGeneralPresentation {
+    let store = get_player_template_store();
+    let template = context
+        .local_player_template
+        .and_then(|index| (index >= 0).then_some(index as usize))
+        .and_then(|index| store.get_nth_player_template(index))
+        .or_else(|| store.find_template("FactionObserver"));
+
+    if let Some(template) = template {
+        return multiplayer_local_general_presentation_for_template(template, prefix);
+    }
+
+    MultiplayerLocalGeneralPresentation {
+        portrait: multiplayer_local_general_faction_logo(&context.local_side_name, prefix)
+            .map(str::to_string),
+        features_text: GameText::fetch("GUI:PlayerObserver"),
+        name_text: context.local_side_name.clone(),
+    }
+}
+
+fn multiplayer_local_general_presentation_for_template(
+    template: &PlayerTemplate,
+    prefix: &str,
+) -> MultiplayerLocalGeneralPresentation {
+    let mut portrait = None;
+    let mut name_text = template.get_display_name().to_string();
+
+    if get_challenge_generals().is_none() {
+        init_challenge_generals();
+    }
+    if let Some(generals) = get_challenge_generals() {
+        if let Ok(generals) = generals.lock() {
+            if let Some(general) = generals.general_by_template_name(&template.name) {
+                portrait = general.bio_portrait_large().map(str::to_string);
+                name_text = GameText::fetch(general.bio_name());
+            }
+        }
+    }
+
+    if portrait.is_none() {
+        portrait = multiplayer_local_general_template_fallback_logo(&template.name, prefix)
+            .map(str::to_string);
+    }
+
+    let features_key = if template.features.trim().is_empty() {
+        "GUI:PlayerObserver"
+    } else {
+        template.features.as_str()
+    };
+
+    MultiplayerLocalGeneralPresentation {
+        portrait,
+        features_text: GameText::fetch(features_key),
+        name_text,
+    }
+}
+
+fn multiplayer_local_general_template_fallback_logo(
+    template_name: &str,
+    prefix: &str,
+) -> Option<&'static str> {
+    let gamespy = prefix.eq_ignore_ascii_case("GameSpyLoadScreen.wnd");
+    if template_name.eq_ignore_ascii_case("FactionAmerica") {
+        Some(if gamespy {
+            "SAFactionLogo144_US"
+        } else {
+            "SAFactionLogoLg_US"
+        })
+    } else if template_name.eq_ignore_ascii_case("FactionGLA") {
+        Some(if gamespy {
+            "SUFactionLogo144_GLA"
+        } else {
+            "SUFactionLogoLg_GLA"
+        })
+    } else if template_name.eq_ignore_ascii_case("FactionChina") {
+        Some(if gamespy {
+            "SNFactionLogo144_China"
+        } else {
+            "SNFactionLogoLg_China"
+        })
+    } else {
+        None
+    }
 }
 
 fn multiplayer_local_general_faction_logo(side_name: &str, prefix: &str) -> Option<&'static str> {
@@ -1470,6 +1571,9 @@ mod tests {
     use crate::gui::game_window::WindowWidget;
     use game_engine::common::ini::ini_map_cache::{Coord3D, Region3D};
     use game_engine::common::language::Language;
+    use game_engine::common::rts::player_template::{
+        get_player_template_store_mut, PlayerTemplate,
+    };
     use std::sync::{Mutex, OnceLock};
 
     static TEST_LANGUAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -1610,6 +1714,7 @@ mod tests {
         let context = LoadScreenInitContext {
             local_player_name: "Local".to_string(),
             local_side_name: "USA".to_string(),
+            local_player_template: None,
             local_team_number: 0,
             map_name: None,
             start_positions: Vec::new(),
@@ -1673,6 +1778,7 @@ mod tests {
         let context = LoadScreenInitContext {
             local_player_name: "Local".to_string(),
             local_side_name: "USA".to_string(),
+            local_player_template: None,
             local_team_number: 0,
             map_name: None,
             start_positions: Vec::new(),
@@ -1718,6 +1824,7 @@ mod tests {
         let context = LoadScreenInitContext {
             local_player_name: "Alice".to_string(),
             local_side_name: "USA".to_string(),
+            local_player_template: None,
             local_team_number: 0,
             map_name: None,
             start_positions: Vec::new(),
@@ -1758,6 +1865,7 @@ mod tests {
         let context = LoadScreenInitContext {
             local_player_name: "Fallback".to_string(),
             local_side_name: "GLA".to_string(),
+            local_player_template: None,
             local_team_number: 4,
             map_name: None,
             start_positions: Vec::new(),
@@ -1878,7 +1986,7 @@ mod tests {
 
         let mut alice = GameSlot::new();
         alice.set_state(SlotState::Player, "Alice".to_string(), 0);
-        alice.set_player_template(-1);
+        alice.set_player_template(3);
         alice.set_team_number(0);
         alice.set_color(2);
         alice.set_start_pos(1);
@@ -1888,7 +1996,7 @@ mod tests {
 
         let mut bob = GameSlot::new();
         bob.set_state(SlotState::BrutalAI, String::new(), 0);
-        bob.set_player_template(-1);
+        bob.set_player_template(4);
         bob.set_team_number(-1);
         bob.set_color(5);
         bob.set_start_pos(0);
@@ -1905,10 +2013,13 @@ mod tests {
         assert_eq!(context.start_positions[2], Some(0));
         assert_eq!(context.local_player_name, "Alice");
         assert_eq!(context.local_team_number, 0);
+        assert_eq!(context.local_player_template, Some(3));
         assert_eq!(context.slots.len(), 2);
         assert_eq!(context.slots[0].player_id, 0);
+        assert_eq!(context.slots[0].player_template, 3);
         assert_eq!(context.slots[0].apparent_color, Some(2));
         assert_eq!(context.slots[1].player_id, 2);
+        assert_eq!(context.slots[1].player_template, 4);
         assert_eq!(context.slots[1].team_number, -1);
         assert_eq!(context.slots[1].apparent_color, Some(5));
         assert!(context.slots[1].is_ai);
@@ -1974,6 +2085,93 @@ mod tests {
             multiplayer_local_general_faction_logo("Random", "GameSpyLoadScreen.wnd"),
             None
         );
+    }
+
+    #[test]
+    fn multiplayer_local_general_presentation_uses_template_general_and_features() {
+        let _state_guard = lock_test_load_screen_state();
+        let _language_guard = lock_test_language();
+        Language::clear_localized_strings();
+        Language::register_localized_string("GUI:AirFeatures", "Air power");
+        Language::register_localized_string("CHALLENGE:AirName", "General Granger");
+
+        let mut air = PlayerTemplate::new("AmericaAirForceGeneral".to_string());
+        air.display_name = "USA Air Force".to_string();
+        air.features = "GUI:AirFeatures".to_string();
+        let template_index = {
+            let mut store = get_player_template_store_mut();
+            store.clear();
+            store.add_template(air);
+            (store.len() - 1) as i32
+        };
+
+        init_challenge_generals();
+        if let Some(mut generals) = get_challenge_generals_mut() {
+            let positions = generals.challenge_generals_mut();
+            positions[0].set_player_template_name("AmericaAirForceGeneral".to_string());
+            positions[0].set_bio_name("CHALLENGE:AirName".to_string());
+            positions[0].set_bio_portrait_large(Some("Portrait_AirForce".to_string()));
+        }
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Local".to_string(),
+            local_side_name: "USA".to_string(),
+            local_player_template: Some(template_index),
+            local_team_number: 0,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: Vec::new(),
+        };
+
+        let presentation =
+            multiplayer_local_general_presentation(&context, "MultiplayerLoadScreen.wnd");
+
+        assert_eq!(presentation.portrait.as_deref(), Some("Portrait_AirForce"));
+        assert_eq!(presentation.features_text, "Air power");
+        assert_eq!(presentation.name_text, "General Granger");
+
+        get_player_template_store_mut().clear();
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn multiplayer_local_general_presentation_falls_back_to_cpp_original_faction_logos() {
+        let _state_guard = lock_test_load_screen_state();
+        let _language_guard = lock_test_language();
+        Language::clear_localized_strings();
+        Language::register_localized_string("GUI:PlayerObserver", "Observer");
+
+        let mut china = PlayerTemplate::new("FactionChina".to_string());
+        china.display_name = "China".to_string();
+        let template_index = {
+            let mut store = get_player_template_store_mut();
+            store.clear();
+            store.add_template(china);
+            (store.len() - 1) as i32
+        };
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Local".to_string(),
+            local_side_name: "China".to_string(),
+            local_player_template: Some(template_index),
+            local_team_number: 0,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: Vec::new(),
+        };
+
+        let presentation =
+            multiplayer_local_general_presentation(&context, "GameSpyLoadScreen.wnd");
+
+        assert_eq!(
+            presentation.portrait.as_deref(),
+            Some("SNFactionLogo144_China")
+        );
+        assert_eq!(presentation.features_text, "Observer");
+        assert_eq!(presentation.name_text, "China");
+
+        get_player_template_store_mut().clear();
+        Language::clear_localized_strings();
     }
 
     #[test]
@@ -2163,6 +2361,7 @@ mod tests {
             player_id: team_number,
             player_name: player_name.to_string(),
             side_name: side_name.to_string(),
+            player_template: -1,
             team_number,
             apparent_color,
             is_ai,
