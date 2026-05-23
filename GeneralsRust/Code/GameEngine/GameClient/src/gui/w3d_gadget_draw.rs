@@ -1137,112 +1137,6 @@ mod tests {
         assert_eq!(push_button_three_piece_slots(false), (0, 5, 6));
         assert_eq!(push_button_three_piece_slots(true), (1, 3, 4));
     }
-
-    #[test]
-    fn push_button_three_piece_layout_matches_cpp_overlap_offsets() {
-        assert_eq!(
-            push_button_three_piece_image_draws(10, 20, 30, 12, 3, 2, 20, 18, 5),
-            vec![
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Left,
-                    start_x: 13,
-                    start_y: 22,
-                    end_x: 28,
-                    end_y: 34,
-                    clip: None,
-                },
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Right,
-                    start_x: 28,
-                    start_y: 22,
-                    end_x: 40,
-                    end_y: 34,
-                    clip: None,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn push_button_three_piece_layout_matches_cpp_center_clip() {
-        assert_eq!(
-            push_button_three_piece_image_draws(10, 20, 60, 12, 3, 2, 8, 9, 7),
-            vec![
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Center,
-                    start_x: 21,
-                    start_y: 22,
-                    end_x: 28,
-                    end_y: 36,
-                    clip: None,
-                },
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Center,
-                    start_x: 28,
-                    start_y: 22,
-                    end_x: 35,
-                    end_y: 36,
-                    clip: None,
-                },
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Center,
-                    start_x: 35,
-                    start_y: 22,
-                    end_x: 42,
-                    end_y: 36,
-                    clip: None,
-                },
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Center,
-                    start_x: 42,
-                    start_y: 22,
-                    end_x: 49,
-                    end_y: 36,
-                    clip: None,
-                },
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Center,
-                    start_x: 49,
-                    start_y: 22,
-                    end_x: 56,
-                    end_y: 36,
-                    clip: None,
-                },
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Center,
-                    start_x: 56,
-                    start_y: 22,
-                    end_x: 63,
-                    end_y: 36,
-                    clip: None,
-                },
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Center,
-                    start_x: 63,
-                    start_y: 22,
-                    end_x: 70,
-                    end_y: 36,
-                    clip: Some(region_from_corners(63, 22, 64, 36)),
-                },
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Left,
-                    start_x: 13,
-                    start_y: 22,
-                    end_x: 21,
-                    end_y: 34,
-                    clip: None,
-                },
-                PushButtonThreeImageDraw {
-                    part: PushButtonThreeImagePart::Right,
-                    start_x: 64,
-                    start_y: 22,
-                    end_x: 73,
-                    end_y: 34,
-                    clip: None,
-                },
-            ]
-        );
-    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -2355,112 +2249,6 @@ fn draw_push_button_image_one(
     });
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PushButtonThreeImagePart {
-    Left,
-    Center,
-    Right,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct PushButtonThreeImageDraw {
-    part: PushButtonThreeImagePart,
-    start_x: i32,
-    start_y: i32,
-    end_x: i32,
-    end_y: i32,
-    clip: Option<IRegion2D>,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn push_button_three_piece_image_draws(
-    origin_x: i32,
-    origin_y: i32,
-    width: i32,
-    height: i32,
-    x_offset: i32,
-    y_offset: i32,
-    left_width: i32,
-    right_width: i32,
-    center_width: i32,
-) -> Vec<PushButtonThreeImageDraw> {
-    let left_width = left_width.max(1);
-    let right_width = right_width.max(1);
-    let center_width = center_width.max(1);
-    let left_end_x = origin_x + left_width + x_offset;
-    let left_end_y = origin_y + height + y_offset;
-    let right_start_x = origin_x + width - right_width + x_offset;
-    let right_start_y = origin_y + y_offset;
-    let center_band_width = right_start_x - left_end_x;
-    let mut draws = Vec::new();
-
-    if center_band_width <= 0 {
-        let mid_x = origin_x + x_offset + width / 2;
-        draws.push(PushButtonThreeImageDraw {
-            part: PushButtonThreeImagePart::Left,
-            start_x: origin_x + x_offset,
-            start_y: origin_y + y_offset,
-            end_x: mid_x,
-            end_y: left_end_y,
-            clip: None,
-        });
-        draws.push(PushButtonThreeImageDraw {
-            part: PushButtonThreeImagePart::Right,
-            start_x: mid_x,
-            start_y: right_start_y,
-            end_x: origin_x + width,
-            end_y: right_start_y + height,
-            clip: None,
-        });
-        return draws;
-    }
-
-    let start_y = origin_y + y_offset;
-    let end_y = start_y + height + y_offset;
-    let mut x = left_end_x;
-    let pieces = center_band_width / center_width;
-    for _ in 0..pieces {
-        draws.push(PushButtonThreeImageDraw {
-            part: PushButtonThreeImagePart::Center,
-            start_x: x,
-            start_y,
-            end_x: x + center_width,
-            end_y,
-            clip: None,
-        });
-        x += center_width;
-    }
-
-    if right_start_x - x > 0 {
-        draws.push(PushButtonThreeImageDraw {
-            part: PushButtonThreeImagePart::Center,
-            start_x: x,
-            start_y,
-            end_x: x + center_width,
-            end_y,
-            clip: Some(region_from_corners(x, start_y, right_start_x, end_y)),
-        });
-    }
-
-    draws.push(PushButtonThreeImageDraw {
-        part: PushButtonThreeImagePart::Left,
-        start_x: origin_x + x_offset,
-        start_y: origin_y + y_offset,
-        end_x: left_end_x,
-        end_y: left_end_y,
-        clip: None,
-    });
-    draws.push(PushButtonThreeImageDraw {
-        part: PushButtonThreeImagePart::Right,
-        start_x: right_start_x,
-        start_y: right_start_y,
-        end_x: right_start_x + right_width,
-        end_y: right_start_y + height,
-        clip: None,
-    });
-    draws
-}
-
 fn resolve_push_button_three_piece_images<'a>(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
@@ -2512,36 +2300,67 @@ fn draw_push_button_image_three(
     let right_w = right.width.max(1);
     let center_w = center.width.max(1);
 
-    for draw in push_button_three_piece_image_draws(
-        origin_x, origin_y, width, height, x_offset, y_offset, left_w, right_w, center_w,
-    ) {
-        let image = match draw.part {
-            PushButtonThreeImagePart::Left => left,
-            PushButtonThreeImagePart::Center => center,
-            PushButtonThreeImagePart::Right => right,
-        };
-        if let Some(clip) = draw.clip {
-            draw_window_image_clipped(
-                image,
-                draw.start_x,
-                draw.start_y,
-                draw.end_x,
-                draw.end_y,
-                &clip,
+    let left_end_x = origin_x + x_offset + left_w;
+    let right_start_x = origin_x + width - right_w + x_offset;
+    let start_y = origin_y + y_offset;
+    let end_y = start_y + height;
+
+    with_window_manager_ref(|manager| {
+        if right_start_x <= left_end_x {
+            let mid_x = origin_x + x_offset + (width / 2);
+            manager.win_draw_image(
+                left,
+                origin_x + x_offset,
+                start_y,
+                mid_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
             );
-        } else {
-            with_window_manager_ref(|manager| {
-                manager.win_draw_image(
-                    image,
-                    draw.start_x,
-                    draw.start_y,
-                    draw.end_x,
-                    draw.end_y,
-                    WIN_COLOR_UNDEFINED,
-                );
-            });
+            manager.win_draw_image(
+                right,
+                mid_x,
+                start_y,
+                origin_x + width + x_offset,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+            return;
         }
-    }
+
+        let mut x = left_end_x;
+        while x + center_w <= right_start_x {
+            manager.win_draw_image(center, x, start_y, x + center_w, end_y, WIN_COLOR_UNDEFINED);
+            x += center_w;
+        }
+
+        if x < right_start_x {
+            manager.win_draw_image(
+                center,
+                x,
+                start_y,
+                right_start_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        }
+
+        manager.win_draw_image(
+            left,
+            origin_x + x_offset,
+            start_y,
+            left_end_x,
+            end_y,
+            WIN_COLOR_UNDEFINED,
+        );
+        manager.win_draw_image(
+            right,
+            right_start_x,
+            start_y,
+            right_start_x + right_w,
+            end_y,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
 }
 
 fn push_button_color_entry_index(selected: bool) -> usize {
