@@ -408,7 +408,7 @@ pub struct WindowManager {
     screen_size: (i32, i32),
 
     // Radio button groups keyed by .wnd group id
-    radio_groups: HashMap<u64, RadioButtonGroup>,
+    radio_groups: HashMap<u32, RadioButtonGroup>,
 
     // Window transition handler (WindowTransitions.ini)
     transitions: GameWindowTransitionsHandler,
@@ -3943,7 +3943,7 @@ impl WindowManager {
             let mut wm = window.borrow_mut();
             wm.instance_data_mut().style = GWS_RADIO_BUTTON;
             let gadget_id = window_id as u32;
-            let group = RadioButtonGroup::new(u64::from(gadget_id));
+            let group = RadioButtonGroup::new(gadget_id);
             let btn_size = size.0.min(size.1).max(0) as u32;
             wm.set_widget(WindowWidget::RadioButton(RadioButton::new(
                 gadget_id, pos.0, pos.1, btn_size, group,
@@ -4235,7 +4235,7 @@ fn style_for_window_type(window_type: &str) -> u32 {
 }
 
 fn create_widget_for_style(
-    radio_groups: &mut HashMap<u64, RadioButtonGroup>,
+    radio_groups: &mut HashMap<u32, RadioButtonGroup>,
     window_def: &WindowDefinition,
     window_id: WindowId,
     x: i32,
@@ -4262,7 +4262,11 @@ fn create_widget_for_style(
         return Some(WindowWidget::PushButton(button));
     }
     if style & GWS_RADIO_BUTTON != 0 {
-        let group_id = radio_group_id_for_window(window_def, gadget_id);
+        let group_id = window_def
+            .radio_button_data
+            .as_ref()
+            .map(|data| data.group)
+            .unwrap_or(gadget_id);
         let group = radio_groups
             .entry(group_id)
             .or_insert_with(|| RadioButtonGroup::new(group_id))
@@ -4335,25 +4339,6 @@ fn create_widget_for_style(
     }
 
     None
-}
-
-fn radio_group_id_for_window(window_def: &WindowDefinition, gadget_id: u32) -> u64 {
-    let Some(data) = window_def.radio_button_data.as_ref() else {
-        return u64::from(gadget_id);
-    };
-    if data.group == 0 {
-        return u64::from(gadget_id);
-    }
-
-    let screen = radio_screen_id_for_window(window_def, data.screen);
-    (u64::from(screen) << 32) | u64::from(data.group)
-}
-
-fn radio_screen_id_for_window(window_def: &WindowDefinition, fallback: u32) -> u32 {
-    let Some((filename, _)) = window_def.name.split_once(':') else {
-        return fallback;
-    };
-    NameKeyGenerator::name_to_key(filename) as u32
 }
 
 fn apply_window_text(window: &mut GameWindow, window_def: &WindowDefinition) {
@@ -4524,7 +4509,6 @@ impl Default for WindowManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gui::window_script::RadioButtonData;
 
     #[test]
     fn test_window_manager_creation() {
@@ -4532,66 +4516,6 @@ mod tests {
         assert_eq!(manager.window_count, 0);
         assert!(manager.root_windows.is_empty());
         assert!(manager.get_focus().is_none());
-    }
-
-    #[test]
-    fn test_radio_group_id_matches_screen_and_group() {
-        let mut first = WindowDefinition {
-            name: "FirstScreen.wnd:RadioA".to_string(),
-            radio_button_data: Some(RadioButtonData {
-                group: 7,
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let same_screen = WindowDefinition {
-            name: "FirstScreen.wnd:RadioB".to_string(),
-            radio_button_data: Some(RadioButtonData {
-                group: 7,
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let other_screen = WindowDefinition {
-            name: "OtherScreen.wnd:RadioA".to_string(),
-            radio_button_data: Some(RadioButtonData {
-                group: 7,
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-
-        assert_eq!(
-            radio_group_id_for_window(&first, 101),
-            radio_group_id_for_window(&same_screen, 102)
-        );
-        assert_ne!(
-            radio_group_id_for_window(&first, 101),
-            radio_group_id_for_window(&other_screen, 103)
-        );
-
-        first.radio_button_data.as_mut().unwrap().group = 8;
-        assert_ne!(
-            radio_group_id_for_window(&first, 101),
-            radio_group_id_for_window(&same_screen, 102)
-        );
-    }
-
-    #[test]
-    fn test_radio_group_zero_is_unique_per_widget() {
-        let window_def = WindowDefinition {
-            name: "FirstScreen.wnd:RadioA".to_string(),
-            radio_button_data: Some(RadioButtonData {
-                group: 0,
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-
-        assert_ne!(
-            radio_group_id_for_window(&window_def, 101),
-            radio_group_id_for_window(&window_def, 102)
-        );
     }
 
     #[test]
