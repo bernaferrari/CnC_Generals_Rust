@@ -1217,7 +1217,11 @@ impl MenuCallbacks for OptionsMenu {
         data1: WindowMsgData,
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        if msg == WindowMessage::Char && data1 == 0x1B && (data2 & 0x0001) != 0 {
+        if msg != WindowMessage::Char || data1 != 0x1B {
+            return WindowMsgHandled::Ignored;
+        }
+
+        if (data2 & 0x0001) != 0 {
             if let Some(parent) = self.parent.as_ref() {
                 let _ = parent.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,
@@ -1225,9 +1229,9 @@ impl MenuCallbacks for OptionsMenu {
                     self.button_back_id as u32,
                 );
             }
-            return WindowMsgHandled::Handled;
         }
-        WindowMsgHandled::Ignored
+
+        WindowMsgHandled::Handled
     }
 }
 
@@ -2012,5 +2016,24 @@ mod tests {
 
         // Both should point to the same instance
         assert!(Arc::ptr_eq(&manager1, &manager2));
+    }
+
+    #[test]
+    fn options_menu_esc_char_is_consumed_before_key_up_like_cpp() {
+        let mut menu = OptionsMenu::new();
+        let window = GameWindow::new();
+
+        assert_eq!(
+            menu.input(&window, WindowMessage::Char, 0x1B, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            menu.input(&window, WindowMessage::Char, 0x1B, 0x0001),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            menu.input(&window, WindowMessage::Char, b'A' as u32, 0),
+            WindowMsgHandled::Ignored
+        );
     }
 }
