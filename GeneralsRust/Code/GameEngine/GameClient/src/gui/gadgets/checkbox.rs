@@ -379,18 +379,6 @@ impl Gadget for CheckBox {
                         KeyCode::Space | KeyCode::Enter => {
                             return self.handle_click();
                         }
-                        KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
-                            return vec![GadgetMessage::Custom {
-                                gadget_id: self.id,
-                                data: "tab_next".to_string(),
-                            }];
-                        }
-                        KeyCode::Left | KeyCode::Up => {
-                            return vec![GadgetMessage::Custom {
-                                gadget_id: self.id,
-                                data: "tab_prev".to_string(),
-                            }];
-                        }
                         _ => {}
                     }
                 }
@@ -571,33 +559,5 @@ mod tests {
         });
         assert!(checkbox.is_checked());
         assert!(!messages.is_empty());
-    }
-
-    #[test]
-    fn checkbox_arrow_and_tab_keys_emit_cpp_tab_navigation() {
-        let mut checkbox = CheckBox::new(1, 10, 20, 20);
-        checkbox.handle_input(&InputEvent::FocusGained);
-
-        for key in [KeyCode::Tab, KeyCode::Right, KeyCode::Down] {
-            let messages = checkbox.handle_input(&InputEvent::KeyDown {
-                key,
-                modifiers: KeyModifiers::none(),
-            });
-            assert!(matches!(
-                messages.as_slice(),
-                [GadgetMessage::Custom { data, .. }] if data == "tab_next"
-            ));
-        }
-
-        for key in [KeyCode::Left, KeyCode::Up] {
-            let messages = checkbox.handle_input(&InputEvent::KeyDown {
-                key,
-                modifiers: KeyModifiers::none(),
-            });
-            assert!(matches!(
-                messages.as_slice(),
-                [GadgetMessage::Custom { data, .. }] if data == "tab_prev"
-            ));
-        }
     }
 }
