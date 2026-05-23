@@ -1054,33 +1054,6 @@ mod tests {
             }
         );
     }
-
-    #[test]
-    fn list_box_selected_image_slots_match_cpp_gate() {
-        assert_eq!(
-            list_box_selected_image_slots([true, true, true, true]),
-            Some([1, 2, 3, 4])
-        );
-        assert_eq!(
-            list_box_selected_image_slots([true, true, false, true]),
-            None
-        );
-    }
-
-    #[test]
-    fn list_box_selected_image_rect_matches_cpp_clip() {
-        let clip = region_from_corners(11, 17, 79, 50);
-        assert_eq!(
-            list_box_selected_image_rect(10, 14, 70, 9, &clip),
-            Some(ListBoxSelectedImageRect {
-                start_x: 11,
-                start_y: 17,
-                end_x: 80,
-                end_y: 23,
-            })
-        );
-        assert_eq!(list_box_selected_image_rect(10, 55, 70, 9, &clip), None);
-    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -4360,79 +4333,6 @@ pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowI
     );
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ListBoxSelectedImageRect {
-    start_x: i32,
-    start_y: i32,
-    end_x: i32,
-    end_y: i32,
-}
-
-fn list_box_selected_image_slots(images_present: [bool; 4]) -> Option<[usize; 4]> {
-    if images_present.into_iter().all(|present| present) {
-        Some([1, 2, 3, 4])
-    } else {
-        None
-    }
-}
-
-fn list_box_selected_image_rect(
-    x: i32,
-    draw_y: i32,
-    width: i32,
-    line_height: i32,
-    list_clip: &IRegion2D,
-) -> Option<ListBoxSelectedImageRect> {
-    let start_y = draw_y.max(list_clip.y);
-    let end_y = (draw_y + line_height).min(region_bottom(list_clip));
-    if end_y <= start_y {
-        return None;
-    }
-    Some(ListBoxSelectedImageRect {
-        start_x: x + 1,
-        start_y,
-        end_x: x + width,
-        end_y,
-    })
-}
-
-fn draw_list_box_selected_image_bar(
-    draw_data: &[super::game_window::WindowDrawData],
-    x: i32,
-    draw_y: i32,
-    width: i32,
-    line_height: i32,
-    list_clip: &IRegion2D,
-) {
-    let selected_images = [
-        draw_data.get(1).and_then(|entry| entry.image.as_ref()),
-        draw_data.get(2).and_then(|entry| entry.image.as_ref()),
-        draw_data.get(3).and_then(|entry| entry.image.as_ref()),
-        draw_data.get(4).and_then(|entry| entry.image.as_ref()),
-    ];
-    let Some(slots) = list_box_selected_image_slots(selected_images.map(|image| image.is_some()))
-    else {
-        return;
-    };
-    let Some(rect) = list_box_selected_image_rect(x, draw_y, width, line_height, list_clip) else {
-        return;
-    };
-    let left = selected_images[slots[0] - 1].unwrap();
-    let right = selected_images[slots[1] - 1].unwrap();
-    let center = selected_images[slots[2] - 1].unwrap();
-    let small_center = selected_images[slots[3] - 1].unwrap();
-    draw_listbox_hilite_bar(
-        left,
-        right,
-        center,
-        small_center,
-        rect.start_x,
-        rect.start_y,
-        rect.end_x,
-        rect.end_y,
-    );
-}
-
 pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
@@ -4443,6 +4343,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
             (&inst_data.enabled_draw_data, &inst_data.enabled_text)
         };
     let back = &draw_data[0];
+    let select = &draw_data[1];
 
     let (mut x, mut y) = window.get_screen_position();
     let (mut width, mut height) = window.get_size();
@@ -4509,14 +4410,30 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                     break;
                 }
                 if selected.contains(&idx) {
-                    draw_list_box_selected_image_bar(
-                        draw_data,
-                        x,
-                        draw_y,
-                        width,
-                        item_height + 1,
-                        &list_clip,
-                    );
+                    if select.border_color != WIN_COLOR_UNDEFINED {
+                        with_window_manager_ref(|manager| {
+                            manager.win_open_rect(
+                                select.border_color,
+                                1.0,
+                                x,
+                                draw_y,
+                                x + width,
+                                draw_y + item_height,
+                            );
+                        });
+                    }
+                    if select.color != WIN_COLOR_UNDEFINED {
+                        with_window_manager_ref(|manager| {
+                            manager.win_fill_rect(
+                                select.color,
+                                1.0,
+                                x + 1,
+                                draw_y + 1,
+                                x + width - 1,
+                                draw_y + item_height - 1,
+                            );
+                        });
+                    }
                 }
                 let mut column_x = x;
                 for column in 0..columns {
@@ -4724,14 +4641,35 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                     break;
                 }
                 if selected.contains(&idx) {
-                    draw_list_box_selected_image_bar(
-                        draw_data,
-                        x,
-                        draw_y,
-                        width,
-                        item_height + 1,
-                        &list_clip,
-                    );
+                    let left = draw_data[1].image.as_ref();
+                    let right = draw_data[2].image.as_ref();
+                    let center = draw_data[3].image.as_ref();
+                    let small_center = draw_data[4].image.as_ref();
+                    if let (Some(left), Some(right), Some(center), Some(small_center)) =
+                        (left, right, center, small_center)
+                    {
+                        draw_listbox_hilite_bar(
+                            left,
+                            right,
+                            center,
+                            small_center,
+                            x + 1,
+                            draw_y,
+                            x + width - 1,
+                            draw_y + item_height,
+                        );
+                    } else if let Some(image) = draw_data[1].image.as_ref() {
+                        with_window_manager_ref(|manager| {
+                            manager.win_draw_image(
+                                image,
+                                x + 1,
+                                draw_y,
+                                x + width - 1,
+                                draw_y + item_height,
+                                WIN_COLOR_UNDEFINED,
+                            );
+                        });
+                    }
                 }
                 let mut column_x = x;
                 for column in 0..columns {
