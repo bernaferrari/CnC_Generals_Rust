@@ -4265,7 +4265,7 @@ fn create_widget_for_style(
         let group_id = window_def
             .radio_button_data
             .as_ref()
-            .and_then(|data| (data.group != 0).then_some(data.group))
+            .map(|data| data.group)
             .unwrap_or(gadget_id);
         let group = radio_groups
             .entry(group_id)

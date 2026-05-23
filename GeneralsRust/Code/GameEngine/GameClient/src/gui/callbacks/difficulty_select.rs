@@ -101,11 +101,14 @@ fn save_campaign_difficulty(difficulty: GameDifficulty) {
 
 fn set_radio_selected(window: &Rc<RefCell<GameWindow>>, selected: bool) {
     let mut guard = window.borrow_mut();
-    if matches!(guard.widget(), Some(WindowWidget::RadioButton(_))) {
-        if selected {
-            guard.set_radio_button_selected(false);
-        } else {
-            guard.clear_radio_button_selected();
+    if let Some(widget) = guard.widget_mut() {
+        if let WindowWidget::RadioButton(radio) = widget {
+            if selected {
+                radio.select();
+            } else if radio.is_selected() {
+                // Preserve C++-style single selection by clearing stale state when needed.
+                radio.group().clear_selection();
+            }
         }
     }
 }
