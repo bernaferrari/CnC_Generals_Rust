@@ -1107,30 +1107,6 @@ mod tests {
         assert_eq!(push_button_color_entry_index(false), 0);
         assert_eq!(push_button_color_entry_index(true), 1);
     }
-
-    #[test]
-    fn push_button_one_image_source_matches_cpp_state_order() {
-        assert_eq!(
-            push_button_one_image_source(false, false, true, false),
-            (PushButtonImageBank::Disabled, 1)
-        );
-        assert_eq!(
-            push_button_one_image_source(true, true, false, false),
-            (PushButtonImageBank::Hilite, 0)
-        );
-        assert_eq!(
-            push_button_one_image_source(true, true, true, false),
-            (PushButtonImageBank::Hilite, 1)
-        );
-        assert_eq!(
-            push_button_one_image_source(true, false, true, false),
-            (PushButtonImageBank::Hilite, 1)
-        );
-        assert_eq!(
-            push_button_one_image_source(false, true, true, true),
-            (PushButtonImageBank::Enabled, 0)
-        );
-    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -2171,68 +2147,22 @@ fn button_draw_entry_image<'a>(
     draw_data.get(index).and_then(|entry| entry.image.as_ref())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PushButtonImageBank {
-    Enabled,
-    Disabled,
-    Hilite,
-}
-
-fn push_button_one_image_source(
-    enabled: bool,
-    hilited: bool,
-    selected: bool,
-    overlay_states: bool,
-) -> (PushButtonImageBank, usize) {
-    if overlay_states {
-        return (PushButtonImageBank::Enabled, 0);
-    }
-
-    if !enabled {
-        return (PushButtonImageBank::Disabled, if selected { 1 } else { 0 });
-    }
-
-    if hilited {
-        return (PushButtonImageBank::Hilite, if selected { 1 } else { 0 });
-    }
-
-    if selected {
-        (PushButtonImageBank::Hilite, 1)
-    } else {
-        (PushButtonImageBank::Enabled, 0)
-    }
-}
-
-fn push_button_image_bank_draw_data<'a>(
-    inst_data: &'a WindowInstanceData,
-    bank: PushButtonImageBank,
-) -> &'a [super::game_window::WindowDrawData] {
-    match bank {
-        PushButtonImageBank::Enabled => &inst_data.enabled_draw_data,
-        PushButtonImageBank::Disabled => &inst_data.disabled_draw_data,
-        PushButtonImageBank::Hilite => &inst_data.hilite_draw_data,
-    }
-}
-
-fn resolve_push_button_one_image<'a>(
-    window: &GameWindow,
-    inst_data: &'a WindowInstanceData,
-) -> Option<&'a super::game_window::Image> {
-    let enabled = !inst_data.state.contains(WindowState::DISABLED) && window.is_enabled();
-    let hilited = inst_data.state.contains(WindowState::HILITED);
-    let selected = inst_data.state.contains(WindowState::PUSHED);
-    let overlay_states = window
-        .get_status()
-        .contains(WindowStatus::USE_OVERLAY_STATES);
-    let (bank, index) = push_button_one_image_source(enabled, hilited, selected, overlay_states);
-    button_draw_entry_image(push_button_image_bank_draw_data(inst_data, bank), index)
-}
-
 fn draw_push_button_image_one(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
-    image: &super::game_window::Image,
+    draw_data: &[super::game_window::WindowDrawData],
 ) {
+    let selected = inst_data.state.contains(WindowState::PUSHED);
+    let image = if selected {
+        button_draw_entry_image(draw_data, 1).or_else(|| button_draw_entry_image(draw_data, 0))
+    } else {
+        button_draw_entry_image(draw_data, 0)
+    };
+
+    let Some(image) = image else {
+        return;
+    };
+
     let rect = press_scaled_rect(window);
     let start_x = rect.x as i32 + inst_data.image_offset.x;
     let start_y = rect.y as i32 + inst_data.image_offset.y;
@@ -2395,11 +2325,8 @@ fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
         return;
     }
 
-    let one_image = resolve_push_button_one_image(window, inst_data);
-    if one_image.is_some() || button_draw_entry_image(draw_data, 0).is_some() {
-        if let Some(image) = one_image {
-            draw_push_button_image_one(window, inst_data, image);
-        }
+    if button_draw_entry_image(draw_data, 0).is_some() {
+        draw_push_button_image_one(window, inst_data, draw_data);
         let _ = text_colors;
         return;
     }
