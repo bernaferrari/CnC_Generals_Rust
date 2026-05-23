@@ -476,13 +476,21 @@ impl OptionsMenu {
 
     fn set_checkbox(id: i32, value: bool) {
         if let Some(window) = Self::find_window(id) {
-            window.borrow_mut().set_check_box_checked(value);
+            if let Some(check_box) = window.borrow_mut().check_box_mut() {
+                check_box.set_checked(value);
+            }
         }
     }
 
     fn checkbox_value(id: i32) -> bool {
         Self::find_window(id)
-            .map(|window| window.borrow().is_check_box_checked())
+            .and_then(|window| {
+                let guard = window.borrow();
+                match guard.widget() {
+                    Some(WindowWidget::CheckBox(check_box)) => Some(check_box.is_checked()),
+                    _ => None,
+                }
+            })
             .unwrap_or(false)
     }
 

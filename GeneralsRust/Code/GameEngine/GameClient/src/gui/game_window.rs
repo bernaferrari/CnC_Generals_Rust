@@ -592,22 +592,18 @@ impl GameWindow {
     }
 
     fn sync_state_from_widget(&mut self) {
-        let (pressed, hilited, checkbox_selected, has_widget) =
-            if let Some(widget) = self.widget.as_ref() {
-                let widget_state = widget.state();
-                let checkbox_selected =
-                    matches!(widget, WindowWidget::CheckBox(checkbox) if checkbox.is_checked());
-                (
-                    matches!(widget_state, GadgetState::Pressed),
-                    matches!(widget_state, GadgetState::Hovered | GadgetState::Pressed),
-                    checkbox_selected,
-                    true,
-                )
-            } else {
-                let pressed = self.inst_data.state.contains(WindowState::PUSHED);
-                let hilited = self.inst_data.state.contains(WindowState::HILITED) || pressed;
-                (pressed, hilited, false, false)
-            };
+        let (pressed, hilited, has_widget) = if let Some(widget) = self.widget.as_ref() {
+            let widget_state = widget.state();
+            (
+                matches!(widget_state, GadgetState::Pressed),
+                matches!(widget_state, GadgetState::Hovered | GadgetState::Pressed),
+                true,
+            )
+        } else {
+            let pressed = self.inst_data.state.contains(WindowState::PUSHED);
+            let hilited = self.inst_data.state.contains(WindowState::HILITED) || pressed;
+            (pressed, hilited, false)
+        };
 
         if has_widget {
             let mut state = self.inst_data.state;
@@ -617,12 +613,6 @@ impl GameWindow {
             }
             if pressed {
                 state.insert(WindowState::PUSHED);
-            }
-            if matches!(self.widget, Some(WindowWidget::CheckBox(_))) {
-                state.remove(WindowState::SELECTED);
-                if checkbox_selected {
-                    state.insert(WindowState::SELECTED);
-                }
             }
             self.inst_data.state = state;
         }
@@ -1396,26 +1386,6 @@ impl GameWindow {
             Some(WindowWidget::CheckBox(widget)) => Some(widget),
             _ => None,
         }
-    }
-
-    pub fn is_check_box_checked(&self) -> bool {
-        self.inst_data.state.contains(WindowState::SELECTED)
-    }
-
-    pub fn set_check_box_checked(&mut self, checked: bool) {
-        if checked {
-            self.inst_data.state.insert(WindowState::SELECTED);
-        } else {
-            self.inst_data.state.remove(WindowState::SELECTED);
-        }
-
-        if let Some(WindowWidget::CheckBox(widget)) = self.widget.as_mut() {
-            widget.set_checked(checked);
-        }
-    }
-
-    pub fn toggle_check_box_checked(&mut self) {
-        self.set_check_box_checked(!self.is_check_box_checked());
     }
 
     pub fn progress_bar_mut(&mut self) -> Option<&mut ProgressBar> {
@@ -2959,44 +2929,6 @@ mod tests {
         window.clear_status(WindowStatus::ENABLED);
         assert!(!window.get_status().contains(WindowStatus::ENABLED));
         assert!(window.get_status().contains(WindowStatus::ACTIVE));
-    }
-
-    #[test]
-    fn checkbox_set_checked_updates_selected_state_bit() {
-        let mut window = GameWindow::new();
-        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
-
-        window.set_check_box_checked(true);
-        assert!(window.is_check_box_checked());
-        assert!(window.instance_data().state.contains(WindowState::SELECTED));
-        assert!(matches!(
-            window.widget(),
-            Some(WindowWidget::CheckBox(check)) if check.is_checked()
-        ));
-
-        window.set_check_box_checked(false);
-        assert!(!window.is_check_box_checked());
-        assert!(!window.instance_data().state.contains(WindowState::SELECTED));
-        assert!(matches!(
-            window.widget(),
-            Some(WindowWidget::CheckBox(check)) if !check.is_checked()
-        ));
-    }
-
-    #[test]
-    fn checkbox_input_syncs_checked_widget_to_selected_state_bit() {
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED);
-        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::MouseEntering, 0, 0),
-            WindowMsgHandled::Ignored
-        );
-        let _ = window.send_input_message(WindowMessage::LeftUp, 0, 0);
-
-        assert!(window.is_check_box_checked());
-        assert!(window.instance_data().state.contains(WindowState::SELECTED));
     }
 
     #[test]
