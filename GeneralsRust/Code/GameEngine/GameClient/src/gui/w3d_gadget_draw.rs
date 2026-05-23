@@ -2902,7 +2902,12 @@ fn draw_radio_button_text(window: &GameWindow, inst_data: &WindowInstanceData) {
 }
 
 fn is_radio_selected(window: &GameWindow) -> bool {
-    window.instance_data().state.contains(WindowState::SELECTED)
+    if let Some(widget) = window.widget() {
+        if let super::game_window::WindowWidget::RadioButton(radio) = widget {
+            return radio.is_selected();
+        }
+    }
+    window.instance_data().state.contains(WindowState::PUSHED)
 }
 
 fn radio_button_image_sources(
@@ -2930,11 +2935,7 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
         (&inst_data.enabled_draw_data, &inst_data.enabled_text)
     };
     let back = &draw_data[0];
-    let radio_box = if is_radio_selected(window) {
-        draw_data.get(2).unwrap_or(&draw_data[1])
-    } else {
-        &draw_data[1]
-    };
+    let radio_box = &draw_data[1];
 
     let rect = press_scaled_rect(window);
     let origin_x = rect.x as i32;
@@ -3072,7 +3073,11 @@ fn draw_radio_button_image_strip(
 }
 
 pub fn w3d_gadget_radio_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let state = inst_data.state;
+    let state = if is_radio_selected(window) {
+        inst_data.state | WindowState::SELECTED
+    } else {
+        inst_data.state & !WindowState::SELECTED
+    };
     let (bank, [left_index, center_index, right_index]) =
         radio_button_image_sources(state, window.is_enabled());
     let (draw_data, _) = push_button_bank_data(inst_data, bank);
