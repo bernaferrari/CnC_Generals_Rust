@@ -721,7 +721,10 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
 
 #[cfg(test)]
 mod tests {
-    use super::{horizontal_slider_box_counts, horizontal_slider_box_image_sources};
+    use super::{
+        horizontal_slider_box_counts, horizontal_slider_box_image_sources,
+        horizontal_slider_image_draw_b_sources,
+    };
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
     use super::{text_entry_image_tile_rects, truncate_to_i32, TextEntryImageTileKind};
@@ -841,6 +844,11 @@ mod tests {
     fn horizontal_slider_box_counts_match_cpp_centering() {
         assert_eq!(horizontal_slider_box_counts(10, 52, 0.5), (4, 3, 2));
         assert_eq!(horizontal_slider_box_counts(10, 52, 0.0), (4, 0, 2));
+    }
+
+    #[test]
+    fn horizontal_slider_image_draw_b_sources_match_cpp() {
+        assert_eq!(horizontal_slider_image_draw_b_sources(), (0, 1, 0));
     }
 }
 
@@ -2965,6 +2973,10 @@ fn horizontal_slider_box_image_sources() -> (usize, usize, usize) {
     (0, 1, 0)
 }
 
+fn horizontal_slider_image_draw_b_sources() -> (usize, usize, usize) {
+    (0, 1, 0)
+}
+
 fn horizontal_slider_box_counts(
     box_width: i32,
     size_x: i32,
@@ -3279,119 +3291,117 @@ pub fn w3d_gadget_horizontal_slider_image_draw_b(
         min_val, max_val, num_ticks, position
     ));
 
-    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
-    {
-        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
-    } else if inst_data.state.contains(WindowState::HILITED) {
-        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
-    } else {
-        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    let (fill_index, blank_index, highlight_index) = horizontal_slider_image_draw_b_sources();
+    let fill_square = inst_data
+        .disabled_draw_data
+        .get(fill_index)
+        .and_then(|entry| entry.image.as_ref());
+    let blank_square = inst_data
+        .disabled_draw_data
+        .get(blank_index)
+        .and_then(|entry| entry.image.as_ref());
+    let highlight_square = inst_data
+        .hilite_draw_data
+        .get(highlight_index)
+        .and_then(|entry| entry.image.as_ref());
+    let (Some(fill_square), Some(blank_square)) = (fill_square, blank_square) else {
+        return;
     };
 
     if inst_data.state.contains(WindowState::HILITED) {
-        let highlight_square = draw_data[0].image.as_ref();
-        if let Some(highlight_square) = highlight_square {
-            let hw = highlight_square.width.max(1);
-            let hh = highlight_square.height.max(1);
-            let mut background_start_x = origin_x - ((hw as f32 * x_multi) / 2.0).round() as i32;
-            let background_start_y = origin_y + ((hh as f32 * y_multi) / 3.0).round() as i32;
-            let background_end_y = background_start_y + (hh as f32 * y_multi).round() as i32;
-            let mut background_end_x = background_start_x + (hw as f32 * x_multi).round() as i32;
+        let Some(highlight_square) = highlight_square else {
+            return;
+        };
+        let hw = highlight_square.width.max(1);
+        let hh = highlight_square.height.max(1);
+        let mut background_start_x = origin_x - ((hw as f32 * x_multi) / 2.0) as i32;
+        let background_start_y = origin_y + ((hh as f32 * y_multi) / 3.0) as i32;
+        let background_end_y = background_start_y + (hh as f32 * y_multi) as i32;
+        let mut background_end_x = background_start_x + (hw as f32 * x_multi) as i32;
 
-            tooltip.push_str(&format!(
-                "\nHighlighted: ({},{}) -> ({},{}), step {}/({}), full {}/{}",
-                background_start_x,
-                background_start_y,
-                background_end_x,
-                background_end_y,
-                hw,
-                hw as f32 * x_multi,
-                origin_x,
-                size_x
-            ));
+        tooltip.push_str(&format!(
+            "\nHighlighted: ({},{}) -> ({},{}), step {}/({}), full {}/{}",
+            background_start_x,
+            background_start_y,
+            background_end_x,
+            background_end_y,
+            hw,
+            hw as f32 * x_multi,
+            origin_x,
+            size_x
+        ));
 
-            while background_start_x < origin_x + size_x {
-                with_window_manager_ref(|manager| {
-                    manager.win_draw_image(
-                        highlight_square,
-                        background_start_x,
-                        background_start_y,
-                        background_end_x,
-                        background_end_y,
-                        WIN_COLOR_UNDEFINED,
-                    );
-                });
-                background_start_x = background_end_x;
-                background_end_x = background_start_x + (hw as f32 * x_multi).round() as i32;
-            }
-            tooltip.push_str(&format!(
-                "\n  bsX = {}, beX = {} ({} < {}+{} or {}?)",
-                background_start_x,
-                background_end_x,
-                background_start_x,
-                origin_x,
-                size_x,
-                origin_x + size_x
-            ));
+        while background_start_x < origin_x + size_x {
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    highlight_square,
+                    background_start_x,
+                    background_start_y,
+                    background_end_x,
+                    background_end_y,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+            background_start_x = background_end_x;
+            background_end_x = background_start_x + (hw as f32 * x_multi) as i32;
         }
+        tooltip.push_str(&format!(
+            "\n  bsX = {}, beX = {} ({} < {}+{} or {}?)",
+            background_start_x,
+            background_end_x,
+            background_start_x,
+            origin_x,
+            size_x,
+            origin_x + size_x
+        ));
     }
 
     // Draw filled squares up to position
-    let fill_square = draw_data[0].image.as_ref();
-    if let Some(fill_square) = fill_square {
-        let fw = fill_square.width.max(1);
-        let fh = fill_square.height.max(1);
-        let mut start_x = origin_x;
-        let start_y = origin_y;
-        let end_y = start_y + (fh as f32 * y_multi).round() as i32;
-        let mut end_x = start_x + (fw as f32 * x_multi).round() as i32;
+    let fw = fill_square.width.max(1);
+    let fh = fill_square.height.max(1);
+    let mut start_x = origin_x;
+    let start_y = origin_y;
+    let end_y = start_y + (fh as f32 * y_multi) as i32;
+    let mut end_x = start_x + (fw as f32 * x_multi) as i32;
 
-        tooltip.push_str(&format!(
-            "\ntop: start={},{}, end={},{}",
-            start_x, start_y, end_x, end_y
-        ));
+    tooltip.push_str(&format!(
+        "\ntop: start={},{}, end={},{}",
+        start_x, start_y, end_x, end_y
+    ));
 
-        let max_selected_x = origin_x + (num_ticks * (position - min_val) as f32) as i32;
-        while start_x <= max_selected_x && end_x < origin_x + size_x && position != min_val {
-            with_window_manager_ref(|manager| {
-                manager.win_draw_image(
-                    fill_square,
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                    WIN_COLOR_UNDEFINED,
-                );
-            });
-            start_x = end_x + 2;
-            end_x = start_x + (fw as f32 * x_multi).round() as i32;
-        }
+    let max_selected_x = origin_x + (num_ticks * (position - min_val) as f32) as i32;
+    while start_x <= max_selected_x && end_x < origin_x + size_x && position != min_val {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                fill_square,
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+        start_x = end_x + 2;
+        end_x = start_x + (fw as f32 * x_multi) as i32;
     }
 
     // Draw blank squares for the rest
-    let blank_square = draw_data[1].image.as_ref();
-    if let Some(blank_square) = blank_square {
-        let bw = blank_square.width.max(1);
-        let bh = blank_square.height.max(1);
-        let mut start_x = origin_x + (num_ticks * (position - min_val) as f32) as i32;
-        let start_y = origin_y;
-        let end_y = start_y + (bh as f32 * y_multi).round() as i32;
-        let mut end_x = start_x + (bw as f32 * x_multi).round() as i32;
+    let bw = blank_square.width.max(1);
+    end_x = start_x + (bw as f32 * x_multi) as i32;
 
-        while end_x < origin_x + size_x {
-            with_window_manager_ref(|manager| {
-                manager.win_draw_image(
-                    blank_square,
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                    WIN_COLOR_UNDEFINED,
-                );
-            });
-            start_x = end_x + 2;
-            end_x = start_x + (bw as f32 * x_multi).round() as i32;
-        }
+    while end_x < origin_x + size_x {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                blank_square,
+                start_x,
+                start_y,
+                end_x,
+                end_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+        start_x = end_x + 2;
+        end_x = start_x + (bw as f32 * x_multi) as i32;
     }
 }
 
