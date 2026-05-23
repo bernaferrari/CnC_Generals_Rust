@@ -722,10 +722,10 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
 #[cfg(test)]
 mod tests {
     use super::{
-        check_box_image_source, horizontal_slider_box_counts, horizontal_slider_box_image_sources,
-        horizontal_slider_image_draw_a_sources, horizontal_slider_image_draw_b_sources,
-        progress_bar_image_draw_a_bank, progress_bar_image_draw_a_sources,
-        progress_bar_image_sources, radio_button_image_sources,
+        check_box_image_source, combo_box_title_adjustment, horizontal_slider_box_counts,
+        horizontal_slider_box_image_sources, horizontal_slider_image_draw_a_sources,
+        horizontal_slider_image_draw_b_sources, progress_bar_image_draw_a_bank,
+        progress_bar_image_draw_a_sources, progress_bar_image_sources, radio_button_image_sources,
     };
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
@@ -947,6 +947,13 @@ mod tests {
             radio_button_image_sources(WindowState::empty(), true),
             (PushButtonDrawBank::Enabled, [0, 1, 2])
         );
+    }
+
+    #[test]
+    fn combo_box_title_adjustment_matches_cpp_draw_variants() {
+        assert_eq!(combo_box_title_adjustment(false, 14, false), None);
+        assert_eq!(combo_box_title_adjustment(true, 14, false), Some((15, 15)));
+        assert_eq!(combo_box_title_adjustment(true, 14, true), Some((14, 15)));
     }
 }
 
@@ -4955,24 +4962,41 @@ fn draw_combobox_title(
     x: i32,
     y: i32,
     text_colors: &crate::gui::game_window::WindowTextColors,
-) -> i32 {
+) -> bool {
+    let text = if !inst_data.text.is_empty() {
+        inst_data.text.as_str()
+    } else {
+        inst_data.text_label.as_str()
+    };
+    if text.is_empty() {
+        return false;
+    }
     if let Some(title) = inst_data.display_text.as_ref() {
         let mut title = title.borrow_mut();
-        let text = if !inst_data.text.is_empty() {
-            inst_data.text.as_str()
-        } else {
-            inst_data.text_label.as_str()
-        };
-        if !text.is_empty() {
-            title.set_text(text.to_string());
-        }
+        title.set_text(text.to_string());
         if let Some(font) = inst_data.font.as_ref() {
             title.set_font(font);
         }
         title.draw(x + 1, y, text_colors.color, text_colors.border_color);
-        return 1;
+        return true;
     }
-    0
+    false
+}
+
+fn combo_box_title_adjustment(
+    title_drawn: bool,
+    font_height: i32,
+    image_draw: bool,
+) -> Option<(i32, i32)> {
+    if !title_drawn {
+        return None;
+    }
+    let y_delta = if image_draw {
+        font_height
+    } else {
+        font_height + 1
+    };
+    Some((y_delta, font_height + 1))
 }
 
 pub fn w3d_gadget_combo_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -4996,9 +5020,13 @@ pub fn w3d_gadget_combo_box_draw(window: &GameWindow, inst_data: &WindowInstance
             .unwrap_or(12)
     });
 
-    if draw_combobox_title(inst_data, x, y, text_colors) != 0 {
-        y += font_height + 1;
-        height -= font_height + 1;
+    if let Some((y_delta, height_delta)) = combo_box_title_adjustment(
+        draw_combobox_title(inst_data, x, y, text_colors),
+        font_height,
+        false,
+    ) {
+        y += y_delta;
+        height -= height_delta;
     }
 
     let back = &draw_data[0];
@@ -5145,9 +5173,13 @@ pub fn w3d_gadget_combo_box_image_draw(window: &GameWindow, inst_data: &WindowIn
             .unwrap_or(12)
     });
 
-    if draw_combobox_title(inst_data, x, y, text_colors) != 0 {
-        y += font_height + 1;
-        height -= font_height + 1;
+    if let Some((y_delta, height_delta)) = combo_box_title_adjustment(
+        draw_combobox_title(inst_data, x, y, text_colors),
+        font_height,
+        true,
+    ) {
+        y += y_delta;
+        height -= height_delta;
     }
 
     if let Some(super::game_window::WindowWidget::ComboBox(combo)) = window.widget() {
