@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 /// Maximum number of player slots
 const MAX_SLOTS: usize = 8;
+const KEY_ESC: u32 = 0x1B;
 
 /// Diplomatic relationship types
 #[derive(Debug, Clone, PartialEq)]
@@ -127,6 +128,12 @@ impl DiplomacyCallbacks {
         _data2: WindowMsgData,
     ) -> WindowMsgHandled {
         match msg {
+            WindowMessage::Char => {
+                if data1 == KEY_ESC {
+                    let _ = self.hide_diplomacy(false);
+                }
+                WindowMsgHandled::Handled
+            }
             WindowMessage::GadgetSelected => {
                 let control_id = data1 as u32;
                 if self.handle_radio_buttons(control_id) {
@@ -836,6 +843,25 @@ mod tests {
         assert!(diplomacy.reset_diplomacy().is_ok());
         assert!(!diplomacy.is_active());
         assert_eq!(diplomacy.get_all_players().len(), 0);
+    }
+
+    #[test]
+    fn diplomacy_char_input_matches_cpp_escape_handling() {
+        let mut diplomacy = DiplomacyCallbacks::new();
+        let window = GameWindow::new();
+
+        diplomacy.toggle_diplomacy(true).unwrap();
+        assert_eq!(
+            diplomacy.input(&window, WindowMessage::Char, b'A' as u32, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(diplomacy.is_active());
+
+        assert_eq!(
+            diplomacy.input(&window, WindowMessage::Char, KEY_ESC, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(!diplomacy.is_active());
     }
 
     #[test]
