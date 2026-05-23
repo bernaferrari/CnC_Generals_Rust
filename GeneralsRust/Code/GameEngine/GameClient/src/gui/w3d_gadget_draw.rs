@@ -721,6 +721,7 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
 
 #[cfg(test)]
 mod tests {
+    use super::{horizontal_slider_box_counts, horizontal_slider_box_image_sources};
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
     use super::{text_entry_image_tile_rects, truncate_to_i32, TextEntryImageTileKind};
@@ -829,6 +830,17 @@ mod tests {
             Some((11, 55, 80, 60))
         );
         assert_eq!(list_box_selected_image_rect(10, 60, 70, 9, &clip), None);
+    }
+
+    #[test]
+    fn horizontal_slider_default_image_sources_match_cpp() {
+        assert_eq!(horizontal_slider_box_image_sources(), (0, 1, 0));
+    }
+
+    #[test]
+    fn horizontal_slider_box_counts_match_cpp_centering() {
+        assert_eq!(horizontal_slider_box_counts(10, 52, 0.5), (4, 3, 2));
+        assert_eq!(horizontal_slider_box_counts(10, 52, 0.0), (4, 0, 2));
     }
 }
 
@@ -2949,104 +2961,116 @@ pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &Window
     }
 }
 
-pub fn w3d_gadget_horizontal_slider_image_draw(
-    window: &GameWindow,
-    inst_data: &WindowInstanceData,
-) {
-    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
-    {
-        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
-    } else if inst_data.state.contains(WindowState::HILITED) {
-        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
-    } else {
-        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
-    };
-    let filled = &draw_data[0].image;
-    let blank = &draw_data[1].image;
-    let highlight = &draw_data[2].image;
+fn horizontal_slider_box_image_sources() -> (usize, usize, usize) {
+    (0, 1, 0)
+}
 
-    let (mut origin_x, origin_y) = window.get_screen_position();
-    let (size_x, size_y) = window.get_size();
-    let slider_data = None;
-    let selected_percent = slider_percent(window, slider_data);
-
-    let (box_width, box_padding) = if let Some(image) = filled.as_ref() {
-        let x_multi = with_window_manager_ref(|manager| manager.screen_size().0 as f32 / 800.0);
-        (((image.width as f32 * x_multi).round() as i32).max(1), 2)
-    } else {
-        (8, 2)
-    };
-
+fn horizontal_slider_box_counts(
+    box_width: i32,
+    size_x: i32,
+    selected_percent: f32,
+) -> (i32, i32, i32) {
+    let box_width = box_width.max(1);
+    let box_padding = 2;
     let mut num_boxes = 0;
     let mut num_selected = 0;
-    let mut start_x = origin_x;
+    let mut start_x = 0;
     let mut end_x = start_x + box_width;
-    let max_selected_x = origin_x + (selected_percent * size_x as f32) as i32;
-    while end_x < origin_x + size_x {
-        if start_x <= max_selected_x && end_x < origin_x + size_x && selected_percent > 0.0 {
+    let max_selected_x = (selected_percent * size_x as f32) as i32;
+    while end_x < size_x {
+        if start_x <= max_selected_x && end_x < size_x && selected_percent > 0.0 {
             num_selected += 1;
         }
         start_x = end_x + box_padding;
         end_x = start_x + box_width;
         num_boxes += 1;
     }
-    let distance = end_x - origin_x - box_width;
+    let distance = end_x - box_width;
     let blankness = size_x - distance;
-    origin_x += blankness / 2;
+    (num_boxes, num_selected, blankness / 2)
+}
+
+pub fn w3d_gadget_horizontal_slider_image_draw(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) {
+    let (filled_index, blank_index, highlight_index) = horizontal_slider_box_image_sources();
+    let filled = inst_data
+        .disabled_draw_data
+        .get(filled_index)
+        .and_then(|entry| entry.image.as_ref());
+    let blank = inst_data
+        .disabled_draw_data
+        .get(blank_index)
+        .and_then(|entry| entry.image.as_ref());
+    let highlight = inst_data
+        .hilite_draw_data
+        .get(highlight_index)
+        .and_then(|entry| entry.image.as_ref());
+
+    let (Some(filled), Some(blank), Some(highlight)) = (filled, blank, highlight) else {
+        return;
+    };
+
+    let (mut origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    let slider_data = None;
+    let selected_percent = slider_percent(window, slider_data);
+
+    let x_multi = with_window_manager_ref(|manager| manager.screen_size().0 as f32 / 800.0);
+    let box_width = ((filled.width as f32 * x_multi) as i32).max(1);
+    let box_padding = 2;
+    let (num_boxes, num_selected, origin_offset) =
+        horizontal_slider_box_counts(box_width, size_x, selected_percent);
+    origin_x += origin_offset;
 
     if inst_data.state.contains(WindowState::HILITED) {
-        if let Some(image) = highlight {
-            let mut bg_start_x = origin_x - (box_width + box_padding) / 2;
-            let bg_start_y = origin_y + box_width / 3;
-            let bg_end_y = bg_start_y + box_width + box_padding;
-            for _ in 0..(num_boxes + 1) {
-                let bg_end_x = bg_start_x + box_width + box_padding;
-                with_window_manager_ref(|manager| {
-                    manager.win_draw_image(
-                        image,
-                        bg_start_x,
-                        bg_start_y,
-                        bg_end_x,
-                        bg_end_y,
-                        WIN_COLOR_UNDEFINED,
-                    );
-                });
-                bg_start_x = bg_end_x;
-            }
+        let mut bg_start_x = origin_x - (box_width + box_padding) / 2;
+        let bg_start_y = origin_y + box_width / 3;
+        let bg_end_y = bg_start_y + box_width + box_padding;
+        for _ in 0..(num_boxes + 1) {
+            let bg_end_x = bg_start_x + box_width + box_padding;
+            with_window_manager_ref(|manager| {
+                manager.win_draw_image(
+                    highlight,
+                    bg_start_x,
+                    bg_start_y,
+                    bg_end_x,
+                    bg_end_y,
+                    WIN_COLOR_UNDEFINED,
+                );
+            });
+            bg_start_x = bg_end_x;
         }
     }
 
     for i in 0..num_selected {
-        if let Some(image) = filled {
-            let sx = origin_x + i * (box_width + box_padding);
-            let ex = sx + box_width;
-            with_window_manager_ref(|manager| {
-                manager.win_draw_image(
-                    image,
-                    sx,
-                    origin_y,
-                    ex,
-                    origin_y + box_width,
-                    WIN_COLOR_UNDEFINED,
-                );
-            });
-        }
+        let sx = origin_x + i * (box_width + box_padding);
+        let ex = sx + box_width;
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                filled,
+                sx,
+                origin_y,
+                ex,
+                origin_y + box_width,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
     }
     for i in num_selected..num_boxes {
-        if let Some(image) = blank {
-            let sx = origin_x + i * (box_width + box_padding);
-            let ex = sx + box_width;
-            with_window_manager_ref(|manager| {
-                manager.win_draw_image(
-                    image,
-                    sx,
-                    origin_y,
-                    ex,
-                    origin_y + box_width,
-                    WIN_COLOR_UNDEFINED,
-                );
-            });
-        }
+        let sx = origin_x + i * (box_width + box_padding);
+        let ex = sx + box_width;
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                blank,
+                sx,
+                origin_y,
+                ex,
+                origin_y + box_width,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
     }
 }
 
