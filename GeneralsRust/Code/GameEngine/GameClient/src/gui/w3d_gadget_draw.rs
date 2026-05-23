@@ -721,13 +721,45 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
 
 #[cfg(test)]
 mod tests {
-    use super::truncate_to_i32;
+    use super::{text_entry_image_tile_rects, truncate_to_i32, TextEntryImageTileKind};
 
     #[test]
     fn test_truncate_to_i32_matches_cpp_cast_behavior() {
         assert_eq!(truncate_to_i32(76.8), 76);
         assert_eq!(truncate_to_i32(76.2), 76);
         assert_eq!(truncate_to_i32(-3.7), -3);
+    }
+
+    #[test]
+    fn test_text_entry_image_tiles_match_cpp_order_and_overlap() {
+        let tiles = text_entry_image_tile_rects(100, 50, 73, 20, 3, 4, 8, 9, 16, 5);
+
+        assert_eq!(
+            tiles,
+            vec![
+                (TextEntryImageTileKind::Center, 111, 54, 127, 74),
+                (TextEntryImageTileKind::Center, 127, 54, 143, 74),
+                (TextEntryImageTileKind::Center, 143, 54, 159, 74),
+                (TextEntryImageTileKind::SmallCenter, 159, 54, 164, 74),
+                (TextEntryImageTileKind::SmallCenter, 164, 54, 169, 74),
+                (TextEntryImageTileKind::Left, 103, 54, 111, 74),
+                (TextEntryImageTileKind::Right, 167, 54, 176, 74),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_text_entry_image_tiles_preserve_cpp_small_center_gap_behavior() {
+        let tiles = text_entry_image_tile_rects(0, 0, 20, 10, 0, 0, 8, 8, 16, 5);
+
+        assert_eq!(
+            tiles,
+            vec![
+                (TextEntryImageTileKind::SmallCenter, 8, 0, 13, 10),
+                (TextEntryImageTileKind::Left, 0, 0, 8, 10),
+                (TextEntryImageTileKind::Right, 12, 0, 20, 10),
+            ]
+        );
     }
 }
 
@@ -3370,6 +3402,85 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TextEntryImageTileKind {
+    Left,
+    Right,
+    Center,
+    SmallCenter,
+}
+
+type TextEntryImageTileRect = (TextEntryImageTileKind, i32, i32, i32, i32);
+
+fn text_entry_image_tile_rects(
+    origin_x: i32,
+    origin_y: i32,
+    size_x: i32,
+    size_y: i32,
+    x_offset: i32,
+    y_offset: i32,
+    left_width: i32,
+    right_width: i32,
+    center_width: i32,
+    small_center_width: i32,
+) -> Vec<TextEntryImageTileRect> {
+    let left_width = left_width.max(1);
+    let right_width = right_width.max(1);
+    let center_width = center_width.max(1);
+    let small_center_width = small_center_width.max(1);
+
+    let left_end_x = origin_x + left_width + x_offset;
+    let right_start_x = origin_x + size_x - right_width + x_offset;
+    let start_y = origin_y + y_offset;
+    let end_y = start_y + size_y;
+
+    let mut tiles = Vec::new();
+    let mut start_x = left_end_x;
+    let center_span = right_start_x - left_end_x;
+    let center_pieces = center_span / center_width;
+    for _ in 0..center_pieces {
+        let end_x = start_x + center_width;
+        tiles.push((
+            TextEntryImageTileKind::Center,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+        ));
+        start_x += center_width;
+    }
+
+    let center_span = right_start_x - start_x;
+    let small_center_pieces = center_span / small_center_width + 1;
+    for _ in 0..small_center_pieces {
+        let end_x = start_x + small_center_width;
+        tiles.push((
+            TextEntryImageTileKind::SmallCenter,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+        ));
+        start_x += small_center_width;
+    }
+
+    tiles.push((
+        TextEntryImageTileKind::Left,
+        origin_x + x_offset,
+        start_y,
+        left_end_x,
+        end_y,
+    ));
+    tiles.push((
+        TextEntryImageTileKind::Right,
+        right_start_x,
+        start_y,
+        right_start_x + right_width,
+        end_y,
+    ));
+    tiles
+}
+
 fn draw_text_entry_text(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
@@ -3520,16 +3631,36 @@ pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowI
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
 
-    if let Some(image) = &draw_data[0].image {
+    let left_image = draw_data[0].image.as_ref();
+    let right_image = draw_data[1].image.as_ref();
+    let center_image = draw_data[2].image.as_ref();
+    let small_center_image = draw_data[3].image.as_ref();
+
+    if let (Some(left_image), Some(right_image), Some(center_image), Some(small_center_image)) =
+        (left_image, right_image, center_image, small_center_image)
+    {
+        let tiles = text_entry_image_tile_rects(
+            origin_x,
+            origin_y,
+            size_x,
+            size_y,
+            inst_data.image_offset.x,
+            inst_data.image_offset.y,
+            left_image.width,
+            right_image.width,
+            center_image.width,
+            small_center_image.width,
+        );
         with_window_manager_ref(|manager| {
-            manager.win_draw_image(
-                image,
-                origin_x + inst_data.image_offset.x,
-                origin_y + inst_data.image_offset.y,
-                origin_x + inst_data.image_offset.x + size_x,
-                origin_y + inst_data.image_offset.y + size_y,
-                WIN_COLOR_UNDEFINED,
-            );
+            for (kind, start_x, start_y, end_x, end_y) in tiles {
+                let image = match kind {
+                    TextEntryImageTileKind::Left => left_image,
+                    TextEntryImageTileKind::Right => right_image,
+                    TextEntryImageTileKind::Center => center_image,
+                    TextEntryImageTileKind::SmallCenter => small_center_image,
+                };
+                manager.win_draw_image(image, start_x, start_y, end_x, end_y, WIN_COLOR_UNDEFINED);
+            }
         });
     }
 
