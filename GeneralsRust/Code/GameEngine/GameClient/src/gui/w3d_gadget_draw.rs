@@ -1243,6 +1243,19 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn push_button_status_overlays_match_cpp_draw_scope() {
+        assert!(!push_button_draw_mode_runs_status_overlays(
+            PushButtonDrawMode::Color
+        ));
+        assert!(push_button_draw_mode_runs_status_overlays(
+            PushButtonDrawMode::OneImage
+        ));
+        assert!(!push_button_draw_mode_runs_status_overlays(
+            PushButtonDrawMode::ThreeImage
+        ));
+    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -2221,6 +2234,17 @@ fn draw_button_overlays(window: &GameWindow, inst_data: &WindowInstanceData) {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PushButtonDrawMode {
+    Color,
+    OneImage,
+    ThreeImage,
+}
+
+fn push_button_draw_mode_runs_status_overlays(mode: PushButtonDrawMode) -> bool {
+    matches!(mode, PushButtonDrawMode::OneImage)
+}
+
 fn draw_button_style_overlay(window: &GameWindow, button: &PushButton) {
     let (x, y, w, h) = press_scaled_bounds_i32(window);
     if let Some(ref overlay) = button.style().overlay_image {
@@ -2571,7 +2595,10 @@ fn draw_push_button_color_base(window: &GameWindow, entry: &super::game_window::
     });
 }
 
-fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
+fn draw_push_button_base(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) -> PushButtonDrawMode {
     let (draw_data, text_colors) = current_push_button_draw_data(window, inst_data);
 
     if let Some((left, center, right)) =
@@ -2579,7 +2606,7 @@ fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
     {
         draw_push_button_image_three(window, inst_data, left, center, right);
         let _ = text_colors;
-        return;
+        return PushButtonDrawMode::ThreeImage;
     }
 
     let one_image = resolve_push_button_one_image(window, inst_data);
@@ -2588,7 +2615,7 @@ fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
             draw_push_button_image_one(window, inst_data, image);
         }
         let _ = text_colors;
-        return;
+        return PushButtonDrawMode::OneImage;
     }
 
     let selected = inst_data.state.contains(WindowState::PUSHED);
@@ -2597,10 +2624,11 @@ fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
     }
 
     let _ = text_colors;
+    PushButtonDrawMode::Color
 }
 
 pub fn w3d_gadget_push_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_base(window, inst_data);
+    let _ = draw_push_button_base(window, inst_data);
     draw_button_text(window, inst_data);
     draw_video_buffer(window, inst_data);
     if let Some(widget) = window.widget() {
@@ -2608,11 +2636,10 @@ pub fn w3d_gadget_push_button_draw(window: &GameWindow, inst_data: &WindowInstan
             draw_button_style_overlay(window, button);
         }
     }
-    draw_button_overlays(window, inst_data);
 }
 
 pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_base(window, inst_data);
+    let mode = draw_push_button_base(window, inst_data);
     draw_button_text(window, inst_data);
     draw_video_buffer(window, inst_data);
     if let Some(widget) = window.widget() {
@@ -2620,7 +2647,9 @@ pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &Window
             draw_button_style_overlay(window, button);
         }
     }
-    draw_button_overlays(window, inst_data);
+    if push_button_draw_mode_runs_status_overlays(mode) {
+        draw_button_overlays(window, inst_data);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
