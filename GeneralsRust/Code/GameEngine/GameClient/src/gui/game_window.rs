@@ -326,9 +326,10 @@ bitflags! {
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
     pub struct WindowState: u32 {
         const NONE = 0x00000000;
-        const HILITED = 0x00000001;
-        const PUSHED = 0x00000002;
-        const DISABLED = 0x00000004;
+        const HILITED = 0x00000002;
+        const SELECTED = 0x00000004;
+        const PUSHED = Self::SELECTED.bits();
+        const DISABLED = 0x00000008;
     }
 }
 

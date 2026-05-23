@@ -721,7 +721,9 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
 
 #[cfg(test)]
 mod tests {
+    use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
     use super::{text_entry_image_tile_rects, truncate_to_i32, TextEntryImageTileKind};
+    use crate::gui::game_window::{WindowState, WindowStatus};
 
     #[test]
     fn test_truncate_to_i32_matches_cpp_cast_behavior() {
@@ -759,6 +761,46 @@ mod tests {
                 (TextEntryImageTileKind::Left, 0, 0, 8, 10),
                 (TextEntryImageTileKind::Right, 12, 0, 20, 10),
             ]
+        );
+    }
+
+    #[test]
+    fn push_button_one_image_enabled_selected_uses_hilite_selected() {
+        assert_eq!(
+            push_button_one_image_source(WindowStatus::ENABLED, WindowState::SELECTED, true,),
+            (PushButtonDrawBank::Hilite, 1)
+        );
+    }
+
+    #[test]
+    fn push_button_one_image_overlay_uses_enabled_base() {
+        assert_eq!(
+            push_button_one_image_source(
+                WindowStatus::ENABLED | WindowStatus::USE_OVERLAY_STATES,
+                WindowState::HILITED | WindowState::SELECTED,
+                true,
+            ),
+            (PushButtonDrawBank::Enabled, 0)
+        );
+    }
+
+    #[test]
+    fn push_button_color_selected_uses_current_bank_selected_slot() {
+        assert_eq!(
+            push_button_color_entry_index(WindowStatus::ENABLED, WindowState::SELECTED, true),
+            (PushButtonDrawBank::Enabled, 1)
+        );
+        assert_eq!(
+            push_button_color_entry_index(
+                WindowStatus::ENABLED,
+                WindowState::HILITED | WindowState::SELECTED,
+                true,
+            ),
+            (PushButtonDrawBank::Hilite, 1)
+        );
+        assert_eq!(
+            push_button_color_entry_index(WindowStatus::empty(), WindowState::SELECTED, false),
+            (PushButtonDrawBank::Disabled, 1)
         );
     }
 }
@@ -1778,6 +1820,69 @@ fn draw_button_style_overlay(window: &GameWindow, button: &PushButton) {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PushButtonDrawBank {
+    Enabled,
+    Disabled,
+    Hilite,
+}
+
+fn push_button_is_selected(state: WindowState) -> bool {
+    state.contains(WindowState::SELECTED)
+}
+
+fn push_button_bank_data<'a>(
+    inst_data: &'a WindowInstanceData,
+    bank: PushButtonDrawBank,
+) -> (
+    &'a [super::game_window::WindowDrawData],
+    &'a super::game_window::WindowTextColors,
+) {
+    match bank {
+        PushButtonDrawBank::Enabled => (&inst_data.enabled_draw_data, &inst_data.enabled_text),
+        PushButtonDrawBank::Disabled => (&inst_data.disabled_draw_data, &inst_data.disabled_text),
+        PushButtonDrawBank::Hilite => (&inst_data.hilite_draw_data, &inst_data.hilite_text),
+    }
+}
+
+fn push_button_color_entry_index(
+    status: WindowStatus,
+    state: WindowState,
+    enabled: bool,
+) -> (PushButtonDrawBank, usize) {
+    let selected = push_button_is_selected(state);
+    if !enabled || state.contains(WindowState::DISABLED) || !status.contains(WindowStatus::ENABLED)
+    {
+        (PushButtonDrawBank::Disabled, usize::from(selected))
+    } else if state.contains(WindowState::HILITED) {
+        (PushButtonDrawBank::Hilite, usize::from(selected))
+    } else {
+        (PushButtonDrawBank::Enabled, usize::from(selected))
+    }
+}
+
+fn push_button_one_image_source(
+    status: WindowStatus,
+    state: WindowState,
+    enabled: bool,
+) -> (PushButtonDrawBank, usize) {
+    if status.contains(WindowStatus::USE_OVERLAY_STATES) {
+        return (PushButtonDrawBank::Enabled, 0);
+    }
+
+    let selected = push_button_is_selected(state);
+    if !enabled || state.contains(WindowState::DISABLED) || !status.contains(WindowStatus::ENABLED)
+    {
+        (PushButtonDrawBank::Disabled, usize::from(selected))
+    } else if state.contains(WindowState::HILITED) {
+        (PushButtonDrawBank::Hilite, usize::from(selected))
+    } else if selected {
+        (PushButtonDrawBank::Hilite, 1)
+    } else {
+        (PushButtonDrawBank::Enabled, 0)
+    }
+}
+
 fn current_push_button_draw_data<'a>(
     window: &GameWindow,
     inst_data: &'a WindowInstanceData,
@@ -1785,13 +1890,9 @@ fn current_push_button_draw_data<'a>(
     &'a [super::game_window::WindowDrawData],
     &'a super::game_window::WindowTextColors,
 ) {
-    if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
-        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
-    } else if inst_data.state.contains(WindowState::HILITED) {
-        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
-    } else {
-        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
-    }
+    let (bank, _) =
+        push_button_color_entry_index(window.get_status(), inst_data.state, window.is_enabled());
+    push_button_bank_data(inst_data, bank)
 }
 
 fn button_draw_entry_image<'a>(
@@ -1801,17 +1902,11 @@ fn button_draw_entry_image<'a>(
     draw_data.get(index).and_then(|entry| entry.image.as_ref())
 }
 
-fn draw_push_button_image_one(
-    window: &GameWindow,
-    inst_data: &WindowInstanceData,
-    draw_data: &[super::game_window::WindowDrawData],
-) {
-    let selected = inst_data.state.contains(WindowState::PUSHED);
-    let image = if selected {
-        button_draw_entry_image(draw_data, 1).or_else(|| button_draw_entry_image(draw_data, 0))
-    } else {
-        button_draw_entry_image(draw_data, 0)
-    };
+fn draw_push_button_image_one(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (bank, index) =
+        push_button_one_image_source(window.get_status(), inst_data.state, window.is_enabled());
+    let (draw_data, _) = push_button_bank_data(inst_data, bank);
+    let image = button_draw_entry_image(draw_data, index);
 
     let Some(image) = image else {
         return;
@@ -1836,7 +1931,7 @@ fn resolve_push_button_three_piece_images<'a>(
     &'a super::game_window::Image,
     &'a super::game_window::Image,
 )> {
-    let selected = inst_data.state.contains(WindowState::PUSHED);
+    let selected = push_button_is_selected(inst_data.state);
     if window
         .get_status()
         .contains(WindowStatus::USE_OVERLAY_STATES)
@@ -1850,12 +1945,9 @@ fn resolve_push_button_three_piece_images<'a>(
         (0usize, 5usize, 6usize)
     };
 
-    let left = button_draw_entry_image(draw_data, left_idx)
-        .or_else(|| button_draw_entry_image(draw_data, 0))?;
-    let center = button_draw_entry_image(draw_data, center_idx)
-        .or_else(|| button_draw_entry_image(draw_data, 5))?;
-    let right = button_draw_entry_image(draw_data, right_idx)
-        .or_else(|| button_draw_entry_image(draw_data, 6))?;
+    let left = button_draw_entry_image(draw_data, left_idx)?;
+    let center = button_draw_entry_image(draw_data, center_idx)?;
+    let right = button_draw_entry_image(draw_data, right_idx)?;
     Some((left, center, right))
 }
 
@@ -1954,14 +2046,19 @@ fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
         return;
     }
 
-    if button_draw_entry_image(draw_data, 0).is_some() {
-        draw_push_button_image_one(window, inst_data, draw_data);
+    let (one_bank, one_index) =
+        push_button_one_image_source(window.get_status(), inst_data.state, window.is_enabled());
+    let (one_draw_data, _) = push_button_bank_data(inst_data, one_bank);
+    if button_draw_entry_image(one_draw_data, one_index).is_some() {
+        draw_push_button_image_one(window, inst_data);
         let _ = text_colors;
         return;
     }
 
+    let (_, color_index) =
+        push_button_color_entry_index(window.get_status(), inst_data.state, window.is_enabled());
     let _ = with_ui_renderer_mut(|renderer| {
-        if let Some(entry) = draw_data.first() {
+        if let Some(entry) = draw_data.get(color_index) {
             if entry.color != WIN_COLOR_UNDEFINED {
                 renderer.draw_rect(rect, super::game_window::color_to_rgba(entry.color), 0.0);
             }
