@@ -1039,21 +1039,6 @@ mod tests {
             ]
         );
     }
-
-    #[test]
-    fn horizontal_slider_box_image_sources_match_cpp() {
-        assert_eq!(
-            horizontal_slider_box_image_sources(),
-            HorizontalSliderBoxImageSources {
-                filled_bank: SliderImageBank::Disabled,
-                filled_slot: 0,
-                blank_bank: SliderImageBank::Disabled,
-                blank_slot: 1,
-                highlight_bank: SliderImageBank::Hilite,
-                highlight_slot: 0,
-            }
-        );
-    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -3396,72 +3381,28 @@ pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &Window
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SliderImageBank {
-    Disabled,
-    Hilite,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct HorizontalSliderBoxImageSources {
-    filled_bank: SliderImageBank,
-    filled_slot: usize,
-    blank_bank: SliderImageBank,
-    blank_slot: usize,
-    highlight_bank: SliderImageBank,
-    highlight_slot: usize,
-}
-
-fn horizontal_slider_box_image_sources() -> HorizontalSliderBoxImageSources {
-    HorizontalSliderBoxImageSources {
-        filled_bank: SliderImageBank::Disabled,
-        filled_slot: 0,
-        blank_bank: SliderImageBank::Disabled,
-        blank_slot: 1,
-        highlight_bank: SliderImageBank::Hilite,
-        highlight_slot: 0,
-    }
-}
-
-fn slider_image_from_bank<'a>(
-    inst_data: &'a WindowInstanceData,
-    bank: SliderImageBank,
-    slot: usize,
-) -> Option<&'a super::game_window::Image> {
-    let draw_data = match bank {
-        SliderImageBank::Disabled => &inst_data.disabled_draw_data,
-        SliderImageBank::Hilite => &inst_data.hilite_draw_data,
-    };
-    draw_data.get(slot).and_then(|entry| entry.image.as_ref())
-}
-
 pub fn w3d_gadget_horizontal_slider_image_draw(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
 ) {
-    let image_sources = horizontal_slider_box_image_sources();
-    let filled = slider_image_from_bank(
-        inst_data,
-        image_sources.filled_bank,
-        image_sources.filled_slot,
-    );
-    let blank = slider_image_from_bank(
-        inst_data,
-        image_sources.blank_bank,
-        image_sources.blank_slot,
-    );
-    let highlight = slider_image_from_bank(
-        inst_data,
-        image_sources.highlight_bank,
-        image_sources.highlight_slot,
-    );
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
+    let filled = &draw_data[0].image;
+    let blank = &draw_data[1].image;
+    let highlight = &draw_data[2].image;
 
     let (mut origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
     let slider_data = None;
     let selected_percent = slider_percent(window, slider_data);
 
-    let (box_width, box_padding) = if let Some(image) = filled {
+    let (box_width, box_padding) = if let Some(image) = filled.as_ref() {
         let x_multi = with_window_manager_ref(|manager| manager.screen_size().0 as f32 / 800.0);
         (((image.width as f32 * x_multi).round() as i32).max(1), 2)
     } else {
