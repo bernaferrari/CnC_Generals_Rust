@@ -1063,6 +1063,129 @@ mod tests {
     }
 
     #[test]
+    fn vertical_slider_image_layout_matches_cpp_overlap() {
+        assert_eq!(
+            vertical_slider_image_draws(10, 20, 12, 30, 3, 2, 8, 20, 7, 18, 5, 4, 4),
+            vec![
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Top,
+                    start_x: 13,
+                    start_y: 22,
+                    end_x: 21,
+                    end_y: 35,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Bottom,
+                    start_x: 13,
+                    start_y: 35,
+                    end_x: 20,
+                    end_y: 52,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn vertical_slider_image_layout_matches_cpp_center_and_small_center() {
+        assert_eq!(
+            vertical_slider_image_draws(10, 20, 12, 60, 3, 2, 8, 10, 7, 9, 5, 4, 4),
+            vec![
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 32,
+                    end_x: 18,
+                    end_y: 36,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 36,
+                    end_x: 18,
+                    end_y: 40,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 40,
+                    end_x: 18,
+                    end_y: 44,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 44,
+                    end_x: 18,
+                    end_y: 48,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 48,
+                    end_x: 18,
+                    end_y: 52,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 52,
+                    end_x: 18,
+                    end_y: 56,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 56,
+                    end_x: 18,
+                    end_y: 60,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 60,
+                    end_x: 18,
+                    end_y: 64,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 64,
+                    end_x: 18,
+                    end_y: 68,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Center,
+                    start_x: 13,
+                    start_y: 68,
+                    end_x: 18,
+                    end_y: 72,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::SmallCenter,
+                    start_x: 13,
+                    start_y: 72,
+                    end_x: 18,
+                    end_y: 76,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Top,
+                    start_x: 13,
+                    start_y: 22,
+                    end_x: 21,
+                    end_y: 32,
+                },
+                VerticalSliderImageDraw {
+                    part: VerticalSliderImagePart::Bottom,
+                    start_x: 13,
+                    start_y: 73,
+                    end_x: 20,
+                    end_y: 82,
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn list_box_selected_image_slots_match_cpp_gate() {
         assert_eq!(
             list_box_selected_image_slots([true, true, true, true]),
@@ -4254,6 +4377,112 @@ pub fn w3d_gadget_vertical_slider_draw(window: &GameWindow, inst_data: &WindowIn
     w3d_gadget_horizontal_slider_draw(window, inst_data);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VerticalSliderImagePart {
+    Top,
+    Bottom,
+    Center,
+    SmallCenter,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct VerticalSliderImageDraw {
+    part: VerticalSliderImagePart,
+    start_x: i32,
+    start_y: i32,
+    end_x: i32,
+    end_y: i32,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn vertical_slider_image_draws(
+    origin_x: i32,
+    origin_y: i32,
+    _size_x: i32,
+    size_y: i32,
+    x_offset: i32,
+    y_offset: i32,
+    top_width: i32,
+    top_height: i32,
+    bottom_width: i32,
+    bottom_height: i32,
+    center_width: i32,
+    center_height: i32,
+    small_center_height: i32,
+) -> Vec<VerticalSliderImageDraw> {
+    let center_height = center_height.max(1);
+    let small_center_height = small_center_height.max(1);
+    let mut draws = Vec::new();
+
+    if top_height + bottom_height >= size_y {
+        let split_y = origin_y + size_y / 2;
+        draws.push(VerticalSliderImageDraw {
+            part: VerticalSliderImagePart::Top,
+            start_x: origin_x + x_offset,
+            start_y: origin_y + y_offset,
+            end_x: origin_x + x_offset + top_width,
+            end_y: split_y,
+        });
+        draws.push(VerticalSliderImageDraw {
+            part: VerticalSliderImagePart::Bottom,
+            start_x: origin_x + x_offset,
+            start_y: split_y,
+            end_x: origin_x + x_offset + bottom_width,
+            end_y: origin_y + y_offset + size_y,
+        });
+        return draws;
+    }
+
+    let top_end_x = origin_x + top_width + x_offset;
+    let top_end_y = origin_y + top_height + y_offset;
+    let bottom_start_x = origin_x + x_offset;
+    let bottom_start_y = origin_y + size_y - bottom_height + y_offset;
+    let start_x = origin_x + x_offset;
+    let mut start_y = top_end_y;
+    let end_x = start_x + center_width;
+    let center_band_height = bottom_start_y - top_end_y;
+    let pieces = center_band_height / center_height;
+    for _ in 0..pieces {
+        draws.push(VerticalSliderImageDraw {
+            part: VerticalSliderImagePart::Center,
+            start_x,
+            start_y,
+            end_x,
+            end_y: start_y + center_height,
+        });
+        start_y += center_height;
+    }
+
+    let remaining_height = bottom_start_y - start_y;
+    let pieces = remaining_height / small_center_height.max(1) + 1;
+    for _ in 0..pieces {
+        draws.push(VerticalSliderImageDraw {
+            part: VerticalSliderImagePart::SmallCenter,
+            start_x,
+            start_y,
+            end_x: start_x + center_width,
+            end_y: start_y + small_center_height,
+        });
+        start_y += small_center_height;
+    }
+
+    draws.push(VerticalSliderImageDraw {
+        part: VerticalSliderImagePart::Top,
+        start_x: origin_x + x_offset,
+        start_y: origin_y + y_offset,
+        end_x: top_end_x,
+        end_y: top_end_y,
+    });
+    draws.push(VerticalSliderImageDraw {
+        part: VerticalSliderImagePart::Bottom,
+        start_x: bottom_start_x,
+        start_y: bottom_start_y,
+        end_x: bottom_start_x + bottom_width,
+        end_y: bottom_start_y + bottom_height,
+    });
+    draws
+}
+
 pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, _) = if !window.is_enabled() {
         (&inst_data.disabled_draw_data, &inst_data.disabled_text)
@@ -4291,114 +4520,34 @@ pub fn w3d_gadget_vertical_slider_image_draw(window: &GameWindow, inst_data: &Wi
     let bottom_width = bottom_image.width;
     let bottom_height = bottom_image.height;
 
-    if top_height + bottom_height >= size_y {
-        // top and bottom images overlap or fill the whole window
-        // draw top end in first half
-        let start_x = origin_x + x_offset;
-        let start_y = origin_y + y_offset;
-        let end_x = origin_x + x_offset + top_width;
-        let end_y = origin_y + size_y / 2;
+    for draw in vertical_slider_image_draws(
+        origin_x,
+        origin_y,
+        size_x,
+        size_y,
+        x_offset,
+        y_offset,
+        top_width,
+        top_height,
+        bottom_width,
+        bottom_height,
+        center_image.width,
+        center_image.height,
+        small_center_image.height,
+    ) {
+        let image = match draw.part {
+            VerticalSliderImagePart::Top => top_image,
+            VerticalSliderImagePart::Bottom => bottom_image,
+            VerticalSliderImagePart::Center => center_image,
+            VerticalSliderImagePart::SmallCenter => small_center_image,
+        };
         with_window_manager_ref(|manager| {
             manager.win_draw_image(
-                top_image,
-                start_x,
-                start_y,
-                end_x,
-                end_y,
-                WIN_COLOR_UNDEFINED,
-            );
-        });
-
-        // draw bottom end in second half
-        let start_y = origin_y + size_y / 2;
-        let end_x = origin_x + x_offset + bottom_width;
-        let end_y = origin_y + y_offset + size_y;
-        with_window_manager_ref(|manager| {
-            manager.win_draw_image(
-                bottom_image,
-                start_x,
-                start_y,
-                end_x,
-                end_y,
-                WIN_COLOR_UNDEFINED,
-            );
-        });
-    } else {
-        // get two key points used in the end drawing
-        let top_end_x = origin_x + top_width + x_offset;
-        let top_end_y = origin_y + top_height + y_offset;
-        let bottom_start_x = origin_x + x_offset;
-        let bottom_start_y = origin_y + size_y - bottom_height + y_offset;
-
-        // draw the center repeating bar
-        let center_height = bottom_start_y - top_end_y;
-        let pieces = center_height / center_image.height.max(1);
-
-        let start_x = origin_x + x_offset;
-        let mut start_y = top_end_y;
-        let end_x = start_x + center_image.width;
-        for _ in 0..pieces {
-            let end_y = start_y + center_image.height;
-            with_window_manager_ref(|manager| {
-                manager.win_draw_image(
-                    center_image,
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                    WIN_COLOR_UNDEFINED,
-                );
-            });
-            start_y += center_image.height;
-        }
-
-        // fill remaining gap with small center pieces, overlapping underneath the bottom end
-        let center_height = bottom_start_y - start_y;
-        let pieces = center_height / small_center_image.height.max(1) + 1;
-        let end_x = start_x + small_center_image.width;
-        for _ in 0..pieces {
-            let end_y = start_y + small_center_image.height;
-            with_window_manager_ref(|manager| {
-                manager.win_draw_image(
-                    small_center_image,
-                    start_x,
-                    start_y,
-                    end_x,
-                    end_y,
-                    WIN_COLOR_UNDEFINED,
-                );
-            });
-            start_y += small_center_image.height;
-        }
-
-        // draw top end
-        let start_x = origin_x + x_offset;
-        let start_y = origin_y + y_offset;
-        let end_x = top_end_x;
-        let end_y = top_end_y;
-        with_window_manager_ref(|manager| {
-            manager.win_draw_image(
-                top_image,
-                start_x,
-                start_y,
-                end_x,
-                end_y,
-                WIN_COLOR_UNDEFINED,
-            );
-        });
-
-        // draw bottom end
-        let start_x = bottom_start_x;
-        let start_y = bottom_start_y;
-        let end_x = start_x + bottom_width;
-        let end_y = start_y + bottom_height;
-        with_window_manager_ref(|manager| {
-            manager.win_draw_image(
-                bottom_image,
-                start_x,
-                start_y,
-                end_x,
-                end_y,
+                image,
+                draw.start_x,
+                draw.start_y,
+                draw.end_x,
+                draw.end_y,
                 WIN_COLOR_UNDEFINED,
             );
         });
