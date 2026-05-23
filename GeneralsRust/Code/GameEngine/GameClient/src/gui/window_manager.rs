@@ -1196,15 +1196,27 @@ impl WindowManager {
 
     /// Process key event
     pub fn process_key_event(&mut self, key: u8, state: u8) -> WindowInputReturnCode {
-        if let Some(focus_window) = self.get_focus() {
-            // Convert key to char message
-            let msg = WindowMessage::Char;
-            let data = (key as u32) | ((state as u32) << 8);
+        if key == 0 {
+            return WindowInputReturnCode::NotUsed;
+        }
 
-            let result = focus_window.borrow_mut().send_input_message(msg, data, 0);
-            match result {
-                WindowMsgHandled::Handled => WindowInputReturnCode::Used,
-                WindowMsgHandled::Ignored => WindowInputReturnCode::NotUsed,
+        if let Some(mut window) = self.get_focus() {
+            loop {
+                let result = window.borrow_mut().send_input_message(
+                    WindowMessage::Char,
+                    key as u32,
+                    state as u32,
+                );
+                if result == WindowMsgHandled::Handled {
+                    return WindowInputReturnCode::Used;
+                }
+
+                let parent = window.borrow().get_parent();
+                if let Some(parent) = parent {
+                    window = parent;
+                } else {
+                    return WindowInputReturnCode::NotUsed;
+                }
             }
         } else {
             WindowInputReturnCode::NotUsed
@@ -4651,6 +4663,47 @@ mod tests {
 
         let focused = manager.get_focus().unwrap();
         assert!(Rc::ptr_eq(&child, &focused));
+    }
+
+    #[test]
+    fn process_key_event_passes_key_and_state_to_parent_until_handled() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 20, 20)
+            .unwrap();
+        parent
+            .borrow_mut()
+            .set_system_callback(|_, msg, data1, _| match msg {
+                WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
+        child
+            .borrow_mut()
+            .set_input_callback(|_, msg, _, _| match msg {
+                WindowMessage::Char => WindowMsgHandled::Ignored,
+                _ => WindowMsgHandled::Ignored,
+            });
+
+        let seen = Rc::new(RefCell::new(None));
+        let seen_for_callback = seen.clone();
+        parent
+            .borrow_mut()
+            .set_input_callback(move |_, msg, data1, data2| match msg {
+                WindowMessage::Char => {
+                    *seen_for_callback.borrow_mut() = Some((data1, data2));
+                    WindowMsgHandled::Handled
+                }
+                _ => WindowMsgHandled::Ignored,
+            });
+
+        manager.set_focus(Some(&child)).unwrap();
+
+        assert_eq!(
+            manager.process_key_event(13, KEY_STATE_DOWN as u8),
+            WindowInputReturnCode::Used
+        );
+        assert_eq!(*seen.borrow(), Some((13, KEY_STATE_DOWN)));
     }
 
     #[test]
