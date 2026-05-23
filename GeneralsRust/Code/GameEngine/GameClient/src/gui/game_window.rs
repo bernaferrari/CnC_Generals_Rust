@@ -34,6 +34,15 @@ use crate::gui::window_manager::{with_window_manager, TabDirection};
 /// Window ID type for uniquely identifying windows
 pub type WindowId = i32;
 
+const KEY_STATE_UP: WindowMsgData = 0x0001;
+const KEY_STATE_DOWN: WindowMsgData = 0x0002;
+const KEY_STATE_LCONTROL: WindowMsgData = 0x0004;
+const KEY_STATE_RCONTROL: WindowMsgData = 0x0008;
+const KEY_STATE_LSHIFT: WindowMsgData = 0x0010;
+const KEY_STATE_RSHIFT: WindowMsgData = 0x0020;
+const KEY_STATE_LALT: WindowMsgData = 0x0040;
+const KEY_STATE_RALT: WindowMsgData = 0x0080;
+
 /// Window message data type
 pub type WindowMsgData = u32;
 
@@ -1531,7 +1540,7 @@ impl GameWindow {
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
         let Some(widget) = self.widget.as_mut() else {
             return WindowMsgHandled::Ignored;
@@ -1598,10 +1607,7 @@ impl GameWindow {
                 y,
                 button: MouseButton::Right,
             }),
-            WindowMessage::Char => Some(InputEvent::KeyDown {
-                key: map_keycode(data1),
-                modifiers: KeyModifiers::none(),
-            }),
+            WindowMessage::Char => char_input_event(data1, data2),
             _ => None,
         };
 
@@ -1609,10 +1615,16 @@ impl GameWindow {
             return WindowMsgHandled::Ignored;
         };
 
+        let state_before = widget.state();
         let messages = widget.handle_input(&event);
+        let state_changed = widget.state() != state_before;
         self.sync_state_from_widget();
         if messages.is_empty() {
-            return WindowMsgHandled::Ignored;
+            return if state_changed {
+                WindowMsgHandled::Handled
+            } else {
+                WindowMsgHandled::Ignored
+            };
         }
 
         if matches!(
@@ -2881,6 +2893,27 @@ fn map_keycode(data: WindowMsgData) -> KeyCode {
     }
 }
 
+fn key_modifiers_from_state(state: WindowMsgData) -> KeyModifiers {
+    KeyModifiers {
+        shift: (state & (KEY_STATE_LSHIFT | KEY_STATE_RSHIFT)) != 0,
+        ctrl: (state & (KEY_STATE_LCONTROL | KEY_STATE_RCONTROL)) != 0,
+        alt: (state & (KEY_STATE_LALT | KEY_STATE_RALT)) != 0,
+    }
+}
+
+fn char_input_event(key: WindowMsgData, state: WindowMsgData) -> Option<InputEvent> {
+    let key = map_keycode(key);
+    let modifiers = key_modifiers_from_state(state);
+
+    if (state & KEY_STATE_DOWN) != 0 {
+        Some(InputEvent::KeyDown { key, modifiers })
+    } else if (state & KEY_STATE_UP) != 0 {
+        Some(InputEvent::KeyUp { key, modifiers })
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3003,6 +3036,37 @@ mod tests {
         );
         assert_eq!(
             window.send_input_message(WindowMessage::RightDown, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+    }
+
+    #[test]
+    fn char_key_state_up_maps_to_widget_key_up() {
+        let mut window = GameWindow::new();
+        window.set_id(7);
+        window.set_status(WindowStatus::ENABLED);
+        window.set_widget(WindowWidget::PushButton(PushButton::new(7, 0, 0, 100, 30)));
+        window.set_system_callback(|_, msg, data1, _| {
+            if msg == WindowMessage::GadgetSelected && data1 == 7 {
+                WindowMsgHandled::Handled
+            } else {
+                WindowMsgHandled::Ignored
+            }
+        });
+        if let Some(WindowWidget::PushButton(button)) = window.widget_mut() {
+            button.set_focus(true);
+        }
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::Char, 13, KEY_STATE_DOWN),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_input_message(WindowMessage::Char, 13, KEY_STATE_UP),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_input_message(WindowMessage::Char, 13, 0),
             WindowMsgHandled::Ignored
         );
     }
