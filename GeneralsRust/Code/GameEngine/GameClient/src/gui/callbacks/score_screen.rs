@@ -1131,25 +1131,22 @@ pub fn score_screen_input(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    if msg == WindowMessage::Char {
-        let key = data1 as u32;
-        let state = data2 as u32;
-        if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
-            let button_ok = name_to_id("ScoreScreen.wnd:ButtonOk") as u32;
-            let _ = with_window_manager(|manager| {
-                manager.get_window_by_id(window.get_id()).map(|handle| {
-                    handle.borrow_mut().send_system_message(
-                        WindowMessage::GadgetSelected,
-                        button_ok,
-                        0,
-                    )
-                })
-            });
-            return WindowMsgHandled::Handled;
-        }
+    if msg != WindowMessage::Char || data1 != KEY_ESC {
+        return WindowMsgHandled::Ignored;
     }
 
-    WindowMsgHandled::Ignored
+    if (data2 & KEY_STATE_UP) != 0 {
+        let button_ok = name_to_id("ScoreScreen.wnd:ButtonOk") as u32;
+        let _ = with_window_manager(|manager| {
+            manager.get_window_by_id(window.get_id()).map(|handle| {
+                handle
+                    .borrow_mut()
+                    .send_system_message(WindowMessage::GadgetSelected, button_ok, 0)
+            })
+        });
+    }
+
+    WindowMsgHandled::Handled
 }
 
 pub fn score_screen_system(
@@ -1246,5 +1243,19 @@ mod tests {
 
         assert_eq!(final_victory_movie_to_queue(&empty, false), None);
         assert_eq!(final_victory_movie_to_queue(&normal, true), None);
+    }
+
+    #[test]
+    fn esc_char_is_consumed_before_key_up_like_cpp() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            score_screen_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            score_screen_input(&window, WindowMessage::Char, b'A' as u32, 0),
+            WindowMsgHandled::Ignored
+        );
     }
 }
