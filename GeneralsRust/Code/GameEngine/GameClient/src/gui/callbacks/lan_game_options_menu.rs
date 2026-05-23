@@ -1157,13 +1157,58 @@ pub fn lan_game_options_menu_input(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    if msg == WindowMessage::Char {
-        let key = data1 as u32;
-        let state = data2 as u32;
-        if key == KEY_ESC && (state & KEY_STATE_UP) != 0 {
-            let _ = get_shell().pop();
-            return WindowMsgHandled::Handled;
-        }
+    if msg != WindowMessage::Char || data1 != KEY_ESC {
+        return WindowMsgHandled::Ignored;
     }
-    WindowMsgHandled::Ignored
+
+    if lan_button_pushed() {
+        return WindowMsgHandled::Ignored;
+    }
+
+    if (data2 & KEY_STATE_UP) != 0 {
+        with_state_ref(|state| {
+            if let Some(parent) = state.parent.as_ref() {
+                let _ = parent.borrow_mut().send_system_message(
+                    WindowMessage::GadgetSelected,
+                    state.button_back_id as u32,
+                    state.button_back_id as u32,
+                );
+            }
+        });
+    }
+
+    WindowMsgHandled::Handled
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn esc_char_is_consumed_before_key_up_like_cpp() {
+        let window = GameWindow::new();
+        set_lan_button_pushed(false);
+
+        assert_eq!(
+            lan_game_options_menu_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            lan_game_options_menu_input(&window, WindowMessage::Char, b'A' as u32, 0),
+            WindowMsgHandled::Ignored
+        );
+    }
+
+    #[test]
+    fn esc_char_is_ignored_after_button_pushed_like_cpp() {
+        let window = GameWindow::new();
+        set_lan_button_pushed(true);
+
+        assert_eq!(
+            lan_game_options_menu_input(&window, WindowMessage::Char, KEY_ESC, KEY_STATE_UP),
+            WindowMsgHandled::Ignored
+        );
+
+        set_lan_button_pushed(false);
+    }
 }
