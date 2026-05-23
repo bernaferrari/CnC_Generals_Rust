@@ -725,7 +725,7 @@ mod tests {
         check_box_image_source, horizontal_slider_box_counts, horizontal_slider_box_image_sources,
         horizontal_slider_image_draw_a_sources, horizontal_slider_image_draw_b_sources,
         progress_bar_image_draw_a_bank, progress_bar_image_draw_a_sources,
-        progress_bar_image_sources,
+        progress_bar_image_sources, radio_button_image_sources,
     };
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
@@ -922,6 +922,30 @@ mod tests {
         assert_eq!(
             check_box_image_source(WindowState::SELECTED, false),
             (PushButtonDrawBank::Disabled, 2)
+        );
+    }
+
+    #[test]
+    fn radio_button_image_sources_match_cpp_branch_order() {
+        assert_eq!(
+            radio_button_image_sources(WindowState::SELECTED, true),
+            (PushButtonDrawBank::Hilite, [3, 4, 5])
+        );
+        assert_eq!(
+            radio_button_image_sources(WindowState::SELECTED | WindowState::DISABLED, false),
+            (PushButtonDrawBank::Hilite, [3, 4, 5])
+        );
+        assert_eq!(
+            radio_button_image_sources(WindowState::DISABLED, true),
+            (PushButtonDrawBank::Disabled, [0, 1, 2])
+        );
+        assert_eq!(
+            radio_button_image_sources(WindowState::HILITED, true),
+            (PushButtonDrawBank::Hilite, [0, 1, 2])
+        );
+        assert_eq!(
+            radio_button_image_sources(WindowState::empty(), true),
+            (PushButtonDrawBank::Enabled, [0, 1, 2])
         );
     }
 }
@@ -2884,6 +2908,21 @@ fn is_radio_selected(window: &GameWindow) -> bool {
     window.instance_data().state.contains(WindowState::PUSHED)
 }
 
+fn radio_button_image_sources(
+    state: WindowState,
+    enabled: bool,
+) -> (PushButtonDrawBank, [usize; 3]) {
+    if state.contains(WindowState::SELECTED) {
+        (PushButtonDrawBank::Hilite, [3, 4, 5])
+    } else if !enabled || state.contains(WindowState::DISABLED) {
+        (PushButtonDrawBank::Disabled, [0, 1, 2])
+    } else if state.contains(WindowState::HILITED) {
+        (PushButtonDrawBank::Hilite, [0, 1, 2])
+    } else {
+        (PushButtonDrawBank::Enabled, [0, 1, 2])
+    }
+}
+
 pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
     {
@@ -2996,8 +3035,10 @@ fn draw_radio_button_image_strip(
     let center_clip = region_from_corners(left_end_x, origin_y, right_start_x, strip_bottom_y);
 
     let mut start_x = left_end_x;
-    while start_x < right_start_x {
-        let end_x = (start_x + center_w).min(right_start_x);
+    let center_width = right_start_x - left_end_x;
+    let pieces = center_width / center_w + 1;
+    for _ in 0..pieces {
+        let end_x = start_x + center_w;
         draw_window_image_clipped(
             center,
             start_x,
@@ -3030,44 +3071,29 @@ fn draw_radio_button_image_strip(
 }
 
 pub fn w3d_gadget_radio_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let draw_data = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
-        &inst_data.disabled_draw_data
-    } else if inst_data.state.contains(WindowState::HILITED) {
-        &inst_data.hilite_draw_data
+    let state = if is_radio_selected(window) {
+        inst_data.state | WindowState::SELECTED
     } else {
-        &inst_data.enabled_draw_data
+        inst_data.state & !WindowState::SELECTED
     };
-    let selected = is_radio_selected(window);
-    let image_set = if selected {
-        (
-            &draw_data[0].image,
-            &draw_data[1].image,
-            &draw_data[2].image,
-        )
-    } else if inst_data.state.contains(WindowState::HILITED)
-        && draw_data[3].image.is_some()
-        && draw_data[4].image.is_some()
-        && draw_data[5].image.is_some()
-    {
-        (
-            &draw_data[3].image,
-            &draw_data[4].image,
-            &draw_data[5].image,
-        )
-    } else {
-        (
-            &draw_data[0].image,
-            &draw_data[1].image,
-            &draw_data[2].image,
-        )
-    };
+    let (bank, [left_index, center_index, right_index]) =
+        radio_button_image_sources(state, window.is_enabled());
+    let (draw_data, _) = push_button_bank_data(inst_data, bank);
+    let image_set = (
+        draw_data
+            .get(left_index)
+            .and_then(|entry| entry.image.as_ref()),
+        draw_data
+            .get(center_index)
+            .and_then(|entry| entry.image.as_ref()),
+        draw_data
+            .get(right_index)
+            .and_then(|entry| entry.image.as_ref()),
+    );
 
     if let (Some(left), Some(center), Some(right)) = image_set {
-        let rect = press_scaled_rect(window);
-        let origin_x = rect.x as i32;
-        let origin_y = rect.y as i32;
-        let size_x = rect.width as i32;
-        let size_y = rect.height as i32;
+        let (origin_x, origin_y) = window.get_screen_position();
+        let (size_x, size_y) = window.get_size();
         draw_radio_button_image_strip(
             left,
             center,
