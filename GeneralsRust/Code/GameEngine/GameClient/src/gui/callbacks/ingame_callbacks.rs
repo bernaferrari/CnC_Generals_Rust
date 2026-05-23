@@ -605,10 +605,7 @@ impl ReplayControlCallbacks {
             msg,
             window.get_name()
         );
-        match msg {
-            WindowMessage::GadgetSelected => WindowMsgHandled::Handled,
-            _ => WindowMsgHandled::Ignored,
-        }
+        WindowMsgHandled::Ignored
     }
 
     /// Toggle fast forward mode
@@ -928,5 +925,29 @@ fn map_target_mask(target_mask: i32) -> InGameChatType {
         InGameChatType::Everyone
     } else {
         InGameChatType::Players
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn replay_control_input_is_always_ignored_like_cpp() {
+        let mut replay = ReplayControlCallbacks::new();
+        let window = GameWindow::new();
+
+        assert_eq!(
+            replay.input(&window, WindowMessage::GadgetSelected, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            replay.input(&window, WindowMessage::Char, KEY_ESC, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            replay.system(&window, WindowMessage::GadgetSelected, 0, 0),
+            WindowMsgHandled::Handled
+        );
     }
 }
