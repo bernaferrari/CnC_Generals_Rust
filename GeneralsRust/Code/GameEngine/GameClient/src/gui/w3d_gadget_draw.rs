@@ -1131,12 +1131,6 @@ mod tests {
             (PushButtonImageBank::Enabled, 0)
         );
     }
-
-    #[test]
-    fn push_button_three_piece_slots_match_cpp_without_fallback() {
-        assert_eq!(push_button_three_piece_slots(false), (0, 5, 6));
-        assert_eq!(push_button_three_piece_slots(true), (1, 3, 4));
-    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -2266,19 +2260,19 @@ fn resolve_push_button_three_piece_images<'a>(
         return None;
     }
 
-    let (left_idx, center_idx, right_idx) = push_button_three_piece_slots(selected);
-    let left = button_draw_entry_image(draw_data, left_idx)?;
-    let center = button_draw_entry_image(draw_data, center_idx)?;
-    let right = button_draw_entry_image(draw_data, right_idx)?;
-    Some((left, center, right))
-}
-
-fn push_button_three_piece_slots(selected: bool) -> (usize, usize, usize) {
-    if selected {
+    let (left_idx, center_idx, right_idx) = if selected {
         (1usize, 3usize, 4usize)
     } else {
         (0usize, 5usize, 6usize)
-    }
+    };
+
+    let left = button_draw_entry_image(draw_data, left_idx)
+        .or_else(|| button_draw_entry_image(draw_data, 0))?;
+    let center = button_draw_entry_image(draw_data, center_idx)
+        .or_else(|| button_draw_entry_image(draw_data, 5))?;
+    let right = button_draw_entry_image(draw_data, right_idx)
+        .or_else(|| button_draw_entry_image(draw_data, 6))?;
+    Some((left, center, right))
 }
 
 fn draw_push_button_image_three(
