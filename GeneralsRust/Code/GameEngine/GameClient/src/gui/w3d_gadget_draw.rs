@@ -723,7 +723,7 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
 mod tests {
     use super::{
         horizontal_slider_box_counts, horizontal_slider_box_image_sources,
-        horizontal_slider_image_draw_b_sources,
+        horizontal_slider_image_draw_a_sources, horizontal_slider_image_draw_b_sources,
     };
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
@@ -849,6 +849,40 @@ mod tests {
     #[test]
     fn horizontal_slider_image_draw_b_sources_match_cpp() {
         assert_eq!(horizontal_slider_image_draw_b_sources(), (0, 1, 0));
+    }
+
+    #[test]
+    fn horizontal_slider_image_draw_a_sources_match_cpp_enabled_path() {
+        assert_eq!(
+            horizontal_slider_image_draw_a_sources(true),
+            [
+                (PushButtonDrawBank::Hilite, 0),
+                (PushButtonDrawBank::Hilite, 1),
+                (PushButtonDrawBank::Hilite, 2),
+                (PushButtonDrawBank::Hilite, 3),
+                (PushButtonDrawBank::Enabled, 0),
+                (PushButtonDrawBank::Enabled, 1),
+                (PushButtonDrawBank::Enabled, 2),
+                (PushButtonDrawBank::Enabled, 3),
+            ]
+        );
+    }
+
+    #[test]
+    fn horizontal_slider_image_draw_a_sources_share_disabled_images() {
+        assert_eq!(
+            horizontal_slider_image_draw_a_sources(false),
+            [
+                (PushButtonDrawBank::Disabled, 0),
+                (PushButtonDrawBank::Disabled, 1),
+                (PushButtonDrawBank::Disabled, 2),
+                (PushButtonDrawBank::Disabled, 3),
+                (PushButtonDrawBank::Disabled, 0),
+                (PushButtonDrawBank::Disabled, 1),
+                (PushButtonDrawBank::Disabled, 2),
+                (PushButtonDrawBank::Disabled, 3),
+            ]
+        );
     }
 }
 
@@ -2977,6 +3011,32 @@ fn horizontal_slider_image_draw_b_sources() -> (usize, usize, usize) {
     (0, 1, 0)
 }
 
+fn horizontal_slider_image_draw_a_sources(enabled: bool) -> [(PushButtonDrawBank, usize); 8] {
+    if enabled {
+        [
+            (PushButtonDrawBank::Hilite, 0),
+            (PushButtonDrawBank::Hilite, 1),
+            (PushButtonDrawBank::Hilite, 2),
+            (PushButtonDrawBank::Hilite, 3),
+            (PushButtonDrawBank::Enabled, 0),
+            (PushButtonDrawBank::Enabled, 1),
+            (PushButtonDrawBank::Enabled, 2),
+            (PushButtonDrawBank::Enabled, 3),
+        ]
+    } else {
+        [
+            (PushButtonDrawBank::Disabled, 0),
+            (PushButtonDrawBank::Disabled, 1),
+            (PushButtonDrawBank::Disabled, 2),
+            (PushButtonDrawBank::Disabled, 3),
+            (PushButtonDrawBank::Disabled, 0),
+            (PushButtonDrawBank::Disabled, 1),
+            (PushButtonDrawBank::Disabled, 2),
+            (PushButtonDrawBank::Disabled, 3),
+        ]
+    }
+}
+
 fn horizontal_slider_box_counts(
     box_width: i32,
     size_x: i32,
@@ -3092,35 +3152,37 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
 ) {
-    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
-    {
-        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
-    } else if inst_data.state.contains(WindowState::HILITED) {
-        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
-    } else {
-        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    let source_enabled = !inst_data.state.contains(WindowState::DISABLED) && window.is_enabled();
+    let sources = horizontal_slider_image_draw_a_sources(source_enabled);
+    let resolve_image = |(bank, index): (PushButtonDrawBank, usize)| {
+        let (draw_data, _) = push_button_bank_data(inst_data, bank);
+        draw_data.get(index).and_then(|entry| entry.image.as_ref())
     };
 
-    let left_image_left = draw_data[0].image.as_ref();
-    let right_image_left = draw_data[1].image.as_ref();
-    let center_image_left = draw_data[2].image.as_ref();
-    let small_center_image_left = draw_data[3].image.as_ref();
-    let left_image_right = draw_data[4].image.as_ref();
-    let right_image_right = draw_data[5].image.as_ref();
-    let center_image_right = draw_data[6].image.as_ref();
-    let small_center_image_right = draw_data[7].image.as_ref();
-
-    if left_image_left.is_none()
-        || right_image_left.is_none()
-        || center_image_left.is_none()
-        || small_center_image_left.is_none()
-        || left_image_right.is_none()
-        || right_image_right.is_none()
-        || center_image_right.is_none()
-        || small_center_image_right.is_none()
-    {
+    let Some(left_image_left) = resolve_image(sources[0]) else {
         return;
-    }
+    };
+    let Some(right_image_left) = resolve_image(sources[1]) else {
+        return;
+    };
+    let Some(center_image_left) = resolve_image(sources[2]) else {
+        return;
+    };
+    let Some(small_center_image_left) = resolve_image(sources[3]) else {
+        return;
+    };
+    let Some(left_image_right) = resolve_image(sources[4]) else {
+        return;
+    };
+    let Some(right_image_right) = resolve_image(sources[5]) else {
+        return;
+    };
+    let Some(center_image_right) = resolve_image(sources[6]) else {
+        return;
+    };
+    let Some(small_center_image_right) = resolve_image(sources[7]) else {
+        return;
+    };
 
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
@@ -3136,22 +3198,14 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
     let x_offset = inst_data.image_offset.x;
     let y_offset = inst_data.image_offset.y;
 
-    let left_image_left = left_image_left.unwrap();
-    let right_image_left = right_image_left.unwrap();
-    let center_image_left = center_image_left.unwrap();
-    let small_center_image_left = small_center_image_left.unwrap();
-    let left_image_right = left_image_right.unwrap();
-    let right_image_right = right_image_right.unwrap();
-    let center_image_right = center_image_right.unwrap();
-    let small_center_image_right = small_center_image_right.unwrap();
-
     let left_size_x = left_image_left.width;
+    let left_size_y = left_image_left.height;
     let right_size_x = right_image_left.width;
 
     let left_end_x = origin_x + left_size_x + x_offset;
     let left_end_y = origin_y + size_y + y_offset;
     let right_start_x = origin_x + size_x - right_size_x + x_offset;
-    let right_start_y = origin_y + size_y - left_size_x + y_offset;
+    let right_start_y = origin_y + size_y - left_size_y + y_offset;
 
     let clip_left = IRegion2D {
         x: origin_x,
@@ -3170,7 +3224,7 @@ pub fn w3d_gadget_horizontal_slider_image_draw_a(
     let center_width = right_start_x - left_end_x;
     let pieces = center_width / center_image_left.width.max(1);
     let mut start_x = left_end_x;
-    let start_y = origin_y + size_y - left_size_x + y_offset;
+    let start_y = origin_y + size_y - left_size_y + y_offset;
     let end_y = origin_y + size_y + y_offset;
 
     for _ in 0..pieces {
