@@ -1994,7 +1994,6 @@ impl CnCGameEngine {
                 player_id: player.id as i32,
                 player_name: player.name.clone(),
                 side_name: player.team.get_name().to_string(),
-                player_template: -1,
                 team_number: player.id as i32,
                 apparent_color: None,
                 is_ai: false,
@@ -2003,7 +2002,6 @@ impl CnCGameEngine {
             game_client::gui::load_screen::LoadScreenInitContext {
                 local_player_name: slot.player_name.clone(),
                 local_side_name: slot.side_name.clone(),
-                local_player_template: None,
                 local_team_number: slot.team_number,
                 map_name: None,
                 start_positions: Vec::new(),
