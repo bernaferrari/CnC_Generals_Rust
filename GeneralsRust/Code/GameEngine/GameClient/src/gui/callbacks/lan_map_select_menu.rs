@@ -59,14 +59,11 @@ fn set_radio_selected(window: &Option<Rc<RefCell<GameWindow>>>, selected: bool) 
         return;
     };
     let mut guard = window.borrow_mut();
-    if matches!(
-        guard.widget(),
-        Some(crate::gui::WindowWidget::RadioButton(_))
-    ) {
-        if selected {
-            guard.set_radio_button_selected(false);
-        } else {
-            guard.clear_radio_button_selected();
+    if let Some(widget) = guard.widget_mut() {
+        if let crate::gui::WindowWidget::RadioButton(radio) = widget {
+            if selected {
+                radio.select();
+            }
         }
     }
 }
