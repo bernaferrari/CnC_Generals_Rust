@@ -2,7 +2,6 @@
 
 use crate::common::game_common::{VeterancyLevel, VETERANCY_NAMES};
 use crate::common::ini::ini::{FieldParse, INIError, INIResult, INI};
-use crate::common::language::Language;
 use crate::common::name_key_generator::NameKeyGenerator;
 use crate::common::rts::money::Money;
 use crate::common::rts::player_template::{get_player_template_store_mut, PlayerTemplate};
@@ -26,10 +25,7 @@ fn parse_int(tokens: &[&str]) -> INIResult<i32> {
 
 fn parse_display_name(tokens: &[&str]) -> INIResult<String> {
     let value = parse_ascii_string(tokens)?;
-    if let Some(stripped) = value.strip_prefix("INI:") {
-        return Ok(Language::get_localized_string(stripped));
-    }
-    Ok(value)
+    INI::translate_label(&value)
 }
 
 fn parse_rgb_color(tokens: &[&str]) -> INIResult<u32> {
