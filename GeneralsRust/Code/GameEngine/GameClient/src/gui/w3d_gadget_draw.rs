@@ -722,7 +722,7 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
 #[cfg(test)]
 mod tests {
     use super::{
-        horizontal_slider_box_counts, horizontal_slider_box_image_sources,
+        check_box_image_source, horizontal_slider_box_counts, horizontal_slider_box_image_sources,
         horizontal_slider_image_draw_a_sources, horizontal_slider_image_draw_b_sources,
         progress_bar_image_draw_a_bank, progress_bar_image_draw_a_sources,
         progress_bar_image_sources,
@@ -898,6 +898,30 @@ mod tests {
         assert_eq!(
             progress_bar_image_draw_a_bank(),
             PushButtonDrawBank::Enabled
+        );
+    }
+
+    #[test]
+    fn check_box_image_source_uses_cpp_checked_slots() {
+        assert_eq!(
+            check_box_image_source(WindowState::empty(), true),
+            (PushButtonDrawBank::Enabled, 1)
+        );
+        assert_eq!(
+            check_box_image_source(WindowState::SELECTED, true),
+            (PushButtonDrawBank::Enabled, 2)
+        );
+        assert_eq!(
+            check_box_image_source(WindowState::HILITED | WindowState::SELECTED, true),
+            (PushButtonDrawBank::Hilite, 2)
+        );
+        assert_eq!(
+            check_box_image_source(WindowState::DISABLED | WindowState::SELECTED, true),
+            (PushButtonDrawBank::Disabled, 2)
+        );
+        assert_eq!(
+            check_box_image_source(WindowState::SELECTED, false),
+            (PushButtonDrawBank::Disabled, 2)
         );
     }
 }
@@ -2688,6 +2712,22 @@ fn is_check_box_checked(window: &GameWindow) -> bool {
     window.instance_data().state.contains(WindowState::PUSHED)
 }
 
+fn check_box_image_source(state: WindowState, enabled: bool) -> (PushButtonDrawBank, usize) {
+    let bank = if !enabled || state.contains(WindowState::DISABLED) {
+        PushButtonDrawBank::Disabled
+    } else if state.contains(WindowState::HILITED) {
+        PushButtonDrawBank::Hilite
+    } else {
+        PushButtonDrawBank::Enabled
+    };
+    let image_index = if state.contains(WindowState::SELECTED) {
+        2
+    } else {
+        1
+    };
+    (bank, image_index)
+}
+
 pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
     {
@@ -2763,22 +2803,22 @@ pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstance
 }
 
 pub fn w3d_gadget_check_box_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
-    {
-        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
-    } else if inst_data.state.contains(WindowState::HILITED) {
-        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    let state = if is_check_box_checked(window) {
+        inst_data.state | WindowState::SELECTED
     } else {
-        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+        inst_data.state & !WindowState::SELECTED
     };
-    let check_box = &draw_data[0];
+    let (bank, image_index) = check_box_image_source(state, window.is_enabled());
+    let (draw_data, _) = push_button_bank_data(inst_data, bank);
+    let Some(check_box) = draw_data.get(image_index) else {
+        draw_check_box_text(window, inst_data);
+        return;
+    };
     if let Some(image) = &check_box.image {
-        let rect = press_scaled_rect(window);
-        let origin_x = rect.x as i32;
-        let origin_y = rect.y as i32;
-        let size_y = rect.height as i32;
+        let (origin_x, origin_y) = window.get_screen_position();
+        let (_, size_y) = window.get_size();
         let start_x = origin_x + inst_data.image_offset.x;
-        let start_y = origin_y + inst_data.image_offset.y + 3;
+        let start_y = origin_y + 3;
         let end_x = start_x + (size_y - 6);
         let end_y = start_y + (size_y - 6);
         with_window_manager_ref(|manager| {
