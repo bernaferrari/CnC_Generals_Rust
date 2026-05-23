@@ -5040,103 +5040,6 @@ pub fn w3d_gadget_combo_box_draw(window: &GameWindow, inst_data: &WindowInstance
             manager.win_fill_rect(back.color, 1.0, x + 1, y + 1, x + width - 1, y + height - 1);
         });
     }
-
-    if let Some(super::game_window::WindowWidget::ComboBox(combo)) = window.widget() {
-        let text = combo.text().to_string();
-        if !text.is_empty() {
-            if let Some(display) = inst_data.display_text.as_ref() {
-                let mut display = display.borrow_mut();
-                display.set_text(text);
-                if let Some(font) = inst_data.font.as_ref() {
-                    display.set_font(font);
-                }
-                display.draw(x + 4, y + 2, text_colors.color, text_colors.border_color);
-            }
-        }
-
-        if combo.is_open() {
-            let dropdown = combo.dropdown_bounds();
-            let dropdown_x = dropdown.x;
-            let dropdown_y = dropdown.y;
-            let dropdown_w = dropdown.width as i32;
-            let dropdown_h = dropdown.height as i32;
-
-            if back.border_color != WIN_COLOR_UNDEFINED {
-                with_window_manager_ref(|manager| {
-                    manager.win_open_rect(
-                        back.border_color,
-                        1.0,
-                        dropdown_x,
-                        dropdown_y,
-                        dropdown_x + dropdown_w,
-                        dropdown_y + dropdown_h,
-                    );
-                });
-            }
-            if back.color != WIN_COLOR_UNDEFINED {
-                with_window_manager_ref(|manager| {
-                    manager.win_fill_rect(
-                        back.color,
-                        1.0,
-                        dropdown_x + 1,
-                        dropdown_y + 1,
-                        dropdown_x + dropdown_w - 1,
-                        dropdown_y + dropdown_h - 1,
-                    );
-                });
-            }
-
-            let item_height = combo.item_height() as i32;
-            let hovered = combo.hovered_item();
-            let selected = combo.selected_index();
-            for (index, item) in combo.items().iter().enumerate() {
-                let item_y = dropdown_y + (index as i32 * item_height);
-                if item_y > dropdown_y + dropdown_h {
-                    break;
-                }
-                if hovered == Some(index) || selected == Some(index) {
-                    let select = &draw_data[1];
-                    if select.border_color != WIN_COLOR_UNDEFINED {
-                        with_window_manager_ref(|manager| {
-                            manager.win_open_rect(
-                                select.border_color,
-                                1.0,
-                                dropdown_x + 1,
-                                item_y,
-                                dropdown_x + dropdown_w - 1,
-                                item_y + item_height,
-                            );
-                        });
-                    }
-                    if select.color != WIN_COLOR_UNDEFINED {
-                        with_window_manager_ref(|manager| {
-                            manager.win_fill_rect(
-                                select.color,
-                                1.0,
-                                dropdown_x + 2,
-                                item_y + 1,
-                                dropdown_x + dropdown_w - 2,
-                                item_y + item_height - 1,
-                            );
-                        });
-                    }
-                }
-                if let Some(display) = inst_data.display_text.as_ref() {
-                    let mut display = display.borrow_mut();
-                    display.set_text(item.text.clone());
-                    if let Some(font) = inst_data.font.as_ref() {
-                        display.set_font(font);
-                    }
-                    display.draw(
-                        dropdown_x + 4,
-                        item_y + 2,
-                        text_colors.color,
-                        text_colors.border_color,
-                    );
-                }
-            }
-        }
-    }
 }
 
 pub fn w3d_gadget_combo_box_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -5180,20 +5083,6 @@ pub fn w3d_gadget_combo_box_image_draw(window: &GameWindow, inst_data: &WindowIn
     ) {
         y += y_delta;
         height -= height_delta;
-    }
-
-    if let Some(super::game_window::WindowWidget::ComboBox(combo)) = window.widget() {
-        let text = combo.text().to_string();
-        if !text.is_empty() {
-            if let Some(display) = inst_data.display_text.as_ref() {
-                let mut display = display.borrow_mut();
-                display.set_text(text);
-                if let Some(font) = inst_data.font.as_ref() {
-                    display.set_font(font);
-                }
-                display.draw(x + 4, y + 2, text_colors.color, text_colors.border_color);
-            }
-        }
     }
 }
 
