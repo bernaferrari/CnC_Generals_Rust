@@ -934,111 +934,6 @@ mod tests {
         assert!(!static_text_should_draw_text(WIN_COLOR_UNDEFINED));
         assert!(static_text_should_draw_text(0xff00ff00));
     }
-
-    #[test]
-    fn text_entry_image_draws_match_cpp_four_piece_layout() {
-        assert_eq!(
-            text_entry_image_draws(
-                10,
-                20,
-                100,
-                14,
-                Point2D { x: 2, y: 3 },
-                TextEntryImageMetrics {
-                    left_width: 7,
-                    right_width: 9,
-                    center_width: 10,
-                    small_center_width: 4,
-                },
-            ),
-            vec![
-                TextEntryImageDraw {
-                    slot: 2,
-                    start_x: 19,
-                    start_y: 23,
-                    end_x: 29,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 2,
-                    start_x: 29,
-                    start_y: 23,
-                    end_x: 39,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 2,
-                    start_x: 39,
-                    start_y: 23,
-                    end_x: 49,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 2,
-                    start_x: 49,
-                    start_y: 23,
-                    end_x: 59,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 2,
-                    start_x: 59,
-                    start_y: 23,
-                    end_x: 69,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 2,
-                    start_x: 69,
-                    start_y: 23,
-                    end_x: 79,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 2,
-                    start_x: 79,
-                    start_y: 23,
-                    end_x: 89,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 2,
-                    start_x: 89,
-                    start_y: 23,
-                    end_x: 99,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 3,
-                    start_x: 99,
-                    start_y: 23,
-                    end_x: 103,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 3,
-                    start_x: 103,
-                    start_y: 23,
-                    end_x: 107,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 0,
-                    start_x: 12,
-                    start_y: 23,
-                    end_x: 19,
-                    end_y: 37,
-                },
-                TextEntryImageDraw {
-                    slot: 1,
-                    start_x: 103,
-                    start_y: 23,
-                    end_x: 112,
-                    end_y: 37,
-                },
-            ]
-        );
-    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -4028,140 +3923,6 @@ fn draw_text_entry_text(
     let _ = cursor_pos;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TextEntryImageMetrics {
-    left_width: i32,
-    right_width: i32,
-    center_width: i32,
-    small_center_width: i32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct TextEntryImageDraw {
-    slot: usize,
-    start_x: i32,
-    start_y: i32,
-    end_x: i32,
-    end_y: i32,
-}
-
-fn text_entry_image_draws(
-    origin_x: i32,
-    origin_y: i32,
-    size_x: i32,
-    size_y: i32,
-    image_offset: Point2D,
-    metrics: TextEntryImageMetrics,
-) -> Vec<TextEntryImageDraw> {
-    let x_offset = image_offset.x;
-    let y_offset = image_offset.y;
-    let left_width = metrics.left_width.max(1);
-    let right_width = metrics.right_width.max(1);
-    let center_width = metrics.center_width.max(1);
-    let small_center_width = metrics.small_center_width.max(1);
-
-    let left_end_x = origin_x + left_width + x_offset;
-    let right_start_x = origin_x + size_x - right_width + x_offset;
-    let start_y = origin_y + y_offset;
-    let end_y = start_y + size_y;
-
-    let mut draws = Vec::new();
-    let mut start_x = left_end_x;
-    let center_pieces = (right_start_x - left_end_x) / center_width;
-    for _ in 0..center_pieces.max(0) {
-        draws.push(TextEntryImageDraw {
-            slot: 2,
-            start_x,
-            start_y,
-            end_x: start_x + center_width,
-            end_y,
-        });
-        start_x += center_width;
-    }
-
-    let small_center_pieces = ((right_start_x - start_x) / small_center_width) + 1;
-    for _ in 0..small_center_pieces.max(0) {
-        draws.push(TextEntryImageDraw {
-            slot: 3,
-            start_x,
-            start_y,
-            end_x: start_x + small_center_width,
-            end_y,
-        });
-        start_x += small_center_width;
-    }
-
-    draws.push(TextEntryImageDraw {
-        slot: 0,
-        start_x: origin_x + x_offset,
-        start_y,
-        end_x: left_end_x,
-        end_y,
-    });
-    draws.push(TextEntryImageDraw {
-        slot: 1,
-        start_x: right_start_x,
-        start_y,
-        end_x: right_start_x + right_width,
-        end_y,
-    });
-    draws
-}
-
-fn draw_text_entry_image_frame(
-    window: &GameWindow,
-    inst_data: &WindowInstanceData,
-    draw_data: &[super::game_window::WindowDrawData],
-) {
-    let Some(left_image) = draw_data.get(0).and_then(|entry| entry.image.as_ref()) else {
-        return;
-    };
-    let Some(right_image) = draw_data.get(1).and_then(|entry| entry.image.as_ref()) else {
-        return;
-    };
-    let Some(center_image) = draw_data.get(2).and_then(|entry| entry.image.as_ref()) else {
-        return;
-    };
-    let Some(small_center_image) = draw_data.get(3).and_then(|entry| entry.image.as_ref()) else {
-        return;
-    };
-
-    let (origin_x, origin_y) = window.get_screen_position();
-    let (size_x, size_y) = window.get_size();
-    let draws = text_entry_image_draws(
-        origin_x,
-        origin_y,
-        size_x,
-        size_y,
-        inst_data.image_offset,
-        TextEntryImageMetrics {
-            left_width: left_image.width,
-            right_width: right_image.width,
-            center_width: center_image.width,
-            small_center_width: small_center_image.width,
-        },
-    );
-    with_window_manager_ref(|manager| {
-        for draw in draws {
-            let image = match draw.slot {
-                0 => left_image,
-                1 => right_image,
-                2 => center_image,
-                3 => small_center_image,
-                _ => continue,
-            };
-            manager.win_draw_image(
-                image,
-                draw.start_x,
-                draw.start_y,
-                draw.end_x,
-                draw.end_y,
-                WIN_COLOR_UNDEFINED,
-            );
-        }
-    });
-}
-
 pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
@@ -4242,7 +4003,18 @@ pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowI
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
 
-    draw_text_entry_image_frame(window, inst_data, draw_data);
+    if let Some(image) = &draw_data[0].image {
+        with_window_manager_ref(|manager| {
+            manager.win_draw_image(
+                image,
+                origin_x + inst_data.image_offset.x,
+                origin_y + inst_data.image_offset.y,
+                origin_x + inst_data.image_offset.x + size_x,
+                origin_y + inst_data.image_offset.y + size_y,
+                WIN_COLOR_UNDEFINED,
+            );
+        });
+    }
 
     let font_height = with_window_manager_ref(|manager| {
         inst_data
