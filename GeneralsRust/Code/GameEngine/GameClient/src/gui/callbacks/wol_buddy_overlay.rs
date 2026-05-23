@@ -668,10 +668,9 @@ pub fn wol_buddy_overlay_init(layout: &WindowLayout, _user_data: Option<&mut dyn
     init_buddy_controls(BuddyWindowType::Buddies);
 
     if let Some(radio) = state.radio_button_buddies.as_ref() {
-        if let Some(widget) = radio.borrow_mut().widget_mut() {
-            if let WindowWidget::RadioButton(rb) = widget {
-                rb.select();
-            }
+        let mut guard = radio.borrow_mut();
+        if matches!(guard.widget(), Some(WindowWidget::RadioButton(_))) {
+            guard.set_radio_button_selected(false);
         }
     }
 
