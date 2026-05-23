@@ -1101,12 +1101,6 @@ mod tests {
             100
         );
     }
-
-    #[test]
-    fn push_button_color_entry_index_matches_cpp_selected_slot() {
-        assert_eq!(push_button_color_entry_index(false), 0);
-        assert_eq!(push_button_color_entry_index(true), 1);
-    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -2287,34 +2281,9 @@ fn draw_push_button_image_three(
     });
 }
 
-fn push_button_color_entry_index(selected: bool) -> usize {
-    if selected {
-        1
-    } else {
-        0
-    }
-}
-
-fn draw_push_button_color_base(window: &GameWindow, entry: &super::game_window::WindowDrawData) {
-    let (x, y, width, height) = press_scaled_bounds_i32(window);
-    with_window_manager_ref(|manager| {
-        if entry.border_color != WIN_COLOR_UNDEFINED {
-            manager.win_open_rect(entry.border_color, 1.0, x, y, x + width, y + height);
-        }
-        if entry.color != WIN_COLOR_UNDEFINED {
-            manager.win_fill_rect(
-                entry.color,
-                1.0,
-                x + 1,
-                y + 1,
-                x + width - 1,
-                y + height - 1,
-            );
-        }
-    });
-}
-
 fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let rect = press_scaled_rect(window);
+
     let (draw_data, text_colors) = current_push_button_draw_data(window, inst_data);
 
     if let Some((left, center, right)) =
@@ -2331,10 +2300,21 @@ fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
         return;
     }
 
-    let selected = inst_data.state.contains(WindowState::PUSHED);
-    if let Some(entry) = draw_data.get(push_button_color_entry_index(selected)) {
-        draw_push_button_color_base(window, entry);
-    }
+    let _ = with_ui_renderer_mut(|renderer| {
+        if let Some(entry) = draw_data.first() {
+            if entry.color != WIN_COLOR_UNDEFINED {
+                renderer.draw_rect(rect, super::game_window::color_to_rgba(entry.color), 0.0);
+            }
+            if entry.border_color != WIN_COLOR_UNDEFINED {
+                renderer.draw_rect_outline(
+                    rect,
+                    1.0,
+                    super::game_window::color_to_rgba(entry.border_color),
+                    0.1,
+                );
+            }
+        }
+    });
 
     let _ = text_colors;
 }
