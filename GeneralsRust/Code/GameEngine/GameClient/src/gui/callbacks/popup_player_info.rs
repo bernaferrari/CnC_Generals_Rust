@@ -57,11 +57,20 @@ fn name_to_id(name: &str) -> u32 {
 }
 
 fn checkbox_checked(window: &Rc<RefCell<GameWindow>>) -> bool {
-    window.borrow().is_check_box_checked()
+    window
+        .borrow()
+        .widget()
+        .and_then(|widget| match widget {
+            crate::gui::WindowWidget::CheckBox(check) => Some(check.is_checked()),
+            _ => None,
+        })
+        .unwrap_or(false)
 }
 
 fn set_checkbox_checked(window: &Rc<RefCell<GameWindow>>, checked: bool) {
-    window.borrow_mut().set_check_box_checked(checked);
+    if let Some(check) = window.borrow_mut().check_box_mut() {
+        check.set_checked(checked);
+    }
 }
 
 fn message_box_yes() {
