@@ -15,7 +15,7 @@ use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
 use game_engine::common::ini::{ensure_player_templates_loaded, get_global_data};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
-use game_engine::common::rts::player_template::get_player_template_store;
+use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
 use game_network::{GameSlot, SlotState};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::{TheAudio, TheGameLogic, TheScriptEngine};
@@ -160,6 +160,49 @@ fn set_window_image(window: &Option<Rc<RefCell<GameWindow>>>, image_name: Option
     if guard.set_enabled_image(0, image).is_ok() {
         guard.set_status(WindowStatus::IMAGE);
     }
+}
+
+fn mapped_window_image(image_name: &str) -> Option<WindowImage> {
+    if image_name.is_empty() {
+        return None;
+    }
+
+    let collection = get_mapped_image_collection();
+    let collection = collection.try_read()?;
+    let found = collection.find_image_by_name(image_name)?;
+    let size = found.get_image_size();
+    Some(WindowImage {
+        name: image_name.to_string(),
+        width: size.x,
+        height: size.y,
+    })
+}
+
+fn set_draw_image(
+    draw_data: &mut [crate::gui::WindowDrawData],
+    index: usize,
+    image: Option<WindowImage>,
+) {
+    if let Some(slot) = draw_data.get_mut(index) {
+        slot.image = image;
+    }
+}
+
+fn apply_general_button_medallions(button: &mut GameWindow, template: &PlayerTemplate) {
+    let normal_image = mapped_window_image(&template.medallion_regular);
+    let selected_image = mapped_window_image(&template.medallion_select);
+    let hilite_image = mapped_window_image(&template.medallion_hilite);
+
+    if let Some(image) = normal_image.clone() {
+        let _ = button.set_size(image.width, image.width);
+    }
+
+    let inst = button.instance_data_mut();
+    set_draw_image(&mut inst.enabled_draw_data, 0, normal_image);
+    set_draw_image(&mut inst.hilite_draw_data, 1, selected_image.clone());
+    set_draw_image(&mut inst.disabled_draw_data, 1, selected_image);
+    set_draw_image(&mut inst.hilite_draw_data, 0, hilite_image);
+    button.set_status(WindowStatus::IMAGE);
 }
 
 fn sync_bio_text(state: &ChallengeMenuState) {
@@ -410,12 +453,20 @@ pub fn challenge_menu_init(layout: &WindowLayout, _user_data: Option<&dyn std::a
     state.bio_text_position = 0;
     state.bio_total_length = 0;
     if let Some(generals) = get_challenge_generals_mut() {
+        ensure_player_templates_loaded();
+        let templates = get_player_template_store();
         with_window_manager(|manager| {
             for (index, button_id) in state.general_button_ids.iter().enumerate() {
                 if let Some(button) = manager.get_window_by_id(*button_id) {
-                    let enabled = generals.challenge_generals()[index].is_starting_enabled();
-                    let _ = button.borrow_mut().enable(enabled);
-                    let _ = button.borrow_mut().hide(!enabled);
+                    let general = &generals.challenge_generals()[index];
+                    let enabled = general.is_starting_enabled();
+                    let mut button = button.borrow_mut();
+                    let _ = button.enable(enabled);
+                    let _ = button.hide(!enabled);
+                    if let Some(template) = templates.find_template(general.player_template_name())
+                    {
+                        apply_general_button_medallions(&mut button, template);
+                    }
                 }
             }
         });
@@ -602,6 +653,15 @@ pub fn challenge_menu_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::display::image::{ICoord2D, Image as MappedImage};
+
+    fn add_test_mapped_image(name: &str, width: i32, height: i32) {
+        let collection = get_mapped_image_collection();
+        let mut collection = collection.write();
+        let mut image = MappedImage::with_name(name);
+        image.set_image_size(ICoord2D::new(width, height));
+        collection.add_image(image);
+    }
 
     #[test]
     fn esc_char_is_consumed_before_key_up_like_cpp() {
@@ -614,6 +674,52 @@ mod tests {
         assert_eq!(
             challenge_menu_input(&window, WindowMessage::Char, b'A' as u32, 0),
             WindowMsgHandled::Ignored
+        );
+    }
+
+    #[test]
+    fn general_button_medallions_match_cpp_draw_slots_and_size() {
+        add_test_mapped_image("TestMedallionNormal", 64, 48);
+        add_test_mapped_image("TestMedallionSelected", 66, 50);
+        add_test_mapped_image("TestMedallionHilite", 68, 52);
+
+        let mut template = PlayerTemplate::new("TestGeneral".to_string());
+        template.medallion_regular = "TestMedallionNormal".to_string();
+        template.medallion_select = "TestMedallionSelected".to_string();
+        template.medallion_hilite = "TestMedallionHilite".to_string();
+
+        let mut button = GameWindow::new();
+        apply_general_button_medallions(&mut button, &template);
+
+        assert_eq!(button.get_size(), (64, 64));
+        assert!(button.get_status().contains(WindowStatus::IMAGE));
+        assert_eq!(
+            button.instance_data().enabled_draw_data[0]
+                .image
+                .as_ref()
+                .map(|image| image.name.as_str()),
+            Some("TestMedallionNormal")
+        );
+        assert_eq!(
+            button.instance_data().hilite_draw_data[1]
+                .image
+                .as_ref()
+                .map(|image| image.name.as_str()),
+            Some("TestMedallionSelected")
+        );
+        assert_eq!(
+            button.instance_data().disabled_draw_data[1]
+                .image
+                .as_ref()
+                .map(|image| image.name.as_str()),
+            Some("TestMedallionSelected")
+        );
+        assert_eq!(
+            button.instance_data().hilite_draw_data[0]
+                .image
+                .as_ref()
+                .map(|image| image.name.as_str()),
+            Some("TestMedallionHilite")
         );
     }
 }
