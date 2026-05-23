@@ -903,37 +903,6 @@ mod tests {
             }
         );
     }
-
-    #[test]
-    fn static_text_draw_state_matches_cpp_enabled_only_choice() {
-        assert_eq!(
-            static_text_draw_state(true, WindowState::HILITED | WindowState::PUSHED),
-            BinaryDrawState::Enabled
-        );
-        assert_eq!(
-            static_text_draw_state(false, WindowState::NONE),
-            BinaryDrawState::Disabled
-        );
-    }
-
-    #[test]
-    fn static_text_image_rect_preserves_cpp_offsets() {
-        assert_eq!(
-            static_text_image_rect(10, 20, 40, 12, Point2D { x: 3, y: 5 }),
-            StaticTextImageRect {
-                start_x: 13,
-                start_y: 25,
-                end_x: 53,
-                end_y: 37,
-            }
-        );
-    }
-
-    #[test]
-    fn static_text_skips_undefined_text_color_like_cpp() {
-        assert!(!static_text_should_draw_text(WIN_COLOR_UNDEFINED));
-        assert!(static_text_should_draw_text(0xff00ff00));
-    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -2176,121 +2145,6 @@ pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &Window
     draw_button_overlays(window, inst_data);
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BinaryDrawState {
-    Enabled,
-    Disabled,
-}
-
-fn static_text_draw_state(window_enabled: bool, _inst_state: WindowState) -> BinaryDrawState {
-    if window_enabled {
-        BinaryDrawState::Enabled
-    } else {
-        BinaryDrawState::Disabled
-    }
-}
-
-fn static_text_draw_resources<'a>(
-    window: &GameWindow,
-    inst_data: &'a WindowInstanceData,
-) -> (
-    BinaryDrawState,
-    &'a super::game_window::WindowDrawData,
-    &'a super::game_window::WindowTextColors,
-) {
-    match static_text_draw_state(window.is_enabled(), inst_data.state) {
-        BinaryDrawState::Enabled => (
-            BinaryDrawState::Enabled,
-            &inst_data.enabled_draw_data[0],
-            &inst_data.enabled_text,
-        ),
-        BinaryDrawState::Disabled => (
-            BinaryDrawState::Disabled,
-            &inst_data.disabled_draw_data[0],
-            &inst_data.disabled_text,
-        ),
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct StaticTextImageRect {
-    start_x: i32,
-    start_y: i32,
-    end_x: i32,
-    end_y: i32,
-}
-
-fn static_text_image_rect(
-    origin_x: i32,
-    origin_y: i32,
-    width: i32,
-    height: i32,
-    image_offset: Point2D,
-) -> StaticTextImageRect {
-    let start_x = origin_x + image_offset.x;
-    let start_y = origin_y + image_offset.y;
-    StaticTextImageRect {
-        start_x,
-        start_y,
-        end_x: start_x + width,
-        end_y: start_y + height,
-    }
-}
-
-fn static_text_should_draw_text(text_color: u32) -> bool {
-    text_color != WIN_COLOR_UNDEFINED
-}
-
-fn draw_static_text_background(
-    window: &GameWindow,
-    draw_data: &super::game_window::WindowDrawData,
-) {
-    let (x, y, width, height) = press_scaled_bounds_i32(window);
-    with_window_manager_ref(|manager| {
-        if draw_data.border_color != WIN_COLOR_UNDEFINED {
-            manager.win_open_rect(draw_data.border_color, 1.0, x, y, x + width, y + height);
-        }
-        if draw_data.color != WIN_COLOR_UNDEFINED {
-            manager.win_fill_rect(
-                draw_data.color,
-                1.0,
-                x + 1,
-                y + 1,
-                x + width - 1,
-                y + height - 1,
-            );
-        }
-    });
-}
-
-fn draw_static_text_back_image(
-    window: &GameWindow,
-    inst_data: &WindowInstanceData,
-    draw_data: &super::game_window::WindowDrawData,
-) {
-    let Some(image) = draw_data.image.as_ref() else {
-        return;
-    };
-    let rect = press_scaled_rect(window);
-    let image_rect = static_text_image_rect(
-        rect.x as i32,
-        rect.y as i32,
-        rect.width as i32,
-        rect.height as i32,
-        inst_data.image_offset,
-    );
-    with_window_manager_ref(|manager| {
-        manager.win_draw_image(
-            image,
-            image_rect.start_x,
-            image_rect.start_y,
-            image_rect.end_x,
-            image_rect.end_y,
-            WIN_COLOR_UNDEFINED,
-        );
-    });
-}
-
 fn draw_static_text(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
@@ -2367,29 +2221,37 @@ fn draw_static_text(
 }
 
 pub fn w3d_gadget_static_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let (_, draw_data, text_colors) = static_text_draw_resources(window, inst_data);
-    draw_static_text_background(window, draw_data);
-    if static_text_should_draw_text(text_colors.color) {
-        draw_static_text(
-            window,
-            inst_data,
-            text_colors.color,
-            text_colors.border_color,
-        );
-    }
+    draw_push_button_base(window, inst_data);
+    let (text_color, drop) =
+        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
+            (
+                inst_data.disabled_text.color,
+                inst_data.disabled_text.border_color,
+            )
+        } else {
+            (
+                inst_data.enabled_text.color,
+                inst_data.enabled_text.border_color,
+            )
+        };
+    draw_static_text(window, inst_data, text_color, drop);
 }
 
 pub fn w3d_gadget_static_text_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let (_, draw_data, text_colors) = static_text_draw_resources(window, inst_data);
-    draw_static_text_back_image(window, inst_data, draw_data);
-    if static_text_should_draw_text(text_colors.color) {
-        draw_static_text(
-            window,
-            inst_data,
-            text_colors.color,
-            text_colors.border_color,
-        );
-    }
+    draw_push_button_base(window, inst_data);
+    let (text_color, drop) =
+        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
+            (
+                inst_data.disabled_text.color,
+                inst_data.disabled_text.border_color,
+            )
+        } else {
+            (
+                inst_data.enabled_text.color,
+                inst_data.enabled_text.border_color,
+            )
+        };
+    draw_static_text(window, inst_data, text_color, drop);
 }
 
 fn progress_percent(window: &GameWindow) -> i32 {
