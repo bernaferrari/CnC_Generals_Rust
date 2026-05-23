@@ -482,7 +482,11 @@ pub fn keyboard_options_menu_input(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    if msg == WindowMessage::Char && data1 == KEY_ESC && (data2 & KEY_STATE_UP) != 0 {
+    if msg != WindowMessage::Char || data1 != KEY_ESC {
+        return WindowMsgHandled::Ignored;
+    }
+
+    if (data2 & KEY_STATE_UP) != 0 {
         let state_handle = keyboard_options_menu_state();
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
@@ -492,10 +496,28 @@ pub fn keyboard_options_menu_input(
                 state.button_back_id as u32,
             );
         }
-        return WindowMsgHandled::Handled;
     }
 
-    WindowMsgHandled::Ignored
+    WindowMsgHandled::Handled
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn esc_char_is_consumed_before_key_up_like_cpp() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            keyboard_options_menu_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            keyboard_options_menu_input(&window, WindowMessage::Char, b'A' as u32, 0),
+            WindowMsgHandled::Ignored
+        );
+    }
 }
 
 pub fn keyboard_options_menu_system(
