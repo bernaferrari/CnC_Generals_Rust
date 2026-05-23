@@ -40,6 +40,8 @@ pub type WindowMsgData = u32;
 /// Result type for window operations
 pub type WindowResult<T> = Result<T, WindowError>;
 
+const KEY_STATE_DOWN: WindowMsgData = 0x0002;
+
 /// Invalid window ID constant
 pub const WINDOW_ID_INVALID: WindowId = 0;
 
@@ -1403,6 +1405,10 @@ impl GameWindow {
     }
 
     pub fn set_check_box_checked(&mut self, checked: bool) {
+        self.set_check_box_checked_internal(checked, true);
+    }
+
+    fn set_check_box_checked_internal(&mut self, checked: bool, notify_owner: bool) {
         if checked {
             self.inst_data.state.insert(WindowState::SELECTED);
         } else {
@@ -1411,6 +1417,19 @@ impl GameWindow {
 
         if let Some(WindowWidget::CheckBox(widget)) = self.widget.as_mut() {
             widget.set_checked(checked);
+        }
+
+        if notify_owner {
+            let data1 = self.id as WindowMsgData;
+            if let Some(parent) = self.get_parent() {
+                let _ = parent.borrow_mut().send_system_message(
+                    WindowMessage::GadgetSelected,
+                    data1,
+                    0,
+                );
+            } else {
+                let _ = self.send_system_message(WindowMessage::GadgetSelected, data1, 0);
+            }
         }
     }
 
@@ -1561,8 +1580,55 @@ impl GameWindow {
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
+        let is_checkbox = matches!(self.widget, Some(WindowWidget::CheckBox(_)));
+        if self.widget.is_none() {
+            return WindowMsgHandled::Ignored;
+        }
+
+        if is_checkbox
+            && matches!(
+                msg,
+                WindowMessage::MouseEntering | WindowMessage::MouseLeaving
+            )
+            && (self.inst_data.style & GWS_MOUSE_TRACK == 0)
+        {
+            return WindowMsgHandled::Handled;
+        }
+
+        if is_checkbox && msg == WindowMessage::LeftUp {
+            if !self.inst_data.state.contains(WindowState::HILITED) {
+                return WindowMsgHandled::Ignored;
+            }
+        }
+
+        if is_checkbox && msg == WindowMessage::RightUp {
+            if !self.status.contains(WindowStatus::RIGHT_CLICK) {
+                return WindowMsgHandled::Ignored;
+            }
+            if !self.inst_data.state.contains(WindowState::SELECTED) {
+                return WindowMsgHandled::Ignored;
+            }
+
+            let data1 = self.id as WindowMsgData;
+            if let Some(parent) = self.get_parent() {
+                let _ = parent.borrow_mut().send_system_message(
+                    WindowMessage::GadgetRightClick,
+                    data1,
+                    0,
+                );
+            } else {
+                let _ = self.send_system_message(WindowMessage::GadgetRightClick, data1, 0);
+            }
+            self.set_check_box_checked_internal(false, false);
+            return WindowMsgHandled::Handled;
+        }
+
+        if is_checkbox && msg == WindowMessage::Char && (data2 & KEY_STATE_DOWN) == 0 {
+            return WindowMsgHandled::Handled;
+        }
+
         let Some(widget) = self.widget.as_mut() else {
             return WindowMsgHandled::Ignored;
         };
@@ -1677,7 +1743,7 @@ impl GameWindow {
             let (msg, data1) = match message {
                 GadgetMessage::Clicked { .. } => (WindowMessage::GadgetSelected, self.id as u32),
                 GadgetMessage::RightClicked { .. } => {
-                    if !self.status.contains(WindowStatus::RIGHT_CLICK) {
+                    if !is_checkbox && !self.status.contains(WindowStatus::RIGHT_CLICK) {
                         continue;
                     }
                     (WindowMessage::GadgetRightClick, self.id as u32)
@@ -1718,7 +1784,7 @@ impl GameWindow {
             } else {
                 self.send_system_message(msg, data1, 0)
             };
-            if result == WindowMsgHandled::Handled {
+            if result == WindowMsgHandled::Handled || is_checkbox {
                 handled = true;
             }
         }
@@ -2860,53 +2926,69 @@ pub fn default_tooltip_callback(
 }
 
 fn map_keycode(data: WindowMsgData) -> KeyCode {
-    let key = (data & 0xFF) as u8;
-    match key {
+    match data {
         8 => KeyCode::Backspace,
         9 => KeyCode::Tab,
         13 => KeyCode::Enter,
         27 => KeyCode::Escape,
         32 => KeyCode::Space,
         127 => KeyCode::Delete,
-        b'0' => KeyCode::Num0,
-        b'1' => KeyCode::Num1,
-        b'2' => KeyCode::Num2,
-        b'3' => KeyCode::Num3,
-        b'4' => KeyCode::Num4,
-        b'5' => KeyCode::Num5,
-        b'6' => KeyCode::Num6,
-        b'7' => KeyCode::Num7,
-        b'8' => KeyCode::Num8,
-        b'9' => KeyCode::Num9,
-        b'a' | b'A' => KeyCode::A,
-        b'b' | b'B' => KeyCode::B,
-        b'c' | b'C' => KeyCode::C,
-        b'd' | b'D' => KeyCode::D,
-        b'e' | b'E' => KeyCode::E,
-        b'f' | b'F' => KeyCode::F,
-        b'g' | b'G' => KeyCode::G,
-        b'h' | b'H' => KeyCode::H,
-        b'i' | b'I' => KeyCode::I,
-        b'j' | b'J' => KeyCode::J,
-        b'k' | b'K' => KeyCode::K,
-        b'l' | b'L' => KeyCode::L,
-        b'm' | b'M' => KeyCode::M,
-        b'n' | b'N' => KeyCode::N,
-        b'o' | b'O' => KeyCode::O,
-        b'p' | b'P' => KeyCode::P,
-        b'q' | b'Q' => KeyCode::Q,
-        b'r' | b'R' => KeyCode::R,
-        b's' | b'S' => KeyCode::S,
-        b't' | b'T' => KeyCode::T,
-        b'u' | b'U' => KeyCode::U,
-        b'v' | b'V' => KeyCode::V,
-        b'w' | b'W' => KeyCode::W,
-        b'x' | b'X' => KeyCode::X,
-        b'y' | b'Y' => KeyCode::Y,
-        b'z' | b'Z' => KeyCode::Z,
+        0x0f => KeyCode::Tab,
+        0x1c => KeyCode::Enter,
+        0x39 => KeyCode::Space,
+        0x25 | 0xcb | 0x1000 => KeyCode::Left,
+        0x27 | 0xcd | 0x1001 => KeyCode::Right,
+        0x26 | 0xc8 | 0x1002 => KeyCode::Up,
+        0x28 | 0xd0 | 0x1003 => KeyCode::Down,
+        0x24 | 0xc7 | 0x1004 => KeyCode::Home,
+        0x23 | 0xcf | 0x1005 => KeyCode::End,
+        0x21 | 0xc9 | 0x1006 => KeyCode::PageUp,
+        0x22 | 0xd1 | 0x1007 => KeyCode::PageDown,
+        0x2e | 0xd3 => KeyCode::Delete,
         _ => {
-            let ch = key as char;
-            KeyCode::Char(ch)
+            let key = (data & 0xFF) as u8;
+            match key {
+                b'0' => KeyCode::Num0,
+                b'1' => KeyCode::Num1,
+                b'2' => KeyCode::Num2,
+                b'3' => KeyCode::Num3,
+                b'4' => KeyCode::Num4,
+                b'5' => KeyCode::Num5,
+                b'6' => KeyCode::Num6,
+                b'7' => KeyCode::Num7,
+                b'8' => KeyCode::Num8,
+                b'9' => KeyCode::Num9,
+                b'a' | b'A' => KeyCode::A,
+                b'b' | b'B' => KeyCode::B,
+                b'c' | b'C' => KeyCode::C,
+                b'd' | b'D' => KeyCode::D,
+                b'e' | b'E' => KeyCode::E,
+                b'f' | b'F' => KeyCode::F,
+                b'g' | b'G' => KeyCode::G,
+                b'h' | b'H' => KeyCode::H,
+                b'i' | b'I' => KeyCode::I,
+                b'j' | b'J' => KeyCode::J,
+                b'k' | b'K' => KeyCode::K,
+                b'l' | b'L' => KeyCode::L,
+                b'm' | b'M' => KeyCode::M,
+                b'n' | b'N' => KeyCode::N,
+                b'o' | b'O' => KeyCode::O,
+                b'p' | b'P' => KeyCode::P,
+                b'q' | b'Q' => KeyCode::Q,
+                b'r' | b'R' => KeyCode::R,
+                b's' | b'S' => KeyCode::S,
+                b't' | b'T' => KeyCode::T,
+                b'u' | b'U' => KeyCode::U,
+                b'v' | b'V' => KeyCode::V,
+                b'w' | b'W' => KeyCode::W,
+                b'x' | b'X' => KeyCode::X,
+                b'y' | b'Y' => KeyCode::Y,
+                b'z' | b'Z' => KeyCode::Z,
+                _ => {
+                    let ch = key as char;
+                    KeyCode::Char(ch)
+                }
+            }
         }
     }
 }
@@ -2987,16 +3069,144 @@ mod tests {
     fn checkbox_input_syncs_checked_widget_to_selected_state_bit() {
         let mut window = GameWindow::new();
         window.set_status(WindowStatus::ENABLED);
+        window.instance_data_mut().style = GWS_MOUSE_TRACK;
         window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
 
         assert_eq!(
             window.send_input_message(WindowMessage::MouseEntering, 0, 0),
-            WindowMsgHandled::Ignored
+            WindowMsgHandled::Handled
         );
         let _ = window.send_input_message(WindowMessage::LeftUp, 0, 0);
 
         assert!(window.is_check_box_checked());
         assert!(window.instance_data().state.contains(WindowState::SELECTED));
+    }
+
+    #[test]
+    fn checkbox_mouse_tracking_gates_hilite_and_left_up_toggle() {
+        let mut window = GameWindow::new();
+        window.set_status(WindowStatus::ENABLED);
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::MouseEntering, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(!window.instance_data().state.contains(WindowState::HILITED));
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftUp, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert!(!window.is_check_box_checked());
+
+        window.instance_data_mut().style = GWS_MOUSE_TRACK;
+        assert_eq!(
+            window.send_input_message(WindowMessage::MouseEntering, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(window.instance_data().state.contains(WindowState::HILITED));
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftUp, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(window.is_check_box_checked());
+    }
+
+    #[test]
+    fn checkbox_char_toggles_only_on_key_down_state() {
+        let mut window = GameWindow::new();
+        window.set_status(WindowStatus::ENABLED);
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
+        assert_eq!(
+            window.send_system_message(WindowMessage::InputFocus, 1, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::Char, 32, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(!window.is_check_box_checked());
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::Char, 32, KEY_STATE_DOWN),
+            WindowMsgHandled::Handled
+        );
+        assert!(window.is_check_box_checked());
+    }
+
+    #[test]
+    fn checkbox_right_up_notifies_before_clearing_selected() {
+        let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let observed_for_callback = observed.clone();
+        let mut window = GameWindow::new();
+        window.set_status(WindowStatus::ENABLED | WindowStatus::RIGHT_CLICK);
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
+        window.set_check_box_checked_internal(true, false);
+        window.set_system_callback(move |window, msg, _data1, _data2| {
+            if msg == WindowMessage::GadgetRightClick {
+                observed_for_callback
+                    .lock()
+                    .unwrap()
+                    .push(window.is_check_box_checked());
+                WindowMsgHandled::Handled
+            } else {
+                WindowMsgHandled::Ignored
+            }
+        });
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::RightUp, 0, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(*observed.lock().unwrap(), vec![true]);
+        assert!(!window.is_check_box_checked());
+    }
+
+    #[test]
+    fn checkbox_right_up_without_right_click_status_does_not_clear() {
+        let mut window = GameWindow::new();
+        window.set_status(WindowStatus::ENABLED);
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(7, 0, 0, 20)));
+        window.set_check_box_checked_internal(true, false);
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::RightUp, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert!(window.is_check_box_checked());
+    }
+
+    #[test]
+    fn checkbox_programmatic_set_notifies_owner_every_call() {
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        let child = Rc::new(RefCell::new(GameWindow::new()));
+        child.borrow_mut().set_id(77);
+        child.borrow_mut().set_parent(Some(&parent));
+        child
+            .borrow_mut()
+            .set_widget(WindowWidget::CheckBox(CheckBox::new(77, 0, 0, 20)));
+        parent.borrow_mut().add_child(child.clone());
+
+        let selected_messages = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let selected_messages_for_callback = selected_messages.clone();
+        parent
+            .borrow_mut()
+            .set_system_callback(move |_window, msg, data1, _data2| {
+                if msg == WindowMessage::GadgetSelected {
+                    selected_messages_for_callback.lock().unwrap().push(data1);
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
+
+        child.borrow_mut().set_check_box_checked(true);
+        child.borrow_mut().set_check_box_checked(true);
+
+        assert_eq!(*selected_messages.lock().unwrap(), vec![77, 77]);
+        assert!(child.borrow().is_check_box_checked());
     }
 
     #[test]
