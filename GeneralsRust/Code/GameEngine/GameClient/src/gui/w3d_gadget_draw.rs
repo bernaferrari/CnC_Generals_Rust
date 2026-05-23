@@ -1056,13 +1056,6 @@ mod tests {
     }
 
     #[test]
-    fn slider_color_bank_matches_cpp_window_status_precedence() {
-        assert_eq!(slider_color_bank(false, true), SliderColorBank::Disabled);
-        assert_eq!(slider_color_bank(true, true), SliderColorBank::Hilite);
-        assert_eq!(slider_color_bank(true, false), SliderColorBank::Enabled);
-    }
-
-    #[test]
     fn list_box_selected_image_slots_match_cpp_gate() {
         assert_eq!(
             list_box_selected_image_slots([true, true, true, true]),
@@ -3721,40 +3714,15 @@ fn slider_percent(
     0.0
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SliderColorBank {
-    Enabled,
-    Disabled,
-    Hilite,
-}
-
-fn slider_color_bank(window_enabled: bool, hilited: bool) -> SliderColorBank {
-    if !window_enabled {
-        SliderColorBank::Disabled
-    } else if hilited {
-        SliderColorBank::Hilite
-    } else {
-        SliderColorBank::Enabled
-    }
-}
-
-fn slider_color_draw_data<'a>(
-    inst_data: &'a WindowInstanceData,
-    bank: SliderColorBank,
-) -> &'a [super::game_window::WindowDrawData] {
-    match bank {
-        SliderColorBank::Enabled => &inst_data.enabled_draw_data,
-        SliderColorBank::Disabled => &inst_data.disabled_draw_data,
-        SliderColorBank::Hilite => &inst_data.hilite_draw_data,
-    }
-}
-
 pub fn w3d_gadget_horizontal_slider_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let bank = slider_color_bank(
-        window.is_enabled(),
-        inst_data.state.contains(WindowState::HILITED),
-    );
-    let draw_data = slider_color_draw_data(inst_data, bank);
+    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
+    {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else if inst_data.state.contains(WindowState::HILITED) {
+        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    };
     let back = &draw_data[0];
     let (origin_x, origin_y) = window.get_screen_position();
     let (size_x, size_y) = window.get_size();
