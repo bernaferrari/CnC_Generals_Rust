@@ -135,6 +135,7 @@ pub struct SliderData {
 
 #[derive(Debug, Default, Clone)]
 pub struct RadioButtonData {
+    pub screen: u32,
     pub group: u32,
 }
 
@@ -801,6 +802,7 @@ fn parse_slider_data(value: &str) -> SliderData {
 fn parse_radio_button_data(value: &str) -> RadioButtonData {
     let map = parse_kv_map(value);
     RadioButtonData {
+        screen: map.get("SCREEN").and_then(|v| parse_u32(v)).unwrap_or(0),
         group: map.get("GROUP").and_then(|v| parse_u32(v)).unwrap_or(0),
     }
 }

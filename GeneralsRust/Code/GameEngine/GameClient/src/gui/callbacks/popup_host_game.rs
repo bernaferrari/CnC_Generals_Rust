@@ -91,25 +91,14 @@ fn set_checkbox(window: &Option<Rc<RefCell<GameWindow>>>, checked: bool) {
     let Some(window) = window.as_ref() else {
         return;
     };
-    let mut guard = window.borrow_mut();
-    if let Some(check) = guard.check_box_mut() {
-        check.set_checked(checked);
-    }
+    window.borrow_mut().set_check_box_checked(checked);
 }
 
 fn checkbox_checked(window: &Option<Rc<RefCell<GameWindow>>>) -> bool {
     let Some(window) = window.as_ref() else {
         return false;
     };
-    let guard = window.borrow();
-    guard
-        .widget()
-        .and_then(|widget| match widget {
-            crate::gui::WindowWidget::CheckBox(check) => Some(check),
-            _ => None,
-        })
-        .map(|check| check.is_checked())
-        .unwrap_or(false)
+    window.borrow().is_check_box_checked()
 }
 
 fn enable_window(window: &Option<Rc<RefCell<GameWindow>>>, enabled: bool) {
