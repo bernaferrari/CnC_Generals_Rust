@@ -26,14 +26,10 @@ fn parse_int(tokens: &[&str]) -> INIResult<i32> {
 
 fn parse_display_name(tokens: &[&str]) -> INIResult<String> {
     let value = parse_ascii_string(tokens)?;
-    let translated = INI::translate_label(&value)?;
-    if translated != value {
-        return Ok(translated);
-    }
     if let Some(stripped) = value.strip_prefix("INI:") {
         return Ok(Language::get_localized_string(stripped));
     }
-    Ok(translated)
+    Ok(value)
 }
 
 fn parse_rgb_color(tokens: &[&str]) -> INIResult<u32> {

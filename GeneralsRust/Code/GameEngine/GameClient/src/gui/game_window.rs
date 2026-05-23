@@ -37,16 +37,6 @@ pub type WindowId = i32;
 /// Window message data type
 pub type WindowMsgData = u32;
 
-pub const KEY_STATE_UP: WindowMsgData = 0x0001;
-pub const KEY_STATE_DOWN: WindowMsgData = 0x0002;
-pub const KEY_STATE_LCONTROL: WindowMsgData = 0x0004;
-pub const KEY_STATE_RCONTROL: WindowMsgData = 0x0008;
-pub const KEY_STATE_LSHIFT: WindowMsgData = 0x0010;
-pub const KEY_STATE_RSHIFT: WindowMsgData = 0x0020;
-pub const KEY_STATE_LALT: WindowMsgData = 0x0040;
-pub const KEY_STATE_RALT: WindowMsgData = 0x0080;
-pub const KEY_STATE_SHIFT2: WindowMsgData = 0x0400;
-
 /// Result type for window operations
 pub type WindowResult<T> = Result<T, WindowError>;
 
@@ -1541,7 +1531,7 @@ impl GameWindow {
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
-        data2: WindowMsgData,
+        _data2: WindowMsgData,
     ) -> WindowMsgHandled {
         let Some(widget) = self.widget.as_mut() else {
             return WindowMsgHandled::Ignored;
@@ -1608,15 +1598,10 @@ impl GameWindow {
                 y,
                 button: MouseButton::Right,
             }),
-            WindowMessage::Char if data2 & KEY_STATE_DOWN != 0 => Some(InputEvent::KeyDown {
+            WindowMessage::Char => Some(InputEvent::KeyDown {
                 key: map_keycode(data1),
-                modifiers: map_key_modifiers(data2),
+                modifiers: KeyModifiers::none(),
             }),
-            WindowMessage::Char if data2 & KEY_STATE_UP != 0 => Some(InputEvent::KeyUp {
-                key: map_keycode(data1),
-                modifiers: map_key_modifiers(data2),
-            }),
-            WindowMessage::Char => None,
             _ => None,
         };
 
@@ -2896,14 +2881,6 @@ fn map_keycode(data: WindowMsgData) -> KeyCode {
     }
 }
 
-fn map_key_modifiers(state: WindowMsgData) -> KeyModifiers {
-    KeyModifiers {
-        shift: state & (KEY_STATE_LSHIFT | KEY_STATE_RSHIFT | KEY_STATE_SHIFT2) != 0,
-        ctrl: state & (KEY_STATE_LCONTROL | KEY_STATE_RCONTROL) != 0,
-        alt: state & (KEY_STATE_LALT | KEY_STATE_RALT) != 0,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3028,36 +3005,5 @@ mod tests {
             window.send_input_message(WindowMessage::RightDown, 0, 0),
             WindowMsgHandled::Ignored
         );
-    }
-
-    #[test]
-    fn char_key_state_up_maps_to_widget_key_up() {
-        let mut window = GameWindow::new();
-        window.set_status(WindowStatus::ENABLED);
-        let mut button = PushButton::new(1, 0, 0, 100, 30);
-        button.set_focus(true);
-        window.set_widget(WindowWidget::PushButton(button));
-
-        let selected = Rc::new(RefCell::new(false));
-        let selected_for_callback = selected.clone();
-        window.set_system_callback(move |_win, msg, _data1, _data2| match msg {
-            WindowMessage::GadgetSelected => {
-                *selected_for_callback.borrow_mut() = true;
-                WindowMsgHandled::Handled
-            }
-            _ => WindowMsgHandled::Ignored,
-        });
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::Char, 13, KEY_STATE_DOWN),
-            WindowMsgHandled::Ignored
-        );
-        assert!(!*selected.borrow());
-
-        assert_eq!(
-            window.send_input_message(WindowMessage::Char, 13, KEY_STATE_UP),
-            WindowMsgHandled::Handled
-        );
-        assert!(*selected.borrow());
     }
 }
