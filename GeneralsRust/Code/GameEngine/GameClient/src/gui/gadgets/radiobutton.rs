@@ -59,6 +59,10 @@ impl RadioButtonGroup {
         *self.selected.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    pub fn id(&self) -> RadioGroupId {
+        self.id
+    }
+
     /// Get all buttons in group
     pub fn get_buttons(&self) -> Vec<GadgetId> {
         self.buttons
@@ -164,7 +168,10 @@ impl RadioButton {
 
     /// Check if selected
     pub fn is_selected(&self) -> bool {
-        self.selected
+        match self.group.get_selected() {
+            Some(selected) => selected == self.id,
+            None => self.selected,
+        }
     }
 
     /// Select this radio button
@@ -181,7 +188,10 @@ impl RadioButton {
     }
 
     /// Deselect this radio button
-    fn deselect(&mut self) {
+    pub fn deselect(&mut self) {
+        if self.group.get_selected() == Some(self.id) {
+            self.group.clear_selection();
+        }
         self.selected = false;
     }
 
@@ -202,7 +212,7 @@ impl RadioButton {
 
     /// Handle mouse click
     fn handle_click(&mut self) -> Vec<GadgetMessage> {
-        if self.enabled && !self.selected {
+        if self.enabled && !self.is_selected() {
             self.select();
             vec![GadgetMessage::Clicked { gadget_id: self.id }]
         } else {
@@ -401,6 +411,18 @@ impl Gadget for RadioButton {
                     match key {
                         KeyCode::Space | KeyCode::Enter => {
                             return self.handle_click();
+                        }
+                        KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "tab_next".to_string(),
+                            }];
+                        }
+                        KeyCode::Left | KeyCode::Up => {
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "tab_prev".to_string(),
+                            }];
                         }
                         _ => {}
                     }
@@ -608,5 +630,34 @@ mod tests {
 
         assert_eq!(radio.label(), "Test Option");
         assert!(radio.is_selected());
+    }
+
+    #[test]
+    fn radio_arrow_and_tab_keys_emit_cpp_tab_navigation() {
+        let group = RadioButtonGroup::new(1);
+        let mut radio = RadioButton::new(1, 10, 20, 20, group);
+        radio.handle_input(&InputEvent::FocusGained);
+
+        for key in [KeyCode::Tab, KeyCode::Right, KeyCode::Down] {
+            let messages = radio.handle_input(&InputEvent::KeyDown {
+                key,
+                modifiers: KeyModifiers::none(),
+            });
+            assert!(matches!(
+                messages.as_slice(),
+                [GadgetMessage::Custom { data, .. }] if data == "tab_next"
+            ));
+        }
+
+        for key in [KeyCode::Left, KeyCode::Up] {
+            let messages = radio.handle_input(&InputEvent::KeyDown {
+                key,
+                modifiers: KeyModifiers::none(),
+            });
+            assert!(matches!(
+                messages.as_slice(),
+                [GadgetMessage::Custom { data, .. }] if data == "tab_prev"
+            ));
+        }
     }
 }
