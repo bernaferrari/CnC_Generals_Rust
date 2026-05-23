@@ -1081,26 +1081,6 @@ mod tests {
         );
         assert_eq!(list_box_selected_image_rect(10, 55, 70, 9, &clip), None);
     }
-
-    #[test]
-    fn list_box_slider_width_adjustment_matches_cpp_draw_modes() {
-        assert_eq!(
-            list_box_adjusted_width_for_slider(100, Some(12), false, ListBoxDrawMode::Color),
-            85
-        );
-        assert_eq!(
-            list_box_adjusted_width_for_slider(100, Some(12), true, ListBoxDrawMode::Color),
-            100
-        );
-        assert_eq!(
-            list_box_adjusted_width_for_slider(100, Some(12), true, ListBoxDrawMode::Image),
-            88
-        );
-        assert_eq!(
-            list_box_adjusted_width_for_slider(100, None, false, ListBoxDrawMode::Image),
-            100
-        );
-    }
 }
 
 pub fn w3d_main_menu_random_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
@@ -4453,27 +4433,6 @@ fn draw_list_box_selected_image_bar(
     );
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ListBoxDrawMode {
-    Color,
-    Image,
-}
-
-fn list_box_adjusted_width_for_slider(
-    width: i32,
-    slider_width: Option<i32>,
-    slider_hidden: bool,
-    mode: ListBoxDrawMode,
-) -> i32 {
-    match (mode, slider_width) {
-        (ListBoxDrawMode::Color, Some(slider_width)) if !slider_hidden => {
-            (width - slider_width - 3).max(0)
-        }
-        (ListBoxDrawMode::Image, Some(slider_width)) => (width - slider_width).max(0),
-        _ => width,
-    }
-}
-
 pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
@@ -4506,11 +4465,13 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
     }
 
     let mut slider_hidden = false;
-    let mut slider_width = None;
     if let Some(links) = window.listbox_links() {
         if let Some(slider) = window.find_child_by_id(links.slider) {
             slider_hidden = slider.borrow().is_hidden();
-            slider_width = Some(slider.borrow().get_size().0);
+            if !slider_hidden {
+                let (slider_width, _) = slider.borrow().get_size();
+                width = (width - slider_width - 2).max(0);
+            }
         }
     }
 
@@ -4524,13 +4485,6 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
             manager.win_fill_rect(back.color, 1.0, x + 1, y + 1, x + width - 1, y + height - 1);
         });
     }
-
-    width = list_box_adjusted_width_for_slider(
-        width,
-        slider_width,
-        slider_hidden,
-        ListBoxDrawMode::Color,
-    );
 
     if let Some(widget) = window.widget() {
         if let super::game_window::WindowWidget::ListBox(listbox) = widget {
@@ -4706,21 +4660,6 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
 
     let (mut x, mut y) = window.get_screen_position();
     let (mut width, mut height) = window.get_size();
-    let mut slider_hidden = false;
-    let mut slider_width = None;
-    if let Some(links) = window.listbox_links() {
-        if let Some(slider) = window.find_child_by_id(links.slider) {
-            slider_hidden = slider.borrow().is_hidden();
-            slider_width = Some(slider.borrow().get_size().0);
-        }
-    }
-    width = list_box_adjusted_width_for_slider(
-        width,
-        slider_width,
-        slider_hidden,
-        ListBoxDrawMode::Image,
-    );
-
     if let Some(image) = &draw_data[0].image {
         with_window_manager_ref(|manager| {
             manager.win_draw_image(
@@ -4749,6 +4688,17 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
         title.draw(x + 1, y, text_colors.color, text_colors.border_color);
         y += font_height + 1;
         height -= font_height + 1;
+    }
+
+    let mut slider_hidden = false;
+    if let Some(links) = window.listbox_links() {
+        if let Some(slider) = window.find_child_by_id(links.slider) {
+            slider_hidden = slider.borrow().is_hidden();
+            if !slider_hidden {
+                let (slider_width, _) = slider.borrow().get_size();
+                width = (width - slider_width - 2).max(0);
+            }
+        }
     }
 
     if let Some(widget) = window.widget() {
