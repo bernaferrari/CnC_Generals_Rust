@@ -1483,8 +1483,14 @@ impl GameWindow {
         data1: WindowMsgData,
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
-        if self.is_hidden() || !self.is_enabled() || self.status.contains(WindowStatus::NO_INPUT) {
-            return WindowMsgHandled::Ignored;
+        if msg != WindowMessage::Destroy {
+            if self.status.contains(WindowStatus::DESTROYED)
+                || self.is_hidden()
+                || !self.is_enabled()
+                || self.status.contains(WindowStatus::NO_INPUT)
+            {
+                return WindowMsgHandled::Ignored;
+            }
         }
         self.update_press_state_from_message(msg);
         if let Some(ref input_callback) = self.callbacks.input {
@@ -1529,6 +1535,10 @@ impl GameWindow {
         data1: WindowMsgData,
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
+        if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
+            return WindowMsgHandled::Ignored;
+        }
+
         if let Some(ref system_callback) = self.callbacks.system {
             let result = system_callback(self, msg, data1, data2);
             if result == WindowMsgHandled::Ignored {
@@ -3043,6 +3053,56 @@ mod tests {
             window.send_input_message(WindowMessage::RightDown, 0, 0),
             WindowMsgHandled::Ignored
         );
+    }
+
+    #[test]
+    fn destroyed_window_ignores_non_destroy_system_messages_like_cpp() {
+        let mut window = GameWindow::new();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = Rc::clone(&seen);
+            window.set_system_callback(move |_, msg, _, _| {
+                seen.borrow_mut().push(msg);
+                WindowMsgHandled::Handled
+            });
+        }
+        window.set_status_exact(WindowStatus::ENABLED | WindowStatus::DESTROYED);
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            window.send_system_message(WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(seen.borrow().as_slice(), &[WindowMessage::Destroy]);
+    }
+
+    #[test]
+    fn destroyed_window_ignores_non_destroy_input_messages_like_cpp() {
+        let mut window = GameWindow::new();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = Rc::clone(&seen);
+            window.set_input_callback(move |_, msg, _, _| {
+                seen.borrow_mut().push(msg);
+                WindowMsgHandled::Handled
+            });
+        }
+        window.set_status_exact(WindowStatus::DESTROYED);
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            window.send_input_message(WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(seen.borrow().as_slice(), &[WindowMessage::Destroy]);
     }
 
     #[test]
