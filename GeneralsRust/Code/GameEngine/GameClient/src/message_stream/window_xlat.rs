@@ -59,9 +59,20 @@ fn extract_mouse_position(msg_type: &GameMessageType) -> Option<ICoord2D> {
         | GameMessageType::RawMouseRightButtonDown(pos, ..)
         | GameMessageType::RawMouseRightDoubleClick(pos, ..)
         | GameMessageType::RawMouseRightButtonUp(pos, ..) => Some(pos.clone()),
-        GameMessageType::RawMouseLeftDrag(start, ..)
-        | GameMessageType::RawMouseMiddleDrag(start, ..)
-        | GameMessageType::RawMouseRightDrag(start, ..) => Some(start.clone()),
+        GameMessageType::RawMouseLeftDrag(_, end)
+        | GameMessageType::RawMouseMiddleDrag(_, end)
+        | GameMessageType::RawMouseRightDrag(_, end) => Some(end.clone()),
+        _ => None,
+    }
+}
+
+fn extract_mouse_delta(msg_type: &GameMessageType) -> Option<(i32, i32)> {
+    match msg_type {
+        GameMessageType::RawMouseLeftDrag(start, end)
+        | GameMessageType::RawMouseMiddleDrag(start, end)
+        | GameMessageType::RawMouseRightDrag(start, end) => {
+            Some((end.x - start.x, end.y - start.y))
+        }
         _ => None,
     }
 }
@@ -141,11 +152,12 @@ impl GameMessageTranslator for WindowTranslator {
                 };
 
                 with_window_manager(|manager| {
-                    return_code = manager.process_mouse_event(
+                    return_code = manager.process_mouse_event_with_delta(
                         window_msg,
                         self.last_mouse_pos.x,
                         self.last_mouse_pos.y,
                         pack_legacy_mouse_data(self.last_mouse_pos.x, self.last_mouse_pos.y),
+                        extract_mouse_delta(msg_type),
                     );
                 });
 
@@ -218,5 +230,17 @@ mod tests {
             raw_mouse_to_window_message(&GameMessageType::RawMouseWheel(0)),
             None
         );
+    }
+
+    #[test]
+    fn raw_mouse_drag_uses_end_position_and_delta_like_cpp() {
+        let msg =
+            GameMessageType::RawMouseLeftDrag(ICoord2D { x: 10, y: 20 }, ICoord2D { x: 14, y: 17 });
+
+        assert_eq!(
+            extract_mouse_position(&msg),
+            Some(ICoord2D { x: 14, y: 17 })
+        );
+        assert_eq!(extract_mouse_delta(&msg), Some((4, -3)));
     }
 }
