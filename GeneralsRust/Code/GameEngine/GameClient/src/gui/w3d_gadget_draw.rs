@@ -124,6 +124,7 @@ fn global_hotkey_text_color() -> u32 {
 struct RadarObjectOverlayTextureCache {
     map_extent_signature: Option<[u32; 6]>,
     texture: Option<Arc<wgpu::TextureView>>,
+    hero_object_ids: Vec<u32>,
 }
 
 fn radar_object_overlay_texture_cache() -> &'static Mutex<RadarObjectOverlayTextureCache> {
@@ -1399,11 +1400,14 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                 game_engine::common::system::radar::RADAR_CELL_HEIGHT,
                 &object_overlay,
             ));
+            overlay_cache.hero_object_ids = radar.build_hero_reticle_object_ids();
             overlay_cache.map_extent_signature = Some(map_extent_signature);
         }
         if let Some(object_overlay) = overlay_cache.texture.clone() {
             renderer.draw_textured_rect(rect, object_overlay, [1.0, 1.0, 1.0, 1.0], None, 0.0);
         }
+        let hero_object_ids = overlay_cache.hero_object_ids.clone();
+        drop(overlay_cache);
 
         let shroud_texture = radar.build_shroud_texture_rgba();
         let shroud_texture = renderer.create_texture_from_rgba(
@@ -1412,6 +1416,32 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             &shroud_texture,
         );
         renderer.draw_textured_rect(rect, shroud_texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+
+        if !hero_object_ids.is_empty() {
+            with_window_manager_ref(|manager| {
+                if let Some(image) = manager.win_find_image("HeroReticle") {
+                    let hero_reticles = radar.build_hero_reticle_rects_for_objects(
+                        &hero_object_ids,
+                        ul.x,
+                        ul.y,
+                        scaled_width,
+                        scaled_height,
+                        image.width,
+                        image.height,
+                    );
+                    for reticle in hero_reticles {
+                        manager.win_draw_image(
+                            &image,
+                            reticle.x1,
+                            reticle.y1,
+                            reticle.x2,
+                            reticle.y2,
+                            WIN_COLOR_UNDEFINED,
+                        );
+                    }
+                }
+            });
+        }
 
         // Draw active radar events
         for event in radar.get_active_events() {
