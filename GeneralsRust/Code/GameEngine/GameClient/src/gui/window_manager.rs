@@ -1381,8 +1381,57 @@ impl WindowManager {
     ) {
         for id in first..=last {
             if let Some(window) = self.find_window_from_id(base_window, id) {
-                let _ = window.borrow_mut().hide(hide);
+                let _ = self.hide_window(&window, hide);
             }
+        }
+    }
+
+    /// Hide or show a window with the manager side effects C++ applies from `winHide`.
+    pub fn hide_window(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+        hide: bool,
+    ) -> WindowResult<()> {
+        window.borrow_mut().hide(hide)?;
+        if hide {
+            self.window_hiding(window);
+        }
+        Ok(())
+    }
+
+    fn window_hiding(&mut self, window: &Rc<RefCell<GameWindow>>) {
+        if self
+            .keyboard_focus
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|focus| Rc::ptr_eq(&focus, window))
+        {
+            self.keyboard_focus = None;
+        }
+
+        if self
+            .modal_stack
+            .as_ref()
+            .is_some_and(|modal| Rc::ptr_eq(&modal.window, window))
+        {
+            if let Some(modal) = self.modal_stack.take() {
+                self.modal_stack = modal.next;
+            }
+        }
+
+        if self
+            .mouse_capture
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|capture| Rc::ptr_eq(&capture, window))
+        {
+            self.mouse_capture = None;
+            self.capture_flags &= !CaptureFlags::MOUSE;
+        }
+
+        let children = window.borrow().children().to_vec();
+        for child in children {
+            self.window_hiding(&child);
         }
     }
 
@@ -4987,6 +5036,41 @@ mod tests {
             assert_eq!(state.tooltip_text, "");
             assert!(state.is_tooltip_empty);
         });
+    }
+
+    #[test]
+    fn hide_window_clears_runtime_references_for_window_and_children_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager.create_window(Some(&parent), 10, 10, 20, 20).unwrap();
+
+        manager.keyboard_focus = Some(Rc::downgrade(&child));
+        manager.capture_mouse(&child).unwrap();
+
+        manager.hide_window(&parent, true).unwrap();
+
+        assert!(parent.borrow().is_hidden());
+        assert!(manager.get_focus().is_none());
+        assert!(manager.get_capture().is_none());
+        assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
+    }
+
+    #[test]
+    fn hide_window_unsets_modal_head_like_cpp() {
+        let mut manager = WindowManager::new();
+        let bottom = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let top = manager.create_window(None, 100, 0, 100, 100).unwrap();
+
+        manager.set_modal(bottom.clone()).unwrap();
+        manager.set_modal(top.clone()).unwrap();
+
+        manager.hide_window(&top, true).unwrap();
+
+        assert!(top.borrow().is_hidden());
+        assert!(Rc::ptr_eq(
+            &manager.modal_stack.as_ref().unwrap().window,
+            &bottom
+        ));
     }
 
     #[test]
