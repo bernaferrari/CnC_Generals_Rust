@@ -300,6 +300,15 @@ impl TabControl {
         self.active_index
     }
 
+    pub fn set_active_tab_index_silent(&mut self, index: usize) {
+        self.active_index = index;
+        if let Some(tab) = self.tabs.get(index) {
+            self.selected_tab = Some(tab.id);
+        } else {
+            self.selected_tab = Some(index as u32);
+        }
+    }
+
     pub fn tab_width_px(&self) -> i32 {
         if self.tab_data.tab_width > 0 {
             self.tab_data.tab_width
