@@ -321,6 +321,57 @@ pub fn radar_to_pixel(
     }
 }
 
+/// Shade an RGB color by terrain height using the exact W3D radar interpolation constants.
+///
+/// Matches `W3DRadar::interpolateColorForHeight`: heights above `mid_z` move toward a
+/// near-white target, heights below `mid_z` move toward a dark target, and degenerate
+/// flat-map ranges are nudged before interpolation.
+pub fn interpolate_color_for_height(
+    mut color: [f32; 3],
+    height: f32,
+    mut hi_z: f32,
+    mid_z: f32,
+    mut lo_z: f32,
+) -> [f32; 3] {
+    const HOW_BRIGHT: f32 = 0.95;
+    const HOW_DARK: f32 = 0.60;
+
+    if hi_z == mid_z {
+        hi_z = mid_z + 0.1;
+    }
+    if mid_z == lo_z {
+        lo_z = mid_z - 0.1;
+    }
+    if hi_z == lo_z {
+        hi_z = lo_z + 0.2;
+    }
+
+    let (t, target) = if height >= mid_z {
+        (
+            (height - mid_z) / (hi_z - mid_z),
+            [
+                color[0] + (1.0 - color[0]) * HOW_BRIGHT,
+                color[1] + (1.0 - color[1]) * HOW_BRIGHT,
+                color[2] + (1.0 - color[2]) * HOW_BRIGHT,
+            ],
+        )
+    } else {
+        (
+            (mid_z - height) / (mid_z - lo_z),
+            [
+                color[0] + (0.0 - color[0]) * HOW_DARK,
+                color[1] + (0.0 - color[1]) * HOW_DARK,
+                color[2] + (0.0 - color[2]) * HOW_DARK,
+            ],
+        )
+    };
+
+    for channel in 0..3 {
+        color[channel] = (color[channel] + (target[channel] - color[channel]) * t).clamp(0.0, 1.0);
+    }
+    color
+}
+
 /// 3D coordinates (matches C++ Coord3D)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Coord3D {
@@ -954,6 +1005,7 @@ impl RadarSystem {
                 max_h = max_h.max(sample.height);
             }
             let range = (max_h - min_h).max(1.0);
+            let mid_h = self.terrain_average_z;
             let idx = |x: u32, y: u32| -> usize { (y * RADAR_CELL_WIDTH + x) as usize };
 
             for y in 0..RADAR_CELL_HEIGHT {
@@ -961,18 +1013,6 @@ impl RadarSystem {
                     let sample = self.terrain_samples[idx(x, y)];
                     let h = sample.height;
                     let elevation = ((h - min_h) / range).clamp(0.0, 1.0);
-
-                    let x0 = x.saturating_sub(1);
-                    let x1 = (x + 1).min(RADAR_CELL_WIDTH - 1);
-                    let y0 = y.saturating_sub(1);
-                    let y1 = (y + 1).min(RADAR_CELL_HEIGHT - 1);
-                    let left = self.terrain_samples[idx(x0, y)].height;
-                    let right = self.terrain_samples[idx(x1, y)].height;
-                    let up = self.terrain_samples[idx(x, y0)].height;
-                    let down = self.terrain_samples[idx(x, y1)].height;
-                    let dx = (right - left) / range;
-                    let dy = (down - up) / range;
-                    let shade = (0.72 + (dx * -0.30 + dy * -0.24)).clamp(0.35, 1.0);
 
                     let (mut r, mut g, mut b) = if sample.is_water {
                         (44.0, 86.0, 140.0)
@@ -991,10 +1031,21 @@ impl RadarSystem {
                         r *= 1.0 - 0.10 * depth;
                     }
 
+                    let [ir, ig, ib] = interpolate_color_for_height(
+                        [r / 255.0, g / 255.0, b / 255.0],
+                        h,
+                        max_h,
+                        mid_h,
+                        min_h,
+                    );
+                    r = ir * 255.0;
+                    g = ig * 255.0;
+                    b = ib * 255.0;
+
                     let base = ((y * RADAR_CELL_WIDTH + x) * 4) as usize;
-                    self.terrain_texture[base] = (r * shade).clamp(0.0, 255.0) as u8;
-                    self.terrain_texture[base + 1] = (g * shade).clamp(0.0, 255.0) as u8;
-                    self.terrain_texture[base + 2] = (b * shade).clamp(0.0, 255.0) as u8;
+                    self.terrain_texture[base] = r.clamp(0.0, 255.0) as u8;
+                    self.terrain_texture[base + 1] = g.clamp(0.0, 255.0) as u8;
+                    self.terrain_texture[base + 2] = b.clamp(0.0, 255.0) as u8;
                     self.terrain_texture[base + 3] = 255;
                 }
             }
@@ -1913,6 +1964,28 @@ mod tests {
             ),
             ICoord2D::new(138, 83)
         );
+    }
+
+    #[test]
+    fn test_interpolate_color_for_height_matches_w3d_lighting() {
+        let base = [0.2, 0.4, 0.6];
+
+        let lighter = interpolate_color_for_height(base, 75.0, 100.0, 50.0, 0.0);
+        assert!((lighter[0] - 0.58).abs() < 0.0001);
+        assert!((lighter[1] - 0.685).abs() < 0.0001);
+        assert!((lighter[2] - 0.79).abs() < 0.0001);
+
+        let darker = interpolate_color_for_height(base, 25.0, 100.0, 50.0, 0.0);
+        assert!((darker[0] - 0.14).abs() < 0.0001);
+        assert!((darker[1] - 0.28).abs() < 0.0001);
+        assert!((darker[2] - 0.42).abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_interpolate_color_for_height_handles_flat_w3d_ranges() {
+        let color = interpolate_color_for_height([0.5, 0.5, 0.5], 10.0, 10.0, 10.0, 10.0);
+        assert!(color.iter().all(|channel| channel.is_finite()));
+        assert!(color.iter().all(|channel| (0.0..=1.0).contains(channel)));
     }
 
     #[test]
