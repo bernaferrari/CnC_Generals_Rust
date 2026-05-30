@@ -14,7 +14,7 @@ use super::challenge_generals::{
     get_challenge_generals, get_challenge_generals_mut, init_challenge_generals, ChallengeGenerals,
     GeneralPersona,
 };
-use super::game_window::{GameWindow, Image as WindowImage};
+use super::game_window::{GameWindow, Image as WindowImage, WindowMessage, GPM_SET_PROGRESS};
 use super::window_video_manager::{with_window_video_manager, WindowVideoPlayType};
 use super::{with_window_manager, WindowManager, WindowStatus};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
@@ -1515,10 +1515,11 @@ fn play_multiplayer_load_screen_music(music_name: &str) {
 
 fn set_progress_window(wm: &mut WindowManager, name: &str, percent: f32) {
     if let Some(window) = wm.find_window_by_name(name) {
-        let mut window = window.borrow_mut();
-        if let Some(progress) = window.progress_bar_mut() {
-            progress.set_progress(percent);
-        }
+        let _ = window.borrow_mut().send_system_message(
+            WindowMessage::User(GPM_SET_PROGRESS),
+            (percent as i32) as u32,
+            0,
+        );
     }
 }
 
@@ -2459,6 +2460,33 @@ mod tests {
         let shell = descriptor_for_kind(LoadScreenKind::ShellGame);
         assert!((transformed_progress_percent(shell, 42.0) - 42.0).abs() < f32::EPSILON);
         assert!((transformed_progress_percent(shell, 150.0) - 150.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn set_progress_window_uses_cpp_progress_message_range_rules() {
+        let mut wm = WindowManager::new();
+        named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
+
+        set_progress_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", 37.9);
+        let progress = wm
+            .find_window_by_name("SinglePlayerLoadScreen.wnd:ProgressLoad")
+            .expect("progress");
+        assert_eq!(
+            progress.borrow_mut().progress_bar_mut().unwrap().percentage(),
+            37.0
+        );
+
+        set_progress_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", 138.4);
+        assert_eq!(
+            progress.borrow_mut().progress_bar_mut().unwrap().percentage(),
+            37.0
+        );
+
+        set_progress_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", -4.2);
+        assert_eq!(
+            progress.borrow_mut().progress_bar_mut().unwrap().percentage(),
+            37.0
+        );
     }
 
     #[test]

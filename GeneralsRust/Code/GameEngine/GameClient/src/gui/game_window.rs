@@ -58,7 +58,7 @@ pub const WIN_COLOR_UNDEFINED: u32 = 0xFFFFFFFF;
 /// Gadget system message IDs
 const GGM_LEFT_DRAG: u32 = 16384;
 const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
-const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
+pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
 
 // Window style flags (GWS_*)
 pub const GWS_PUSH_BUTTON: u32 = 0x0000_0001;
