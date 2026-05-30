@@ -709,6 +709,30 @@ impl WindowManager {
         Ok(())
     }
 
+    /// Reparent a managed window using the same unlink/link ordering as C++ winSetParent.
+    pub fn set_window_parent(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+        parent: Option<&Rc<RefCell<GameWindow>>>,
+    ) -> WindowResult<()> {
+        let old_parent = window.borrow().get_parent();
+        if let Some(old_parent) = old_parent {
+            old_parent.borrow_mut().remove_child(window);
+        } else {
+            self.root_windows.retain(|root| !Rc::ptr_eq(root, window));
+        }
+
+        if let Some(parent) = parent {
+            window.borrow_mut().set_parent(Some(parent));
+            parent.borrow_mut().add_child(window.clone());
+        } else {
+            window.borrow_mut().set_parent(None);
+            self.add_root_window(window.clone());
+        }
+
+        Ok(())
+    }
+
     /// Destroy all windows
     pub fn destroy_all_windows(&mut self) {
         // Add all root windows to destroy queue
@@ -5126,6 +5150,40 @@ mod tests {
         let child_borrow = child.borrow();
         let child_parent = child_borrow.get_parent().unwrap();
         assert!(Rc::ptr_eq(&parent, &child_parent));
+    }
+
+    #[test]
+    fn set_window_parent_moves_root_to_child_list_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 200, 200).unwrap();
+        let window = manager.create_window(None, 10, 10, 50, 50).unwrap();
+
+        manager.set_window_parent(&window, Some(&parent)).unwrap();
+
+        assert_eq!(manager.root_windows.len(), 1);
+        assert!(Rc::ptr_eq(&manager.root_windows[0], &parent));
+        assert!(parent.borrow().is_child(&window.borrow()));
+        assert!(Rc::ptr_eq(
+            &window.borrow().get_parent().unwrap(),
+            &parent
+        ));
+    }
+
+    #[test]
+    fn set_window_parent_moves_child_to_root_list_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 200, 200).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 50, 50)
+            .unwrap();
+
+        manager.set_window_parent(&child, None).unwrap();
+
+        assert_eq!(manager.root_windows.len(), 2);
+        assert!(Rc::ptr_eq(&manager.root_windows[0], &child));
+        assert!(Rc::ptr_eq(&manager.root_windows[1], &parent));
+        assert!(child.borrow().get_parent().is_none());
+        assert!(!parent.borrow().is_child(&child.borrow()));
     }
 
     #[test]
