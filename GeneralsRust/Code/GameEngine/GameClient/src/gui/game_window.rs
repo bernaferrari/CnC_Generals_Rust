@@ -59,6 +59,7 @@ pub const WIN_COLOR_UNDEFINED: u32 = 0xFFFFFFFF;
 /// Gadget system message IDs
 const GGM_LEFT_DRAG: u32 = 16384;
 const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
+const GBM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 10;
 const GSM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 12;
 const GSM_SET_MIN_MAX: u32 = GGM_LEFT_DRAG + 13;
 pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
@@ -2414,6 +2415,30 @@ impl GameWindow {
             }
         }
 
+        if matches!(self.widget, Some(WindowWidget::RadioButton(_))) {
+            if let WindowMessage::User(code) = msg {
+                if code == GBM_SET_SELECTION {
+                    let mut newly_selected = false;
+                    if let Some(WindowWidget::RadioButton(radio)) = self.widget.as_mut() {
+                        if !radio.is_selected() {
+                            radio.select();
+                            newly_selected = true;
+                        }
+                    }
+                    if newly_selected && data1 != 0 && !self.owner_is_self {
+                        if let Some(owner) = self.get_owner() {
+                            let _ = owner.borrow_mut().send_system_message(
+                                WindowMessage::GadgetSelected,
+                                self.id as u32,
+                                0,
+                            );
+                        }
+                    }
+                    return WindowMsgHandled::Handled;
+                }
+            }
+        }
+
         if matches!(self.widget, Some(WindowWidget::ProgressBar(_))) {
             if let WindowMessage::User(code) = msg {
                 if code == GPM_SET_PROGRESS {
@@ -3546,6 +3571,7 @@ fn char_input_event(key: WindowMsgData, state: WindowMsgData) -> Option<InputEve
 #[cfg(test)]
 mod tests {
     use crate::gui::gadgets::tabcontrol;
+    use crate::gui::gadgets::RadioButtonGroup;
     use crate::gui::gadgets::Rect;
 
     use super::*;
@@ -4024,6 +4050,68 @@ mod tests {
         );
         assert_eq!(window.horizontal_slider_mut().unwrap().value(), 15);
         assert_eq!(thumb.borrow().get_position(), position_after_valid_set);
+    }
+
+    #[test]
+    fn radio_set_selection_system_message_matches_cpp_notify_rules() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, _| {
+                    owner_seen.borrow_mut().push((msg, data1));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut silent_window = GameWindow::new();
+        silent_window.set_id(17);
+        silent_window.set_owner(Some(&owner));
+        silent_window.set_widget(WindowWidget::RadioButton(RadioButton::new(
+            17,
+            0,
+            0,
+            16,
+            RadioButtonGroup::new(2),
+        )));
+
+        assert_eq!(
+            silent_window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(matches!(
+            silent_window.widget(),
+            Some(WindowWidget::RadioButton(radio)) if radio.is_selected()
+        ));
+        assert!(owner_seen.borrow().is_empty());
+
+        let mut notifying_window = GameWindow::new();
+        notifying_window.set_id(18);
+        notifying_window.set_owner(Some(&owner));
+        notifying_window.set_widget(WindowWidget::RadioButton(RadioButton::new(
+            18,
+            0,
+            0,
+            16,
+            RadioButtonGroup::new(3),
+        )));
+
+        assert_eq!(
+            notifying_window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[(WindowMessage::GadgetSelected, 18)]
+        );
+
+        assert_eq!(
+            notifying_window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(owner_seen.borrow().len(), 1);
     }
 
     #[test]
