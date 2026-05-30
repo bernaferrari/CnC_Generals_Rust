@@ -1150,7 +1150,7 @@ fn initialize_multiplayer_windows(
             set_window_text(
                 wm,
                 &format!("{prefix}:StaticTextTeam{slot}"),
-                &GameText::fetch(&multiplayer_team_text(slot_context)),
+                &GameText::fetch(&multiplayer_team_text(slot_context, prefix)),
             );
             if let Some(text_color) = slot_context.apparent_text_color {
                 for suffix in ["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"] {
@@ -1369,8 +1369,9 @@ fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenS
     }
 }
 
-fn multiplayer_team_text(slot: &LoadScreenSlotInitContext) -> String {
-    if slot.is_ai && slot.team_number == -1 {
+fn multiplayer_team_text(slot: &LoadScreenSlotInitContext, prefix: &str) -> String {
+    if prefix.eq_ignore_ascii_case("GameSpyLoadScreen.wnd") && slot.is_ai && slot.team_number == -1
+    {
         "Team:AI".to_string()
     } else {
         format!("Team:{}", slot.team_number + 1)
@@ -2201,7 +2202,24 @@ mod tests {
         assert_eq!(slots.len(), 1);
         assert_eq!(slots[0].player_name, "Fallback");
         assert_eq!(slots[0].side_name, "GLA");
-        assert_eq!(multiplayer_team_text(&slots[0]), "Team:5");
+        assert_eq!(
+            multiplayer_team_text(&slots[0], "MultiplayerLoadScreen.wnd"),
+            "Team:5"
+        );
+    }
+
+    #[test]
+    fn team_text_ai_special_case_is_gamespy_only_like_cpp() {
+        let ai_slot = load_screen_slot("AI", "GLA", -1, true, true);
+
+        assert_eq!(
+            multiplayer_team_text(&ai_slot, "GameSpyLoadScreen.wnd"),
+            "Team:AI"
+        );
+        assert_eq!(
+            multiplayer_team_text(&ai_slot, "MultiplayerLoadScreen.wnd"),
+            "Team:0"
+        );
     }
 
     #[test]
