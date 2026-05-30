@@ -1167,14 +1167,14 @@ fn initialize_multiplayer_map_preview(
     };
 
     let preview_image = map_name.and_then(get_map_preview_image);
+    let metadata = map_name.and_then(multiplayer_map_metadata);
     let Some(preview_image) = preview_image else {
         preview.borrow_mut().clear_status(WindowStatus::IMAGE);
-        update_multiplayer_start_position_buttons(wm, prefix, None, start_positions);
+        update_multiplayer_start_position_buttons(wm, prefix, metadata.as_ref(), start_positions);
         return;
     };
 
     set_window_image(wm, &preview_window_name, 0, &preview_image, true);
-    let metadata = map_name.and_then(multiplayer_map_metadata);
     update_multiplayer_start_position_buttons(wm, prefix, metadata.as_ref(), start_positions);
 }
 
@@ -2146,6 +2146,70 @@ mod tests {
             window_text(&wm, "MultiplayerLoadScreen.wnd:ButtonMapStartPosition2"),
             ""
         );
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn multiplayer_map_preview_keeps_start_positions_when_preview_image_missing_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        let _language_guard = lock_test_language();
+        Language::clear_localized_strings();
+        game_engine::common::ini::ini_map_cache::init_global_map_cache();
+
+        let map_name = "Maps/TestNoPreview/TestNoPreview.map";
+        let mut metadata = MapMetaData::new();
+        metadata.is_multiplayer = true;
+        metadata.num_players = 2;
+        metadata.extent =
+            Region3D::new(Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(100.0, 100.0, 0.0));
+        metadata.set_waypoint("Player_1_Start".to_string(), Coord3D::new(20.0, 80.0, 0.0));
+        metadata.set_waypoint("Player_2_Start".to_string(), Coord3D::new(80.0, 20.0, 0.0));
+        {
+            let mut cache =
+                game_engine::common::ini::ini_map_cache::get_map_cache_mut().expect("map cache");
+            cache.insert(map_name.to_string(), metadata);
+        }
+
+        let mut wm = WindowManager::new();
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:WinMapPreview");
+        wm.find_window_by_name("MultiplayerLoadScreen.wnd:WinMapPreview")
+            .expect("preview")
+            .borrow_mut()
+            .set_size(100, 100)
+            .expect("preview size");
+        create_multiplayer_start_position_windows(&mut wm, "MultiplayerLoadScreen.wnd");
+
+        initialize_multiplayer_map_preview(
+            &mut wm,
+            "MultiplayerLoadScreen.wnd",
+            Some(map_name),
+            &[Some(1), Some(0)],
+        );
+
+        assert!(
+            !window_status(&wm, "MultiplayerLoadScreen.wnd:WinMapPreview")
+                .contains(WindowStatus::IMAGE)
+        );
+        assert!(!window_hidden(
+            &wm,
+            "MultiplayerLoadScreen.wnd:ButtonMapStartPosition0"
+        ));
+        assert!(!window_hidden(
+            &wm,
+            "MultiplayerLoadScreen.wnd:ButtonMapStartPosition1"
+        ));
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:ButtonMapStartPosition0"),
+            GameText::fetch("NUMBER:2")
+        );
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:ButtonMapStartPosition1"),
+            GameText::fetch("NUMBER:1")
+        );
+
+        game_engine::common::ini::ini_map_cache::get_map_cache_mut()
+            .expect("map cache")
+            .remove(map_name);
         Language::clear_localized_strings();
     }
 
