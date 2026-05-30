@@ -27,12 +27,12 @@ use game_engine::common::ini::set_scheme_draw_func;
 use game_engine::common::ini::ICoord2D;
 use game_engine::common::ini::SchemeDrawFunc;
 use game_engine::common::system::radar::{
-    get_radar_system, radar_draw_positions, radar_event_marker, RGBAColorInt, RadarEventMarkerKind,
-    RadarEventType,
+    get_radar_system, radar_draw_positions, radar_event_marker, should_refresh_w3d_object_overlay,
+    RGBAColorInt, RadarEventMarkerKind, RadarEventType, Region3D,
 };
 use gamelogic::player::{RankProgressInfo, ThePlayerList};
 use std::sync::atomic::{AtomicU8, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
 /// Draw callback for control bar scheme images.
@@ -118,6 +118,28 @@ fn global_hotkey_text_color() -> u32 {
                 | (color.b.clamp(0.0, 1.0) * 255.0).round() as u32
         })
         .unwrap_or(0)
+}
+
+#[derive(Default)]
+struct RadarObjectOverlayTextureCache {
+    map_extent_signature: Option<[u32; 6]>,
+    texture: Option<Arc<wgpu::TextureView>>,
+}
+
+fn radar_object_overlay_texture_cache() -> &'static Mutex<RadarObjectOverlayTextureCache> {
+    static CACHE: OnceLock<Mutex<RadarObjectOverlayTextureCache>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(RadarObjectOverlayTextureCache::default()))
+}
+
+fn radar_map_extent_signature(map_extent: Region3D) -> [u32; 6] {
+    [
+        map_extent.lo.x.to_bits(),
+        map_extent.lo.y.to_bits(),
+        map_extent.lo.z.to_bits(),
+        map_extent.hi.x.to_bits(),
+        map_extent.hi.y.to_bits(),
+        map_extent.hi.z.to_bits(),
+    ]
 }
 
 fn region_from_corners(x1: i32, y1: i32, x2: i32, y2: i32) -> IRegion2D {
@@ -1363,13 +1385,25 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         );
         renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
 
-        let object_overlay = radar.build_object_overlay_texture_rgba();
-        let object_overlay = renderer.create_texture_from_rgba(
-            game_engine::common::system::radar::RADAR_CELL_WIDTH,
-            game_engine::common::system::radar::RADAR_CELL_HEIGHT,
-            &object_overlay,
-        );
-        renderer.draw_textured_rect(rect, object_overlay, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+        let mut overlay_cache = radar_object_overlay_texture_cache()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let map_extent_signature = radar_map_extent_signature(radar.map_extent());
+        if overlay_cache.texture.is_none()
+            || overlay_cache.map_extent_signature != Some(map_extent_signature)
+            || should_refresh_w3d_object_overlay(current_frame)
+        {
+            let object_overlay = radar.build_object_overlay_texture_rgba();
+            overlay_cache.texture = Some(renderer.create_texture_from_rgba(
+                game_engine::common::system::radar::RADAR_CELL_WIDTH,
+                game_engine::common::system::radar::RADAR_CELL_HEIGHT,
+                &object_overlay,
+            ));
+            overlay_cache.map_extent_signature = Some(map_extent_signature);
+        }
+        if let Some(object_overlay) = overlay_cache.texture.clone() {
+            renderer.draw_textured_rect(rect, object_overlay, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+        }
 
         let shroud_texture = radar.build_shroud_texture_rgba();
         let shroud_texture = renderer.create_texture_from_rgba(
