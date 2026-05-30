@@ -1363,45 +1363,13 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         );
         renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
 
-        // Draw radar objects (units, structures)
-        for obj in radar.get_all_objects() {
-            // Skip objects that are temporarily hidden (stealthed/jammed) or not visible on radar
-            if obj.is_temporarily_hidden() || !obj.priority.is_visible() {
-                continue;
-            }
-
-            // Convert world position to radar screen coordinates
-            if let Some(radar_pos) = radar.world_to_radar(&obj.world_pos) {
-                let screen_x = ul.x
-                    + (radar_pos.x as i64 * scaled_width as i64
-                        / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64)
-                        as i32;
-                let screen_y = ul.y
-                    + (radar_pos.y as i64 * scaled_height as i64
-                        / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64)
-                        as i32;
-
-                // Draw object as a small colored dot
-                let dot_size = 2;
-                // Convert u32 color to RGBA [f32; 4] format
-                let color_rgba = [
-                    ((obj.color >> 16) & 0xFF) as f32 / 255.0,
-                    ((obj.color >> 8) & 0xFF) as f32 / 255.0,
-                    (obj.color & 0xFF) as f32 / 255.0,
-                    ((obj.color >> 24) & 0xFF) as f32 / 255.0,
-                ];
-                renderer.draw_rect(
-                    UIRect::new(
-                        (screen_x - dot_size) as f32,
-                        (screen_y - dot_size) as f32,
-                        (dot_size * 2) as f32,
-                        (dot_size * 2) as f32,
-                    ),
-                    color_rgba,
-                    0.0,
-                );
-            }
-        }
+        let object_overlay = radar.build_object_overlay_texture_rgba();
+        let object_overlay = renderer.create_texture_from_rgba(
+            game_engine::common::system::radar::RADAR_CELL_WIDTH,
+            game_engine::common::system::radar::RADAR_CELL_HEIGHT,
+            &object_overlay,
+        );
+        renderer.draw_textured_rect(rect, object_overlay, [1.0, 1.0, 1.0, 1.0], None, 0.0);
 
         let shroud_texture = radar.build_shroud_texture_rgba();
         let shroud_texture = renderer.create_texture_from_rgba(
