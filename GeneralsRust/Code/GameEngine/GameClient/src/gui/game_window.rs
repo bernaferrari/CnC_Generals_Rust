@@ -1084,6 +1084,36 @@ impl GameWindow {
         self.inst_data.enabled_text.border_color
     }
 
+    /// Get the disabled text color.
+    pub fn get_disabled_text_color(&self) -> Color {
+        self.inst_data.disabled_text.color
+    }
+
+    /// Get the disabled text border color.
+    pub fn get_disabled_text_border_color(&self) -> Color {
+        self.inst_data.disabled_text.border_color
+    }
+
+    /// Get the IME composite text color.
+    pub fn get_ime_composite_text_color(&self) -> Color {
+        self.inst_data.ime_composite_text.color
+    }
+
+    /// Get the IME composite text border color.
+    pub fn get_ime_composite_text_border_color(&self) -> Color {
+        self.inst_data.ime_composite_text.border_color
+    }
+
+    /// Get the hilite text color.
+    pub fn get_hilite_text_color(&self) -> Color {
+        self.inst_data.hilite_text.color
+    }
+
+    /// Get the hilite text border color.
+    pub fn get_hilite_text_border_color(&self) -> Color {
+        self.inst_data.hilite_text.border_color
+    }
+
     /// Show the window by clearing the hidden flag.
     pub fn show(&mut self) -> WindowResult<()> {
         self.hide(false)
@@ -3078,6 +3108,25 @@ mod tests {
             seen.borrow().as_slice(),
             &[(WindowMessage::User(GGM_RESIZED), 123, 45)]
         );
+    }
+
+    #[test]
+    fn text_color_getters_return_all_state_colors_like_cpp() {
+        let mut window = GameWindow::new();
+
+        window.set_enabled_text_colors(0x01020304, 0x05060708);
+        window.set_disabled_text_colors(0x11121314, 0x15161718);
+        window.set_ime_composite_text_colors(0x21222324, 0x25262728);
+        window.set_hilite_text_colors(0x31323334, 0x35363738);
+
+        assert_eq!(window.get_enabled_text_color(), 0x01020304);
+        assert_eq!(window.get_enabled_text_border_color(), 0x05060708);
+        assert_eq!(window.get_disabled_text_color(), 0x11121314);
+        assert_eq!(window.get_disabled_text_border_color(), 0x15161718);
+        assert_eq!(window.get_ime_composite_text_color(), 0x21222324);
+        assert_eq!(window.get_ime_composite_text_border_color(), 0x25262728);
+        assert_eq!(window.get_hilite_text_color(), 0x31323334);
+        assert_eq!(window.get_hilite_text_border_color(), 0x35363738);
     }
 
     #[test]
