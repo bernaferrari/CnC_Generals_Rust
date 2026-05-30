@@ -42,6 +42,7 @@ const KEY_STATE_LSHIFT: WindowMsgData = 0x0010;
 const KEY_STATE_RSHIFT: WindowMsgData = 0x0020;
 const KEY_STATE_LALT: WindowMsgData = 0x0040;
 const KEY_STATE_RALT: WindowMsgData = 0x0080;
+const GADGET_SIZE: i32 = 16;
 
 /// Window message data type
 pub type WindowMsgData = u32;
@@ -58,6 +59,8 @@ pub const WIN_COLOR_UNDEFINED: u32 = 0xFFFFFFFF;
 /// Gadget system message IDs
 const GGM_LEFT_DRAG: u32 = 16384;
 const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
+const GSM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 12;
+const GSM_SET_MIN_MAX: u32 = GGM_LEFT_DRAG + 13;
 pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
 
 // Window style flags (GWS_*)
@@ -2199,7 +2202,7 @@ impl GameWindow {
         &mut self,
         msg: WindowMessage,
         data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
         if matches!(
             msg,
@@ -2336,6 +2339,77 @@ impl GameWindow {
                     }
                     self.update_listbox_scrollbar();
                     return WindowMsgHandled::Handled;
+                }
+            }
+        }
+
+        if matches!(
+            self.widget,
+            Some(WindowWidget::HorizontalSlider(_)) | Some(WindowWidget::VerticalSlider(_))
+        ) {
+            if let WindowMessage::User(code) = msg {
+                match code {
+                    GSM_SET_SLIDER => {
+                        let new_pos = data1 as i32;
+                        let mut update_thumb = false;
+                        match self.widget.as_mut() {
+                            Some(WindowWidget::HorizontalSlider(slider)) => {
+                                let (min_val, max_val) = slider.range();
+                                if (min_val..=max_val).contains(&new_pos) {
+                                    slider.set_value(new_pos);
+                                    update_thumb = true;
+                                }
+                            }
+                            Some(WindowWidget::VerticalSlider(slider)) => {
+                                let (min_val, max_val) = slider.range();
+                                if (min_val..=max_val).contains(&new_pos) {
+                                    slider.set_value(new_pos);
+                                    update_thumb = true;
+                                }
+                            }
+                            _ => {}
+                        }
+                        if update_thumb {
+                            self.update_slider_thumb();
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GSM_SET_MIN_MAX => {
+                        let min_val = data1 as i32;
+                        let max_val = data2 as i32;
+                        match self.widget.as_mut() {
+                            Some(WindowWidget::HorizontalSlider(slider)) => {
+                                slider.set_range(min_val, max_val);
+                                slider.set_value(min_val);
+                            }
+                            Some(WindowWidget::VerticalSlider(slider)) => {
+                                slider.set_range(min_val, max_val);
+                                slider.set_value(min_val);
+                            }
+                            _ => {}
+                        }
+                        self.update_slider_thumb();
+                        return WindowMsgHandled::Handled;
+                    }
+                    GGM_RESIZED => {
+                        if let Some(thumb_id) = self.slider_thumb {
+                            if let Some(thumb) = self.find_child_by_id(thumb_id) {
+                                match self.widget.as_ref() {
+                                    Some(WindowWidget::HorizontalSlider(_)) => {
+                                        let _ =
+                                            thumb.borrow_mut().set_size(GADGET_SIZE, data2 as i32);
+                                    }
+                                    Some(WindowWidget::VerticalSlider(_)) => {
+                                        let _ =
+                                            thumb.borrow_mut().set_size(data1 as i32, GADGET_SIZE);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -3912,6 +3986,44 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
+    }
+
+    #[test]
+    fn slider_system_messages_match_cpp_numeric_rules() {
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::HorizontalSlider(
+            HorizontalSlider::new(7, 0, 0, 100, 20).with_range(0, 100),
+        ));
+        let thumb = Rc::new(RefCell::new(GameWindow::new()));
+        thumb.borrow_mut().set_id(77);
+        thumb.borrow_mut().set_size(13, 16).unwrap();
+        window.add_child(thumb.clone());
+        window.set_slider_thumb(77);
+
+        window.set_size(100, 24).unwrap();
+        assert_eq!(thumb.borrow().get_size(), (GADGET_SIZE, 24));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GSM_SET_MIN_MAX), 10, 20),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.horizontal_slider_mut().unwrap().range(), (10, 20));
+        assert_eq!(window.horizontal_slider_mut().unwrap().value(), 10);
+        assert_eq!(thumb.borrow().get_position(), (0, HORIZONTAL_SLIDER_THUMB_POSITION));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GSM_SET_SLIDER), 15, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.horizontal_slider_mut().unwrap().value(), 15);
+        let position_after_valid_set = thumb.borrow().get_position();
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GSM_SET_SLIDER), 21, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.horizontal_slider_mut().unwrap().value(), 15);
+        assert_eq!(thumb.borrow().get_position(), position_after_valid_set);
     }
 
     #[test]
