@@ -1196,13 +1196,6 @@ impl WindowManager {
                 }
             }
 
-            // Release capture after mouse-up so press animations unwind correctly.
-            if msg == WindowMessage::LeftUp {
-                if let Some(capture) = self.get_capture() {
-                    let _ = self.release_capture(&capture);
-                }
-            }
-
             if handled_window.is_some() {
                 WindowInputReturnCode::Used
             } else {
@@ -1219,11 +1212,6 @@ impl WindowManager {
                 }
             }
             self.update_current_mouse_region(None, capture_window.as_ref(), x, y);
-            if msg == WindowMessage::LeftUp {
-                if let Some(capture) = self.get_capture() {
-                    let _ = self.release_capture(&capture);
-                }
-            }
             if matches!(
                 msg,
                 WindowMessage::LeftUp | WindowMessage::MiddleUp | WindowMessage::RightUp
@@ -5162,6 +5150,36 @@ mod tests {
 
         assert_eq!(manager.release_capture(&window), Ok(()));
         assert!(manager.get_capture().is_none());
+    }
+
+    #[test]
+    fn mouse_up_does_not_auto_release_capture_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        window.borrow_mut().set_input_callback(|_, msg, _, _| match msg {
+            WindowMessage::LeftUp => WindowMsgHandled::Handled,
+            _ => WindowMsgHandled::Ignored,
+        });
+
+        manager.capture_mouse(&window).unwrap();
+        let result = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert!(Rc::ptr_eq(&manager.get_capture().unwrap(), &window));
+        assert!(manager.capture_flags.contains(CaptureFlags::MOUSE));
+    }
+
+    #[test]
+    fn mouse_up_outside_capture_does_not_auto_release_capture_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+
+        manager.capture_mouse(&window).unwrap();
+        let result = manager.process_mouse_event(WindowMessage::LeftUp, 500, 500, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        assert!(Rc::ptr_eq(&manager.get_capture().unwrap(), &window));
+        assert!(manager.capture_flags.contains(CaptureFlags::MOUSE));
     }
 
     #[test]
