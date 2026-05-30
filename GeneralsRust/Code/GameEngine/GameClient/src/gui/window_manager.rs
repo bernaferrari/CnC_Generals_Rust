@@ -4119,13 +4119,24 @@ impl WindowManager {
 
     /// Process the destroy queue
     fn process_destroy_queue(&mut self) {
+        let mut destroy_notifications = Vec::new();
         while let Some(window) = self.destroy_queue.pop_front() {
-            self.destroy_window_immediate(window);
+            self.destroy_window_immediate(window, &mut destroy_notifications);
+        }
+
+        for window in destroy_notifications {
+            window
+                .borrow_mut()
+                .send_system_message(WindowMessage::Destroy, 0, 0);
         }
     }
 
     /// Immediately destroy a window
-    fn destroy_window_immediate(&mut self, window: Rc<RefCell<GameWindow>>) {
+    fn destroy_window_immediate(
+        &mut self,
+        window: Rc<RefCell<GameWindow>>,
+        destroy_notifications: &mut Vec<Rc<RefCell<GameWindow>>>,
+    ) {
         if window
             .borrow()
             .get_status()
@@ -4143,7 +4154,7 @@ impl WindowManager {
 
         let children = window.borrow().children().to_vec();
         for child in children {
-            self.destroy_window_immediate(child);
+            self.destroy_window_immediate(child, destroy_notifications);
         }
 
         // Remove from parent's children or root list
@@ -4164,10 +4175,9 @@ impl WindowManager {
             window.borrow_mut().set_layout(None);
         }
 
-        // Send destroy message
-        window
-            .borrow_mut()
-            .send_system_message(WindowMessage::Destroy, 0, 0);
+        // C++ winDestroy adds each removed window to the head of m_destroyList;
+        // processDestroyList then sends GWM_DESTROY in that head-first order.
+        destroy_notifications.insert(0, window);
 
         self.window_count = self.window_count.saturating_sub(1);
     }
@@ -6554,6 +6564,42 @@ mod tests {
             .borrow()
             .get_status()
             .contains(WindowStatus::DESTROYED));
+    }
+
+    #[test]
+    fn destroy_window_sends_parent_destroy_before_child_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 20, 20)
+            .unwrap();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = seen.clone();
+            parent
+                .borrow_mut()
+                .set_system_callback(move |_, msg, _, _| {
+                    if msg == WindowMessage::Destroy {
+                        seen.borrow_mut().push("parent");
+                    }
+                    WindowMsgHandled::Ignored
+                });
+        }
+        {
+            let seen = seen.clone();
+            child.borrow_mut().set_system_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::Destroy {
+                    seen.borrow_mut().push("child");
+                }
+                WindowMsgHandled::Ignored
+            });
+        }
+
+        manager.destroy_window(parent).unwrap();
+        manager.update();
+
+        assert_eq!(seen.borrow().as_slice(), &["parent", "child"]);
     }
 
     #[test]
