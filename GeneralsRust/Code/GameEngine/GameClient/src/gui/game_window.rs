@@ -1612,6 +1612,11 @@ impl GameWindow {
         self.callbacks.draw = Some(Box::new(callback));
     }
 
+    /// Reset draw callback to the legacy default handler.
+    pub fn reset_draw_callback(&mut self) {
+        self.callbacks.draw = Some(Box::new(legacy_default_draw_callback));
+    }
+
     /// Set input callback
     pub fn set_input_callback<F>(&mut self, callback: F)
     where
@@ -1619,6 +1624,11 @@ impl GameWindow {
             + 'static,
     {
         self.callbacks.input = Some(Box::new(callback));
+    }
+
+    /// Reset input callback to the default handler.
+    pub fn reset_input_callback(&mut self) {
+        self.callbacks.input = Some(Box::new(default_input_callback));
     }
 
     /// Set system callback
@@ -1630,12 +1640,34 @@ impl GameWindow {
         self.callbacks.system = Some(Box::new(callback));
     }
 
+    /// Reset system callback to the default handler.
+    pub fn reset_system_callback(&mut self) {
+        self.callbacks.system = Some(Box::new(default_system_callback));
+    }
+
     /// Set tooltip callback
     pub fn set_tooltip_callback<F>(&mut self, callback: F)
     where
         F: Fn(&GameWindow, &WindowInstanceData, u32) + 'static,
     {
         self.callbacks.tooltip = Some(Box::new(callback));
+    }
+
+    /// Clear tooltip callback.
+    pub fn clear_tooltip_callback(&mut self) {
+        self.callbacks.tooltip = None;
+    }
+
+    /// Set input, draw, and tooltip callbacks in one operation, like C++ winSetCallbacks.
+    pub fn set_callbacks(
+        &mut self,
+        input: Option<InputCallback>,
+        draw: Option<DrawCallback>,
+        tooltip: Option<TooltipCallback>,
+    ) {
+        self.callbacks.input = input.or_else(|| Some(Box::new(default_input_callback)));
+        self.callbacks.draw = draw.or_else(|| Some(Box::new(legacy_default_draw_callback)));
+        self.callbacks.tooltip = tooltip;
     }
 
     /// Draw the window
@@ -3471,6 +3503,100 @@ mod tests {
             window.send_input_message(WindowMessage::RightDown, 0, 0),
             WindowMsgHandled::Ignored
         );
+    }
+
+    #[test]
+    fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
+        let mut window = GameWindow::new();
+        window.set_status(WindowStatus::ENABLED);
+        let drawn = Rc::new(RefCell::new(0));
+
+        {
+            let drawn = drawn.clone();
+            window.set_draw_callback(move |_, _| {
+                *drawn.borrow_mut() += 1;
+            });
+        }
+        window.set_input_callback(|_, _, _, _| WindowMsgHandled::Handled);
+        window.set_system_callback(|_, _, _, _| WindowMsgHandled::Handled);
+        window.set_tooltip_callback(|_, _, _| {});
+
+        window.draw();
+        assert_eq!(*drawn.borrow(), 1);
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_system_message(WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+
+        window.reset_draw_callback();
+        window.reset_input_callback();
+        window.reset_system_callback();
+        window.clear_tooltip_callback();
+
+        window.draw();
+        assert_eq!(*drawn.borrow(), 1);
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            window.send_system_message(WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert!(window.callbacks.tooltip.is_none());
+    }
+
+    #[test]
+    fn set_callbacks_updates_input_draw_and_tooltip_like_cpp() {
+        let mut window = GameWindow::new();
+        window.set_status(WindowStatus::ENABLED);
+        let drawn = Rc::new(RefCell::new(0));
+        let tooltip_seen = Rc::new(RefCell::new(0));
+
+        let draw: DrawCallback = {
+            let drawn = drawn.clone();
+            Box::new(move |_, _| {
+                *drawn.borrow_mut() += 1;
+            })
+        };
+        let tooltip: TooltipCallback = {
+            let tooltip_seen = tooltip_seen.clone();
+            Box::new(move |_, _, mouse| {
+                *tooltip_seen.borrow_mut() = mouse;
+            })
+        };
+
+        window.set_callbacks(
+            Some(Box::new(|_, _, _, _| WindowMsgHandled::Handled)),
+            Some(draw),
+            Some(tooltip),
+        );
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        window.draw();
+        assert_eq!(*drawn.borrow(), 1);
+        window
+            .callbacks
+            .tooltip
+            .as_ref()
+            .unwrap()(&window, window.instance_data(), 42);
+        assert_eq!(*tooltip_seen.borrow(), 42);
+
+        window.set_callbacks(None, None, None);
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        window.draw();
+        assert_eq!(*drawn.borrow(), 1);
+        assert!(window.callbacks.tooltip.is_none());
     }
 
     #[test]
