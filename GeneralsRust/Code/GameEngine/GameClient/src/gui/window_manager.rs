@@ -1128,10 +1128,7 @@ impl WindowManager {
         let capture_window = self.get_capture();
         let target_window = if let Some(capture) = capture_window.as_ref() {
             self.set_grab_window(None);
-            Some(
-                self.find_window_at_point(capture, x, y, false)
-                    .unwrap_or_else(|| capture.clone()),
-            )
+            Some(self.find_child_at_point_or_self(capture, x, y, false))
         } else {
             self.get_input_window_under_cursor(x, y)
         };
@@ -1307,7 +1304,11 @@ impl WindowManager {
             let result = {
                 let mut window_ref = window.borrow_mut();
                 let _ = window_ref.set_cursor_position(x - wx, y - wy);
-                window_ref.send_input_message(msg, data, 0)
+                if stop_at.is_some() {
+                    window_ref.send_routed_input_message(msg, data, 0)
+                } else {
+                    window_ref.send_input_message(msg, data, 0)
+                }
             };
 
             if result == WindowMsgHandled::Handled {
@@ -1558,7 +1559,10 @@ impl WindowManager {
         let window_borrow = window.borrow();
         for child in window_borrow.children() {
             let child_borrow = child.borrow();
-            let enabled = ignore_enabled || child_borrow.is_enabled();
+            let enabled = ignore_enabled
+                || child_borrow
+                    .get_status()
+                    .contains(WindowStatus::ENABLED);
             let hidden = child_borrow.is_hidden();
             let contains_point = child_borrow.point_in_window(x, y);
             drop(child_borrow);
@@ -5681,6 +5685,44 @@ mod tests {
                 ("captor", WindowMessage::LeftUp)
             ]
         );
+    }
+
+    #[test]
+    fn captured_mouse_input_can_target_no_input_child_like_cpp() {
+        let mut manager = WindowManager::new();
+        let captor = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&captor), 10, 10, 40, 40)
+            .unwrap();
+        child
+            .borrow_mut()
+            .set_status_exact(WindowStatus::ENABLED | WindowStatus::NO_INPUT);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = Rc::clone(&seen);
+            child.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::LeftUp {
+                    seen.borrow_mut().push("child");
+                }
+                WindowMsgHandled::Handled
+            });
+        }
+        {
+            let seen = Rc::clone(&seen);
+            captor.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::LeftUp {
+                    seen.borrow_mut().push("captor");
+                }
+                WindowMsgHandled::Handled
+            });
+        }
+
+        manager.capture_mouse(&captor).unwrap();
+        let result = manager.process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert_eq!(seen.borrow().as_slice(), &["child"]);
     }
 
     #[test]
