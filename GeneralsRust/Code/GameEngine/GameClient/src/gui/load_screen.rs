@@ -1073,6 +1073,7 @@ fn initialize_multiplayer_windows(
     prefix: &str,
     context: &LoadScreenInitContext,
 ) {
+    let has_team_windows = load_screen_has_team_windows(prefix);
     if let Some(portrait_image) = context
         .local_general_portrait
         .as_deref()
@@ -1147,13 +1148,20 @@ fn initialize_multiplayer_windows(
                 &format!("{prefix}:StaticTextSide{slot}"),
                 &slot_context.side_name,
             );
-            set_window_text(
-                wm,
-                &format!("{prefix}:StaticTextTeam{slot}"),
-                &GameText::fetch(&multiplayer_team_text(slot_context, prefix)),
-            );
+            if has_team_windows {
+                set_window_text(
+                    wm,
+                    &format!("{prefix}:StaticTextTeam{slot}"),
+                    &GameText::fetch(&multiplayer_team_text(slot_context)),
+                );
+            }
             if let Some(text_color) = slot_context.apparent_text_color {
-                for suffix in ["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"] {
+                let suffixes = if has_team_windows {
+                    &["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"][..]
+                } else {
+                    &["StaticTextPlayer", "StaticTextSide"][..]
+                };
+                for suffix in suffixes {
                     set_window_enabled_text_color(
                         wm,
                         &format!("{prefix}:{suffix}{slot}"),
@@ -1162,7 +1170,12 @@ fn initialize_multiplayer_windows(
                 }
             }
 
-            for suffix in ["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"] {
+            let suffixes = if has_team_windows {
+                &["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"][..]
+            } else {
+                &["StaticTextPlayer", "StaticTextSide"][..]
+            };
+            for suffix in suffixes {
                 hide_window(wm, &format!("{prefix}:{suffix}{slot}"), false);
             }
             hide_window(
@@ -1173,15 +1186,24 @@ fn initialize_multiplayer_windows(
             continue;
         }
 
-        for suffix in [
-            "ProgressLoad",
-            "StaticTextPlayer",
-            "StaticTextSide",
-            "StaticTextTeam",
-        ] {
+        let suffixes = if has_team_windows {
+            &[
+                "ProgressLoad",
+                "StaticTextPlayer",
+                "StaticTextSide",
+                "StaticTextTeam",
+            ][..]
+        } else {
+            &["ProgressLoad", "StaticTextPlayer", "StaticTextSide"][..]
+        };
+        for suffix in suffixes {
             hide_window(wm, &format!("{prefix}:{suffix}{slot}"), true);
         }
     }
+}
+
+fn load_screen_has_team_windows(prefix: &str) -> bool {
+    !prefix.eq_ignore_ascii_case("GameSpyLoadScreen.wnd")
 }
 
 fn initialize_multiplayer_map_preview(
@@ -1369,13 +1391,8 @@ fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenS
     }
 }
 
-fn multiplayer_team_text(slot: &LoadScreenSlotInitContext, prefix: &str) -> String {
-    if prefix.eq_ignore_ascii_case("GameSpyLoadScreen.wnd") && slot.is_ai && slot.team_number == -1
-    {
-        "Team:AI".to_string()
-    } else {
-        format!("Team:{}", slot.team_number + 1)
-    }
+fn multiplayer_team_text(slot: &LoadScreenSlotInitContext) -> String {
+    format!("Team:{}", slot.team_number + 1)
 }
 
 fn multiplayer_progress_bar_image(slot: &LoadScreenSlotInitContext) -> Option<String> {
@@ -2027,10 +2044,9 @@ mod tests {
             &wm,
             "GameSpyLoadScreen.wnd:StaticTextWinLoss1"
         ));
-        assert_eq!(
-            window_text(&wm, "GameSpyLoadScreen.wnd:StaticTextTeam1"),
-            "Team:AI"
-        );
+        assert!(wm
+            .find_window_by_name("GameSpyLoadScreen.wnd:StaticTextTeam1")
+            .is_none());
         assert_eq!(
             window_image_name(&wm, "GameSpyLoadScreen.wnd:LocalGeneralPortrait", 0),
             Some("SAFactionLogo144_US".to_string())
@@ -2202,24 +2218,16 @@ mod tests {
         assert_eq!(slots.len(), 1);
         assert_eq!(slots[0].player_name, "Fallback");
         assert_eq!(slots[0].side_name, "GLA");
-        assert_eq!(
-            multiplayer_team_text(&slots[0], "MultiplayerLoadScreen.wnd"),
-            "Team:5"
-        );
+        assert_eq!(multiplayer_team_text(&slots[0]), "Team:5");
     }
 
     #[test]
-    fn team_text_ai_special_case_is_gamespy_only_like_cpp() {
+    fn multiplayer_team_text_matches_cpp_team_plus_one() {
         let ai_slot = load_screen_slot("AI", "GLA", -1, true, true);
 
-        assert_eq!(
-            multiplayer_team_text(&ai_slot, "GameSpyLoadScreen.wnd"),
-            "Team:AI"
-        );
-        assert_eq!(
-            multiplayer_team_text(&ai_slot, "MultiplayerLoadScreen.wnd"),
-            "Team:0"
-        );
+        assert_eq!(multiplayer_team_text(&ai_slot), "Team:0");
+        assert!(!load_screen_has_team_windows("GameSpyLoadScreen.wnd"));
+        assert!(load_screen_has_team_windows("MultiplayerLoadScreen.wnd"));
     }
 
     #[test]
@@ -2800,7 +2808,12 @@ mod tests {
     fn create_multiplayer_slot_windows(wm: &mut WindowManager, prefix: &str, count: usize) {
         for slot in 0..count {
             named_progress_test_window(wm, &format!("{prefix}:ProgressLoad{slot}"));
-            for suffix in ["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"] {
+            let suffixes = if load_screen_has_team_windows(prefix) {
+                &["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"][..]
+            } else {
+                &["StaticTextPlayer", "StaticTextSide"][..]
+            };
+            for suffix in suffixes {
                 named_test_window(wm, &format!("{prefix}:{suffix}{slot}"));
             }
         }
