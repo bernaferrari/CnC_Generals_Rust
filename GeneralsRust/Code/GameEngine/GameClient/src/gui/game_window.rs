@@ -852,6 +852,55 @@ impl GameWindow {
         x >= win_x && x <= win_x + width && y >= win_y && y <= win_y + height
     }
 
+    /// Return the deepest enabled, visible child at a point, or the given window.
+    pub fn point_in_child(
+        window: &Rc<RefCell<GameWindow>>,
+        x: i32,
+        y: i32,
+        ignore_enabled: bool,
+    ) -> Rc<RefCell<GameWindow>> {
+        let children = window.borrow().children().to_vec();
+        for child in children {
+            let child_borrow = child.borrow();
+            let contains_point = child_borrow.point_in_window(x, y);
+            let hidden = child_borrow.is_hidden();
+            let enabled = ignore_enabled
+                || child_borrow
+                    .get_status()
+                    .contains(WindowStatus::ENABLED);
+            drop(child_borrow);
+
+            if contains_point && !hidden && enabled {
+                return Self::point_in_child(&child, x, y, ignore_enabled);
+            }
+        }
+
+        window.clone()
+    }
+
+    /// Return the child at a point regardless of enabled state, optionally skipping hidden children.
+    pub fn point_in_any_child(
+        window: &Rc<RefCell<GameWindow>>,
+        x: i32,
+        y: i32,
+        ignore_hidden: bool,
+        ignore_enabled: bool,
+    ) -> Rc<RefCell<GameWindow>> {
+        let children = window.borrow().children().to_vec();
+        for child in children {
+            let child_borrow = child.borrow();
+            let contains_point = child_borrow.point_in_window(x, y);
+            let skip_hidden = ignore_hidden && child_borrow.is_hidden();
+            drop(child_borrow);
+
+            if contains_point && !skip_hidden {
+                return Self::point_in_child(&child, x, y, ignore_enabled);
+            }
+        }
+
+        window.clone()
+    }
+
     /// Get window status flags
     pub fn get_status(&self) -> WindowStatus {
         self.status
@@ -3469,6 +3518,68 @@ mod tests {
         assert!(window.point_in_window(50, 50));
         assert!(!window.point_in_window(5, 50));
         assert!(!window.point_in_window(150, 50));
+    }
+
+    #[test]
+    fn point_in_child_returns_deepest_enabled_visible_child_like_cpp() {
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        let child = Rc::new(RefCell::new(GameWindow::new()));
+        let grandchild = Rc::new(RefCell::new(GameWindow::new()));
+
+        parent.borrow_mut().set_position(10, 10).unwrap();
+        parent.borrow_mut().set_size(100, 100).unwrap();
+        parent.borrow_mut().enable(true).unwrap();
+
+        child.borrow_mut().set_position(5, 5).unwrap();
+        child.borrow_mut().set_size(40, 40).unwrap();
+        child.borrow_mut().enable(true).unwrap();
+        child.borrow_mut().set_parent(Some(&parent));
+        parent.borrow_mut().add_child(child.clone());
+
+        grandchild.borrow_mut().set_position(4, 4).unwrap();
+        grandchild.borrow_mut().set_size(10, 10).unwrap();
+        grandchild.borrow_mut().enable(true).unwrap();
+        grandchild.borrow_mut().set_parent(Some(&child));
+        child.borrow_mut().add_child(grandchild.clone());
+
+        let found = GameWindow::point_in_child(&parent, 20, 20, false);
+        assert!(Rc::ptr_eq(&found, &grandchild));
+
+        grandchild.borrow_mut().enable(false).unwrap();
+        let found = GameWindow::point_in_child(&parent, 20, 20, false);
+        assert!(Rc::ptr_eq(&found, &child));
+
+        let found = GameWindow::point_in_child(&parent, 20, 20, true);
+        assert!(Rc::ptr_eq(&found, &grandchild));
+    }
+
+    #[test]
+    fn point_in_any_child_matches_hidden_and_disabled_cpp_rules() {
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        let child = Rc::new(RefCell::new(GameWindow::new()));
+
+        parent.borrow_mut().set_position(0, 0).unwrap();
+        parent.borrow_mut().set_size(100, 100).unwrap();
+        parent.borrow_mut().enable(true).unwrap();
+
+        child.borrow_mut().set_position(10, 10).unwrap();
+        child.borrow_mut().set_size(20, 20).unwrap();
+        child.borrow_mut().enable(false).unwrap();
+        child.borrow_mut().set_parent(Some(&parent));
+        parent.borrow_mut().add_child(child.clone());
+
+        let found = GameWindow::point_in_child(&parent, 15, 15, false);
+        assert!(Rc::ptr_eq(&found, &parent));
+
+        let found = GameWindow::point_in_any_child(&parent, 15, 15, true, false);
+        assert!(Rc::ptr_eq(&found, &child));
+
+        child.borrow_mut().hide(true).unwrap();
+        let found = GameWindow::point_in_any_child(&parent, 15, 15, true, false);
+        assert!(Rc::ptr_eq(&found, &parent));
+
+        let found = GameWindow::point_in_any_child(&parent, 15, 15, false, false);
+        assert!(Rc::ptr_eq(&found, &child));
     }
 
     #[test]
