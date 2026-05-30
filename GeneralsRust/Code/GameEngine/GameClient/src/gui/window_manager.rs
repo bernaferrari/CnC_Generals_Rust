@@ -893,24 +893,32 @@ impl WindowManager {
 
     /// Set keyboard focus to a window
     pub fn set_focus(&mut self, window: Option<&Rc<RefCell<GameWindow>>>) -> WindowResult<()> {
+        if let Some(new_focus) = window {
+            if new_focus
+                .borrow()
+                .get_status()
+                .contains(WindowStatus::NO_FOCUS)
+            {
+                return Ok(());
+            }
+        }
+
         // Clear old focus
         if let Some(old_focus_weak) = &self.keyboard_focus {
             if let Some(old_focus) = old_focus_weak.upgrade() {
-                old_focus
-                    .borrow_mut()
-                    .send_system_message(WindowMessage::InputFocus, 0, 0);
+                let changing_focus = window
+                    .map(|new_focus| !Rc::ptr_eq(&old_focus, new_focus))
+                    .unwrap_or(true);
+                if changing_focus {
+                    old_focus
+                        .borrow_mut()
+                        .send_system_message(WindowMessage::InputFocus, 0, 0);
+                }
             }
         }
 
         // Set new focus
         if let Some(new_focus) = window {
-            let status = new_focus.borrow().get_status();
-            if status.contains(WindowStatus::HIDDEN)
-                || status.contains(WindowStatus::NO_FOCUS)
-                || status.contains(WindowStatus::NO_INPUT)
-            {
-                return Err(WindowError::InvalidWindow);
-            }
             self.keyboard_focus = Some(Rc::downgrade(new_focus));
 
             let mut wants_focus = false;
@@ -4659,6 +4667,72 @@ mod tests {
         manager.set_focus(Some(&window)).unwrap();
 
         assert!(manager.get_focus().is_none());
+    }
+
+    #[test]
+    fn set_focus_does_not_send_lost_when_refocusing_same_window_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let focus_messages = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let focus_messages = Rc::clone(&focus_messages);
+            window
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, _| {
+                    if msg == WindowMessage::InputFocus {
+                        focus_messages.borrow_mut().push(data1);
+                        return if data1 != 0 {
+                            WindowMsgHandled::Handled
+                        } else {
+                            WindowMsgHandled::Ignored
+                        };
+                    }
+                    WindowMsgHandled::Ignored
+                });
+        }
+
+        manager.set_focus(Some(&window)).unwrap();
+        manager.set_focus(Some(&window)).unwrap();
+
+        assert_eq!(focus_messages.borrow().as_slice(), &[1, 1]);
+        let focused = manager.get_focus().unwrap();
+        assert!(Rc::ptr_eq(&window, &focused));
+    }
+
+    #[test]
+    fn set_focus_no_focus_window_preserves_existing_focus_like_cpp() {
+        let mut manager = WindowManager::new();
+        let focused = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let no_focus = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        let focus_messages = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let focus_messages = Rc::clone(&focus_messages);
+            focused
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, _| {
+                    if msg == WindowMessage::InputFocus {
+                        focus_messages.borrow_mut().push(data1);
+                        return if data1 != 0 {
+                            WindowMsgHandled::Handled
+                        } else {
+                            WindowMsgHandled::Ignored
+                        };
+                    }
+                    WindowMsgHandled::Ignored
+                });
+        }
+        no_focus
+            .borrow_mut()
+            .set_status_exact(WindowStatus::ENABLED | WindowStatus::NO_FOCUS);
+
+        manager.set_focus(Some(&focused)).unwrap();
+        manager.set_focus(Some(&no_focus)).unwrap();
+
+        assert_eq!(focus_messages.borrow().as_slice(), &[1]);
+        let current = manager.get_focus().unwrap();
+        assert!(Rc::ptr_eq(&focused, &current));
     }
 
     #[test]
