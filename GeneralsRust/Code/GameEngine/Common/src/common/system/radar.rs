@@ -315,8 +315,7 @@ pub fn radar_to_pixel(
 ) -> ICoord2D {
     ICoord2D {
         x: (radar.x * radar_width / RADAR_CELL_WIDTH as i32) + radar_upper_left_x,
-        y: (((RADAR_CELL_HEIGHT as i32 - 1 - radar.y) * radar_height)
-            / RADAR_CELL_HEIGHT as i32)
+        y: (((RADAR_CELL_HEIGHT as i32 - 1 - radar.y) * radar_height) / RADAR_CELL_HEIGHT as i32)
             + radar_upper_left_y,
     }
 }
@@ -368,6 +367,93 @@ pub fn interpolate_color_for_height(
 
     for channel in 0..3 {
         color[channel] = (color[channel] + (target[channel] - color[channel]) * t).clamp(0.0, 1.0);
+    }
+    color
+}
+
+/// W3D radar event marker sizing/spin variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RadarEventMarkerKind {
+    Beacon,
+    Generic,
+}
+
+/// Screen-space geometry and faded colors for one W3D radar event marker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RadarEventMarker {
+    pub points: [ICoord2D; 3],
+    pub color1: RGBAColorInt,
+    pub color2: RGBAColorInt,
+    pub size: i32,
+}
+
+/// Build the C++ W3D rotating triangular radar event marker.
+///
+/// Matches `W3DRadar::drawSingleBeaconEvent` and `drawSingleGenericEvent` for
+/// marker size, spin direction, radar-to-pixel conversion, and fade alpha.
+pub fn radar_event_marker(
+    event: &RadarEvent,
+    current_frame: u32,
+    pixel_x: i32,
+    pixel_y: i32,
+    width: i32,
+    height: i32,
+    kind: RadarEventMarkerKind,
+) -> RadarEventMarker {
+    const SHRINK_FRAMES: f32 = 30.0 * 1.5;
+    const THIRD_TURN: f32 = std::f32::consts::TAU / 3.0;
+
+    let frame_diff = current_frame.saturating_sub(event.create_frame) as f32;
+    let max_event_size = match kind {
+        RadarEventMarkerKind::Beacon => width as f32 / 10.0,
+        RadarEventMarkerKind::Generic => width as f32 / 2.0,
+    };
+    let size = (max_event_size * (1.0 - frame_diff / SHRINK_FRAMES))
+        .trunc()
+        .max(6.0) as i32;
+    let add_angle = match kind {
+        RadarEventMarkerKind::Beacon => -std::f32::consts::TAU * (frame_diff / SHRINK_FRAMES),
+        RadarEventMarkerKind::Generic => std::f32::consts::TAU * (frame_diff / SHRINK_FRAMES),
+    };
+
+    let points = [0.0, THIRD_TURN, -THIRD_TURN].map(|base_angle| {
+        let angle = base_angle - add_angle;
+        let radar_point = ICoord2D::new(
+            (angle.cos() * size as f32 + event.radar_loc.x as f32).trunc() as i32,
+            (angle.sin() * size as f32 + event.radar_loc.y as f32).trunc() as i32,
+        );
+        radar_to_pixel(&radar_point, pixel_x, pixel_y, width, height)
+    });
+
+    RadarEventMarker {
+        points,
+        color1: fade_event_color(
+            event.color1,
+            current_frame,
+            event.fade_frame,
+            event.die_frame,
+        ),
+        color2: fade_event_color(
+            event.color2,
+            current_frame,
+            event.fade_frame,
+            event.die_frame,
+        ),
+        size,
+    }
+}
+
+fn fade_event_color(
+    mut color: RGBAColorInt,
+    current_frame: u32,
+    fade_frame: u32,
+    die_frame: u32,
+) -> RGBAColorInt {
+    if current_frame > fade_frame && die_frame > fade_frame {
+        let fade_span = (die_frame - fade_frame) as f32;
+        let fade_progress = (current_frame - fade_frame) as f32 / fade_span;
+        let alpha = (color.a as f32 * (1.0 - fade_progress)).clamp(0.0, 255.0);
+        color.a = alpha.trunc() as u8;
     }
     color
 }
@@ -743,6 +829,11 @@ impl RadarSystem {
 
         // Update stealth detection
         self.update_stealth_detection();
+    }
+
+    /// Current logic frame used for radar animation and event expiry.
+    pub fn current_frame(&self) -> u32 {
+        self.current_frame
     }
 
     /// Initialize radar for new map (matches C++ Radar::newMap)
@@ -1986,6 +2077,55 @@ mod tests {
         let color = interpolate_color_for_height([0.5, 0.5, 0.5], 10.0, 10.0, 10.0, 10.0);
         assert!(color.iter().all(|channel| channel.is_finite()));
         assert!(color.iter().all(|channel| (0.0..=1.0).contains(channel)));
+    }
+
+    #[test]
+    fn test_generic_radar_event_marker_matches_w3d_triangle_at_create_frame() {
+        let event = RadarEvent {
+            active: true,
+            create_frame: 10,
+            die_frame: 100,
+            fade_frame: 90,
+            color1: RGBAColorInt::new(255, 0, 0, 200),
+            color2: RGBAColorInt::new(255, 255, 0, 180),
+            radar_loc: ICoord2D::new(64, 64),
+            ..RadarEvent::default()
+        };
+
+        let marker =
+            radar_event_marker(&event, 10, 10, 20, 100, 100, RadarEventMarkerKind::Generic);
+
+        assert_eq!(marker.size, 50);
+        assert_eq!(
+            marker.points,
+            [
+                ICoord2D::new(99, 69),
+                ICoord2D::new(39, 35),
+                ICoord2D::new(39, 103),
+            ]
+        );
+        assert_eq!(marker.color1.a, 200);
+        assert_eq!(marker.color2.a, 180);
+    }
+
+    #[test]
+    fn test_beacon_radar_event_marker_matches_w3d_size_and_fade() {
+        let event = RadarEvent {
+            active: true,
+            create_frame: 10,
+            die_frame: 100,
+            fade_frame: 90,
+            color1: RGBAColorInt::new(255, 0, 0, 200),
+            color2: RGBAColorInt::new(255, 255, 0, 180),
+            radar_loc: ICoord2D::new(64, 64),
+            ..RadarEvent::default()
+        };
+
+        let marker = radar_event_marker(&event, 95, 10, 20, 100, 100, RadarEventMarkerKind::Beacon);
+
+        assert_eq!(marker.size, 6);
+        assert_eq!(marker.color1.a, 100);
+        assert_eq!(marker.color2.a, 90);
     }
 
     #[test]

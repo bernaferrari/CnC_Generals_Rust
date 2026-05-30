@@ -25,7 +25,9 @@ use game_engine::common::ini::ini_map_cache::MapMetaData;
 use game_engine::common::ini::set_scheme_draw_func;
 use game_engine::common::ini::ICoord2D;
 use game_engine::common::ini::SchemeDrawFunc;
-use game_engine::common::system::radar::get_radar_system;
+use game_engine::common::system::radar::{
+    get_radar_system, radar_event_marker, RGBAColorInt, RadarEventMarkerKind, RadarEventType,
+};
 use gamelogic::player::{RankProgressInfo, ThePlayerList};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -1241,6 +1243,7 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         return;
     }
 
+    let current_frame = radar.current_frame();
     let _ = with_ui_renderer_mut(|renderer| {
         let texture = renderer.create_texture_from_rgba(
             game_engine::common::system::radar::RADAR_CELL_WIDTH,
@@ -1294,41 +1297,48 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
 
         // Draw active radar events
         for event in radar.get_active_events() {
-            let screen_x = x
-                + (event.radar_loc.x as i64 * width as i64
-                    / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64)
-                    as i32;
-            let screen_y = y
-                + (event.radar_loc.y as i64 * height as i64
-                    / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64)
-                    as i32;
-
-            // Draw event indicator (pulsing/blinking based on frame)
-            let alpha = if (event.create_frame / 10) % 2 == 0 {
-                1.0
+            let marker_kind = if event.event_type == RadarEventType::BeaconPulse {
+                RadarEventMarkerKind::Beacon
             } else {
-                0.5
+                RadarEventMarkerKind::Generic
             };
-            let color1 = [
-                event.color1.r as f32 / 255.0,
-                event.color1.g as f32 / 255.0,
-                event.color1.b as f32 / 255.0,
-                alpha,
-            ];
+            let marker = radar_event_marker(event, current_frame, x, y, width, height, marker_kind);
+            let color1 = rgba_int_to_rgba(marker.color1);
+            let color2 = rgba_int_to_rgba(marker.color2);
+            let points = marker.points;
 
-            let event_size = 4;
-            renderer.draw_rect(
-                UIRect::new(
-                    (screen_x - event_size) as f32,
-                    (screen_y - event_size) as f32,
-                    (event_size * 2) as f32,
-                    (event_size * 2) as f32,
-                ),
+            renderer.draw_line(
+                glam::Vec2::new(points[0].x as f32, points[0].y as f32),
+                glam::Vec2::new(points[1].x as f32, points[1].y as f32),
+                1.0,
+                color1,
+                0.0,
+            );
+            renderer.draw_line(
+                glam::Vec2::new(points[1].x as f32, points[1].y as f32),
+                glam::Vec2::new(points[2].x as f32, points[2].y as f32),
+                1.0,
+                color2,
+                0.0,
+            );
+            renderer.draw_line(
+                glam::Vec2::new(points[2].x as f32, points[2].y as f32),
+                glam::Vec2::new(points[0].x as f32, points[0].y as f32),
+                1.0,
                 color1,
                 0.0,
             );
         }
     });
+}
+
+fn rgba_int_to_rgba(color: RGBAColorInt) -> [f32; 4] {
+    [
+        color.r as f32 / 255.0,
+        color.g as f32 / 255.0,
+        color.b as f32 / 255.0,
+        color.a as f32 / 255.0,
+    ]
 }
 
 pub fn w3d_right_hud_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
