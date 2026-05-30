@@ -757,11 +757,12 @@ mod tests {
     };
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
+    use super::{static_text_draw_data, static_text_text_colors, WIN_COLOR_UNDEFINED};
     use super::{
         text_entry_focus_matches, text_entry_image_tile_rects, truncate_to_i32,
         TextEntryImageTileKind,
     };
-    use crate::gui::game_window::{WindowState, WindowStatus};
+    use crate::gui::game_window::{GameWindow, WindowInstanceData, WindowState, WindowStatus};
 
     #[test]
     fn test_truncate_to_i32_matches_cpp_cast_behavior() {
@@ -938,6 +939,51 @@ mod tests {
             progress_bar_image_draw_a_bank(),
             PushButtonDrawBank::Enabled
         );
+    }
+
+    #[test]
+    fn static_text_draw_data_ignores_hilite_like_cpp() {
+        let mut window = GameWindow::new();
+        window.enable(true).unwrap();
+        let mut inst_data = WindowInstanceData::default();
+        inst_data.state = WindowState::HILITED | WindowState::SELECTED;
+        inst_data.enabled_draw_data[0].color = 0xFF112233;
+        inst_data.disabled_draw_data[0].color = 0xFF445566;
+        inst_data.hilite_draw_data[0].color = 0xFF778899;
+        inst_data.enabled_text.color = 0xFFABCDEF;
+        inst_data.disabled_text.color = 0xFF102030;
+        inst_data.hilite_text.color = 0xFF506070;
+
+        let (draw_data, text) = static_text_draw_data(&window, &inst_data);
+
+        assert_eq!(draw_data[0].color, 0xFF112233);
+        assert_eq!(text.color, 0xFFABCDEF);
+    }
+
+    #[test]
+    fn static_text_draw_data_uses_disabled_when_window_disabled() {
+        let window = GameWindow::new();
+        let mut inst_data = WindowInstanceData::default();
+        inst_data.enabled_draw_data[0].color = 0xFF112233;
+        inst_data.disabled_draw_data[0].color = 0xFF445566;
+        inst_data.enabled_text.color = 0xFFABCDEF;
+        inst_data.disabled_text.color = 0xFF102030;
+
+        let (draw_data, text) = static_text_draw_data(&window, &inst_data);
+
+        assert_eq!(draw_data[0].color, 0xFF445566);
+        assert_eq!(text.color, 0xFF102030);
+    }
+
+    #[test]
+    fn static_text_text_colors_skip_undefined_like_cpp() {
+        let mut window = GameWindow::new();
+        window.enable(true).unwrap();
+        let mut inst_data = WindowInstanceData::default();
+        inst_data.enabled_text.color = WIN_COLOR_UNDEFINED;
+        inst_data.enabled_text.border_color = 0xFF102030;
+
+        assert_eq!(static_text_text_colors(&window, &inst_data), None);
     }
 
     #[test]
@@ -2537,38 +2583,100 @@ fn draw_static_text(
     }
 }
 
+fn static_text_draw_data<'a>(
+    window: &GameWindow,
+    inst_data: &'a WindowInstanceData,
+) -> (
+    &'a [super::game_window::WindowDrawData],
+    &'a super::game_window::WindowTextColors,
+) {
+    if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
+        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
+    } else {
+        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+    }
+}
+
+fn static_text_text_colors(
+    window: &GameWindow,
+    inst_data: &WindowInstanceData,
+) -> Option<(u32, u32)> {
+    let (_, text) = static_text_draw_data(window, inst_data);
+    if text.color == WIN_COLOR_UNDEFINED {
+        None
+    } else {
+        Some((text.color, text.border_color))
+    }
+}
+
+fn draw_static_text_solid_background(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, _) = static_text_draw_data(window, inst_data);
+    let Some(entry) = draw_data.first() else {
+        return;
+    };
+
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    if entry.border_color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_open_rect(
+                entry.border_color,
+                1.0,
+                origin_x,
+                origin_y,
+                origin_x + size_x,
+                origin_y + size_y,
+            );
+        });
+    }
+    if entry.color != WIN_COLOR_UNDEFINED {
+        with_window_manager_ref(|manager| {
+            manager.win_fill_rect(
+                entry.color,
+                1.0,
+                origin_x + 1,
+                origin_y + 1,
+                origin_x + size_x - 1,
+                origin_y + size_y - 1,
+            );
+        });
+    }
+}
+
+fn draw_static_text_image_background(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, _) = static_text_draw_data(window, inst_data);
+    let Some(image) = draw_data.first().and_then(|entry| entry.image.as_ref()) else {
+        return;
+    };
+
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    let start_x = origin_x + inst_data.image_offset.x;
+    let start_y = origin_y + inst_data.image_offset.y;
+    with_window_manager_ref(|manager| {
+        manager.win_draw_image(
+            image,
+            start_x,
+            start_y,
+            start_x + size_x,
+            start_y + size_y,
+            WIN_COLOR_UNDEFINED,
+        );
+    });
+}
+
 pub fn w3d_gadget_static_text_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_base(window, inst_data);
-    let (text_color, drop) =
-        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
-            (
-                inst_data.disabled_text.color,
-                inst_data.disabled_text.border_color,
-            )
-        } else {
-            (
-                inst_data.enabled_text.color,
-                inst_data.enabled_text.border_color,
-            )
-        };
-    draw_static_text(window, inst_data, text_color, drop);
+    draw_static_text_solid_background(window, inst_data);
+    if let Some((text_color, drop)) = static_text_text_colors(window, inst_data) {
+        draw_static_text(window, inst_data, text_color, drop);
+    }
 }
 
 pub fn w3d_gadget_static_text_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_base(window, inst_data);
-    let (text_color, drop) =
-        if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
-            (
-                inst_data.disabled_text.color,
-                inst_data.disabled_text.border_color,
-            )
-        } else {
-            (
-                inst_data.enabled_text.color,
-                inst_data.enabled_text.border_color,
-            )
-        };
-    draw_static_text(window, inst_data, text_color, drop);
+    draw_static_text_image_background(window, inst_data);
+    if let Some((text_color, drop)) = static_text_text_colors(window, inst_data) {
+        draw_static_text(window, inst_data, text_color, drop);
+    }
 }
 
 fn progress_percent(window: &GameWindow) -> i32 {
