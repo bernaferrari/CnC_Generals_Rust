@@ -557,7 +557,12 @@ impl GameWindow {
             next_in_layout: None,
             prev_in_layout: None,
             layout: None,
-            callbacks: WindowCallbacks::default(),
+            callbacks: WindowCallbacks {
+                draw: Some(Box::new(legacy_default_draw_callback)),
+                tooltip: None,
+                input: Some(Box::new(default_input_callback)),
+                system: Some(Box::new(default_system_callback)),
+            },
             widget: None,
             combobox_links: None,
             listbox_links: None,
@@ -1661,6 +1666,11 @@ impl GameWindow {
         self.callbacks.draw = Some(Box::new(callback));
     }
 
+    /// Get draw callback.
+    pub fn get_draw_callback(&self) -> Option<&dyn Fn(&GameWindow, &WindowInstanceData)> {
+        self.callbacks.draw.as_deref()
+    }
+
     /// Reset draw callback to the legacy default handler.
     pub fn reset_draw_callback(&mut self) {
         self.callbacks.draw = Some(Box::new(legacy_default_draw_callback));
@@ -1673,6 +1683,14 @@ impl GameWindow {
             + 'static,
     {
         self.callbacks.input = Some(Box::new(callback));
+    }
+
+    /// Get input callback.
+    pub fn get_input_callback(
+        &self,
+    ) -> Option<&dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>
+    {
+        self.callbacks.input.as_deref()
     }
 
     /// Reset input callback to the default handler.
@@ -1689,6 +1707,14 @@ impl GameWindow {
         self.callbacks.system = Some(Box::new(callback));
     }
 
+    /// Get system callback.
+    pub fn get_system_callback(
+        &self,
+    ) -> Option<&dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>
+    {
+        self.callbacks.system.as_deref()
+    }
+
     /// Reset system callback to the default handler.
     pub fn reset_system_callback(&mut self) {
         self.callbacks.system = Some(Box::new(default_system_callback));
@@ -1700,6 +1726,11 @@ impl GameWindow {
         F: Fn(&GameWindow, &WindowInstanceData, u32) + 'static,
     {
         self.callbacks.tooltip = Some(Box::new(callback));
+    }
+
+    /// Get tooltip callback.
+    pub fn get_tooltip_callback(&self) -> Option<&dyn Fn(&GameWindow, &WindowInstanceData, u32)> {
+        self.callbacks.tooltip.as_deref()
     }
 
     /// Clear tooltip callback.
@@ -3617,6 +3648,26 @@ mod tests {
     }
 
     #[test]
+    fn callback_getters_return_installed_handlers_like_cpp() {
+        let window = GameWindow::new();
+
+        assert!(window.get_draw_callback().is_some());
+        assert!(window.get_tooltip_callback().is_none());
+        assert_eq!(
+            window
+                .get_input_callback()
+                .unwrap()(&window, WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert_eq!(
+            window
+                .get_system_callback()
+                .unwrap()(&window, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Ignored
+        );
+    }
+
+    #[test]
     fn callback_resets_restore_default_handlers_like_cpp_null_setters() {
         let mut window = GameWindow::new();
         window.set_status(WindowStatus::ENABLED);
@@ -3658,7 +3709,7 @@ mod tests {
             window.send_system_message(WindowMessage::Create, 0, 0),
             WindowMsgHandled::Ignored
         );
-        assert!(window.callbacks.tooltip.is_none());
+        assert!(window.get_tooltip_callback().is_none());
     }
 
     #[test]
@@ -3694,9 +3745,7 @@ mod tests {
         window.draw();
         assert_eq!(*drawn.borrow(), 1);
         window
-            .callbacks
-            .tooltip
-            .as_ref()
+            .get_tooltip_callback()
             .unwrap()(&window, window.instance_data(), 42);
         assert_eq!(*tooltip_seen.borrow(), 42);
 
@@ -3707,7 +3756,7 @@ mod tests {
         );
         window.draw();
         assert_eq!(*drawn.borrow(), 1);
-        assert!(window.callbacks.tooltip.is_none());
+        assert!(window.get_tooltip_callback().is_none());
     }
 
     #[test]
