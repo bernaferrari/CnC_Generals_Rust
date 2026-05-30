@@ -740,6 +740,7 @@ impl WindowManager {
             old_parent.borrow_mut().remove_child(window);
         } else {
             self.root_windows.retain(|root| !Rc::ptr_eq(root, window));
+            self.sync_root_sibling_links();
         }
 
         if let Some(parent) = parent {
@@ -992,12 +993,14 @@ impl WindowManager {
         update_layout: bool,
     ) {
         let mut moved = false;
-        if let Some(parent) = window.borrow().get_parent() {
+        let parent = window.borrow().get_parent();
+        if let Some(parent) = parent {
             let mut parent = parent.borrow_mut();
             let children = parent.children_mut();
             if let Some(index) = children.iter().position(|child| Rc::ptr_eq(child, window)) {
                 let child = children.remove(index);
                 children.insert(0, child);
+                parent.sync_child_sibling_links();
                 moved = true;
             }
         } else if let Some(index) = self
@@ -4188,6 +4191,11 @@ impl WindowManager {
         } else {
             self.root_windows.insert(0, window);
         }
+        self.sync_root_sibling_links();
+    }
+
+    fn sync_root_sibling_links(&self) {
+        GameWindow::sync_sibling_links(&self.root_windows);
     }
 
     fn last_modal_root_index(&self, window: &Rc<RefCell<GameWindow>>) -> Option<usize> {
@@ -4254,6 +4262,7 @@ impl WindowManager {
             parent.borrow_mut().remove_child(&window);
         } else {
             self.root_windows.retain(|w| !Rc::ptr_eq(w, &window));
+            self.sync_root_sibling_links();
         }
 
         // Remove from lookup table
@@ -6184,6 +6193,45 @@ mod tests {
     }
 
     #[test]
+    fn root_sibling_links_follow_window_list_like_cpp() {
+        let mut manager = WindowManager::new();
+        let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        let third = manager.create_window(None, 200, 0, 100, 100).unwrap();
+
+        assert!(third.borrow().get_prev_sibling().is_none());
+        assert!(Rc::ptr_eq(
+            &third.borrow().get_next_sibling().unwrap(),
+            &second
+        ));
+        assert!(Rc::ptr_eq(
+            &second.borrow().get_prev_sibling().unwrap(),
+            &third
+        ));
+        assert!(Rc::ptr_eq(
+            &second.borrow().get_next_sibling().unwrap(),
+            &first
+        ));
+        assert!(Rc::ptr_eq(
+            &first.borrow().get_prev_sibling().unwrap(),
+            &second
+        ));
+        assert!(first.borrow().get_next_sibling().is_none());
+
+        manager.bring_window_forward(&first);
+
+        assert!(first.borrow().get_prev_sibling().is_none());
+        assert!(Rc::ptr_eq(
+            &first.borrow().get_next_sibling().unwrap(),
+            &third
+        ));
+        assert!(Rc::ptr_eq(
+            &third.borrow().get_prev_sibling().unwrap(),
+            &first
+        ));
+    }
+
+    #[test]
     fn bring_window_forward_moves_child_to_head_like_cpp() {
         let mut manager = WindowManager::new();
         let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
@@ -6195,6 +6243,52 @@ mod tests {
         let parent = parent.borrow();
         assert!(Rc::ptr_eq(&parent.children()[0], &second));
         assert!(Rc::ptr_eq(&parent.children()[1], &first));
+    }
+
+    #[test]
+    fn child_sibling_links_follow_parent_child_list_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let first = manager.create_window(Some(&parent), 0, 0, 20, 20).unwrap();
+        let second = manager.create_window(Some(&parent), 20, 0, 20, 20).unwrap();
+        let third = manager.create_window(Some(&parent), 40, 0, 20, 20).unwrap();
+
+        assert!(third.borrow().get_prev_sibling().is_none());
+        assert!(Rc::ptr_eq(
+            &third.borrow().get_next_sibling().unwrap(),
+            &second
+        ));
+        assert!(Rc::ptr_eq(
+            &second.borrow().get_prev_sibling().unwrap(),
+            &third
+        ));
+        assert!(Rc::ptr_eq(
+            &second.borrow().get_next_sibling().unwrap(),
+            &first
+        ));
+        assert!(Rc::ptr_eq(
+            &first.borrow().get_prev_sibling().unwrap(),
+            &second
+        ));
+        assert!(first.borrow().get_next_sibling().is_none());
+
+        manager.set_window_parent(&second, None).unwrap();
+
+        assert!(second.borrow().get_prev_sibling().is_none());
+        assert!(Rc::ptr_eq(
+            &second.borrow().get_next_sibling().unwrap(),
+            &parent
+        ));
+        assert!(third.borrow().get_prev_sibling().is_none());
+        assert!(Rc::ptr_eq(
+            &third.borrow().get_next_sibling().unwrap(),
+            &first
+        ));
+        assert!(Rc::ptr_eq(
+            &first.borrow().get_prev_sibling().unwrap(),
+            &third
+        ));
+        assert!(first.borrow().get_next_sibling().is_none());
     }
 
     #[test]
