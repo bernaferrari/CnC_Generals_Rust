@@ -4157,6 +4157,13 @@ impl WindowManager {
         // Remove from lookup table
         self.window_by_id.remove(&window_id);
 
+        // Remove from owning layout
+        let layout = window.borrow().get_layout();
+        if let Some(layout) = layout {
+            layout.borrow_mut().remove_window(&window);
+            window.borrow_mut().set_layout(None);
+        }
+
         // Send destroy message
         window
             .borrow_mut()
@@ -6575,6 +6582,22 @@ mod tests {
         assert!(manager.current_mouse_region.is_none());
         assert!(manager.get_grab_window().is_none());
         assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
+    }
+
+    #[test]
+    fn destroy_window_removes_window_from_layout_like_cpp() {
+        let mut manager = WindowManager::new();
+        let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+
+        window.borrow_mut().set_layout(Some(&layout));
+        layout.borrow_mut().add_window(window.clone());
+
+        manager.destroy_window(window.clone()).unwrap();
+        manager.update();
+
+        assert!(layout.borrow().windows().is_empty());
+        assert!(window.borrow().get_layout().is_none());
     }
 
     #[test]
