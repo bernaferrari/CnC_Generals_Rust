@@ -1108,6 +1108,18 @@ impl WindowManager {
         y: i32,
         data: WindowMsgData,
     ) -> WindowInputReturnCode {
+        self.process_mouse_event_with_delta(msg, x, y, data, None)
+    }
+
+    /// Process mouse event with optional mouse delta for legacy drag handling.
+    pub fn process_mouse_event_with_delta(
+        &mut self,
+        msg: WindowMessage,
+        x: i32,
+        y: i32,
+        data: WindowMsgData,
+        mouse_delta: Option<(i32, i32)>,
+    ) -> WindowInputReturnCode {
         const GGM_LEFT_DRAG: u32 = 16384;
         const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
         let old_lone = self.lone_window.as_ref().and_then(|w| w.upgrade());
@@ -1138,6 +1150,9 @@ impl WindowManager {
                         return WindowInputReturnCode::Used;
                     }
                     WindowMessage::None | WindowMessage::LeftDrag => {
+                        if let Some((dx, dy)) = mouse_delta {
+                            self.move_grabbed_draggable_window(&grab_window, dx, dy);
+                        }
                         let _ = grab_window.borrow_mut().send_input_message(msg, data, 0);
                         return WindowInputReturnCode::Used;
                     }
@@ -1250,6 +1265,62 @@ impl WindowManager {
             }
             WindowInputReturnCode::NotUsed
         }
+    }
+
+    fn move_grabbed_draggable_window(
+        &self,
+        grab_window: &Rc<RefCell<GameWindow>>,
+        mut dx: i32,
+        mut dy: i32,
+    ) {
+        let (x, y, width, height, parent_size) = {
+            let window = grab_window.borrow();
+            if !window.get_status().contains(WindowStatus::DRAGABLE) {
+                return;
+            }
+
+            let parent_size = window.get_parent().map(|parent| parent.borrow().get_size());
+            let (x, y) = window.get_position();
+            let (width, height) = window.get_size();
+            (x, y, width, height, parent_size)
+        };
+
+        if let Some((parent_width, parent_height)) = parent_size {
+            if x + dx < 0 {
+                dx = -x;
+            } else if x + width + dx > parent_width {
+                dx = parent_width - (x + width);
+            }
+
+            if y + dy < 0 {
+                dy = -y;
+            } else if y + height + dy > parent_height {
+                dy = parent_height - (y + height);
+            }
+        }
+
+        let (screen_width, screen_height) = self.screen_size;
+        let mut new_x = x + dx;
+        let mut new_y = y + dy;
+        if new_x < 0 {
+            new_x = 0;
+        }
+        if new_y < 0 {
+            new_y = 0;
+        }
+
+        let mut high_x = new_x + width;
+        let mut high_y = new_y + height;
+        if high_x > screen_width {
+            high_x = screen_width;
+        }
+        if high_y > screen_height {
+            high_y = screen_height;
+        }
+
+        new_x = high_x - width;
+        new_y = high_y - height;
+        let _ = grab_window.borrow_mut().set_position(new_x, new_y);
     }
 
     fn update_cursor_tooltip_for_mouse_event(&self, x: i32, y: i32) {
@@ -5420,6 +5491,48 @@ mod tests {
         assert!(*grabbed_seen.borrow());
         assert!(!*other_seen.borrow());
         assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &grabbed));
+    }
+
+    #[test]
+    fn left_drag_moves_grabbed_draggable_window_like_cpp() {
+        let mut manager = WindowManager::new();
+        let grabbed = manager.create_window(None, 10, 20, 100, 80).unwrap();
+        grabbed.borrow_mut().set_status(WindowStatus::DRAGABLE);
+        manager.set_grab_window(Some(&grabbed));
+
+        let result = manager.process_mouse_event_with_delta(
+            WindowMessage::LeftDrag,
+            30,
+            40,
+            0,
+            Some((15, -5)),
+        );
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert_eq!(grabbed.borrow().get_position(), (25, 15));
+    }
+
+    #[test]
+    fn left_drag_clips_grabbed_draggable_window_to_parent_and_screen_like_cpp() {
+        let mut manager = WindowManager::new();
+        manager.set_screen_size(300, 200);
+        let parent = manager.create_window(None, 0, 0, 150, 120).unwrap();
+        let grabbed = manager
+            .create_window(Some(&parent), 80, 70, 100, 80)
+            .unwrap();
+        grabbed.borrow_mut().set_status(WindowStatus::DRAGABLE);
+        manager.set_grab_window(Some(&grabbed));
+
+        let result = manager.process_mouse_event_with_delta(
+            WindowMessage::LeftDrag,
+            200,
+            160,
+            0,
+            Some((100, 100)),
+        );
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert_eq!(grabbed.borrow().get_position(), (50, 40));
     }
 
     #[test]
