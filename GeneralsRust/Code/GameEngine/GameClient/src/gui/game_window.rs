@@ -21,7 +21,7 @@ use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 use super::gadgets::{
     CheckBox, ComboBox, Gadget, GadgetMessage, GadgetState, GadgetValue, HorizontalSlider,
     InputEvent, KeyCode, KeyModifiers, ListBox, MouseButton, ProgressBar, PushButton, RadioButton,
-    StaticText, TabControl, TextEntry, VerticalSlider,
+    StaticText, TabControl, TabControlData, TextEntry, VerticalSlider,
 };
 use super::{
     display_string::DisplayStringHandle,
@@ -2540,11 +2540,21 @@ impl GameWindow {
             return;
         }
 
+        let mut active_index = if panes.get(index).is_some() { index } else { 0 };
+        if let Some(WindowWidget::TabControl(tab_control)) = &mut self.widget {
+            let tab_count = tab_control.tab_count();
+            if tab_count > 0 {
+                active_index = active_index.min(tab_count - 1);
+            }
+            active_index = active_index.min(panes.len() - 1);
+            tab_control.set_active_tab_index_silent(active_index);
+        }
+
         for pane in panes.iter() {
             let _ = pane.borrow_mut().hide(true);
         }
 
-        if let Some(pane) = panes.get(index) {
+        if let Some(pane) = panes.get(active_index) {
             let _ = pane.borrow_mut().hide(false);
         }
     }
@@ -3735,6 +3745,38 @@ mod tests {
             &GameWindow::find_prev_leaf(&leading_leaf).unwrap(),
             &child_under_tab
         ));
+    }
+
+    #[test]
+    fn show_tab_pane_falls_back_and_updates_active_tab_like_cpp() {
+        let mut tab_window = GameWindow::new();
+        let mut tab_control = TabControl::new(7, 0, 0, 100, 80);
+        tab_control.set_tab_data(TabControlData {
+            tab_count: 2,
+            ..Default::default()
+        });
+        tab_window.set_widget(WindowWidget::TabControl(tab_control));
+
+        let first_pane = Rc::new(RefCell::new(GameWindow::new()));
+        first_pane.borrow_mut().instance_data_mut().style |= GWS_TAB_PANE;
+        let second_pane = Rc::new(RefCell::new(GameWindow::new()));
+        second_pane.borrow_mut().instance_data_mut().style |= GWS_TAB_PANE;
+
+        tab_window.add_child(first_pane.clone());
+        tab_window.add_child(second_pane.clone());
+
+        tab_window.show_tab_pane(1);
+        assert!(first_pane.borrow().is_hidden());
+        assert!(!second_pane.borrow().is_hidden());
+
+        tab_window.show_tab_pane(7);
+        assert!(!first_pane.borrow().is_hidden());
+        assert!(second_pane.borrow().is_hidden());
+
+        let Some(WindowWidget::TabControl(tab_control)) = tab_window.widget() else {
+            panic!("expected tab control widget");
+        };
+        assert_eq!(tab_control.active_tab_index(), 0);
     }
 
     #[test]
