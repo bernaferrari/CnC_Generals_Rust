@@ -1225,7 +1225,7 @@ impl WindowManager {
                 let _ = prev.borrow_mut().set_cursor_position(x - px, y - py);
                 let _ = prev
                     .borrow_mut()
-                    .send_input_message(WindowMessage::MouseLeaving, 0, 0);
+                    .send_routed_input_message(WindowMessage::MouseLeaving, 0, 0);
             }
         }
 
@@ -1234,7 +1234,7 @@ impl WindowManager {
             let _ = new_window.borrow_mut().set_cursor_position(x - wx, y - wy);
             let _ = new_window
                 .borrow_mut()
-                .send_input_message(WindowMessage::MouseEntering, 0, 0);
+                .send_routed_input_message(WindowMessage::MouseEntering, 0, 0);
             self.current_mouse_region = Some(Rc::downgrade(new_window));
         } else {
             self.current_mouse_region = None;
@@ -5723,6 +5723,38 @@ mod tests {
 
         assert_eq!(result, WindowInputReturnCode::Used);
         assert_eq!(seen.borrow().as_slice(), &["child"]);
+    }
+
+    #[test]
+    fn mouse_region_enter_reaches_routed_no_input_window_like_cpp() {
+        let mut manager = WindowManager::new();
+        let captor = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&captor), 10, 10, 40, 40)
+            .unwrap();
+        child
+            .borrow_mut()
+            .set_status_exact(WindowStatus::ENABLED | WindowStatus::NO_INPUT);
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = Rc::clone(&seen);
+            child.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if matches!(msg, WindowMessage::MousePos | WindowMessage::MouseEntering) {
+                    seen.borrow_mut().push(msg);
+                }
+                WindowMsgHandled::Ignored
+            });
+        }
+
+        manager.capture_mouse(&captor).unwrap();
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 20, 20, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[WindowMessage::MousePos, WindowMessage::MouseEntering]
+        );
     }
 
     #[test]
