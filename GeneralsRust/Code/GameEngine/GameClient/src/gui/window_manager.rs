@@ -1125,9 +1125,13 @@ impl WindowManager {
         let old_lone = self.lone_window.as_ref().and_then(|w| w.upgrade());
         self.update_cursor_tooltip_for_mouse_event(x, y);
         // Find window under cursor or use capture
-        let target_window = if let Some(capture) = self.get_capture() {
+        let capture_window = self.get_capture();
+        let target_window = if let Some(capture) = capture_window.as_ref() {
             self.set_grab_window(None);
-            Some(capture)
+            Some(
+                self.find_window_at_point(capture, x, y, false)
+                    .unwrap_or_else(|| capture.clone()),
+            )
         } else {
             self.get_window_under_cursor(x, y, false)
         };
@@ -1189,13 +1193,13 @@ impl WindowManager {
 
         let focus_window = self.get_focus();
         if let Some(window) = target_window {
-            let (wx, wy) = window.borrow().get_screen_position();
-            let _ = window.borrow_mut().set_cursor_position(x - wx, y - wy);
-            // Send message to window
-            let result = window.borrow_mut().send_input_message(msg, data, 0);
+            let handled_window =
+                self.send_mouse_message_up_chain(&window, msg, data, x, y, capture_window.as_ref());
 
-            if msg == WindowMessage::LeftDown && result == WindowMsgHandled::Handled {
-                self.set_grab_window(Some(&window));
+            if msg == WindowMessage::LeftDown {
+                if let Some(handled) = handled_window.as_ref() {
+                    self.set_grab_window(Some(handled));
+                }
             }
 
             if msg == WindowMessage::MousePos {
@@ -1215,7 +1219,9 @@ impl WindowManager {
                 WindowMessage::LeftUp | WindowMessage::MiddleUp | WindowMessage::RightUp
             ) {
                 if let Some(lone) = old_lone {
-                    let inside = lone.borrow().contains_descendant(&window.borrow());
+                    let inside = handled_window
+                        .as_ref()
+                        .is_some_and(|handled| lone.borrow().contains_descendant(&handled.borrow()));
                     if !inside {
                         let _ = lone.borrow_mut().send_system_message(
                             WindowMessage::User(GGM_CLOSE),
@@ -1233,9 +1239,10 @@ impl WindowManager {
                 }
             }
 
-            match result {
-                WindowMsgHandled::Handled => WindowInputReturnCode::Used,
-                WindowMsgHandled::Ignored => WindowInputReturnCode::NotUsed,
+            if handled_window.is_some() {
+                WindowInputReturnCode::Used
+            } else {
+                WindowInputReturnCode::NotUsed
             }
         } else {
             if msg == WindowMessage::MousePos {
@@ -1265,6 +1272,38 @@ impl WindowManager {
             }
             WindowInputReturnCode::NotUsed
         }
+    }
+
+    fn send_mouse_message_up_chain(
+        &mut self,
+        start: &Rc<RefCell<GameWindow>>,
+        msg: WindowMessage,
+        data: WindowMsgData,
+        x: i32,
+        y: i32,
+        stop_at: Option<&Rc<RefCell<GameWindow>>>,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        let mut current = Some(start.clone());
+        while let Some(window) = current {
+            let (wx, wy) = window.borrow().get_screen_position();
+            let result = {
+                let mut window_ref = window.borrow_mut();
+                let _ = window_ref.set_cursor_position(x - wx, y - wy);
+                window_ref.send_input_message(msg, data, 0)
+            };
+
+            if result == WindowMsgHandled::Handled {
+                return Some(window);
+            }
+
+            if stop_at.is_some_and(|stop| Rc::ptr_eq(stop, &window)) {
+                break;
+            }
+
+            current = window.borrow().get_parent();
+        }
+
+        None
     }
 
     fn move_grabbed_draggable_window(
@@ -5157,6 +5196,113 @@ mod tests {
             assert_eq!(state.tooltip_text, "");
             assert!(state.is_tooltip_empty);
         });
+    }
+
+    #[test]
+    fn mouse_input_bubbles_to_parent_until_handled_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 40, 40)
+            .unwrap();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = Rc::clone(&seen);
+            child.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                seen.borrow_mut().push(("child", msg));
+                WindowMsgHandled::Ignored
+            });
+        }
+        {
+            let seen = Rc::clone(&seen);
+            parent.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                seen.borrow_mut().push(("parent", msg));
+                WindowMsgHandled::Handled
+            });
+        }
+
+        let result = manager.process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[
+                ("child", WindowMessage::LeftUp),
+                ("parent", WindowMessage::LeftUp)
+            ]
+        );
+    }
+
+    #[test]
+    fn left_down_grabs_parent_that_handles_bubbled_input_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 40, 40)
+            .unwrap();
+
+        child
+            .borrow_mut()
+            .set_input_callback(|_, _, _, _| WindowMsgHandled::Ignored);
+        parent
+            .borrow_mut()
+            .set_input_callback(|_, msg, _, _| match msg {
+                WindowMessage::LeftDown => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
+
+        let result = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &parent));
+    }
+
+    #[test]
+    fn captured_mouse_input_bubbles_only_to_captor_like_cpp() {
+        let mut manager = WindowManager::new();
+        let root = manager.create_window(None, 0, 0, 200, 200).unwrap();
+        let captor = manager
+            .create_window(Some(&root), 0, 0, 100, 100)
+            .unwrap();
+        let child = manager
+            .create_window(Some(&captor), 10, 10, 40, 40)
+            .unwrap();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = Rc::clone(&seen);
+            child.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                seen.borrow_mut().push(("child", msg));
+                WindowMsgHandled::Ignored
+            });
+        }
+        {
+            let seen = Rc::clone(&seen);
+            captor.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                seen.borrow_mut().push(("captor", msg));
+                WindowMsgHandled::Ignored
+            });
+        }
+        {
+            let seen = Rc::clone(&seen);
+            root.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                seen.borrow_mut().push(("root", msg));
+                WindowMsgHandled::Handled
+            });
+        }
+
+        manager.capture_mouse(&captor).unwrap();
+        let result = manager.process_mouse_event(WindowMessage::LeftUp, 20, 20, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[
+                ("child", WindowMessage::LeftUp),
+                ("captor", WindowMessage::LeftUp)
+            ]
+        );
     }
 
     #[test]
