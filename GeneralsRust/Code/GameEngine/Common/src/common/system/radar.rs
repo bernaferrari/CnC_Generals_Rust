@@ -712,6 +712,24 @@ impl RadarObject {
     }
 }
 
+fn radar_object_blip_cells(radar_point: ICoord2D) -> [ICoord2D; 4] {
+    [
+        radar_point,
+        ICoord2D::new(radar_point.x, radar_point.y + 1),
+        ICoord2D::new(radar_point.x + 1, radar_point.y + 1),
+        ICoord2D::new(radar_point.x + 1, radar_point.y),
+    ]
+}
+
+fn argb_to_rgba_bytes(color: u32) -> [u8; 4] {
+    [
+        ((color >> 16) & 0xFF) as u8,
+        ((color >> 8) & 0xFF) as u8,
+        (color & 0xFF) as u8,
+        ((color >> 24) & 0xFF) as u8,
+    ]
+}
+
 /// Radar system manager (matches C++ Radar class)
 pub struct RadarSystem {
     /// Map extents for coordinate conversion
@@ -1552,6 +1570,36 @@ impl RadarSystem {
     /// Get shroud grid for rendering
     pub fn get_shroud_grid(&self) -> &[CellShroudStatus] {
         &self.shroud_grid
+    }
+
+    /// Build the W3D radar object overlay as RGBA pixels.
+    ///
+    /// Matches the core `W3DRadar::renderObjectList` raster shape: each visible
+    /// object draws four legal radar-cell pixels in a 2x2 block before the texture
+    /// is scaled into the HUD radar rectangle.
+    pub fn build_object_overlay_texture_rgba(&self) -> Vec<u8> {
+        let expected_len = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
+        let mut texture = vec![0; expected_len * 4];
+
+        for obj in self.get_all_objects() {
+            if obj.is_temporarily_hidden() || !obj.priority.is_visible() {
+                continue;
+            }
+
+            let Some(radar_point) = self.world_to_radar(&obj.world_pos) else {
+                continue;
+            };
+            let color = argb_to_rgba_bytes(obj.color);
+
+            for point in radar_object_blip_cells(radar_point) {
+                if legal_radar_point(point.x, point.y) {
+                    let idx = ((point.y as u32 * RADAR_CELL_WIDTH + point.x as u32) * 4) as usize;
+                    texture[idx..idx + 4].copy_from_slice(&color);
+                }
+            }
+        }
+
+        texture
     }
 
     /// Build the W3D radar shroud overlay as black RGBA pixels.
@@ -2471,6 +2519,33 @@ mod tests {
         assert_eq!(&texture[0..4], &[0, 0, 0, 0]);
         assert_eq!(&texture[4..8], &[0, 0, 0, 127]);
         assert_eq!(&texture[8..12], &[0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn test_object_overlay_texture_matches_w3d_2x2_blip_shape() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        let mut obj = RadarObject::new(1);
+        obj.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        obj.priority = RadarPriorityType::Unit;
+        obj.color = 0xAA112233;
+        radar.add_object(obj);
+
+        let texture = radar.build_object_overlay_texture_rgba();
+        let pixel = |x: u32, y: u32| -> &[u8] {
+            let idx = ((y * RADAR_CELL_WIDTH + x) * 4) as usize;
+            &texture[idx..idx + 4]
+        };
+
+        assert_eq!(pixel(10, 20), &[0x11, 0x22, 0x33, 0xAA]);
+        assert_eq!(pixel(10, 21), &[0x11, 0x22, 0x33, 0xAA]);
+        assert_eq!(pixel(11, 21), &[0x11, 0x22, 0x33, 0xAA]);
+        assert_eq!(pixel(11, 20), &[0x11, 0x22, 0x33, 0xAA]);
+        assert_eq!(pixel(9, 20), &[0, 0, 0, 0]);
     }
 
     #[test]
