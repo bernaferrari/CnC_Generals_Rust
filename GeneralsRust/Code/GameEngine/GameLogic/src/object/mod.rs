@@ -3091,6 +3091,7 @@ impl Object {
         {
             // Always update partition for stealth changes (C++ checks shroud reveal range)
             self.handle_partition_cell_maintenance();
+            self.refresh_radar_object_from_state();
         }
 
         // Under construction status side effects (C++ lines 985-1031)
@@ -3173,6 +3174,58 @@ impl Object {
 
             // Update partition for shroud changes (C++ line 1031)
             self.handle_partition_cell_maintenance();
+        }
+    }
+
+    fn populate_radar_object_from_state(&self, radar_obj: &mut RadarObject) {
+        radar_obj.is_hero = self.is_hero();
+        radar_obj.is_local = self.is_locally_controlled();
+        radar_obj.is_stealth =
+            self.test_status(ObjectStatusTypes::Stealthed) || self.is_stealthed();
+        radar_obj.is_detected = self.test_status(ObjectStatusTypes::Detected);
+        radar_obj.is_disguised = self.test_status(ObjectStatusTypes::Disguised);
+        radar_obj.is_enemy = self.is_enemy_to_local_player();
+    }
+
+    fn is_enemy_to_local_player(&self) -> bool {
+        let Some(team) = self.get_team() else {
+            return false;
+        };
+        let Some(local_player) = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned())
+        else {
+            return false;
+        };
+        let Ok(team_guard) = team.read() else {
+            return false;
+        };
+        let Ok(local_player_guard) = local_player.read() else {
+            return false;
+        };
+
+        local_player_guard.is_enemy_with_team(&team_guard)
+    }
+
+    fn refresh_radar_object_from_state(&self) {
+        let Some(radar_data) = &self.radar_data else {
+            return;
+        };
+        let Ok(mut radar_guard) = radar_data.lock() else {
+            return;
+        };
+
+        let mut radar_obj = radar_guard.clone();
+        self.populate_radar_object_from_state(&mut radar_obj);
+        *radar_guard = radar_obj.clone();
+        drop(radar_guard);
+
+        let radar = game_engine::common::system::radar::get_radar_system();
+        let radar_write = radar.write();
+        if let Ok(mut radar_guard) = radar_write {
+            radar_guard.remove_object(self.id);
+            radar_guard.add_object(radar_obj);
         }
     }
 
@@ -6455,18 +6508,7 @@ impl Object {
             self.on_capture(old_owner, new_owner);
         }
 
-        if let Some(radar_data) = &self.radar_data {
-            if let Ok(radar_guard) = radar_data.lock() {
-                let mut radar_obj = radar_guard.clone();
-                radar_obj.is_hero = self.is_hero();
-                let radar = game_engine::common::system::radar::get_radar_system();
-                let radar_write = radar.write();
-                if let Ok(mut radar_guard) = radar_write {
-                    radar_guard.remove_object(self.id);
-                    radar_guard.add_object(radar_obj);
-                }
-            }
-        }
+        self.refresh_radar_object_from_state();
 
         // C++ parity: team switches update AI attitude from the new team prototype.
         self.apply_team_ai_profile();
