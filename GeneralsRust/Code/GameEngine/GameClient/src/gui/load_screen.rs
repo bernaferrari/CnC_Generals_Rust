@@ -299,9 +299,8 @@ pub fn descriptor_for_kind(kind: LoadScreenKind) -> LoadScreenDescriptor {
 }
 
 pub fn transformed_progress_percent(descriptor: LoadScreenDescriptor, raw_percent: f32) -> f32 {
-    let raw_percent = raw_percent.clamp(0.0, 100.0);
     if descriptor.uses_progress_fudge {
-        ((raw_percent + FRAME_FUDGE_ADD) / FRAME_FUDGE_SCALE).clamp(0.0, 100.0)
+        (raw_percent + FRAME_FUDGE_ADD) / FRAME_FUDGE_SCALE
     } else {
         raw_percent
     }
@@ -2371,9 +2370,12 @@ mod tests {
         let single = descriptor_for_kind(LoadScreenKind::SinglePlayer);
         assert!((transformed_progress_percent(single, 0.0) - (30.0 / 1.3)).abs() < f32::EPSILON);
         assert!((transformed_progress_percent(single, 100.0) - 100.0).abs() < f32::EPSILON);
+        assert!((transformed_progress_percent(single, 150.0) - (180.0 / 1.3)).abs() < f32::EPSILON);
+        assert!((transformed_progress_percent(single, -50.0) - (-20.0 / 1.3)).abs() < f32::EPSILON);
 
         let shell = descriptor_for_kind(LoadScreenKind::ShellGame);
         assert!((transformed_progress_percent(shell, 42.0) - 42.0).abs() < f32::EPSILON);
+        assert!((transformed_progress_percent(shell, 150.0) - 150.0).abs() < f32::EPSILON);
     }
 
     #[test]
