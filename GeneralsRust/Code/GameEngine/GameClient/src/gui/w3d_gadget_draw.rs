@@ -753,7 +753,8 @@ mod tests {
         check_box_image_source, combo_box_title_adjustment, horizontal_slider_box_counts,
         horizontal_slider_box_image_sources, horizontal_slider_image_draw_a_sources,
         horizontal_slider_image_draw_b_sources, progress_bar_image_draw_a_bank,
-        progress_bar_image_draw_a_sources, progress_bar_image_sources, radio_button_image_sources,
+        progress_bar_image_draw_a_sources, progress_bar_image_sources, progress_bar_solid_sources,
+        radio_button_image_sources,
     };
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
@@ -939,6 +940,11 @@ mod tests {
             progress_bar_image_draw_a_bank(),
             PushButtonDrawBank::Enabled
         );
+    }
+
+    #[test]
+    fn progress_bar_solid_sources_match_cpp_color_slots() {
+        assert_eq!(progress_bar_solid_sources(), (0, 4));
     }
 
     #[test]
@@ -2891,6 +2897,10 @@ fn progress_bar_image_sources() -> (usize, usize, usize, usize, usize) {
     (0, 1, 2, 5, 6)
 }
 
+fn progress_bar_solid_sources() -> (usize, usize) {
+    (0, 4)
+}
+
 fn progress_bar_image_draw_a_sources() -> (usize, usize, usize, usize, usize) {
     (6, 5, 0, 1, 2)
 }
@@ -2908,8 +2918,10 @@ pub fn w3d_gadget_progress_bar_draw(window: &GameWindow, inst_data: &WindowInsta
     } else {
         (&inst_data.enabled_draw_data, &inst_data.enabled_text)
     };
-    let back = &draw_data[0];
-    let bar = &draw_data[1];
+    let (back_index, bar_index) = progress_bar_solid_sources();
+    let (Some(back), Some(bar)) = (draw_data.get(back_index), draw_data.get(bar_index)) else {
+        return;
+    };
     draw_progress_bar_solid(window, inst_data, back, bar);
 }
 
