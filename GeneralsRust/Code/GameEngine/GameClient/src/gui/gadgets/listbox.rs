@@ -656,13 +656,23 @@ impl ListBox {
             }
         }
 
-        self.select_index(index, modifiers);
+        let deselected = self.selection_mode == SelectionMode::Single
+            && !self.force_select
+            && !modifiers.ctrl
+            && !modifiers.shift
+            && self.selected_indices.first() == Some(&index);
+        if deselected {
+            self.selected_indices.clear();
+            self.last_selected = None;
+        } else {
+            self.select_index(index, modifiers);
+        }
 
         let mut messages = vec![
             GadgetMessage::Clicked { gadget_id: self.id },
             GadgetMessage::ValueChanged {
                 gadget_id: self.id,
-                value: GadgetValue::Integer(self.items[index].id),
+                value: GadgetValue::Integer(if deselected { -1 } else { self.items[index].id }),
             },
         ];
 
@@ -979,5 +989,61 @@ impl Gadget for ListBox {
 
     fn tooltip(&self) -> Option<&str> {
         self.tooltip.as_deref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn click_first_row(listbox: &mut ListBox) -> Vec<GadgetMessage> {
+        listbox.handle_input(&InputEvent::MouseUp {
+            x: 1,
+            y: 1,
+            button: MouseButton::Left,
+        })
+    }
+
+    fn value_changed_integer(messages: &[GadgetMessage]) -> Option<i32> {
+        messages.iter().find_map(|message| {
+            if let GadgetMessage::ValueChanged {
+                value: GadgetValue::Integer(value),
+                ..
+            } = message
+            {
+                Some(*value)
+            } else {
+                None
+            }
+        })
+    }
+
+    #[test]
+    fn single_select_click_toggles_existing_selection_when_not_forced() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.add_item_with_id(42, "first");
+
+        let first = click_first_row(&mut listbox);
+        assert_eq!(listbox.selected_indices(), &[0]);
+        assert_eq!(value_changed_integer(&first), Some(42));
+
+        let second = click_first_row(&mut listbox);
+        assert!(listbox.selected_indices().is_empty());
+        assert_eq!(value_changed_integer(&second), Some(-1));
+    }
+
+    #[test]
+    fn single_select_force_select_keeps_existing_selection_on_click() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.set_force_select(true);
+        listbox.add_item_with_id(42, "first");
+
+        let first = click_first_row(&mut listbox);
+        assert_eq!(listbox.selected_indices(), &[0]);
+        assert_eq!(value_changed_integer(&first), Some(42));
+
+        let second = click_first_row(&mut listbox);
+        assert_eq!(listbox.selected_indices(), &[0]);
+        assert_eq!(value_changed_integer(&second), Some(42));
     }
 }

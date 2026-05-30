@@ -757,7 +757,10 @@ mod tests {
         push_button_three_piece_tail_clip, radio_button_image_set_complete,
         radio_button_image_sources, radio_button_solid_box_source, solid_check_box_mark_color,
     };
-    use super::{list_box_selected_image_rect, list_box_selected_image_slots};
+    use super::{
+        list_box_image_content_width, list_box_selected_image_rect, list_box_selected_image_slots,
+        list_box_solid_content_width,
+    };
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
     use super::{static_text_draw_data, static_text_text_colors, WIN_COLOR_UNDEFINED};
     use super::{
@@ -906,6 +909,16 @@ mod tests {
             Some((11, 55, 80, 60))
         );
         assert_eq!(list_box_selected_image_rect(10, 60, 70, 9, &clip), None);
+    }
+
+    #[test]
+    fn list_box_scrollbar_width_adjustment_matches_cpp_draw_variants() {
+        assert_eq!(list_box_solid_content_width(100, Some((17, false))), 80);
+        assert_eq!(list_box_solid_content_width(100, Some((17, true))), 100);
+        assert_eq!(list_box_solid_content_width(100, None), 100);
+
+        assert_eq!(list_box_image_content_width(100, Some(17)), 83);
+        assert_eq!(list_box_image_content_width(100, None), 100);
     }
 
     #[test]
@@ -4631,6 +4644,20 @@ fn draw_list_box_selected_image_bar(
     );
 }
 
+fn list_box_solid_content_width(width: i32, slider: Option<(i32, bool)>) -> i32 {
+    match slider {
+        Some((slider_width, false)) => (width - slider_width - 3).max(0),
+        _ => width,
+    }
+}
+
+fn list_box_image_content_width(width: i32, slider_width: Option<i32>) -> i32 {
+    match slider_width {
+        Some(slider_width) => (width - slider_width).max(0),
+        None => width,
+    }
+}
+
 pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
@@ -4666,10 +4693,8 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
     if let Some(links) = window.listbox_links() {
         if let Some(slider) = window.find_child_by_id(links.slider) {
             slider_hidden = slider.borrow().is_hidden();
-            if !slider_hidden {
-                let (slider_width, _) = slider.borrow().get_size();
-                width = (width - slider_width - 2).max(0);
-            }
+            let (slider_width, _) = slider.borrow().get_size();
+            width = list_box_solid_content_width(width, Some((slider_width, slider_hidden)));
         }
     }
 
@@ -4858,6 +4883,15 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
 
     let (mut x, mut y) = window.get_screen_position();
     let (mut width, mut height) = window.get_size();
+    let mut slider_hidden = false;
+    if let Some(links) = window.listbox_links() {
+        if let Some(slider) = window.find_child_by_id(links.slider) {
+            slider_hidden = slider.borrow().is_hidden();
+            let (slider_width, _) = slider.borrow().get_size();
+            width = list_box_image_content_width(width, Some(slider_width));
+        }
+    }
+
     if let Some(image) = &draw_data[0].image {
         with_window_manager_ref(|manager| {
             manager.win_draw_image(
@@ -4886,17 +4920,6 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
         title.draw(x + 1, y, text_colors.color, text_colors.border_color);
         y += font_height + 1;
         height -= font_height + 1;
-    }
-
-    let mut slider_hidden = false;
-    if let Some(links) = window.listbox_links() {
-        if let Some(slider) = window.find_child_by_id(links.slider) {
-            slider_hidden = slider.borrow().is_hidden();
-            if !slider_hidden {
-                let (slider_width, _) = slider.borrow().get_size();
-                width = (width - slider_width - 2).max(0);
-            }
-        }
     }
 
     if let Some(widget) = window.widget() {
