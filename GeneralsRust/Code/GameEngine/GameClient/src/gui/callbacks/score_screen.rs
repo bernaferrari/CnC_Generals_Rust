@@ -402,7 +402,7 @@ fn finalize_single_player_init(state: &mut ScoreScreenState) {
     }
 
     if let Some(parent) = state.parent.as_ref() {
-        let _ = parent.borrow_mut().activate();
+        let _ = with_window_manager(|manager| manager.activate_window(parent));
     }
 
     hide_window(&state.button_ok, false);
@@ -1087,7 +1087,7 @@ pub fn score_screen_init(layout: &WindowLayout, _user_data: Option<&mut dyn std:
 
         layout.hide(false);
         if let Some(parent) = state.parent.as_ref() {
-            let _ = parent.borrow_mut().activate();
+            let _ = with_window_manager(|manager| manager.activate_window(parent));
         }
         set_replay_was_pressed(false);
     });
