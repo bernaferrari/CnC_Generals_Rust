@@ -5105,6 +5105,22 @@ mod tests {
     }
 
     #[test]
+    fn new_child_windows_insert_at_head_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let first = manager
+            .create_window(Some(&parent), 10, 10, 20, 20)
+            .unwrap();
+        let second = manager
+            .create_window(Some(&parent), 20, 20, 20, 20)
+            .unwrap();
+
+        let parent = parent.borrow();
+        assert!(Rc::ptr_eq(&parent.children()[0], &second));
+        assert!(Rc::ptr_eq(&parent.children()[1], &first));
+    }
+
+    #[test]
     fn test_focus_management() {
         let mut manager = WindowManager::new();
         let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
@@ -6374,8 +6390,9 @@ mod tests {
             .create_window_with_id(Some(&parent), 20, 0, 20, 20, 20)
             .unwrap();
 
-        let found = manager.find_window_from_id(&first, 20).unwrap();
-        assert!(Rc::ptr_eq(&found, &second));
+        let found = manager.find_window_from_id(&second, 10).unwrap();
+        assert!(Rc::ptr_eq(&found, &first));
+        assert!(manager.find_window_from_id(&first, 20).is_none());
     }
 
     #[test]
@@ -6392,16 +6409,16 @@ mod tests {
             .create_window_with_id(Some(&parent), 40, 0, 20, 20, 11)
             .unwrap();
 
-        manager.hide_windows_in_range(&first, 10, 11, true);
+        manager.hide_windows_in_range(&next, 10, 11, true);
 
-        assert!(first.borrow().is_hidden());
-        assert!(!duplicate.borrow().is_hidden());
+        assert!(!first.borrow().is_hidden());
+        assert!(duplicate.borrow().is_hidden());
         assert!(next.borrow().is_hidden());
 
-        manager.enable_windows_in_range(&first, 10, 11, false);
+        manager.enable_windows_in_range(&next, 10, 11, false);
 
-        assert!(!first.borrow().is_enabled());
-        assert!(duplicate.borrow().is_enabled());
+        assert!(first.borrow().is_enabled());
+        assert!(!duplicate.borrow().is_enabled());
         assert!(!next.borrow().is_enabled());
     }
 
