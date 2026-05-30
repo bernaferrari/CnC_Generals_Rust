@@ -320,6 +320,52 @@ pub fn radar_to_pixel(
     }
 }
 
+/// Compute the screen rectangle used to draw the radar without distorting map aspect ratio.
+///
+/// Matches `W3DRadar::draw`/`findDrawPositions`: the returned points are upper-left and
+/// lower-right corners inside the requested radar window.
+pub fn radar_draw_positions(
+    start_x: i32,
+    start_y: i32,
+    width: i32,
+    height: i32,
+    extent: Region3D,
+) -> (ICoord2D, ICoord2D) {
+    if width <= 0 || height <= 0 || extent.width() <= 0.0 || extent.height() <= 0.0 {
+        return (
+            ICoord2D::new(start_x, start_y),
+            ICoord2D::new(start_x + width.max(0), start_y + height.max(0)),
+        );
+    }
+
+    let ratio_width = extent.width() / width as f32;
+    let ratio_height = extent.height() / height as f32;
+    let mut ul = ICoord2D::new(0, 0);
+    let mut lr = ICoord2D::new(0, 0);
+
+    if ratio_width >= ratio_height {
+        let radar_x = extent.width() / ratio_width;
+        let radar_y = extent.height() / ratio_width;
+        ul.x = 0;
+        ul.y = ((height as f32 - radar_y) / 2.0) as i32;
+        lr.x = radar_x as i32;
+        lr.y = height - ul.y;
+    } else {
+        let radar_x = extent.width() / ratio_height;
+        let radar_y = extent.height() / ratio_height;
+        ul.x = ((width as f32 - radar_x) / 2.0) as i32;
+        ul.y = 0;
+        lr.x = width - ul.x;
+        lr.y = radar_y as i32;
+    }
+
+    ul.x += start_x;
+    ul.y += start_y;
+    lr.x += start_x;
+    lr.y += start_y;
+    (ul, lr)
+}
+
 /// Shade an RGB color by terrain height using the exact W3D radar interpolation constants.
 ///
 /// Matches `W3DRadar::interpolateColorForHeight`: heights above `mid_z` move toward a
@@ -836,6 +882,11 @@ impl RadarSystem {
         self.current_frame
     }
 
+    /// Current map extent used for radar/world coordinate conversion.
+    pub fn map_extent(&self) -> Region3D {
+        self.map_extent
+    }
+
     /// Initialize radar for new map (matches C++ Radar::newMap)
     pub fn new_map(
         &mut self,
@@ -895,6 +946,7 @@ impl RadarSystem {
         }
 
         self.terrain_dirty = true;
+        self.refresh_terrain();
     }
 
     /// Add object to radar (matches C++ Radar::addObject)
@@ -2006,6 +2058,23 @@ mod tests {
     }
 
     #[test]
+    fn test_new_map_builds_initial_terrain_texture_like_w3d() {
+        let mut radar = RadarSystem::new();
+
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+
+        assert!(!radar.is_terrain_dirty());
+        assert!(radar
+            .get_terrain_texture()
+            .chunks_exact(4)
+            .all(|pixel| pixel[3] == 255));
+    }
+
+    #[test]
     fn test_legal_radar_point_matches_w3d_bounds() {
         assert!(legal_radar_point(0, 0));
         assert!(legal_radar_point(
@@ -2055,6 +2124,32 @@ mod tests {
             ),
             ICoord2D::new(138, 83)
         );
+    }
+
+    #[test]
+    fn test_radar_draw_positions_letterboxes_wide_maps() {
+        let extent = Region3D {
+            lo: Coord3D::new(0.0, 0.0, 0.0),
+            hi: Coord3D::new(2000.0, 1000.0, 0.0),
+        };
+
+        let (ul, lr) = radar_draw_positions(10, 20, 100, 100, extent);
+
+        assert_eq!(ul, ICoord2D::new(10, 45));
+        assert_eq!(lr, ICoord2D::new(110, 95));
+    }
+
+    #[test]
+    fn test_radar_draw_positions_pillarboxes_tall_maps() {
+        let extent = Region3D {
+            lo: Coord3D::new(0.0, 0.0, 0.0),
+            hi: Coord3D::new(1000.0, 2000.0, 0.0),
+        };
+
+        let (ul, lr) = radar_draw_positions(10, 20, 100, 100, extent);
+
+        assert_eq!(ul, ICoord2D::new(35, 20));
+        assert_eq!(lr, ICoord2D::new(85, 120));
     }
 
     #[test]

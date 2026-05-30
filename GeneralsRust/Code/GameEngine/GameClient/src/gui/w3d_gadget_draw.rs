@@ -26,7 +26,8 @@ use game_engine::common::ini::set_scheme_draw_func;
 use game_engine::common::ini::ICoord2D;
 use game_engine::common::ini::SchemeDrawFunc;
 use game_engine::common::system::radar::{
-    get_radar_system, radar_event_marker, RGBAColorInt, RadarEventMarkerKind, RadarEventType,
+    get_radar_system, radar_draw_positions, radar_event_marker, RGBAColorInt, RadarEventMarkerKind,
+    RadarEventType,
 };
 use gamelogic::player::{RankProgressInfo, ThePlayerList};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -1243,6 +1244,13 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
         return;
     }
 
+    let (ul, lr) = radar_draw_positions(x, y, width, height, radar.map_extent());
+    let scaled_width = lr.x - ul.x;
+    let scaled_height = lr.y - ul.y;
+    if scaled_width <= 0 || scaled_height <= 0 {
+        return;
+    }
+
     let current_frame = radar.current_frame();
     let _ = with_ui_renderer_mut(|renderer| {
         let texture = renderer.create_texture_from_rgba(
@@ -1251,8 +1259,96 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             &terrain_texture,
         );
 
+        let fill_color = [0.0, 0.0, 0.0, 1.0];
+        let line_color = [50.0 / 255.0, 50.0 / 255.0, 50.0 / 255.0, 1.0];
+        if radar.map_extent().width() / width as f32 >= radar.map_extent().height() / height as f32
+        {
+            if ul.y > y {
+                renderer.draw_rect(
+                    UIRect::new(
+                        x as f32,
+                        y as f32,
+                        width as f32,
+                        (ul.y - y - 1).max(0) as f32,
+                    ),
+                    fill_color,
+                    0.0,
+                );
+                renderer.draw_line(
+                    glam::Vec2::new(x as f32, ul.y as f32),
+                    glam::Vec2::new((x + width) as f32, ul.y as f32),
+                    1.0,
+                    line_color,
+                    0.0,
+                );
+            }
+            if lr.y < y + height {
+                renderer.draw_rect(
+                    UIRect::new(
+                        x as f32,
+                        (lr.y + 1) as f32,
+                        width as f32,
+                        (y + height - lr.y - 1).max(0) as f32,
+                    ),
+                    fill_color,
+                    0.0,
+                );
+                renderer.draw_line(
+                    glam::Vec2::new(x as f32, (lr.y + 1) as f32),
+                    glam::Vec2::new((x + width) as f32, (lr.y + 1) as f32),
+                    1.0,
+                    line_color,
+                    0.0,
+                );
+            }
+        } else {
+            if ul.x > x {
+                renderer.draw_rect(
+                    UIRect::new(
+                        x as f32,
+                        y as f32,
+                        (ul.x - x - 1).max(0) as f32,
+                        height as f32,
+                    ),
+                    fill_color,
+                    0.0,
+                );
+                renderer.draw_line(
+                    glam::Vec2::new(ul.x as f32, y as f32),
+                    glam::Vec2::new(ul.x as f32, (y + height) as f32),
+                    1.0,
+                    line_color,
+                    0.0,
+                );
+            }
+            if lr.x < x + width {
+                renderer.draw_rect(
+                    UIRect::new(
+                        (lr.x + 1) as f32,
+                        y as f32,
+                        (width - (lr.x - x) - 1).max(0) as f32,
+                        height as f32,
+                    ),
+                    fill_color,
+                    0.0,
+                );
+                renderer.draw_line(
+                    glam::Vec2::new((lr.x + 1) as f32, y as f32),
+                    glam::Vec2::new((lr.x + 1) as f32, (y + height) as f32),
+                    1.0,
+                    line_color,
+                    0.0,
+                );
+            }
+        }
+
         // Draw the radar texture scaled to the HUD area
-        let rect = UIRect::new(x as f32, y as f32, width as f32, height as f32);
+        let rect = UIRect::new(
+            ul.x as f32,
+            ul.y as f32,
+            scaled_width as f32,
+            scaled_height as f32,
+        );
         renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
 
         // Draw radar objects (units, structures)
@@ -1264,12 +1360,12 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
 
             // Convert world position to radar screen coordinates
             if let Some(radar_pos) = radar.world_to_radar(&obj.world_pos) {
-                let screen_x = x
-                    + (radar_pos.x as i64 * width as i64
+                let screen_x = ul.x
+                    + (radar_pos.x as i64 * scaled_width as i64
                         / game_engine::common::system::radar::RADAR_CELL_WIDTH as i64)
                         as i32;
-                let screen_y = y
-                    + (radar_pos.y as i64 * height as i64
+                let screen_y = ul.y
+                    + (radar_pos.y as i64 * scaled_height as i64
                         / game_engine::common::system::radar::RADAR_CELL_HEIGHT as i64)
                         as i32;
 
@@ -1302,7 +1398,15 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             } else {
                 RadarEventMarkerKind::Generic
             };
-            let marker = radar_event_marker(event, current_frame, x, y, width, height, marker_kind);
+            let marker = radar_event_marker(
+                event,
+                current_frame,
+                ul.x,
+                ul.y,
+                scaled_width,
+                scaled_height,
+                marker_kind,
+            );
             let color1 = rgba_int_to_rgba(marker.color1);
             let color2 = rgba_int_to_rgba(marker.color2);
             let points = marker.points;
