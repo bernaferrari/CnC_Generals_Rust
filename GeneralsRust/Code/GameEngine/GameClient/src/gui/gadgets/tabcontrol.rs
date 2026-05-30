@@ -489,7 +489,7 @@ impl Gadget for TabControl {
                 self.hovered_tab = self.tab_at_position(*x, *y).map(|idx| idx as u32);
             }
 
-            InputEvent::MouseUp { x, y, button } => {
+            InputEvent::MouseDown { x, y, button } => {
                 if *button == MouseButton::Left {
                     if let Some(tab_index) = self.tab_at_position(*x, *y) {
                         if self.select_tab_index(tab_index) {
@@ -611,5 +611,34 @@ mod tests {
 
         assert!(tab_control.select_tab(2));
         assert_eq!(tab_control.selected_tab(), Some(2));
+    }
+
+    #[test]
+    fn left_down_switches_tabs_like_cpp() {
+        let mut tab_control = TabControl::new(1, 10, 20, 400, 300);
+        tab_control.set_tab_data(TabControlData {
+            tab_edge: TP_TOP_SIDE,
+            tab_orientation: TP_TOPLEFT,
+            tab_width: 100,
+            tab_height: 30,
+            tab_count: 2,
+            ..Default::default()
+        });
+
+        let down = tab_control.handle_input(&InputEvent::MouseDown {
+            x: 150,
+            y: 25,
+            button: MouseButton::Left,
+        });
+        assert_eq!(tab_control.active_tab_index(), 1);
+        assert_eq!(down.len(), 1);
+
+        let up = tab_control.handle_input(&InputEvent::MouseUp {
+            x: 25,
+            y: 25,
+            button: MouseButton::Left,
+        });
+        assert_eq!(tab_control.active_tab_index(), 1);
+        assert!(up.is_empty());
     }
 }
