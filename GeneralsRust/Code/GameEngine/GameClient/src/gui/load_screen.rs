@@ -442,9 +442,8 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
     clear_load_screen_cursor_tooltip();
     if descriptor.slot_count > 0 {
         let local_player_id = with_multiplayer_load_screen_state(|state| state.local_player_id);
-        if process_load_screen_progress(kind, local_player_id, percent) {
-            return;
-        }
+        let _ = process_load_screen_progress(kind, local_player_id, percent);
+        return;
     }
     with_window_manager(|wm| {
         set_progress_window(wm, descriptor.primary_progress, percent);
@@ -2092,6 +2091,43 @@ mod tests {
     }
 
     #[test]
+    fn multiplayer_update_without_lookup_does_not_fallback_to_slot_zero() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_multiplayer_load_screen_state();
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 2);
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Missing".to_string(),
+            local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
+            local_team_number: 7,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
+        };
+
+        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+        with_window_manager(|global_wm| {
+            *global_wm = wm;
+        });
+
+        update_load_screen(LoadScreenKind::Multiplayer, 41.0);
+
+        assert_eq!(
+            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+            Some(0.0)
+        );
+    }
+
+    #[test]
     fn load_screen_init_context_default_preserves_single_local_slot() {
         let context = LoadScreenInitContext {
             local_player_name: "Fallback".to_string(),
@@ -2472,19 +2508,31 @@ mod tests {
             .find_window_by_name("SinglePlayerLoadScreen.wnd:ProgressLoad")
             .expect("progress");
         assert_eq!(
-            progress.borrow_mut().progress_bar_mut().unwrap().percentage(),
+            progress
+                .borrow_mut()
+                .progress_bar_mut()
+                .unwrap()
+                .percentage(),
             37.0
         );
 
         set_progress_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", 138.4);
         assert_eq!(
-            progress.borrow_mut().progress_bar_mut().unwrap().percentage(),
+            progress
+                .borrow_mut()
+                .progress_bar_mut()
+                .unwrap()
+                .percentage(),
             37.0
         );
 
         set_progress_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", -4.2);
         assert_eq!(
-            progress.borrow_mut().progress_bar_mut().unwrap().percentage(),
+            progress
+                .borrow_mut()
+                .progress_bar_mut()
+                .unwrap()
+                .percentage(),
             37.0
         );
     }
