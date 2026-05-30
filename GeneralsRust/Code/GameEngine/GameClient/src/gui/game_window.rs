@@ -58,6 +58,7 @@ pub const WIN_COLOR_UNDEFINED: u32 = 0xFFFFFFFF;
 /// Gadget system message IDs
 const GGM_LEFT_DRAG: u32 = 16384;
 const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
+const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
 
 // Window style flags (GWS_*)
 pub const GWS_PUSH_BUTTON: u32 = 0x0000_0001;
@@ -2339,6 +2340,20 @@ impl GameWindow {
             }
         }
 
+        if matches!(self.widget, Some(WindowWidget::ProgressBar(_))) {
+            if let WindowMessage::User(code) = msg {
+                if code == GPM_SET_PROGRESS {
+                    let progress = data1 as i32;
+                    if (0..=100).contains(&progress) {
+                        if let Some(WindowWidget::ProgressBar(progress_bar)) = self.widget.as_mut() {
+                            progress_bar.set_progress(progress as f32);
+                        }
+                    }
+                    return WindowMsgHandled::Handled;
+                }
+            }
+        }
+
         if msg == WindowMessage::InputFocus {
             let focused = data1 != 0;
             let event = if focused {
@@ -3871,6 +3886,32 @@ mod tests {
             panic!("expected tab control widget");
         };
         assert_eq!(tab_control.content_bounds(), Rect::new(3, 23, 194, 74));
+    }
+
+    #[test]
+    fn progress_bar_system_message_matches_cpp_range_rules() {
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::ProgressBar(ProgressBar::new(
+            42, 0, 0, 100, 10,
+        )));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GPM_SET_PROGRESS), 37, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GPM_SET_PROGRESS), 101, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GPM_SET_PROGRESS), (-1i32) as u32, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
     }
 
     #[test]
