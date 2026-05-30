@@ -3729,31 +3729,29 @@ impl WindowManager {
 
     /// Immediately destroy a window
     fn destroy_window_immediate(&mut self, window: Rc<RefCell<GameWindow>>) {
+        if window
+            .borrow()
+            .get_status()
+            .contains(WindowStatus::DESTROYED)
+        {
+            return;
+        }
+
         let window_id = window.borrow().get_id();
+        let status = window.borrow().get_status() | WindowStatus::DESTROYED;
+        window.borrow_mut().set_status_exact(status);
 
         // Remove from various manager references
-        if let Some(focus_weak) = &self.keyboard_focus {
-            if let Some(focus_window) = focus_weak.upgrade() {
-                if Rc::ptr_eq(&focus_window, &window) {
-                    self.keyboard_focus = None;
-                }
-            }
-        }
+        self.clear_references_to_destroyed_window(&window);
 
-        if let Some(capture_weak) = &self.mouse_capture {
-            if let Some(capture_window) = capture_weak.upgrade() {
-                if Rc::ptr_eq(&capture_window, &window) {
-                    self.mouse_capture = None;
-                    self.capture_flags &= !CaptureFlags::MOUSE;
-                }
-            }
+        let children = window.borrow().children().to_vec();
+        for child in children {
+            self.destroy_window_immediate(child);
         }
-
-        // Remove from modal stack if present
-        // (This would need more complex logic to handle middle-of-stack removal)
 
         // Remove from parent's children or root list
-        if let Some(parent) = window.borrow().get_parent() {
+        let parent = window.borrow().get_parent();
+        if let Some(parent) = parent {
             parent.borrow_mut().remove_child(&window);
         } else {
             self.root_windows.retain(|w| !Rc::ptr_eq(w, &window));
@@ -3768,6 +3766,55 @@ impl WindowManager {
             .send_system_message(WindowMessage::Destroy, 0, 0);
 
         self.window_count = self.window_count.saturating_sub(1);
+    }
+
+    fn clear_references_to_destroyed_window(&mut self, window: &Rc<RefCell<GameWindow>>) {
+        if self
+            .keyboard_focus
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|focus| Rc::ptr_eq(&focus, window))
+        {
+            self.keyboard_focus = None;
+        }
+
+        if self
+            .mouse_capture
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|capture| Rc::ptr_eq(&capture, window))
+        {
+            self.mouse_capture = None;
+            self.capture_flags &= !CaptureFlags::MOUSE;
+        }
+
+        if self
+            .modal_stack
+            .as_ref()
+            .is_some_and(|modal| Rc::ptr_eq(&modal.window, window))
+        {
+            if let Some(modal) = self.modal_stack.take() {
+                self.modal_stack = modal.next;
+            }
+        }
+
+        if self
+            .current_mouse_region
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|region| Rc::ptr_eq(&region, window))
+        {
+            self.current_mouse_region = None;
+        }
+
+        if self
+            .grab_window
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|grab| Rc::ptr_eq(&grab, window))
+        {
+            self.grab_window = None;
+        }
     }
 
     /// Find window at specific point (recursive)
@@ -4954,6 +5001,60 @@ mod tests {
 
         assert_eq!(manager.window_count, 0);
         assert!(manager.get_window_by_id(window_id).is_none());
+    }
+
+    #[test]
+    fn destroy_window_recursively_destroys_children_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 20, 20)
+            .unwrap();
+        let parent_id = parent.borrow().get_id();
+        let child_id = child.borrow().get_id();
+
+        manager.destroy_window(parent.clone()).unwrap();
+        manager.update();
+
+        assert_eq!(manager.window_count, 0);
+        assert!(manager.get_window_by_id(parent_id).is_none());
+        assert!(manager.get_window_by_id(child_id).is_none());
+        assert!(parent
+            .borrow()
+            .get_status()
+            .contains(WindowStatus::DESTROYED));
+        assert!(child
+            .borrow()
+            .get_status()
+            .contains(WindowStatus::DESTROYED));
+    }
+
+    #[test]
+    fn destroy_window_clears_runtime_references_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        window
+            .borrow_mut()
+            .set_system_callback(|_, msg, data1, _| match msg {
+                WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
+
+        manager.set_focus(Some(&window)).unwrap();
+        manager.capture_mouse(&window).unwrap();
+        manager.set_modal(window.clone()).unwrap();
+        manager.current_mouse_region = Some(Rc::downgrade(&window));
+        manager.set_grab_window(Some(&window));
+
+        manager.destroy_window(window).unwrap();
+        manager.update();
+
+        assert!(manager.get_focus().is_none());
+        assert!(manager.get_capture().is_none());
+        assert!(manager.modal_stack.is_none());
+        assert!(manager.current_mouse_region.is_none());
+        assert!(manager.get_grab_window().is_none());
+        assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
     }
 
     #[test]
