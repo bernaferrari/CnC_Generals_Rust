@@ -932,29 +932,9 @@ impl GameWindow {
         Ok(())
     }
 
-    /// Check if window is hidden (C++ parity: checks all parents too)
+    /// Check if this window's own hidden bit is set.
     pub fn is_hidden(&self) -> bool {
-        if self.status.contains(WindowStatus::HIDDEN) {
-            return true;
-        }
-        // C++ parity: isHidden() walks up parent chain
-        let mut current = self.parent.as_ref().and_then(|w| w.upgrade());
-        while let Some(parent_rc) = current {
-            if let Ok(parent) = parent_rc.try_borrow() {
-                if parent.status.contains(WindowStatus::HIDDEN) {
-                    return true;
-                }
-                current = parent.parent.as_ref().and_then(|w| w.upgrade());
-            } else {
-                // SAFETY: mirrors legacy single-threaded window tree traversal
-                let parent = unsafe { &*parent_rc.as_ptr() };
-                if parent.status.contains(WindowStatus::HIDDEN) {
-                    return true;
-                }
-                current = parent.parent.as_ref().and_then(|w| w.upgrade());
-            }
-        }
-        false
+        self.status.contains(WindowStatus::HIDDEN)
     }
 
     /// Activate the window (bring to front and show)
@@ -3003,7 +2983,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parent_hide_does_not_permanently_hide_children() {
+    fn win_is_hidden_checks_only_own_status_like_cpp() {
         let parent = Rc::new(RefCell::new(GameWindow::new()));
         let child = Rc::new(RefCell::new(GameWindow::new()));
         child.borrow_mut().set_parent(Some(&parent));
@@ -3011,7 +2991,7 @@ mod tests {
 
         parent.borrow_mut().hide(true).unwrap();
         assert!(parent.borrow().is_hidden());
-        assert!(child.borrow().is_hidden());
+        assert!(!child.borrow().is_hidden());
 
         parent.borrow_mut().hide(false).unwrap();
         assert!(!parent.borrow().is_hidden());
