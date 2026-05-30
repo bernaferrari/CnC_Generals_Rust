@@ -976,6 +976,11 @@ impl GameWindow {
         &self.inst_data.text
     }
 
+    /// Get the number of characters in the window text.
+    pub fn get_text_length(&self) -> usize {
+        self.inst_data.text.chars().count()
+    }
+
     pub fn get_text_label(&self) -> &str {
         &self.inst_data.text_label
     }
@@ -3081,12 +3086,23 @@ mod tests {
 
         window.set_text("Test Window").unwrap();
         assert_eq!(window.get_text(), "Test Window");
+        assert_eq!(window.get_text_length(), 11);
 
         window.enable(true).unwrap();
         assert!(window.is_enabled());
 
         window.hide(true).unwrap();
         assert!(window.is_hidden());
+    }
+
+    #[test]
+    fn text_length_counts_characters_like_cpp_unicode_string() {
+        let mut window = GameWindow::new();
+
+        window.set_text("Aé中").unwrap();
+
+        assert_eq!(window.get_text_length(), 3);
+        assert_eq!(window.get_text().len(), 6);
     }
 
     #[test]
