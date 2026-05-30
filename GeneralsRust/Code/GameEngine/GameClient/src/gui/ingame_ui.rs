@@ -3879,7 +3879,7 @@ impl InGameUI {
         boxes_stored: i32,
         base_value_per_supply_box: i32,
     ) -> String {
-        let value = boxes_stored.max(0) * base_value_per_supply_box.max(0);
+        let value = boxes_stored * base_value_per_supply_box;
         let value_text = value.to_string();
         if label.contains("%d") {
             label.replace("%d", &value_text)
@@ -4043,10 +4043,7 @@ impl InGameUI {
     }
 
     fn mouseover_tooltip_visible_for_shroud(status: ObjectShroudStatus) -> bool {
-        matches!(
-            status,
-            ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear
-        )
+        status == ObjectShroudStatus::Clear
     }
 
     fn command_hint_after_shroud_projection(
@@ -5086,6 +5083,18 @@ mod tests {
     }
 
     #[test]
+    fn supply_warehouse_tooltip_feedback_uses_cpp_raw_value_product() {
+        assert_eq!(
+            InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", -2, 100),
+            " ($-200)"
+        );
+        assert_eq!(
+            InGameUI::format_supply_warehouse_tooltip_feedback(" ($%d)", 2, -100),
+            " ($-200)"
+        );
+    }
+
+    #[test]
     fn mouseover_tooltip_suppresses_props() {
         Language::clear_localized_strings();
         Language::register_localized_string("OBJECT:Prop", "Prop");
@@ -5100,7 +5109,7 @@ mod tests {
         assert!(InGameUI::mouseover_tooltip_visible_for_shroud(
             ObjectShroudStatus::Clear
         ));
-        assert!(InGameUI::mouseover_tooltip_visible_for_shroud(
+        assert!(!InGameUI::mouseover_tooltip_visible_for_shroud(
             ObjectShroudStatus::PartialClear
         ));
         assert!(!InGameUI::mouseover_tooltip_visible_for_shroud(
