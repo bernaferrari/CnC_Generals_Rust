@@ -683,8 +683,10 @@ impl WindowManager {
         // Add to parent or root list
         if let Some(parent_rc) = parent {
             window.borrow_mut().set_parent(Some(parent_rc));
+            window.borrow_mut().instance_data_mut().owner = Some(Rc::downgrade(parent_rc));
             parent_rc.borrow_mut().add_child(window.clone());
         } else {
+            window.borrow_mut().instance_data_mut().owner = Some(Rc::downgrade(&window));
             self.add_root_window(window.clone());
         }
 
@@ -5133,6 +5135,22 @@ mod tests {
     }
 
     #[test]
+    fn root_window_owner_defaults_to_self_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+
+        let owner = window
+            .borrow()
+            .instance_data()
+            .owner
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .unwrap();
+
+        assert!(Rc::ptr_eq(&window, &owner));
+    }
+
+    #[test]
     fn test_window_hierarchy() {
         let mut manager = WindowManager::new();
 
@@ -5150,6 +5168,25 @@ mod tests {
         let child_borrow = child.borrow();
         let child_parent = child_borrow.get_parent().unwrap();
         assert!(Rc::ptr_eq(&parent, &child_parent));
+    }
+
+    #[test]
+    fn child_window_owner_defaults_to_parent_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 200, 200).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 50, 50)
+            .unwrap();
+
+        let owner = child
+            .borrow()
+            .instance_data()
+            .owner
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .unwrap();
+
+        assert!(Rc::ptr_eq(&parent, &owner));
     }
 
     #[test]
