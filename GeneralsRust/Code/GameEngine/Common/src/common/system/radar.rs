@@ -1582,7 +1582,7 @@ impl RadarSystem {
         let mut texture = vec![0; expected_len * 4];
 
         for obj in self.get_all_objects() {
-            if obj.is_temporarily_hidden() || !obj.priority.is_visible() {
+            if !self.should_render_object_overlay_blip(obj) {
                 continue;
             }
 
@@ -1600,6 +1600,17 @@ impl RadarSystem {
         }
 
         texture
+    }
+
+    fn should_render_object_overlay_blip(&self, obj: &RadarObject) -> bool {
+        if obj.is_temporarily_hidden() || !obj.priority.is_visible() {
+            return false;
+        }
+        if obj.priority == RadarPriorityType::LocalUnitOnly && !obj.is_local {
+            return false;
+        }
+
+        self.get_shroud_level_at_world(&obj.world_pos) == CellShroudStatus::Clear
     }
 
     /// Build the W3D radar shroud overlay as black RGBA pixels.
@@ -2529,6 +2540,7 @@ mod tests {
             Coord3D::new(128.0, 128.0, 0.0),
             &[],
         );
+        radar.clear_shroud();
         let mut obj = RadarObject::new(1);
         obj.world_pos = Coord3D::new(10.0, 20.0, 0.0);
         obj.priority = RadarPriorityType::Unit;
@@ -2546,6 +2558,48 @@ mod tests {
         assert_eq!(pixel(11, 21), &[0x11, 0x22, 0x33, 0xAA]);
         assert_eq!(pixel(11, 20), &[0x11, 0x22, 0x33, 0xAA]);
         assert_eq!(pixel(9, 20), &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_object_overlay_texture_skips_fogged_and_nonlocal_local_only_blips() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut fogged = RadarObject::new(1);
+        fogged.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        fogged.priority = RadarPriorityType::Unit;
+        fogged.color = 0xFFFF0000;
+        radar.add_object(fogged);
+        radar.set_shroud_level(10, 20, CellShroudStatus::Fogged);
+
+        let mut nonlocal_local_only = RadarObject::new(2);
+        nonlocal_local_only.world_pos = Coord3D::new(30.0, 40.0, 0.0);
+        nonlocal_local_only.priority = RadarPriorityType::LocalUnitOnly;
+        nonlocal_local_only.color = 0xFF00FF00;
+        nonlocal_local_only.is_local = false;
+        radar.add_object(nonlocal_local_only);
+
+        let mut local_only = RadarObject::new(3);
+        local_only.world_pos = Coord3D::new(50.0, 60.0, 0.0);
+        local_only.priority = RadarPriorityType::LocalUnitOnly;
+        local_only.color = 0xFF0000FF;
+        local_only.is_local = true;
+        radar.add_object(local_only);
+
+        let texture = radar.build_object_overlay_texture_rgba();
+        let pixel = |x: u32, y: u32| -> &[u8] {
+            let idx = ((y * RADAR_CELL_WIDTH + x) * 4) as usize;
+            &texture[idx..idx + 4]
+        };
+
+        assert_eq!(pixel(10, 20), &[0, 0, 0, 0]);
+        assert_eq!(pixel(30, 40), &[0, 0, 0, 0]);
+        assert_eq!(pixel(50, 60), &[0, 0x00, 0xFF, 0xFF]);
     }
 
     #[test]
