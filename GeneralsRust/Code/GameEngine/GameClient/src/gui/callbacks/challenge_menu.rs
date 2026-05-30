@@ -1,6 +1,7 @@
 //! ChallengeMenu.cpp callback port.
 
 use crate::display::image::get_mapped_image_collection;
+use crate::game_text::GameText;
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{get_challenge_generals_mut, GameDifficulty, NUM_GENERALS};
 use crate::gui::game_window::Image as WindowImage;
@@ -219,6 +220,20 @@ fn find_general_button(state: &ChallengeMenuState, control_id: i32) -> Option<us
         .position(|button_id| *button_id == control_id)
 }
 
+fn is_general_mouse_entering(msg: WindowMessage) -> bool {
+    matches!(
+        msg,
+        WindowMessage::GadgetMouseEntering | WindowMessage::User(GBM_MOUSE_ENTERING)
+    )
+}
+
+fn is_general_mouse_leaving(msg: WindowMessage) -> bool {
+    matches!(
+        msg,
+        WindowMessage::GadgetMouseLeaving | WindowMessage::User(GBM_MOUSE_LEAVING)
+    )
+}
+
 fn set_general_bio(state: &mut ChallengeMenuState, general_index: Option<usize>) {
     let Some(general_index) = general_index else {
         return;
@@ -235,10 +250,10 @@ fn set_general_bio(state: &mut ChallengeMenuState, general_index: Option<usize>)
     set_window_hidden(&state.bio_parent, false);
     set_window_image(&state.bio_portrait, general.bio_portrait_small());
 
-    state.bio_lines[0] = general.bio_name().to_string();
-    state.bio_lines[1] = general.bio_rank().to_string();
-    state.bio_lines[2] = general.bio_branch().to_string();
-    state.bio_lines[3] = general.bio_strategy().to_string();
+    state.bio_lines[0] = GameText::fetch(general.bio_name());
+    state.bio_lines[1] = GameText::fetch(general.bio_rank());
+    state.bio_lines[2] = GameText::fetch(general.bio_branch());
+    state.bio_lines[3] = GameText::fetch(general.bio_strategy());
     state.bio_readout = Default::default();
     state.bio_text_position = 0;
     state.bio_total_length = state.bio_lines.iter().map(String::len).sum();
@@ -524,15 +539,21 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
         .copied()
         .unwrap_or(false);
 
+    with_window_video_manager(|manager| manager.reset());
+
+    let state_handle = challenge_menu_state();
+    {
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+        state.last_button_index = None;
+    }
+
     if pop_immediate {
         layout.hide(true);
-        with_window_video_manager(|manager| manager.reset());
         let _ = get_shell().shutdown_complete(None, false);
         return;
     }
 
     with_window_manager(|manager| manager.transition_reverse("ChallengeMenuFade"));
-    let state_handle = challenge_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.is_shutting_down = true;
     if let Some(audio) = TheAudio::get() {
@@ -543,7 +564,6 @@ pub fn challenge_menu_shutdown(layout: &WindowLayout, user_data: Option<&dyn std
     state.last_preview_sound = 0;
     state.intro_audio_magic_number = 0;
     state.has_played_intro_audio = false;
-    with_window_video_manager(|manager| manager.reset());
 }
 
 pub fn challenge_menu_system(
@@ -557,22 +577,22 @@ pub fn challenge_menu_system(
 
     match msg {
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
-        WindowMessage::User(code) if code == GBM_MOUSE_ENTERING => {
+        msg if is_general_mouse_entering(msg) => {
             let control_id = data1 as i32;
             if let Some(index) = find_general_button(&state, control_id) {
                 if state.last_button_index != Some(index) {
                     set_general_bio(&mut state, Some(index));
+                    if let Some(audio) = TheAudio::get() {
+                        let event = AudioEventRts::new("GUILogoMouseOver");
+                        let _ = audio.add_audio_event(&event);
+                    }
+                    state.last_hilited_index = Some(index);
                 }
-                if let Some(audio) = TheAudio::get() {
-                    let event = AudioEventRts::new("GUILogoMouseOver");
-                    let _ = audio.add_audio_event(&event);
-                }
-                state.last_hilited_index = Some(index);
                 return WindowMsgHandled::Handled;
             }
             WindowMsgHandled::Ignored
         }
-        WindowMessage::User(code) if code == GBM_MOUSE_LEAVING => {
+        msg if is_general_mouse_leaving(msg) => {
             let control_id = data1 as i32;
             if let Some(index) = find_general_button(&state, control_id) {
                 if state.last_button_index != Some(index) {
@@ -598,9 +618,13 @@ pub fn challenge_menu_system(
                 if let Some(audio) = TheAudio::get() {
                     audio.remove_audio_event(state.last_selection_sound);
                     audio.remove_audio_event(state.last_preview_sound);
-                    if let Some(generals) = get_challenge_generals_mut() {
-                        let general = &generals.challenge_generals()[index];
-                        let event = AudioEventRts::new(general.preview_sound());
+                    let preview_sound = get_challenge_generals_mut().map(|generals| {
+                        generals.challenge_generals()[index]
+                            .preview_sound()
+                            .to_string()
+                    });
+                    if let Some(preview_sound) = preview_sound.filter(|sound| !sound.is_empty()) {
+                        let event = AudioEventRts::new(&preview_sound);
                         state.last_preview_sound = audio.add_audio_event(&event);
                     }
                 }
@@ -657,8 +681,10 @@ pub fn challenge_menu_input(
 mod tests {
     use super::*;
     use crate::display::image::{ICoord2D, Image as MappedImage};
+    use crate::gui::challenge_generals::init_challenge_generals;
     use crate::gui::gadgets::CheckBox;
     use crate::gui::WindowWidget;
+    use game_engine::common::language::Language;
 
     fn add_test_mapped_image(name: &str, width: i32, height: i32) {
         let collection = get_mapped_image_collection();
@@ -729,6 +755,61 @@ mod tests {
     }
 
     #[test]
+    fn general_bio_uses_localized_text_like_cpp() {
+        init_challenge_generals();
+        Language::clear_localized_strings();
+        Language::register_localized_string("TEST:ChallengeBioName", "General Localized");
+        Language::register_localized_string("TEST:ChallengeBioRank", "Field Marshal");
+        Language::register_localized_string("TEST:ChallengeBioBranch", "Armor Command");
+        Language::register_localized_string("TEST:ChallengeBioStrategy", "Breakthrough tactics");
+
+        {
+            let mut generals = get_challenge_generals_mut().expect("challenge generals");
+            let general = &mut generals.challenge_generals_mut()[0];
+            general.set_bio_name("TEST:ChallengeBioName".to_string());
+            general.set_bio_rank("TEST:ChallengeBioRank".to_string());
+            general.set_bio_branch("TEST:ChallengeBioBranch".to_string());
+            general.set_bio_strategy("TEST:ChallengeBioStrategy".to_string());
+            general.set_preview_sound(String::new());
+        }
+
+        let mut state = ChallengeMenuState::default();
+        set_general_bio(&mut state, Some(0));
+
+        assert_eq!(state.bio_lines[0], "General Localized");
+        assert_eq!(state.bio_lines[1], "Field Marshal");
+        assert_eq!(state.bio_lines[2], "Armor Command");
+        assert_eq!(state.bio_lines[3], "Breakthrough tactics");
+        assert_eq!(
+            state.bio_total_length,
+            "General LocalizedField MarshalArmor CommandBreakthrough tactics".len()
+        );
+
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn dedicated_gadget_hover_messages_match_cpp_hover_handlers() {
+        assert!(is_general_mouse_entering(
+            WindowMessage::GadgetMouseEntering
+        ));
+        assert!(is_general_mouse_entering(WindowMessage::User(
+            GBM_MOUSE_ENTERING
+        )));
+        assert!(!is_general_mouse_entering(
+            WindowMessage::GadgetMouseLeaving
+        ));
+
+        assert!(is_general_mouse_leaving(WindowMessage::GadgetMouseLeaving));
+        assert!(is_general_mouse_leaving(WindowMessage::User(
+            GBM_MOUSE_LEAVING
+        )));
+        assert!(!is_general_mouse_leaving(
+            WindowMessage::GadgetMouseEntering
+        ));
+    }
+
+    #[test]
     fn selecting_current_general_keeps_checkbox_checked_like_cpp() {
         let selected_id = name_to_id("ChallengeMenu.test:SelectedGeneral");
         {
@@ -777,5 +858,25 @@ mod tests {
                 _ => panic!("expected selected general checkbox"),
             }
         });
+    }
+
+    #[test]
+    fn shutdown_clears_selected_general_before_pop_branch_like_cpp() {
+        let layout = WindowLayout::new("ChallengeMenu.wnd".to_string());
+
+        for pop_immediate in [false, true] {
+            {
+                let state_handle = challenge_menu_state();
+                let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+                state.last_button_index = Some(3);
+                state.is_shutting_down = false;
+            }
+
+            challenge_menu_shutdown(&layout, Some(&pop_immediate));
+
+            let state_handle = challenge_menu_state();
+            let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            assert_eq!(state.last_button_index, None);
+        }
     }
 }
