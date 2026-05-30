@@ -57,6 +57,7 @@ pub const WIN_COLOR_UNDEFINED: u32 = 0xFFFFFFFF;
 
 /// Gadget system message IDs
 const GGM_LEFT_DRAG: u32 = 16384;
+const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
 
 // Window style flags (GWS_*)
 pub const GWS_PUSH_BUTTON: u32 = 0x0000_0001;
@@ -690,6 +691,11 @@ impl GameWindow {
         self.size.y = height;
         self.region.high.x = self.region.low.x + width;
         self.region.high.y = self.region.low.y + height;
+        let _ = self.send_system_message(
+            WindowMessage::User(GGM_RESIZED),
+            width as WindowMsgData,
+            height as WindowMsgData,
+        );
         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
             listbox.set_size(width.max(0) as u32, height.max(0) as u32);
         }
@@ -2967,6 +2973,27 @@ mod tests {
 
         window.hide(true).unwrap();
         assert!(window.is_hidden());
+    }
+
+    #[test]
+    fn set_size_sends_resized_system_message_like_cpp() {
+        let mut window = GameWindow::new();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = Rc::clone(&seen);
+            window.set_system_callback(move |_, msg, data1, data2| {
+                seen.borrow_mut().push((msg, data1, data2));
+                WindowMsgHandled::Handled
+            });
+        }
+
+        window.set_size(123, 45).unwrap();
+
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[(WindowMessage::User(GGM_RESIZED), 123, 45)]
+        );
     }
 
     #[test]
