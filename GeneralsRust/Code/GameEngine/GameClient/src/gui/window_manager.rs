@@ -1663,23 +1663,7 @@ impl WindowManager {
         y: i32,
         ignore_enabled: bool,
     ) -> Rc<RefCell<GameWindow>> {
-        let window_borrow = window.borrow();
-        for child in window_borrow.children() {
-            let child_borrow = child.borrow();
-            let enabled = ignore_enabled
-                || child_borrow
-                    .get_status()
-                    .contains(WindowStatus::ENABLED);
-            let hidden = child_borrow.is_hidden();
-            let contains_point = child_borrow.point_in_window(x, y);
-            drop(child_borrow);
-
-            if contains_point && !hidden && enabled {
-                return self.find_child_at_point_or_self(child, x, y, ignore_enabled);
-            }
-        }
-
-        window.clone()
+        GameWindow::point_in_child(window, x, y, ignore_enabled)
     }
 
     /// Navigate to next/previous tab
