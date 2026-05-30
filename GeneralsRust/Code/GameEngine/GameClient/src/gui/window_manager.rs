@@ -863,13 +863,8 @@ impl WindowManager {
     }
 
     pub fn bring_layout_forward(&mut self, layout: &WindowLayout) {
-        for window in &layout.windows {
-            self.root_windows.retain(|root| !Rc::ptr_eq(root, window));
-        }
         for window in layout.windows.iter().rev() {
-            if window.borrow().get_parent().is_none() {
-                self.root_windows.push(window.clone());
-            }
+            self.bring_window_forward(window);
         }
     }
 
@@ -5083,6 +5078,44 @@ mod tests {
 
         assert!(Rc::ptr_eq(&manager.root_windows[0], &first));
         assert!(Rc::ptr_eq(&manager.root_windows[1], &second));
+    }
+
+    #[test]
+    fn bring_layout_forward_moves_roots_to_head_like_cpp() {
+        let mut manager = WindowManager::new();
+        let background = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let first = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        let second = manager.create_window(None, 200, 0, 100, 100).unwrap();
+        let foreground = manager.create_window(None, 300, 0, 100, 100).unwrap();
+        let mut layout = WindowLayout::new("test.wnd".to_string());
+        layout.add_window(first.clone());
+        layout.add_window(second.clone());
+
+        manager.bring_layout_forward(&layout);
+
+        assert!(Rc::ptr_eq(&manager.root_windows[0], &first));
+        assert!(Rc::ptr_eq(&manager.root_windows[1], &second));
+        assert!(Rc::ptr_eq(&manager.root_windows[2], &foreground));
+        assert!(Rc::ptr_eq(&manager.root_windows[3], &background));
+    }
+
+    #[test]
+    fn bring_layout_forward_moves_children_to_head_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let first = manager.create_window(Some(&parent), 0, 0, 20, 20).unwrap();
+        let second = manager.create_window(Some(&parent), 20, 0, 20, 20).unwrap();
+        let foreground = manager.create_window(Some(&parent), 40, 0, 20, 20).unwrap();
+        let mut layout = WindowLayout::new("test.wnd".to_string());
+        layout.add_window(first.clone());
+        layout.add_window(second.clone());
+
+        manager.bring_layout_forward(&layout);
+
+        let parent = parent.borrow();
+        assert!(Rc::ptr_eq(&parent.children()[0], &first));
+        assert!(Rc::ptr_eq(&parent.children()[1], &second));
+        assert!(Rc::ptr_eq(&parent.children()[2], &foreground));
     }
 
     #[test]
