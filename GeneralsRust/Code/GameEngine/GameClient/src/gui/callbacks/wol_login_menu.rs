@@ -14,6 +14,7 @@ use crate::gui::{
     get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
     WindowMsgHandled,
 };
+use crate::shell_hooks::{signal_ui_interaction, SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN};
 use chrono::Datelike;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::preferences::GameSpyMiscPreferences;
@@ -32,7 +33,6 @@ use game_network::gamespy::peer_thread::{
 };
 use game_network::gamespy::persistent_storage_thread::GameSpyPSMessageQueue;
 use game_network::gamespy::ping_thread::{get_ping_queue, init_ping_queue, PingRequest};
-use gamelogic::helpers::TheScriptEngine;
 
 const LOGIN_TIMEOUT: Duration = Duration::from_millis(10_000);
 const PREF_FILENAME: &str = "GameSpyLogin.ini";
@@ -531,7 +531,7 @@ fn check_login(state: &mut WolLoginState) {
         state.logged_in_ok = false;
         state.login_attempt_time = None;
 
-        TheScriptEngine::signal_ui_interact("SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN");
+        signal_ui_interaction(SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN);
         state.next_screen = Some("Menus/WOLWelcomeMenu.wnd".to_string());
         let mut shell = get_shell();
         let _ = shell.pop();
