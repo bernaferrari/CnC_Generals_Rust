@@ -847,6 +847,18 @@ impl UIRenderer {
         color: [f32; 4],
         z_order: f32,
     ) {
+        self.draw_line_gradient(start, end, thickness, color, color, z_order);
+    }
+
+    pub fn draw_line_gradient(
+        &mut self,
+        start: Vec2,
+        end: Vec2,
+        thickness: f32,
+        start_color: [f32; 4],
+        end_color: [f32; 4],
+        z_order: f32,
+    ) {
         let dir = end - start;
         let length = dir.length();
         if length <= f32::EPSILON {
@@ -863,22 +875,22 @@ impl UIRenderer {
             UIVertex {
                 position: [p0.x, p0.y, z_order],
                 tex_coord: [0.0, 0.0],
-                color,
+                color: start_color,
             },
             UIVertex {
                 position: [p1.x, p1.y, z_order],
                 tex_coord: [0.0, 1.0],
-                color,
+                color: start_color,
             },
             UIVertex {
                 position: [p2.x, p2.y, z_order],
                 tex_coord: [1.0, 1.0],
-                color,
+                color: end_color,
             },
             UIVertex {
                 position: [p3.x, p3.y, z_order],
                 tex_coord: [1.0, 0.0],
-                color,
+                color: end_color,
             },
         ];
 
