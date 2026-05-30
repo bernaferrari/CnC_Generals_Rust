@@ -25,7 +25,7 @@ use crate::game_text::GameText;
 use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
 use crate::gui::game_window::{GameWindow, WindowStatus};
 use crate::gui::window_manager::with_window_manager_ref;
-use crate::helpers::TheInGameUI;
+use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::keyboard::KeyboardState;
 use crate::input::mouse::{with_mouse, ButtonState, MouseButton, MouseState};
 use crate::message_stream::game_message::{
@@ -38,6 +38,7 @@ use game_engine::common::ini::get_anim2d_collection;
 use game_engine::common::ini::ini_language::{get_global_language_read, FontDesc};
 use game_engine::common::thing::get_thing_factory;
 use gamelogic::action_manager::ActionManager;
+use gamelogic::commands::command::CommandType;
 use gamelogic::commands::selection::{get_selection_manager, SelectionType};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::common::CommandSourceType;
@@ -54,6 +55,8 @@ use gamelogic::object::Object;
 use gamelogic::player::{player_list, Player};
 use gamelogic::system::disguise_manager::get_disguise_manager;
 use gamelogic::system::shroud_manager::{get_shroud_manager, ShroudState};
+
+const CMD_CONTEXTMODE_COMMAND: u32 = 0x0000_0200;
 
 /// Re-export of the INI settings type from the Common crate's INI parser.
 /// C++: InGameUI fieldParseTable settings (InGameUI.cpp:752-856, ini_in_game_ui.rs)
@@ -4427,33 +4430,60 @@ impl InGameUI {
         self.get_selection().len()
     }
 
-    fn cursor_name_to_i32(&self, name: &str) -> i32 {
-        match name {
-            "ARROW" => MouseCursor::Arrow as i32,
-            "SELECTING" => MouseCursor::Selecting as i32,
-            "MOVETO" => MouseCursor::MoveTo as i32,
-            "ATTACKMOVETO" => MouseCursor::AttackMoveTo as i32,
-            "ATTACK_OBJECT" => MouseCursor::AttackObject as i32,
-            "FORCE_ATTACK_OBJECT" => MouseCursor::ForceAttackObject as i32,
-            "FORCE_ATTACK_GROUND" => MouseCursor::ForceAttackGround as i32,
-            "BUILD_PLACEMENT" => MouseCursor::BuildPlacement as i32,
-            "INVALID_BUILD_PLACEMENT" => MouseCursor::InvalidBuildPlacement as i32,
-            "GENERIC_INVALID" => MouseCursor::GenericInvalid as i32,
-            "SET_RALLY_POINT" => MouseCursor::SetRallyPoint as i32,
-            "GET_REPAIRED" => MouseCursor::GetRepaired as i32,
-            "DOCK" => MouseCursor::Dock as i32,
-            "GET_HEALED" => MouseCursor::GetHealed as i32,
-            "DO_REPAIR" => MouseCursor::DoRepair as i32,
-            "RESUME_CONSTRUCTION" => MouseCursor::ResumeConstruction as i32,
-            "ENTER_FRIENDLY" => MouseCursor::EnterFriendly as i32,
-            "ENTER_AGGRESSIVELY" => MouseCursor::EnterAggressively as i32,
-            "DEFECTOR" => MouseCursor::Defector as i32,
-            "CAPTUREBUILDING" => MouseCursor::CaptureBuilding as i32,
-            "HACK" => MouseCursor::Hack as i32,
-            "OUTRANGE" => MouseCursor::OutOfRange as i32,
-            "WAYPOINT" => MouseCursor::Waypoint as i32,
-            _ => MouseCursor::Arrow as i32,
+    fn cursor_for_name(name: &str) -> Option<MouseCursor> {
+        match name.trim() {
+            "ARROW" => Some(MouseCursor::Arrow),
+            "SELECTING" => Some(MouseCursor::Selecting),
+            "MOVETO" => Some(MouseCursor::MoveTo),
+            "ATTACKMOVETO" => Some(MouseCursor::AttackMoveTo),
+            "WAYPOINT" => Some(MouseCursor::Waypoint),
+            "ATTACK_OBJECT" => Some(MouseCursor::AttackObject),
+            "OUTRANGE" => Some(MouseCursor::OutOfRange),
+            "FORCE_ATTACK_OBJECT" => Some(MouseCursor::ForceAttackObject),
+            "FORCE_ATTACK_GROUND" => Some(MouseCursor::ForceAttackGround),
+            "GET_REPAIRED" => Some(MouseCursor::GetRepaired),
+            "DOCK" => Some(MouseCursor::Dock),
+            "GET_HEALED" => Some(MouseCursor::GetHealed),
+            "DO_REPAIR" => Some(MouseCursor::DoRepair),
+            "RESUME_CONSTRUCTION" => Some(MouseCursor::ResumeConstruction),
+            "ENTER_FRIENDLY" => Some(MouseCursor::EnterFriendly),
+            "ENTER_AGGRESSIVELY" => Some(MouseCursor::EnterAggressively),
+            "DEFECTOR" => Some(MouseCursor::Defector),
+            "CAPTUREBUILDING" => Some(MouseCursor::CaptureBuilding),
+            "HACK" => Some(MouseCursor::Hack),
+            "GENERIC_INVALID" => Some(MouseCursor::GenericInvalid),
+            "SET_RALLY_POINT" => Some(MouseCursor::SetRallyPoint),
+            "BUILD_PLACEMENT" => Some(MouseCursor::BuildPlacement),
+            "INVALID_BUILD_PLACEMENT" => Some(MouseCursor::InvalidBuildPlacement),
+            "PARTICLE_UPLINK_CANNON" => Some(MouseCursor::ParticleUplinkCannon),
+            "CROSS" => Some(MouseCursor::Cross),
+            _ => None,
         }
+    }
+
+    fn pending_command_uses_context_cursor_behavior(pending: &PendingCommand) -> bool {
+        (pending.options & CMD_CONTEXTMODE_COMMAND) != 0
+            || matches!(
+                pending.command_type,
+                CommandType::SpecialPower
+                    | CommandType::DoSpecialPowerAtLocation
+                    | CommandType::DoSpecialPowerAtObject
+            )
+    }
+
+    fn pending_gui_command_cursor(
+        pending: &PendingCommand,
+        hint_type: CommandHintType,
+    ) -> MouseCursor {
+        let cursor_name = if Self::pending_command_uses_context_cursor_behavior(pending)
+            && hint_type != CommandHintType::ValidGuiCommand
+        {
+            &pending.invalid_cursor_name
+        } else {
+            &pending.cursor_name
+        };
+
+        Self::cursor_for_name(cursor_name).unwrap_or(MouseCursor::Cross)
     }
 
     /// Port of C++ InGameUI::createCommandHint() (InGameUI.cpp:2500-2772).
@@ -4738,18 +4768,7 @@ impl InGameUI {
                 }
 
                 if let Some(pending) = TheInGameUI::get_pending_command() {
-                    let cursor_name = &pending.cursor_name;
-                    if !cursor_name.is_empty() {
-                        if let Some(cursor) =
-                            MouseCursor::from_i32(self.cursor_name_to_i32(cursor_name))
-                        {
-                            self.set_mouse_cursor(cursor);
-                        } else {
-                            self.set_mouse_cursor(self.mouse_mode_cursor);
-                        }
-                    } else {
-                        self.set_mouse_cursor(self.mouse_mode_cursor);
-                    }
+                    self.set_mouse_cursor(Self::pending_gui_command_cursor(&pending, hint_type));
                     let rc_type = &pending.radius_cursor_type;
                     if !rc_type.is_empty() && !rc_type.eq_ignore_ascii_case("NONE") {
                         TheInGameUI::set_radius_cursor_active_with_type(rc_type);
@@ -5195,6 +5214,64 @@ mod tests {
         assert!(!InGameUI::command_hint_update_allowed(true, false, false));
         assert!(!InGameUI::command_hint_update_allowed(false, true, false));
         assert!(!InGameUI::command_hint_update_allowed(false, false, true));
+    }
+
+    #[test]
+    fn gui_command_hint_cursor_uses_cpp_valid_invalid_selection() {
+        let context_pending = PendingCommand {
+            command_type: CommandType::DoSpecialPower,
+            options: 0,
+            source_object_id: 0,
+            cursor_name: "ATTACK_OBJECT".to_string(),
+            invalid_cursor_name: "GENERIC_INVALID".to_string(),
+            radius_cursor_type: "NONE".to_string(),
+        };
+        assert_eq!(
+            InGameUI::pending_gui_command_cursor(
+                &context_pending,
+                CommandHintType::ValidGuiCommand
+            ),
+            MouseCursor::AttackObject
+        );
+        assert_eq!(
+            InGameUI::pending_gui_command_cursor(
+                &context_pending,
+                CommandHintType::InvalidGuiCommand
+            ),
+            MouseCursor::GenericInvalid
+        );
+        assert_eq!(
+            InGameUI::pending_gui_command_cursor(&context_pending, CommandHintType::MoveTo),
+            MouseCursor::GenericInvalid
+        );
+
+        let target_pending = PendingCommand {
+            command_type: CommandType::Enter,
+            options: 0,
+            source_object_id: 0,
+            cursor_name: "ENTER_FRIENDLY".to_string(),
+            invalid_cursor_name: "GENERIC_INVALID".to_string(),
+            radius_cursor_type: "NONE".to_string(),
+        };
+        assert_eq!(
+            InGameUI::pending_gui_command_cursor(
+                &target_pending,
+                CommandHintType::InvalidGuiCommand
+            ),
+            MouseCursor::EnterFriendly
+        );
+
+        let unknown_pending = PendingCommand {
+            cursor_name: "MISSING_CURSOR".to_string(),
+            ..target_pending
+        };
+        assert_eq!(
+            InGameUI::pending_gui_command_cursor(
+                &unknown_pending,
+                CommandHintType::ValidGuiCommand
+            ),
+            MouseCursor::Cross
+        );
     }
 
     #[test]
