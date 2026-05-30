@@ -245,6 +245,7 @@ impl Clone for ModalWindow {
 pub struct WindowLayout {
     filename: String,
     windows: Vec<Rc<RefCell<GameWindow>>>,
+    self_handle: Weak<RefCell<WindowLayout>>,
     hidden: Cell<bool>,
     default_text_color: Option<Color>,
     default_font: Option<GameFont>,
@@ -269,6 +270,7 @@ impl WindowLayout {
         Self {
             filename,
             windows: Vec::new(),
+            self_handle: Weak::new(),
             hidden: Cell::new(false),
             default_text_color: None,
             default_font: None,
@@ -276,6 +278,10 @@ impl WindowLayout {
             update_callback: None,
             shutdown_callback: None,
         }
+    }
+
+    fn set_self_handle(&mut self, layout: &Rc<RefCell<WindowLayout>>) {
+        self.self_handle = Rc::downgrade(layout);
     }
 
     /// Get the filename associated with this layout
@@ -303,6 +309,9 @@ impl WindowLayout {
         // Check if window is already in layout
         let window_ptr = window.as_ptr();
         if !self.windows.iter().any(|w| w.as_ptr() == window_ptr) {
+            if let Some(layout) = self.self_handle.upgrade() {
+                window.borrow_mut().set_layout(Some(&layout));
+            }
             self.windows.insert(0, window);
         }
     }
@@ -315,7 +324,19 @@ impl WindowLayout {
     /// Remove window from this layout
     pub fn remove_window(&mut self, window: &Rc<RefCell<GameWindow>>) {
         let window_ptr = window.as_ptr();
-        self.windows.retain(|w| w.as_ptr() != window_ptr);
+        if let Some(index) = self.windows.iter().position(|w| w.as_ptr() == window_ptr) {
+            self.windows.remove(index);
+            if let Some(layout) = self.self_handle.upgrade() {
+                let owns_window = window
+                    .borrow()
+                    .get_layout()
+                    .as_ref()
+                    .is_some_and(|window_layout| Rc::ptr_eq(window_layout, &layout));
+                if owns_window {
+                    window.borrow_mut().set_layout(None);
+                }
+            }
+        }
     }
 
     /// Move an existing layout window to the front of the layout list.
@@ -1797,6 +1818,7 @@ impl WindowManager {
     /// Create a window layout
     pub fn create_layout(&mut self, filename: String) -> Rc<RefCell<WindowLayout>> {
         let layout = Rc::new(RefCell::new(WindowLayout::new(filename)));
+        layout.borrow_mut().set_self_handle(&layout);
         self.layouts.push(layout.clone());
         layout
     }
@@ -6828,5 +6850,23 @@ mod tests {
 
         assert!(Rc::ptr_eq(&layout.windows()[0], &second));
         assert!(Rc::ptr_eq(&layout.windows()[1], &first));
+    }
+
+    #[test]
+    fn layout_add_and_remove_updates_window_back_reference_like_cpp() {
+        let mut manager = WindowManager::new();
+        let layout = manager.create_layout("test.wnd".to_string());
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+
+        layout.borrow_mut().add_window(window.clone());
+
+        let window_layout = window.borrow().get_layout().unwrap();
+        assert!(Rc::ptr_eq(&window_layout, &layout));
+        drop(window_layout);
+
+        layout.borrow_mut().remove_window(&window);
+
+        assert!(window.borrow().get_layout().is_none());
+        assert!(layout.borrow().windows().is_empty());
     }
 }
