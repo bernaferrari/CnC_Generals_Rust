@@ -131,7 +131,7 @@ fn set_text(win: &Rc<RefCell<GameWindow>>, text: &str) {
 }
 
 fn set_text_color(win: &Rc<RefCell<GameWindow>>, color: u32) {
-    let border = win.borrow().get_enabled_text_color();
+    let border = win.borrow().get_enabled_text_border_color();
     win.borrow_mut().set_enabled_text_colors(color, border);
 }
 
@@ -1257,5 +1257,19 @@ mod tests {
             score_screen_input(&window, WindowMessage::Char, b'A' as u32, 0),
             WindowMsgHandled::Ignored
         );
+    }
+
+    #[test]
+    fn set_text_color_preserves_enabled_border_color_like_cpp() {
+        let window = Rc::new(RefCell::new(GameWindow::new()));
+        window
+            .borrow_mut()
+            .set_enabled_text_colors(0x11223344, 0x55667788);
+
+        set_text_color(&window, 0xaabbccdd);
+
+        let window = window.borrow();
+        assert_eq!(window.get_enabled_text_color(), 0xaabbccdd);
+        assert_eq!(window.get_enabled_text_border_color(), 0x55667788);
     }
 }
