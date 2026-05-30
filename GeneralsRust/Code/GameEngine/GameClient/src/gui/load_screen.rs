@@ -387,13 +387,38 @@ pub fn load_screen_init_context_from_game_info(
             local_general_portrait: local_general_presentation.portrait,
             local_load_screen_music: local_general_presentation.load_screen_music,
             local_team_number: local_slot.player_id,
-            map_name: (!game_info.get_map().is_empty()).then(|| game_info.get_map().to_string()),
+            map_name: load_screen_map_name_from_game_info(game_info),
             start_positions,
             slots,
         }
     } else {
         LoadScreenInitContext::default()
     }
+}
+
+fn load_screen_map_name_from_game_info(
+    game_info: &crate::game_network::GameInfo,
+) -> Option<String> {
+    let map_name = game_info.get_map();
+    if map_name.is_empty() {
+        return None;
+    }
+
+    if !game_info.is_game_in_progress() {
+        let local_slot_num = game_info.get_local_slot_num();
+        if local_slot_num < 0 {
+            return None;
+        }
+
+        let Some(local_slot) = game_info.get_slot(local_slot_num as usize) else {
+            return None;
+        };
+        if !local_slot.has_map() {
+            return None;
+        }
+    }
+
+    Some(map_name.to_string())
 }
 
 pub fn reset_load_screen(kind: LoadScreenKind) {
@@ -2255,10 +2280,12 @@ mod tests {
     #[test]
     fn game_info_context_preserves_original_slot_ids_and_apparent_colors() {
         let mut game_info = GameInfo::new();
+        game_info.set_in_game();
+        game_info.set_local_ip(0x7F00_0001);
         game_info.set_map("Maps/Test/Test.map".to_string());
 
         let mut alice = GameSlot::new();
-        alice.set_state(SlotState::Player, "Alice".to_string(), 0);
+        alice.set_state(SlotState::Player, "Alice".to_string(), 0x7F00_0001);
         alice.set_player_template(-1);
         alice.set_team_number(0);
         alice.set_color(2);
@@ -2293,6 +2320,62 @@ mod tests {
         assert_eq!(context.slots[1].team_number, -1);
         assert_eq!(context.slots[1].apparent_color, Some(5));
         assert!(context.slots[1].is_ai);
+    }
+
+    #[test]
+    fn game_info_context_hides_map_when_local_pregame_slot_lacks_map_like_cpp() {
+        let mut game_info = GameInfo::new();
+        game_info.set_in_game();
+        game_info.set_local_ip(0x7F00_0002);
+        game_info.set_map("Maps/MissingLocal/MissingLocal.map".to_string());
+
+        let mut host = GameSlot::new();
+        host.set_state(SlotState::Player, "Host".to_string(), 0x7F00_0001);
+        host.set_player_template(-1);
+        host.set_start_pos(0);
+        game_info.set_slot(0, host);
+
+        let mut local = GameSlot::new();
+        local.set_state(SlotState::Player, "Local".to_string(), 0x7F00_0002);
+        local.set_player_template(-1);
+        local.set_start_pos(1);
+        local.set_map_availability(false);
+        game_info.set_slot(1, local);
+
+        let context = load_screen_init_context_from_game_info(&game_info);
+
+        assert_eq!(game_info.get_local_slot_num(), 1);
+        assert_eq!(context.local_player_name, "Local");
+        assert_eq!(context.map_name, None);
+        assert_eq!(context.start_positions[0], Some(0));
+        assert_eq!(context.start_positions[1], Some(1));
+
+        game_info.set_game_in_progress(true);
+        let context = load_screen_init_context_from_game_info(&game_info);
+        assert_eq!(
+            context.map_name.as_deref(),
+            Some("Maps/MissingLocal/MissingLocal.map")
+        );
+    }
+
+    #[test]
+    fn game_info_context_hides_map_when_local_slot_is_missing_like_cpp() {
+        let mut game_info = GameInfo::new();
+        game_info.set_in_game();
+        game_info.set_local_ip(0x7F00_0009);
+        game_info.set_map("Maps/NoLocal/NoLocal.map".to_string());
+
+        let mut host = GameSlot::new();
+        host.set_state(SlotState::Player, "Host".to_string(), 0x7F00_0001);
+        host.set_player_template(-1);
+        host.set_start_pos(0);
+        game_info.set_slot(0, host);
+
+        let context = load_screen_init_context_from_game_info(&game_info);
+
+        assert_eq!(game_info.get_local_slot_num(), -1);
+        assert_eq!(context.local_player_name, "Host");
+        assert_eq!(context.map_name, None);
     }
 
     #[test]
