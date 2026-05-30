@@ -673,6 +673,9 @@ pub struct RadarObject {
     pub priority: RadarPriorityType,
     pub is_local: bool,
     pub is_stealth: bool,
+    pub is_detected: bool,
+    pub is_disguised: bool,
+    pub is_enemy: bool,
     pub is_jammed: bool,
     pub stealth_revealed: bool,   // For stealth detection radar
     pub radar_range: f32,         // Radar detection range (0 = no radar capability)
@@ -693,6 +696,9 @@ impl RadarObject {
             priority: RadarPriorityType::Invalid,
             is_local: false,
             is_stealth: false,
+            is_detected: false,
+            is_disguised: false,
+            is_enemy: false,
             is_jammed: false,
             stealth_revealed: false,
             radar_range: 0.0,
@@ -1913,6 +1919,9 @@ impl RadarSystem {
         if obj.priority == RadarPriorityType::LocalUnitOnly && !obj.is_local {
             return false;
         }
+        if obj.is_stealth && obj.is_enemy && !obj.is_detected && !obj.is_disguised {
+            return false;
+        }
 
         self.get_shroud_level_at_world(&obj.world_pos) == CellShroudStatus::Clear
     }
@@ -2933,6 +2942,93 @@ mod tests {
         assert_eq!(pixel_at_frame(0), vec![0x11, 0x22, 0x33, 32]);
         assert_eq!(pixel_at_frame(15), vec![0x11, 0x22, 0x33, 32]);
         assert_eq!(pixel_at_frame(29), vec![0x11, 0x22, 0x33, 240]);
+    }
+
+    #[test]
+    fn test_object_overlay_texture_skips_enemy_undetected_undisguised_stealth_blip() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut obj = RadarObject::new(1);
+        obj.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        obj.priority = RadarPriorityType::Unit;
+        obj.color = 0xFF112233;
+        obj.is_stealth = true;
+        obj.stealth_revealed = true;
+        obj.is_enemy = true;
+        radar.add_object(obj);
+
+        let texture = radar.build_object_overlay_texture_rgba_at_frame(0);
+        let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
+        assert_eq!(&texture[idx..idx + 4], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn test_object_overlay_texture_draws_detected_or_disguised_enemy_stealth_blips() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut detected = RadarObject::new(1);
+        detected.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        detected.priority = RadarPriorityType::Unit;
+        detected.color = 0xFF112233;
+        detected.is_stealth = true;
+        detected.stealth_revealed = true;
+        detected.is_enemy = true;
+        detected.is_detected = true;
+        radar.add_object(detected);
+
+        let mut disguised = RadarObject::new(2);
+        disguised.world_pos = Coord3D::new(30.0, 40.0, 0.0);
+        disguised.priority = RadarPriorityType::Unit;
+        disguised.color = 0xFF445566;
+        disguised.is_stealth = true;
+        disguised.stealth_revealed = true;
+        disguised.is_enemy = true;
+        disguised.is_disguised = true;
+        radar.add_object(disguised);
+
+        let texture = radar.build_object_overlay_texture_rgba_at_frame(0);
+        let pixel = |x: u32, y: u32| -> &[u8] {
+            let idx = ((y * RADAR_CELL_WIDTH + x) * 4) as usize;
+            &texture[idx..idx + 4]
+        };
+
+        assert_eq!(pixel(10, 20), &[0x11, 0x22, 0x33, 32]);
+        assert_eq!(pixel(30, 40), &[0x44, 0x55, 0x66, 32]);
+    }
+
+    #[test]
+    fn test_object_overlay_texture_draws_non_enemy_revealed_stealth_blip() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut obj = RadarObject::new(1);
+        obj.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        obj.priority = RadarPriorityType::Unit;
+        obj.color = 0xFF112233;
+        obj.is_stealth = true;
+        obj.stealth_revealed = true;
+        radar.add_object(obj);
+
+        let texture = radar.build_object_overlay_texture_rgba_at_frame(0);
+        let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
+        assert_eq!(&texture[idx..idx + 4], &[0x11, 0x22, 0x33, 32]);
     }
 
     #[test]
