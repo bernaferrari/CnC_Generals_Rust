@@ -916,6 +916,11 @@ impl WindowManager {
         self.bring_window_forward_internal(window, true);
     }
 
+    pub fn activate_window(&mut self, window: &Rc<RefCell<GameWindow>>) -> WindowResult<()> {
+        self.bring_window_forward(window);
+        window.borrow_mut().activate()
+    }
+
     fn bring_window_forward_internal(
         &mut self,
         window: &Rc<RefCell<GameWindow>>,
@@ -5241,6 +5246,21 @@ mod tests {
         let layout_ref = layout.borrow();
         assert!(Rc::ptr_eq(&layout_ref.windows()[0], &second));
         assert!(Rc::ptr_eq(&layout_ref.windows()[1], &first));
+    }
+
+    #[test]
+    fn activate_window_brings_to_top_and_unhides_like_cpp() {
+        let mut manager = WindowManager::new();
+        let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        first.borrow_mut().hide(true).unwrap();
+
+        manager.activate_window(&first).unwrap();
+
+        assert!(first.borrow().get_status().contains(WindowStatus::ACTIVE));
+        assert!(!first.borrow().is_hidden());
+        assert!(Rc::ptr_eq(&manager.root_windows[0], &first));
+        assert!(Rc::ptr_eq(&manager.root_windows[1], &second));
     }
 
     #[test]
