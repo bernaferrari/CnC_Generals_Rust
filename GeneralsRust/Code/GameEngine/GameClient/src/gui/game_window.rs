@@ -409,6 +409,15 @@ pub type InputCallback =
 pub type SystemCallback =
     Box<dyn Fn(&GameWindow, WindowMessage, WindowMsgData, WindowMsgData) -> WindowMsgHandled>;
 
+/// Data attached to each window specifically for the GUI editor.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GameWindowEditData {
+    pub system_callback_string: String,
+    pub input_callback_string: String,
+    pub tooltip_callback_string: String,
+    pub draw_callback_string: String,
+}
+
 /// Window callback functions
 #[derive(Default)]
 pub struct WindowCallbacks {
@@ -432,6 +441,7 @@ pub struct GameWindow {
 
     // User data
     user_data: Option<Box<dyn std::any::Any>>,
+    edit_data: Option<GameWindowEditData>,
 
     // Hierarchy
     parent: Option<Weak<RefCell<GameWindow>>>,
@@ -549,6 +559,7 @@ impl GameWindow {
             cursor_pos: Point2D { x: 0, y: 0 },
             inst_data: WindowInstanceData::default(),
             user_data: None,
+            edit_data: None,
             parent: None,
             children: Vec::new(),
             next_sibling: None,
@@ -1776,6 +1787,16 @@ impl GameWindow {
     /// Get user data
     pub fn get_user_data<T: 'static>(&self) -> Option<&T> {
         self.user_data.as_ref()?.downcast_ref::<T>()
+    }
+
+    /// Set GUI-editor-only metadata for this window.
+    pub fn set_edit_data(&mut self, edit_data: Option<GameWindowEditData>) {
+        self.edit_data = edit_data;
+    }
+
+    /// Get GUI-editor-only metadata for this window.
+    pub fn get_edit_data(&self) -> Option<&GameWindowEditData> {
+        self.edit_data.as_ref()
     }
 
     /// Set draw callback
@@ -3809,6 +3830,25 @@ mod tests {
         window.set_user_data("test".to_string());
         assert_eq!(window.get_user_data::<String>(), Some(&"test".to_string()));
         assert_eq!(window.get_user_data::<i32>(), None);
+    }
+
+    #[test]
+    fn edit_data_stores_gui_editor_callback_names_like_cpp() {
+        let mut window = GameWindow::new();
+        assert!(window.get_edit_data().is_none());
+
+        let edit_data = GameWindowEditData {
+            system_callback_string: "System".to_string(),
+            input_callback_string: "Input".to_string(),
+            tooltip_callback_string: "Tooltip".to_string(),
+            draw_callback_string: "Draw".to_string(),
+        };
+
+        window.set_edit_data(Some(edit_data.clone()));
+        assert_eq!(window.get_edit_data(), Some(&edit_data));
+
+        window.set_edit_data(None);
+        assert!(window.get_edit_data().is_none());
     }
 
     #[test]
