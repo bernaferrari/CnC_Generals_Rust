@@ -1799,6 +1799,11 @@ impl GameWindow {
         self.edit_data.as_ref()
     }
 
+    /// Get mutable GUI-editor-only metadata for this window.
+    pub fn get_edit_data_mut(&mut self) -> Option<&mut GameWindowEditData> {
+        self.edit_data.as_mut()
+    }
+
     /// Set draw callback
     pub fn set_draw_callback<F>(&mut self, callback: F)
     where
