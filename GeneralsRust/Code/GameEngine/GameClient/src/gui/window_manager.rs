@@ -1165,32 +1165,6 @@ impl WindowManager {
             }
         }
 
-        if msg == WindowMessage::MousePos {
-            let previous = self.current_mouse_region.as_ref().and_then(|w| w.upgrade());
-            let same = match (&previous, &target_window) {
-                (Some(prev), Some(cur)) => Rc::ptr_eq(prev, cur),
-                (None, None) => true,
-                _ => false,
-            };
-            if !same {
-                if let Some(prev) = previous {
-                    let _ = prev
-                        .borrow_mut()
-                        .send_input_message(WindowMessage::MouseLeaving, 0, 0);
-                }
-                if let Some(ref new_window) = target_window {
-                    let _ = new_window.borrow_mut().send_input_message(
-                        WindowMessage::MouseEntering,
-                        0,
-                        0,
-                    );
-                    self.current_mouse_region = Some(Rc::downgrade(new_window));
-                } else {
-                    self.current_mouse_region = None;
-                }
-            }
-        }
-
         let focus_window = self.get_focus();
         if let Some(window) = target_window {
             let handled_window =
@@ -1208,7 +1182,13 @@ impl WindowManager {
                 }
             }
 
-            self.close_lone_window_after_mouse_message(old_lone.as_ref(), handled_window.as_ref(), msg);
+            self.update_current_mouse_region(Some(&window), capture_window.as_ref(), x, y);
+
+            self.close_lone_window_after_mouse_message(
+                old_lone.as_ref(),
+                handled_window.as_ref(),
+                msg,
+            );
 
             if msg == WindowMessage::LeftDown {
                 if let Some(handled) = handled_window.as_ref() {
@@ -1238,6 +1218,7 @@ impl WindowManager {
                     let _ = focus_window.borrow_mut().send_input_message(msg, data, 0);
                 }
             }
+            self.update_current_mouse_region(None, capture_window.as_ref(), x, y);
             if msg == WindowMessage::LeftUp {
                 if let Some(capture) = self.get_capture() {
                     let _ = self.release_capture(&capture);
@@ -1250,6 +1231,48 @@ impl WindowManager {
                 self.close_lone_window_after_mouse_message(old_lone.as_ref(), None, msg);
             }
             WindowInputReturnCode::NotUsed
+        }
+    }
+
+    fn update_current_mouse_region(
+        &mut self,
+        new_window: Option<&Rc<RefCell<GameWindow>>>,
+        capture_window: Option<&Rc<RefCell<GameWindow>>>,
+        x: i32,
+        y: i32,
+    ) {
+        let previous = self.current_mouse_region.as_ref().and_then(|w| w.upgrade());
+        let same = match (&previous, new_window) {
+            (Some(prev), Some(cur)) => Rc::ptr_eq(prev, cur),
+            (None, None) => true,
+            _ => false,
+        };
+        if same {
+            return;
+        }
+
+        if let Some(prev) = previous {
+            let should_send_leaving = capture_window
+                .map(|capture| Self::is_strict_descendant(capture, &prev))
+                .unwrap_or(true);
+            if should_send_leaving {
+                let (px, py) = prev.borrow().get_screen_position();
+                let _ = prev.borrow_mut().set_cursor_position(x - px, y - py);
+                let _ = prev
+                    .borrow_mut()
+                    .send_input_message(WindowMessage::MouseLeaving, 0, 0);
+            }
+        }
+
+        if let Some(new_window) = new_window {
+            let (wx, wy) = new_window.borrow().get_screen_position();
+            let _ = new_window.borrow_mut().set_cursor_position(x - wx, y - wy);
+            let _ = new_window
+                .borrow_mut()
+                .send_input_message(WindowMessage::MouseEntering, 0, 0);
+            self.current_mouse_region = Some(Rc::downgrade(new_window));
+        } else {
+            self.current_mouse_region = None;
         }
     }
 
@@ -5226,6 +5249,91 @@ mod tests {
     }
 
     #[test]
+    fn mouse_region_updates_on_button_events_like_cpp() {
+        let mut manager = WindowManager::new();
+        let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let second = manager.create_window(None, 200, 0, 100, 100).unwrap();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = Rc::clone(&seen);
+            first.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if matches!(msg, WindowMessage::MouseEntering | WindowMessage::MouseLeaving) {
+                    seen.borrow_mut().push(("first", msg));
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
+        }
+        {
+            let seen = Rc::clone(&seen);
+            second.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if matches!(msg, WindowMessage::MouseEntering | WindowMessage::MouseLeaving) {
+                    seen.borrow_mut().push(("second", msg));
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
+        }
+
+        manager.process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
+        manager.process_mouse_event(WindowMessage::LeftDown, 210, 10, 0);
+
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[
+                ("first", WindowMessage::MouseEntering),
+                ("first", WindowMessage::MouseLeaving),
+                ("second", WindowMessage::MouseEntering)
+            ]
+        );
+    }
+
+    #[test]
+    fn capture_region_change_does_not_send_leaving_to_captor_like_cpp() {
+        let mut manager = WindowManager::new();
+        let captor = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&captor), 10, 10, 40, 40)
+            .unwrap();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        {
+            let seen = Rc::clone(&seen);
+            captor.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if matches!(msg, WindowMessage::MouseEntering | WindowMessage::MouseLeaving) {
+                    seen.borrow_mut().push(("captor", msg));
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
+        }
+        {
+            let seen = Rc::clone(&seen);
+            child.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if matches!(msg, WindowMessage::MouseEntering | WindowMessage::MouseLeaving) {
+                    seen.borrow_mut().push(("child", msg));
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
+        }
+
+        manager.current_mouse_region = Some(Rc::downgrade(&captor));
+        manager.capture_mouse(&captor).unwrap();
+        manager.process_mouse_event(WindowMessage::MousePos, 20, 20, 0);
+
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[("child", WindowMessage::MouseEntering)]
+        );
+    }
+
+    #[test]
     fn mouse_input_bubbles_to_parent_until_handled_like_cpp() {
         let mut manager = WindowManager::new();
         let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
@@ -5237,14 +5345,18 @@ mod tests {
         {
             let seen = Rc::clone(&seen);
             child.borrow_mut().set_input_callback(move |_, msg, _, _| {
-                seen.borrow_mut().push(("child", msg));
+                if msg == WindowMessage::LeftUp {
+                    seen.borrow_mut().push(("child", msg));
+                }
                 WindowMsgHandled::Ignored
             });
         }
         {
             let seen = Rc::clone(&seen);
             parent.borrow_mut().set_input_callback(move |_, msg, _, _| {
-                seen.borrow_mut().push(("parent", msg));
+                if msg == WindowMessage::LeftUp {
+                    seen.borrow_mut().push(("parent", msg));
+                }
                 WindowMsgHandled::Handled
             });
         }
@@ -5300,21 +5412,27 @@ mod tests {
         {
             let seen = Rc::clone(&seen);
             child.borrow_mut().set_input_callback(move |_, msg, _, _| {
-                seen.borrow_mut().push(("child", msg));
+                if msg == WindowMessage::LeftUp {
+                    seen.borrow_mut().push(("child", msg));
+                }
                 WindowMsgHandled::Ignored
             });
         }
         {
             let seen = Rc::clone(&seen);
             captor.borrow_mut().set_input_callback(move |_, msg, _, _| {
-                seen.borrow_mut().push(("captor", msg));
+                if msg == WindowMessage::LeftUp {
+                    seen.borrow_mut().push(("captor", msg));
+                }
                 WindowMsgHandled::Ignored
             });
         }
         {
             let seen = Rc::clone(&seen);
             root.borrow_mut().set_input_callback(move |_, msg, _, _| {
-                seen.borrow_mut().push(("root", msg));
+                if msg == WindowMessage::LeftUp {
+                    seen.borrow_mut().push(("root", msg));
+                }
                 WindowMsgHandled::Handled
             });
         }
