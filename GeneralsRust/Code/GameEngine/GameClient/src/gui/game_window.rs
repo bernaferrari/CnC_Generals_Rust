@@ -1262,11 +1262,13 @@ impl GameWindow {
 
     /// Check if a window is a child of this window
     pub fn is_child(&self, window: &GameWindow) -> bool {
-        for child_rc in &self.children {
-            let child = child_rc.borrow();
-            if std::ptr::eq(&*child, window) {
+        let mut parent = window.get_parent();
+        while let Some(parent_rc) = parent {
+            let parent_borrow = parent_rc.borrow();
+            if std::ptr::eq(self, &*parent_borrow) {
                 return true;
             }
+            parent = parent_borrow.get_parent();
         }
         false
     }
@@ -3140,6 +3142,25 @@ mod tests {
         parent.borrow_mut().hide(false).unwrap();
         assert!(!parent.borrow().is_hidden());
         assert!(!child.borrow().is_hidden());
+    }
+
+    #[test]
+    fn win_is_child_checks_full_parent_chain_like_cpp() {
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        let child = Rc::new(RefCell::new(GameWindow::new()));
+        let grandchild = Rc::new(RefCell::new(GameWindow::new()));
+        let sibling = Rc::new(RefCell::new(GameWindow::new()));
+
+        child.borrow_mut().set_parent(Some(&parent));
+        parent.borrow_mut().add_child(child.clone());
+        grandchild.borrow_mut().set_parent(Some(&child));
+        child.borrow_mut().add_child(grandchild.clone());
+
+        assert!(parent.borrow().is_child(&child.borrow()));
+        assert!(parent.borrow().is_child(&grandchild.borrow()));
+        assert!(child.borrow().is_child(&grandchild.borrow()));
+        assert!(!parent.borrow().is_child(&parent.borrow()));
+        assert!(!parent.borrow().is_child(&sibling.borrow()));
     }
 
     #[test]
