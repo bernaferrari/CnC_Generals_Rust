@@ -701,10 +701,10 @@ impl WindowManager {
         // Add to parent or root list
         if let Some(parent_rc) = parent {
             window.borrow_mut().set_parent(Some(parent_rc));
-            window.borrow_mut().instance_data_mut().owner = Some(Rc::downgrade(parent_rc));
+            window.borrow_mut().set_owner(Some(parent_rc));
             parent_rc.borrow_mut().add_child(window.clone());
         } else {
-            window.borrow_mut().instance_data_mut().owner = Some(Rc::downgrade(&window));
+            window.borrow_mut().set_owner_self(&window);
             self.add_root_window(window.clone());
         }
 
@@ -751,6 +751,20 @@ impl WindowManager {
             self.add_root_window(window.clone());
         }
 
+        Ok(())
+    }
+
+    /// Set a window's owner using C++ winSetOwner(NULL) semantics.
+    pub fn set_window_owner(
+        &self,
+        window: &Rc<RefCell<GameWindow>>,
+        owner: Option<&Rc<RefCell<GameWindow>>>,
+    ) -> WindowResult<()> {
+        if let Some(owner) = owner {
+            window.borrow_mut().set_owner(Some(owner));
+        } else {
+            window.borrow_mut().set_owner_self(window);
+        }
         Ok(())
     }
 
@@ -5167,15 +5181,10 @@ mod tests {
         let mut manager = WindowManager::new();
         let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
 
-        let owner = window
-            .borrow()
-            .instance_data()
-            .owner
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .unwrap();
+        let owner = window.borrow().get_owner().unwrap();
 
         assert!(Rc::ptr_eq(&window, &owner));
+        assert!(window.borrow().owner_is_self());
     }
 
     #[test]
@@ -5206,15 +5215,25 @@ mod tests {
             .create_window(Some(&parent), 10, 10, 50, 50)
             .unwrap();
 
-        let owner = child
-            .borrow()
-            .instance_data()
-            .owner
-            .as_ref()
-            .and_then(Weak::upgrade)
-            .unwrap();
+        let owner = child.borrow().get_owner().unwrap();
 
         assert!(Rc::ptr_eq(&parent, &owner));
+        assert!(!child.borrow().owner_is_self());
+    }
+
+    #[test]
+    fn set_window_owner_none_defaults_to_self_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 200, 200).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 50, 50)
+            .unwrap();
+
+        manager.set_window_owner(&child, None).unwrap();
+
+        let owner = child.borrow().get_owner().unwrap();
+        assert!(Rc::ptr_eq(&child, &owner));
+        assert!(child.borrow().owner_is_self());
     }
 
     #[test]
