@@ -295,6 +295,32 @@ impl ICoord2D {
     }
 }
 
+/// Check whether a radar coordinate lies inside the fixed C++ radar cell grid.
+///
+/// Matches `legalRadarPoint` in `W3DRadar.cpp`.
+pub fn legal_radar_point(px: i32, py: i32) -> bool {
+    px >= 0 && py >= 0 && px < RADAR_CELL_WIDTH as i32 && py < RADAR_CELL_HEIGHT as i32
+}
+
+/// Convert a radar-cell coordinate to a drawn radar pixel coordinate.
+///
+/// This intentionally preserves the C++ W3D radar Y inversion:
+/// `((RADAR_CELL_HEIGHT - 1 - radar.y) * radarHeight / RADAR_CELL_HEIGHT) + upperLeftY`.
+pub fn radar_to_pixel(
+    radar: &ICoord2D,
+    radar_upper_left_x: i32,
+    radar_upper_left_y: i32,
+    radar_width: i32,
+    radar_height: i32,
+) -> ICoord2D {
+    ICoord2D {
+        x: (radar.x * radar_width / RADAR_CELL_WIDTH as i32) + radar_upper_left_x,
+        y: (((RADAR_CELL_HEIGHT as i32 - 1 - radar.y) * radar_height)
+            / RADAR_CELL_HEIGHT as i32)
+            + radar_upper_left_y,
+    }
+}
+
 /// 3D coordinates (matches C++ Coord3D)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Coord3D {
@@ -1835,6 +1861,58 @@ mod tests {
         let world = radar.radar_to_world(&radar_pos).unwrap();
         assert!((world.x - 512.0).abs() < 1.0);
         assert!((world.y - 512.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_legal_radar_point_matches_w3d_bounds() {
+        assert!(legal_radar_point(0, 0));
+        assert!(legal_radar_point(
+            RADAR_CELL_WIDTH as i32 - 1,
+            RADAR_CELL_HEIGHT as i32 - 1
+        ));
+        assert!(!legal_radar_point(-1, 0));
+        assert!(!legal_radar_point(0, -1));
+        assert!(!legal_radar_point(RADAR_CELL_WIDTH as i32, 0));
+        assert!(!legal_radar_point(0, RADAR_CELL_HEIGHT as i32));
+    }
+
+    #[test]
+    fn test_radar_to_pixel_matches_w3d_inverted_y_mapping() {
+        let upper_left_x = 10;
+        let upper_left_y = 20;
+        let width = 256;
+        let height = 128;
+
+        assert_eq!(
+            radar_to_pixel(
+                &ICoord2D::new(0, 0),
+                upper_left_x,
+                upper_left_y,
+                width,
+                height
+            ),
+            ICoord2D::new(10, 147)
+        );
+        assert_eq!(
+            radar_to_pixel(
+                &ICoord2D::new(127, 127),
+                upper_left_x,
+                upper_left_y,
+                width,
+                height
+            ),
+            ICoord2D::new(264, 20)
+        );
+        assert_eq!(
+            radar_to_pixel(
+                &ICoord2D::new(64, 64),
+                upper_left_x,
+                upper_left_y,
+                width,
+                height
+            ),
+            ICoord2D::new(138, 83)
+        );
     }
 
     #[test]
