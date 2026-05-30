@@ -1133,7 +1133,7 @@ impl WindowManager {
                     .unwrap_or_else(|| capture.clone()),
             )
         } else {
-            self.get_window_under_cursor(x, y, false)
+            self.get_input_window_under_cursor(x, y)
         };
 
         if self.get_capture().is_none() {
@@ -1485,6 +1485,48 @@ impl WindowManager {
         }
 
         None
+    }
+
+    fn get_input_window_under_cursor(&self, x: i32, y: i32) -> Option<Rc<RefCell<GameWindow>>> {
+        if let Some(modal) = &self.modal_stack {
+            return self.normalize_input_hit(self.find_window_at_point_raw(&modal.window, x, y, false));
+        }
+
+        let passes: [fn(WindowStatus) -> bool; 3] = [
+            |status| status.contains(WindowStatus::ABOVE),
+            |status| !status.intersects(WindowStatus::ABOVE | WindowStatus::BELOW),
+            |status| status.contains(WindowStatus::BELOW),
+        ];
+
+        for matches_pass in passes {
+            for window in &self.root_windows {
+                if !matches_pass(window.borrow().get_status()) {
+                    continue;
+                }
+                if let Some(found) = self.find_window_at_point_raw(window, x, y, false) {
+                    return self.normalize_input_hit(Some(found));
+                }
+            }
+        }
+
+        None
+    }
+
+    fn normalize_input_hit(
+        &self,
+        window: Option<Rc<RefCell<GameWindow>>>,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        let window = window?;
+        if !window.borrow().get_status().contains(WindowStatus::NO_INPUT) {
+            return Some(window);
+        }
+
+        let parent = window.borrow().get_parent()?;
+        if (parent.borrow().get_style() & GWS_COMBO_BOX) != 0 {
+            Some(parent)
+        } else {
+            None
+        }
     }
 
     /// Navigate to next/previous tab
@@ -4162,6 +4204,36 @@ impl WindowManager {
         None
     }
 
+    fn find_window_at_point_raw(
+        &self,
+        window: &Rc<RefCell<GameWindow>>,
+        x: i32,
+        y: i32,
+        ignore_enabled: bool,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        let window_borrow = window.borrow();
+
+        if window_borrow.is_hidden() {
+            return None;
+        }
+
+        if !ignore_enabled && !window_borrow.is_enabled() {
+            return None;
+        }
+
+        if window_borrow.point_in_window(x, y) {
+            for child in window_borrow.children() {
+                if let Some(found) = self.find_window_at_point_raw(child, x, y, ignore_enabled) {
+                    return Some(found);
+                }
+            }
+
+            return Some(window.clone());
+        }
+
+        None
+    }
+
     /// Draw window and its children recursively
     fn draw_window_hierarchy(&self, window: &Rc<RefCell<GameWindow>>) {
         self.draw_window_hierarchy_internal(window, false);
@@ -6062,6 +6134,55 @@ mod tests {
 
         let found = manager.get_window_under_cursor(10, 10, false).unwrap();
         assert!(Rc::ptr_eq(&normal, &found));
+    }
+
+    #[test]
+    fn no_input_child_blocks_non_combo_parent_mouse_hit_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 40, 40)
+            .unwrap();
+        child.borrow_mut().set_status(WindowStatus::NO_INPUT);
+        parent
+            .borrow_mut()
+            .set_input_callback(|_, msg, _, _| match msg {
+                WindowMessage::LeftDown => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
+
+        let result = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        assert!(manager.get_grab_window().is_none());
+    }
+
+    #[test]
+    fn no_input_combo_child_retargets_mouse_hit_to_combo_parent_like_cpp() {
+        let mut manager = WindowManager::new();
+        let combo = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager.create_window(Some(&combo), 10, 10, 40, 40).unwrap();
+        let seen = Rc::new(RefCell::new(false));
+
+        combo.borrow_mut().instance_data_mut().style = GWS_COMBO_BOX;
+        child.borrow_mut().set_status(WindowStatus::NO_INPUT);
+        {
+            let seen = Rc::clone(&seen);
+            combo.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::LeftDown {
+                    *seen.borrow_mut() = true;
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
+        }
+
+        let result = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert!(*seen.borrow());
+        assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &combo));
     }
 
     #[test]
