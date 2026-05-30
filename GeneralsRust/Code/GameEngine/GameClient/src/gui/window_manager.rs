@@ -1160,7 +1160,9 @@ impl WindowManager {
                         let _ = grab_window.borrow_mut().send_input_message(msg, data, 0);
                         return WindowInputReturnCode::Used;
                     }
-                    _ => {}
+                    _ => {
+                        return WindowInputReturnCode::Used;
+                    }
                 }
             }
         }
@@ -5993,6 +5995,44 @@ mod tests {
 
         assert_eq!(result, WindowInputReturnCode::Used);
         assert!(*grabbed_seen.borrow());
+        assert!(!*other_seen.borrow());
+        assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &grabbed));
+    }
+
+    #[test]
+    fn non_drag_mouse_event_on_grab_window_is_consumed_like_cpp() {
+        let mut manager = WindowManager::new();
+        let grabbed = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let other = manager.create_window(None, 200, 0, 100, 100).unwrap();
+        let grabbed_seen = Rc::new(RefCell::new(false));
+        let other_seen = Rc::new(RefCell::new(false));
+
+        {
+            let grabbed_seen = grabbed_seen.clone();
+            grabbed
+                .borrow_mut()
+                .set_input_callback(move |_, msg, _, _| {
+                    if msg == WindowMessage::RightDown {
+                        *grabbed_seen.borrow_mut() = true;
+                    }
+                    WindowMsgHandled::Handled
+                });
+        }
+        {
+            let other_seen = other_seen.clone();
+            other.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::RightDown {
+                    *other_seen.borrow_mut() = true;
+                }
+                WindowMsgHandled::Handled
+            });
+        }
+
+        manager.set_grab_window(Some(&grabbed));
+        let result = manager.process_mouse_event(WindowMessage::RightDown, 210, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert!(!*grabbed_seen.borrow());
         assert!(!*other_seen.borrow());
         assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &grabbed));
     }
