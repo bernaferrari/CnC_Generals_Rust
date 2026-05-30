@@ -1223,47 +1223,53 @@ impl WindowManager {
 
     /// Navigate to next/previous tab
     pub fn navigate_tab(&mut self, direction: TabDirection) {
+        if self.tab_list.is_empty() || self.modal_stack.is_some() {
+            return;
+        }
+
         let current_focus = self.get_focus();
         let mut next_window = None;
 
-        if !self.tab_list.is_empty() {
-            // Clean up dead references
-            self.tab_list.retain(|w| w.upgrade().is_some());
+        // Clean up dead references
+        self.tab_list.retain(|w| w.upgrade().is_some());
+        if self.tab_list.is_empty() {
+            return;
+        }
 
-            if let Some(current) = current_focus {
-                // Find current window in tab list
-                let current_ptr = current.as_ptr();
-                let current_index = self
-                    .tab_list
-                    .iter()
-                    .position(|w| w.upgrade().map(|rc| rc.as_ptr()) == Some(current_ptr));
+        if let Some(current) = current_focus {
+            // Find current window in tab list
+            let current_ptr = current.as_ptr();
+            let current_index = self
+                .tab_list
+                .iter()
+                .position(|w| w.upgrade().map(|rc| rc.as_ptr()) == Some(current_ptr));
 
-                if let Some(index) = current_index {
-                    let next_index = match direction {
-                        TabDirection::Next => (index + 1) % self.tab_list.len(),
-                        TabDirection::Previous => {
-                            if index == 0 {
-                                self.tab_list.len() - 1
-                            } else {
-                                index - 1
-                            }
+            if let Some(index) = current_index {
+                let next_index = match direction {
+                    TabDirection::Next => (index + 1) % self.tab_list.len(),
+                    TabDirection::Previous => {
+                        if index == 0 {
+                            self.tab_list.len() - 1
+                        } else {
+                            index - 1
                         }
-                    };
+                    }
+                };
 
-                    next_window = self.tab_list[next_index].upgrade();
-                }
+                next_window = self.tab_list[next_index].upgrade();
             }
+        }
 
-            // If no current focus or not in tab list, use first tab window
-            if next_window.is_none() {
-                if let Some(first) = self.tab_list.first() {
-                    next_window = first.upgrade();
-                }
+        // If no current focus or not in tab list, use first tab window
+        if next_window.is_none() {
+            if let Some(first) = self.tab_list.first() {
+                next_window = first.upgrade();
             }
         }
 
         if let Some(window) = next_window {
             let _ = self.set_focus(Some(&window));
+            self.set_lone_window(None);
         }
     }
 
@@ -4817,6 +4823,70 @@ mod tests {
         manager.navigate_tab(TabDirection::Previous);
         let focused = manager.get_focus().unwrap();
         assert!(Rc::ptr_eq(&window3, &focused));
+    }
+
+    #[test]
+    fn tab_navigation_is_blocked_by_modal_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let window2 = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        let modal = manager.create_window(None, 0, 100, 100, 100).unwrap();
+        for window in [&window1, &window2] {
+            window
+                .borrow_mut()
+                .set_system_callback(|_, msg, _, _| match msg {
+                    WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                    _ => WindowMsgHandled::Ignored,
+                });
+        }
+
+        manager.register_tab_list(vec![window1.clone(), window2.clone()]);
+        manager.set_focus(Some(&window1)).unwrap();
+        manager.set_modal(modal).unwrap();
+
+        manager.navigate_tab(TabDirection::Next);
+
+        let focused = manager.get_focus().unwrap();
+        assert!(Rc::ptr_eq(&window1, &focused));
+    }
+
+    #[test]
+    fn tab_navigation_clears_lone_window_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let window2 = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        let lone = manager.create_window(None, 200, 0, 100, 100).unwrap();
+        for window in [&window1, &window2] {
+            window
+                .borrow_mut()
+                .set_system_callback(|_, msg, _, _| match msg {
+                    WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                    _ => WindowMsgHandled::Ignored,
+                });
+        }
+        let close_count = Rc::new(RefCell::new(0));
+        {
+            let close_count = Rc::clone(&close_count);
+            lone.borrow_mut().set_system_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::User(16389) {
+                    *close_count.borrow_mut() += 1;
+                    WindowMsgHandled::Handled
+                } else {
+                    WindowMsgHandled::Ignored
+                }
+            });
+        }
+
+        manager.register_tab_list(vec![window1.clone(), window2.clone()]);
+        manager.set_focus(Some(&window1)).unwrap();
+        manager.set_lone_window(Some(&lone));
+
+        manager.navigate_tab(TabDirection::Next);
+
+        let focused = manager.get_focus().unwrap();
+        assert!(Rc::ptr_eq(&window2, &focused));
+        assert!(manager.lone_window.is_none());
+        assert_eq!(*close_count.borrow(), 1);
     }
 
     #[test]
