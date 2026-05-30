@@ -1392,6 +1392,126 @@ impl GameWindow {
         self.prev_sibling.as_ref()?.upgrade()
     }
 
+    /// Return the first leaf in this window's root branch.
+    pub fn find_first_leaf(window: &Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
+        let mut leaf = Self::root_of(window);
+        loop {
+            let child = leaf.borrow().children().first().cloned();
+            if let Some(child) = child {
+                leaf = child;
+            } else {
+                return leaf;
+            }
+        }
+    }
+
+    /// Return the last leaf in this window's root branch.
+    pub fn find_last_leaf(window: &Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
+        let mut leaf = Self::root_of(window);
+        loop {
+            let child = leaf.borrow().children().first().cloned();
+            let Some(child) = child else {
+                return leaf;
+            };
+            leaf = Self::last_sibling(child);
+        }
+    }
+
+    /// Return the previous leaf in C++ tab traversal order.
+    pub fn find_prev_leaf(window: &Rc<RefCell<GameWindow>>) -> Option<Rc<RefCell<GameWindow>>> {
+        let mut leaf = window.clone();
+        if let Some(prev) = leaf.borrow().get_prev_sibling() {
+            return Some(Self::last_leaf_from(prev));
+        }
+
+        loop {
+            let parent = leaf.borrow().get_parent();
+            let Some(parent) = parent else {
+                return Some(Self::find_last_leaf(&leaf));
+            };
+            leaf = parent;
+            if leaf.borrow().get_parent().is_some() {
+                if let Some(prev) = leaf.borrow().get_prev_sibling() {
+                    return Some(Self::last_leaf_from(prev));
+                }
+            }
+        }
+    }
+
+    /// Return the next leaf in C++ tab traversal order.
+    pub fn find_next_leaf(window: &Rc<RefCell<GameWindow>>) -> Option<Rc<RefCell<GameWindow>>> {
+        let mut leaf = window.clone();
+        if let Some(next) = leaf.borrow().get_next_sibling() {
+            return Self::first_leaf_from(next);
+        }
+
+        loop {
+            let parent = leaf.borrow().get_parent();
+            let Some(parent) = parent else {
+                return Some(Self::find_first_leaf(&leaf));
+            };
+            leaf = parent;
+            if leaf.borrow().get_parent().is_some() {
+                if let Some(next) = leaf.borrow().get_next_sibling() {
+                    return Self::first_leaf_from(next);
+                }
+            }
+        }
+    }
+
+    fn root_of(window: &Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
+        let mut root = window.clone();
+        loop {
+            let parent = root.borrow().get_parent();
+            if let Some(parent) = parent {
+                root = parent;
+            } else {
+                return root;
+            }
+        }
+    }
+
+    fn last_sibling(mut window: Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
+        loop {
+            let next = window.borrow().get_next_sibling();
+            if let Some(next) = next {
+                window = next;
+            } else {
+                return window;
+            }
+        }
+    }
+
+    fn first_leaf_from(mut leaf: Rc<RefCell<GameWindow>>) -> Option<Rc<RefCell<GameWindow>>> {
+        loop {
+            let leaf_borrow = leaf.borrow();
+            if leaf_borrow.children().is_empty()
+                || leaf_borrow.get_status().contains(WindowStatus::TAB_STOP)
+            {
+                drop(leaf_borrow);
+                return Some(leaf);
+            }
+            let child = leaf_borrow.children().first().cloned().unwrap();
+            drop(leaf_borrow);
+            leaf = child;
+        }
+    }
+
+    fn last_leaf_from(mut leaf: Rc<RefCell<GameWindow>>) -> Rc<RefCell<GameWindow>> {
+        loop {
+            let descend = {
+                let leaf_borrow = leaf.borrow();
+                !leaf_borrow.get_status().contains(WindowStatus::TAB_STOP)
+                    && !leaf_borrow.children().is_empty()
+            };
+            if !descend {
+                return leaf;
+            }
+            let child = leaf.borrow().children().first().cloned().unwrap();
+            leaf = Self::last_sibling(child);
+        }
+    }
+
     /// Add child window
     pub fn add_child(&mut self, child: Rc<RefCell<GameWindow>>) {
         self.children.insert(0, child);
@@ -3523,6 +3643,71 @@ mod tests {
         assert!(child.borrow().is_child(&grandchild.borrow()));
         assert!(!parent.borrow().is_child(&parent.borrow()));
         assert!(!parent.borrow().is_child(&sibling.borrow()));
+    }
+
+    #[test]
+    fn leaf_helpers_walk_window_tree_like_cpp() {
+        let root = Rc::new(RefCell::new(GameWindow::new()));
+        let trailing_leaf = Rc::new(RefCell::new(GameWindow::new()));
+        let branch = Rc::new(RefCell::new(GameWindow::new()));
+        let branch_leaf = Rc::new(RefCell::new(GameWindow::new()));
+
+        trailing_leaf.borrow_mut().set_parent(Some(&root));
+        root.borrow_mut().add_child(trailing_leaf.clone());
+        branch.borrow_mut().set_parent(Some(&root));
+        root.borrow_mut().add_child(branch.clone());
+        branch_leaf.borrow_mut().set_parent(Some(&branch));
+        branch.borrow_mut().add_child(branch_leaf.clone());
+
+        assert!(Rc::ptr_eq(
+            &GameWindow::find_first_leaf(&trailing_leaf),
+            &branch_leaf
+        ));
+        assert!(Rc::ptr_eq(
+            &GameWindow::find_last_leaf(&branch_leaf),
+            &trailing_leaf
+        ));
+        assert!(Rc::ptr_eq(
+            &GameWindow::find_next_leaf(&branch_leaf).unwrap(),
+            &trailing_leaf
+        ));
+        assert!(Rc::ptr_eq(
+            &GameWindow::find_prev_leaf(&trailing_leaf).unwrap(),
+            &branch_leaf
+        ));
+        assert!(Rc::ptr_eq(
+            &GameWindow::find_next_leaf(&trailing_leaf).unwrap(),
+            &branch_leaf
+        ));
+        assert!(Rc::ptr_eq(
+            &GameWindow::find_prev_leaf(&branch_leaf).unwrap(),
+            &trailing_leaf
+        ));
+    }
+
+    #[test]
+    fn leaf_helpers_stop_descent_at_tab_stop_like_cpp() {
+        let root = Rc::new(RefCell::new(GameWindow::new()));
+        let tab_branch = Rc::new(RefCell::new(GameWindow::new()));
+        let leading_leaf = Rc::new(RefCell::new(GameWindow::new()));
+        let child_under_tab = Rc::new(RefCell::new(GameWindow::new()));
+
+        tab_branch.borrow_mut().set_status(WindowStatus::TAB_STOP);
+        tab_branch.borrow_mut().set_parent(Some(&root));
+        root.borrow_mut().add_child(tab_branch.clone());
+        leading_leaf.borrow_mut().set_parent(Some(&root));
+        root.borrow_mut().add_child(leading_leaf.clone());
+        child_under_tab.borrow_mut().set_parent(Some(&tab_branch));
+        tab_branch.borrow_mut().add_child(child_under_tab.clone());
+
+        assert!(Rc::ptr_eq(
+            &GameWindow::find_next_leaf(&leading_leaf).unwrap(),
+            &tab_branch
+        ));
+        assert!(Rc::ptr_eq(
+            &GameWindow::find_prev_leaf(&leading_leaf).unwrap(),
+            &child_under_tab
+        ));
     }
 
     #[test]
