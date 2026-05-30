@@ -3333,6 +3333,13 @@ impl WindowManager {
                 }
             }
         }
+
+        if let Some(edit_data) = window.get_edit_data_mut() {
+            edit_data.system_callback_string = window_def.system_callback.clone();
+            edit_data.input_callback_string = window_def.input_callback.clone();
+            edit_data.tooltip_callback_string = window_def.tooltip_callback.clone();
+            edit_data.draw_callback_string = window_def.draw_callback.clone();
+        }
     }
 
     fn create_window_from_definition(
@@ -5148,6 +5155,28 @@ mod tests {
         assert_eq!(manager.window_count, 0);
         assert!(manager.root_windows.is_empty());
         assert!(manager.get_focus().is_none());
+    }
+
+    #[test]
+    fn bind_window_callbacks_preserves_editor_callback_names_like_cpp() {
+        let manager = WindowManager::new();
+        let mut window = GameWindow::new();
+        let window_def = WindowDefinition {
+            system_callback: "GameWinDefaultSystem".to_string(),
+            input_callback: "GameWinDefaultInput".to_string(),
+            tooltip_callback: "GameWinDefaultTooltip".to_string(),
+            draw_callback: "W3DNoDraw".to_string(),
+            ..WindowDefinition::default()
+        };
+
+        window.set_edit_data(Some(GameWindowEditData::default()));
+        manager.bind_window_callbacks(&mut window, &window_def);
+
+        let edit_data = window.get_edit_data().unwrap();
+        assert_eq!(edit_data.system_callback_string, "GameWinDefaultSystem");
+        assert_eq!(edit_data.input_callback_string, "GameWinDefaultInput");
+        assert_eq!(edit_data.tooltip_callback_string, "GameWinDefaultTooltip");
+        assert_eq!(edit_data.draw_callback_string, "W3DNoDraw");
     }
 
     #[test]
