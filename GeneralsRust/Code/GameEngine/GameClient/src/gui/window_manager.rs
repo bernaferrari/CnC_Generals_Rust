@@ -104,6 +104,7 @@ use crate::gui::callbacks::{
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::shell::main_menu::get_main_menu;
 use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
+use crate::input::with_mouse;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{file::FileAccess, file_system::get_file_system};
 use log::warn;
@@ -1038,6 +1039,7 @@ impl WindowManager {
         const GGM_LEFT_DRAG: u32 = 16384;
         const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
         let old_lone = self.lone_window.as_ref().and_then(|w| w.upgrade());
+        self.update_cursor_tooltip_for_mouse_event(x, y);
         // Find window under cursor or use capture
         let target_window = if let Some(capture) = self.get_capture() {
             Some(capture)
@@ -1153,6 +1155,28 @@ impl WindowManager {
                 }
             }
             WindowInputReturnCode::NotUsed
+        }
+    }
+
+    fn update_cursor_tooltip_for_mouse_event(&self, x: i32, y: i32) {
+        with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
+
+        if self.get_capture().is_some() || self.get_grab_window().is_some() {
+            return;
+        }
+
+        let tooltip = self.get_window_under_cursor(x, y, true).and_then(|window| {
+            let window = window.borrow();
+            let tooltip = window.get_tooltip();
+            if tooltip.is_empty() {
+                None
+            } else {
+                Some((tooltip.to_string(), window.get_tooltip_delay()))
+            }
+        });
+
+        if let Some((tooltip, delay)) = tooltip {
+            with_mouse(|mouse| mouse.set_cursor_tooltip(tooltip, Some(delay), None, None));
         }
     }
 
@@ -4541,6 +4565,16 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::rc::Rc;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
+
+    static TEST_MOUSE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn lock_test_mouse() -> MutexGuard<'static, ()> {
+        TEST_MOUSE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("test mouse lock poisoned")
+    }
 
     #[test]
     fn test_window_manager_creation() {
@@ -4708,6 +4742,90 @@ mod tests {
 
         manager.release_capture(&window).unwrap();
         assert!(manager.get_capture().is_none());
+    }
+
+    #[test]
+    fn process_mouse_event_sets_window_tooltip_like_cpp() {
+        let _mouse_guard = lock_test_mouse();
+        with_mouse(|mouse| mouse.set_cursor_tooltip("Stale".to_string(), Some(0), None, None));
+
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        {
+            let mut window = window.borrow_mut();
+            window.set_tooltip("Window tip");
+            window.instance_data_mut().tooltip_delay = 123;
+        }
+
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        with_mouse(|mouse| {
+            let state = mouse.cursor_tooltip_state();
+            assert_eq!(state.tooltip_text, "Window tip");
+            assert_eq!(state.tooltip_delay_override_ms, 123);
+            assert!(!state.is_tooltip_empty);
+        });
+    }
+
+    #[test]
+    fn process_mouse_event_clears_stale_tooltip_without_tooltip_window_like_cpp() {
+        let _mouse_guard = lock_test_mouse();
+        with_mouse(|mouse| mouse.set_cursor_tooltip("Stale".to_string(), Some(0), None, None));
+
+        let mut manager = WindowManager::new();
+
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 500, 500, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        with_mouse(|mouse| {
+            let state = mouse.cursor_tooltip_state();
+            assert_eq!(state.tooltip_text, "");
+            assert!(state.is_tooltip_empty);
+        });
+    }
+
+    #[test]
+    fn process_mouse_event_reads_disabled_window_tooltip_like_cpp() {
+        let _mouse_guard = lock_test_mouse();
+        with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
+
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        {
+            let mut window = window.borrow_mut();
+            window.set_tooltip("Disabled tip");
+            window.enable(false).unwrap();
+        }
+
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        with_mouse(|mouse| {
+            let state = mouse.cursor_tooltip_state();
+            assert_eq!(state.tooltip_text, "Disabled tip");
+            assert!(!state.is_tooltip_empty);
+        });
+    }
+
+    #[test]
+    fn process_mouse_event_only_clears_tooltip_during_capture_like_cpp() {
+        let _mouse_guard = lock_test_mouse();
+        with_mouse(|mouse| mouse.set_cursor_tooltip("Stale".to_string(), Some(0), None, None));
+
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        window.borrow_mut().set_tooltip("Captured tip");
+        manager.capture_mouse(&window).unwrap();
+
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        with_mouse(|mouse| {
+            let state = mouse.cursor_tooltip_state();
+            assert_eq!(state.tooltip_text, "");
+            assert!(state.is_tooltip_empty);
+        });
     }
 
     #[test]
