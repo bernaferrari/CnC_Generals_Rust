@@ -27,6 +27,7 @@ pub struct ChallengeGeneralPort {
     pub enabled: bool,
     pub starts_enabled: bool,
     pub campaign: String,
+    pub current_map: String,
     pub player_template_name: String,
     pub bio_name: String,
     pub bio_rank: String,
@@ -126,6 +127,7 @@ impl ChallengeMenuPort {
         }
         let general = &self.generals[button_index];
         let _ = &general.campaign;
+        let _ = &general.current_map;
         let _ = &general.player_template_name;
     }
 
@@ -272,7 +274,7 @@ impl ChallengeMenuPort {
                 let general = &self.generals[button_index];
                 let campaign = general.campaign.clone();
                 let player_template = general.player_template_name.clone();
-                let map = format!("Maps/{}.map", campaign);
+                let map = general.current_map.clone();
                 let difficulty = self.difficulty;
                 let rank_points = self.rank_points;
 
@@ -315,9 +317,9 @@ impl ChallengeMenuPort {
     }
 
     pub fn shutdown(&mut self, immediate: bool) -> bool {
+        self.selected_general = None;
+        self.intro_sequence_step = 0;
         if immediate {
-            self.selected_general = None;
-            self.intro_sequence_step = 0;
             return true;
         }
         self.is_shutting_down = true;
@@ -346,6 +348,7 @@ impl ChallengeMenuPort {
                     enabled: true,
                     starts_enabled: true,
                     campaign: "BossGeneral".to_string(),
+                    current_map: "Maps/Challenge/BossGeneral/BossGeneral.map".to_string(),
                     player_template_name: "FactionAmericaSuperWeaponGeneral".to_string(),
                     bio_name: "Name: Alexander".to_string(),
                     bio_rank: "Rank: 4 Star General".to_string(),
@@ -358,6 +361,7 @@ impl ChallengeMenuPort {
                     enabled: true,
                     starts_enabled: true,
                     campaign: "TankGeneral".to_string(),
+                    current_map: "Maps/Challenge/TankGeneral/TankGeneral.map".to_string(),
                     player_template_name: "FactionChinaTankGeneral".to_string(),
                     bio_name: "Name: Kwai".to_string(),
                     bio_rank: "Rank: General".to_string(),
@@ -371,6 +375,7 @@ impl ChallengeMenuPort {
                     enabled: false,
                     starts_enabled: false,
                     campaign: "Challenge_Leang".to_string(),
+                    current_map: "Maps/Challenge/Challenge_Leang/Challenge_Leang.map".to_string(),
                     player_template_name: "FactionBossGeneral".to_string(),
                     bio_name: "Name: Leang".to_string(),
                     bio_rank: "Rank: General".to_string(),
@@ -423,8 +428,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_button_launches_challenge() {
+    fn handle_button_launches_challenge_with_campaign_current_map() {
         let mut menu = ChallengeMenuPort::sample();
+        menu.generals[0].current_map = "Maps/Challenge/Resolved/Resolved.map".to_string();
         menu.handle_button(0);
 
         let action = menu.handle_button(BUTTON_ID_PLAY);
@@ -438,7 +444,7 @@ mod tests {
             } => {
                 assert_eq!(campaign, "BossGeneral");
                 assert_eq!(player_template, "FactionAmericaSuperWeaponGeneral");
-                assert_eq!(map, "Maps/BossGeneral.map");
+                assert_eq!(map, "Maps/Challenge/Resolved/Resolved.map");
                 assert_eq!(difficulty, GameDifficultyPort::Normal);
                 assert_eq!(rank_points, 0);
             }
@@ -519,8 +525,11 @@ mod tests {
     #[test]
     fn shutdown_animated_sets_shutting_down() {
         let mut menu = ChallengeMenuPort::sample();
+        menu.handle_button(0);
         assert!(!menu.shutdown(false));
         assert!(menu.is_shutting_down);
+        assert_eq!(menu.selected_general, None);
+        assert_eq!(menu.intro_sequence_step, 0);
     }
 
     #[test]
