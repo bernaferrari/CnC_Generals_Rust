@@ -303,7 +303,7 @@ impl WindowLayout {
         // Check if window is already in layout
         let window_ptr = window.as_ptr();
         if !self.windows.iter().any(|w| w.as_ptr() == window_ptr) {
-            self.windows.push(window);
+            self.windows.insert(0, window);
         }
     }
 
@@ -360,7 +360,7 @@ impl WindowLayout {
 
     /// Destroy all windows in this layout
     pub fn destroy_windows(&mut self) {
-        let windows = self.windows.iter().cloned().rev().collect::<Vec<_>>();
+        let windows = self.windows.clone();
 
         with_window_manager(|manager| {
             for window in windows {
@@ -6286,8 +6286,8 @@ mod tests {
 
         manager.bring_layout_forward(&layout);
 
-        assert!(Rc::ptr_eq(&manager.root_windows[0], &first));
-        assert!(Rc::ptr_eq(&manager.root_windows[1], &second));
+        assert!(Rc::ptr_eq(&manager.root_windows[0], &second));
+        assert!(Rc::ptr_eq(&manager.root_windows[1], &first));
         assert!(Rc::ptr_eq(&manager.root_windows[2], &foreground));
         assert!(Rc::ptr_eq(&manager.root_windows[3], &background));
     }
@@ -6306,8 +6306,8 @@ mod tests {
         manager.bring_layout_forward(&layout);
 
         let parent = parent.borrow();
-        assert!(Rc::ptr_eq(&parent.children()[0], &first));
-        assert!(Rc::ptr_eq(&parent.children()[1], &second));
+        assert!(Rc::ptr_eq(&parent.children()[0], &second));
+        assert!(Rc::ptr_eq(&parent.children()[1], &first));
         assert!(Rc::ptr_eq(&parent.children()[2], &foreground));
     }
 
@@ -6768,5 +6768,19 @@ mod tests {
         assert!(layout.borrow().is_hidden());
         assert!(window1.borrow().is_hidden());
         assert!(window2.borrow().is_hidden());
+    }
+
+    #[test]
+    fn layout_add_window_pushes_to_head_like_cpp() {
+        let mut manager = WindowManager::new();
+        let mut layout = WindowLayout::new("test.wnd".to_string());
+        let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+
+        layout.add_window(first.clone());
+        layout.add_window(second.clone());
+
+        assert!(Rc::ptr_eq(&layout.windows()[0], &second));
+        assert!(Rc::ptr_eq(&layout.windows()[1], &first));
     }
 }
