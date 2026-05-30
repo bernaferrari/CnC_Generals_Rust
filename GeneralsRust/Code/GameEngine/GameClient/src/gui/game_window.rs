@@ -63,6 +63,8 @@ const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
 const GBM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 10;
 const GSM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 12;
 const GSM_SET_MIN_MAX: u32 = GGM_LEFT_DRAG + 13;
+const GLM_DEL_ENTRY: u32 = GGM_LEFT_DRAG + 16;
+const GLM_DEL_ALL: u32 = GGM_LEFT_DRAG + 17;
 pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
 
 // Window style flags (GWS_*)
@@ -2309,6 +2311,26 @@ impl GameWindow {
         }
 
         if matches!(self.widget, Some(WindowWidget::ListBox(_))) {
+            if let WindowMessage::User(code) = msg {
+                match code {
+                    GLM_DEL_ALL => {
+                        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                            listbox.clear();
+                        }
+                        self.update_listbox_scrollbar();
+                        return WindowMsgHandled::Handled;
+                    }
+                    GLM_DEL_ENTRY => {
+                        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                            let _ = listbox.remove_item(data1 as usize);
+                        }
+                        self.update_listbox_scrollbar();
+                        return WindowMsgHandled::Handled;
+                    }
+                    _ => {}
+                }
+            }
+
             if let Some(links) = self.listbox_links {
                 if msg == WindowMessage::GadgetSelected && data1 == links.up_button as u32 {
                     if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
@@ -4169,6 +4191,41 @@ mod tests {
                 (WindowMessage::User(GGM_FOCUS_CHANGE), 0, 31),
             ]
         );
+    }
+
+    #[test]
+    fn listbox_delete_system_messages_match_cpp_state_rules() {
+        let mut window = GameWindow::new();
+        let mut listbox = ListBox::new(42, 0, 0, 100, 60);
+        listbox.add_item("alpha");
+        listbox.add_item("bravo");
+        listbox.add_item("charlie");
+        assert!(listbox.select_index(2, KeyModifiers::none()));
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GLM_DEL_ENTRY), 1, 0),
+            WindowMsgHandled::Handled
+        );
+        let listbox = window.list_box_mut().unwrap();
+        assert_eq!(listbox.items().len(), 2);
+        assert_eq!(listbox.items()[1].text, "charlie");
+        assert_eq!(listbox.selected_indices(), &[1]);
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GLM_DEL_ENTRY), 99, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.list_box_mut().unwrap().items().len(), 2);
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GLM_DEL_ALL), 0, 0),
+            WindowMsgHandled::Handled
+        );
+        let listbox = window.list_box_mut().unwrap();
+        assert!(listbox.items().is_empty());
+        assert!(listbox.selected_indices().is_empty());
+        assert_eq!(listbox.scroll_offset(), 0);
     }
 
     #[test]
