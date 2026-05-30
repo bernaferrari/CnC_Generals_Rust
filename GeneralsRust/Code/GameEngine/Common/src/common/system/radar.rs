@@ -730,6 +730,21 @@ fn argb_to_rgba_bytes(color: u32) -> [u8; 4] {
     ]
 }
 
+fn radar_stealth_blip_alpha(current_frame: u32) -> u8 {
+    const FRAMES_FOR_TRANSITION: u32 = 30;
+    const MIN_ALPHA: f32 = 32.0;
+
+    let alpha_scale =
+        (current_frame % FRAMES_FOR_TRANSITION) as f32 / (FRAMES_FOR_TRANSITION as f32 / 2.0);
+    let alpha = if alpha_scale > 0.0 {
+        ((alpha_scale - 1.0) * (255.0 - MIN_ALPHA)) + MIN_ALPHA
+    } else {
+        (alpha_scale * (255.0 - MIN_ALPHA)) + MIN_ALPHA
+    };
+
+    alpha.clamp(0.0, 255.0).trunc() as u8
+}
+
 /// Radar system manager (matches C++ Radar class)
 pub struct RadarSystem {
     /// Map extents for coordinate conversion
@@ -1578,6 +1593,10 @@ impl RadarSystem {
     /// object draws four legal radar-cell pixels in a 2x2 block before the texture
     /// is scaled into the HUD radar rectangle.
     pub fn build_object_overlay_texture_rgba(&self) -> Vec<u8> {
+        self.build_object_overlay_texture_rgba_at_frame(self.current_frame)
+    }
+
+    pub fn build_object_overlay_texture_rgba_at_frame(&self, current_frame: u32) -> Vec<u8> {
         let expected_len = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
         let mut texture = vec![0; expected_len * 4];
 
@@ -1589,7 +1608,10 @@ impl RadarSystem {
             let Some(radar_point) = self.world_to_radar(&obj.world_pos) else {
                 continue;
             };
-            let color = argb_to_rgba_bytes(obj.color);
+            let mut color = argb_to_rgba_bytes(obj.color);
+            if obj.is_stealth {
+                color[3] = radar_stealth_blip_alpha(current_frame);
+            }
 
             for point in radar_object_blip_cells(radar_point) {
                 if legal_radar_point(point.x, point.y) {
@@ -2600,6 +2622,35 @@ mod tests {
         assert_eq!(pixel(10, 20), &[0, 0, 0, 0]);
         assert_eq!(pixel(30, 40), &[0, 0, 0, 0]);
         assert_eq!(pixel(50, 60), &[0, 0x00, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn test_object_overlay_texture_twinkles_revealed_stealth_blips() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+        radar.clear_shroud();
+
+        let mut obj = RadarObject::new(1);
+        obj.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        obj.priority = RadarPriorityType::Unit;
+        obj.color = 0xFF112233;
+        obj.is_stealth = true;
+        obj.stealth_revealed = true;
+        radar.add_object(obj);
+
+        let pixel_at_frame = |frame| {
+            let texture = radar.build_object_overlay_texture_rgba_at_frame(frame);
+            let idx = ((20 * RADAR_CELL_WIDTH + 10) * 4) as usize;
+            texture[idx..idx + 4].to_vec()
+        };
+
+        assert_eq!(pixel_at_frame(0), vec![0x11, 0x22, 0x33, 32]);
+        assert_eq!(pixel_at_frame(15), vec![0x11, 0x22, 0x33, 32]);
+        assert_eq!(pixel_at_frame(29), vec![0x11, 0x22, 0x33, 240]);
     }
 
     #[test]
