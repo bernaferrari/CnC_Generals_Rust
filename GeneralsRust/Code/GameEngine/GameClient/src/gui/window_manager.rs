@@ -3719,8 +3719,29 @@ impl WindowManager {
 
     /// Add window to root window list
     fn add_root_window(&mut self, window: Rc<RefCell<GameWindow>>) {
-        // Insert at beginning for proper z-order
-        self.root_windows.insert(0, window);
+        if let Some(last_modal_index) = self.last_modal_root_index(&window) {
+            self.root_windows.insert(last_modal_index + 1, window);
+        } else {
+            self.root_windows.insert(0, window);
+        }
+    }
+
+    fn last_modal_root_index(&self, window: &Rc<RefCell<GameWindow>>) -> Option<usize> {
+        let mut last_modal_index: Option<usize> = None;
+        let mut modal = self.modal_stack.as_deref();
+        while let Some(entry) = modal {
+            if !Rc::ptr_eq(&entry.window, window) {
+                if let Some(index) = self
+                    .root_windows
+                    .iter()
+                    .position(|root| Rc::ptr_eq(root, &entry.window))
+                {
+                    last_modal_index = Some(last_modal_index.map_or(index, |last| last.max(index)));
+                }
+            }
+            modal = entry.next.as_deref();
+        }
+        last_modal_index
     }
 
     /// Process the destroy queue
@@ -5022,6 +5043,20 @@ mod tests {
             &manager.modal_stack.as_ref().unwrap().window,
             &bottom
         ));
+    }
+
+    #[test]
+    fn new_root_windows_insert_behind_modal_roots_like_cpp() {
+        let mut manager = WindowManager::new();
+        let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let modal = manager.create_window(None, 100, 0, 100, 100).unwrap();
+
+        manager.set_modal(modal.clone()).unwrap();
+        let later = manager.create_window(None, 200, 0, 100, 100).unwrap();
+
+        assert!(Rc::ptr_eq(&manager.root_windows[0], &modal));
+        assert!(Rc::ptr_eq(&manager.root_windows[1], &later));
+        assert!(Rc::ptr_eq(&manager.root_windows[2], &normal));
     }
 
     #[test]
