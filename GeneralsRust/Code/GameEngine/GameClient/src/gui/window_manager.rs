@@ -972,11 +972,10 @@ impl WindowManager {
                 if Rc::ptr_eq(&capture_window, window) {
                     self.mouse_capture = None;
                     self.capture_flags &= !CaptureFlags::MOUSE;
-                    return Ok(());
                 }
             }
         }
-        Err(WindowError::InvalidWindow)
+        Ok(())
     }
 
     /// Get window that has mouse capture
@@ -4866,6 +4865,23 @@ mod tests {
         assert!(Rc::ptr_eq(&window, &captured));
 
         manager.release_capture(&window).unwrap();
+        assert!(manager.get_capture().is_none());
+    }
+
+    #[test]
+    fn release_capture_is_idempotent_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let other = manager.create_window(None, 100, 0, 100, 100).unwrap();
+
+        assert_eq!(manager.release_capture(&window), Ok(()));
+
+        manager.capture_mouse(&window).unwrap();
+        assert_eq!(manager.release_capture(&other), Ok(()));
+        let captured = manager.get_capture().unwrap();
+        assert!(Rc::ptr_eq(&window, &captured));
+
+        assert_eq!(manager.release_capture(&window), Ok(()));
         assert!(manager.get_capture().is_none());
     }
 
