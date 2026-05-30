@@ -1996,17 +1996,16 @@ impl CnCGameEngine {
                 side_name: player.team.get_name().to_string(),
                 team_number: player.id as i32,
                 apparent_color: None,
+                apparent_text_color: None,
                 is_ai: false,
                 visible: true,
             };
-            game_client::gui::load_screen::LoadScreenInitContext {
-                local_player_name: slot.player_name.clone(),
-                local_side_name: slot.side_name.clone(),
-                local_team_number: slot.team_number,
-                map_name: None,
-                start_positions: Vec::new(),
-                slots: vec![slot],
-            }
+            let mut context = game_client::gui::load_screen::LoadScreenInitContext::default();
+            context.local_player_name = slot.player_name.clone();
+            context.local_side_name = slot.side_name.clone();
+            context.local_team_number = slot.team_number;
+            context.slots = vec![slot];
+            context
         } else {
             game_client::gui::load_screen::LoadScreenInitContext::default()
         }
