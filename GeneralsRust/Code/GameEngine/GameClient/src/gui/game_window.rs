@@ -714,8 +714,19 @@ impl GameWindow {
             width as WindowMsgData,
             height as WindowMsgData,
         );
-        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-            listbox.set_size(width.max(0) as u32, height.max(0) as u32);
+        let mut resize_tab_panes = false;
+        match self.widget.as_mut() {
+            Some(WindowWidget::ListBox(listbox)) => {
+                listbox.set_size(width.max(0) as u32, height.max(0) as u32);
+            }
+            Some(WindowWidget::TabControl(tab_control)) => {
+                tab_control.set_size(width.max(0) as u32, height.max(0) as u32);
+                resize_tab_panes = true;
+            }
+            _ => {}
+        }
+        if resize_tab_panes {
+            self.resize_tab_panes_to_content();
         }
         if self.slider_thumb.is_some() {
             self.update_slider_thumb();
@@ -2559,6 +2570,53 @@ impl GameWindow {
         }
     }
 
+    fn resize_tab_panes_to_content(&mut self) {
+        let Some(WindowWidget::TabControl(tab_control)) = self.widget.as_ref() else {
+            return;
+        };
+
+        let (win_width, win_height) = self.get_size();
+        let mut width = win_width - (2 * tab_control.pane_border());
+        let mut height = win_height - (2 * tab_control.pane_border());
+
+        if tab_control.tab_edge() == super::gadgets::tabcontrol::TP_TOP_SIDE
+            || tab_control.tab_edge() == super::gadgets::tabcontrol::TP_BOTTOM_SIDE
+        {
+            height -= tab_control.tab_height_px();
+        }
+        if tab_control.tab_edge() == super::gadgets::tabcontrol::TP_LEFT_SIDE
+            || tab_control.tab_edge() == super::gadgets::tabcontrol::TP_RIGHT_SIDE
+        {
+            width -= tab_control.tab_width_px();
+        }
+
+        let mut x = tab_control.pane_border();
+        let mut y = tab_control.pane_border();
+        if tab_control.tab_edge() == super::gadgets::tabcontrol::TP_LEFT_SIDE {
+            x += tab_control.tab_width_px();
+        }
+        if tab_control.tab_edge() == super::gadgets::tabcontrol::TP_TOP_SIDE {
+            y += tab_control.tab_height_px();
+        }
+
+        let panes: Vec<Rc<RefCell<GameWindow>>> = self
+            .children
+            .iter()
+            .rev()
+            .filter(|child| {
+                let child = child.borrow();
+                (child.inst_data.style & GWS_TAB_PANE) != 0
+            })
+            .cloned()
+            .collect();
+
+        for pane in panes {
+            let mut pane = pane.borrow_mut();
+            let _ = pane.set_size(width.max(0), height.max(0));
+            let _ = pane.set_position(x, y);
+        }
+    }
+
     /// Normalize window region (ensure low < high)
     fn normalize_region(&mut self) {
         if self.region.low.x > self.region.high.x {
@@ -3398,6 +3456,9 @@ fn char_input_event(key: WindowMsgData, state: WindowMsgData) -> Option<InputEve
 
 #[cfg(test)]
 mod tests {
+    use crate::gui::gadgets::tabcontrol;
+    use crate::gui::gadgets::Rect;
+
     use super::*;
 
     #[test]
@@ -3777,6 +3838,39 @@ mod tests {
             panic!("expected tab control widget");
         };
         assert_eq!(tab_control.active_tab_index(), 0);
+    }
+
+    #[test]
+    fn resizing_tab_control_resizes_panes_like_cpp() {
+        let mut tab_window = GameWindow::new();
+        let mut tab_control = TabControl::new(7, 0, 0, 100, 80);
+        tab_control.set_tab_data(TabControlData {
+            tab_edge: tabcontrol::TP_TOP_SIDE,
+            tab_height: 20,
+            tab_count: 2,
+            pane_border: 3,
+            ..Default::default()
+        });
+        tab_window.set_widget(WindowWidget::TabControl(tab_control));
+
+        let first_pane = Rc::new(RefCell::new(GameWindow::new()));
+        first_pane.borrow_mut().instance_data_mut().style |= GWS_TAB_PANE;
+        let second_pane = Rc::new(RefCell::new(GameWindow::new()));
+        second_pane.borrow_mut().instance_data_mut().style |= GWS_TAB_PANE;
+        tab_window.add_child(first_pane.clone());
+        tab_window.add_child(second_pane.clone());
+
+        tab_window.set_size(200, 100).unwrap();
+
+        assert_eq!(first_pane.borrow().get_position(), (3, 23));
+        assert_eq!(first_pane.borrow().get_size(), (194, 74));
+        assert_eq!(second_pane.borrow().get_position(), (3, 23));
+        assert_eq!(second_pane.borrow().get_size(), (194, 74));
+
+        let Some(WindowWidget::TabControl(tab_control)) = tab_window.widget() else {
+            panic!("expected tab control widget");
+        };
+        assert_eq!(tab_control.content_bounds(), Rect::new(3, 23, 194, 74));
     }
 
     #[test]
