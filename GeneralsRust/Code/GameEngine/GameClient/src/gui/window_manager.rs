@@ -1458,11 +1458,17 @@ impl WindowManager {
         y: i32,
         ignore_enabled: bool,
     ) -> Option<Rc<RefCell<GameWindow>>> {
+        if let Some(capture) = self.get_capture() {
+            return Some(self.find_child_at_point_or_self(&capture, x, y, ignore_enabled));
+        }
+
+        if let Some(grab_window) = self.get_grab_window() {
+            return Some(self.find_child_at_point_or_self(&grab_window, x, y, ignore_enabled));
+        }
+
         // Check modal windows first
         if let Some(modal) = &self.modal_stack {
-            if let Some(window) = self.find_window_at_point(&modal.window, x, y, ignore_enabled) {
-                return Some(window);
-            }
+            return Some(self.find_child_at_point_or_self(&modal.window, x, y, ignore_enabled));
         }
 
         // Match C++ getWindowUnderCursor: root windows are tested head-first in
@@ -1527,6 +1533,29 @@ impl WindowManager {
         } else {
             None
         }
+    }
+
+    fn find_child_at_point_or_self(
+        &self,
+        window: &Rc<RefCell<GameWindow>>,
+        x: i32,
+        y: i32,
+        ignore_enabled: bool,
+    ) -> Rc<RefCell<GameWindow>> {
+        let window_borrow = window.borrow();
+        for child in window_borrow.children() {
+            let child_borrow = child.borrow();
+            let enabled = ignore_enabled || child_borrow.is_enabled();
+            let hidden = child_borrow.is_hidden();
+            let contains_point = child_borrow.point_in_window(x, y);
+            drop(child_borrow);
+
+            if contains_point && !hidden && enabled {
+                return self.find_child_at_point_or_self(child, x, y, ignore_enabled);
+            }
+        }
+
+        window.clone()
     }
 
     /// Navigate to next/previous tab
@@ -6134,6 +6163,72 @@ mod tests {
 
         let found = manager.get_window_under_cursor(10, 10, false).unwrap();
         assert!(Rc::ptr_eq(&normal, &found));
+    }
+
+    #[test]
+    fn get_window_under_cursor_uses_capture_before_roots_like_cpp() {
+        let mut manager = WindowManager::new();
+        let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let captured = manager.create_window(None, 200, 0, 100, 100).unwrap();
+
+        manager.capture_mouse(&captured).unwrap();
+
+        let found = manager.get_window_under_cursor(10, 10, false).unwrap();
+        assert!(Rc::ptr_eq(&captured, &found));
+        assert!(!Rc::ptr_eq(&normal, &found));
+    }
+
+    #[test]
+    fn get_window_under_cursor_uses_grab_when_not_captured_like_cpp() {
+        let mut manager = WindowManager::new();
+        let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let grabbed = manager.create_window(None, 200, 0, 100, 100).unwrap();
+
+        manager.set_grab_window(Some(&grabbed));
+
+        let found = manager.get_window_under_cursor(10, 10, false).unwrap();
+        assert!(Rc::ptr_eq(&grabbed, &found));
+        assert!(!Rc::ptr_eq(&normal, &found));
+    }
+
+    #[test]
+    fn get_window_under_cursor_prefers_capture_over_grab_like_cpp() {
+        let mut manager = WindowManager::new();
+        let captured = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let grabbed = manager.create_window(None, 200, 0, 100, 100).unwrap();
+
+        manager.capture_mouse(&captured).unwrap();
+        manager.set_grab_window(Some(&grabbed));
+
+        let found = manager.get_window_under_cursor(250, 10, false).unwrap();
+        assert!(Rc::ptr_eq(&captured, &found));
+    }
+
+    #[test]
+    fn get_window_under_cursor_returns_captured_child_like_cpp() {
+        let mut manager = WindowManager::new();
+        let captured = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&captured), 10, 10, 40, 40)
+            .unwrap();
+
+        manager.capture_mouse(&captured).unwrap();
+
+        let found = manager.get_window_under_cursor(20, 20, false).unwrap();
+        assert!(Rc::ptr_eq(&child, &found));
+    }
+
+    #[test]
+    fn get_window_under_cursor_returns_modal_when_outside_like_cpp() {
+        let mut manager = WindowManager::new();
+        let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let modal = manager.create_window(None, 200, 0, 100, 100).unwrap();
+
+        manager.set_modal(modal.clone()).unwrap();
+
+        let found = manager.get_window_under_cursor(10, 10, false).unwrap();
+        assert!(Rc::ptr_eq(&modal, &found));
+        assert!(!Rc::ptr_eq(&normal, &found));
     }
 
     #[test]
