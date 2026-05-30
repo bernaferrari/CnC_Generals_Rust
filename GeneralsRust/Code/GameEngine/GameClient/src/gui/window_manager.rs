@@ -291,10 +291,9 @@ impl WindowLayout {
     /// Hide or show all windows in this layout
     pub fn hide(&self, hide: bool) {
         for window_rc in &self.windows {
-            if window_rc.borrow().get_parent().is_none() {
-                let mut window = window_rc.borrow_mut();
-                let _ = window.hide(hide);
-            }
+            with_window_manager(|manager| {
+                let _ = manager.hide_window(window_rc, hide);
+            });
         }
         self.hidden.set(hide);
     }
@@ -5074,6 +5073,38 @@ mod tests {
     }
 
     #[test]
+    fn layout_hide_routes_through_manager_side_effects_like_cpp() {
+        let window = with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+            let layout = manager.create_layout("test_layout.wnd".to_string());
+            let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+            window
+                .borrow_mut()
+                .set_system_callback(|_, msg, data1, _| match msg {
+                    WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+                    _ => WindowMsgHandled::Ignored,
+                });
+            layout.borrow_mut().add_window(window.clone());
+            manager.set_focus(Some(&window)).unwrap();
+            manager.capture_mouse(&window).unwrap();
+
+            layout.borrow().hide(true);
+
+            assert!(manager.get_focus().is_none());
+            assert!(manager.get_capture().is_none());
+            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
+            window
+        });
+
+        assert!(window.borrow().is_hidden());
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+        });
+    }
+
+    #[test]
     fn test_modal_windows() {
         let mut manager = WindowManager::new();
         let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
@@ -5365,7 +5396,7 @@ mod tests {
     }
 
     #[test]
-    fn test_layout_hide_only_toggles_root_windows() {
+    fn test_layout_hide_toggles_all_layout_windows_like_cpp() {
         let mut manager = WindowManager::new();
         let layout = manager.create_layout("test_layout.wnd".to_string());
 
@@ -5382,7 +5413,7 @@ mod tests {
         layout.borrow().hide(false);
 
         assert!(!parent.borrow().is_hidden());
-        assert!(child.borrow().is_hidden());
+        assert!(!child.borrow().is_hidden());
     }
 
     #[test]
