@@ -1239,6 +1239,26 @@ impl GameWindow {
         self.layout.as_ref()?.upgrade()
     }
 
+    /// Set the next window in this window's owning layout list.
+    pub(crate) fn set_next_in_layout(&mut self, next: Option<&Rc<RefCell<GameWindow>>>) {
+        self.next_in_layout = next.map(Rc::downgrade);
+    }
+
+    /// Set the previous window in this window's owning layout list.
+    pub(crate) fn set_prev_in_layout(&mut self, prev: Option<&Rc<RefCell<GameWindow>>>) {
+        self.prev_in_layout = prev.map(Rc::downgrade);
+    }
+
+    /// Get the next window in this window's owning layout list.
+    pub(crate) fn get_next_in_layout(&self) -> Option<Rc<RefCell<GameWindow>>> {
+        self.next_in_layout.as_ref()?.upgrade()
+    }
+
+    /// Get the previous window in this window's owning layout list.
+    pub(crate) fn get_prev_in_layout(&self) -> Option<Rc<RefCell<GameWindow>>> {
+        self.prev_in_layout.as_ref()?.upgrade()
+    }
+
     /// Add child window
     pub fn add_child(&mut self, child: Rc<RefCell<GameWindow>>) {
         self.children.insert(0, child);

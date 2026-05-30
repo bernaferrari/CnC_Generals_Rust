@@ -313,6 +313,7 @@ impl WindowLayout {
                 window.borrow_mut().set_layout(Some(&layout));
             }
             self.windows.insert(0, window);
+            self.sync_window_layout_links();
         }
     }
 
@@ -325,17 +326,23 @@ impl WindowLayout {
     pub fn remove_window(&mut self, window: &Rc<RefCell<GameWindow>>) {
         let window_ptr = window.as_ptr();
         if let Some(index) = self.windows.iter().position(|w| w.as_ptr() == window_ptr) {
-            self.windows.remove(index);
+            let removed = self.windows.remove(index);
             if let Some(layout) = self.self_handle.upgrade() {
-                let owns_window = window
+                let owns_window = removed
                     .borrow()
                     .get_layout()
                     .as_ref()
                     .is_some_and(|window_layout| Rc::ptr_eq(window_layout, &layout));
                 if owns_window {
-                    window.borrow_mut().set_layout(None);
+                    removed.borrow_mut().set_layout(None);
                 }
             }
+            {
+                let mut removed = removed.borrow_mut();
+                removed.set_next_in_layout(None);
+                removed.set_prev_in_layout(None);
+            }
+            self.sync_window_layout_links();
         }
     }
 
@@ -345,6 +352,17 @@ impl WindowLayout {
         if let Some(index) = self.windows.iter().position(|w| w.as_ptr() == window_ptr) {
             let window = self.windows.remove(index);
             self.windows.insert(0, window);
+            self.sync_window_layout_links();
+        }
+    }
+
+    fn sync_window_layout_links(&self) {
+        for (index, window) in self.windows.iter().enumerate() {
+            let prev = index.checked_sub(1).and_then(|prev| self.windows.get(prev));
+            let next = self.windows.get(index + 1);
+            let mut window = window.borrow_mut();
+            window.set_prev_in_layout(prev);
+            window.set_next_in_layout(next);
         }
     }
 
@@ -993,7 +1011,8 @@ impl WindowManager {
         }
 
         if moved && update_layout {
-            if let Some(layout) = window.borrow().get_layout() {
+            let layout = window.borrow().get_layout();
+            if let Some(layout) = layout {
                 layout.borrow_mut().bring_window_forward(window);
             }
         }
@@ -6996,6 +7015,51 @@ mod tests {
 
         assert!(Rc::ptr_eq(&layout.windows()[0], &second));
         assert!(Rc::ptr_eq(&layout.windows()[1], &first));
+    }
+
+    #[test]
+    fn layout_add_and_remove_updates_neighbor_links_like_cpp() {
+        let mut manager = WindowManager::new();
+        let mut layout = WindowLayout::new("test.wnd".to_string());
+        let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        let third = manager.create_window(None, 200, 0, 100, 100).unwrap();
+
+        layout.add_window(first.clone());
+        layout.add_window(second.clone());
+        layout.add_window(third.clone());
+
+        assert!(third.borrow().get_prev_in_layout().is_none());
+        assert!(Rc::ptr_eq(
+            &third.borrow().get_next_in_layout().unwrap(),
+            &second
+        ));
+        assert!(Rc::ptr_eq(
+            &second.borrow().get_prev_in_layout().unwrap(),
+            &third
+        ));
+        assert!(Rc::ptr_eq(
+            &second.borrow().get_next_in_layout().unwrap(),
+            &first
+        ));
+        assert!(Rc::ptr_eq(
+            &first.borrow().get_prev_in_layout().unwrap(),
+            &second
+        ));
+        assert!(first.borrow().get_next_in_layout().is_none());
+
+        layout.remove_window(&second);
+
+        assert!(second.borrow().get_prev_in_layout().is_none());
+        assert!(second.borrow().get_next_in_layout().is_none());
+        assert!(Rc::ptr_eq(
+            &third.borrow().get_next_in_layout().unwrap(),
+            &first
+        ));
+        assert!(Rc::ptr_eq(
+            &first.borrow().get_prev_in_layout().unwrap(),
+            &third
+        ));
     }
 
     #[test]
