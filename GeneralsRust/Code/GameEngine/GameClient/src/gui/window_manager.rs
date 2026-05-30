@@ -41,7 +41,10 @@ use super::w3d_gadget_draw::{
     w3d_power_draw, w3d_power_draw_a, w3d_right_hud_draw, w3d_shell_menu_scheme_draw,
     w3d_thin_border_draw,
 };
-use super::window_script::{parse_window_script, WindowDefinition, WindowLayoutDefinition};
+use super::window_script::{
+    parse_window_script, TabControlData as ScriptTabControlData, WindowDefinition,
+    WindowLayoutDefinition,
+};
 use super::{MAX_DRAW_DATA, MAX_WINDOWS};
 use crate::game_text::GameText;
 use crate::gui::callbacks::menu_callbacks::MenuCallbacks;
@@ -3644,6 +3647,7 @@ impl WindowManager {
             .borrow()
             .children()
             .iter()
+            .rev()
             .filter(|child| {
                 let child = child.borrow();
                 (child.get_style() & GWS_TAB_PANE) != 0
@@ -5244,6 +5248,60 @@ mod tests {
             seen.borrow().as_slice(),
             &[(WindowMessage::ScriptCreate, child_id as WindowMsgData, 0)]
         );
+    }
+
+    #[test]
+    fn script_tab_control_shows_first_script_pane_in_cpp_fixup_order() {
+        let mut manager = WindowManager::new();
+        let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
+        let layout_def = WindowLayoutDefinition::default();
+        let mut info = WindowLayoutInfo::default();
+        let first_pane_name = "test.wnd:FirstPane";
+        let second_pane_name = "test.wnd:SecondPane";
+        let tab_def = WindowDefinition {
+            name: "test.wnd:Tabs".to_string(),
+            window_type: "TABCONTROL".to_string(),
+            style: GWS_TAB_CONTROL,
+            position: (0, 0),
+            size: (200, 100),
+            tab_control_data: Some(ScriptTabControlData {
+                tab_count: 2,
+                ..Default::default()
+            }),
+            children: vec![
+                WindowDefinition {
+                    name: first_pane_name.to_string(),
+                    window_type: "TABPANE".to_string(),
+                    style: GWS_TAB_PANE,
+                    position: (0, 0),
+                    size: (200, 80),
+                    ..WindowDefinition::default()
+                },
+                WindowDefinition {
+                    name: second_pane_name.to_string(),
+                    window_type: "TABPANE".to_string(),
+                    style: GWS_TAB_PANE,
+                    position: (0, 0),
+                    size: (200, 80),
+                    ..WindowDefinition::default()
+                },
+            ],
+            ..WindowDefinition::default()
+        };
+
+        manager
+            .create_window_from_definition(&tab_def, None, &layout, &layout_def, &mut info)
+            .unwrap();
+
+        let first = manager
+            .get_window_by_id(NameKeyGenerator::name_to_key(first_pane_name) as WindowId)
+            .unwrap();
+        let second = manager
+            .get_window_by_id(NameKeyGenerator::name_to_key(second_pane_name) as WindowId)
+            .unwrap();
+
+        assert!(!first.borrow().is_hidden());
+        assert!(second.borrow().is_hidden());
     }
 
     #[test]
