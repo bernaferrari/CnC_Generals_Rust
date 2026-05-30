@@ -1294,15 +1294,42 @@ impl GameWindow {
         self.prev_in_layout.as_ref()?.upgrade()
     }
 
+    /// Set the next window in this window's sibling list.
+    pub(crate) fn set_next_sibling(&mut self, next: Option<&Rc<RefCell<GameWindow>>>) {
+        self.next_sibling = next.map(Rc::downgrade);
+    }
+
+    /// Set the previous window in this window's sibling list.
+    pub(crate) fn set_prev_sibling(&mut self, prev: Option<&Rc<RefCell<GameWindow>>>) {
+        self.prev_sibling = prev.map(Rc::downgrade);
+    }
+
+    /// Get the next window in this window's sibling list.
+    pub(crate) fn get_next_sibling(&self) -> Option<Rc<RefCell<GameWindow>>> {
+        self.next_sibling.as_ref()?.upgrade()
+    }
+
+    /// Get the previous window in this window's sibling list.
+    pub(crate) fn get_prev_sibling(&self) -> Option<Rc<RefCell<GameWindow>>> {
+        self.prev_sibling.as_ref()?.upgrade()
+    }
+
     /// Add child window
     pub fn add_child(&mut self, child: Rc<RefCell<GameWindow>>) {
         self.children.insert(0, child);
+        Self::sync_sibling_links(&self.children);
     }
 
     /// Remove child window
     pub fn remove_child(&mut self, child: &Rc<RefCell<GameWindow>>) {
         self.children.retain(|c| !Rc::ptr_eq(c, child));
-        child.borrow_mut().parent = None;
+        {
+            let mut child = child.borrow_mut();
+            child.parent = None;
+            child.set_prev_sibling(None);
+            child.set_next_sibling(None);
+        }
+        Self::sync_sibling_links(&self.children);
     }
 
     /// Get immutable slice of child windows
@@ -1313,6 +1340,21 @@ impl GameWindow {
     /// Get mutable view of the child list
     pub fn children_mut(&mut self) -> &mut Vec<Rc<RefCell<GameWindow>>> {
         &mut self.children
+    }
+
+    /// Synchronize C++-style m_next/m_prev links for this window's child list.
+    pub(crate) fn sync_child_sibling_links(&mut self) {
+        Self::sync_sibling_links(&self.children);
+    }
+
+    pub(crate) fn sync_sibling_links(windows: &[Rc<RefCell<GameWindow>>]) {
+        for (index, window) in windows.iter().enumerate() {
+            let prev = index.checked_sub(1).and_then(|i| windows.get(i));
+            let next = windows.get(index + 1);
+            let mut window = window.borrow_mut();
+            window.set_prev_sibling(prev);
+            window.set_next_sibling(next);
+        }
     }
 
     /// Check if a window is a child of this window
