@@ -986,6 +986,10 @@ impl WindowManager {
 
     /// Set modal window
     pub fn set_modal(&mut self, window: Rc<RefCell<GameWindow>>) -> WindowResult<()> {
+        if window.borrow().get_parent().is_some() {
+            return Err(WindowError::InvalidParameter);
+        }
+
         let modal_window = Box::new(ModalWindow::new(window));
 
         // Push onto modal stack
@@ -4959,6 +4963,18 @@ mod tests {
         // doesn't provide easy access to check the modal stack state
 
         manager.unset_modal(&window).unwrap();
+    }
+
+    #[test]
+    fn set_modal_rejects_child_windows_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 20, 20)
+            .unwrap();
+
+        assert_eq!(manager.set_modal(child), Err(WindowError::InvalidParameter));
+        assert!(manager.modal_stack.is_none());
     }
 
     #[test]
