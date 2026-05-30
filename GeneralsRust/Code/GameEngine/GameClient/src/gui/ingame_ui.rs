@@ -13,6 +13,7 @@ use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+use game_engine::common::recorder::with_recorder;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use glam::{Vec2, Vec3};
 use thiserror::Error;
@@ -4051,6 +4052,54 @@ impl InGameUI {
         [color.r, color.g, color.b, color.a]
     }
 
+    fn mouseover_tooltip_player_for_object(object: &Object) -> Option<Arc<RwLock<Player>>> {
+        let local_player = player_list()
+            .read()
+            .ok()
+            .and_then(|list| list.get_local_player().cloned());
+        let local_player_guard = local_player.as_ref().and_then(|player| player.read().ok());
+
+        let mut player = object.get_contain().and_then(|contain| {
+            contain.lock().ok().and_then(|contain_guard| {
+                contain_guard.get_apparent_controlling_player(local_player_guard.as_deref())
+            })
+        });
+
+        if player.is_none() {
+            player = object.get_controlling_player();
+        }
+
+        if let Some(disguised_index) =
+            Self::disguise_visible_player_index_for_object(object, local_player_guard.as_deref())
+        {
+            if let Some(disguised_player) = player_list()
+                .read()
+                .ok()
+                .and_then(|list| list.get_player(disguised_index).cloned())
+            {
+                player = Some(disguised_player);
+            }
+        }
+
+        player
+    }
+
+    fn mouseover_tooltip_with_player_suffix(
+        tooltip: &str,
+        player: &Player,
+        is_multiplayer: bool,
+    ) -> String {
+        if is_multiplayer && player.is_playable_side() {
+            format!("{}\n{}", tooltip, player.get_player_display_name())
+        } else {
+            tooltip.to_string()
+        }
+    }
+
+    fn mouseover_tooltip_is_multiplayer() -> bool {
+        with_recorder(|recorder| recorder.is_multiplayer()).unwrap_or(false)
+    }
+
     fn mouseover_tooltip_visible_for_shroud(status: ObjectShroudStatus) -> bool {
         status == ObjectShroudStatus::Clear
     }
@@ -4830,27 +4879,41 @@ impl InGameUI {
                         );
                         if visible {
                             let template_name = Self::mouseover_tooltip_template_for_object(&guard);
-                            if let Some(mut display_name) =
-                                Self::mouseover_tooltip_for_template(&template_name)
+                            if let Some(player) = Self::mouseover_tooltip_player_for_object(&guard)
                             {
-                                if let Some(boxes) = Self::supply_warehouse_boxes_for_object(&guard)
+                                if let Some(mut display_name) =
+                                    Self::mouseover_tooltip_for_template(&template_name)
                                 {
-                                    let base_value = global_data::read_safe()
-                                        .map(|data| data.base_value_per_supply_box)
-                                        .unwrap_or(100);
-                                    display_name.push_str(
-                                        &Self::supply_warehouse_tooltip_feedback(boxes, base_value),
-                                    );
+                                    if let Some(boxes) =
+                                        Self::supply_warehouse_boxes_for_object(&guard)
+                                    {
+                                        let base_value = global_data::read_safe()
+                                            .map(|data| data.base_value_per_supply_box)
+                                            .unwrap_or(100);
+                                        display_name.push_str(
+                                            &Self::supply_warehouse_tooltip_feedback(
+                                                boxes, base_value,
+                                            ),
+                                        );
+                                    }
+                                    if let Ok(player_guard) = player.read() {
+                                        display_name = Self::mouseover_tooltip_with_player_suffix(
+                                            &display_name,
+                                            &player_guard,
+                                            Self::mouseover_tooltip_is_multiplayer(),
+                                        );
+                                        let indicator =
+                                            Self::mouseover_tooltip_color_for_object(&guard);
+                                        with_mouse(|m| {
+                                            m.set_cursor_tooltip(
+                                                display_name,
+                                                Some(-1),
+                                                Some(indicator),
+                                                None,
+                                            );
+                                        });
+                                    }
                                 }
-                                let indicator = Self::mouseover_tooltip_color_for_object(&guard);
-                                with_mouse(|m| {
-                                    m.set_cursor_tooltip(
-                                        display_name,
-                                        Some(-1),
-                                        Some(indicator),
-                                        None,
-                                    );
-                                });
                             }
                         }
                     }
@@ -5126,6 +5189,27 @@ mod tests {
         assert_eq!(InGameUI::mouseover_tooltip_text("Tree01", "Prop"), None);
 
         Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn mouseover_tooltip_appends_playable_player_name_only_in_multiplayer_like_cpp() {
+        let mut player = Player::new(0);
+        player.set_display_name("Commander");
+
+        assert_eq!(
+            InGameUI::mouseover_tooltip_with_player_suffix("Tank", &player, true),
+            "Tank\nCommander"
+        );
+        assert_eq!(
+            InGameUI::mouseover_tooltip_with_player_suffix("Tank", &player, false),
+            "Tank"
+        );
+
+        player.set_observer(true);
+        assert_eq!(
+            InGameUI::mouseover_tooltip_with_player_suffix("Tank", &player, true),
+            "Tank"
+        );
     }
 
     #[test]
