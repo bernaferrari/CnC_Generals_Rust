@@ -1,6 +1,7 @@
 //! W3D gadget draw callbacks (push button) for device-style rendering.
 
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
+use crate::display::view::{with_tactical_view_ref, IPoint2};
 use crate::gui::callbacks::get_menu_manager;
 use crate::gui::font::{get_font_library, FontDesc};
 use crate::gui::gadgets::tabcontrol::{
@@ -28,7 +29,7 @@ use game_engine::common::ini::ICoord2D;
 use game_engine::common::ini::SchemeDrawFunc;
 use game_engine::common::system::radar::{
     get_radar_system, radar_draw_positions, radar_event_marker, should_refresh_w3d_object_overlay,
-    RGBAColorInt, RadarEventMarkerKind, RadarEventType, Region3D,
+    Coord3D, RGBAColorInt, RadarEventMarkerKind, RadarEventType, Region3D,
 };
 use gamelogic::player::{RankProgressInfo, ThePlayerList};
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -1482,6 +1483,49 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                 glam::Vec2::new(points[0].x as f32, points[0].y as f32),
                 1.0,
                 color1,
+                0.0,
+            );
+        }
+
+        let view_box_lines = with_tactical_view_ref(|view| {
+            let terrain_z = radar.terrain_average_z();
+            let (origin_x, origin_y) = view.origin();
+            let origin_world =
+                view.screen_to_world_at_z(&IPoint2::new(origin_x, origin_y), terrain_z);
+            let corners = view.get_screen_corner_world_points_at_z(terrain_z);
+            match (origin_world, corners) {
+                (Ok(origin_world), Ok(corners)) => {
+                    let to_coord = |point: crate::display::view::Point3| {
+                        Coord3D::new(point.x, point.y, point.z)
+                    };
+                    radar.build_view_box_lines(
+                        to_coord(origin_world),
+                        [
+                            to_coord(corners[0]),
+                            to_coord(corners[1]),
+                            to_coord(corners[3]),
+                            to_coord(corners[2]),
+                        ],
+                        ul.x,
+                        ul.y,
+                        scaled_width,
+                        scaled_height,
+                        x,
+                        y,
+                        width,
+                        height,
+                    )
+                }
+                _ => Vec::new(),
+            }
+        });
+        for line in view_box_lines {
+            renderer.draw_line_gradient(
+                glam::Vec2::new(line.start.x as f32, line.start.y as f32),
+                glam::Vec2::new(line.end.x as f32, line.end.y as f32),
+                1.0,
+                rgba_int_to_rgba(line.start_color),
+                rgba_int_to_rgba(line.end_color),
                 0.0,
             );
         }
