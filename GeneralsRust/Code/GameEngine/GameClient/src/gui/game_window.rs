@@ -1142,18 +1142,54 @@ impl GameWindow {
     pub fn set_enabled_text_colors(&mut self, color: Color, border_color: Color) {
         self.inst_data.enabled_text.color = color;
         self.inst_data.enabled_text.border_color = border_color;
+        if let Some(links) = self.combobox_links {
+            if let Some(list_box) = self.find_child_by_id(links.list_box) {
+                list_box
+                    .borrow_mut()
+                    .set_enabled_text_colors(color, border_color);
+            }
+            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                edit_box
+                    .borrow_mut()
+                    .set_enabled_text_colors(color, border_color);
+            }
+        }
     }
 
     /// Set text colors for disabled state
     pub fn set_disabled_text_colors(&mut self, color: Color, border_color: Color) {
         self.inst_data.disabled_text.color = color;
         self.inst_data.disabled_text.border_color = border_color;
+        if let Some(links) = self.combobox_links {
+            if let Some(list_box) = self.find_child_by_id(links.list_box) {
+                list_box
+                    .borrow_mut()
+                    .set_disabled_text_colors(color, border_color);
+            }
+            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                edit_box
+                    .borrow_mut()
+                    .set_disabled_text_colors(color, border_color);
+            }
+        }
     }
 
     /// Set text colors for hilite state
     pub fn set_hilite_text_colors(&mut self, color: Color, border_color: Color) {
         self.inst_data.hilite_text.color = color;
         self.inst_data.hilite_text.border_color = border_color;
+        if let Some(links) = self.combobox_links {
+            if let Some(list_box) = self.find_child_by_id(links.list_box) {
+                list_box
+                    .borrow_mut()
+                    .set_hilite_text_colors(color, border_color);
+            }
+            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                edit_box
+                    .borrow_mut()
+                    .set_hilite_text_colors(color, border_color);
+            }
+        }
     }
 
     /// Get parent window
@@ -2993,6 +3029,47 @@ mod tests {
             seen.borrow().as_slice(),
             &[(WindowMessage::User(GGM_RESIZED), 123, 45)]
         );
+    }
+
+    #[test]
+    fn combo_box_text_color_setters_propagate_to_sub_gadgets_like_cpp() {
+        let mut combo = GameWindow::new();
+        combo.set_id(1);
+
+        let edit_box = Rc::new(RefCell::new(GameWindow::new()));
+        edit_box.borrow_mut().set_id(2);
+        let list_box = Rc::new(RefCell::new(GameWindow::new()));
+        list_box.borrow_mut().set_id(3);
+        let drop_down = Rc::new(RefCell::new(GameWindow::new()));
+        drop_down.borrow_mut().set_id(4);
+
+        combo.add_child(edit_box.clone());
+        combo.add_child(list_box.clone());
+        combo.add_child(drop_down.clone());
+        combo.set_combobox_links(ComboBoxLinks {
+            drop_down: 4,
+            edit_box: 2,
+            list_box: 3,
+        });
+
+        combo.set_enabled_text_colors(0x11223344, 0x55667788);
+        combo.set_disabled_text_colors(0x01020304, 0x05060708);
+        combo.set_hilite_text_colors(0xaabbccdd, 0x12345678);
+
+        for child in [edit_box, list_box] {
+            let child = child.borrow();
+            assert_eq!(child.inst_data.enabled_text.color, 0x11223344);
+            assert_eq!(child.inst_data.enabled_text.border_color, 0x55667788);
+            assert_eq!(child.inst_data.disabled_text.color, 0x01020304);
+            assert_eq!(child.inst_data.disabled_text.border_color, 0x05060708);
+            assert_eq!(child.inst_data.hilite_text.color, 0xaabbccdd);
+            assert_eq!(child.inst_data.hilite_text.border_color, 0x12345678);
+        }
+
+        let drop_down = drop_down.borrow();
+        assert_eq!(drop_down.inst_data.enabled_text.color, 0);
+        assert_eq!(drop_down.inst_data.disabled_text.color, 0);
+        assert_eq!(drop_down.inst_data.hilite_text.color, 0);
     }
 
     #[test]
