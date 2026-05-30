@@ -17,6 +17,7 @@ use super::game_window::{GameWindow, Image as WindowImage};
 use super::window_video_manager::{with_window_video_manager, WindowVideoPlayType};
 use super::{with_window_manager, WindowManager, WindowStatus};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
+use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
 use std::cell::RefCell;
@@ -82,6 +83,11 @@ pub struct LoadScreenDescriptor {
 pub struct LoadScreenInitContext {
     pub local_player_name: String,
     pub local_side_name: String,
+    pub local_template_name: String,
+    pub local_general_name: String,
+    pub local_general_features: String,
+    pub local_general_portrait: Option<String>,
+    pub local_load_screen_music: String,
     pub local_team_number: i32,
     pub map_name: Option<String>,
     pub start_positions: Vec<Option<usize>>,
@@ -206,6 +212,11 @@ impl Default for LoadScreenInitContext {
         Self {
             local_player_name: "Player".to_string(),
             local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
             local_team_number: 0,
             map_name: None,
             start_positions: Vec::new(),
@@ -347,9 +358,31 @@ pub fn load_screen_init_context_from_game_info(
     };
 
     if let Some(local_slot) = local_slot {
+        let local_template = if local_slot.player_id >= 0 {
+            let template_index =
+                game_info
+                    .get_slot(local_slot.player_id as usize)
+                    .and_then(|slot| {
+                        let player_template = slot.get_player_template();
+                        (player_template >= 0).then_some(player_template as usize)
+                    });
+            let store = get_player_template_store();
+            template_index
+                .and_then(|index| store.get_nth_player_template(index).cloned())
+                .or_else(|| store.find_template("FactionObserver").cloned())
+        } else {
+            None
+        };
+        let local_general_presentation =
+            multiplayer_local_general_presentation(local_template.as_ref(), &local_slot.side_name);
         LoadScreenInitContext {
             local_player_name: local_slot.player_name.clone(),
             local_side_name: local_slot.side_name.clone(),
+            local_template_name: local_general_presentation.template_name,
+            local_general_name: local_general_presentation.name,
+            local_general_features: local_general_presentation.features,
+            local_general_portrait: local_general_presentation.portrait,
+            local_load_screen_music: local_general_presentation.load_screen_music,
             local_team_number: local_slot.player_id,
             map_name: (!game_info.get_map().is_empty()).then(|| game_info.get_map().to_string()),
             start_positions,
@@ -1008,8 +1041,11 @@ fn initialize_multiplayer_windows(
     prefix: &str,
     context: &LoadScreenInitContext,
 ) {
-    if let Some(portrait_image) =
-        multiplayer_local_general_faction_logo(&context.local_side_name, prefix)
+    if let Some(portrait_image) = context
+        .local_general_portrait
+        .as_deref()
+        .or_else(|| multiplayer_local_general_faction_logo(&context.local_template_name, prefix))
+        .or_else(|| multiplayer_local_general_faction_logo(&context.local_side_name, prefix))
     {
         set_window_image(
             wm,
@@ -1022,13 +1058,22 @@ fn initialize_multiplayer_windows(
     set_window_text(
         wm,
         &format!("{prefix}:LocalGeneralFeatures"),
-        &context.local_side_name,
+        multiplayer_local_general_text_fallback(
+            &context.local_general_features,
+            &context.local_side_name,
+        ),
     );
     set_window_text(
         wm,
         &format!("{prefix}:LocalGeneralName"),
-        &context.local_side_name,
+        multiplayer_local_general_text_fallback(
+            &context.local_general_name,
+            &context.local_side_name,
+        ),
     );
+    if prefix == "MultiplayerLoadScreen.wnd" {
+        play_multiplayer_load_screen_music(&context.local_load_screen_music);
+    }
     initialize_multiplayer_map_preview(
         wm,
         prefix,
@@ -1334,6 +1379,80 @@ fn multiplayer_local_general_faction_logo(side_name: &str, prefix: &str) -> Opti
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct MultiplayerLocalGeneralPresentation {
+    template_name: String,
+    name: String,
+    features: String,
+    portrait: Option<String>,
+    load_screen_music: String,
+}
+
+fn multiplayer_local_general_presentation(
+    template: Option<&PlayerTemplate>,
+    fallback_side_name: &str,
+) -> MultiplayerLocalGeneralPresentation {
+    let Some(template) = template else {
+        return MultiplayerLocalGeneralPresentation {
+            template_name: fallback_side_name.to_string(),
+            name: fallback_side_name.to_string(),
+            features: fallback_side_name.to_string(),
+            portrait: None,
+            load_screen_music: String::new(),
+        };
+    };
+
+    let mut presentation = MultiplayerLocalGeneralPresentation {
+        template_name: template.name.clone(),
+        name: template.get_display_name().to_string(),
+        features: if template.features.is_empty() {
+            GameText::fetch("GUI:PlayerObserver")
+        } else {
+            GameText::fetch(&template.features)
+        },
+        portrait: None,
+        load_screen_music: template.load_screen_music.clone(),
+    };
+
+    if let Some(generals) = get_challenge_generals() {
+        if let Ok(generals) = generals.lock() {
+            if let Some(general) = generals.general_by_template_name(&template.name) {
+                presentation.name = GameText::fetch(general.bio_name());
+                presentation.portrait = general.bio_portrait_large().map(str::to_string);
+            }
+        }
+    }
+
+    presentation
+}
+
+fn multiplayer_local_general_text_fallback<'a>(text: &'a str, fallback: &'a str) -> &'a str {
+    if text.is_empty() {
+        fallback
+    } else {
+        text
+    }
+}
+
+fn play_multiplayer_load_screen_music(music_name: &str) {
+    if music_name.is_empty() {
+        return;
+    }
+    #[cfg(not(test))]
+    {
+        if let Some(audio) = TheAudio::get() {
+            let mut event = AudioEventRts::new(music_name);
+            event.set_should_fade(true);
+            let _ = audio.add_audio_event(&event);
+            audio.update();
+        }
+    }
+    #[cfg(test)]
+    {
+        let _ = music_name;
+    }
+}
+
 fn set_progress_window(wm: &mut WindowManager, name: &str, percent: f32) {
     if let Some(window) = wm.find_window_by_name(name) {
         let mut window = window.borrow_mut();
@@ -1610,6 +1729,11 @@ mod tests {
         let context = LoadScreenInitContext {
             local_player_name: "Local".to_string(),
             local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
             local_team_number: 0,
             map_name: None,
             start_positions: Vec::new(),
@@ -1639,6 +1763,14 @@ mod tests {
             Some("SAFactionLogoLg_US".to_string())
         );
         assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures"),
+            "USA"
+        );
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:LocalGeneralName"),
+            "USA"
+        );
+        assert_eq!(
             window_image_name(&wm, "MultiplayerLoadScreen.wnd:ProgressLoad1", 6),
             Some("LoadingBar_ProgressCenter4".to_string())
         );
@@ -1661,6 +1793,46 @@ mod tests {
     }
 
     #[test]
+    fn multiplayer_init_uses_context_general_portrait_features_and_name_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 1);
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:WinMapPreview");
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Local".to_string(),
+            local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmericaSuperWeaponGeneral".to_string(),
+            local_general_name: "General Alexander".to_string(),
+            local_general_features: "Super Weapon General".to_string(),
+            local_general_portrait: Some("SAGeneralPortrait".to_string()),
+            local_load_screen_music: "Load_USA".to_string(),
+            local_team_number: 0,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: vec![load_screen_slot("Local", "USA", 0, false, true)],
+        };
+
+        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+
+        assert_eq!(
+            window_image_name(&wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait", 0),
+            Some("SAGeneralPortrait".to_string())
+        );
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures"),
+            "Super Weapon General"
+        );
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:LocalGeneralName"),
+            "General Alexander"
+        );
+    }
+
+    #[test]
     fn gamespy_init_keeps_player_row_for_ai_but_hides_ai_stats() {
         let _state_guard = lock_test_load_screen_state();
         let mut wm = WindowManager::new();
@@ -1673,6 +1845,11 @@ mod tests {
         let context = LoadScreenInitContext {
             local_player_name: "Local".to_string(),
             local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
             local_team_number: 0,
             map_name: None,
             start_positions: Vec::new(),
@@ -1718,6 +1895,11 @@ mod tests {
         let context = LoadScreenInitContext {
             local_player_name: "Alice".to_string(),
             local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
             local_team_number: 0,
             map_name: None,
             start_positions: Vec::new(),
@@ -1758,6 +1940,11 @@ mod tests {
         let context = LoadScreenInitContext {
             local_player_name: "Fallback".to_string(),
             local_side_name: "GLA".to_string(),
+            local_template_name: "FactionGLA".to_string(),
+            local_general_name: "GLA".to_string(),
+            local_general_features: "GLA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
             local_team_number: 4,
             map_name: None,
             start_positions: Vec::new(),
@@ -1912,6 +2099,61 @@ mod tests {
         assert_eq!(context.slots[1].team_number, -1);
         assert_eq!(context.slots[1].apparent_color, Some(5));
         assert!(context.slots[1].is_ai);
+    }
+
+    #[test]
+    fn game_info_context_uses_local_template_for_general_presentation_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        let _language_guard = lock_test_language();
+        Language::clear_localized_strings();
+        Language::register_localized_string("GUI:AirFeatures", "Air Force General");
+        Language::register_localized_string("CHALLENGE:AirName", "General Granger");
+
+        {
+            let mut store =
+                game_engine::common::rts::player_template::get_player_template_store_mut();
+            store.clear();
+            let mut template = PlayerTemplate::new("FactionAirForceGeneral".to_string());
+            template.display_name = "Air Force".to_string();
+            template.features = "GUI:AirFeatures".to_string();
+            template.load_screen_music = "Load_USA".to_string();
+            store.add_template(template);
+        }
+
+        init_challenge_generals();
+        {
+            let mut generals = get_challenge_generals_mut().expect("challenge generals");
+            let positions = generals.challenge_generals_mut();
+            positions[0] = GeneralPersona::new();
+            positions[0].set_player_template_name("FactionAirForceGeneral".to_string());
+            positions[0].set_bio_name("CHALLENGE:AirName".to_string());
+            positions[0].set_bio_portrait_large(Some("AirGeneralPortrait".to_string()));
+        }
+
+        let mut game_info = GameInfo::new();
+        game_info.set_in_game();
+        game_info.set_local_ip(0x7F00_0001);
+        let mut local = GameSlot::new();
+        local.set_state(SlotState::Player, "Local".to_string(), 0x7F00_0001);
+        local.set_player_template(0);
+        local.set_team_number(0);
+        local.set_color(2);
+        local.set_start_pos(0);
+        game_info.set_slot(0, local);
+
+        let context = load_screen_init_context_from_game_info(&game_info);
+
+        assert_eq!(context.local_player_name, "Local");
+        assert_eq!(context.local_general_name, "General Granger");
+        assert_eq!(context.local_general_features, "Air Force General");
+        assert_eq!(
+            context.local_general_portrait.as_deref(),
+            Some("AirGeneralPortrait")
+        );
+        assert_eq!(context.local_load_screen_music, "Load_USA");
+
+        game_engine::common::rts::player_template::get_player_template_store_mut().clear();
+        Language::clear_localized_strings();
     }
 
     #[test]
