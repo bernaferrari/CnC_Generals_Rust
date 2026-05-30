@@ -698,7 +698,7 @@ impl WindowManager {
 
     /// Get window by ID
     pub fn get_window_by_id(&self, id: WindowId) -> Option<Rc<RefCell<GameWindow>>> {
-        self.window_by_id.get(&id)?.upgrade()
+        self.win_get_window_from_id(None, id)
     }
 
     /// Get the window list (root windows)
@@ -839,7 +839,15 @@ impl WindowManager {
         base_window: &Rc<RefCell<GameWindow>>,
         id: WindowId,
     ) -> Option<Rc<RefCell<GameWindow>>> {
-        fn find_recursive(
+        self.win_get_window_from_id(Some(base_window), id)
+    }
+
+    pub fn win_get_window_from_id(
+        &self,
+        base_window: Option<&Rc<RefCell<GameWindow>>>,
+        id: WindowId,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        fn find_in_window_and_descendants(
             window: &Rc<RefCell<GameWindow>>,
             id: WindowId,
         ) -> Option<Rc<RefCell<GameWindow>>> {
@@ -851,15 +859,43 @@ impl WindowManager {
             }
             let children = guard.children().to_vec();
             drop(guard);
-            for child in &children {
-                if let Some(found) = find_recursive(child, id) {
+            find_in_chain(&children, 0, id)
+        }
+
+        fn find_in_chain(
+            windows: &[Rc<RefCell<GameWindow>>],
+            start: usize,
+            id: WindowId,
+        ) -> Option<Rc<RefCell<GameWindow>>> {
+            for window in windows.iter().skip(start) {
+                if let Some(found) = find_in_window_and_descendants(window, id) {
                     return Some(found);
                 }
             }
             None
         }
 
-        find_recursive(base_window, id)
+        if let Some(base_window) = base_window {
+            if let Some(parent) = base_window.borrow().get_parent() {
+                let siblings = parent.borrow().children().to_vec();
+                if let Some(index) = siblings
+                    .iter()
+                    .position(|sibling| Rc::ptr_eq(sibling, base_window))
+                {
+                    return find_in_chain(&siblings, index, id);
+                }
+            } else if let Some(index) = self
+                .root_windows
+                .iter()
+                .position(|root| Rc::ptr_eq(root, base_window))
+            {
+                return find_in_chain(&self.root_windows, index, id);
+            }
+
+            find_in_window_and_descendants(base_window, id)
+        } else {
+            find_in_chain(&self.root_windows, 0, id)
+        }
     }
 
     pub fn bring_layout_forward(&mut self, layout: &WindowLayout) {
@@ -1343,9 +1379,11 @@ impl WindowManager {
         last: WindowId,
         hide: bool,
     ) {
-        self.apply_to_window_range(base_window, first, last, |window| {
-            let _ = window.borrow_mut().hide(hide);
-        });
+        for id in first..=last {
+            if let Some(window) = self.find_window_from_id(base_window, id) {
+                let _ = window.borrow_mut().hide(hide);
+            }
+        }
     }
 
     /// Enable windows in ID range
@@ -1356,9 +1394,11 @@ impl WindowManager {
         last: WindowId,
         enable: bool,
     ) {
-        self.apply_to_window_range(base_window, first, last, |window| {
-            let _ = window.borrow_mut().enable(enable);
-        });
+        for id in first..=last {
+            if let Some(window) = self.find_window_from_id(base_window, id) {
+                let _ = window.borrow_mut().enable(enable);
+            }
+        }
     }
 
     /// Draw all windows
@@ -3917,42 +3957,6 @@ impl WindowManager {
         }
     }
 
-    /// Apply function to windows in ID range
-    fn apply_to_window_range<F>(
-        &self,
-        base_window: &Rc<RefCell<GameWindow>>,
-        first: WindowId,
-        last: WindowId,
-        mut func: F,
-    ) where
-        F: FnMut(&Rc<RefCell<GameWindow>>),
-    {
-        self.apply_to_window_hierarchy(base_window, &mut |window| {
-            let window_id = window.borrow().get_id();
-            if window_id >= first && window_id <= last {
-                func(window);
-            }
-        });
-    }
-
-    /// Apply function to window hierarchy recursively
-    fn apply_to_window_hierarchy<F>(&self, window: &Rc<RefCell<GameWindow>>, func: &mut F)
-    where
-        F: FnMut(&Rc<RefCell<GameWindow>>),
-    {
-        func(window);
-
-        // Apply to children
-        let children = window
-            .borrow()
-            .children()
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        for child in &children {
-            self.apply_to_window_hierarchy(child, func);
-        }
-    }
     // -----------------------------------------------------------------------
     // Gadget factory methods
     // -----------------------------------------------------------------------
@@ -5116,6 +5120,68 @@ mod tests {
         assert!(Rc::ptr_eq(&parent.children()[0], &first));
         assert!(Rc::ptr_eq(&parent.children()[1], &second));
         assert!(Rc::ptr_eq(&parent.children()[2], &foreground));
+    }
+
+    #[test]
+    fn get_window_by_id_returns_first_traversal_match_like_cpp() {
+        let mut manager = WindowManager::new();
+        let id = 42;
+        let first = manager
+            .create_window_with_id(None, 0, 0, 100, 100, id)
+            .unwrap();
+        let second = manager
+            .create_window_with_id(None, 100, 0, 100, 100, id)
+            .unwrap();
+
+        let found = manager.get_window_by_id(id).unwrap();
+        assert!(Rc::ptr_eq(&found, &second));
+
+        manager.bring_window_forward(&first);
+
+        let found = manager.get_window_by_id(id).unwrap();
+        assert!(Rc::ptr_eq(&found, &first));
+    }
+
+    #[test]
+    fn find_window_from_id_continues_through_siblings_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let first = manager
+            .create_window_with_id(Some(&parent), 0, 0, 20, 20, 10)
+            .unwrap();
+        let second = manager
+            .create_window_with_id(Some(&parent), 20, 0, 20, 20, 20)
+            .unwrap();
+
+        let found = manager.find_window_from_id(&first, 20).unwrap();
+        assert!(Rc::ptr_eq(&found, &second));
+    }
+
+    #[test]
+    fn range_helpers_mutate_first_lookup_match_per_id_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let first = manager
+            .create_window_with_id(Some(&parent), 0, 0, 20, 20, 10)
+            .unwrap();
+        let duplicate = manager
+            .create_window_with_id(Some(&parent), 20, 0, 20, 20, 10)
+            .unwrap();
+        let next = manager
+            .create_window_with_id(Some(&parent), 40, 0, 20, 20, 11)
+            .unwrap();
+
+        manager.hide_windows_in_range(&first, 10, 11, true);
+
+        assert!(first.borrow().is_hidden());
+        assert!(!duplicate.borrow().is_hidden());
+        assert!(next.borrow().is_hidden());
+
+        manager.enable_windows_in_range(&first, 10, 11, false);
+
+        assert!(!first.borrow().is_enabled());
+        assert!(duplicate.borrow().is_enabled());
+        assert!(!next.borrow().is_enabled());
     }
 
     #[test]
