@@ -592,6 +592,9 @@ pub fn challenge_menu_system(
                         set_general_button_checked(*button_id, false);
                     }
                 }
+                if let Some(button_id) = state.general_button_ids.get(index) {
+                    set_general_button_checked(*button_id, true);
+                }
                 if let Some(audio) = TheAudio::get() {
                     audio.remove_audio_event(state.last_selection_sound);
                     audio.remove_audio_event(state.last_preview_sound);
@@ -654,6 +657,8 @@ pub fn challenge_menu_input(
 mod tests {
     use super::*;
     use crate::display::image::{ICoord2D, Image as MappedImage};
+    use crate::gui::gadgets::CheckBox;
+    use crate::gui::WindowWidget;
 
     fn add_test_mapped_image(name: &str, width: i32, height: i32) {
         let collection = get_mapped_image_collection();
@@ -721,5 +726,56 @@ mod tests {
                 .map(|image| image.name.as_str()),
             Some("TestMedallionHilite")
         );
+    }
+
+    #[test]
+    fn selecting_current_general_keeps_checkbox_checked_like_cpp() {
+        let selected_id = name_to_id("ChallengeMenu.test:SelectedGeneral");
+        {
+            let state_handle = challenge_menu_state();
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            state.general_button_ids = [0; NUM_GENERALS];
+            state.general_button_ids[0] = selected_id;
+            state.last_button_index = Some(0);
+        }
+
+        with_window_manager(|manager| {
+            let _ = manager.destroy_all_windows();
+            let button = manager
+                .create_window_with_id(None, 0, 0, 32, 32, selected_id)
+                .expect("create challenge general button");
+            let mut button = button.borrow_mut();
+            button.set_widget(WindowWidget::CheckBox(CheckBox::new(
+                selected_id as u32,
+                0,
+                0,
+                32,
+            )));
+            if let Some(WindowWidget::CheckBox(check)) = button.widget_mut() {
+                check.set_checked(false);
+            }
+        });
+
+        let window = GameWindow::new();
+        assert_eq!(
+            challenge_menu_system(
+                &window,
+                WindowMessage::GadgetSelected,
+                selected_id as u32,
+                selected_id as u32,
+            ),
+            WindowMsgHandled::Handled
+        );
+
+        with_window_manager(|manager| {
+            let button = manager
+                .get_window_by_id(selected_id)
+                .expect("selected general button");
+            let button = button.borrow();
+            match button.widget() {
+                Some(WindowWidget::CheckBox(check)) => assert!(check.is_checked()),
+                _ => panic!("expected selected general checkbox"),
+            }
+        });
     }
 }
