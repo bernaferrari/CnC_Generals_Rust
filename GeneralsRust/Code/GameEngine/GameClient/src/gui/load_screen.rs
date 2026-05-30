@@ -17,6 +17,7 @@ use super::game_window::{GameWindow, Image as WindowImage};
 use super::window_video_manager::{with_window_video_manager, WindowVideoPlayType};
 use super::{with_window_manager, WindowManager, WindowStatus};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
+use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
 use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
@@ -101,6 +102,7 @@ pub struct LoadScreenSlotInitContext {
     pub side_name: String,
     pub team_number: i32,
     pub apparent_color: Option<i32>,
+    pub apparent_text_color: Option<u32>,
     pub is_ai: bool,
     pub visible: bool,
 }
@@ -336,6 +338,7 @@ pub fn load_screen_init_context_from_game_info(
                 team_number: slot.get_team_number(),
                 apparent_color: (slot.get_apparent_color() >= 0)
                     .then_some(slot.get_apparent_color()),
+                apparent_text_color: multiplayer_apparent_text_color(slot.get_apparent_color()),
                 is_ai: slot.is_ai(),
                 visible: true,
             })
@@ -1118,8 +1121,17 @@ fn initialize_multiplayer_windows(
             set_window_text(
                 wm,
                 &format!("{prefix}:StaticTextTeam{slot}"),
-                &multiplayer_team_text(slot_context),
+                &GameText::fetch(&multiplayer_team_text(slot_context)),
             );
+            if let Some(text_color) = slot_context.apparent_text_color {
+                for suffix in ["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"] {
+                    set_window_enabled_text_color(
+                        wm,
+                        &format!("{prefix}:{suffix}{slot}"),
+                        text_color,
+                    );
+                }
+            }
 
             for suffix in ["StaticTextPlayer", "StaticTextSide", "StaticTextTeam"] {
                 hide_window(wm, &format!("{prefix}:{suffix}{slot}"), false);
@@ -1319,6 +1331,7 @@ fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenS
             side_name: context.local_side_name.clone(),
             team_number: context.local_team_number,
             apparent_color: None,
+            apparent_text_color: None,
             is_ai: false,
             visible: true,
         }]
@@ -1336,9 +1349,26 @@ fn multiplayer_team_text(slot: &LoadScreenSlotInitContext) -> String {
 }
 
 fn multiplayer_progress_bar_image(slot: &LoadScreenSlotInitContext) -> Option<String> {
-    slot.apparent_color
+    let image_name = slot
+        .apparent_color
         .filter(|color| *color >= 0)
-        .map(|color| format!("LoadingBar_ProgressCenter{color}"))
+        .map(|color| format!("LoadingBar_ProgressCenter{color}"))?;
+    if mapped_image_exists(&image_name) || !mapped_image_exists("LoadingBar_Progress") {
+        Some(image_name)
+    } else {
+        Some("LoadingBar_Progress".to_string())
+    }
+}
+
+fn multiplayer_apparent_text_color(apparent_color: i32) -> Option<u32> {
+    with_multiplayer_settings(|settings| settings.get_color_value(apparent_color))
+}
+
+fn mapped_image_exists(image_name: &str) -> bool {
+    get_mapped_image_collection()
+        .try_read()
+        .and_then(|collection| collection.find_image_by_name(image_name).map(|_| ()))
+        .is_some()
 }
 
 fn gamespy_stats_suffixes() -> [&'static str; 4] {
@@ -1465,6 +1495,15 @@ fn set_progress_window(wm: &mut WindowManager, name: &str, percent: f32) {
 fn set_window_text(wm: &mut WindowManager, name: &str, text: &str) {
     if let Some(window) = wm.find_window_by_name(name) {
         let _ = window.borrow_mut().set_text(text);
+    }
+}
+
+fn set_window_enabled_text_color(wm: &mut WindowManager, name: &str, color: u32) {
+    if let Some(window) = wm.find_window_by_name(name) {
+        let border_color = window.borrow().get_enabled_text_border_color();
+        window
+            .borrow_mut()
+            .set_enabled_text_colors(color, border_color);
     }
 }
 
@@ -1738,7 +1777,15 @@ mod tests {
             map_name: None,
             start_positions: Vec::new(),
             slots: vec![
-                load_screen_slot_with_color("Alice", "USA", 0, Some(2), false, true),
+                load_screen_slot_with_text_color(
+                    "Alice",
+                    "USA",
+                    0,
+                    Some(2),
+                    Some(0xFF11_2233),
+                    false,
+                    true,
+                ),
                 load_screen_slot("Empty", "GLA", 1, false, false),
                 load_screen_slot_with_color("Bob", "China", 2, Some(4), false, true),
             ],
@@ -1757,6 +1804,18 @@ mod tests {
         assert_eq!(
             window_text(&wm, "MultiplayerLoadScreen.wnd:StaticTextTeam1"),
             "Team:3"
+        );
+        assert_eq!(
+            window_text_color(&wm, "MultiplayerLoadScreen.wnd:StaticTextPlayer0"),
+            0xFF11_2233
+        );
+        assert_eq!(
+            window_text_color(&wm, "MultiplayerLoadScreen.wnd:StaticTextSide0"),
+            0xFF11_2233
+        );
+        assert_eq!(
+            window_text_color(&wm, "MultiplayerLoadScreen.wnd:StaticTextTeam0"),
+            0xFF11_2233
         );
         assert_eq!(
             window_image_name(&wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait", 0),
@@ -1790,6 +1849,64 @@ mod tests {
             &wm,
             "MultiplayerLoadScreen.wnd:StaticTextPlayer2"
         ));
+    }
+
+    #[test]
+    fn multiplayer_row_team_text_is_localized_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        let _language_guard = lock_test_language();
+        Language::clear_localized_strings();
+        Language::register_localized_string("Team:2", "Team Two");
+
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 1);
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:WinMapPreview");
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Local".to_string(),
+            local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
+            local_team_number: 0,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: vec![load_screen_slot("Local", "USA", 1, false, true)],
+        };
+
+        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+
+        assert_eq!(
+            window_text(&wm, "MultiplayerLoadScreen.wnd:StaticTextTeam0"),
+            "Team Two"
+        );
+
+        Language::clear_localized_strings();
+    }
+
+    #[test]
+    fn multiplayer_progress_bar_image_falls_back_when_color_image_missing_like_cpp() {
+        let collection = get_mapped_image_collection();
+        {
+            let mut collection = collection.write();
+            collection.clear();
+            collection.add_image(crate::display::image::Image::with_name(
+                "LoadingBar_Progress",
+            ));
+        }
+
+        let colored = load_screen_slot_with_color("Player", "USA", 3, Some(6), false, true);
+        assert_eq!(
+            multiplayer_progress_bar_image(&colored),
+            Some("LoadingBar_Progress".to_string())
+        );
+
+        collection.write().clear();
     }
 
     #[test]
@@ -2401,12 +2518,33 @@ mod tests {
         is_ai: bool,
         visible: bool,
     ) -> LoadScreenSlotInitContext {
+        load_screen_slot_with_text_color(
+            player_name,
+            side_name,
+            team_number,
+            apparent_color,
+            None,
+            is_ai,
+            visible,
+        )
+    }
+
+    fn load_screen_slot_with_text_color(
+        player_name: &str,
+        side_name: &str,
+        team_number: i32,
+        apparent_color: Option<i32>,
+        apparent_text_color: Option<u32>,
+        is_ai: bool,
+        visible: bool,
+    ) -> LoadScreenSlotInitContext {
         LoadScreenSlotInitContext {
             player_id: team_number,
             player_name: player_name.to_string(),
             side_name: side_name.to_string(),
             team_number,
             apparent_color,
+            apparent_text_color,
             is_ai,
             visible,
         }
@@ -2418,6 +2556,13 @@ mod tests {
             .borrow()
             .get_text()
             .to_string()
+    }
+
+    fn window_text_color(wm: &WindowManager, name: &str) -> u32 {
+        wm.find_window_by_name(name)
+            .expect(name)
+            .borrow()
+            .get_enabled_text_color()
     }
 
     fn window_hidden(wm: &WindowManager, name: &str) -> bool {
