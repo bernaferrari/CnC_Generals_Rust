@@ -1005,6 +1005,23 @@ impl GameWindow {
 
     /// Hide or show the window
     pub fn hide(&mut self, hide: bool) -> WindowResult<()> {
+        self.set_hidden_status(hide);
+        if hide {
+            let window_ptr = self as *const GameWindow;
+            let children = self.children.clone();
+            with_window_manager(|manager| {
+                manager.window_hiding_from_direct_hide(window_ptr, children);
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn hide_without_manager_side_effects(&mut self, hide: bool) -> WindowResult<()> {
+        self.set_hidden_status(hide);
+        Ok(())
+    }
+
+    fn set_hidden_status(&mut self, hide: bool) {
         if hide {
             // C++ parity: parent visibility suppresses child rendering/input through
             // ancestry checks in is_hidden(), rather than permanently mutating every
@@ -1021,7 +1038,6 @@ impl GameWindow {
                 widget.set_visible(true);
             }
         }
-        Ok(())
     }
 
     /// Check if this window's own hidden bit is set.

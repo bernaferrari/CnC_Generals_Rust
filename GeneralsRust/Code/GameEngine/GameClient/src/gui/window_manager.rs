@@ -1775,11 +1775,52 @@ impl WindowManager {
         window: &Rc<RefCell<GameWindow>>,
         hide: bool,
     ) -> WindowResult<()> {
-        window.borrow_mut().hide(hide)?;
+        window
+            .borrow_mut()
+            .hide_without_manager_side_effects(hide)?;
         if hide {
             self.window_hiding(window);
         }
         Ok(())
+    }
+
+    pub(crate) fn window_hiding_from_direct_hide(
+        &mut self,
+        window_ptr: *const GameWindow,
+        children: Vec<Rc<RefCell<GameWindow>>>,
+    ) {
+        if self
+            .keyboard_focus
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|focus| std::ptr::addr_eq(focus.as_ptr(), window_ptr.cast_mut()))
+        {
+            self.keyboard_focus = None;
+        }
+
+        if self
+            .modal_stack
+            .as_ref()
+            .is_some_and(|modal| std::ptr::addr_eq(modal.window.as_ptr(), window_ptr.cast_mut()))
+        {
+            if let Some(modal) = self.modal_stack.take() {
+                self.modal_stack = modal.next;
+            }
+        }
+
+        if self
+            .mouse_capture
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .is_some_and(|capture| std::ptr::addr_eq(capture.as_ptr(), window_ptr.cast_mut()))
+        {
+            self.mouse_capture = None;
+            self.capture_flags &= !CaptureFlags::MOUSE;
+        }
+
+        for child in children {
+            self.window_hiding(&child);
+        }
     }
 
     fn window_hiding(&mut self, window: &Rc<RefCell<GameWindow>>) {
@@ -6264,6 +6305,42 @@ mod tests {
         });
 
         assert!(window.borrow().is_hidden());
+        with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+        });
+    }
+
+    #[test]
+    fn direct_window_hide_clears_runtime_references_like_cpp_win_hide() {
+        let parent = with_window_manager(|manager| {
+            manager.destroy_all_windows();
+            manager.update();
+            let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+            let child = manager
+                .create_window(Some(&parent), 10, 10, 20, 20)
+                .unwrap();
+            child
+                .borrow_mut()
+                .set_system_callback(|_, msg, data1, _| match msg {
+                    WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+                    _ => WindowMsgHandled::Ignored,
+                });
+
+            manager.set_focus(Some(&child)).unwrap();
+            manager.capture_mouse(&child).unwrap();
+            manager.set_modal(parent.clone()).unwrap();
+
+            parent.borrow_mut().hide(true).unwrap();
+
+            assert!(manager.get_focus().is_none());
+            assert!(manager.get_capture().is_none());
+            assert!(manager.modal_stack.is_none());
+            assert!(!manager.capture_flags.contains(CaptureFlags::MOUSE));
+            parent
+        });
+
+        assert!(parent.borrow().is_hidden());
         with_window_manager(|manager| {
             manager.destroy_all_windows();
             manager.update();
