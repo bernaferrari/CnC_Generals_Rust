@@ -3467,7 +3467,14 @@ impl WindowManager {
                 self.apply_default_draw_callback(&mut window_mut);
             }
             let _ = window_mut.send_system_message(WindowMessage::Create, 0, 0);
-            let _ = window_mut.send_system_message(WindowMessage::ScriptCreate, 0, 0);
+        }
+
+        if let Some(parent_window) = parent {
+            let _ = parent_window.borrow_mut().send_routed_input_message(
+                WindowMessage::ScriptCreate,
+                window_id as WindowMsgData,
+                0,
+            );
         }
 
         layout.borrow_mut().add_window(window.clone());
@@ -5192,6 +5199,51 @@ mod tests {
 
         let found_window = manager.get_window_by_id(window_id).unwrap();
         assert!(Rc::ptr_eq(&window, &found_window));
+    }
+
+    #[test]
+    fn script_child_creation_sends_script_create_input_to_parent_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let seen = Rc::new(RefCell::new(Vec::new()));
+
+        parent.borrow_mut().set_status(WindowStatus::NO_INPUT);
+        {
+            let seen = Rc::clone(&seen);
+            parent
+                .borrow_mut()
+                .set_input_callback(move |_, msg, data1, data2| {
+                    seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
+        let layout_def = WindowLayoutDefinition::default();
+        let mut info = WindowLayoutInfo::default();
+        let child_name = "test.wnd:ChildFromScript";
+        let child_id = NameKeyGenerator::name_to_key(child_name) as WindowId;
+        let child_def = WindowDefinition {
+            name: child_name.to_string(),
+            position: (5, 6),
+            size: (20, 30),
+            ..WindowDefinition::default()
+        };
+
+        manager
+            .create_window_from_definition(
+                &child_def,
+                Some(&parent),
+                &layout,
+                &layout_def,
+                &mut info,
+            )
+            .unwrap();
+
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[(WindowMessage::ScriptCreate, child_id as WindowMsgData, 0)]
+        );
     }
 
     #[test]
