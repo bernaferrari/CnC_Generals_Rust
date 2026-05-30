@@ -2528,6 +2528,7 @@ impl GameWindow {
         let panes: Vec<Rc<RefCell<GameWindow>>> = self
             .children
             .iter()
+            .rev()
             .filter(|child| {
                 let child = child.borrow();
                 (child.inst_data.style & GWS_TAB_PANE) != 0
