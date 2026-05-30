@@ -323,6 +323,14 @@ pub fn radar_to_pixel(
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RadarHeroReticleRect {
+    pub x1: i32,
+    pub y1: i32,
+    pub x2: i32,
+    pub y2: i32,
+}
+
 /// Compute the screen rectangle used to draw the radar without distorting map aspect ratio.
 ///
 /// Matches `W3DRadar::draw`/`findDrawPositions`: the returned points are upper-left and
@@ -664,6 +672,7 @@ pub struct RadarObject {
     pub is_radar_provider: bool,  // This object provides radar coverage
     pub is_powered: bool,         // Is this radar powered on (for power-dependent radars)
     pub is_disabled: bool,        // Is this radar disabled (by EMP, power loss, etc.)
+    pub is_hero: bool,            // Draw HeroReticle in W3D radar icon layer
 }
 
 impl RadarObject {
@@ -683,6 +692,7 @@ impl RadarObject {
             is_radar_provider: false,
             is_powered: true,
             is_disabled: false,
+            is_hero: false,
         }
     }
 
@@ -1629,6 +1639,67 @@ impl RadarSystem {
         }
 
         texture
+    }
+
+    pub fn build_hero_reticle_rects(
+        &self,
+        pixel_x: i32,
+        pixel_y: i32,
+        width: i32,
+        height: i32,
+        icon_width: i32,
+        icon_height: i32,
+    ) -> Vec<RadarHeroReticleRect> {
+        let hero_object_ids = self.build_hero_reticle_object_ids();
+        self.build_hero_reticle_rects_for_objects(
+            &hero_object_ids,
+            pixel_x,
+            pixel_y,
+            width,
+            height,
+            icon_width,
+            icon_height,
+        )
+    }
+
+    pub fn build_hero_reticle_object_ids(&self) -> Vec<u32> {
+        self.local_object_list
+            .iter()
+            .filter(|obj| obj.is_hero && !obj.is_temporarily_hidden())
+            .map(|obj| obj.object_id)
+            .collect()
+    }
+
+    pub fn build_hero_reticle_rects_for_objects(
+        &self,
+        object_ids: &[u32],
+        pixel_x: i32,
+        pixel_y: i32,
+        width: i32,
+        height: i32,
+        icon_width: i32,
+        icon_height: i32,
+    ) -> Vec<RadarHeroReticleRect> {
+        object_ids
+            .iter()
+            .filter_map(|object_id| {
+                self.local_object_list
+                    .iter()
+                    .find(|obj| obj.object_id == *object_id)
+            })
+            .filter_map(|obj| {
+                let radar_point = self.world_to_radar(&obj.world_pos)?;
+                let offset_screen = radar_to_pixel(&radar_point, pixel_x, pixel_y, width, height);
+                let x1 = offset_screen.x - (icon_width / 2) + 1;
+                let y1 = offset_screen.y - (icon_height / 2);
+                Some(RadarHeroReticleRect {
+                    x1,
+                    y1,
+                    x2: x1 + icon_width,
+                    y2: y1 + icon_height,
+                })
+            })
+            .collect()
     }
 
     fn should_render_object_overlay_blip(&self, obj: &RadarObject) -> bool {
@@ -2668,6 +2739,98 @@ mod tests {
         assert!(should_refresh_w3d_object_overlay(6));
         assert!(should_refresh_w3d_object_overlay(12));
         assert!(!should_refresh_w3d_object_overlay(17));
+    }
+
+    #[test]
+    fn test_hero_reticle_rects_match_w3d_icon_positioning() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+
+        let mut hero = RadarObject::new(1);
+        hero.world_pos = Coord3D::new(64.0, 64.0, 0.0);
+        hero.priority = RadarPriorityType::Unit;
+        hero.is_local = true;
+        hero.is_hero = true;
+        radar.add_object(hero);
+
+        let rects = radar.build_hero_reticle_rects(10, 20, 128, 128, 20, 10);
+
+        assert_eq!(
+            rects,
+            vec![RadarHeroReticleRect {
+                x1: 65,
+                y1: 78,
+                x2: 85,
+                y2: 88,
+            }]
+        );
+    }
+
+    #[test]
+    fn test_cached_hero_reticle_ids_use_current_position_like_w3d_pointers() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+
+        let mut hero = RadarObject::new(1);
+        hero.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        hero.priority = RadarPriorityType::Unit;
+        hero.is_local = true;
+        hero.is_hero = true;
+        radar.add_object(hero.clone());
+
+        let hero_object_ids = radar.build_hero_reticle_object_ids();
+        hero.world_pos = Coord3D::new(64.0, 64.0, 0.0);
+        radar.examine_object(1, hero);
+
+        let rects =
+            radar.build_hero_reticle_rects_for_objects(&hero_object_ids, 10, 20, 128, 128, 20, 10);
+
+        assert_eq!(rects[0].x1, 65);
+        assert_eq!(rects[0].y1, 78);
+    }
+
+    #[test]
+    fn test_hero_reticle_rects_only_use_visible_local_heroes() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+
+        let mut local_hero = RadarObject::new(1);
+        local_hero.world_pos = Coord3D::new(10.0, 20.0, 0.0);
+        local_hero.priority = RadarPriorityType::Unit;
+        local_hero.is_local = true;
+        local_hero.is_hero = true;
+        radar.add_object(local_hero);
+
+        let mut nonlocal_hero = RadarObject::new(2);
+        nonlocal_hero.world_pos = Coord3D::new(30.0, 40.0, 0.0);
+        nonlocal_hero.priority = RadarPriorityType::Unit;
+        nonlocal_hero.is_hero = true;
+        radar.add_object(nonlocal_hero);
+
+        let mut hidden_local_hero = RadarObject::new(3);
+        hidden_local_hero.world_pos = Coord3D::new(50.0, 60.0, 0.0);
+        hidden_local_hero.priority = RadarPriorityType::Unit;
+        hidden_local_hero.is_local = true;
+        hidden_local_hero.is_hero = true;
+        hidden_local_hero.is_stealth = true;
+        hidden_local_hero.stealth_revealed = false;
+        radar.add_object(hidden_local_hero);
+
+        let rects = radar.build_hero_reticle_rects(0, 0, 128, 128, 20, 10);
+
+        assert_eq!(rects.len(), 1);
     }
 
     #[test]
