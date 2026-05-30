@@ -4234,6 +4234,11 @@ impl WindowManager {
         window: Rc<RefCell<GameWindow>>,
         destroy_notifications: &mut Vec<Rc<RefCell<GameWindow>>>,
     ) {
+        debug_assert!(
+            window.borrow().get_edit_data().is_none(),
+            "winDestroy(): edit data should NOT be present!"
+        );
+
         if window
             .borrow()
             .get_status()
@@ -6822,6 +6827,20 @@ mod tests {
 
         assert_eq!(manager.window_count, 0);
         assert!(manager.get_window_by_id(window_id).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "winDestroy(): edit data should NOT be present!")]
+    fn destroy_window_rejects_editor_edit_data_like_cpp_debug_assert() {
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+
+        window
+            .borrow_mut()
+            .set_edit_data(Some(GameWindowEditData::default()));
+
+        manager.destroy_window(window).unwrap();
+        manager.update();
     }
 
     #[test]
