@@ -882,6 +882,10 @@ impl Mouse {
         self.tooltip_state.display_tooltip = false;
     }
 
+    pub fn cursor_tooltip_state(&self) -> &CursorTooltipState {
+        &self.tooltip_state
+    }
+
     fn update_tooltip(&mut self) {
         let ts = &mut self.tooltip_state;
 
@@ -929,7 +933,11 @@ impl Mouse {
         }
     }
 
-    pub fn compute_tooltip_draw_info(&self, screen_width: f32, screen_height: f32) -> Option<TooltipDrawInfo> {
+    pub fn compute_tooltip_draw_info(
+        &self,
+        screen_width: f32,
+        screen_height: f32,
+    ) -> Option<TooltipDrawInfo> {
         let ts = &self.tooltip_state;
         if !ts.display_tooltip || ts.tooltip_text.is_empty() {
             return None;

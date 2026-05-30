@@ -4,6 +4,7 @@ pub use super::loading_screen::*;
 
 use crate::display::image::get_mapped_image_collection;
 use crate::game_text::GameText;
+use crate::input::with_mouse;
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 
 use super::campaign_manager::{
@@ -414,6 +415,7 @@ pub fn reset_load_screen(kind: LoadScreenKind) {
 pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
     let descriptor = descriptor_for_kind(kind);
     let percent = transformed_progress_percent(descriptor, raw_percent);
+    clear_load_screen_cursor_tooltip();
     if descriptor.slot_count > 0 {
         let local_player_id = with_multiplayer_load_screen_state(|state| state.local_player_id);
         if process_load_screen_progress(kind, local_player_id, percent) {
@@ -435,6 +437,10 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
             }
         }
     });
+}
+
+fn clear_load_screen_cursor_tooltip() {
+    with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
 }
 
 pub fn process_load_screen_progress(kind: LoadScreenKind, player_id: i32, percentage: f32) -> bool {
@@ -1632,6 +1638,7 @@ mod tests {
 
     static TEST_LANGUAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     static TEST_LOAD_SCREEN_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    static TEST_MOUSE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
     fn lock_test_language() -> std::sync::MutexGuard<'static, ()> {
         TEST_LANGUAGE_LOCK
@@ -1642,6 +1649,13 @@ mod tests {
 
     fn lock_test_load_screen_state() -> std::sync::MutexGuard<'static, ()> {
         TEST_LOAD_SCREEN_STATE_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn lock_test_mouse() -> std::sync::MutexGuard<'static, ()> {
+        TEST_MOUSE_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -2360,6 +2374,23 @@ mod tests {
 
         let shell = descriptor_for_kind(LoadScreenKind::ShellGame);
         assert!((transformed_progress_percent(shell, 42.0) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn update_load_screen_clears_cursor_tooltip_like_cpp() {
+        let _mouse_guard = lock_test_mouse();
+        with_mouse(|mouse| {
+            mouse.set_cursor_tooltip("Stale tooltip".to_string(), Some(0), None, None);
+            assert_eq!(mouse.cursor_tooltip_state().tooltip_text, "Stale tooltip");
+            assert!(!mouse.cursor_tooltip_state().is_tooltip_empty);
+        });
+
+        update_load_screen(LoadScreenKind::SinglePlayer, 50.0);
+
+        with_mouse(|mouse| {
+            assert_eq!(mouse.cursor_tooltip_state().tooltip_text, "");
+            assert!(mouse.cursor_tooltip_state().is_tooltip_empty);
+        });
     }
 
     #[test]
