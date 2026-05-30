@@ -1614,11 +1614,12 @@ impl WindowManager {
             }
         }
 
-        // If no current focus or not in tab list, use first tab window
+        // If no current focus or not in tab list, mirror C++ wrap fallback.
         if next_window.is_none() {
-            if let Some(first) = self.tab_list.first() {
-                next_window = first.upgrade();
-            }
+            next_window = match direction {
+                TabDirection::Next => self.tab_list.first().and_then(Weak::upgrade),
+                TabDirection::Previous => self.tab_list.last().and_then(Weak::upgrade),
+            };
         }
 
         if let Some(window) = next_window {
@@ -6699,6 +6700,30 @@ mod tests {
         assert!(Rc::ptr_eq(&window2, &focused));
         assert!(manager.lone_window.is_none());
         assert_eq!(*close_count.borrow(), 1);
+    }
+
+    #[test]
+    fn prev_tab_without_tab_focus_wraps_to_last_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window1 = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let window2 = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        let outside_focus = manager.create_window(None, 200, 0, 100, 100).unwrap();
+        for window in [&window1, &window2, &outside_focus] {
+            window
+                .borrow_mut()
+                .set_system_callback(|_, msg, _, _| match msg {
+                    WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                    _ => WindowMsgHandled::Ignored,
+                });
+        }
+
+        manager.register_tab_list(vec![window1.clone(), window2.clone()]);
+        manager.set_focus(Some(&outside_focus)).unwrap();
+
+        manager.navigate_tab(TabDirection::Previous);
+
+        let focused = manager.get_focus().unwrap();
+        assert!(Rc::ptr_eq(&window2, &focused));
     }
 
     #[test]
