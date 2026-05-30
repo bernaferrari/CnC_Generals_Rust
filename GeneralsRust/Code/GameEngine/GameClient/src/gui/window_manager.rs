@@ -1494,16 +1494,25 @@ impl WindowManager {
         ignore_enabled: bool,
     ) -> Option<Rc<RefCell<GameWindow>>> {
         if let Some(capture) = self.get_capture() {
-            return Some(self.find_child_at_point_or_self(&capture, x, y, ignore_enabled));
+            return Self::filter_window_under_cursor(
+                Some(self.find_child_at_point_or_self(&capture, x, y, ignore_enabled)),
+                ignore_enabled,
+            );
         }
 
         if let Some(grab_window) = self.get_grab_window() {
-            return Some(self.find_child_at_point_or_self(&grab_window, x, y, ignore_enabled));
+            return Self::filter_window_under_cursor(
+                Some(self.find_child_at_point_or_self(&grab_window, x, y, ignore_enabled)),
+                ignore_enabled,
+            );
         }
 
         // Check modal windows first
         if let Some(modal) = &self.modal_stack {
-            return Some(self.find_child_at_point_or_self(&modal.window, x, y, ignore_enabled));
+            return Self::filter_window_under_cursor(
+                Some(self.find_child_at_point_or_self(&modal.window, x, y, ignore_enabled)),
+                ignore_enabled,
+            );
         }
 
         // Match C++ getWindowUnderCursor: root windows are tested head-first in
@@ -1520,12 +1529,27 @@ impl WindowManager {
                     continue;
                 }
                 if let Some(found) = self.find_window_at_point(window, x, y, ignore_enabled) {
-                    return Some(found);
+                    return Self::filter_window_under_cursor(Some(found), ignore_enabled);
                 }
             }
         }
 
         None
+    }
+
+    fn filter_window_under_cursor(
+        window: Option<Rc<RefCell<GameWindow>>>,
+        ignore_enabled: bool,
+    ) -> Option<Rc<RefCell<GameWindow>>> {
+        let window = window?;
+        let status = window.borrow().get_status();
+        if status.contains(WindowStatus::NO_INPUT)
+            || (ignore_enabled && !status.contains(WindowStatus::ENABLED))
+        {
+            None
+        } else {
+            Some(window)
+        }
     }
 
     fn get_input_window_under_cursor(&self, x: i32, y: i32) -> Option<Rc<RefCell<GameWindow>>> {
@@ -6512,6 +6536,16 @@ mod tests {
         let found = manager.get_window_under_cursor(10, 10, false).unwrap();
         assert!(Rc::ptr_eq(&modal, &found));
         assert!(!Rc::ptr_eq(&normal, &found));
+    }
+
+    #[test]
+    fn get_window_under_cursor_discards_disabled_ignore_enabled_hit_like_cpp() {
+        let mut manager = WindowManager::new();
+        let disabled = manager.create_window(None, 0, 0, 100, 100).unwrap();
+
+        disabled.borrow_mut().set_status_exact(WindowStatus::empty());
+
+        assert!(manager.get_window_under_cursor(10, 10, true).is_none());
     }
 
     #[test]
