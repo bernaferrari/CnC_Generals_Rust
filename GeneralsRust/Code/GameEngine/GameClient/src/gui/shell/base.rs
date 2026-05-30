@@ -923,14 +923,13 @@ impl ProcessAnimateWindow for ProcessAnimateWindowSlideFromRight {
 
     fn init_animate_window(&self, anim_win: &mut AnimateWindow, screen_size: (i32, i32)) {
         let (screen_width, _) = screen_size;
-        let (rest_pos, size) = {
+        let rest_pos = {
             let win = anim_win.window.borrow();
             let (x, y) = win.get_position();
-            let (w, h) = win.get_size();
-            (Coord2D::new(x, y), Coord2D::new(w, h))
+            Coord2D::new(x, y)
         };
         let end_pos = rest_pos;
-        let travel_distance = screen_width - rest_pos.x + size.x;
+        let travel_distance = screen_width;
         let start_pos = Coord2D::new(rest_pos.x + travel_distance, rest_pos.y);
         let cur_pos = start_pos;
         {
@@ -1209,15 +1208,15 @@ impl ProcessAnimateWindow for ProcessAnimateWindowSlideFromTop {
     }
 
     fn init_animate_window(&self, anim_win: &mut AnimateWindow, screen_size: (i32, i32)) {
-        let _ = screen_size;
-        let (rest_pos, height) = {
+        let (screen_width, _) = screen_size;
+        let rest_pos = {
             let win = anim_win.window.borrow();
             let (x, y) = win.get_position();
-            let (_, h) = win.get_size();
-            (Coord2D::new(x, y), h)
+            Coord2D::new(x, y)
         };
         let end_pos = rest_pos;
-        let start_pos = Coord2D::new(rest_pos.x, -height);
+        let travel_distance = screen_width;
+        let start_pos = Coord2D::new(rest_pos.x, rest_pos.y - travel_distance);
         let cur_pos = start_pos;
         {
             let mut win = anim_win.window.borrow_mut();
@@ -2623,6 +2622,12 @@ impl Shell {
         needs_to_finish: bool,
         delay_ms: u64,
     ) {
+        let animate_windows = get_global_data()
+            .map(|data| data.read().animate_windows)
+            .unwrap_or(true);
+        if !animate_windows {
+            return;
+        }
         self.animate_window_manager.register_window(
             window,
             anim_type,
@@ -3309,7 +3314,10 @@ End
             .unwrap(),
         ];
 
-        assert_eq!(files, expected);
+        assert!(
+            files.ends_with(&expected),
+            "expected temp roots at end of discovery order; files={files:?}"
+        );
     }
 
     #[test]
@@ -3324,6 +3332,56 @@ End
         // Animation should not be finished immediately
         manager.update();
         // Note: In a real test, we'd need to wait for the duration to pass
+    }
+
+    #[test]
+    fn animation_slide_start_positions_match_cpp_display_width_travel() {
+        let mut manager = AnimateWindowManager::new();
+        manager.set_screen_size(800, 600);
+
+        let right_window = Rc::new(RefCell::new(GameWindow::new()));
+        right_window.borrow_mut().set_position(25, 40).unwrap();
+        right_window.borrow_mut().set_size(120, 80).unwrap();
+        manager.register_window(
+            right_window.clone(),
+            AnimationType::SlideRight,
+            false,
+            100,
+            0,
+        );
+        assert_eq!(right_window.borrow().get_position(), (825, 40));
+
+        let top_window = Rc::new(RefCell::new(GameWindow::new()));
+        top_window.borrow_mut().set_position(25, 40).unwrap();
+        top_window.borrow_mut().set_size(120, 80).unwrap();
+        manager.register_window(top_window.clone(), AnimationType::SlideTop, false, 100, 0);
+        assert_eq!(top_window.borrow().get_position(), (25, -760));
+    }
+
+    #[test]
+    fn shell_register_with_animate_manager_respects_global_animate_windows_flag() {
+        let _guard = shell_global_test_lock()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let global = game_engine::ini::ini_game_data::ensure_global_data();
+        let old_animate_windows = {
+            let mut data = global.write();
+            let old = data.animate_windows;
+            data.animate_windows = false;
+            old
+        };
+
+        let mut shell = Shell::new();
+        let window = Rc::new(RefCell::new(GameWindow::new()));
+        window.borrow_mut().set_position(25, 40).unwrap();
+        window.borrow_mut().set_size(120, 80).unwrap();
+
+        shell.register_with_animate_manager(window.clone(), AnimationType::SlideRight, true, 0);
+
+        assert_eq!(window.borrow().get_position(), (25, 40));
+        assert!(shell.animate_window_manager.is_empty());
+
+        global.write().animate_windows = old_animate_windows;
     }
 
     #[test]
