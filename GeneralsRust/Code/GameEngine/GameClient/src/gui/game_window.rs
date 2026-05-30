@@ -1002,6 +1002,7 @@ impl GameWindow {
 
     /// Set window font
     pub fn set_font(&mut self, font: GameFont) {
+        let font_for_children = font.clone();
         self.inst_data.font = Some(font);
         if let Some(font_desc) = self.inst_data.font.as_ref().map(GameFont::to_font_desc) {
             if let Ok(font_ref) = get_font_library().get_font(&font_desc) {
@@ -1011,6 +1012,14 @@ impl GameWindow {
                 if let Some(display) = self.inst_data.display_tooltip.as_ref() {
                     display.borrow_mut().set_font(font_ref);
                 }
+            }
+        }
+        if let Some(links) = self.combobox_links {
+            if let Some(list_box) = self.find_child_by_id(links.list_box) {
+                list_box.borrow_mut().set_font(font_for_children.clone());
+            }
+            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                edit_box.borrow_mut().set_font(font_for_children);
             }
         }
     }
@@ -3074,6 +3083,11 @@ mod tests {
         combo.set_disabled_text_colors(0x01020304, 0x05060708);
         combo.set_hilite_text_colors(0xaabbccdd, 0x12345678);
         combo.set_ime_composite_text_colors(0x87654321, 0xddccbbaa);
+        combo.set_font(GameFont {
+            name: "Arial".to_string(),
+            size: 18,
+            bold: true,
+        });
 
         for child in [edit_box, list_box] {
             let child = child.borrow();
@@ -3085,6 +3099,10 @@ mod tests {
             assert_eq!(child.inst_data.hilite_text.border_color, 0x12345678);
             assert_eq!(child.inst_data.ime_composite_text.color, 0x87654321);
             assert_eq!(child.inst_data.ime_composite_text.border_color, 0xddccbbaa);
+            let font = child.get_font().unwrap();
+            assert_eq!(font.name, "Arial");
+            assert_eq!(font.size, 18);
+            assert!(font.bold);
         }
 
         let drop_down = drop_down.borrow();
@@ -3092,6 +3110,7 @@ mod tests {
         assert_eq!(drop_down.inst_data.disabled_text.color, 0);
         assert_eq!(drop_down.inst_data.hilite_text.color, 0);
         assert_eq!(drop_down.inst_data.ime_composite_text.color, 0);
+        assert!(drop_down.get_font().is_none());
     }
 
     #[test]
