@@ -1084,6 +1084,11 @@ impl GameWindow {
         self.inst_data.enabled_text.color
     }
 
+    /// Get the enabled text border color.
+    pub fn get_enabled_text_border_color(&self) -> Color {
+        self.inst_data.enabled_text.border_color
+    }
+
     /// Show the window by clearing the hidden flag.
     pub fn show(&mut self) -> WindowResult<()> {
         self.hide(false)
