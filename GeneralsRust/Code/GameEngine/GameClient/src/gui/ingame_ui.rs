@@ -3948,6 +3948,12 @@ impl InGameUI {
         Self::ignored_gui_slaver_id_for_object(object).unwrap_or(drawable_id)
     }
 
+    fn mouseover_drawable_id_for_lookup(drawable_id: u32, object: Option<&Object>) -> u32 {
+        object
+            .map(|object| Self::mouseover_drawable_id_for_object(drawable_id, object))
+            .unwrap_or(Self::INVALID_DRAWABLE_ID)
+    }
+
     fn disguised_player_index_for_object(object: &Object) -> Option<i32> {
         if !object.is_kind_of(KindOf::Disguiser) {
             return None;
@@ -4811,10 +4817,11 @@ impl InGameUI {
             if draw_id == Self::INVALID_DRAWABLE_ID {
                 self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
             } else {
+                self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
                 if let Some(obj) = OBJECT_REGISTRY.get_object(draw_id) {
                     if let Ok(guard) = obj.read() {
                         self.moused_over_drawable_id =
-                            Self::mouseover_drawable_id_for_object(draw_id, &guard);
+                            Self::mouseover_drawable_id_for_lookup(draw_id, Some(&guard));
 
                         // C++: TheMouse->setCursorTooltip(displayName, -1, playerColor, widthMult)
                         // Deferred C++ behavior: multiplayer player suffix.
@@ -4847,8 +4854,6 @@ impl InGameUI {
                             }
                         }
                     }
-                } else {
-                    self.moused_over_drawable_id = draw_id;
                 }
             }
         } else {
@@ -5151,6 +5156,14 @@ mod tests {
         assert!(InGameUI::mouseover_cursor_update_allowed(false, true));
         assert!(InGameUI::mouseover_cursor_update_allowed(true, true));
         assert!(!InGameUI::mouseover_cursor_update_allowed(true, false));
+    }
+
+    #[test]
+    fn mouseover_unresolved_drawable_id_stays_invalid_like_cpp() {
+        assert_eq!(
+            InGameUI::mouseover_drawable_id_for_lookup(1234, None),
+            InGameUI::INVALID_DRAWABLE_ID
+        );
     }
 
     fn test_window(name: &str, status: WindowStatus) -> Rc<RefCell<GameWindow>> {
