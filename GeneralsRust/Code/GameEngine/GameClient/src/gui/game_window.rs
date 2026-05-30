@@ -1192,6 +1192,24 @@ impl GameWindow {
         }
     }
 
+    /// Set text colors for IME composite state
+    pub fn set_ime_composite_text_colors(&mut self, color: Color, border_color: Color) {
+        self.inst_data.ime_composite_text.color = color;
+        self.inst_data.ime_composite_text.border_color = border_color;
+        if let Some(links) = self.combobox_links {
+            if let Some(list_box) = self.find_child_by_id(links.list_box) {
+                list_box
+                    .borrow_mut()
+                    .set_ime_composite_text_colors(color, border_color);
+            }
+            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                edit_box
+                    .borrow_mut()
+                    .set_ime_composite_text_colors(color, border_color);
+            }
+        }
+    }
+
     /// Get parent window
     pub fn get_parent(&self) -> Option<Rc<RefCell<GameWindow>>> {
         self.parent.as_ref()?.upgrade()
@@ -3055,6 +3073,7 @@ mod tests {
         combo.set_enabled_text_colors(0x11223344, 0x55667788);
         combo.set_disabled_text_colors(0x01020304, 0x05060708);
         combo.set_hilite_text_colors(0xaabbccdd, 0x12345678);
+        combo.set_ime_composite_text_colors(0x87654321, 0xddccbbaa);
 
         for child in [edit_box, list_box] {
             let child = child.borrow();
@@ -3064,12 +3083,15 @@ mod tests {
             assert_eq!(child.inst_data.disabled_text.border_color, 0x05060708);
             assert_eq!(child.inst_data.hilite_text.color, 0xaabbccdd);
             assert_eq!(child.inst_data.hilite_text.border_color, 0x12345678);
+            assert_eq!(child.inst_data.ime_composite_text.color, 0x87654321);
+            assert_eq!(child.inst_data.ime_composite_text.border_color, 0xddccbbaa);
         }
 
         let drop_down = drop_down.borrow();
         assert_eq!(drop_down.inst_data.enabled_text.color, 0);
         assert_eq!(drop_down.inst_data.disabled_text.color, 0);
         assert_eq!(drop_down.inst_data.hilite_text.color, 0);
+        assert_eq!(drop_down.inst_data.ime_composite_text.color, 0);
     }
 
     #[test]
