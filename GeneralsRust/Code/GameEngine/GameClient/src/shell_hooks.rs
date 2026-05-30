@@ -99,6 +99,10 @@ mod tests {
             "ShellGeneralsOnlineEnteredFromGame"
         );
         assert_eq!(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN as usize],
+            "ShellGeneralsOnlineLogin"
+        );
+        assert_eq!(
             THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME as usize],
             "ShellSkirmishEnteredFromGame"
         );

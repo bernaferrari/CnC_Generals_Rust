@@ -47,6 +47,11 @@ use crate::helpers::set_mouse_cursor_visibility;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::map_util::get_map_cache_manager;
 use crate::message_stream::{get_message_stream, GameMessageType};
+use crate::shell_hooks::{
+    SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED, SHELL_SCRIPT_HOOK_MAIN_MENU_NETWORK_SELECTED,
+    SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED, SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_SELECTED,
+    SHELL_SCRIPT_HOOK_MAIN_MENU_SKIRMISH_SELECTED, THE_SHELL_HOOK_NAMES,
+};
 use crate::system::SubsystemInterface;
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
@@ -1034,7 +1039,9 @@ impl MainMenu {
     }
 
     fn perform_quit_now() {
-        TheScriptEngine::signal_ui_interact("ShellMainMenuExitSelected");
+        TheScriptEngine::signal_ui_interact(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED as usize],
+        );
         if let Err(err) = get_shell().pop() {
             log::warn!("Main menu quit pop failed: {}", err);
         }
@@ -1466,7 +1473,9 @@ impl MainMenu {
             );
             Self::queue_action(
                 state,
-                PendingMainMenuAction::SignalUiInteract("ShellMainMenuSkirmishSelected"),
+                PendingMainMenuAction::SignalUiInteract(
+                    THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_SKIRMISH_SELECTED as usize],
+                ),
             );
             log::info!("Skirmish button selected");
         } else if control_id == state.window_ids.online_id {
@@ -1498,7 +1507,9 @@ impl MainMenu {
             );
             Self::queue_action(
                 state,
-                PendingMainMenuAction::SignalUiInteract("ShellMainMenuNetworkSelected"),
+                PendingMainMenuAction::SignalUiInteract(
+                    THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_NETWORK_SELECTED as usize],
+                ),
             );
             log::info!("Network button selected");
         } else if control_id == state.window_ids.options_id {
@@ -1509,7 +1520,9 @@ impl MainMenu {
             state.dont_allow_transitions = true;
             Self::queue_action(
                 state,
-                PendingMainMenuAction::SignalUiInteract("ShellMainMenuOptionsSelected"),
+                PendingMainMenuAction::SignalUiInteract(
+                    THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_SELECTED as usize],
+                ),
             );
             Self::queue_action(state, PendingMainMenuAction::ShowOptionsLayout);
             log::info!("Options button selected");
@@ -2017,7 +2030,9 @@ impl MainMenu {
         state.cant_connect_before_online = false;
         state.checks_left_before_online = 0;
         state.online_cancel_window_open = false;
-        TheScriptEngine::signal_ui_interact("ShellMainMenuOnlineSelected");
+        TheScriptEngine::signal_ui_interact(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED as usize],
+        );
         log::info!("Patch check completed - entering online handoff");
     }
 
@@ -2511,7 +2526,7 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(skirmish_hooks, vec!["ShellMainMenuSkirmishSelected"]);
+        assert_eq!(skirmish_hooks, vec!["ShellMainMenuSkirmishPushed"]);
 
         let mut network_state = MainMenuState::default();
         network_state.window_ids = ids.clone();
@@ -2525,7 +2540,7 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(network_hooks, vec!["ShellMainMenuNetworkSelected"]);
+        assert_eq!(network_hooks, vec!["ShellMainMenuNetworkPushed"]);
 
         let mut options_state = MainMenuState::default();
         options_state.window_ids = ids;
@@ -2540,6 +2555,6 @@ mod tests {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(options_hooks, vec!["ShellMainMenuOptionsSelected"]);
+        assert_eq!(options_hooks, vec!["ShellMainMenuOptionsPushed"]);
     }
 }
