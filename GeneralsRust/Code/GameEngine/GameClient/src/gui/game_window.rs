@@ -1178,8 +1178,7 @@ impl GameWindow {
 
     /// Add child window
     pub fn add_child(&mut self, child: Rc<RefCell<GameWindow>>) {
-        // Add to children list
-        self.children.push(child);
+        self.children.insert(0, child);
     }
 
     /// Remove child window
