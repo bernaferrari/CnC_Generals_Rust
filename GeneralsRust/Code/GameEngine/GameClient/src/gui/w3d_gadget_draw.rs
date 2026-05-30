@@ -736,7 +736,7 @@ pub fn w3d_main_menu_map_border(window: &GameWindow, _inst_data: &WindowInstance
 }
 
 pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_base(window, inst_data);
+    draw_push_button_image_base(window, inst_data);
     draw_main_menu_button_drop_shadow_text(window, inst_data);
     draw_video_buffer(window, inst_data);
     if let Some(widget) = window.widget() {
@@ -849,6 +849,18 @@ mod tests {
         assert_eq!(
             push_button_color_entry_index(WindowStatus::empty(), WindowState::SELECTED, false),
             (PushButtonDrawBank::Disabled, 1)
+        );
+    }
+
+    #[test]
+    fn push_button_solid_draw_keeps_color_slot_separate_from_image_draw() {
+        assert_eq!(
+            push_button_color_entry_index(WindowStatus::ENABLED, WindowState::SELECTED, true),
+            (PushButtonDrawBank::Enabled, 1)
+        );
+        assert_eq!(
+            push_button_one_image_source(WindowStatus::ENABLED, WindowState::SELECTED, true),
+            (PushButtonDrawBank::Hilite, 1)
         );
     }
 
@@ -2447,28 +2459,10 @@ fn draw_push_button_image_three(
     });
 }
 
-fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
+fn draw_push_button_solid_base(window: &GameWindow, inst_data: &WindowInstanceData) {
     let rect = press_scaled_rect(window);
 
     let (draw_data, text_colors) = current_push_button_draw_data(window, inst_data);
-
-    if let Some((left, center, right)) =
-        resolve_push_button_three_piece_images(window, inst_data, draw_data)
-    {
-        draw_push_button_image_three(window, inst_data, left, center, right);
-        let _ = text_colors;
-        return;
-    }
-
-    let (one_bank, one_index) =
-        push_button_one_image_source(window.get_status(), inst_data.state, window.is_enabled());
-    let (one_draw_data, _) = push_button_bank_data(inst_data, one_bank);
-    if button_draw_entry_image(one_draw_data, one_index).is_some() {
-        draw_push_button_image_one(window, inst_data);
-        let _ = text_colors;
-        return;
-    }
-
     let (_, color_index) =
         push_button_color_entry_index(window.get_status(), inst_data.state, window.is_enabled());
     let _ = with_ui_renderer_mut(|renderer| {
@@ -2490,8 +2484,31 @@ fn draw_push_button_base(window: &GameWindow, inst_data: &WindowInstanceData) {
     let _ = text_colors;
 }
 
+fn draw_push_button_image_base(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let (draw_data, text_colors) = current_push_button_draw_data(window, inst_data);
+
+    if let Some((left, center, right)) =
+        resolve_push_button_three_piece_images(window, inst_data, draw_data)
+    {
+        draw_push_button_image_three(window, inst_data, left, center, right);
+        let _ = text_colors;
+        return;
+    }
+
+    let (one_bank, one_index) =
+        push_button_one_image_source(window.get_status(), inst_data.state, window.is_enabled());
+    let (one_draw_data, _) = push_button_bank_data(inst_data, one_bank);
+    if button_draw_entry_image(one_draw_data, one_index).is_some() {
+        draw_push_button_image_one(window, inst_data);
+        let _ = text_colors;
+        return;
+    }
+
+    draw_push_button_solid_base(window, inst_data);
+}
+
 pub fn w3d_gadget_push_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_base(window, inst_data);
+    draw_push_button_solid_base(window, inst_data);
     draw_button_text(window, inst_data);
     draw_video_buffer(window, inst_data);
     if let Some(widget) = window.widget() {
@@ -2503,7 +2520,7 @@ pub fn w3d_gadget_push_button_draw(window: &GameWindow, inst_data: &WindowInstan
 }
 
 pub fn w3d_gadget_push_button_image_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    draw_push_button_base(window, inst_data);
+    draw_push_button_image_base(window, inst_data);
     draw_button_text(window, inst_data);
     draw_video_buffer(window, inst_data);
     if let Some(widget) = window.widget() {
