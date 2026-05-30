@@ -1505,6 +1505,29 @@ impl GameWindow {
         }
     }
 
+    /// Send input after legacy window-manager routing has already selected the target.
+    pub fn send_routed_input_message(
+        &mut self,
+        msg: WindowMessage,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> WindowMsgHandled {
+        if msg != WindowMessage::Destroy && self.status.contains(WindowStatus::DESTROYED) {
+            return WindowMsgHandled::Ignored;
+        }
+        self.update_press_state_from_message(msg);
+        if let Some(ref input_callback) = self.callbacks.input {
+            let result = input_callback(self, msg, data1, data2);
+            if result == WindowMsgHandled::Ignored {
+                self.handle_widget_input(msg, data1, data2)
+            } else {
+                result
+            }
+        } else {
+            self.handle_widget_input(msg, data1, data2)
+        }
+    }
+
     fn update_press_state_from_message(&mut self, msg: WindowMessage) {
         if !self.is_press_anim_enabled() {
             return;
