@@ -1403,6 +1403,14 @@ fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             }
         }
 
+        let shroud_texture = radar.build_shroud_texture_rgba();
+        let shroud_texture = renderer.create_texture_from_rgba(
+            game_engine::common::system::radar::RADAR_CELL_WIDTH,
+            game_engine::common::system::radar::RADAR_CELL_HEIGHT,
+            &shroud_texture,
+        );
+        renderer.draw_textured_rect(rect, shroud_texture, [1.0, 1.0, 1.0, 1.0], None, 0.0);
+
         // Draw active radar events
         for event in radar.get_active_events() {
             let marker_kind = if event.event_type == RadarEventType::BeaconPulse {
