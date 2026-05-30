@@ -6457,7 +6457,8 @@ impl Object {
 
         if let Some(radar_data) = &self.radar_data {
             if let Ok(radar_guard) = radar_data.lock() {
-                let radar_obj = radar_guard.clone();
+                let mut radar_obj = radar_guard.clone();
+                radar_obj.is_hero = self.is_hero();
                 let radar = game_engine::common::system::radar::get_radar_system();
                 let radar_write = radar.write();
                 if let Ok(mut radar_guard) = radar_write {
