@@ -8,7 +8,8 @@ use crate::gui::gadgets::tabcontrol::{
 };
 use crate::gui::gadgets::{ClockMode, PushButton, TabControl, TextAlignment, VerticalAlignment};
 use crate::gui::game_window::{
-    read_video_frame, resolve_window_text, WindowState, WindowStatus, WIN_COLOR_UNDEFINED,
+    read_video_frame, resolve_window_text, WindowId, WindowState, WindowStatus, GWS_COMBO_BOX,
+    WIN_COLOR_UNDEFINED,
 };
 use crate::gui::shell::get_shell;
 use crate::gui::ui_globals::with_ui_renderer_mut;
@@ -732,7 +733,10 @@ mod tests {
     };
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
-    use super::{text_entry_image_tile_rects, truncate_to_i32, TextEntryImageTileKind};
+    use super::{
+        text_entry_focus_matches, text_entry_image_tile_rects, truncate_to_i32,
+        TextEntryImageTileKind,
+    };
     use crate::gui::game_window::{WindowState, WindowStatus};
 
     #[test]
@@ -772,6 +776,14 @@ mod tests {
                 (TextEntryImageTileKind::Right, 12, 0, 20, 10),
             ]
         );
+    }
+
+    #[test]
+    fn text_entry_caret_focus_matches_cpp_entry_or_combo_parent_rule() {
+        assert!(text_entry_focus_matches(10, None, Some(10)));
+        assert!(text_entry_focus_matches(10, Some(20), Some(20)));
+        assert!(!text_entry_focus_matches(10, Some(20), Some(30)));
+        assert!(!text_entry_focus_matches(10, None, None));
     }
 
     #[test]
@@ -4005,16 +4017,12 @@ fn draw_text_entry_text(
         return;
     };
 
-    let text = entry.displayed_text();
-    if text.is_empty() {
-        return;
-    }
-
     let mut display = if let Some(display) = inst_data.display_text.as_ref() {
         display.borrow_mut()
     } else {
         return;
     };
+    let text = entry.displayed_text();
     display.set_text(text.to_string());
     if let Some(font) = inst_data.font.as_ref() {
         display.set_font(font);
@@ -4039,7 +4047,7 @@ fn draw_text_entry_text(
 
     static DRAW_CNT: AtomicU8 = AtomicU8::new(0);
     let cnt = DRAW_CNT.fetch_add(1, Ordering::Relaxed);
-    if (cnt >> 3) & 0x1 == 1 {
+    if text_entry_caret_has_focus(window) && (cnt >> 3) & 0x1 == 1 {
         with_window_manager_ref(|manager| {
             manager.win_fill_rect(
                 text_color,
@@ -4054,6 +4062,34 @@ fn draw_text_entry_text(
 
     display.set_clip_region(None);
     let _ = cursor_pos;
+}
+
+fn text_entry_caret_has_focus(window: &GameWindow) -> bool {
+    let focus_id = with_window_manager_ref(|manager| {
+        manager
+            .get_focus()
+            .as_ref()
+            .map(|focus| focus.borrow().get_id())
+    });
+    let combo_parent_id = window.get_parent().and_then(|parent| {
+        let parent = parent.borrow();
+        if parent.get_style() & GWS_COMBO_BOX != 0 {
+            Some(parent.get_id())
+        } else {
+            None
+        }
+    });
+
+    text_entry_focus_matches(window.get_id(), combo_parent_id, focus_id)
+}
+
+fn text_entry_focus_matches(
+    window_id: WindowId,
+    combo_parent_id: Option<WindowId>,
+    focus_id: Option<WindowId>,
+) -> bool {
+    focus_id == Some(window_id)
+        || combo_parent_id.is_some_and(|parent_id| focus_id == Some(parent_id))
 }
 
 pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
