@@ -1387,7 +1387,7 @@ impl WindowManager {
             return;
         }
 
-        let tooltip = self.get_window_under_cursor(x, y, true).and_then(|window| {
+        let tooltip = self.find_tooltip_window_at_point(x, y).and_then(|window| {
             let window = window.borrow();
             let tooltip = window.get_tooltip();
             if tooltip.is_empty() {
@@ -1400,6 +1400,39 @@ impl WindowManager {
         if let Some((tooltip, delay)) = tooltip {
             with_mouse(|mouse| mouse.set_cursor_tooltip(tooltip, Some(delay), None, None));
         }
+    }
+
+    fn find_tooltip_window_at_point(&self, x: i32, y: i32) -> Option<Rc<RefCell<GameWindow>>> {
+        if let Some(modal) = &self.modal_stack {
+            return Some(self.find_child_at_point_or_self(&modal.window, x, y, true));
+        }
+
+        let passes: [fn(WindowStatus) -> bool; 3] = [
+            |status| status.contains(WindowStatus::ABOVE),
+            |status| !status.intersects(WindowStatus::ABOVE | WindowStatus::BELOW),
+            |status| status.contains(WindowStatus::BELOW),
+        ];
+
+        for matches_pass in passes {
+            for window in &self.root_windows {
+                let window_borrow = window.borrow();
+                let status = window_borrow.get_status();
+                let matches = matches_pass(status);
+                let hidden = window_borrow.is_hidden();
+                let enabled = window_borrow.is_enabled();
+                let contains_point = window_borrow.point_in_window(x, y);
+                drop(window_borrow);
+
+                if matches && !hidden && contains_point {
+                    let child = self.find_child_at_point_or_self(window, x, y, true);
+                    if !child.borrow().get_tooltip().is_empty() || enabled {
+                        return Some(child);
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Process key event
@@ -5323,6 +5356,55 @@ mod tests {
         with_mouse(|mouse| {
             let state = mouse.cursor_tooltip_state();
             assert_eq!(state.tooltip_text, "Disabled tip");
+            assert!(!state.is_tooltip_empty);
+        });
+    }
+
+    #[test]
+    fn process_mouse_event_reads_no_input_child_tooltip_like_cpp() {
+        let _mouse_guard = lock_test_mouse();
+        with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
+
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 40, 40)
+            .unwrap();
+        {
+            let mut child = child.borrow_mut();
+            child.set_status(WindowStatus::NO_INPUT);
+            child.set_tooltip("No input child tip");
+        }
+
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 20, 20, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        with_mouse(|mouse| {
+            let state = mouse.cursor_tooltip_state();
+            assert_eq!(state.tooltip_text, "No input child tip");
+            assert!(!state.is_tooltip_empty);
+        });
+    }
+
+    #[test]
+    fn tooltip_scan_skips_disabled_tooltipless_overlay_like_cpp() {
+        let _mouse_guard = lock_test_mouse();
+        with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
+
+        let mut manager = WindowManager::new();
+        let lower = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let overlay = manager.create_window(None, 0, 0, 100, 100).unwrap();
+
+        lower.borrow_mut().set_tooltip("Lower tip");
+        overlay.borrow_mut().enable(false).unwrap();
+        manager.bring_window_forward(&overlay);
+
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        with_mouse(|mouse| {
+            let state = mouse.cursor_tooltip_state();
+            assert_eq!(state.tooltip_text, "Lower tip");
             assert!(!state.is_tooltip_empty);
         });
     }
