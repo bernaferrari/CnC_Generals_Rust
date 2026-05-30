@@ -318,6 +318,15 @@ impl WindowLayout {
         self.windows.retain(|w| w.as_ptr() != window_ptr);
     }
 
+    /// Move an existing layout window to the front of the layout list.
+    pub fn bring_window_forward(&mut self, window: &Rc<RefCell<GameWindow>>) {
+        let window_ptr = window.as_ptr();
+        if let Some(index) = self.windows.iter().position(|w| w.as_ptr() == window_ptr) {
+            let window = self.windows.remove(index);
+            self.windows.insert(0, window);
+        }
+    }
+
     /// Get first window in layout
     pub fn get_first_window(&self) -> Option<Rc<RefCell<GameWindow>>> {
         self.windows.first().cloned()
@@ -899,17 +908,27 @@ impl WindowManager {
 
     pub fn bring_layout_forward(&mut self, layout: &WindowLayout) {
         for window in layout.windows.iter().rev() {
-            self.bring_window_forward(window);
+            self.bring_window_forward_internal(window, false);
         }
     }
 
     pub fn bring_window_forward(&mut self, window: &Rc<RefCell<GameWindow>>) {
+        self.bring_window_forward_internal(window, true);
+    }
+
+    fn bring_window_forward_internal(
+        &mut self,
+        window: &Rc<RefCell<GameWindow>>,
+        update_layout: bool,
+    ) {
+        let mut moved = false;
         if let Some(parent) = window.borrow().get_parent() {
             let mut parent = parent.borrow_mut();
             let children = parent.children_mut();
             if let Some(index) = children.iter().position(|child| Rc::ptr_eq(child, window)) {
                 let child = children.remove(index);
                 children.insert(0, child);
+                moved = true;
             }
         } else if let Some(index) = self
             .root_windows
@@ -918,6 +937,13 @@ impl WindowManager {
         {
             let root = self.root_windows.remove(index);
             self.add_root_window(root);
+            moved = true;
+        }
+
+        if moved && update_layout {
+            if let Some(layout) = window.borrow().get_layout() {
+                layout.borrow_mut().bring_window_forward(window);
+            }
         }
     }
 
@@ -5197,6 +5223,24 @@ mod tests {
 
         assert!(Rc::ptr_eq(&manager.root_windows[0], &first));
         assert!(Rc::ptr_eq(&manager.root_windows[1], &second));
+    }
+
+    #[test]
+    fn bring_window_forward_updates_layout_order_like_cpp() {
+        let mut manager = WindowManager::new();
+        let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
+        let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        first.borrow_mut().set_layout(Some(&layout));
+        second.borrow_mut().set_layout(Some(&layout));
+        layout.borrow_mut().add_window(first.clone());
+        layout.borrow_mut().add_window(second.clone());
+
+        manager.bring_window_forward(&second);
+
+        let layout_ref = layout.borrow();
+        assert!(Rc::ptr_eq(&layout_ref.windows()[0], &second));
+        assert!(Rc::ptr_eq(&layout_ref.windows()[1], &first));
     }
 
     #[test]
