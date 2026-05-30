@@ -331,6 +331,14 @@ pub struct RadarHeroReticleRect {
     pub y2: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RadarViewBoxLine {
+    pub start: ICoord2D,
+    pub end: ICoord2D,
+    pub start_color: RGBAColorInt,
+    pub end_color: RGBAColorInt,
+}
+
 /// Compute the screen rectangle used to draw the radar without distorting map aspect ratio.
 ///
 /// Matches `W3DRadar::draw`/`findDrawPositions`: the returned points are upper-left and
@@ -762,6 +770,109 @@ pub fn should_refresh_w3d_object_overlay(current_frame: u32) -> bool {
     current_frame % W3D_RADAR_OVERLAY_REFRESH_RATE == 0
 }
 
+fn radar_view_box_top_color() -> RGBAColorInt {
+    RGBAColorInt::new(225, 225, 0, 255)
+}
+
+fn radar_view_box_bottom_color() -> RGBAColorInt {
+    RGBAColorInt::new(158, 158, 0, 255)
+}
+
+fn clip_line_to_rect(
+    mut start: ICoord2D,
+    mut end: ICoord2D,
+    clip_x: i32,
+    clip_y: i32,
+    clip_width: i32,
+    clip_height: i32,
+) -> Option<(ICoord2D, ICoord2D)> {
+    const LEFT: u8 = 1;
+    const RIGHT: u8 = 2;
+    const BOTTOM: u8 = 4;
+    const TOP: u8 = 8;
+
+    if clip_width <= 0 || clip_height <= 0 {
+        return None;
+    }
+
+    let x_min = clip_x;
+    let y_min = clip_y;
+    let x_max = clip_x + clip_width;
+    let y_max = clip_y + clip_height;
+
+    let compute_code = |point: ICoord2D| -> u8 {
+        let mut code = 0;
+        if point.x < x_min {
+            code |= LEFT;
+        } else if point.x > x_max {
+            code |= RIGHT;
+        }
+        if point.y < y_min {
+            code |= TOP;
+        } else if point.y > y_max {
+            code |= BOTTOM;
+        }
+        code
+    };
+
+    let mut start_code = compute_code(start);
+    let mut end_code = compute_code(end);
+
+    loop {
+        if start_code | end_code == 0 {
+            return Some((start, end));
+        }
+        if start_code & end_code != 0 {
+            return None;
+        }
+
+        let out_code = if start_code != 0 {
+            start_code
+        } else {
+            end_code
+        };
+        let dx = (end.x - start.x) as f32;
+        let dy = (end.y - start.y) as f32;
+        let mut x = 0.0;
+        let mut y = 0.0;
+
+        if out_code & TOP != 0 {
+            if dy.abs() <= f32::EPSILON {
+                return None;
+            }
+            x = start.x as f32 + dx * (y_min - start.y) as f32 / dy;
+            y = y_min as f32;
+        } else if out_code & BOTTOM != 0 {
+            if dy.abs() <= f32::EPSILON {
+                return None;
+            }
+            x = start.x as f32 + dx * (y_max - start.y) as f32 / dy;
+            y = y_max as f32;
+        } else if out_code & RIGHT != 0 {
+            if dx.abs() <= f32::EPSILON {
+                return None;
+            }
+            y = start.y as f32 + dy * (x_max - start.x) as f32 / dx;
+            x = x_max as f32;
+        } else if out_code & LEFT != 0 {
+            if dx.abs() <= f32::EPSILON {
+                return None;
+            }
+            y = start.y as f32 + dy * (x_min - start.x) as f32 / dx;
+            x = x_min as f32;
+        }
+
+        let clipped = ICoord2D::new(x.trunc() as i32, y.trunc() as i32);
+        if out_code == start_code {
+            start = clipped;
+            start_code = compute_code(start);
+        } else {
+            end = clipped;
+            end_code = compute_code(end);
+        }
+    }
+}
+
 /// Radar system manager (matches C++ Radar class)
 pub struct RadarSystem {
     /// Map extents for coordinate conversion
@@ -841,6 +952,17 @@ impl RadarSystem {
             return self.terrain_samples[idx].height;
         }
         self.terrain_average_z
+    }
+
+    fn world_to_radar_unclamped(&self, world: &Coord3D) -> Option<ICoord2D> {
+        if self.x_sample <= f32::EPSILON || self.y_sample <= f32::EPSILON {
+            return None;
+        }
+
+        Some(ICoord2D {
+            x: ((world.x - self.map_extent.lo.x) / self.x_sample) as i32,
+            y: ((world.y - self.map_extent.lo.y) / self.y_sample) as i32,
+        })
     }
 
     /// Create new radar system
@@ -935,6 +1057,10 @@ impl RadarSystem {
     /// Current map extent used for radar/world coordinate conversion.
     pub fn map_extent(&self) -> Region3D {
         self.map_extent
+    }
+
+    pub fn terrain_average_z(&self) -> f32 {
+        self.terrain_average_z
     }
 
     /// Initialize radar for new map (matches C++ Radar::newMap)
@@ -1700,6 +1826,84 @@ impl RadarSystem {
                 })
             })
             .collect()
+    }
+
+    pub fn build_view_box_lines(
+        &self,
+        origin_world: Coord3D,
+        corner_world: [Coord3D; 4],
+        pixel_x: i32,
+        pixel_y: i32,
+        width: i32,
+        height: i32,
+        clip_x: i32,
+        clip_y: i32,
+        clip_width: i32,
+        clip_height: i32,
+    ) -> Vec<RadarViewBoxLine> {
+        let Some(ul_radar) = self.world_to_radar_unclamped(&origin_world) else {
+            return Vec::new();
+        };
+
+        let mut corners = [ICoord2D::new(0, 0); 4];
+        for (index, world) in corner_world.iter().enumerate() {
+            let Some(radar) = self.world_to_radar_unclamped(world) else {
+                return Vec::new();
+            };
+            corners[index] = radar;
+        }
+
+        let mut view_box_offsets = [ICoord2D::new(0, 0); 4];
+        for index in 1..4 {
+            view_box_offsets[index] = ICoord2D::new(
+                corners[index].x - corners[index - 1].x,
+                corners[index].y - corners[index - 1].y,
+            );
+        }
+
+        let top_color = radar_view_box_top_color();
+        let bottom_color = radar_view_box_bottom_color();
+        let mut lines = Vec::with_capacity(4);
+        let mut start = radar_to_pixel(&ul_radar, pixel_x, pixel_y, width, height);
+        let mut radar = ICoord2D::new(
+            ul_radar.x + view_box_offsets[1].x,
+            ul_radar.y + view_box_offsets[1].y,
+        );
+        let mut end = radar_to_pixel(&radar, pixel_x, pixel_y, width, height);
+
+        let mut push_line =
+            |start: ICoord2D, end: ICoord2D, start_color: RGBAColorInt, end_color: RGBAColorInt| {
+                if let Some((start, end)) =
+                    clip_line_to_rect(start, end, clip_x, clip_y, clip_width, clip_height)
+                {
+                    lines.push(RadarViewBoxLine {
+                        start,
+                        end,
+                        start_color,
+                        end_color,
+                    });
+                }
+            };
+
+        push_line(start, end, top_color, top_color);
+
+        start = end;
+        radar.x += view_box_offsets[2].x;
+        radar.y += view_box_offsets[2].y;
+        end = radar_to_pixel(&radar, pixel_x, pixel_y, width, height);
+        push_line(start, end, top_color, bottom_color);
+
+        start = end;
+        radar.x += view_box_offsets[3].x;
+        radar.y += view_box_offsets[3].y;
+        end = radar_to_pixel(&radar, pixel_x, pixel_y, width, height);
+        push_line(start, end, bottom_color, bottom_color);
+
+        start = end;
+        end = radar_to_pixel(&ul_radar, pixel_x, pixel_y, width, height);
+        push_line(start, end, bottom_color, top_color);
+
+        lines
     }
 
     fn should_render_object_overlay_blip(&self, obj: &RadarObject) -> bool {
@@ -2831,6 +3035,87 @@ mod tests {
         let rects = radar.build_hero_reticle_rects(0, 0, 128, 128, 20, 10);
 
         assert_eq!(rects.len(), 1);
+    }
+
+    #[test]
+    fn test_view_box_lines_match_w3d_radar_conversion_and_colors() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+
+        let lines = radar.build_view_box_lines(
+            Coord3D::new(32.0, 32.0, 0.0),
+            [
+                Coord3D::new(32.0, 32.0, 0.0),
+                Coord3D::new(96.0, 32.0, 0.0),
+                Coord3D::new(96.0, 96.0, 0.0),
+                Coord3D::new(32.0, 96.0, 0.0),
+            ],
+            0,
+            0,
+            128,
+            128,
+            0,
+            0,
+            128,
+            128,
+        );
+
+        assert_eq!(lines.len(), 4);
+        assert_eq!(lines[0].start, ICoord2D::new(32, 95));
+        assert_eq!(lines[0].end, ICoord2D::new(96, 95));
+        assert_eq!(lines[0].start_color, RGBAColorInt::new(225, 225, 0, 255));
+        assert_eq!(lines[0].end_color, RGBAColorInt::new(225, 225, 0, 255));
+        assert_eq!(lines[1].start, ICoord2D::new(96, 95));
+        assert_eq!(lines[1].end, ICoord2D::new(96, 31));
+        assert_eq!(lines[1].start_color, RGBAColorInt::new(225, 225, 0, 255));
+        assert_eq!(lines[1].end_color, RGBAColorInt::new(158, 158, 0, 255));
+        assert_eq!(lines[2].start, ICoord2D::new(96, 31));
+        assert_eq!(lines[2].end, ICoord2D::new(32, 31));
+        assert_eq!(lines[3].start, ICoord2D::new(32, 31));
+        assert_eq!(lines[3].end, ICoord2D::new(32, 95));
+    }
+
+    #[test]
+    fn test_view_box_lines_clip_to_full_radar_window() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 0.0),
+            &[],
+        );
+
+        let lines = radar.build_view_box_lines(
+            Coord3D::new(-16.0, 64.0, 0.0),
+            [
+                Coord3D::new(-16.0, 64.0, 0.0),
+                Coord3D::new(16.0, 64.0, 0.0),
+                Coord3D::new(16.0, 96.0, 0.0),
+                Coord3D::new(-16.0, 96.0, 0.0),
+            ],
+            0,
+            0,
+            128,
+            128,
+            0,
+            0,
+            128,
+            128,
+        );
+
+        assert!(lines.iter().all(|line| {
+            line.start.x >= 0
+                && line.end.x >= 0
+                && line.start.y >= 0
+                && line.end.y >= 0
+                && line.start.x <= 128
+                && line.end.x <= 128
+                && line.start.y <= 128
+                && line.end.y <= 128
+        }));
     }
 
     #[test]
