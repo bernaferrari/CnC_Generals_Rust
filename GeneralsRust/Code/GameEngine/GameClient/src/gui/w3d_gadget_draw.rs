@@ -754,7 +754,8 @@ mod tests {
         horizontal_slider_box_image_sources, horizontal_slider_image_draw_a_sources,
         horizontal_slider_image_draw_b_sources, progress_bar_image_draw_a_bank,
         progress_bar_image_draw_a_sources, progress_bar_image_sources, progress_bar_solid_sources,
-        push_button_three_piece_tail_clip, radio_button_image_sources, solid_check_box_mark_color,
+        push_button_three_piece_tail_clip, radio_button_image_set_complete,
+        radio_button_image_sources, radio_button_solid_box_source, solid_check_box_mark_color,
     };
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
@@ -1073,6 +1074,38 @@ mod tests {
             radio_button_image_sources(WindowState::empty(), true),
             (PushButtonDrawBank::Enabled, [0, 1, 2])
         );
+    }
+
+    #[test]
+    fn radio_button_solid_box_source_uses_selected_slot_like_cpp() {
+        assert_eq!(
+            radio_button_solid_box_source(WindowState::empty(), true),
+            (PushButtonDrawBank::Enabled, 1)
+        );
+        assert_eq!(
+            radio_button_solid_box_source(WindowState::SELECTED, true),
+            (PushButtonDrawBank::Enabled, 2)
+        );
+        assert_eq!(
+            radio_button_solid_box_source(WindowState::HILITED | WindowState::SELECTED, true),
+            (PushButtonDrawBank::Hilite, 2)
+        );
+        assert_eq!(
+            radio_button_solid_box_source(WindowState::DISABLED | WindowState::SELECTED, true),
+            (PushButtonDrawBank::Disabled, 2)
+        );
+        assert_eq!(
+            radio_button_solid_box_source(WindowState::SELECTED, false),
+            (PushButtonDrawBank::Disabled, 2)
+        );
+    }
+
+    #[test]
+    fn radio_button_image_draw_requires_all_strip_images_like_cpp() {
+        assert!(radio_button_image_set_complete([true, true, true]));
+        assert!(!radio_button_image_set_complete([false, true, true]));
+        assert!(!radio_button_image_set_complete([true, false, true]));
+        assert!(!radio_button_image_set_complete([true, true, false]));
     }
 
     #[test]
@@ -3321,17 +3354,32 @@ fn radio_button_image_sources(
     }
 }
 
-pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
-    let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
-    {
-        (&inst_data.disabled_draw_data, &inst_data.disabled_text)
-    } else if inst_data.state.contains(WindowState::HILITED) {
-        (&inst_data.hilite_draw_data, &inst_data.hilite_text)
+fn radio_button_solid_box_source(state: WindowState, enabled: bool) -> (PushButtonDrawBank, usize) {
+    let bank = if !enabled || state.contains(WindowState::DISABLED) {
+        PushButtonDrawBank::Disabled
+    } else if state.contains(WindowState::HILITED) {
+        PushButtonDrawBank::Hilite
     } else {
-        (&inst_data.enabled_draw_data, &inst_data.enabled_text)
+        PushButtonDrawBank::Enabled
     };
+    let box_index = if state.contains(WindowState::SELECTED) {
+        2
+    } else {
+        1
+    };
+    (bank, box_index)
+}
+
+pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
+    let state = if is_radio_selected(window) {
+        inst_data.state | WindowState::SELECTED
+    } else {
+        inst_data.state & !WindowState::SELECTED
+    };
+    let (bank, box_index) = radio_button_solid_box_source(state, window.is_enabled());
+    let (draw_data, _) = push_button_bank_data(inst_data, bank);
     let back = &draw_data[0];
-    let radio_box = &draw_data[1];
+    let radio_box = draw_data.get(box_index).unwrap_or(&draw_data[1]);
 
     let rect = press_scaled_rect(window);
     let origin_x = rect.x as i32;
@@ -3406,11 +3454,11 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
         });
     }
 
-    if is_radio_selected(window) {
-        draw_radio_button_text(window, inst_data);
-    } else {
-        draw_radio_button_text(window, inst_data);
-    }
+    draw_radio_button_text(window, inst_data);
+}
+
+fn radio_button_image_set_complete(images: [bool; 3]) -> bool {
+    images.into_iter().all(|present| present)
 }
 
 fn draw_radio_button_image_strip(
@@ -3489,21 +3537,30 @@ pub fn w3d_gadget_radio_button_image_draw(window: &GameWindow, inst_data: &Windo
             .and_then(|entry| entry.image.as_ref()),
     );
 
-    if let (Some(left), Some(center), Some(right)) = image_set {
-        let (origin_x, origin_y) = window.get_screen_position();
-        let (size_x, size_y) = window.get_size();
-        draw_radio_button_image_strip(
-            left,
-            center,
-            right,
-            origin_x,
-            origin_y,
-            size_x,
-            size_y,
-            inst_data.image_offset.x,
-            inst_data.image_offset.y,
-        );
+    let [left_present, center_present, right_present] = [
+        image_set.0.is_some(),
+        image_set.1.is_some(),
+        image_set.2.is_some(),
+    ];
+    if !radio_button_image_set_complete([left_present, center_present, right_present]) {
+        return;
     }
+    let (Some(left), Some(center), Some(right)) = image_set else {
+        return;
+    };
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
+    draw_radio_button_image_strip(
+        left,
+        center,
+        right,
+        origin_x,
+        origin_y,
+        size_x,
+        size_y,
+        inst_data.image_offset.x,
+        inst_data.image_offset.y,
+    );
     draw_radio_button_text(window, inst_data);
 }
 
