@@ -754,7 +754,7 @@ mod tests {
         horizontal_slider_box_image_sources, horizontal_slider_image_draw_a_sources,
         horizontal_slider_image_draw_b_sources, progress_bar_image_draw_a_bank,
         progress_bar_image_draw_a_sources, progress_bar_image_sources, progress_bar_solid_sources,
-        radio_button_image_sources,
+        push_button_three_piece_tail_clip, radio_button_image_sources, solid_check_box_mark_color,
     };
     use super::{list_box_selected_image_rect, list_box_selected_image_slots};
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
@@ -861,6 +861,23 @@ mod tests {
         assert_eq!(
             push_button_one_image_source(WindowStatus::ENABLED, WindowState::SELECTED, true),
             (PushButtonDrawBank::Hilite, 1)
+        );
+    }
+
+    #[test]
+    fn push_button_three_piece_tail_uses_full_tile_with_clip_like_cpp() {
+        let (draw, clip) = push_button_three_piece_tail_clip(132, 137, 40, 64, 16).unwrap();
+
+        assert_eq!(draw, (132, 40, 148, 64));
+        assert_eq!(clip, super::region_from_corners(132, 40, 137, 64));
+        assert_eq!(clip.width, 5);
+    }
+
+    #[test]
+    fn push_button_three_piece_tail_skips_exact_fit_like_cpp() {
+        assert_eq!(
+            push_button_three_piece_tail_clip(144, 144, 40, 64, 16),
+            None
         );
     }
 
@@ -1026,6 +1043,12 @@ mod tests {
             check_box_image_source(WindowState::SELECTED, false),
             (PushButtonDrawBank::Disabled, 2)
         );
+    }
+
+    #[test]
+    fn solid_check_box_mark_draws_whenever_slot_color_is_defined_like_cpp() {
+        assert_eq!(solid_check_box_mark_color(0xFF123456), Some(0xFF123456));
+        assert_eq!(solid_check_box_mark_color(WIN_COLOR_UNDEFINED), None);
     }
 
     #[test]
@@ -2377,6 +2400,21 @@ fn resolve_push_button_three_piece_images<'a>(
     Some((left, center, right))
 }
 
+fn push_button_three_piece_tail_clip(
+    start_x: i32,
+    right_start_x: i32,
+    start_y: i32,
+    end_y: i32,
+    center_w: i32,
+) -> Option<((i32, i32, i32, i32), IRegion2D)> {
+    if start_x >= right_start_x {
+        return None;
+    }
+
+    let clip = region_from_corners(start_x, start_y, right_start_x, end_y);
+    Some(((start_x, start_y, start_x + center_w, end_y), clip))
+}
+
 fn draw_push_button_image_three(
     window: &GameWindow,
     inst_data: &WindowInstanceData,
@@ -2429,14 +2467,16 @@ fn draw_push_button_image_three(
             x += center_w;
         }
 
-        if x < right_start_x {
-            manager.win_draw_image(
+        if let Some(((tail_start_x, tail_start_y, tail_end_x, tail_end_y), clip)) =
+            push_button_three_piece_tail_clip(x, right_start_x, start_y, end_y, center_w)
+        {
+            draw_window_image_clipped(
                 center,
-                x,
-                start_y,
-                right_start_x,
-                end_y,
-                WIN_COLOR_UNDEFINED,
+                tail_start_x,
+                tail_start_y,
+                tail_end_x,
+                tail_end_y,
+                &clip,
             );
         }
 
@@ -3106,6 +3146,10 @@ fn check_box_image_source(state: WindowState, enabled: bool) -> (PushButtonDrawB
     (bank, image_index)
 }
 
+fn solid_check_box_mark_color(color: u32) -> Option<u32> {
+    (color != WIN_COLOR_UNDEFINED).then_some(color)
+}
+
 pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, _) = if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled()
     {
@@ -3170,10 +3214,10 @@ pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstance
         );
     });
 
-    if is_check_box_checked(window) && check_box.color != WIN_COLOR_UNDEFINED {
+    if let Some(mark_color) = solid_check_box_mark_color(check_box.color) {
         with_window_manager_ref(|manager| {
-            manager.win_draw_line(check_box.color, 1.0, box_x, box_y, box_end_x, box_end_y);
-            manager.win_draw_line(check_box.color, 1.0, box_x, box_end_y, box_end_x, box_y);
+            manager.win_draw_line(mark_color, 1.0, box_x, box_y, box_end_x, box_end_y);
+            manager.win_draw_line(mark_color, 1.0, box_x, box_end_y, box_end_x, box_y);
         });
     }
 
