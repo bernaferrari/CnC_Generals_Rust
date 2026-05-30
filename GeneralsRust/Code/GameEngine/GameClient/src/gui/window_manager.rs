@@ -1167,22 +1167,9 @@ impl WindowManager {
             }
         }
 
-        let focus_window = self.get_focus();
         if let Some(window) = target_window {
             let handled_window =
                 self.send_mouse_message_up_chain(&window, msg, data, x, y, capture_window.as_ref());
-
-            if msg == WindowMessage::MousePos {
-                if let Some(focus_window) = focus_window {
-                    if !Rc::ptr_eq(&focus_window, &window) {
-                        let (fx, fy) = focus_window.borrow().get_screen_position();
-                        let _ = focus_window
-                            .borrow_mut()
-                            .set_cursor_position(x - fx, y - fy);
-                        let _ = focus_window.borrow_mut().send_input_message(msg, data, 0);
-                    }
-                }
-            }
 
             self.update_current_mouse_region(Some(&window), capture_window.as_ref(), x, y);
 
@@ -1204,15 +1191,6 @@ impl WindowManager {
                 WindowInputReturnCode::NotUsed
             }
         } else {
-            if msg == WindowMessage::MousePos {
-                if let Some(focus_window) = focus_window {
-                    let (fx, fy) = focus_window.borrow().get_screen_position();
-                    let _ = focus_window
-                        .borrow_mut()
-                        .set_cursor_position(x - fx, y - fy);
-                    let _ = focus_window.borrow_mut().send_input_message(msg, data, 0);
-                }
-            }
             self.update_current_mouse_region(None, capture_window.as_ref(), x, y);
             if matches!(
                 msg,
@@ -5367,6 +5345,58 @@ mod tests {
             assert_eq!(state.tooltip_text, "");
             assert!(state.is_tooltip_empty);
         });
+    }
+
+    #[test]
+    fn mouse_pos_does_not_forward_to_focus_window_like_cpp() {
+        let mut manager = WindowManager::new();
+        let focused = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let hovered = manager.create_window(None, 200, 0, 100, 100).unwrap();
+        let focused_seen = Rc::new(RefCell::new(0));
+        let hovered_seen = Rc::new(RefCell::new(0));
+
+        focused
+            .borrow_mut()
+            .set_system_callback(|_, msg, data1, _| match msg {
+                WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
+        {
+            let focused_seen = Rc::clone(&focused_seen);
+            focused
+                .borrow_mut()
+                .set_input_callback(move |_, msg, _, _| {
+                    if msg == WindowMessage::MousePos {
+                        *focused_seen.borrow_mut() += 1;
+                    }
+                    WindowMsgHandled::Handled
+                });
+        }
+        {
+            let hovered_seen = Rc::clone(&hovered_seen);
+            hovered
+                .borrow_mut()
+                .set_input_callback(move |_, msg, _, _| {
+                    if msg == WindowMessage::MousePos {
+                        *hovered_seen.borrow_mut() += 1;
+                    }
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        manager.set_focus(Some(&focused)).unwrap();
+
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 210, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert_eq!(*hovered_seen.borrow(), 1);
+        assert_eq!(*focused_seen.borrow(), 0);
+
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 500, 500, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        assert_eq!(*hovered_seen.borrow(), 1);
+        assert_eq!(*focused_seen.borrow(), 0);
     }
 
     #[test]
