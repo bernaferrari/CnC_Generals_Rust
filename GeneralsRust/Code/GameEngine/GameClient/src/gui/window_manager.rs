@@ -1199,10 +1199,22 @@ impl WindowManager {
             }
         }
 
-        // Check root windows in reverse order (top to bottom)
-        for window in self.root_windows.iter().rev() {
-            if let Some(found) = self.find_window_at_point(window, x, y, ignore_enabled) {
-                return Some(found);
+        // Match C++ getWindowUnderCursor: root windows are tested head-first in
+        // ABOVE, normal, then BELOW passes so input priority mirrors status.
+        let passes: [fn(WindowStatus) -> bool; 3] = [
+            |status| status.contains(WindowStatus::ABOVE),
+            |status| !status.intersects(WindowStatus::ABOVE | WindowStatus::BELOW),
+            |status| status.contains(WindowStatus::BELOW),
+        ];
+
+        for matches_pass in passes {
+            for window in &self.root_windows {
+                if !matches_pass(window.borrow().get_status()) {
+                    continue;
+                }
+                if let Some(found) = self.find_window_at_point(window, x, y, ignore_enabled) {
+                    return Some(found);
+                }
             }
         }
 
@@ -4702,6 +4714,32 @@ mod tests {
         // doesn't provide easy access to check the modal stack state
 
         manager.unset_modal(&window).unwrap();
+    }
+
+    #[test]
+    fn get_window_under_cursor_prioritizes_above_normal_below_like_cpp() {
+        let mut manager = WindowManager::new();
+        let below = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let normal = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let above = manager.create_window(None, 0, 0, 100, 100).unwrap();
+
+        below
+            .borrow_mut()
+            .set_status_exact(WindowStatus::ENABLED | WindowStatus::BELOW);
+        normal.borrow_mut().set_status_exact(WindowStatus::ENABLED);
+        above
+            .borrow_mut()
+            .set_status_exact(WindowStatus::ENABLED | WindowStatus::ABOVE);
+
+        let found = manager.get_window_under_cursor(10, 10, false).unwrap();
+        assert!(Rc::ptr_eq(&above, &found));
+
+        above
+            .borrow_mut()
+            .set_status_exact(WindowStatus::ENABLED | WindowStatus::ABOVE | WindowStatus::HIDDEN);
+
+        let found = manager.get_window_under_cursor(10, 10, false).unwrap();
+        assert!(Rc::ptr_eq(&normal, &found));
     }
 
     #[test]
