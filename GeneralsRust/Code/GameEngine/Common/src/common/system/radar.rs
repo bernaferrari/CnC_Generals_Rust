@@ -20,6 +20,9 @@ pub const RADAR_CELL_HEIGHT: u32 = 128;
 /// Maximum radar events (matches C++ MAX_RADAR_EVENTS)
 pub const MAX_RADAR_EVENTS: usize = 64;
 
+/// W3D object overlay texture refresh cadence (matches `OVERLAY_REFRESH_RATE`).
+pub const W3D_RADAR_OVERLAY_REFRESH_RATE: u32 = 6;
+
 /// Radar queue terrain refresh delay (matches C++ RADAR_QUEUE_TERRAIN_REFRESH_DELAY)
 /// 3 seconds worth of logic frames
 pub const RADAR_QUEUE_TERRAIN_REFRESH_DELAY: u32 = 90; // 30 FPS * 3 seconds
@@ -743,6 +746,10 @@ fn radar_stealth_blip_alpha(current_frame: u32) -> u8 {
     };
 
     alpha.clamp(0.0, 255.0).trunc() as u8
+}
+
+pub fn should_refresh_w3d_object_overlay(current_frame: u32) -> bool {
+    current_frame % W3D_RADAR_OVERLAY_REFRESH_RATE == 0
 }
 
 /// Radar system manager (matches C++ Radar class)
@@ -2651,6 +2658,16 @@ mod tests {
         assert_eq!(pixel_at_frame(0), vec![0x11, 0x22, 0x33, 32]);
         assert_eq!(pixel_at_frame(15), vec![0x11, 0x22, 0x33, 32]);
         assert_eq!(pixel_at_frame(29), vec![0x11, 0x22, 0x33, 240]);
+    }
+
+    #[test]
+    fn test_w3d_object_overlay_refresh_cadence_matches_cpp() {
+        assert!(should_refresh_w3d_object_overlay(0));
+        assert!(!should_refresh_w3d_object_overlay(1));
+        assert!(!should_refresh_w3d_object_overlay(5));
+        assert!(should_refresh_w3d_object_overlay(6));
+        assert!(should_refresh_w3d_object_overlay(12));
+        assert!(!should_refresh_w3d_object_overlay(17));
     }
 
     #[test]
