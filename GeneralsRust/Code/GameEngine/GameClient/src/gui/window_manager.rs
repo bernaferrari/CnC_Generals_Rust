@@ -879,7 +879,7 @@ impl WindowManager {
             let children = parent.children_mut();
             if let Some(index) = children.iter().position(|child| Rc::ptr_eq(child, window)) {
                 let child = children.remove(index);
-                children.push(child);
+                children.insert(0, child);
             }
         } else if let Some(index) = self
             .root_windows
@@ -887,7 +887,7 @@ impl WindowManager {
             .position(|root| Rc::ptr_eq(root, window))
         {
             let root = self.root_windows.remove(index);
-            self.root_windows.push(root);
+            self.add_root_window(root);
         }
     }
 
@@ -5057,6 +5057,32 @@ mod tests {
         assert!(Rc::ptr_eq(&manager.root_windows[0], &modal));
         assert!(Rc::ptr_eq(&manager.root_windows[1], &later));
         assert!(Rc::ptr_eq(&manager.root_windows[2], &normal));
+    }
+
+    #[test]
+    fn bring_window_forward_moves_child_to_head_like_cpp() {
+        let mut manager = WindowManager::new();
+        let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let first = manager.create_window(Some(&parent), 0, 0, 20, 20).unwrap();
+        let second = manager.create_window(Some(&parent), 20, 0, 20, 20).unwrap();
+
+        manager.bring_window_forward(&second);
+
+        let parent = parent.borrow();
+        assert!(Rc::ptr_eq(&parent.children()[0], &second));
+        assert!(Rc::ptr_eq(&parent.children()[1], &first));
+    }
+
+    #[test]
+    fn bring_window_forward_moves_root_to_head_like_cpp() {
+        let mut manager = WindowManager::new();
+        let first = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let second = manager.create_window(None, 100, 0, 100, 100).unwrap();
+
+        manager.bring_window_forward(&first);
+
+        assert!(Rc::ptr_eq(&manager.root_windows[0], &first));
+        assert!(Rc::ptr_eq(&manager.root_windows[1], &second));
     }
 
     #[test]
