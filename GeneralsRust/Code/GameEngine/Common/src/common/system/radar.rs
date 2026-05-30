@@ -1554,6 +1554,31 @@ impl RadarSystem {
         &self.shroud_grid
     }
 
+    /// Build the W3D radar shroud overlay as black RGBA pixels.
+    ///
+    /// Matches `W3DRadar::setShroudLevel`: shrouded cells are opaque black,
+    /// fogged cells are half-alpha black, and clear cells are transparent.
+    pub fn build_shroud_texture_rgba(&self) -> Vec<u8> {
+        let expected_len = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
+        let mut texture = vec![0; expected_len * 4];
+
+        for idx in 0..expected_len {
+            let alpha = match self
+                .shroud_grid
+                .get(idx)
+                .copied()
+                .unwrap_or(CellShroudStatus::Shrouded)
+            {
+                CellShroudStatus::Clear => 0,
+                CellShroudStatus::Fogged => 127,
+                CellShroudStatus::Shrouded => 255,
+            };
+            texture[idx * 4 + 3] = alpha;
+        }
+
+        texture
+    }
+
     // ===== GPS Satellite Special Power =====
 
     /// Activate GPS satellite (reveals entire map for duration)
@@ -2423,6 +2448,29 @@ mod tests {
         radar.clear_shroud();
         assert_eq!(radar.get_shroud_level(64, 64), CellShroudStatus::Clear);
         assert!(radar.is_shroud_cleared());
+    }
+
+    #[test]
+    fn test_shroud_texture_matches_w3d_alpha_levels() {
+        let mut radar = RadarSystem::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(1024.0, 1024.0, 100.0),
+            &[],
+        );
+        radar.set_shroud_level(0, 0, CellShroudStatus::Clear);
+        radar.set_shroud_level(1, 0, CellShroudStatus::Fogged);
+        radar.set_shroud_level(2, 0, CellShroudStatus::Shrouded);
+
+        let texture = radar.build_shroud_texture_rgba();
+
+        assert_eq!(
+            texture.len(),
+            (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT * 4) as usize
+        );
+        assert_eq!(&texture[0..4], &[0, 0, 0, 0]);
+        assert_eq!(&texture[4..8], &[0, 0, 0, 127]);
+        assert_eq!(&texture[8..12], &[0, 0, 0, 255]);
     }
 
     #[test]
