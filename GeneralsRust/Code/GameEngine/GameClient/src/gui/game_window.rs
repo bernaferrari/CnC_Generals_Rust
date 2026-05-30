@@ -58,6 +58,7 @@ pub const WIN_COLOR_UNDEFINED: u32 = 0xFFFFFFFF;
 
 /// Gadget system message IDs
 const GGM_LEFT_DRAG: u32 = 16384;
+const GGM_FOCUS_CHANGE: u32 = GGM_LEFT_DRAG + 3;
 const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
 const GBM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 10;
 const GSM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 12;
@@ -2465,6 +2466,16 @@ impl GameWindow {
             } else {
                 Vec::new()
             };
+            self.set_hilite_state(focused);
+            if !self.owner_is_self {
+                if let Some(owner) = self.get_owner() {
+                    let _ = owner.borrow_mut().send_system_message(
+                        WindowMessage::User(GGM_FOCUS_CHANGE),
+                        data1,
+                        self.id as u32,
+                    );
+                }
+            }
             return if messages.is_empty() {
                 WindowMsgHandled::Ignored
             } else {
@@ -4112,6 +4123,52 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(owner_seen.borrow().len(), 1);
+    }
+
+    #[test]
+    fn input_focus_notifies_owner_and_updates_hilite_like_cpp_gadgets() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut window = GameWindow::new();
+        window.set_id(31);
+        window.set_owner(Some(&owner));
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(31, 0, 0, 16)));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::InputFocus, 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(window
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::InputFocus, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(!window
+            .instance_data()
+            .state
+            .contains(WindowState::HILITED));
+
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[
+                (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 31),
+                (WindowMessage::User(GGM_FOCUS_CHANGE), 0, 31),
+            ]
+        );
     }
 
     #[test]
