@@ -1011,7 +1011,7 @@ impl WindowManager {
                 return Ok(());
             }
         }
-        Err(WindowError::InvalidWindow)
+        Err(WindowError::GeneralFailure)
     }
 
     /// Set grab window (for drag operations)
@@ -4991,6 +4991,37 @@ mod tests {
 
         assert_eq!(manager.set_modal(child), Err(WindowError::InvalidParameter));
         assert!(manager.modal_stack.is_none());
+    }
+
+    #[test]
+    fn unset_modal_rejects_non_top_windows_like_cpp() {
+        let mut manager = WindowManager::new();
+        let bottom = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let top = manager.create_window(None, 100, 0, 100, 100).unwrap();
+        let never_modal = manager.create_window(None, 200, 0, 100, 100).unwrap();
+
+        assert_eq!(
+            manager.unset_modal(&never_modal),
+            Err(WindowError::GeneralFailure)
+        );
+
+        manager.set_modal(bottom.clone()).unwrap();
+        manager.set_modal(top.clone()).unwrap();
+
+        assert_eq!(
+            manager.unset_modal(&bottom),
+            Err(WindowError::GeneralFailure)
+        );
+        assert!(Rc::ptr_eq(
+            &manager.modal_stack.as_ref().unwrap().window,
+            &top
+        ));
+
+        assert_eq!(manager.unset_modal(&top), Ok(()));
+        assert!(Rc::ptr_eq(
+            &manager.modal_stack.as_ref().unwrap().window,
+            &bottom
+        ));
     }
 
     #[test]
