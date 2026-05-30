@@ -1114,16 +1114,34 @@ impl WindowManager {
         self.update_cursor_tooltip_for_mouse_event(x, y);
         // Find window under cursor or use capture
         let target_window = if let Some(capture) = self.get_capture() {
+            self.set_grab_window(None);
             Some(capture)
         } else {
             self.get_window_under_cursor(x, y, false)
         };
 
-        // Match classic UI behavior: capture mouse on press so release restores state
-        if msg == WindowMessage::LeftDown {
-            if self.get_capture().is_none() {
-                if let Some(window) = target_window.as_ref() {
-                    let _ = self.capture_mouse(window);
+        if self.get_capture().is_none() {
+            if let Some(grab_window) = self.get_grab_window() {
+                match msg {
+                    WindowMessage::LeftUp => {
+                        let should_send_release = {
+                            let mut window = grab_window.borrow_mut();
+                            window.clear_status(WindowStatus::ACTIVE);
+                            window.point_in_window(x, y)
+                                || window.get_status().contains(WindowStatus::DRAGABLE)
+                        };
+
+                        if should_send_release {
+                            let _ = grab_window.borrow_mut().send_input_message(msg, data, 0);
+                        }
+                        self.set_grab_window(None);
+                        return WindowInputReturnCode::Used;
+                    }
+                    WindowMessage::None | WindowMessage::LeftDrag => {
+                        let _ = grab_window.borrow_mut().send_input_message(msg, data, 0);
+                        return WindowInputReturnCode::Used;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1160,6 +1178,10 @@ impl WindowManager {
             let _ = window.borrow_mut().set_cursor_position(x - wx, y - wy);
             // Send message to window
             let result = window.borrow_mut().send_input_message(msg, data, 0);
+
+            if msg == WindowMessage::LeftDown && result == WindowMsgHandled::Handled {
+                self.set_grab_window(Some(&window));
+            }
 
             if msg == WindowMessage::MousePos {
                 if let Some(focus_window) = focus_window {
@@ -4888,9 +4910,7 @@ mod tests {
     fn test_focus_acceptance_can_come_from_parent() {
         let mut manager = WindowManager::new();
         let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-        let child = manager
-            .create_window(Some(&parent), 10, 10, 20, 20)
-            .unwrap();
+        let child = manager.create_window(Some(&parent), 10, 10, 20, 20).unwrap();
         parent
             .borrow_mut()
             .set_system_callback(|_, msg, data1, _| match msg {
@@ -5072,7 +5092,9 @@ mod tests {
     fn hide_window_clears_runtime_references_for_window_and_children_like_cpp() {
         let mut manager = WindowManager::new();
         let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-        let child = manager.create_window(Some(&parent), 10, 10, 20, 20).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 20, 20)
+            .unwrap();
 
         manager.keyboard_focus = Some(Rc::downgrade(&child));
         manager.capture_mouse(&child).unwrap();
@@ -5261,6 +5283,143 @@ mod tests {
         assert!(!first.borrow().is_hidden());
         assert!(Rc::ptr_eq(&manager.root_windows[0], &first));
         assert!(Rc::ptr_eq(&manager.root_windows[1], &second));
+    }
+
+    #[test]
+    fn left_up_on_grab_window_clears_active_and_grab_like_cpp() {
+        let mut manager = WindowManager::new();
+        let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        window.borrow_mut().set_status(WindowStatus::ACTIVE);
+        manager.set_grab_window(Some(&window));
+
+        let result = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert!(!window.borrow().get_status().contains(WindowStatus::ACTIVE));
+        assert!(manager.get_grab_window().is_none());
+    }
+
+    #[test]
+    fn left_up_on_grab_window_sends_release_to_grabbed_window_like_cpp() {
+        let mut manager = WindowManager::new();
+        let grabbed = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let other = manager.create_window(None, 200, 0, 100, 100).unwrap();
+        let grabbed_seen = Rc::new(RefCell::new(false));
+        let other_seen = Rc::new(RefCell::new(false));
+
+        {
+            let grabbed_seen = grabbed_seen.clone();
+            grabbed
+                .borrow_mut()
+                .set_input_callback(move |_, msg, _, _| {
+                    if msg == WindowMessage::LeftUp {
+                        *grabbed_seen.borrow_mut() = true;
+                        WindowMsgHandled::Handled
+                    } else {
+                        WindowMsgHandled::Ignored
+                    }
+                });
+        }
+        {
+            let other_seen = other_seen.clone();
+            other.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::LeftUp {
+                    *other_seen.borrow_mut() = true;
+                }
+                WindowMsgHandled::Handled
+            });
+        }
+
+        manager.set_grab_window(Some(&grabbed));
+        let result = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert!(*grabbed_seen.borrow());
+        assert!(!*other_seen.borrow());
+    }
+
+    #[test]
+    fn left_down_sets_grab_only_when_handled_like_cpp() {
+        let mut manager = WindowManager::new();
+        let handled = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        handled.borrow_mut().set_input_callback(|_, msg, _, _| {
+            if msg == WindowMessage::LeftDown {
+                WindowMsgHandled::Handled
+            } else {
+                WindowMsgHandled::Ignored
+            }
+        });
+
+        let result = manager.process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &handled));
+        assert!(manager.get_capture().is_none());
+
+        let mut manager = WindowManager::new();
+        let ignored = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        ignored
+            .borrow_mut()
+            .set_input_callback(|_, _, _, _| WindowMsgHandled::Ignored);
+
+        let result = manager.process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        assert!(manager.get_grab_window().is_none());
+        assert!(manager.get_capture().is_none());
+    }
+
+    #[test]
+    fn captured_mouse_event_clears_existing_grab_like_cpp() {
+        let mut manager = WindowManager::new();
+        let captured = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let grabbed = manager.create_window(None, 200, 0, 100, 100).unwrap();
+
+        manager.capture_mouse(&captured).unwrap();
+        manager.set_grab_window(Some(&grabbed));
+
+        let result = manager.process_mouse_event(WindowMessage::MousePos, 10, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::NotUsed);
+        assert!(manager.get_grab_window().is_none());
+    }
+
+    #[test]
+    fn left_drag_on_grab_window_routes_to_grabbed_window_like_cpp() {
+        let mut manager = WindowManager::new();
+        let grabbed = manager.create_window(None, 0, 0, 100, 100).unwrap();
+        let other = manager.create_window(None, 200, 0, 100, 100).unwrap();
+        let grabbed_seen = Rc::new(RefCell::new(false));
+        let other_seen = Rc::new(RefCell::new(false));
+
+        {
+            let grabbed_seen = grabbed_seen.clone();
+            grabbed
+                .borrow_mut()
+                .set_input_callback(move |_, msg, _, _| {
+                    if msg == WindowMessage::LeftDrag {
+                        *grabbed_seen.borrow_mut() = true;
+                    }
+                    WindowMsgHandled::Handled
+                });
+        }
+        {
+            let other_seen = other_seen.clone();
+            other.borrow_mut().set_input_callback(move |_, msg, _, _| {
+                if msg == WindowMessage::LeftDrag {
+                    *other_seen.borrow_mut() = true;
+                }
+                WindowMsgHandled::Handled
+            });
+        }
+
+        manager.set_grab_window(Some(&grabbed));
+        let result = manager.process_mouse_event(WindowMessage::LeftDrag, 210, 10, 0);
+
+        assert_eq!(result, WindowInputReturnCode::Used);
+        assert!(*grabbed_seen.borrow());
+        assert!(!*other_seen.borrow());
+        assert!(Rc::ptr_eq(&manager.get_grab_window().unwrap(), &grabbed));
     }
 
     #[test]
