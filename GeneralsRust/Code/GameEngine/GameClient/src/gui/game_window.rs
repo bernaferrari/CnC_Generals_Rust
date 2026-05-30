@@ -438,6 +438,7 @@ pub struct GameWindow {
     children: Vec<Rc<RefCell<GameWindow>>>,
     next_sibling: Option<Weak<RefCell<GameWindow>>>,
     prev_sibling: Option<Weak<RefCell<GameWindow>>>,
+    owner_is_self: bool,
 
     // Layout information
     next_in_layout: Option<Weak<RefCell<GameWindow>>>,
@@ -552,6 +553,7 @@ impl GameWindow {
             children: Vec::new(),
             next_sibling: None,
             prev_sibling: None,
+            owner_is_self: false,
             next_in_layout: None,
             prev_in_layout: None,
             layout: None,
@@ -1264,6 +1266,28 @@ impl GameWindow {
         self.parent = parent.map(Rc::downgrade);
     }
 
+    /// Get the window that receives gadget notifications from this window.
+    pub fn get_owner(&self) -> Option<Rc<RefCell<GameWindow>>> {
+        self.inst_data.owner.as_ref()?.upgrade()
+    }
+
+    /// Set the window that receives gadget notifications from this window.
+    pub fn set_owner(&mut self, owner: Option<&Rc<RefCell<GameWindow>>>) {
+        self.inst_data.owner = owner.map(Rc::downgrade);
+        self.owner_is_self = false;
+    }
+
+    /// Set the window owner to this window, matching C++ winSetOwner(NULL).
+    pub(crate) fn set_owner_self(&mut self, self_window: &Rc<RefCell<GameWindow>>) {
+        self.inst_data.owner = Some(Rc::downgrade(self_window));
+        self.owner_is_self = true;
+    }
+
+    /// Return whether this window's owner is itself.
+    pub fn owner_is_self(&self) -> bool {
+        self.owner_is_self
+    }
+
     /// Set the layout this window belongs to.
     pub fn set_layout(&mut self, layout: Option<&Rc<RefCell<super::WindowLayout>>>) {
         self.layout = layout.map(Rc::downgrade);
@@ -1839,7 +1863,11 @@ impl GameWindow {
         }
 
         let mut handled = false;
-        let target_parent = self.get_parent();
+        let target_owner = if self.get_parent().is_some() && !self.owner_is_self {
+            self.get_owner()
+        } else {
+            None
+        };
         for message in messages {
             let (msg, data1) = match message {
                 GadgetMessage::Clicked { .. } => (WindowMessage::GadgetSelected, self.id as u32),
@@ -1880,8 +1908,8 @@ impl GameWindow {
                 }
             };
 
-            let result = if let Some(ref parent) = target_parent {
-                parent.borrow_mut().send_system_message(msg, data1, 0)
+            let result = if let Some(ref owner) = target_owner {
+                owner.borrow_mut().send_system_message(msg, data1, 0)
             } else {
                 self.send_system_message(msg, data1, 0)
             };
@@ -3145,6 +3173,101 @@ mod tests {
 
         assert_eq!(window.get_text_length(), 3);
         assert_eq!(window.get_text().len(), 6);
+    }
+
+    #[test]
+    fn gadget_messages_route_to_owner_not_parent_like_cpp() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let parent_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        let child = Rc::new(RefCell::new(GameWindow::new()));
+
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_window, msg, data1, _data2| {
+                    owner_seen.borrow_mut().push((msg, data1));
+                    WindowMsgHandled::Handled
+                });
+        }
+        {
+            let parent_seen = parent_seen.clone();
+            parent
+                .borrow_mut()
+                .set_system_callback(move |_window, msg, data1, _data2| {
+                    parent_seen.borrow_mut().push((msg, data1));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut button = PushButton::new(7, 0, 0, 20, 20);
+        button.set_triggers_on_mouse_down(true);
+
+        {
+            let mut child = child.borrow_mut();
+            child.set_id(7);
+            child.enable(true).unwrap();
+            child.set_parent(Some(&parent));
+            child.set_owner(Some(&owner));
+            child.set_widget(WindowWidget::PushButton(button));
+        }
+        parent.borrow_mut().enable(true).unwrap();
+
+        assert_eq!(
+            child
+                .borrow_mut()
+                .send_input_message(WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[(WindowMessage::GadgetSelected, 7)]
+        );
+        assert!(parent_seen.borrow().is_empty());
+    }
+
+    #[test]
+    fn gadget_messages_to_self_owner_do_not_reborrow_window() {
+        let seen = Rc::new(RefCell::new(Vec::new()));
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        let child = Rc::new(RefCell::new(GameWindow::new()));
+
+        {
+            let seen = seen.clone();
+            child
+                .borrow_mut()
+                .set_system_callback(move |_window, msg, data1, _data2| {
+                    seen.borrow_mut().push((msg, data1));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut button = PushButton::new(11, 0, 0, 20, 20);
+        button.set_triggers_on_mouse_down(true);
+
+        {
+            let mut child_mut = child.borrow_mut();
+            child_mut.set_id(11);
+            child_mut.enable(true).unwrap();
+            child_mut.set_parent(Some(&parent));
+            child_mut.set_owner_self(&child);
+            child_mut.set_widget(WindowWidget::PushButton(button));
+        }
+        parent.borrow_mut().enable(true).unwrap();
+
+        assert_eq!(
+            child
+                .borrow_mut()
+                .send_input_message(WindowMessage::LeftDown, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            seen.borrow().as_slice(),
+            &[(WindowMessage::GadgetSelected, 11)]
+        );
     }
 
     #[test]
