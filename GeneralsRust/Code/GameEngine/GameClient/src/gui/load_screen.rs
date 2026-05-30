@@ -1126,8 +1126,8 @@ fn initialize_multiplayer_windows(
         }
     });
     for slot in 0..MAX_LOAD_SCREEN_SLOTS {
+        set_progress_window(wm, &format!("{prefix}:ProgressLoad{slot}"), 0.0);
         if let Some(slot_context) = slots.get(slot) {
-            set_progress_window(wm, &format!("{prefix}:ProgressLoad{slot}"), 0.0);
             if let Some(progress_image) = multiplayer_progress_bar_image(slot_context) {
                 set_window_image(
                     wm,
@@ -2123,6 +2123,59 @@ mod tests {
 
         assert_eq!(
             progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn multiplayer_init_resets_all_progress_bars_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_multiplayer_load_screen_state();
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 3);
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+
+        for slot in 0..3 {
+            let name = format!("MultiplayerLoadScreen.wnd:ProgressLoad{slot}");
+            wm.find_window_by_name(&name)
+                .expect("progress")
+                .borrow_mut()
+                .progress_bar_mut()
+                .expect("progress widget")
+                .set_value(0.87);
+        }
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Alice".to_string(),
+            local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
+            local_team_number: 0,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
+        };
+
+        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+        with_window_manager(|global_wm| {
+            *global_wm = wm;
+        });
+
+        assert_eq!(
+            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+            Some(0.0)
+        );
+        assert_eq!(
+            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
+            Some(0.0)
+        );
+        assert_eq!(
+            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad2"),
             Some(0.0)
         );
     }
