@@ -32,35 +32,35 @@ pub const SHELL_SCRIPT_HOOK_LAN_ENTERED_FROM_GAME: i32 = 28;
 pub const SHELL_SCRIPT_HOOK_TOTAL: i32 = 29;
 
 pub const THE_SHELL_HOOK_NAMES: [&str; SHELL_SCRIPT_HOOK_TOTAL as usize] = [
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_CAMPAIGN_SELECTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_CAMPAIGN_HIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_CAMPAIGN_UNHIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_SKIRMISH_SELECTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_SKIRMISH_HIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_SKIRMISH_UNHIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_SELECTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_HIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_UNHIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_HIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_UNHIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_NETWORK_SELECTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_NETWORK_HIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_NETWORK_UNHIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_HIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_UNHIGHLIGHTED",
-    "SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN",
-    "SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGOUT",
-    "SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME",
-    "SHELL_SCRIPT_HOOK_OPTIONS_OPENED",
-    "SHELL_SCRIPT_HOOK_OPTIONS_CLOSED",
-    "SHELL_SCRIPT_HOOK_SKIRMISH_OPENED",
-    "SHELL_SCRIPT_HOOK_SKIRMISH_CLOSED",
-    "SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME",
-    "SHELL_SCRIPT_HOOK_LAN_OPENED",
-    "SHELL_SCRIPT_HOOK_LAN_CLOSED",
-    "SHELL_SCRIPT_HOOK_LAN_ENTERED_FROM_GAME",
+    "ShellMainMenuCampaignPushed",
+    "ShellMainMenuCampaignHighlighted",
+    "ShellMainMenuCampaignUnhighlighted",
+    "ShellMainMenuSkirmishPushed",
+    "ShellMainMenuSkirmishHighlighted",
+    "ShellMainMenuSkirmishUnhighlighted",
+    "ShellMainMenuOptionsPushed",
+    "ShellMainMenuOptionsHighlighted",
+    "ShellMainMenuOptionsUnhighlighted",
+    "ShellMainMenuOnlinePushed",
+    "ShellMainMenuOnlineHighlighted",
+    "ShellMainMenuOnlineUnhighlighted",
+    "ShellMainMenuNetworkPushed",
+    "ShellMainMenuNetworkHighlighted",
+    "ShellMainMenuNetworkUnhighlighted",
+    "ShellMainMenuExitPushed",
+    "ShellMainMenuExitHighlighted",
+    "ShellMainMenuExitUnhighlighted",
+    "ShellGeneralsOnlineLogin",
+    "ShellGeneralsOnlineLogout",
+    "ShellGeneralsOnlineEnteredFromGame",
+    "ShellOptionsOpened",
+    "ShellOptionsClosed",
+    "ShellSkirmishOpened",
+    "ShellSkirmishClosed",
+    "ShellSkirmishEnteredFromGame",
+    "ShellLANOpened",
+    "ShellLANClosed",
+    "ShellLANEnteredFromGame",
 ];
 
 pub fn signal_ui_interaction(interaction: i32) {
@@ -68,5 +68,43 @@ pub fn signal_ui_interaction(interaction: i32) {
         // PARITY_NOTE: script hooks in Rust are ultimately keyed by their canonical script names.
         // This compatibility table preserves the legacy integer-to-name mapping expected by shell code.
         TheScriptEngine::signal_ui_interact(hook_name);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn shell_hook_names_match_cpp_script_table() {
+        assert_eq!(THE_SHELL_HOOK_NAMES.len(), SHELL_SCRIPT_HOOK_TOTAL as usize);
+        assert_eq!(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_CAMPAIGN_SELECTED as usize],
+            "ShellMainMenuCampaignPushed"
+        );
+        assert_eq!(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_SKIRMISH_SELECTED as usize],
+            "ShellMainMenuSkirmishPushed"
+        );
+        assert_eq!(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_HIGHLIGHTED as usize],
+            "ShellMainMenuOptionsHighlighted"
+        );
+        assert_eq!(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_MAIN_MENU_NETWORK_UNHIGHLIGHTED as usize],
+            "ShellMainMenuNetworkUnhighlighted"
+        );
+        assert_eq!(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_GENERALS_ONLINE_ENTERED_FROM_GAME as usize],
+            "ShellGeneralsOnlineEnteredFromGame"
+        );
+        assert_eq!(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_SKIRMISH_ENTERED_FROM_GAME as usize],
+            "ShellSkirmishEnteredFromGame"
+        );
+        assert_eq!(
+            THE_SHELL_HOOK_NAMES[SHELL_SCRIPT_HOOK_LAN_CLOSED as usize],
+            "ShellLANClosed"
+        );
     }
 }
