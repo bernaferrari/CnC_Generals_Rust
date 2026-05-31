@@ -921,6 +921,45 @@ impl TextEntry {
         self.trigger_change_callback();
     }
 
+    /// Append text as C++ GadgetTextEntryInput does for GWM_IME_CHAR.
+    fn append_input_text(&mut self, text: &str) {
+        let validated = self.validate_text(text);
+        if validated.is_empty() {
+            return;
+        }
+
+        if self.text.len() >= self.max_length {
+            return;
+        }
+
+        let remaining = self.max_length.saturating_sub(self.text.len());
+        let appended: String = validated.chars().take(remaining).collect();
+        if appended.is_empty() {
+            return;
+        }
+
+        self.text.push_str(&appended);
+        self.cursor_position = self.text.len();
+        self.clear_selection();
+        self.update_displayed_text();
+        self.add_to_history();
+        self.trigger_change_callback();
+    }
+
+    /// Remove the final input character as C++ text entry backspace does.
+    fn remove_last_input_char(&mut self) {
+        if self.text.is_empty() {
+            return;
+        }
+
+        self.text.pop();
+        self.cursor_position = self.text.len();
+        self.clear_selection();
+        self.update_displayed_text();
+        self.add_to_history();
+        self.trigger_change_callback();
+    }
+
     /// Insert a single character
     fn insert_char(&mut self, ch: char) {
         if self.text.len() >= self.max_length {
@@ -1343,12 +1382,12 @@ impl Gadget for TextEntry {
 
                 match key {
                     KeyCode::Backspace => {
-                        self.delete_before_cursor();
+                        self.remove_last_input_char();
                     }
 
                     KeyCode::Enter => {
                         if self.is_multiline {
-                            self.insert_char('\n');
+                            self.append_input_text("\n");
                         } else {
                             // Submit the text entry
                             self.trigger_submit_callback();
@@ -1374,7 +1413,7 @@ impl Gadget for TextEntry {
                     }
 
                     KeyCode::Char(ch) => {
-                        self.insert_char(*ch);
+                        self.append_input_text(&ch.to_string());
                     }
 
                     _ => {}
@@ -1391,10 +1430,7 @@ impl Gadget for TextEntry {
             InputEvent::TextInput { text } => {
                 if self.focused {
                     let before = self.text.clone();
-                    if self.has_selection() {
-                        self.delete_selection();
-                    }
-                    self.insert_text(text);
+                    self.append_input_text(text);
                     if self.text != before {
                         messages.push(GadgetMessage::ValueChanged {
                             gadget_id: self.id,
@@ -1733,6 +1769,64 @@ mod tests {
                 gadget_id: 1,
                 value: GadgetValue::String(text)
             }] if text == "A"
+        ));
+    }
+
+    #[test]
+    fn text_entry_input_appends_and_backspaces_from_end_like_cpp() {
+        let mut entry = TextEntry::new(1, 0, 0, 100, 30);
+        entry.set_text("Hello World");
+        entry.cursor_position = 6;
+        entry.set_focus(true);
+
+        let messages = entry.handle_input(&InputEvent::TextInput {
+            text: "X".to_string(),
+        });
+        assert_eq!(entry.text(), "Hello WorldX");
+        assert_eq!(entry.cursor_position, entry.text().len());
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 1,
+                value: GadgetValue::String(value)
+            }] if value == "Hello WorldX"
+        ));
+
+        let messages = entry.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Backspace,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(entry.text(), "Hello World");
+        assert_eq!(entry.cursor_position, entry.text().len());
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 1,
+                value: GadgetValue::String(value)
+            }] if value == "Hello World"
+        ));
+    }
+
+    #[test]
+    fn text_entry_char_key_appends_like_cpp() {
+        let mut entry = TextEntry::new(1, 0, 0, 100, 30);
+        entry.set_text("AB");
+        entry.cursor_position = 1;
+        entry.set_focus(true);
+
+        let messages = entry.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Char('Z'),
+            modifiers: KeyModifiers::none(),
+        });
+
+        assert_eq!(entry.text(), "ABZ");
+        assert_eq!(entry.cursor_position, entry.text().len());
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 1,
+                value: GadgetValue::String(value)
+            }] if value == "ABZ"
         ));
     }
 
