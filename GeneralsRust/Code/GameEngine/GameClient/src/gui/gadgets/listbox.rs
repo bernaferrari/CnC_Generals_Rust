@@ -454,6 +454,25 @@ impl ListBox {
             .and_then(|data| data.as_ref())
     }
 
+    pub fn set_item_data_at(
+        &mut self,
+        row: i32,
+        column: i32,
+        data: Option<ListBoxItemData>,
+    ) -> bool {
+        if row < 0 || column < 0 {
+            return false;
+        }
+        self.set_item_column_user_data(row as usize, column as usize, data)
+    }
+
+    pub fn get_item_data_at(&self, row: i32, column: i32) -> Option<&ListBoxItemData> {
+        if row < 0 || column < 0 {
+            return None;
+        }
+        self.get_item_column_user_data(row as usize, column as usize)
+    }
+
     pub fn get_text_and_color(&self, row: i32, column: i32) -> ListBoxTextAndColor {
         let empty = || ListBoxTextAndColor {
             text: String::new(),
@@ -1437,5 +1456,27 @@ mod tests {
         assert_eq!(multi.get_selection(), ListBoxSelection::Multiple(Vec::new()));
         multi.set_selected_indices(&[0, 2]);
         assert_eq!(multi.get_selection(), ListBoxSelection::Multiple(vec![0, 2]));
+    }
+
+    #[test]
+    fn item_data_at_matches_cpp_signed_row_column_rules() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.set_columns(2);
+        listbox.add_item_with_id(10, "Alpha");
+
+        assert!(listbox.set_item_data_at(0, 1, Some(ListBoxItemData::Integer(99))));
+        assert!(matches!(
+            listbox.get_item_data_at(0, 1),
+            Some(ListBoxItemData::Integer(99))
+        ));
+
+        assert!(listbox.set_item_data_at(0, 1, None));
+        assert!(listbox.get_item_data_at(0, 1).is_none());
+        assert!(!listbox.set_item_data_at(-1, 0, Some(ListBoxItemData::Integer(1))));
+        assert!(!listbox.set_item_data_at(0, -1, Some(ListBoxItemData::Integer(1))));
+        assert!(!listbox.set_item_data_at(1, 0, Some(ListBoxItemData::Integer(1))));
+        assert!(listbox.get_item_data_at(-1, 0).is_none());
+        assert!(listbox.get_item_data_at(0, -1).is_none());
+        assert!(listbox.get_item_data_at(1, 0).is_none());
     }
 }
