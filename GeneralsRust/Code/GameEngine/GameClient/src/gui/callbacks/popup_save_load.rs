@@ -7,7 +7,6 @@ use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::menu_flags::{
     get_dont_show_main_menu, get_replay_was_pressed, set_replay_was_pressed,
 };
-use crate::gui::message_box_ok;
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
     get_shell, with_window_manager, GameWindow, KeyModifiers, WindowLayout, WindowMessage,
@@ -178,6 +177,21 @@ fn load_controls(state: &mut SaveLoadMenuState, parent_id: i32, prefix: &str) {
     });
 }
 
+fn normalize_default_save_description_from_map_name(mut default_desc: String) -> String {
+    if let Some(pos) = default_desc.rfind('\\') {
+        default_desc = default_desc[pos + 1..].to_string();
+    }
+
+    let char_len = default_desc.chars().count();
+    if char_len >= 4 && default_desc.chars().nth(char_len - 4) == Some('.') {
+        for _ in 0..4 {
+            let _ = default_desc.pop();
+        }
+    }
+
+    default_desc
+}
+
 fn set_edit_description(edit_control: &Rc<RefCell<GameWindow>>) {
     let mut default_desc = String::new();
     let mut used_campaign = false;
@@ -209,14 +223,7 @@ fn set_edit_description(edit_control: &Rc<RefCell<GameWindow>>) {
         return;
     }
 
-    if let Some(pos) = default_desc.rfind(['\\', '/']) {
-        default_desc = default_desc[pos + 1..].to_string();
-    }
-
-    let lower = default_desc.to_ascii_lowercase();
-    if lower.ends_with(".map") && default_desc.len() >= 4 {
-        default_desc.truncate(default_desc.len() - 4);
-    }
+    default_desc = normalize_default_save_description_from_map_name(default_desc);
 
     if let Some(widget) = edit_control.borrow_mut().text_entry_mut() {
         widget.set_text(default_desc);
@@ -286,6 +293,37 @@ fn populate_save_game_listbox(state: &mut SaveLoadMenuState) {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_save_description_uses_cpp_backslash_only_path_strip() {
+        assert_eq!(
+            normalize_default_save_description_from_map_name(
+                "Maps\\USA\\Mission01.map".to_string()
+            ),
+            "Mission01"
+        );
+        assert_eq!(
+            normalize_default_save_description_from_map_name("Maps/USA/Mission01.map".to_string()),
+            "Maps/USA/Mission01"
+        );
+    }
+
+    #[test]
+    fn default_save_description_strips_any_cpp_four_char_extension() {
+        assert_eq!(
+            normalize_default_save_description_from_map_name("Skirmish.foo".to_string()),
+            "Skirmish"
+        );
+        assert_eq!(
+            normalize_default_save_description_from_map_name("Skirmish.long".to_string()),
+            "Skirmish.long"
+        );
+    }
+}
+
 fn selected_game_info(state: &SaveLoadMenuState) -> Option<AvailableGameInfo> {
     let listbox = state.listbox_games_window.as_ref()?;
     let mut listbox_guard = listbox.borrow_mut();
@@ -335,10 +373,6 @@ fn do_load_game(state: &SaveLoadMenuState) {
     };
 
     let shell_active = get_shell().is_shell_active();
-    let filepath = {
-        let game_state = get_game_state();
-        game_state.get_file_path_in_save_directory(&selected.filename)
-    };
     if !shell_active {
         destroy_quit_menu();
     } else {
@@ -362,15 +396,6 @@ fn do_load_game(state: &SaveLoadMenuState) {
             let _ = pollster::block_on(engine.reset());
         }
         let _ = get_shell().show_shell(true);
-        let template = GameText::fetch("GUI:ErrorLoadingGame");
-        let filepath_str = filepath.to_string_lossy();
-        let mut body = template
-            .replace("%S", filepath_str.as_ref())
-            .replace("%s", filepath_str.as_ref());
-        if body == template {
-            body = format!("{} {}", template, filepath_str);
-        }
-        let _ = message_box_ok(&GameText::fetch("GUI:Error"), &body, None);
     }
 }
 
