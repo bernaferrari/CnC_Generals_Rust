@@ -59,8 +59,7 @@ fn parse_enabled(
     data: &mut TensileFormationUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.enabled = INI::parse_bool(token)?;
+    data.enabled = INI::parse_bool(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -69,13 +68,21 @@ fn parse_crack_sound(
     data: &mut TensileFormationUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         data.crack_sound = AudioEventRts::default();
     } else {
-        data.crack_sound = AudioEventRts::new(*token);
+        data.crack_sound = AudioEventRts::new(INI::parse_ascii_string(token)?);
     }
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    match tokens {
+        ["=", value, ..] => Ok(*value),
+        [value, ..] if *value != "=" => Ok(*value),
+        _ => Err(INIError::InvalidData),
+    }
 }
 
 const TENSILE_FORMATION_UPDATE_FIELDS: &[FieldParse<TensileFormationUpdateModuleData>] = &[
@@ -630,4 +637,54 @@ pub fn tensile_formation_update_module_factory(
         &module_name,
         module_data_arc,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_match_cpp_constructor() {
+        let data = TensileFormationUpdateModuleData::default();
+
+        assert!(!data.enabled);
+        assert_eq!(data.crack_sound.get_event_name(), "");
+    }
+
+    #[test]
+    fn field_parsers_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = TensileFormationUpdateModuleData::default();
+
+        parse_enabled(&mut ini, &mut data, &["=", "yes"]).unwrap();
+        parse_crack_sound(&mut ini, &mut data, &["=", "AvalancheCrack"]).unwrap();
+
+        assert!(data.enabled);
+        assert_eq!(data.crack_sound.get_event_name(), "AvalancheCrack");
+    }
+
+    #[test]
+    fn crack_sound_none_clears_audio_event() {
+        let mut ini = INI::new();
+        let mut data = TensileFormationUpdateModuleData {
+            crack_sound: AudioEventRts::new("AvalancheCrack"),
+            ..Default::default()
+        };
+
+        parse_crack_sound(&mut ini, &mut data, &["=", "NONE"]).unwrap();
+
+        assert_eq!(data.crack_sound.get_event_name(), "");
+    }
+
+    #[test]
+    fn field_parsers_reject_missing_values() {
+        let mut ini = INI::new();
+        let mut data = TensileFormationUpdateModuleData::default();
+
+        let enabled_err = parse_enabled(&mut ini, &mut data, &["="]).unwrap_err();
+        let crack_err = parse_crack_sound(&mut ini, &mut data, &["="]).unwrap_err();
+
+        assert!(matches!(enabled_err, INIError::InvalidData));
+        assert!(matches!(crack_err, INIError::InvalidData));
+    }
 }
