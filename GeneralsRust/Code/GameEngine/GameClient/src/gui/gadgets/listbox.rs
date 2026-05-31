@@ -74,6 +74,15 @@ pub enum ListBoxSelection {
     Multiple(Vec<i32>),
 }
 
+#[derive(Debug, Clone)]
+pub struct ListBoxAddEntry {
+    pub row: i32,
+    pub column: i32,
+    pub overwrite: bool,
+    pub data: ListBoxItemData,
+    pub color: Option<Color>,
+}
+
 /// Selection mode for list boxes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionMode {
@@ -343,6 +352,125 @@ impl ListBox {
         let mut item = ListBoxItem::new(id, text);
         item.data = data;
         self.push_item(item);
+    }
+
+    pub fn add_entry(&mut self, entry: ListBoxAddEntry) -> i32 {
+        if entry.column < -1 || entry.column >= self.columns as i32 || entry.row < -1 {
+            return -1;
+        }
+
+        let column = if entry.column == -1 {
+            0
+        } else {
+            entry.column as usize
+        };
+        let mut row = if entry.row >= self.items.len() as i32 {
+            -1
+        } else {
+            entry.row
+        };
+
+        let needs_new_row = row == -1 || !entry.overwrite;
+        if needs_new_row && self.max_length > 0 && self.items.len() >= self.max_length {
+            if !self.auto_purge {
+                return -1;
+            }
+            if !self.scroll_buffer(1) {
+                return -1;
+            }
+        }
+
+        let inserted = if row == -1 {
+            let item = ListBoxItem::new(self.items.len() as i32, "");
+            self.push_item(item)
+        } else {
+            let row_index = row as usize;
+            if !entry.overwrite {
+                self.insert_blank_row(row_index);
+            }
+            row_index
+        };
+        row = inserted as i32;
+
+        self.apply_entry_to_cell(inserted, column, entry.data, entry.color);
+
+        if self.selection_mode == SelectionMode::Multiple {
+            self.selected_indices.retain(|&index| index == 0);
+            self.last_selected = self.selected_indices.last().copied();
+        } else if self.selected_indices.first() == Some(&inserted) {
+            self.selected_indices.clear();
+            self.last_selected = None;
+        }
+
+        self.update_after_entry_added(inserted);
+        row
+    }
+
+    fn insert_blank_row(&mut self, index: usize) {
+        self.items.insert(index, ListBoxItem::new(index as i32, ""));
+        for selected in &mut self.selected_indices {
+            if *selected >= index {
+                *selected += 1;
+            }
+        }
+        if let Some(last) = self.last_selected.as_mut() {
+            if *last >= index {
+                *last += 1;
+            }
+        }
+        if self.scroll_offset >= index {
+            self.scroll_offset += 1;
+        }
+    }
+
+    fn apply_entry_to_cell(
+        &mut self,
+        row: usize,
+        column: usize,
+        data: ListBoxItemData,
+        color: Option<Color>,
+    ) {
+        let Some(item) = self.items.get_mut(row) else {
+            return;
+        };
+
+        if item.column_data.len() <= column {
+            item.column_data
+                .resize_with(column + 1, || ListBoxItemData::Integer(0));
+            item.column_colors.resize_with(column + 1, || None);
+            item.column_user_data.resize_with(column + 1, || None);
+        }
+
+        match &data {
+            ListBoxItemData::Text(text) if column == 0 => {
+                item.text = if text.is_empty() {
+                    " ".to_string()
+                } else {
+                    text.clone()
+                };
+                item.text_color = color;
+            }
+            ListBoxItemData::Image { .. } if column == 0 => {
+                item.text.clear();
+                item.text_color = None;
+            }
+            _ => {}
+        }
+
+        let is_image = matches!(data, ListBoxItemData::Image { .. });
+        item.column_data[column] = data;
+        item.column_colors[column] =
+            color.or_else(|| is_image.then(|| Color::new(255, 255, 255, 255)));
+    }
+
+    fn update_after_entry_added(&mut self, row: usize) {
+        if self.force_select && self.selected_indices.is_empty() {
+            self.selected_indices.push(row);
+            self.last_selected = Some(row);
+        }
+        if self.auto_scroll {
+            self.ensure_visible(row);
+        }
     }
 
     pub fn set_item_data(&mut self, index: usize, data: Option<ListBoxItemData>) -> bool {
@@ -1478,5 +1606,209 @@ mod tests {
         assert!(listbox.get_item_data_at(-1, 0).is_none());
         assert!(listbox.get_item_data_at(0, -1).is_none());
         assert!(listbox.get_item_data_at(1, 0).is_none());
+    }
+
+    #[test]
+    fn add_entry_appends_and_writes_columns_like_cpp() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.set_columns(2);
+
+        let row = listbox.add_entry(ListBoxAddEntry {
+            row: -1,
+            column: -1,
+            overwrite: true,
+            data: ListBoxItemData::Text("Alpha".to_string()),
+            color: Some(Color::new(10, 20, 30, 40)),
+        });
+        assert_eq!(row, 0);
+
+        let same_row = listbox.add_entry(ListBoxAddEntry {
+            row: 0,
+            column: 1,
+            overwrite: true,
+            data: ListBoxItemData::Text("Bravo".to_string()),
+            color: Some(Color::new(50, 60, 70, 80)),
+        });
+        assert_eq!(same_row, 0);
+
+        assert_eq!(
+            listbox.get_text_and_color(0, 0),
+            ListBoxTextAndColor {
+                text: "Alpha".to_string(),
+                color: Color::new(10, 20, 30, 40),
+            }
+        );
+        assert_eq!(
+            listbox.get_text_and_color(0, 1),
+            ListBoxTextAndColor {
+                text: "Bravo".to_string(),
+                color: Color::new(50, 60, 70, 80),
+            }
+        );
+    }
+
+    #[test]
+    fn add_entry_insert_and_overwrite_selection_rules_match_cpp() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 60);
+        listbox.add_item_with_id(10, "Alpha");
+        listbox.add_item_with_id(20, "Bravo");
+        listbox.select_index(1, KeyModifiers::none());
+
+        let inserted = listbox.add_entry(ListBoxAddEntry {
+            row: 1,
+            column: 0,
+            overwrite: false,
+            data: ListBoxItemData::Text("Inserted".to_string()),
+            color: None,
+        });
+        assert_eq!(inserted, 1);
+        assert_eq!(
+            listbox
+                .items()
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Alpha", "Inserted", "Bravo"]
+        );
+        assert_eq!(listbox.selected_indices(), &[2]);
+
+        let overwritten = listbox.add_entry(ListBoxAddEntry {
+            row: 2,
+            column: 0,
+            overwrite: true,
+            data: ListBoxItemData::Text("Overwritten".to_string()),
+            color: None,
+        });
+        assert_eq!(overwritten, 2);
+        assert!(listbox.selected_indices().is_empty());
+        assert_eq!(listbox.items()[2].text, "Overwritten");
+    }
+
+    #[test]
+    fn add_entry_capacity_and_auto_purge_match_cpp_buffer_rules() {
+        let mut full = ListBox::new(7, 0, 0, 100, 40);
+        full.set_max_length(2);
+        full.add_item_with_id(10, "Alpha");
+        full.add_item_with_id(20, "Bravo");
+        assert_eq!(
+            full.add_entry(ListBoxAddEntry {
+                row: -1,
+                column: 0,
+                overwrite: true,
+                data: ListBoxItemData::Text("Charlie".to_string()),
+                color: None,
+            }),
+            -1
+        );
+        assert_eq!(full.items().len(), 2);
+
+        assert_eq!(
+            full.add_entry(ListBoxAddEntry {
+                row: 1,
+                column: 0,
+                overwrite: true,
+                data: ListBoxItemData::Text("Replaced".to_string()),
+                color: None,
+            }),
+            1
+        );
+        assert_eq!(
+            full.items()
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Alpha", "Replaced"]
+        );
+
+        let mut purging = ListBox::new(8, 0, 0, 100, 40);
+        purging.set_max_length(2);
+        purging.set_auto_purge(true);
+        purging.add_item_with_id(10, "Alpha");
+        purging.add_item_with_id(20, "Bravo");
+        purging.select_index(0, KeyModifiers::none());
+
+        assert_eq!(
+            purging.add_entry(ListBoxAddEntry {
+                row: -1,
+                column: 0,
+                overwrite: true,
+                data: ListBoxItemData::Text("Charlie".to_string()),
+                color: None,
+            }),
+            1
+        );
+        assert_eq!(
+            purging
+                .items()
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Bravo", "Charlie"]
+        );
+        assert_eq!(purging.selected_indices(), &[0]);
+
+        let mut insert_purging = ListBox::new(9, 0, 0, 100, 40);
+        insert_purging.set_max_length(2);
+        insert_purging.set_auto_purge(true);
+        insert_purging.add_item_with_id(10, "Alpha");
+        insert_purging.add_item_with_id(20, "Bravo");
+
+        assert_eq!(
+            insert_purging.add_entry(ListBoxAddEntry {
+                row: 1,
+                column: 0,
+                overwrite: false,
+                data: ListBoxItemData::Text("Inserted".to_string()),
+                color: None,
+            }),
+            1
+        );
+        assert_eq!(
+            insert_purging
+                .items()
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Bravo", "Inserted"]
+        );
+    }
+
+    #[test]
+    fn add_entry_stores_image_entries_like_cpp_image_path() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+
+        assert_eq!(
+            listbox.add_entry(ListBoxAddEntry {
+                row: -1,
+                column: 0,
+                overwrite: true,
+                data: ListBoxItemData::Image {
+                    name: "icon".to_string(),
+                    width: 16,
+                    height: 12,
+                    text: Some("Icon".to_string()),
+                },
+                color: None,
+            }),
+            0
+        );
+
+        assert!(matches!(
+            listbox.items()[0].column_data.first(),
+            Some(ListBoxItemData::Image {
+                name,
+                width: 16,
+                height: 12,
+                text: Some(text),
+            }) if name == "icon" && text == "Icon"
+        ));
+        assert_eq!(
+            listbox.items()[0].column_colors.first(),
+            Some(&Some(Color::new(255, 255, 255, 255)))
+        );
+        assert_eq!(listbox.get_text_and_color(0, 0), ListBoxTextAndColor {
+            text: String::new(),
+            color: Color::new(0, 0, 0, 0),
+        });
     }
 }
