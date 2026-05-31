@@ -365,7 +365,8 @@ impl Gadget for CheckBox {
                 }
                 if *button == MouseButton::Right {
                     if self.checked {
-                        self.set_checked(false);
+                        self.checked = false;
+                        self.animation_time = 0.0;
                         return vec![GadgetMessage::RightClicked { gadget_id: self.id }];
                     } else {
                         return Vec::new();
@@ -497,6 +498,10 @@ impl CheckBoxBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     #[test]
     fn test_checkbox_creation() {
@@ -559,5 +564,29 @@ mod tests {
         });
         assert!(checkbox.is_checked());
         assert!(!messages.is_empty());
+    }
+
+    #[test]
+    fn right_click_clears_checked_without_normal_callback_like_cpp() {
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let callback_count_for_closure = Arc::clone(&callback_count);
+        let mut checkbox = CheckBox::new(1, 10, 20, 20)
+            .with_checked(true)
+            .with_callback(move |_| {
+                callback_count_for_closure.fetch_add(1, Ordering::SeqCst);
+            });
+
+        let messages = checkbox.handle_input(&InputEvent::MouseUp {
+            x: 15,
+            y: 25,
+            button: MouseButton::Right,
+        });
+
+        assert!(!checkbox.is_checked());
+        assert_eq!(callback_count.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::RightClicked { gadget_id: 1 }]
+        ));
     }
 }
