@@ -898,28 +898,28 @@ impl GlobalData {
             auto_aflame_particle_system: String::new(),
             auto_aflame_particle_max: 30,
 
-            net_min_players: 2,
+            net_min_players: 1,
             default_ip: 0,
             firewall_behavior: 0,
             firewall_send_delay: false,
             firewall_port_override: 0,
             firewall_port_allocation_delta: 0,
 
-            base_value_per_supply_box: 200,
-            build_speed: 1.0,
-            min_dist_from_edge_of_map_for_build: 25.0,
-            supply_build_border: 150.0,
-            allowed_height_variation_for_building: 5.0,
-            min_low_energy_production_speed: 0.25,
-            max_low_energy_production_speed: 1.0,
-            low_energy_penalty_modifier: 0.5,
-            multiple_factory: 1.0,
-            refund_percent: 0.8,
+            base_value_per_supply_box: 100,
+            build_speed: 0.0,
+            min_dist_from_edge_of_map_for_build: 0.0,
+            supply_build_border: 0.0,
+            allowed_height_variation_for_building: 0.0,
+            min_low_energy_production_speed: 0.0,
+            max_low_energy_production_speed: 0.0,
+            low_energy_penalty_modifier: 0.0,
+            multiple_factory: 0.0,
+            refund_percent: 0.0,
 
-            command_center_heal_range: 100.0,
-            command_center_heal_amount: 5.0,
-            max_line_build_objects: 20,
-            max_tunnel_capacity: 8,
+            command_center_heal_range: 0.0,
+            command_center_heal_amount: 0.0,
+            max_line_build_objects: 0,
+            max_tunnel_capacity: 0,
 
             horizontal_scroll_speed_factor: 1.0,
             vertical_scroll_speed_factor: 1.0,
@@ -927,15 +927,15 @@ impl GlobalData {
             camera_adjust_speed: 2.0,
             enforce_max_camera_height: true,
 
-            build_map_cache: true,
+            build_map_cache: false,
             initial_file: String::new(),
             pending_file: String::new(),
 
-            max_particle_count: 5000,
-            max_field_particle_count: 1000,
+            max_particle_count: 0,
+            max_field_particle_count: 30,
 
-            health_bonus: [0.0, 0.1, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0], // C++ has 8 levels (LEVEL_COUNT=8)
-            default_structure_rubble_height: 8.0,
+            health_bonus: [1.0; LEVEL_COUNT],
+            default_structure_rubble_height: 1.0,
 
             shell_map_name: String::new(),
             shell_map_on: true,
@@ -962,42 +962,42 @@ impl GlobalData {
 
             movement_penalty_damage_state: BodyDamageType::ReallyDamaged,
 
-            group_select_min_select_size: 2,
-            group_select_volume_base: 0.7,
-            group_select_volume_increment: 0.1,
-            max_unit_select_sounds: 4,
+            group_select_min_select_size: 5,
+            group_select_volume_base: 0.5,
+            group_select_volume_increment: 0.02,
+            max_unit_select_sounds: 8,
 
-            selection_flash_saturation_factor: 0.0,
+            selection_flash_saturation_factor: 0.5,
             selection_flash_house_color: false,
 
-            camera_audible_radius: 200.0,
-            group_move_click_to_gather_factor: 0.0,
+            camera_audible_radius: 500.0,
+            group_move_click_to_gather_factor: 1.0,
 
             anti_alias_box_value: 0,
-            language_filter_pref: false,
+            language_filter_pref: true,
             load_screen_demo: false,
             disable_render: false,
 
             save_camera_in_replay: false,
             use_camera_in_replay: false,
 
-            shake_subtle_intensity: 2.0,
-            shake_normal_intensity: 5.0,
-            shake_strong_intensity: 10.0,
-            shake_severe_intensity: 20.0,
-            shake_cine_extreme_intensity: 40.0,
-            shake_cine_insane_intensity: 80.0,
-            max_shake_intensity: 100.0,
-            max_shake_range: 200.0,
+            shake_subtle_intensity: 0.5,
+            shake_normal_intensity: 1.0,
+            shake_strong_intensity: 2.5,
+            shake_severe_intensity: 5.0,
+            shake_cine_extreme_intensity: 8.0,
+            shake_cine_insane_intensity: 12.0,
+            max_shake_intensity: 10.0,
+            max_shake_range: 150.0,
 
-            sell_percentage: 0.25,
+            sell_percentage: 1.0,
             base_regen_health_percent_per_second: 0.0,
             base_regen_delay: 0,
 
             prison_bounty_multiplier: 1.0,
             prison_bounty_text_color: RGBColor::new(1.0, 1.0, 1.0),
 
-            hot_key_text_color: RGBColor::white(),
+            hot_key_text_color: RGBColor::new(1.0, 1.0, 0.0),
 
             special_power_view_object_name: String::new(),
             weapon_bonus_entries: Vec::new(),
@@ -1012,31 +1012,31 @@ impl GlobalData {
 
             debug_show_graphical_framerate: false,
 
-            power_bar_base: 2,
-            power_bar_intervals: 10.0,
-            power_bar_yellow_range: 80,
+            power_bar_base: 7,
+            power_bar_intervals: 3.0,
+            power_bar_yellow_range: 5,
             display_gamma: 1.0,
 
-            unlook_persist_duration: 15000,
+            unlook_persist_duration: 30,
 
             should_update_tga_to_dds: false,
 
             double_click_time_ms: 250,
 
-            shroud_color: RGBColor::new(0.0, 0.0, 0.0),
+            shroud_color: RGBColor::white(),
             clear_alpha: 255,
             fog_alpha: 127,
             shroud_alpha: 0,
 
-            network_fps_history_length: 64,
-            network_latency_history_length: 64,
-            network_cushion_history_length: 4,
-            network_run_ahead_metrics_time: 1000,
-            network_keep_alive_delay: 60,
+            network_fps_history_length: 30,
+            network_latency_history_length: 200,
+            network_cushion_history_length: 10,
+            network_run_ahead_metrics_time: 500,
+            network_keep_alive_delay: 20,
             network_run_ahead_slack: 10,
-            network_disconnect_time: 30000,
-            network_player_timeout_time: 120000,
-            network_disconnect_screen_notify_time: 5000,
+            network_disconnect_time: 5000,
+            network_player_timeout_time: 60000,
+            network_disconnect_screen_notify_time: 15000,
 
             keyboard_camera_rotate_speed: 1.0,
             play_stats: 0,
@@ -2214,6 +2214,57 @@ mod tests {
         assert!(global_data.play_sizzle);
         assert!(!global_data.after_intro);
         assert!(!global_data.allow_exit_out_of_movies);
+    }
+
+    #[test]
+    fn global_data_constructor_matches_cpp_gameplay_feedback_defaults() {
+        let data = GlobalData::new();
+
+        assert_eq!(data.net_min_players, 1);
+        assert_eq!(data.base_value_per_supply_box, 100);
+        assert_eq!(data.build_speed, 0.0);
+        assert_eq!(data.max_line_build_objects, 0);
+        assert_eq!(data.max_tunnel_capacity, 0);
+        assert!(!data.build_map_cache);
+        assert_eq!(data.max_particle_count, 0);
+        assert_eq!(data.max_field_particle_count, 30);
+        assert_eq!(data.health_bonus, [1.0; LEVEL_COUNT]);
+        assert_eq!(data.default_structure_rubble_height, 1.0);
+
+        assert_eq!(data.group_select_min_select_size, 5);
+        assert_eq!(data.group_select_volume_base, 0.5);
+        assert_eq!(data.group_select_volume_increment, 0.02);
+        assert_eq!(data.max_unit_select_sounds, 8);
+        assert_eq!(data.selection_flash_saturation_factor, 0.5);
+        assert_eq!(data.camera_audible_radius, 500.0);
+        assert_eq!(data.group_move_click_to_gather_factor, 1.0);
+        assert!(data.language_filter_pref);
+
+        assert_eq!(data.shake_subtle_intensity, 0.5);
+        assert_eq!(data.shake_normal_intensity, 1.0);
+        assert_eq!(data.shake_strong_intensity, 2.5);
+        assert_eq!(data.shake_severe_intensity, 5.0);
+        assert_eq!(data.shake_cine_extreme_intensity, 8.0);
+        assert_eq!(data.shake_cine_insane_intensity, 12.0);
+        assert_eq!(data.max_shake_intensity, 10.0);
+        assert_eq!(data.max_shake_range, 150.0);
+        assert_eq!(data.sell_percentage, 1.0);
+
+        assert_eq!(data.hot_key_text_color, RGBColor::new(1.0, 1.0, 0.0));
+        assert_eq!(data.power_bar_base, 7);
+        assert_eq!(data.power_bar_intervals, 3.0);
+        assert_eq!(data.power_bar_yellow_range, 5);
+        assert_eq!(data.unlook_persist_duration, 30);
+        assert_eq!(data.shroud_color, RGBColor::white());
+
+        assert_eq!(data.network_fps_history_length, 30);
+        assert_eq!(data.network_latency_history_length, 200);
+        assert_eq!(data.network_cushion_history_length, 10);
+        assert_eq!(data.network_run_ahead_metrics_time, 500);
+        assert_eq!(data.network_keep_alive_delay, 20);
+        assert_eq!(data.network_disconnect_time, 5000);
+        assert_eq!(data.network_player_timeout_time, 60000);
+        assert_eq!(data.network_disconnect_screen_notify_time, 15000);
     }
 
     #[test]
