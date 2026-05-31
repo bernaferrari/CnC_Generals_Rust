@@ -60,6 +60,7 @@ pub enum LoadScreenKind {
     Challenge,
     Multiplayer,
     GameSpy,
+    MapTransfer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -106,6 +107,7 @@ pub struct LoadScreenSlotInitContext {
     pub apparent_color: Option<i32>,
     pub apparent_text_color: Option<u32>,
     pub is_ai: bool,
+    pub has_map: bool,
     pub visible: bool,
 }
 
@@ -120,6 +122,23 @@ impl Default for MultiplayerLoadScreenState {
         Self {
             player_lookup: [-1; MAX_LOAD_SCREEN_SLOTS],
             local_player_id: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MapTransferLoadScreenState {
+    player_lookup: [i32; MAX_LOAD_SCREEN_SLOTS],
+    old_progress: [i32; MAX_LOAD_SCREEN_SLOTS],
+    old_timeout: i32,
+}
+
+impl Default for MapTransferLoadScreenState {
+    fn default() -> Self {
+        Self {
+            player_lookup: [-1; MAX_LOAD_SCREEN_SLOTS],
+            old_progress: [-1; MAX_LOAD_SCREEN_SLOTS],
+            old_timeout: 0,
         }
     }
 }
@@ -147,6 +166,8 @@ static SINGLE_PLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<SinglePlayerLoadScreenSta
     OnceLock::new();
 static SHELL_GAME_FIRST_LOAD: OnceLock<Mutex<bool>> = OnceLock::new();
 static MULTIPLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<MultiplayerLoadScreenState>> = OnceLock::new();
+static MAP_TRANSFER_LOAD_SCREEN_STATE: OnceLock<Mutex<MapTransferLoadScreenState>> =
+    OnceLock::new();
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ChallengePersonaText {
@@ -300,6 +321,15 @@ pub fn descriptor_for_kind(kind: LoadScreenKind) -> LoadScreenDescriptor {
             slot_count: MAX_LOAD_SCREEN_SLOTS,
             uses_progress_fudge: false,
         },
+        LoadScreenKind::MapTransfer => LoadScreenDescriptor {
+            kind,
+            layout: "Menus/MapTransferScreen.wnd",
+            root: "MapTransferScreen.wnd:ParentMapTransferScreen",
+            primary_progress: "MapTransferScreen.wnd:ProgressLoad0",
+            progress_prefix: "MapTransferScreen.wnd:ProgressLoad",
+            slot_count: MAX_LOAD_SCREEN_SLOTS,
+            uses_progress_fudge: false,
+        },
     }
 }
 
@@ -345,6 +375,7 @@ pub fn load_screen_init_context_from_game_info(
                     .then_some(slot.get_apparent_color()),
                 apparent_text_color: multiplayer_apparent_text_color(slot.get_apparent_color()),
                 is_ai: slot.is_ai(),
+                has_map: slot.has_map(),
                 visible: true,
             })
         })
@@ -439,6 +470,8 @@ pub fn reset_load_screen(kind: LoadScreenKind) {
         reset_challenge_load_screen_audio_state();
     } else if kind == LoadScreenKind::SinglePlayer {
         reset_single_player_load_screen_audio_state();
+    } else if kind == LoadScreenKind::MapTransfer {
+        reset_map_transfer_load_screen_state();
     } else if descriptor.slot_count > 0 {
         reset_multiplayer_load_screen_state();
     }
@@ -448,6 +481,9 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
     let descriptor = descriptor_for_kind(kind);
     let percent = transformed_progress_percent(descriptor, raw_percent);
     clear_load_screen_cursor_tooltip();
+    if kind == LoadScreenKind::MapTransfer {
+        return;
+    }
     if descriptor.slot_count > 0 {
         let local_player_id = with_multiplayer_load_screen_state(|state| state.local_player_id);
         let _ = process_load_screen_progress(kind, local_player_id, percent);
@@ -475,6 +511,10 @@ fn clear_load_screen_cursor_tooltip() {
 }
 
 pub fn process_load_screen_progress(kind: LoadScreenKind, player_id: i32, percentage: f32) -> bool {
+    if kind == LoadScreenKind::MapTransfer {
+        return false;
+    }
+
     let descriptor = descriptor_for_kind(kind);
     if descriptor.slot_count == 0 || !(0.0..=100.0).contains(&percentage) {
         return false;
@@ -533,6 +573,7 @@ fn initialize_kind_windows(
             initialize_multiplayer_windows(wm, "MultiplayerLoadScreen.wnd", context)
         }
         LoadScreenKind::GameSpy => initialize_gamespy_windows(wm, context),
+        LoadScreenKind::MapTransfer => initialize_map_transfer_windows(wm, context),
     }
 }
 
@@ -576,6 +617,21 @@ fn with_multiplayer_load_screen_state<R>(
 
 fn reset_multiplayer_load_screen_state() {
     with_multiplayer_load_screen_state(|state| *state = MultiplayerLoadScreenState::default());
+}
+
+fn with_map_transfer_load_screen_state<R>(
+    f: impl FnOnce(&mut MapTransferLoadScreenState) -> R,
+) -> R {
+    let state = MAP_TRANSFER_LOAD_SCREEN_STATE
+        .get_or_init(|| Mutex::new(MapTransferLoadScreenState::default()));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    f(&mut guard)
+}
+
+fn reset_map_transfer_load_screen_state() {
+    with_map_transfer_load_screen_state(|state| *state = MapTransferLoadScreenState::default());
 }
 
 fn reset_single_player_load_screen_audio_state() {
@@ -1406,6 +1462,180 @@ fn initialize_gamespy_windows(wm: &mut WindowManager, context: &LoadScreenInitCo
     }
 }
 
+fn initialize_map_transfer_windows(wm: &mut WindowManager, context: &LoadScreenInitContext) {
+    set_window_text(wm, "MapTransferScreen.wnd:StaticTextCurrentFile", "");
+    set_window_text(wm, "MapTransferScreen.wnd:StaticTextTimeout", "");
+
+    let slots = map_transfer_slot_contexts(context);
+    with_map_transfer_load_screen_state(|state| {
+        *state = MapTransferLoadScreenState::default();
+        for (compact_slot, slot_context) in slots.iter().enumerate() {
+            if slot_context.player_id >= 0
+                && (slot_context.player_id as usize) < MAX_LOAD_SCREEN_SLOTS
+            {
+                state.player_lookup[slot_context.player_id as usize] = compact_slot as i32;
+            }
+        }
+    });
+
+    for slot in 0..MAX_LOAD_SCREEN_SLOTS {
+        set_progress_window(
+            wm,
+            &format!("MapTransferScreen.wnd:ProgressLoad{slot}"),
+            0.0,
+        );
+        set_window_text(
+            wm,
+            &format!("MapTransferScreen.wnd:StaticTextProgress{slot}"),
+            "",
+        );
+
+        if let Some(slot_context) = slots.get(slot) {
+            set_window_text(
+                wm,
+                &format!("MapTransferScreen.wnd:StaticTextPlayer{slot}"),
+                &slot_context.player_name,
+            );
+            if let Some(color) = slot_context.apparent_text_color {
+                set_progress_window_fill_color(
+                    wm,
+                    &format!("MapTransferScreen.wnd:ProgressLoad{slot}"),
+                    color,
+                );
+                set_window_enabled_text_color(
+                    wm,
+                    &format!("MapTransferScreen.wnd:StaticTextPlayer{slot}"),
+                    color,
+                );
+                set_window_enabled_text_color(
+                    wm,
+                    &format!("MapTransferScreen.wnd:StaticTextProgress{slot}"),
+                    color,
+                );
+            }
+
+            hide_window(
+                wm,
+                &format!("MapTransferScreen.wnd:ProgressLoad{slot}"),
+                map_transfer_progress_hidden(slot_context),
+            );
+            hide_window(
+                wm,
+                &format!("MapTransferScreen.wnd:StaticTextPlayer{slot}"),
+                false,
+            );
+            hide_window(
+                wm,
+                &format!("MapTransferScreen.wnd:StaticTextProgress{slot}"),
+                false,
+            );
+            continue;
+        }
+
+        for suffix in ["ProgressLoad", "StaticTextPlayer", "StaticTextProgress"] {
+            hide_window(wm, &format!("MapTransferScreen.wnd:{suffix}{slot}"), true);
+        }
+    }
+}
+
+fn map_transfer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenSlotInitContext> {
+    context
+        .slots
+        .iter()
+        .filter(|slot| slot.visible && !slot.is_ai)
+        .take(MAX_LOAD_SCREEN_SLOTS)
+        .cloned()
+        .collect()
+}
+
+fn map_transfer_progress_hidden(slot: &LoadScreenSlotInitContext) -> bool {
+    slot.player_id == 0 || slot.has_map
+}
+
+pub fn process_map_transfer_progress(player_id: i32, percentage: i32, state_label: &str) -> bool {
+    if !(0..=100).contains(&percentage)
+        || player_id < 0
+        || player_id as usize >= MAX_LOAD_SCREEN_SLOTS
+    {
+        return false;
+    }
+
+    let update = with_map_transfer_load_screen_state(|state| {
+        let translated_slot = state.player_lookup[player_id as usize];
+        if translated_slot < 0 || state.old_progress[player_id as usize] == percentage {
+            return None;
+        }
+        state.old_progress[player_id as usize] = percentage;
+        Some(translated_slot as usize)
+    });
+    let Some(translated_slot) = update else {
+        return false;
+    };
+
+    with_window_manager(|wm| {
+        set_progress_window(
+            wm,
+            &format!("MapTransferScreen.wnd:ProgressLoad{translated_slot}"),
+            percentage as f32,
+        );
+        set_window_text(
+            wm,
+            &format!("MapTransferScreen.wnd:StaticTextProgress{translated_slot}"),
+            &GameText::fetch(state_label),
+        );
+    });
+    true
+}
+
+pub fn process_map_transfer_timeout(seconds_left: i32) -> bool {
+    let changed = with_map_transfer_load_screen_state(|state| {
+        if state.old_timeout == seconds_left {
+            return false;
+        }
+        state.old_timeout = seconds_left;
+        true
+    });
+    if !changed {
+        return false;
+    }
+
+    let text = format_map_transfer_timeout(seconds_left);
+    with_window_manager(|wm| {
+        set_window_text(wm, "MapTransferScreen.wnd:StaticTextTimeout", &text);
+    });
+    true
+}
+
+pub fn set_map_transfer_current_filename(filename: &str) {
+    let text = format_map_transfer_current_file(filename);
+    with_window_manager(|wm| {
+        set_window_text(wm, "MapTransferScreen.wnd:StaticTextCurrentFile", &text);
+    });
+}
+
+fn format_map_transfer_timeout(seconds_left: i32) -> String {
+    replace_first_percent_d(
+        &replace_first_percent_d(&GameText::fetch("MapTransfer:Timeout"), seconds_left / 60),
+        seconds_left % 60,
+    )
+}
+
+fn format_map_transfer_current_file(filename: &str) -> String {
+    GameText::fetch("MapTransfer:CurrentFile").replace("%s", &map_transfer_leaf_name(filename))
+}
+
+fn map_transfer_leaf_name(filename: &str) -> String {
+    let trimmed = filename.trim_end_matches(['\\', '/']);
+    let slash = trimmed.rfind('\\').max(trimmed.rfind('/'));
+    slash
+        .map(|index| trimmed[index + 1..].to_string())
+        .unwrap_or_else(|| trimmed.to_string())
+}
+
+fn replace_first_percent_d(template: &str, value: i32) -> String {
+    template.replacen("%d", &value.to_string(), 1)
+}
+
 fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenSlotInitContext> {
     let slots: Vec<_> = context
         .slots
@@ -1424,6 +1654,7 @@ fn multiplayer_slot_contexts(context: &LoadScreenInitContext) -> Vec<LoadScreenS
             apparent_color: None,
             apparent_text_color: None,
             is_ai: false,
+            has_map: true,
             visible: true,
         }]
     } else {
@@ -1578,6 +1809,23 @@ fn set_progress_window(wm: &mut WindowManager, name: &str, percent: f32) {
             0,
         );
     }
+}
+
+fn set_progress_window_fill_color(wm: &mut WindowManager, name: &str, color: u32) {
+    if let Some(window) = wm.find_window_by_name(name) {
+        if let Some(progress) = window.borrow_mut().progress_bar_mut() {
+            progress.set_fill_color(color_u32_to_gadget_color(color));
+        }
+    }
+}
+
+fn color_u32_to_gadget_color(color: u32) -> crate::gui::gadgets::Color {
+    crate::gui::gadgets::Color::rgba(
+        ((color >> 16) & 0xff) as u8,
+        ((color >> 8) & 0xff) as u8,
+        (color & 0xff) as u8,
+        ((color >> 24) & 0xff) as u8,
+    )
 }
 
 fn set_window_text(wm: &mut WindowManager, name: &str, text: &str) {
@@ -1845,6 +2093,15 @@ mod tests {
             "MultiplayerLoadScreen.wnd:ProgressLoad0"
         );
         assert_eq!(multiplayer.slot_count, MAX_LOAD_SCREEN_SLOTS);
+
+        let map_transfer = descriptor_for_kind(LoadScreenKind::MapTransfer);
+        assert_eq!(map_transfer.layout, "Menus/MapTransferScreen.wnd");
+        assert_eq!(
+            map_transfer.primary_progress,
+            "MapTransferScreen.wnd:ProgressLoad0"
+        );
+        assert_eq!(map_transfer.slot_count, MAX_LOAD_SCREEN_SLOTS);
+        assert!(!map_transfer.uses_progress_fudge);
     }
 
     #[test]
@@ -2096,6 +2353,151 @@ mod tests {
             Some("SAFactionLogo144_US".to_string())
         );
         assert!(window_hidden(&wm, "GameSpyLoadScreen.wnd:WinPlayer2"));
+    }
+
+    #[test]
+    fn map_transfer_init_compacts_human_slots_and_hides_done_progress_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_map_transfer_load_screen_state();
+        let mut wm = WindowManager::new();
+        create_map_transfer_slot_windows(&mut wm, 4);
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Local".to_string(),
+            local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
+            local_team_number: 0,
+            shell_game_did_mem_pass: true,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: vec![
+                load_screen_slot_with_map(0, "Host", Some(0xFF11_2233), true, false, true),
+                load_screen_slot_with_map(1, "AI", Some(0xFF44_5566), true, true, true),
+                load_screen_slot_with_map(2, "NeedsMap", Some(0xFF77_8899), false, false, true),
+                load_screen_slot_with_map(3, "HasMap", Some(0xFFAA_BBCC), true, false, true),
+            ],
+        };
+
+        initialize_map_transfer_windows(&mut wm, &context);
+
+        assert_eq!(
+            window_text(&wm, "MapTransferScreen.wnd:StaticTextPlayer0"),
+            "Host"
+        );
+        assert_eq!(
+            window_text(&wm, "MapTransferScreen.wnd:StaticTextPlayer1"),
+            "NeedsMap"
+        );
+        assert_eq!(
+            window_text(&wm, "MapTransferScreen.wnd:StaticTextPlayer2"),
+            "HasMap"
+        );
+        assert!(window_hidden(&wm, "MapTransferScreen.wnd:ProgressLoad0"));
+        assert!(!window_hidden(&wm, "MapTransferScreen.wnd:ProgressLoad1"));
+        assert!(window_hidden(&wm, "MapTransferScreen.wnd:ProgressLoad2"));
+        assert!(window_hidden(&wm, "MapTransferScreen.wnd:ProgressLoad3"));
+        assert_eq!(
+            window_text_color(&wm, "MapTransferScreen.wnd:StaticTextProgress1"),
+            0xFF77_8899
+        );
+        assert_eq!(
+            progress_fill_color(&wm, "MapTransferScreen.wnd:ProgressLoad1"),
+            crate::gui::gadgets::Color::rgba(0x77, 0x88, 0x99, 0xFF)
+        );
+
+        let state = with_map_transfer_load_screen_state(|state| state.clone());
+        assert_eq!(state.player_lookup[0], 0);
+        assert_eq!(state.player_lookup[1], -1);
+        assert_eq!(state.player_lookup[2], 1);
+        assert_eq!(state.player_lookup[3], 2);
+    }
+
+    #[test]
+    fn map_transfer_progress_timeout_and_filename_cache_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        let _language_guard = lock_test_language();
+        Language::clear_localized_strings();
+        Language::register_localized_string("MapTransfer:Unpacking", "Unpacking map");
+        Language::register_localized_string("MapTransfer:Timeout", "%d:%d remaining");
+        Language::register_localized_string("MapTransfer:CurrentFile", "Current: %s");
+        reset_map_transfer_load_screen_state();
+
+        let mut wm = WindowManager::new();
+        create_map_transfer_slot_windows(&mut wm, 2);
+        let context = LoadScreenInitContext {
+            local_player_name: "Local".to_string(),
+            local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
+            local_team_number: 0,
+            shell_game_did_mem_pass: true,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: vec![load_screen_slot_with_map(
+                2, "NeedsMap", None, false, false, true,
+            )],
+        };
+        initialize_map_transfer_windows(&mut wm, &context);
+        with_window_manager(|global_wm| {
+            *global_wm = wm;
+        });
+
+        assert!(!process_load_screen_progress(
+            LoadScreenKind::MapTransfer,
+            2,
+            47.0
+        ));
+        assert!(process_map_transfer_progress(
+            2,
+            47,
+            "MapTransfer:Unpacking"
+        ));
+        assert_eq!(
+            progress_value("MapTransferScreen.wnd:ProgressLoad0"),
+            Some(0.47)
+        );
+        with_window_manager(|wm| {
+            assert_eq!(
+                window_text(wm, "MapTransferScreen.wnd:StaticTextProgress0"),
+                "Unpacking map"
+            );
+        });
+        assert!(!process_map_transfer_progress(
+            2,
+            47,
+            "MapTransfer:Unpacking"
+        ));
+        assert!(!process_map_transfer_progress(
+            7,
+            30,
+            "MapTransfer:Unpacking"
+        ));
+
+        assert!(process_map_transfer_timeout(125));
+        with_window_manager(|wm| {
+            assert_eq!(
+                window_text(wm, "MapTransferScreen.wnd:StaticTextTimeout"),
+                "2:5 remaining"
+            );
+        });
+        assert!(!process_map_transfer_timeout(125));
+
+        set_map_transfer_current_filename("Maps\\Official\\Tournament.map");
+        with_window_manager(|wm| {
+            assert_eq!(
+                window_text(wm, "MapTransferScreen.wnd:StaticTextCurrentFile"),
+                "Current: Tournament.map"
+            );
+        });
+
+        Language::clear_localized_strings();
     }
 
     #[test]
@@ -2623,6 +3025,9 @@ mod tests {
         let shell = descriptor_for_kind(LoadScreenKind::ShellGame);
         assert!((transformed_progress_percent(shell, 42.0) - 42.0).abs() < f32::EPSILON);
         assert!((transformed_progress_percent(shell, 150.0) - 150.0).abs() < f32::EPSILON);
+
+        let map_transfer = descriptor_for_kind(LoadScreenKind::MapTransfer);
+        assert!((transformed_progress_percent(map_transfer, 42.0) - 42.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -2934,6 +3339,19 @@ mod tests {
         }
     }
 
+    fn create_map_transfer_slot_windows(wm: &mut WindowManager, count: usize) {
+        named_test_window(wm, "MapTransferScreen.wnd:StaticTextCurrentFile");
+        named_test_window(wm, "MapTransferScreen.wnd:StaticTextTimeout");
+        for slot in 0..count {
+            named_progress_test_window(wm, &format!("MapTransferScreen.wnd:ProgressLoad{slot}"));
+            named_test_window(wm, &format!("MapTransferScreen.wnd:StaticTextPlayer{slot}"));
+            named_test_window(
+                wm,
+                &format!("MapTransferScreen.wnd:StaticTextProgress{slot}"),
+            );
+        }
+    }
+
     fn load_screen_slot(
         player_name: &str,
         side_name: &str,
@@ -2980,8 +3398,31 @@ mod tests {
             apparent_color,
             apparent_text_color,
             is_ai,
+            has_map: true,
             visible,
         }
+    }
+
+    fn load_screen_slot_with_map(
+        player_id: i32,
+        player_name: &str,
+        apparent_text_color: Option<u32>,
+        has_map: bool,
+        is_ai: bool,
+        visible: bool,
+    ) -> LoadScreenSlotInitContext {
+        let mut slot = load_screen_slot_with_text_color(
+            player_name,
+            "USA",
+            player_id,
+            None,
+            apparent_text_color,
+            is_ai,
+            visible,
+        );
+        slot.player_id = player_id;
+        slot.has_map = has_map;
+        slot
     }
 
     fn window_text(wm: &WindowManager, name: &str) -> String {
@@ -3035,6 +3476,15 @@ mod tests {
             let mut window = window.borrow_mut();
             Some(window.progress_bar_mut()?.value())
         })
+    }
+
+    fn progress_fill_color(wm: &WindowManager, name: &str) -> crate::gui::gadgets::Color {
+        wm.find_window_by_name(name)
+            .expect(name)
+            .borrow_mut()
+            .progress_bar_mut()
+            .expect("progress widget")
+            .fill_color()
     }
 
     fn reset_shell_game_first_load_for_tests(value: bool) {
