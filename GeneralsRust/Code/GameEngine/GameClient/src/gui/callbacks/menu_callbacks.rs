@@ -17,6 +17,9 @@ use crate::gui::{
 };
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
 use crate::message_stream::{get_message_stream, GameMessageType};
+use game_engine::common::audio::game_audio::{
+    get_global_audio_manager, initialize_global_audio_manager,
+};
 use game_engine::common::audio::AudioAffect as EngineAudioAffect;
 use game_engine::common::global_data as runtime_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -629,6 +632,36 @@ impl OptionsMenu {
         pref.set_string(key, if value { "Yes" } else { "No" }.to_string());
     }
 
+    fn current_relative_2d_volume() -> f32 {
+        let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
+        let Ok(guard) = manager.lock() else {
+            return 0.0;
+        };
+        guard.get_audio_settings().relative_2d_volume
+    }
+
+    fn split_sfx_volume_for_relative(
+        sfx_volume: i32,
+        relative_2d_volume: f32,
+    ) -> (i32, i32, f32, f32) {
+        let base_volume = sfx_volume.clamp(0, 100) as f32 / 100.0;
+        let relative_2d_volume = relative_2d_volume.clamp(-1.0, 1.0);
+        let mut sound_2d_volume = base_volume;
+        let mut sound_3d_volume = base_volume;
+        if relative_2d_volume < 0.0 {
+            sound_2d_volume *= 1.0 + relative_2d_volume;
+        } else {
+            sound_3d_volume *= 1.0 - relative_2d_volume;
+        }
+
+        (
+            (sound_2d_volume * 100.0) as i32,
+            (sound_3d_volume * 100.0) as i32,
+            sound_2d_volume,
+            sound_3d_volume,
+        )
+    }
+
     fn load_resolution_modes(&mut self) {
         self.resolution_modes = vec![
             (800, 600),
@@ -685,9 +718,11 @@ impl OptionsMenu {
         let music_volume = pref
             .get_int("MusicVolume")
             .unwrap_or((global.music_volume_factor * 100.0) as i32);
-        let sfx_volume = pref.get_int("SFXVolume").unwrap_or_else(|| {
-            ((global.sfx_volume_factor.max(global.voice_volume_factor)) * 100.0) as i32
-        });
+        let sfx_2d_volume = pref
+            .get_int("SFXVolume")
+            .unwrap_or((global.sfx_volume_factor * 100.0) as i32);
+        let sfx_3d_volume = pref.get_int_or("SFX3DVolume", sfx_2d_volume);
+        let sfx_volume = sfx_2d_volume.max(sfx_3d_volume);
         let voice_volume = pref
             .get_int("VoiceVolume")
             .unwrap_or((global.voice_volume_factor * 100.0) as i32);
@@ -897,6 +932,8 @@ impl OptionsMenu {
         let music_volume = Self::slider_value(self.slider_music_volume_id).clamp(0, 100);
         let sfx_volume = Self::slider_value(self.slider_sfx_volume_id).clamp(0, 100);
         let voice_volume = Self::slider_value(self.slider_voice_volume_id).clamp(0, 100);
+        let (sfx_2d_volume, sfx_3d_volume, sfx_2d_factor, sfx_3d_factor) =
+            Self::split_sfx_volume_for_relative(sfx_volume, Self::current_relative_2d_volume());
         let gamma_slider = Self::slider_value(self.slider_gamma_id).clamp(0, 100);
         let texture_resolution = Self::slider_value(self.slider_texture_resolution_id).clamp(0, 2);
         let particle_cap = Self::slider_value(self.slider_particle_cap_id).max(100);
@@ -912,8 +949,8 @@ impl OptionsMenu {
         pref.set_int("MaxParticleCount", particle_cap);
         pref.set_int("ScrollFactor", scroll_speed);
         pref.set_int("MusicVolume", music_volume);
-        pref.set_int("SFXVolume", sfx_volume);
-        pref.set_int("SFX3DVolume", sfx_volume);
+        pref.set_int("SFXVolume", sfx_2d_volume);
+        pref.set_int("SFX3DVolume", sfx_3d_volume);
         pref.set_int("VoiceVolume", voice_volume);
         pref.set_int("Gamma", gamma_slider);
         pref.set_string(
@@ -986,8 +1023,8 @@ impl OptionsMenu {
 
         let audio = TheAudio;
         audio.set_volume(music_volume as f32 / 100.0, EngineAudioAffect::Music);
-        audio.set_volume(sfx_volume as f32 / 100.0, EngineAudioAffect::Sound);
-        audio.set_volume(sfx_volume as f32 / 100.0, EngineAudioAffect::Sound3D);
+        audio.set_volume(sfx_2d_factor, EngineAudioAffect::Sound);
+        audio.set_volume(sfx_3d_factor, EngineAudioAffect::Sound3D);
         audio.set_volume(voice_volume as f32 / 100.0, EngineAudioAffect::Speech);
         get_header_template_manager().header_notify_resolution_change();
 
@@ -2035,5 +2072,21 @@ mod tests {
             menu.input(&window, WindowMessage::Char, b'A' as u32, 0),
             WindowMsgHandled::Ignored
         );
+    }
+
+    #[test]
+    fn options_sfx_slider_splits_2d_and_3d_volume_like_cpp() {
+        fn assert_split(relative: f32, expected_2d: i32, expected_3d: i32) {
+            let (volume_2d, volume_3d, factor_2d, factor_3d) =
+                OptionsMenu::split_sfx_volume_for_relative(80, relative);
+            assert_eq!((volume_2d, volume_3d), (expected_2d, expected_3d));
+            assert!((factor_2d - expected_2d as f32 / 100.0).abs() < 0.001);
+            assert!((factor_3d - expected_3d as f32 / 100.0).abs() < 0.001);
+        }
+
+        assert_split(-0.25, 60, 80);
+        assert_split(0.0, 80, 80);
+        assert_split(0.25, 80, 60);
+        assert_split(2.0, 80, 0);
     }
 }
