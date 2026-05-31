@@ -1663,14 +1663,8 @@ impl MenuCallbacks for MapSelectMenu {
                 }
                 let control_id = data1 as i32;
                 if control_id == self.listbox_map_id {
-                    let row_selected = _data2 as i32;
-                    if row_selected >= 0 {
-                        if let Some(listbox) = self.listbox_map.as_ref() {
-                            if let Some(widget) = listbox.borrow_mut().list_box_mut() {
-                                widget.set_selected_indices(&[row_selected as usize]);
-                            }
-                        }
-                        self.update_selected_map();
+                    self.update_selected_map();
+                    if self.current_map_selection().is_some() {
                         if let Some(parent) = self.parent.as_ref() {
                             let _ = parent.borrow_mut().send_system_message(
                                 WindowMessage::GadgetSelected,
@@ -2088,5 +2082,53 @@ mod tests {
         assert_split(0.0, 80, 80);
         assert_split(0.25, 80, 60);
         assert_split(2.0, 80, 0);
+    }
+
+    #[test]
+    fn map_select_double_click_uses_current_listbox_selection_like_cpp() {
+        let mut menu = MapSelectMenu::new();
+        menu.listbox_map_id = 42;
+        menu.button_ok_id = 77;
+
+        let mut listbox = crate::gui::gadgets::ListBox::new(42, 0, 0, 200, 80);
+        listbox.add_item_with_data(
+            0,
+            "first",
+            Some(ListBoxItemData::Text("Maps\\First\\First.map".to_string())),
+        );
+        listbox.add_item_with_data(
+            1,
+            "second",
+            Some(ListBoxItemData::Text(
+                "Maps\\Second\\Second.map".to_string(),
+            )),
+        );
+        listbox.set_selected_indices(&[1]);
+
+        let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
+        listbox_window
+            .borrow_mut()
+            .set_widget(WindowWidget::ListBox(listbox));
+        menu.listbox_map = Some(listbox_window.clone());
+
+        let window = GameWindow::new();
+
+        assert_eq!(
+            menu.system(&window, WindowMessage::User(0x8000), 42, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(
+            menu.selected_map.as_deref(),
+            Some("Maps\\Second\\Second.map")
+        );
+        let selected = listbox_window
+            .borrow()
+            .widget()
+            .and_then(|widget| match widget {
+                WindowWidget::ListBox(listbox) => listbox.selected_indices().first().copied(),
+                _ => None,
+            });
+        assert_eq!(selected, Some(1));
     }
 }
