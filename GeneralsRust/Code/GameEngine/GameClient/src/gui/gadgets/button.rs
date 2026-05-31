@@ -614,9 +614,17 @@ impl PushButton {
     fn handle_mouse_leave(&mut self) -> Vec<GadgetMessage> {
         self.mouse_inside = false;
 
-        // Clear selected state for non-checkbox buttons when mouse leaves
+        // C++ clears WIN_STATE_SELECTED for non-check-like buttons immediately
+        // when the cursor leaves the window.
         if self.enabled && !self.is_checkbox && self.mouse_pressed {
             self.mouse_pressed = false;
+            if matches!(self.state, GadgetState::Pressed) {
+                self.state = if self.focused {
+                    GadgetState::Focused
+                } else {
+                    GadgetState::Normal
+                };
+            }
         }
 
         if self.enabled
@@ -1132,6 +1140,33 @@ mod tests {
         assert_eq!(button.state(), GadgetState::Normal);
         assert!(!button.is_mouse_inside());
         assert_eq!(messages.len(), 1);
+    }
+
+    #[test]
+    fn mouse_leave_clears_normal_button_pressed_state_like_cpp() {
+        let mut button = PushButton::new(1, 0, 0, 100, 30);
+        button.handle_input(&InputEvent::MouseEnter { x: 50, y: 15 });
+        button.handle_input(&InputEvent::MouseDown {
+            x: 50,
+            y: 15,
+            button: MouseButton::Left,
+        });
+
+        assert_eq!(button.state(), GadgetState::Pressed);
+
+        let leave = button.handle_input(&InputEvent::MouseLeave { x: 150, y: 15 });
+        assert!(matches!(
+            leave.as_slice(),
+            [GadgetMessage::MouseLeave { gadget_id: 1 }]
+        ));
+        assert_eq!(button.state(), GadgetState::Normal);
+
+        let up = button.handle_input(&InputEvent::MouseUp {
+            x: 150,
+            y: 15,
+            button: MouseButton::Left,
+        });
+        assert!(up.is_empty());
     }
 
     #[test]

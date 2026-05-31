@@ -193,6 +193,11 @@ pub struct StaticText {
 impl StaticText {
     /// Create a new static text gadget
     pub fn new(id: GadgetId, x: i32, y: i32, width: u32, height: u32) -> Self {
+        let config = TextConfig {
+            word_wrap: true,
+            ..TextConfig::default()
+        };
+
         Self {
             id,
             bounds: Rect::new(x, y, width, height),
@@ -202,7 +207,7 @@ impl StaticText {
             focused: false,
 
             text: String::new(),
-            config: TextConfig::default(),
+            config,
 
             text_color: None,
             background_color: None,
@@ -331,27 +336,28 @@ impl StaticText {
 
     fn layout_lines_for(text: &str, config: &TextConfig, bounds: Rect) -> Vec<String> {
         if config.word_wrap {
-            let words: Vec<&str> = text.split_whitespace().collect();
             let mut lines = Vec::new();
-            let mut current_line = String::new();
-            let max_line_length =
-                (bounds.width.saturating_sub(config.left_margin * 2) / 8).max(1) as usize;
+            let max_line_length = (bounds.width.saturating_sub(10) / 8).max(1) as usize;
 
-            for word in words {
-                if current_line.len() + word.len() + 1 > max_line_length && !current_line.is_empty()
-                {
-                    lines.push(current_line);
-                    current_line = word.to_string();
-                } else {
-                    if !current_line.is_empty() {
-                        current_line.push(' ');
+            for source_line in text.lines() {
+                let mut current_line = String::new();
+                for word in source_line.split_whitespace() {
+                    if current_line.len() + word.len() + 1 > max_line_length
+                        && !current_line.is_empty()
+                    {
+                        lines.push(current_line);
+                        current_line = word.to_string();
+                    } else {
+                        if !current_line.is_empty() {
+                            current_line.push(' ');
+                        }
+                        current_line.push_str(word);
                     }
-                    current_line.push_str(word);
                 }
-            }
 
-            if !current_line.is_empty() {
-                lines.push(current_line);
+                if !current_line.is_empty() {
+                    lines.push(current_line);
+                }
             }
 
             lines
@@ -1458,8 +1464,23 @@ mod tests {
             .with_alignment(TextAlignment::Center, VerticalAlignment::Center);
 
         assert_eq!(text.text(), "Hello World");
+        assert!(text.config.word_wrap);
         assert_eq!(text.config.alignment, TextAlignment::Center);
         assert_eq!(text.config.vertical_alignment, VerticalAlignment::Center);
+    }
+
+    #[test]
+    fn static_text_wraps_by_default_like_w3d_cpp() {
+        let theme = GadgetTheme::default();
+        let text = StaticText::new(1, 0, 0, 42, 80).with_text("Alpha Bravo Charlie");
+
+        let wrapped_lines = text
+            .render_commands(&theme)
+            .into_iter()
+            .filter(|command| matches!(command, TextRenderCommand::Text { .. }))
+            .count();
+
+        assert!(wrapped_lines > 1);
     }
 
     #[test]
