@@ -126,10 +126,10 @@ impl CheckBox {
         if self.checked != checked {
             self.checked = checked;
             self.animation_time = 0.0;
+        }
 
-            if let Some(callback) = &self.callback {
-                callback(checked);
-            }
+        if let Some(callback) = &self.callback {
+            callback(checked);
         }
     }
 
@@ -351,8 +351,12 @@ impl Gadget for CheckBox {
             }
 
             InputEvent::MouseDown { button, .. } => {
-                if *button == MouseButton::Left {
-                    // C++: no action on left down for checkboxes.
+                if matches!(button, MouseButton::Left | MouseButton::Right) {
+                    // C++ handles left/right down without changing selection.
+                    return vec![GadgetMessage::Custom {
+                        gadget_id: self.id,
+                        data: "input_handled".to_string(),
+                    }];
                 }
             }
 
@@ -603,6 +607,21 @@ mod tests {
     }
 
     #[test]
+    fn set_checked_notifies_even_when_state_is_unchanged_like_cpp() {
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let callback_count_for_closure = Arc::clone(&callback_count);
+        let mut checkbox = CheckBox::new(1, 10, 20, 20).with_callback(move |_| {
+            callback_count_for_closure.fetch_add(1, Ordering::SeqCst);
+        });
+
+        checkbox.set_checked(true);
+        checkbox.set_checked(true);
+
+        assert!(checkbox.is_checked());
+        assert_eq!(callback_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
     fn keyboard_arrows_and_tab_request_focus_navigation_like_cpp() {
         let mut checkbox = CheckBox::new(1, 10, 20, 20);
         checkbox.set_focus(true);
@@ -623,6 +642,33 @@ mod tests {
         assert!(matches!(
             prev.as_slice(),
             [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_prev"
+        ));
+    }
+
+    #[test]
+    fn mouse_down_is_handled_without_toggling_like_cpp() {
+        let mut checkbox = CheckBox::new(1, 10, 20, 20);
+
+        let left = checkbox.handle_input(&InputEvent::MouseDown {
+            x: 12,
+            y: 22,
+            button: MouseButton::Left,
+        });
+        assert!(!checkbox.is_checked());
+        assert!(matches!(
+            left.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "input_handled"
+        ));
+
+        let right = checkbox.handle_input(&InputEvent::MouseDown {
+            x: 12,
+            y: 22,
+            button: MouseButton::Right,
+        });
+        assert!(!checkbox.is_checked());
+        assert!(matches!(
+            right.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "input_handled"
         ));
     }
 }
