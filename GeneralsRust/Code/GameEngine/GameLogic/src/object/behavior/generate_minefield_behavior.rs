@@ -18,6 +18,7 @@ use crate::object::behavior::behavior_module::{
 };
 use crate::object::Object as GameObject;
 use crate::upgrade::center::THE_UPGRADE_CENTER;
+use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -227,14 +228,24 @@ pub struct GenerateMinefieldBehaviorModuleData {
 
 impl Default for GenerateMinefieldBehaviorModuleData {
     fn default() -> Self {
+        let (distance_around_object, mines_per_square_foot) = get_global_data()
+            .map(|global| {
+                let data = global.read();
+                (
+                    data.standard_minefield_distance,
+                    data.standard_minefield_density,
+                )
+            })
+            .unwrap_or((40.0, 0.01));
+
         Self {
             base: BehaviorModuleData::default(),
             mine_name: String::new(),
             mine_name_upgraded: None,
             mine_upgrade_trigger: None,
             generation_fx: None,
-            distance_around_object: 40.0,
-            mines_per_square_foot: 0.01,
+            distance_around_object,
+            mines_per_square_foot,
             random_jitter: 0.0,
             skip_if_this_much_under_structure: 0.33,
             on_death: false,
@@ -1582,6 +1593,49 @@ impl GenerateMinefieldBehaviorFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::ini::ini_game_data::{ensure_global_data, GlobalData};
+    use parking_lot::RwLock;
+    use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+
+    struct GlobalMinefieldRestore {
+        global: Arc<RwLock<GlobalData>>,
+        distance: Real,
+        density: Real,
+        _guard: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for GlobalMinefieldRestore {
+        fn drop(&mut self) {
+            let mut data = self.global.write();
+            data.standard_minefield_distance = self.distance;
+            data.standard_minefield_density = self.density;
+        }
+    }
+
+    fn set_global_minefield_defaults(distance: Real, density: Real) -> GlobalMinefieldRestore {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let global = ensure_global_data();
+        let (original_distance, original_density) = {
+            let data = global.read();
+            (
+                data.standard_minefield_distance,
+                data.standard_minefield_density,
+            )
+        };
+        {
+            let mut data = global.write();
+            data.standard_minefield_distance = distance;
+            data.standard_minefield_density = density;
+        }
+
+        GlobalMinefieldRestore {
+            global,
+            distance: original_distance,
+            density: original_density,
+            _guard: guard,
+        }
+    }
 
     fn parse_field(data: &mut GenerateMinefieldBehaviorModuleData, token: &str, values: &[&str]) {
         let field = GENERATE_MINEFIELD_BEHAVIOR_FIELDS
@@ -1614,11 +1668,27 @@ mod tests {
 
     #[test]
     fn default_minefield_distance_matches_cpp_global_data() {
+        let _restore = set_global_minefield_defaults(40.0, 0.01);
+
         let data = GenerateMinefieldBehaviorModuleData::default();
 
         assert_eq!(data.distance_around_object, 40.0);
         assert_eq!(data.mines_per_square_foot, 0.01);
         assert!(data.border_only);
+    }
+
+    #[test]
+    fn minefield_defaults_use_runtime_global_data_and_ini_overrides_win() {
+        let _restore = set_global_minefield_defaults(48.0, 0.004);
+
+        let mut data = GenerateMinefieldBehaviorModuleData::default();
+        assert_eq!(data.distance_around_object, 48.0);
+        assert_eq!(data.mines_per_square_foot, 0.004);
+
+        parse_field(&mut data, "DistanceAroundObject", &["=", "64"]);
+        parse_field(&mut data, "MinesPerSquareFoot", &["=", "0.02"]);
+        assert_eq!(data.distance_around_object, 64.0);
+        assert_eq!(data.mines_per_square_foot, 0.02);
     }
 
     #[test]
