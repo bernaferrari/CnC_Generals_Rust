@@ -112,10 +112,7 @@ fn parse_special_power_template(
     data: &mut SpectreGunshipUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    let name = AsciiString::from(tokens[0]);
+    let name = AsciiString::from(required_value(tokens)?);
     data.special_power_template = Some(find_or_create_special_power_template(&name));
     Ok(())
 }
@@ -125,23 +122,28 @@ fn parse_ascii_string_field(
     target: &mut AsciiString,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    *target = AsciiString::from(tokens[0]);
+    *target = AsciiString::from(required_value(tokens)?);
     Ok(())
 }
 
 fn parse_duration_frames(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    INI::parse_duration_unsigned_int(token)
+    INI::parse_duration_unsigned_int(required_value(tokens)?)
 }
 
 fn parse_real(tokens: &[&str]) -> Result<Real, INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    tokens[0].parse().map_err(|_| INIError::InvalidData)
+    INI::parse_real(required_value(tokens)?)
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn value_tokens<'a>(tokens: &'a [&'a str]) -> impl Iterator<Item = &'a str> + 'a {
+    tokens.iter().copied().filter(|token| *token != "=")
 }
 
 fn parse_howitzer_firing_rate(
@@ -230,7 +232,7 @@ fn parse_howitzer_weapon_template(
     data: &mut SpectreGunshipUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         data.howitzer_weapon_template = None;
         return Ok(());
@@ -256,12 +258,12 @@ fn parse_gattling_strafe_fx_particle_system(
     data: &mut SpectreGunshipUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         data.gattling_strafe_fx_particle_system = AsciiString::new();
         return Ok(());
     }
-    data.gattling_strafe_fx_particle_system = AsciiString::from(*token);
+    data.gattling_strafe_fx_particle_system = AsciiString::from(token);
     Ok(())
 }
 
@@ -270,10 +272,7 @@ fn parse_radius_decal_texture(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.texture_name = AsciiString::from(tokens[0]);
+    data.texture_name = AsciiString::from(required_value(tokens)?);
     Ok(())
 }
 
@@ -282,7 +281,11 @@ fn parse_radius_decal_style(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.shadow_type = INI::parse_bit_string_32(tokens, &SHADOW_NAMES)?;
+    let values: Vec<&str> = value_tokens(tokens).collect();
+    if values.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+    data.shadow_type = INI::parse_bit_string_32(&values, &SHADOW_NAMES)?;
     Ok(())
 }
 
@@ -291,10 +294,7 @@ fn parse_radius_decal_opacity_min(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.min_opacity = INI::parse_percent_to_real(tokens[0])?;
+    data.min_opacity = INI::parse_percent_to_real(required_value(tokens)?)?;
     data.opacity = data.min_opacity;
     Ok(())
 }
@@ -304,10 +304,7 @@ fn parse_radius_decal_opacity_max(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.max_opacity = INI::parse_percent_to_real(tokens[0])?;
+    data.max_opacity = INI::parse_percent_to_real(required_value(tokens)?)?;
     data.opacity = data.max_opacity;
     Ok(())
 }
@@ -326,11 +323,12 @@ fn parse_radius_decal_color(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
+    let values: Vec<&str> = value_tokens(tokens).collect();
+    if values.is_empty() {
         return Err(INIError::InvalidData);
     }
-    if tokens.len() == 1 {
-        if let Ok(value) = tokens[0].parse::<u32>() {
+    if values.len() == 1 {
+        if let Ok(value) = INI::parse_unsigned_int(values[0]) {
             data.color = value;
             return Ok(());
         }
@@ -341,7 +339,7 @@ fn parse_radius_decal_color(
     let mut b: u8 = 0;
     let mut a: u8 = 255;
 
-    for token in tokens {
+    for token in values {
         let (key, value) = match token.split_once(':') {
             Some((k, v)) => (k.trim(), v.trim()),
             None => ("", token.trim()),
@@ -365,8 +363,7 @@ fn parse_radius_decal_only_visible(
     data: &mut RadiusDecalTemplate,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.only_visible_to_owning_player = INI::parse_bool(token)?;
+    data.only_visible_to_owning_player = INI::parse_bool(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -1458,5 +1455,74 @@ impl Module for SpectreGunshipUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spectre_module_fields_use_cpp_ini_token_handling() {
+        let mut data = SpectreGunshipUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        parse_gattling_template_name(&mut ini, &mut data, &["=", "AmericaVehicleComanche"])
+            .expect("gattling template");
+        parse_howitzer_firing_rate(&mut ini, &mut data, &["=", "1500ms"]).expect("firing rate");
+        parse_orbit_time(&mut ini, &mut data, &["=", "1.5s"]).expect("orbit time");
+        parse_howitzer_follow_lag(&mut ini, &mut data, &["=", "300"]).expect("follow lag");
+        parse_attack_area_radius(&mut ini, &mut data, &["=", "275.5f"]).expect("attack radius");
+        parse_gattling_strafe_fx_particle_system(&mut ini, &mut data, &["=", "FX_GattlingStrafe"])
+            .expect("particle system");
+
+        assert_eq!(
+            data.gattling_template_name.as_str(),
+            "AmericaVehicleComanche"
+        );
+        assert_eq!(data.howitzer_firing_rate, 45);
+        assert_eq!(data.orbit_frames, 45);
+        assert_eq!(data.howitzer_follow_lag, 9);
+        assert!((data.attack_area_radius - 275.5).abs() < f32::EPSILON);
+        assert_eq!(
+            data.gattling_strafe_fx_particle_system.as_str(),
+            "FX_GattlingStrafe"
+        );
+    }
+
+    #[test]
+    fn spectre_radius_decal_fields_use_cpp_ini_token_handling() {
+        let mut decal = RadiusDecalTemplate::default();
+        let mut ini = INI::new();
+
+        parse_radius_decal_texture(&mut ini, &mut decal, &["=", "EXSpectreRadius"])
+            .expect("texture");
+        parse_radius_decal_opacity_min(&mut ini, &mut decal, &["=", "25%"]).expect("min");
+        parse_radius_decal_opacity_max(&mut ini, &mut decal, &["=", "75%"]).expect("max");
+        parse_radius_decal_opacity_throb_time(&mut ini, &mut decal, &["=", "1.5s"]).expect("throb");
+        parse_radius_decal_color(&mut ini, &mut decal, &["=", "R:1", "G:2", "B:3", "A:4"])
+            .expect("color");
+        parse_radius_decal_only_visible(&mut ini, &mut decal, &["=", "true"]).expect("visible");
+
+        assert_eq!(decal.texture_name.as_str(), "EXSpectreRadius");
+        assert!((decal.min_opacity - 0.25).abs() < f32::EPSILON);
+        assert!((decal.max_opacity - 0.75).abs() < f32::EPSILON);
+        assert_eq!(decal.opacity_throb_time, 45);
+        assert_eq!(decal.color, 0x04030201);
+        assert!(decal.only_visible_to_owning_player);
+    }
+
+    #[test]
+    fn spectre_parser_rejects_missing_values_and_invalid_bool_like_cpp() {
+        let mut decal = RadiusDecalTemplate::default();
+        let mut ini = INI::new();
+
+        let err = parse_radius_decal_only_visible(&mut ini, &mut decal, &["maybe"])
+            .expect_err("invalid bool");
+        assert!(matches!(err, INIError::InvalidData));
+
+        let mut data = SpectreGunshipUpdateModuleData::default();
+        let err = parse_attack_area_radius(&mut ini, &mut data, &["="]).expect_err("missing real");
+        assert!(matches!(err, INIError::InvalidData));
     }
 }
