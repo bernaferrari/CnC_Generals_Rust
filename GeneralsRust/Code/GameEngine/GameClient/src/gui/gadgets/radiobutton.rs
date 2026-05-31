@@ -383,7 +383,11 @@ impl Gadget for RadioButton {
 
             InputEvent::MouseDown { button, .. } => {
                 if *button == MouseButton::Left {
-                    // C++: no action on left down for radio buttons.
+                    // C++ handles left down without changing selection.
+                    return vec![GadgetMessage::Custom {
+                        gadget_id: self.id,
+                        data: "input_handled".to_string(),
+                    }];
                 }
             }
 
@@ -391,6 +395,12 @@ impl Gadget for RadioButton {
                 if *button == MouseButton::Left {
                     if !self.mouse_inside {
                         return Vec::new();
+                    }
+                    if self.selected {
+                        return vec![GadgetMessage::Custom {
+                            gadget_id: self.id,
+                            data: "input_handled".to_string(),
+                        }];
                     }
                     return self.handle_click();
                 }
@@ -644,6 +654,36 @@ mod tests {
         assert!(matches!(
             prev.as_slice(),
             [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_prev"
+        ));
+    }
+
+    #[test]
+    fn mouse_down_and_selected_mouse_up_are_handled_without_selection_message_like_cpp() {
+        let group = RadioButtonGroup::new(1);
+        let mut radio = RadioButton::new(1, 10, 20, 20, group);
+
+        let down = radio.handle_input(&InputEvent::MouseDown {
+            x: 12,
+            y: 22,
+            button: MouseButton::Left,
+        });
+        assert!(!radio.is_selected());
+        assert!(matches!(
+            down.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "input_handled"
+        ));
+
+        radio.select();
+        radio.handle_input(&InputEvent::MouseEnter { x: 12, y: 22 });
+        let up = radio.handle_input(&InputEvent::MouseUp {
+            x: 12,
+            y: 22,
+            button: MouseButton::Left,
+        });
+        assert!(radio.is_selected());
+        assert!(matches!(
+            up.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "input_handled"
         ));
     }
 }
