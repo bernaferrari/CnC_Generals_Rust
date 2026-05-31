@@ -10,6 +10,7 @@ use std::any::Any;
 use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
 
+use crate::action_manager::TheActionManager;
 use crate::ai::THE_AI;
 use crate::command_button::{CommandButtonId, MAX_COMMANDS_PER_SET};
 use crate::commands::command::CommandType;
@@ -26,7 +27,7 @@ use crate::modules::{
 };
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::special_power_template::get_special_power_store;
+use crate::object::special_power_template::{get_special_power_store, SpecialPowerTemplate};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::xfer::XferMode;
@@ -509,14 +510,7 @@ impl CommandButtonHuntUpdate {
             }
 
             if is_enter {
-                #[allow(unreachable_patterns)]
-                let valid = match command_type {
-                    CommandType::HijackVehicle => other.is_kind_of(KindOf::Vehicle),
-                    CommandType::SabotageBuilding => other.is_kind_of(KindOf::Structure),
-                    CommandType::ConvertToCarBomb => other.is_kind_of(KindOf::Vehicle),
-                    _ => false,
-                };
-                if valid {
+                if Self::is_valid_enter_hunt_target(&object, &other, command_type) {
                     return Some(id);
                 }
                 continue;
@@ -527,6 +521,10 @@ impl CommandButtonHuntUpdate {
                     if !store.can_use_special_power(object.get_id(), template) {
                         continue;
                     }
+                }
+
+                if !Self::is_valid_special_power_hunt_target(&object, &other, template) {
+                    continue;
                 }
 
                 if is_place_explosive {
@@ -592,6 +590,43 @@ impl CommandButtonHuntUpdate {
         }
 
         best_target
+    }
+
+    fn is_valid_enter_hunt_target(
+        object: &crate::object::Object,
+        other: &crate::object::Object,
+        command_type: CommandType,
+    ) -> bool {
+        #[allow(unreachable_patterns)]
+        match command_type {
+            CommandType::HijackVehicle => {
+                TheActionManager::can_hijack_vehicle(object, other, CommandSourceType::FromAi)
+            }
+            CommandType::SabotageBuilding => {
+                TheActionManager::can_sabotage_building(object, other, CommandSourceType::FromAi)
+            }
+            CommandType::ConvertToCarBomb => TheActionManager::can_convert_object_to_car_bomb(
+                object,
+                other,
+                CommandSourceType::FromAi,
+            ),
+            _ => false,
+        }
+    }
+
+    fn is_valid_special_power_hunt_target(
+        object: &crate::object::Object,
+        other: &crate::object::Object,
+        template: &SpecialPowerTemplate,
+    ) -> bool {
+        TheActionManager::can_do_special_power_at_object(
+            object,
+            other,
+            CommandSourceType::FromAi,
+            template,
+            0,
+            false,
+        )
     }
 }
 
@@ -743,6 +778,11 @@ impl CommandButtonHuntControlInterface for CommandButtonHuntUpdateModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::object::special_power_types::SpecialPowerType;
+    use crate::team::Team;
+    use std::collections::HashMap;
+    use std::sync::RwLock;
 
     #[test]
     fn parse_duration_frames_accepts_duration_suffixes() {
@@ -753,5 +793,69 @@ mod tests {
     #[test]
     fn parse_duration_frames_ignores_equals_token() {
         assert_eq!(parse_duration_frames(&["=", "1.5s"]).expect("duration"), 45);
+    }
+
+    fn object_with_kind(id: ObjectID, kind_of: &str) -> crate::object::Object {
+        let mut template = DefaultThingTemplate::new(format!("HuntTarget{id}"));
+        let mut fields = HashMap::new();
+        fields.insert("KindOf".to_string(), kind_of.to_string());
+        template.parse_object_fields_from_ini(&fields);
+        crate::object::Object::new_raw(Arc::new(template), id, ObjectStatusMaskType::none(), None)
+    }
+
+    fn enemy_pair(
+        source_kind: &str,
+        target_kind: &str,
+    ) -> (crate::object::Object, crate::object::Object) {
+        let source_team = Arc::new(RwLock::new(Team::new(AsciiString::from("SourceTeam"), 1)));
+        let target_team = Arc::new(RwLock::new(Team::new(AsciiString::from("TargetTeam"), 2)));
+        source_team
+            .write()
+            .unwrap()
+            .set_override_team_relationship(2, Relationship::Enemies);
+        target_team
+            .write()
+            .unwrap()
+            .set_override_team_relationship(1, Relationship::Enemies);
+
+        let mut source = object_with_kind(1, source_kind);
+        source.set_team(Some(source_team)).unwrap();
+
+        let mut target = object_with_kind(2, target_kind);
+        target.set_team(Some(target_team)).unwrap();
+
+        (source, target)
+    }
+
+    #[test]
+    fn enter_hunt_uses_action_manager_vehicle_gates() {
+        let (source, aircraft) = enemy_pair("INFANTRY", "VEHICLE | AIRCRAFT");
+
+        assert!(aircraft.is_kind_of(KindOf::Vehicle));
+        assert!(!CommandButtonHuntUpdate::is_valid_enter_hunt_target(
+            &source,
+            &aircraft,
+            CommandType::HijackVehicle
+        ));
+    }
+
+    #[test]
+    fn special_power_hunt_rejects_targets_action_manager_rejects() {
+        let source = object_with_kind(1, "INFANTRY");
+        let aircraft = object_with_kind(2, "VEHICLE | AIRCRAFT");
+        let ground_vehicle = object_with_kind(3, "VEHICLE");
+        let template = SpecialPowerTemplate::new("Disguise".to_string(), 1)
+            .with_power_type(SpecialPowerType::DisguiseAsVehicle);
+
+        assert!(
+            !CommandButtonHuntUpdate::is_valid_special_power_hunt_target(
+                &source, &aircraft, &template
+            )
+        );
+        assert!(CommandButtonHuntUpdate::is_valid_special_power_hunt_target(
+            &source,
+            &ground_vehicle,
+            &template
+        ));
     }
 }
