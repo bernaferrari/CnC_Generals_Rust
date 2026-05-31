@@ -1004,8 +1004,8 @@ impl GlobalData {
 
             standard_public_bones: Vec::new(),
 
-            standard_minefield_density: 1.0,
-            standard_minefield_distance: 20.0,
+            standard_minefield_density: 0.01,
+            standard_minefield_distance: 40.0,
 
             show_metrics: false,
             default_starting_cash: 5000,
