@@ -322,6 +322,20 @@ mod tests {
             "Skirmish.long"
         );
     }
+
+    #[test]
+    fn save_load_menu_system_consumes_lifecycle_messages_like_cpp() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            save_load_menu_system(&window, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            save_load_menu_system(&window, WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
+    }
 }
 
 fn selected_game_info(state: &SaveLoadMenuState) -> Option<AvailableGameInfo> {
@@ -615,6 +629,7 @@ pub fn save_load_menu_system(
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::User(code) if code == DOUBLE_CLICK_MSG => {
             if data1 as i32 == state.listbox_games {
