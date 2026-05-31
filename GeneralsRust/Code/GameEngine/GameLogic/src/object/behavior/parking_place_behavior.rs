@@ -186,7 +186,7 @@ fn parse_num_rows(
     data: &mut ParkingPlaceBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.num_rows = INI::parse_int(token)?;
     Ok(())
 }
@@ -196,7 +196,7 @@ fn parse_num_cols(
     data: &mut ParkingPlaceBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.num_cols = INI::parse_int(token)?;
     Ok(())
 }
@@ -206,7 +206,7 @@ fn parse_approach_height(
     data: &mut ParkingPlaceBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.approach_height = INI::parse_real(token)?;
     Ok(())
 }
@@ -216,7 +216,7 @@ fn parse_landing_deck_height_offset(
     data: &mut ParkingPlaceBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.landing_deck_height_offset = INI::parse_real(token)?;
     Ok(())
 }
@@ -226,7 +226,7 @@ fn parse_has_runways(
     data: &mut ParkingPlaceBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.has_runways = INI::parse_bool(token)?;
     Ok(())
 }
@@ -236,7 +236,7 @@ fn parse_park_in_hangars(
     data: &mut ParkingPlaceBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.park_in_hangars = INI::parse_bool(token)?;
     Ok(())
 }
@@ -246,9 +246,17 @@ fn parse_heal_amount_per_second(
     data: &mut ParkingPlaceBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.heal_amount = INI::parse_real(token)?;
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 const PARKING_PLACE_BEHAVIOR_FIELDS: &[FieldParse<ParkingPlaceBehaviorModuleData>] = &[
@@ -1710,5 +1718,46 @@ mod tests {
         assert_eq!(data.num_cols, 0);
         assert!(!data.has_runways);
         assert_eq!(data.heal_amount, 0.0);
+    }
+
+    #[test]
+    fn parking_place_fields_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = ParkingPlaceBehaviorModuleData::default();
+
+        parse_num_rows(&mut ini, &mut data, &["=", "2"]).unwrap();
+        parse_num_cols(&mut ini, &mut data, &["=", "4"]).unwrap();
+        parse_approach_height(&mut ini, &mut data, &["=", "75.5"]).unwrap();
+        parse_landing_deck_height_offset(&mut ini, &mut data, &["=", "6.25"]).unwrap();
+        parse_has_runways(&mut ini, &mut data, &["=", "yes"]).unwrap();
+        parse_park_in_hangars(&mut ini, &mut data, &["=", "true"]).unwrap();
+        parse_heal_amount_per_second(&mut ini, &mut data, &["=", "12.5"]).unwrap();
+
+        assert_eq!(data.num_rows, 2);
+        assert_eq!(data.num_cols, 4);
+        assert_eq!(data.approach_height, 75.5);
+        assert_eq!(data.landing_deck_height_offset, 6.25);
+        assert!(data.has_runways);
+        assert!(data.park_in_hangars);
+        assert_eq!(data.heal_amount, 12.5);
+    }
+
+    #[test]
+    fn parking_place_rejects_missing_values_like_cpp_parsers() {
+        let mut ini = INI::new();
+        let mut data = ParkingPlaceBehaviorModuleData::default();
+
+        assert!(matches!(
+            parse_num_rows(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_approach_height(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_has_runways(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
     }
 }
