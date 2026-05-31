@@ -492,6 +492,12 @@ impl Gadget for TabControl {
             InputEvent::MouseDown { x, y, button } => {
                 if *button == MouseButton::Left {
                     if let Some(tab_index) = self.tab_at_position(*x, *y) {
+                        if tab_index == self.active_tab_index() {
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "input_handled".to_string(),
+                            }];
+                        }
                         if self.select_tab_index(tab_index) {
                             return vec![GadgetMessage::ValueChanged {
                                 gadget_id: self.id,
@@ -499,6 +505,10 @@ impl Gadget for TabControl {
                             }];
                         }
                     }
+                    return vec![GadgetMessage::Custom {
+                        gadget_id: self.id,
+                        data: "input_handled".to_string(),
+                    }];
                 }
             }
 
@@ -640,5 +650,41 @@ mod tests {
         });
         assert_eq!(tab_control.active_tab_index(), 1);
         assert!(up.is_empty());
+    }
+
+    #[test]
+    fn left_down_on_active_or_blank_tab_area_is_handled_without_switch_like_cpp() {
+        let mut tab_control = TabControl::new(1, 10, 20, 400, 300);
+        tab_control.set_tab_data(TabControlData {
+            tab_edge: TP_TOP_SIDE,
+            tab_orientation: TP_TOPLEFT,
+            tab_width: 100,
+            tab_height: 30,
+            tab_count: 2,
+            ..Default::default()
+        });
+        tab_control.set_active_tab_index_silent(0);
+
+        let active = tab_control.handle_input(&InputEvent::MouseDown {
+            x: 25,
+            y: 25,
+            button: MouseButton::Left,
+        });
+        assert_eq!(tab_control.active_tab_index(), 0);
+        assert!(matches!(
+            active.as_slice(),
+            [GadgetMessage::Custom { data, .. }] if data == "input_handled"
+        ));
+
+        let blank = tab_control.handle_input(&InputEvent::MouseDown {
+            x: 350,
+            y: 25,
+            button: MouseButton::Left,
+        });
+        assert_eq!(tab_control.active_tab_index(), 0);
+        assert!(matches!(
+            blank.as_slice(),
+            [GadgetMessage::Custom { data, .. }] if data == "input_handled"
+        ));
     }
 }
