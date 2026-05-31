@@ -79,9 +79,16 @@ fn parse_radius(
     data: &mut PropagandaTowerBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.scan_radius = INI::parse_real(token)?;
+    data.scan_radius = INI::parse_real(required_value(tokens)?)?;
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 fn parse_delay_between_updates(
@@ -89,8 +96,7 @@ fn parse_delay_between_updates(
     data: &mut PropagandaTowerBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.scan_delay_in_frames = INI::parse_duration_unsigned_int(token)?;
+    data.scan_delay_in_frames = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -99,8 +105,7 @@ fn parse_heal_percent_each_second(
     data: &mut PropagandaTowerBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.auto_heal_percent_per_second = INI::parse_percent_to_real(token)?;
+    data.auto_heal_percent_per_second = INI::parse_percent_to_real(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -109,8 +114,8 @@ fn parse_upgraded_heal_percent_each_second(
     data: &mut PropagandaTowerBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.upgraded_auto_heal_percent_per_second = INI::parse_percent_to_real(token)?;
+    data.upgraded_auto_heal_percent_per_second =
+        INI::parse_percent_to_real(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -119,8 +124,7 @@ fn parse_pulse_fx(
     data: &mut PropagandaTowerBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.pulse_fx = TheFXListStore::find_fx_list(token);
+    data.pulse_fx = TheFXListStore::find_fx_list(required_value(tokens)?);
     Ok(())
 }
 
@@ -129,8 +133,7 @@ fn parse_upgrade_required(
     data: &mut PropagandaTowerBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.upgrade_required = AsciiString::from(*token);
+    data.upgrade_required = AsciiString::from(required_value(tokens)?);
     Ok(())
 }
 
@@ -139,8 +142,7 @@ fn parse_upgraded_pulse_fx(
     data: &mut PropagandaTowerBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.upgraded_pulse_fx = TheFXListStore::find_fx_list(token);
+    data.upgraded_pulse_fx = TheFXListStore::find_fx_list(required_value(tokens)?);
     Ok(())
 }
 
@@ -149,8 +151,7 @@ fn parse_affects_self(
     data: &mut PropagandaTowerBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.affects_self = INI::parse_bool(token)?;
+    data.affects_self = INI::parse_bool(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -703,3 +704,42 @@ impl Module for PropagandaTowerBehaviorModule {
 // Thread safety
 unsafe impl Send for PropagandaTowerBehavior {}
 unsafe impl Sync for PropagandaTowerBehavior {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn propaganda_tower_fields_use_cpp_ini_token_handling() {
+        let mut data = PropagandaTowerBehaviorModuleData::default();
+        let mut ini = INI::new();
+
+        parse_radius(&mut ini, &mut data, &["=", "175.5f"]).expect("radius");
+        parse_delay_between_updates(&mut ini, &mut data, &["=", "2s"]).expect("delay");
+        parse_heal_percent_each_second(&mut ini, &mut data, &["=", "5%"]).expect("heal percent");
+        parse_upgraded_heal_percent_each_second(&mut ini, &mut data, &["=", "12.5%"])
+            .expect("upgraded heal percent");
+        parse_upgrade_required(&mut ini, &mut data, &["=", "Upgrade_Nationalism"])
+            .expect("upgrade required");
+        parse_affects_self(&mut ini, &mut data, &["=", "true"]).expect("affects self");
+
+        assert!((data.scan_radius - 175.5).abs() < f32::EPSILON);
+        assert_eq!(data.scan_delay_in_frames, 60);
+        assert!((data.auto_heal_percent_per_second - 0.05).abs() < f32::EPSILON);
+        assert!((data.upgraded_auto_heal_percent_per_second - 0.125).abs() < f32::EPSILON);
+        assert_eq!(data.upgrade_required.as_str(), "Upgrade_Nationalism");
+        assert!(data.affects_self);
+    }
+
+    #[test]
+    fn propaganda_tower_rejects_missing_values_and_invalid_bool_like_cpp_parsers() {
+        let mut data = PropagandaTowerBehaviorModuleData::default();
+        let mut ini = INI::new();
+
+        let err = parse_radius(&mut ini, &mut data, &["="]).expect_err("missing real");
+        assert!(matches!(err, INIError::InvalidData));
+
+        let err = parse_affects_self(&mut ini, &mut data, &["maybe"]).expect_err("invalid bool");
+        assert!(matches!(err, INIError::InvalidData));
+    }
+}
