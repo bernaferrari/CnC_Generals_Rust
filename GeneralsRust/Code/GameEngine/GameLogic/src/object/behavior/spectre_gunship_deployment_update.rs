@@ -89,11 +89,16 @@ fn parse_ascii_string_field(
     target: &mut AsciiString,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    *target = AsciiString::from(tokens[0]);
+    *target = AsciiString::from(required_value(tokens)?);
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 fn parse_special_power_template(
@@ -101,10 +106,7 @@ fn parse_special_power_template(
     data: &mut SpectreGunshipDeploymentUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    let name = AsciiString::from(tokens[0]);
+    let name = AsciiString::from(required_value(tokens)?);
     data.special_power_template = Some(find_or_create_special_power_template(&name));
     Ok(())
 }
@@ -114,10 +116,7 @@ fn parse_attack_area_radius(
     data: &mut SpectreGunshipDeploymentUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.attack_area_radius = INI::parse_real(tokens[0])?;
+    data.attack_area_radius = INI::parse_real(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -126,11 +125,9 @@ fn parse_required_science(
     data: &mut SpectreGunshipDeploymentUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
+    let token = required_value(tokens)?;
     let science = get_science_store()
-        .map(|store| store.get_science_from_internal_name(tokens[0]))
+        .map(|store| store.get_science_from_internal_name(token))
         .unwrap_or(SCIENCE_INVALID);
     data.extra_required_science = science;
     Ok(())
@@ -141,23 +138,26 @@ fn parse_create_location(
     data: &mut SpectreGunshipDeploymentUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    let token = tokens[0].trim();
-    data.create_loc = match token.to_ascii_uppercase().as_str() {
-        "CREATE_AT_EDGE_NEAR_SOURCE" => GunshipCreateLocType::CreateAtEdgeNearSource,
-        "CREATE_AT_EDGE_FARTHEST_FROM_SOURCE" => {
-            GunshipCreateLocType::CreateAtEdgeFarthestFromSource
-        }
-        "CREATE_AT_EDGE_NEAR_TARGET" => GunshipCreateLocType::CreateAtEdgeNearTarget,
-        "CREATE_AT_EDGE_FARTHEST_FROM_TARGET" => {
-            GunshipCreateLocType::CreateAtEdgeFarthestFromTarget
-        }
-        _ => GunshipCreateLocType::CreateAtEdgeFarthestFromTarget,
-    };
+    let idx = INI::parse_index_list(required_value(tokens)?.trim(), GUNSHIP_CREATE_LOC_NAMES)?;
+    data.create_loc = *GUNSHIP_CREATE_LOC_TYPES
+        .get(idx)
+        .ok_or(INIError::InvalidData)?;
     Ok(())
 }
+
+const GUNSHIP_CREATE_LOC_NAMES: &[&str] = &[
+    "CREATE_AT_EDGE_NEAR_SOURCE",
+    "CREATE_AT_EDGE_FARTHEST_FROM_SOURCE",
+    "CREATE_AT_EDGE_NEAR_TARGET",
+    "CREATE_AT_EDGE_FARTHEST_FROM_TARGET",
+];
+
+const GUNSHIP_CREATE_LOC_TYPES: &[GunshipCreateLocType] = &[
+    GunshipCreateLocType::CreateAtEdgeNearSource,
+    GunshipCreateLocType::CreateAtEdgeFarthestFromSource,
+    GunshipCreateLocType::CreateAtEdgeNearTarget,
+    GunshipCreateLocType::CreateAtEdgeFarthestFromTarget,
+];
 
 const SPECTRE_GUNSHIP_DEPLOYMENT_FIELDS: &[FieldParse<SpectreGunshipDeploymentUpdateModuleData>] =
     &[
@@ -576,5 +576,53 @@ impl Module for SpectreGunshipDeploymentUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spectre_deployment_fields_use_cpp_ini_token_handling() {
+        let mut data = SpectreGunshipDeploymentUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        parse_ascii_string_field(
+            &mut ini,
+            &mut data.gunship_template_name,
+            &["=", "AmericaJetSpectreGunship"],
+        )
+        .expect("gunship template");
+        parse_attack_area_radius(&mut ini, &mut data, &["=", "333.5f"]).expect("attack radius");
+        parse_create_location(&mut ini, &mut data, &["=", "CREATE_AT_EDGE_NEAR_SOURCE"])
+            .expect("create location");
+
+        assert_eq!(
+            data.gunship_template_name.as_str(),
+            "AmericaJetSpectreGunship"
+        );
+        assert!((data.attack_area_radius - 333.5).abs() < f32::EPSILON);
+        assert_eq!(
+            data.create_loc,
+            GunshipCreateLocType::CreateAtEdgeNearSource
+        );
+    }
+
+    #[test]
+    fn spectre_deployment_rejects_missing_values_and_invalid_create_location_like_cpp() {
+        let mut data = SpectreGunshipDeploymentUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        let err =
+            parse_create_location(&mut ini, &mut data, &["NOT_A_LOCATION"]).expect_err("bad loc");
+        assert!(matches!(err, INIError::InvalidData));
+        assert_eq!(
+            data.create_loc,
+            GunshipCreateLocType::CreateAtEdgeFarthestFromTarget
+        );
+
+        let err = parse_attack_area_radius(&mut ini, &mut data, &["="]).expect_err("missing real");
+        assert!(matches!(err, INIError::InvalidData));
     }
 }
