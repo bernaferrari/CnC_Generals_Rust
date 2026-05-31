@@ -48,9 +48,16 @@ fn parse_enabled(
     data: &mut FloatUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.enabled = INI::parse_bool(token)?;
+    data.enabled = INI::parse_bool(required_value(tokens)?)?;
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    match tokens {
+        ["=", value, ..] => Ok(*value),
+        [value, ..] if *value != "=" => Ok(*value),
+        _ => Err(INIError::InvalidData),
+    }
 }
 
 const FLOAT_UPDATE_FIELDS: &[FieldParse<FloatUpdateModuleData>] = &[FieldParse {
@@ -238,5 +245,37 @@ impl FloatUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(FloatUpdate::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_enabled_matches_cpp_constructor() {
+        let data = FloatUpdateModuleData::default();
+
+        assert!(!data.enabled);
+    }
+
+    #[test]
+    fn enabled_parser_uses_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = FloatUpdateModuleData::default();
+
+        parse_enabled(&mut ini, &mut data, &["=", "yes"]).unwrap();
+
+        assert!(data.enabled);
+    }
+
+    #[test]
+    fn enabled_parser_rejects_missing_value() {
+        let mut ini = INI::new();
+        let mut data = FloatUpdateModuleData::default();
+
+        let err = parse_enabled(&mut ini, &mut data, &["="]).unwrap_err();
+
+        assert!(matches!(err, INIError::InvalidData));
     }
 }
