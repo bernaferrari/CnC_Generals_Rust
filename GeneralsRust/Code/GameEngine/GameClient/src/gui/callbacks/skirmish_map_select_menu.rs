@@ -319,6 +319,10 @@ pub fn skirmish_map_select_menu_shutdown(
     _user_data: Option<&mut dyn std::any::Any>,
 ) {
     layout.hide(true);
+    nullify_controls();
+}
+
+fn nullify_controls() {
     let state_handle = map_select_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     state.parent = None;
@@ -336,6 +340,12 @@ pub fn skirmish_map_select_menu_system(
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
+        WindowMessage::Create => return WindowMsgHandled::Handled,
+        WindowMessage::Destroy => {
+            drop(state);
+            nullify_controls();
+            return WindowMsgHandled::Handled;
+        }
         WindowMessage::InputFocus => {
             // C++ parity: acknowledge focus handoff explicitly so the menu can take keyboard focus.
             return WindowMsgHandled::Handled;
@@ -729,6 +739,20 @@ mod tests {
         assert_eq!(
             skirmish_map_select_menu_input(&window, WindowMessage::Char, b'A' as u32, 0),
             WindowMsgHandled::Ignored
+        );
+    }
+
+    #[test]
+    fn skirmish_map_select_system_consumes_lifecycle_messages_like_cpp() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            skirmish_map_select_menu_system(&window, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            skirmish_map_select_menu_system(&window, WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
         );
     }
 }
