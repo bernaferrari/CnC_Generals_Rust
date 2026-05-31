@@ -750,12 +750,13 @@ pub fn w3d_main_menu_button_drop_shadow_draw(window: &GameWindow, inst_data: &Wi
 #[cfg(test)]
 mod tests {
     use super::{
-        check_box_image_source, combo_box_title_adjustment, horizontal_slider_box_counts,
-        horizontal_slider_box_image_sources, horizontal_slider_image_draw_a_sources,
-        horizontal_slider_image_draw_b_sources, progress_bar_image_draw_a_bank,
-        progress_bar_image_draw_a_sources, progress_bar_image_sources, progress_bar_solid_sources,
-        push_button_three_piece_tail_clip, radio_button_image_set_complete,
-        radio_button_image_sources, radio_button_solid_box_source, solid_check_box_mark_color,
+        check_box_image_source, combo_box_title_adjustment, compute_tab_layout,
+        horizontal_slider_box_counts, horizontal_slider_box_image_sources,
+        horizontal_slider_image_draw_a_sources, horizontal_slider_image_draw_b_sources,
+        progress_bar_image_draw_a_bank, progress_bar_image_draw_a_sources,
+        progress_bar_image_sources, progress_bar_solid_sources, push_button_three_piece_tail_clip,
+        radio_button_image_set_complete, radio_button_image_sources, radio_button_solid_box_source,
+        solid_check_box_mark_color,
     };
     use super::{
         list_box_image_content_width, list_box_selected_image_rect, list_box_selected_image_slots,
@@ -764,9 +765,10 @@ mod tests {
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
     use super::{static_text_draw_data, static_text_text_colors, WIN_COLOR_UNDEFINED};
     use super::{
-        text_entry_focus_matches, text_entry_image_tile_rects, truncate_to_i32,
-        TextEntryImageTileKind,
+        text_entry_focus_matches, text_entry_image_tile_rects, text_entry_text_draw_x,
+        truncate_to_i32, TextEntryImageTileKind,
     };
+    use crate::gui::gadgets::{TabControl, TabControlData};
     use crate::gui::game_window::{GameWindow, WindowInstanceData, WindowState, WindowStatus};
 
     #[test]
@@ -806,6 +808,12 @@ mod tests {
                 (TextEntryImageTileKind::Right, 12, 0, 20, 10),
             ]
         );
+    }
+
+    #[test]
+    fn text_entry_text_draw_x_keeps_long_end_visible_like_cpp() {
+        assert_eq!(text_entry_text_draw_x(10, 100, 40), 12);
+        assert_eq!(text_entry_text_draw_x(10, 100, 240), -138);
     }
 
     #[test]
@@ -924,6 +932,25 @@ mod tests {
     #[test]
     fn horizontal_slider_default_image_sources_match_cpp() {
         assert_eq!(horizontal_slider_box_image_sources(), (0, 1, 0));
+    }
+
+    #[test]
+    fn tab_control_layout_does_not_force_phantom_tab() {
+        let mut window = GameWindow::new();
+        window.set_size(200, 100).unwrap();
+        let mut tab_control = TabControl::new(7, 0, 0, 200, 100);
+        tab_control.set_tab_data(TabControlData {
+            tab_edge: super::TP_TOP_SIDE,
+            tab_width: 40,
+            tab_height: 20,
+            tab_count: 0,
+            pane_border: 3,
+            ..Default::default()
+        });
+
+        let (_, _, _, _, _, _, tab_count) = compute_tab_layout(&window, &tab_control);
+
+        assert_eq!(tab_count, 0);
     }
 
     #[test]
@@ -4369,12 +4396,14 @@ fn draw_text_entry_text(
         height: font_height.max(0),
     }));
 
-    display.draw(start_x, start_y, text_color, drop_color);
-    let mut cursor_pos = start_x + display.get_width(entry.cursor_position() as i32);
+    let text_width = display.get_width(-1);
+    let draw_x = text_entry_text_draw_x(start_x, width, text_width);
+    display.draw(draw_x, start_y, text_color, drop_color);
+    let mut cursor_pos = draw_x + display.get_width(entry.cursor_position() as i32);
 
     if !entry.ime_composition().is_empty() {
         let comp_text = entry.ime_composition().to_string();
-        let comp_x = start_x + display.get_width(-1);
+        let comp_x = draw_x + text_width;
         display.set_text(comp_text);
         display.draw(comp_x, start_y, composite_color, composite_drop);
         cursor_pos += display.get_width(entry.ime_cursor() as i32);
@@ -4397,6 +4426,19 @@ fn draw_text_entry_text(
 
     display.set_clip_region(None);
     let _ = cursor_pos;
+}
+
+fn text_entry_text_draw_x(start_x: i32, width: i32, text_width: i32) -> i32 {
+    let draw_x = start_x + 2;
+    if text_width < width {
+        return draw_x;
+    }
+    let half_width = width / 2;
+    if half_width <= 0 {
+        return draw_x;
+    }
+    let div = text_width / half_width - 1;
+    draw_x - (div * half_width)
 }
 
 fn text_entry_caret_has_focus(window: &GameWindow) -> bool {
@@ -5303,7 +5345,7 @@ fn compute_tab_layout(
     let (win_width_u, win_height_u) = window.get_size();
     let win_width = win_width_u as i32;
     let win_height = win_height_u as i32;
-    let tab_count = tab_control.tab_count().min(8).max(1);
+    let tab_count = tab_control.tab_count().min(8);
     let tab_width = tab_control.tab_width_px();
     let tab_height = tab_control.tab_height_px();
     let pane_border = tab_control.pane_border();
