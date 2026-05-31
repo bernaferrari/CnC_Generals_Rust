@@ -95,6 +95,26 @@ fn sync_selected_index(state: &mut ReplayMenuState) {
     state.menu.set_selected_index(selected.unwrap_or(-1));
 }
 
+fn selected_replay_row_for_double_click(state: &mut ReplayMenuState) -> Option<i32> {
+    let selected = state
+        .listbox_window
+        .as_ref()
+        .and_then(|listbox| {
+            let guard = listbox.borrow();
+            guard.widget().and_then(|widget| match widget {
+                crate::gui::WindowWidget::ListBox(listbox) => {
+                    listbox.selected_indices().first().copied()
+                }
+                _ => None,
+            })
+        })
+        .map(|idx| idx as i32);
+    if let Some(row) = selected {
+        state.menu.set_selected_index(row);
+    }
+    selected
+}
+
 fn populate_replay_listbox(state: &mut ReplayMenuState) {
     let Some(listbox) = state.listbox_window.as_ref() else {
         return;
@@ -392,15 +412,7 @@ pub fn replay_menu_system(
         }
         WindowMessage::User(code) if code == DOUBLE_CLICK_MSG => {
             if data1 as i32 == state.listbox_id {
-                let row_selected = _data2 as i32;
-                if row_selected >= 0 {
-                    if let Some(listbox) = state.listbox_window.as_ref() {
-                        if let Some(widget) = listbox.borrow_mut().list_box_mut() {
-                            let _ =
-                                widget.select_index(row_selected as usize, KeyModifiers::none());
-                        }
-                    }
-                    state.menu.set_selected_index(row_selected);
+                if let Some(row_selected) = selected_replay_row_for_double_click(&mut state) {
                     drop(state);
                     playback_replay_row_direct(row_selected);
                 }
@@ -453,5 +465,34 @@ mod tests {
             replay_menu_input(&window, WindowMessage::Char, b'A' as u32, 0),
             WindowMsgHandled::Ignored
         );
+    }
+
+    #[test]
+    fn replay_double_click_uses_current_listbox_selection_like_cpp() {
+        let mut state = ReplayMenuState::new();
+        state.listbox_id = 42;
+
+        let mut listbox = crate::gui::gadgets::ListBox::new(42, 0, 0, 200, 80);
+        listbox.add_item("first");
+        listbox.add_item("second");
+        assert!(listbox.select_index(1, KeyModifiers::none()));
+
+        let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
+        listbox_window
+            .borrow_mut()
+            .set_widget(crate::gui::WindowWidget::ListBox(listbox));
+        state.listbox_window = Some(listbox_window.clone());
+
+        assert_eq!(selected_replay_row_for_double_click(&mut state), Some(1));
+        let selected = listbox_window
+            .borrow()
+            .widget()
+            .and_then(|widget| match widget {
+                crate::gui::WindowWidget::ListBox(listbox) => {
+                    listbox.selected_indices().first().copied()
+                }
+                _ => None,
+            });
+        assert_eq!(selected, Some(1));
     }
 }
