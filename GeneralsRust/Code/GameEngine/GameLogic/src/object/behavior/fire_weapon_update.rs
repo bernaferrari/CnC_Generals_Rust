@@ -50,10 +50,7 @@
 //! - C++ compatibility tests verifying all defaults and conversions
 
 use crate::common::ModuleData;
-use crate::common::{
-    AsciiString, Bool, ObjectID, UnsignedInt, INVALID_ID as OBJECT_INVALID_ID,
-    LOGICFRAMES_PER_SECOND,
-};
+use crate::common::{AsciiString, Bool, ObjectID, UnsignedInt, INVALID_ID as OBJECT_INVALID_ID};
 use crate::modules::{BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::Object as GameObject;
@@ -476,11 +473,16 @@ fn parse_weapon_template(
     data: &mut FireWeaponUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.weapon_template_name = tokens[0].to_string();
+    data.weapon_template_name = first_value_token(tokens)?.to_string();
     Ok(())
+}
+
+fn first_value_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 fn parse_initial_delay(
@@ -488,24 +490,7 @@ fn parse_initial_delay(
     data: &mut FireWeaponUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-
-    // Parse duration in frames
-    let delay_str = tokens[0];
-    let frames = if delay_str.ends_with("s") || delay_str.ends_with("S") {
-        // Convert seconds to frames (30 FPS)
-        let seconds: f32 = delay_str[..delay_str.len() - 1]
-            .parse()
-            .map_err(|_| INIError::InvalidData)?;
-        (seconds * LOGICFRAMES_PER_SECOND as f32) as UnsignedInt
-    } else {
-        // Direct frame count
-        delay_str.parse().map_err(|_| INIError::InvalidData)?
-    };
-
-    data.initial_delay_frames = frames;
+    data.initial_delay_frames = INI::parse_duration_unsigned_int(first_value_token(tokens)?)?;
     Ok(())
 }
 
@@ -514,24 +499,7 @@ fn parse_exclusive_weapon_delay(
     data: &mut FireWeaponUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-
-    // Parse duration in frames
-    let delay_str = tokens[0];
-    let frames = if delay_str.ends_with("s") || delay_str.ends_with("S") {
-        // Convert seconds to frames (30 FPS)
-        let seconds: f32 = delay_str[..delay_str.len() - 1]
-            .parse()
-            .map_err(|_| INIError::InvalidData)?;
-        (seconds * LOGICFRAMES_PER_SECOND as f32) as UnsignedInt
-    } else {
-        // Direct frame count
-        delay_str.parse().map_err(|_| INIError::InvalidData)?
-    };
-
-    data.exclusive_weapon_delay = frames;
+    data.exclusive_weapon_delay = INI::parse_duration_unsigned_int(first_value_token(tokens)?)?;
     Ok(())
 }
 
@@ -551,3 +519,37 @@ const FIRE_WEAPON_UPDATE_FIELDS: &[FieldParse<FireWeaponUpdateModuleData>] = &[
 ];
 
 // Mock-based tests removed to avoid mocks in fidelity-critical code.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_field(data: &mut FireWeaponUpdateModuleData, token: &str, tokens: &[&str]) {
+        let field = FIRE_WEAPON_UPDATE_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, tokens).expect("parse field");
+    }
+
+    #[test]
+    fn delay_fields_parse_cpp_duration_forms() {
+        let mut data = FireWeaponUpdateModuleData::default();
+
+        parse_field(&mut data, "InitialDelay", &["=", "1500ms"]);
+        parse_field(&mut data, "ExclusiveWeaponDelay", &["1.5s"]);
+
+        assert_eq!(data.initial_delay_frames, 45);
+        assert_eq!(data.exclusive_weapon_delay, 45);
+    }
+
+    #[test]
+    fn weapon_field_ignores_equals_token() {
+        let mut data = FireWeaponUpdateModuleData::default();
+
+        parse_field(&mut data, "Weapon", &["=", "ParticleCannonBeam"]);
+
+        assert_eq!(data.weapon_template_name, "ParticleCannonBeam");
+    }
+}
