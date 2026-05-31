@@ -54,7 +54,7 @@ pub type WindowResult<T> = Result<T, WindowError>;
 pub const WINDOW_ID_INVALID: WindowId = 0;
 
 /// Undefined color constant
-pub const WIN_COLOR_UNDEFINED: u32 = 0xFFFFFFFF;
+pub const WIN_COLOR_UNDEFINED: u32 = 0x00FF_FFFF;
 
 /// Gadget system message IDs
 const GGM_LEFT_DRAG: u32 = 16384;
@@ -3628,6 +3628,11 @@ mod tests {
     use crate::gui::gadgets::Rect;
 
     use super::*;
+
+    #[test]
+    fn undefined_window_color_matches_cpp_transparent_white_sentinel() {
+        assert_eq!(WIN_COLOR_UNDEFINED, 0x00FF_FFFF);
+    }
 
     #[test]
     fn test_window_creation() {
