@@ -772,6 +772,16 @@ impl Gadget for PushButton {
                                 Vec::new()
                             }
                         }
+                        KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
+                            vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "tab_next".to_string(),
+                            }]
+                        }
+                        KeyCode::Left | KeyCode::Up => vec![GadgetMessage::Custom {
+                            gadget_id: self.id,
+                            data: "tab_prev".to_string(),
+                        }],
                         _ => Vec::new(),
                     }
                 } else {
@@ -1260,6 +1270,30 @@ mod tests {
         });
         assert!(up.is_empty());
         assert!(button.is_checked());
+    }
+
+    #[test]
+    fn keyboard_arrows_and_tab_request_focus_navigation_like_cpp() {
+        let mut button = PushButton::new(1, 0, 0, 100, 30);
+        button.set_focus(true);
+
+        let next = button.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            next.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_next"
+        ));
+
+        let prev = button.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Up,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            prev.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_prev"
+        ));
     }
 
     #[test]

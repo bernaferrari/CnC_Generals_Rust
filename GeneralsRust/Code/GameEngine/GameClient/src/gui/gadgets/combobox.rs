@@ -381,9 +381,7 @@ impl Gadget for ComboBox {
 
             InputEvent::MouseDown { x, y, button } => {
                 if *button == MouseButton::Left {
-                    if self.bounds.contains_point(*x, *y) {
-                        self.toggle();
-                    } else if self.dropdown_open {
+                    if self.dropdown_open && !self.bounds.contains_point(*x, *y) {
                         let dropdown = self.dropdown_bounds_internal();
                         if !dropdown.contains_point(*x, *y) {
                             self.close();
@@ -393,14 +391,18 @@ impl Gadget for ComboBox {
             }
 
             InputEvent::MouseUp { x, y, button } => {
-                if *button == MouseButton::Left && self.dropdown_open {
-                    if let Some(index) = self.item_at_position(*x, *y) {
-                        if self.select_index(index) {
-                            self.close();
-                            return vec![GadgetMessage::ValueChanged {
-                                gadget_id: self.id,
-                                value: GadgetValue::Integer(self.items[index].id as i32),
-                            }];
+                if *button == MouseButton::Left {
+                    if self.bounds.contains_point(*x, *y) {
+                        self.toggle();
+                    } else if self.dropdown_open {
+                        if let Some(index) = self.item_at_position(*x, *y) {
+                            if self.select_index(index) {
+                                self.close();
+                                return vec![GadgetMessage::ValueChanged {
+                                    gadget_id: self.id,
+                                    value: GadgetValue::Integer(self.items[index].id as i32),
+                                }];
+                            }
                         }
                     }
                 }
@@ -601,5 +603,35 @@ mod tests {
             prev.as_slice(),
             [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_prev"
         ));
+    }
+
+    #[test]
+    fn opens_on_left_up_not_left_down_like_cpp() {
+        let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
+        combobox.add_item(ComboBoxItem::new(1, "Item 1"));
+
+        let down = combobox.handle_input(&InputEvent::MouseDown {
+            x: 20,
+            y: 25,
+            button: MouseButton::Left,
+        });
+        assert!(down.is_empty());
+        assert!(!combobox.is_open());
+
+        let up = combobox.handle_input(&InputEvent::MouseUp {
+            x: 20,
+            y: 25,
+            button: MouseButton::Left,
+        });
+        assert!(up.is_empty());
+        assert!(combobox.is_open());
+
+        let up = combobox.handle_input(&InputEvent::MouseUp {
+            x: 20,
+            y: 25,
+            button: MouseButton::Left,
+        });
+        assert!(up.is_empty());
+        assert!(!combobox.is_open());
     }
 }
