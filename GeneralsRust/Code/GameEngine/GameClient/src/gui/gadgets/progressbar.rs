@@ -161,6 +161,14 @@ impl ProgressBar {
         self
     }
 
+    pub fn set_fill_color(&mut self, color: Color) {
+        self.config.fill_color = color;
+    }
+
+    pub fn fill_color(&self) -> Color {
+        self.config.fill_color
+    }
+
     /// Show/hide percentage
     pub fn with_percentage(mut self, show: bool) -> Self {
         self.config.show_percentage = show;
