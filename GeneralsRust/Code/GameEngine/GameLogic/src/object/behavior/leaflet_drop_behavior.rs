@@ -50,9 +50,16 @@ fn parse_duration_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(INI::parse_duration_unsigned_int(token)?);
+    setter(INI::parse_duration_unsigned_int(required_value(tokens)?)?);
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 fn parse_real_field(
@@ -60,8 +67,7 @@ fn parse_real_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(INI::parse_real(token)?);
+    setter(INI::parse_real(required_value(tokens)?)?);
     Ok(())
 }
 
@@ -70,11 +76,11 @@ fn parse_leaflet_fx_particle_system(
     data: &mut LeafletDropBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         data.leaflet_fx_particle_system = None;
     } else {
-        data.leaflet_fx_particle_system = Some(AsciiString::from(*token));
+        data.leaflet_fx_particle_system = Some(AsciiString::from(token));
     }
     Ok(())
 }
@@ -254,5 +260,50 @@ impl LeafletDropBehaviorFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(LeafletDropBehavior::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leaflet_drop_fields_use_cpp_ini_token_handling() {
+        let mut data = LeafletDropBehaviorModuleData::default();
+        let mut ini = INI::new();
+
+        parse_duration_field(&mut ini, &mut |v| data.delay_frames = v, &["=", "1s"])
+            .expect("delay");
+        parse_duration_field(
+            &mut ini,
+            &mut |v| data.disabled_duration = v,
+            &["=", "2500ms"],
+        )
+        .expect("disabled duration");
+        parse_real_field(&mut ini, &mut |v| data.radius = v, &["=", "90.5f"]).expect("radius");
+        parse_leaflet_fx_particle_system(&mut ini, &mut data, &["=", "LeafletFX"])
+            .expect("particle system");
+
+        assert_eq!(data.delay_frames, 30);
+        assert_eq!(data.disabled_duration, 75);
+        assert!((data.radius - 90.5).abs() < f32::EPSILON);
+        assert_eq!(
+            data.leaflet_fx_particle_system.as_ref().map(|s| s.as_str()),
+            Some("LeafletFX")
+        );
+    }
+
+    #[test]
+    fn leaflet_drop_rejects_missing_values_and_none_clears_particle_template() {
+        let mut data = LeafletDropBehaviorModuleData::default();
+        let mut ini = INI::new();
+
+        let err =
+            parse_duration_field(&mut ini, &mut |_| {}, &["="]).expect_err("missing duration");
+        assert!(matches!(err, INIError::InvalidData));
+
+        data.leaflet_fx_particle_system = Some(AsciiString::from("LeafletFX"));
+        parse_leaflet_fx_particle_system(&mut ini, &mut data, &["=", "NONE"]).expect("none");
+        assert!(data.leaflet_fx_particle_system.is_none());
     }
 }
