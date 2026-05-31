@@ -64,8 +64,7 @@ fn parse_self_heal_suppression(
     data: &mut SupplyWarehouseCripplingBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.self_heal_suppression = INI::parse_duration_unsigned_int(token)?;
+    data.self_heal_suppression = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -74,8 +73,7 @@ fn parse_self_heal_delay(
     data: &mut SupplyWarehouseCripplingBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.self_heal_delay = INI::parse_duration_unsigned_int(token)?;
+    data.self_heal_delay = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -84,9 +82,16 @@ fn parse_self_heal_amount(
     data: &mut SupplyWarehouseCripplingBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.self_heal_amount = INI::parse_real(token)?;
+    data.self_heal_amount = INI::parse_real(required_value(tokens)?)?;
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    match tokens {
+        ["=", value, ..] => Ok(*value),
+        [value, ..] if *value != "=" => Ok(*value),
+        _ => Err(INIError::InvalidData),
+    }
 }
 
 const SUPPLY_WAREHOUSE_CRIPPLING_FIELDS: &[FieldParse<
@@ -413,5 +418,39 @@ mod tests {
         assert_eq!(data.self_heal_suppression, 0);
         assert_eq!(data.self_heal_delay, 0);
         assert_eq!(data.self_heal_amount, 0.0);
+    }
+
+    #[test]
+    fn field_parsers_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = SupplyWarehouseCripplingBehaviorModuleData::default();
+
+        parse_self_heal_suppression(&mut ini, &mut data, &["=", "1000ms"]).unwrap();
+        parse_self_heal_delay(&mut ini, &mut data, &["=", "2s"]).unwrap();
+        parse_self_heal_amount(&mut ini, &mut data, &["=", "15.5"]).unwrap();
+
+        assert_eq!(
+            data.self_heal_suppression,
+            INI::parse_duration_unsigned_int("1000ms").unwrap()
+        );
+        assert_eq!(
+            data.self_heal_delay,
+            INI::parse_duration_unsigned_int("2s").unwrap()
+        );
+        assert_eq!(data.self_heal_amount, 15.5);
+    }
+
+    #[test]
+    fn field_parsers_reject_missing_values() {
+        let mut ini = INI::new();
+        let mut data = SupplyWarehouseCripplingBehaviorModuleData::default();
+
+        let suppression_err = parse_self_heal_suppression(&mut ini, &mut data, &["="]).unwrap_err();
+        let delay_err = parse_self_heal_delay(&mut ini, &mut data, &["="]).unwrap_err();
+        let amount_err = parse_self_heal_amount(&mut ini, &mut data, &["="]).unwrap_err();
+
+        assert!(matches!(suppression_err, INIError::InvalidData));
+        assert!(matches!(delay_err, INIError::InvalidData));
+        assert!(matches!(amount_err, INIError::InvalidData));
     }
 }
