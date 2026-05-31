@@ -543,8 +543,6 @@ fn build_from_ini_special_power(
         if let Ok(radius) = value.parse::<f32>() {
             template.radius_cursor_radius = radius;
         }
-    } else if ini_template.radius > 0.0 {
-        template.radius_cursor_radius = ini_template.radius;
     }
 
     if let Some(value) = props.get("AcademyClassify") {
@@ -644,6 +642,34 @@ mod tests {
             Some("ThirdPower")
         );
         assert!(store.get_special_power_template_by_index(3).is_none());
+    }
+
+    #[test]
+    fn ini_special_power_radius_cursor_defaults_to_zero_when_absent() {
+        let mut ini_template = IniSpecialPowerTemplate::new(AsciiString::from("NoCursorRadius"));
+        ini_template
+            .properties
+            .insert("ReloadTime".to_string(), "1000".to_string());
+        ini_template.radius = 50.0;
+
+        let template =
+            build_from_ini_special_power(&AsciiString::from("NoCursorRadius"), 1, &ini_template);
+
+        assert_eq!(template.get_radius_cursor_radius(), 0.0);
+    }
+
+    #[test]
+    fn ini_special_power_radius_cursor_uses_explicit_cpp_field() {
+        let mut ini_template = IniSpecialPowerTemplate::new(AsciiString::from("HasCursorRadius"));
+        ini_template
+            .properties
+            .insert("RadiusCursorRadius".to_string(), "60".to_string());
+        ini_template.radius = 50.0;
+
+        let template =
+            build_from_ini_special_power(&AsciiString::from("HasCursorRadius"), 2, &ini_template);
+
+        assert_eq!(template.get_radius_cursor_radius(), 60.0);
     }
 
     #[test]
