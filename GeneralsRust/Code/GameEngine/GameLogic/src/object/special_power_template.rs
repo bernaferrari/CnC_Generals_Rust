@@ -468,14 +468,6 @@ fn build_from_ini_special_power(
         .and_then(|value| parse_duration_frames(value))
     {
         template.reload_time = reload;
-    } else if ini_template.recharge_time > 0.0 {
-        let raw = ini_template.recharge_time;
-        let frames = if raw > 1000.0 {
-            ((raw / 1000.0) * LOGICFRAMES_PER_SECOND as f32) as u32
-        } else {
-            (raw * LOGICFRAMES_PER_SECOND as f32) as u32
-        };
-        template.reload_time = frames;
     }
 
     if let Some(science_value) = props.get("RequiredScience") {
@@ -522,21 +514,12 @@ fn build_from_ini_special_power(
         if let Some(frames) = parse_duration_frames(value) {
             template.view_object_duration = frames;
         }
-    } else if ini_template.view_object_duration > 0.0 {
-        let raw = ini_template.view_object_duration;
-        template.view_object_duration = if raw > 1000.0 {
-            ((raw / 1000.0) * LOGICFRAMES_PER_SECOND as f32) as u32
-        } else {
-            (raw * LOGICFRAMES_PER_SECOND as f32) as u32
-        };
     }
 
     if let Some(value) = props.get("ViewObjectRange") {
         if let Ok(range) = value.parse::<f32>() {
             template.view_object_range = range;
         }
-    } else if ini_template.range > 0.0 {
-        template.view_object_range = ini_template.range;
     }
 
     if let Some(value) = props.get("RadiusCursorRadius") {
@@ -670,6 +653,44 @@ mod tests {
             build_from_ini_special_power(&AsciiString::from("HasCursorRadius"), 2, &ini_template);
 
         assert_eq!(template.get_radius_cursor_radius(), 60.0);
+    }
+
+    #[test]
+    fn ini_special_power_generic_fields_do_not_populate_cpp_template_fields() {
+        let mut ini_template = IniSpecialPowerTemplate::new(AsciiString::from("GenericOnly"));
+        ini_template.recharge_time = 30.0;
+        ini_template.range = 100.0;
+        ini_template.view_object_duration = 10.0;
+
+        let template =
+            build_from_ini_special_power(&AsciiString::from("GenericOnly"), 3, &ini_template);
+
+        assert_eq!(template.get_reload_time(), 0);
+        assert_eq!(template.get_view_object_duration(), 0);
+        assert_eq!(template.get_view_object_range(), 0.0);
+    }
+
+    #[test]
+    fn ini_special_power_cpp_fields_populate_timing_and_view_fields() {
+        let mut ini_template = IniSpecialPowerTemplate::new(AsciiString::from("CppFields"));
+        ini_template
+            .properties
+            .insert("ReloadTime".to_string(), "3000".to_string());
+        ini_template
+            .properties
+            .insert("ViewObjectDuration".to_string(), "1.5s".to_string());
+        ini_template
+            .properties
+            .insert("ViewObjectRange".to_string(), "250".to_string());
+        ini_template.recharge_time = 30.0;
+        ini_template.range = 100.0;
+
+        let template =
+            build_from_ini_special_power(&AsciiString::from("CppFields"), 4, &ini_template);
+
+        assert_eq!(template.get_reload_time(), 90);
+        assert_eq!(template.get_view_object_duration(), 45);
+        assert_eq!(template.get_view_object_range(), 250.0);
     }
 
     #[test]
