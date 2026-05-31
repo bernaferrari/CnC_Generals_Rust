@@ -46,9 +46,9 @@ impl Default for FlammableUpdateModuleData {
         Self {
             base: BehaviorModuleData::default(),
             burned_delay: 0,
-            aflame_duration: 300,
-            aflame_damage_delay: 30,
-            aflame_damage_amount: 1.0,
+            aflame_duration: 0,
+            aflame_damage_delay: 0,
+            aflame_damage_amount: 0.0,
             flame_damage_limit: 20.0,
             flame_damage_expiration_delay: 60, // 2 seconds at 30 FPS
             burning_sound_name: AsciiString::new(),
@@ -69,8 +69,7 @@ fn parse_duration_field(
     setter: &mut dyn FnMut(UnsignedInt),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(INI::parse_duration_unsigned_int(token)?);
+    setter(INI::parse_duration_unsigned_int(required_value(tokens)?)?);
     Ok(())
 }
 
@@ -79,8 +78,7 @@ fn parse_real_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(INI::parse_real(token)?);
+    setter(INI::parse_real(required_value(tokens)?)?);
     Ok(())
 }
 
@@ -89,8 +87,7 @@ fn parse_int_as_real_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(INI::parse_int(token)? as Real);
+    setter(INI::parse_int(required_value(tokens)?)? as Real);
     Ok(())
 }
 
@@ -99,9 +96,17 @@ fn parse_ascii_field(
     setter: &mut dyn FnMut(AsciiString),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    setter(AsciiString::from(*token));
+    let value = INI::parse_ascii_string(required_value(tokens)?)?;
+    setter(AsciiString::from(value.as_str()));
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    match tokens {
+        ["=", value, ..] => Ok(*value),
+        [value, ..] if *value != "=" => Ok(*value),
+        _ => Err(INIError::InvalidData),
+    }
 }
 
 const FLAMMABLE_UPDATE_FIELDS: &[FieldParse<FlammableUpdateModuleData>] = &[
@@ -426,5 +431,107 @@ impl FlammableUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(FlammableUpdate::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_match_cpp_constructor() {
+        let data = FlammableUpdateModuleData::default();
+
+        assert_eq!(data.burned_delay, 0);
+        assert_eq!(data.aflame_duration, 0);
+        assert_eq!(data.aflame_damage_delay, 0);
+        assert_eq!(data.aflame_damage_amount, 0.0);
+        assert_eq!(data.burning_sound_name.as_str(), "");
+        assert_eq!(data.flame_damage_limit, 20.0);
+        assert_eq!(
+            data.flame_damage_expiration_delay,
+            crate::common::LOGICFRAMES_PER_SECOND * 2
+        );
+    }
+
+    #[test]
+    fn field_parsers_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = FlammableUpdateModuleData::default();
+
+        parse_duration_field(&mut ini, &mut |v| data.burned_delay = v, &["=", "1000ms"]).unwrap();
+        parse_duration_field(&mut ini, &mut |v| data.aflame_duration = v, &["=", "2s"]).unwrap();
+        parse_duration_field(
+            &mut ini,
+            &mut |v| data.aflame_damage_delay = v,
+            &["=", "500ms"],
+        )
+        .unwrap();
+        parse_int_as_real_field(
+            &mut ini,
+            &mut |v| data.aflame_damage_amount = v,
+            &["=", "7"],
+        )
+        .unwrap();
+        parse_ascii_field(
+            &mut ini,
+            &mut |v| data.burning_sound_name = v,
+            &["=", "FireLoop"],
+        )
+        .unwrap();
+        parse_real_field(
+            &mut ini,
+            &mut |v| data.flame_damage_limit = v,
+            &["=", "42.5"],
+        )
+        .unwrap();
+        parse_duration_field(
+            &mut ini,
+            &mut |v| data.flame_damage_expiration_delay = v,
+            &["=", "3s"],
+        )
+        .unwrap();
+
+        assert_eq!(
+            data.burned_delay,
+            INI::parse_duration_unsigned_int("1000ms").unwrap()
+        );
+        assert_eq!(
+            data.aflame_duration,
+            INI::parse_duration_unsigned_int("2s").unwrap()
+        );
+        assert_eq!(
+            data.aflame_damage_delay,
+            INI::parse_duration_unsigned_int("500ms").unwrap()
+        );
+        assert_eq!(data.aflame_damage_amount, 7.0);
+        assert_eq!(data.burning_sound_name.as_str(), "FireLoop");
+        assert_eq!(data.flame_damage_limit, 42.5);
+        assert_eq!(
+            data.flame_damage_expiration_delay,
+            INI::parse_duration_unsigned_int("3s").unwrap()
+        );
+    }
+
+    #[test]
+    fn field_parsers_reject_missing_values() {
+        let mut ini = INI::new();
+        let mut duration = 0;
+        let mut real = 0.0;
+        let mut text = AsciiString::new();
+
+        let duration_err =
+            parse_duration_field(&mut ini, &mut |v| duration = v, &["="]).unwrap_err();
+        let real_err = parse_real_field(&mut ini, &mut |v| real = v, &["="]).unwrap_err();
+        let int_err = parse_int_as_real_field(&mut ini, &mut |v| real = v, &["="]).unwrap_err();
+        let ascii_err = parse_ascii_field(&mut ini, &mut |v| text = v, &["="]).unwrap_err();
+
+        assert!(matches!(duration_err, INIError::InvalidData));
+        assert!(matches!(real_err, INIError::InvalidData));
+        assert!(matches!(int_err, INIError::InvalidData));
+        assert!(matches!(ascii_err, INIError::InvalidData));
+        assert_eq!(duration, 0);
+        assert_eq!(real, 0.0);
+        assert_eq!(text.as_str(), "");
     }
 }
