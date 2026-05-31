@@ -856,9 +856,9 @@ fn parse_forbidden_status(
         .map_err(|_| INIError::InvalidData)
 }
 
-fn parse_unsigned_int_field(field: &mut UnsignedInt, tokens: &[&str]) -> Result<(), INIError> {
+fn parse_duration_field(field: &mut UnsignedInt, tokens: &[&str]) -> Result<(), INIError> {
     let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
-    *field = INI::parse_unsigned_int(value)?;
+    *field = INI::parse_duration_unsigned_int(value)?;
     Ok(())
 }
 
@@ -942,7 +942,7 @@ fn parse_disguise_transition_time(
     data: &mut StealthUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    parse_unsigned_int_field(&mut data.disguise_transition_frames, tokens)
+    parse_duration_field(&mut data.disguise_transition_frames, tokens)
 }
 
 fn parse_disguise_reveal_transition_time(
@@ -950,7 +950,7 @@ fn parse_disguise_reveal_transition_time(
     data: &mut StealthUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    parse_unsigned_int_field(&mut data.disguise_reveal_transition_frames, tokens)
+    parse_duration_field(&mut data.disguise_reveal_transition_frames, tokens)
 }
 
 fn parse_stealth_delay(
@@ -958,7 +958,7 @@ fn parse_stealth_delay(
     data: &mut StealthUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    parse_unsigned_int_field(&mut data.stealth_delay_frames, tokens)
+    parse_duration_field(&mut data.stealth_delay_frames, tokens)
 }
 
 fn parse_pulse_frequency(
@@ -966,7 +966,7 @@ fn parse_pulse_frequency(
     data: &mut StealthUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    parse_unsigned_int_field(&mut data.pulse_frames, tokens)
+    parse_duration_field(&mut data.pulse_frames, tokens)
 }
 
 fn parse_black_market_delay(
@@ -974,7 +974,7 @@ fn parse_black_market_delay(
     data: &mut StealthUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    parse_unsigned_int_field(&mut data.black_market_check_frames, tokens)
+    parse_duration_field(&mut data.black_market_check_frames, tokens)
 }
 
 const STEALTH_UPDATE_FIELDS: &[FieldParse<StealthUpdateModuleData>] = &[
@@ -1072,6 +1072,32 @@ const STEALTH_UPDATE_FIELDS: &[FieldParse<StealthUpdateModuleData>] = &[
 mod tests {
     use super::*;
     use std::sync::RwLock;
+
+    fn parse_field(data: &mut StealthUpdateModuleData, token: &str, values: &[&str]) {
+        let field = STEALTH_UPDATE_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field exists");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
+    #[test]
+    fn duration_fields_parse_ini_milliseconds_to_logic_frames() {
+        let mut data = StealthUpdateModuleData::default();
+
+        parse_field(&mut data, "StealthDelay", &["=", "1000"]);
+        parse_field(&mut data, "PulseFrequency", &["=", "1000"]);
+        parse_field(&mut data, "DisguiseTransitionTime", &["=", "1000"]);
+        parse_field(&mut data, "DisguiseRevealTransitionTime", &["=", "1000"]);
+        parse_field(&mut data, "BlackMarketCheckDelay", &["=", "500"]);
+
+        assert_eq!(data.stealth_delay_frames, 30);
+        assert_eq!(data.pulse_frames, 30);
+        assert_eq!(data.disguise_transition_frames, 30);
+        assert_eq!(data.disguise_reveal_transition_frames, 30);
+        assert_eq!(data.black_market_check_frames, 15);
+    }
 
     #[test]
     fn parses_status_tokens() {
