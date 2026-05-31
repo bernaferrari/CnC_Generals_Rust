@@ -212,12 +212,6 @@ fn parse_int(value: &str) -> Result<Int, INIError> {
     value.parse::<Int>().map_err(|_| INIError::InvalidData)
 }
 
-fn parse_unsigned(value: &str) -> Result<UnsignedInt, INIError> {
-    value
-        .parse::<UnsignedInt>()
-        .map_err(|_| INIError::InvalidData)
-}
-
 fn parse_real(value: &str) -> Result<Real, INIError> {
     value.parse::<Real>().map_err(|_| INIError::InvalidData)
 }
@@ -258,7 +252,7 @@ fn parse_healing_delay_field(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
-    data.healing_delay = parse_unsigned(value)?;
+    data.healing_delay = INI::parse_duration_unsigned_int(value)?;
     Ok(())
 }
 
@@ -268,7 +262,7 @@ fn parse_start_healing_delay_field(
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
-    data.start_healing_delay = parse_unsigned(value)?;
+    data.start_healing_delay = INI::parse_duration_unsigned_int(value)?;
     Ok(())
 }
 
@@ -1310,9 +1304,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_auto_heal_behavior_creation() {
-        // Test creation of auto heal behavior
-        // This would require mock implementations of dependencies
+    fn auto_heal_duration_fields_parse_to_logic_frames() {
+        let mut data = AutoHealBehaviorModuleData::default();
+
+        parse_healing_delay_field(&mut INI::new(), &mut data, &["=", "3000"]).unwrap();
+        parse_start_healing_delay_field(&mut INI::new(), &mut data, &["=", "1.5s"]).unwrap();
+
+        assert_eq!(data.healing_delay, 90);
+        assert_eq!(data.start_healing_delay, 45);
     }
 
     #[test]
