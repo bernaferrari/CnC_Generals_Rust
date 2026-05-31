@@ -17,10 +17,12 @@ use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::random_value::init_random_with_seed;
 use game_engine::common::recorder::{with_recorder, with_recorder_mut};
+use game_engine::get_game_state;
 use gamelogic::helpers::{TheGameLogic, TheScriptEngine, TheVictoryConditions};
 use gamelogic::player::ThePlayerList;
 use gamelogic::system::game_logic::{GAME_INTERNET, GAME_LAN};
 use std::cell::RefCell;
+use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -207,13 +209,10 @@ fn restart_mission_menu() {
     destroy_quit_menu();
 
     let game_mode = TheGameLogic::get_game_mode();
-    let mut map_name = get_global_data()
+    let map_name = get_global_data()
         .map(|data| data.read().map_name.clone())
         .unwrap_or_default();
-
-    if map_name.starts_with("Save/") {
-        map_name = map_name.trim_start_matches("Save/").to_string();
-    }
+    let map_name = restart_map_name_for_pending_file(&map_name);
 
     let replay_file = with_recorder(|recorder| recorder.get_current_replay_filename().to_string())
         .unwrap_or_default();
@@ -258,6 +257,20 @@ fn restart_mission_menu() {
     TheInGameUI::set_client_quiet(true);
 }
 
+fn restart_map_name_for_pending_file(map_name: &str) -> String {
+    let game_state = get_game_state();
+    let is_save_map = game_state.is_in_save_directory(Path::new(map_name))
+        || map_name.starts_with("Save/")
+        || map_name.starts_with("Save\\");
+    if is_save_map {
+        let pristine = game_state.get_pristine_map_name();
+        if !pristine.is_empty() {
+            return pristine.to_string();
+        }
+    }
+    map_name.to_string()
+}
+
 pub fn hide_quit_menu() {
     let state_handle = quit_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
@@ -287,6 +300,34 @@ pub fn hide_quit_menu() {
     }
     if !TheGameLogic::is_in_multiplayer_game() {
         TheGameLogic::set_game_paused(false, true);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restart_from_save_uses_pristine_map_name_like_cpp() {
+        let old_pristine = {
+            let game_state = get_game_state();
+            game_state.get_pristine_map_name().to_string()
+        };
+        {
+            let mut game_state = get_game_state();
+            game_state.set_pristine_map_name("Maps\\Campaign\\USA05\\USA05.map".to_string());
+        }
+
+        assert_eq!(
+            restart_map_name_for_pending_file("Save\\scratch.map"),
+            "Maps\\Campaign\\USA05\\USA05.map"
+        );
+        assert_eq!(
+            restart_map_name_for_pending_file("Maps\\Campaign\\USA06\\USA06.map"),
+            "Maps\\Campaign\\USA06\\USA06.map"
+        );
+
+        get_game_state().set_pristine_map_name(old_pristine);
     }
 }
 
