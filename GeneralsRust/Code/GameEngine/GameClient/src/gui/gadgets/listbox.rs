@@ -68,6 +68,12 @@ pub struct ListBoxTextAndColor {
     pub color: Color,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListBoxSelection {
+    Single(i32),
+    Multiple(Vec<i32>),
+}
+
 /// Selection mode for list boxes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionMode {
@@ -618,6 +624,23 @@ impl ListBox {
     pub fn set_selected_indices(&mut self, indices: &[usize]) {
         self.selected_indices = indices.iter().cloned().collect();
         self.last_selected = self.selected_indices.last().copied();
+    }
+
+    pub fn get_selection(&self) -> ListBoxSelection {
+        match self.selection_mode {
+            SelectionMode::Single => ListBoxSelection::Single(
+                self.selected_indices
+                    .first()
+                    .map(|index| *index as i32)
+                    .unwrap_or(-1),
+            ),
+            SelectionMode::Multiple => ListBoxSelection::Multiple(
+                self.selected_indices
+                    .iter()
+                    .map(|index| *index as i32)
+                    .collect(),
+            ),
+        }
     }
 
     pub fn toggle_multi_selection(&mut self, index: i32) -> bool {
@@ -1391,5 +1414,28 @@ mod tests {
                 color: Color::new(0, 0, 0, 0),
             }
         );
+    }
+
+    #[test]
+    fn get_selection_matches_cpp_single_and_multi_return_shapes() {
+        let mut single = ListBox::new(7, 0, 0, 100, 40);
+        single.add_item_with_id(10, "Alpha");
+        single.add_item_with_id(20, "Bravo");
+
+        assert_eq!(single.get_selection(), ListBoxSelection::Single(-1));
+        single.select_index(1, KeyModifiers::none());
+        assert_eq!(single.get_selection(), ListBoxSelection::Single(1));
+        single.set_selected_indices(&[]);
+        assert_eq!(single.get_selection(), ListBoxSelection::Single(-1));
+
+        let mut multi =
+            ListBox::new(8, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
+        multi.add_item_with_id(10, "Alpha");
+        multi.add_item_with_id(20, "Bravo");
+        multi.add_item_with_id(30, "Charlie");
+
+        assert_eq!(multi.get_selection(), ListBoxSelection::Multiple(Vec::new()));
+        multi.set_selected_indices(&[0, 2]);
+        assert_eq!(multi.get_selection(), ListBoxSelection::Multiple(vec![0, 2]));
     }
 }
