@@ -180,7 +180,7 @@ fn parse_bridge_fx_field(
 
         if token.eq_ignore_ascii_case("Delay:") {
             let value = iter.next().ok_or(INIError::InvalidData)?;
-            fx_info.time_and_location_info.delay = INI::parse_unsigned_int(value)?;
+            fx_info.time_and_location_info.delay = INI::parse_duration_unsigned_int(value)?;
             continue;
         }
 
@@ -190,7 +190,7 @@ fn parse_bridge_fx_field(
             } else {
                 value
             };
-            fx_info.time_and_location_info.delay = INI::parse_unsigned_int(delay_value)?;
+            fx_info.time_and_location_info.delay = INI::parse_duration_unsigned_int(delay_value)?;
             continue;
         }
 
@@ -268,7 +268,7 @@ fn parse_bridge_ocl_field(
 
         if token.eq_ignore_ascii_case("Delay:") {
             let value = iter.next().ok_or(INIError::InvalidData)?;
-            ocl_info.time_and_location_info.delay = INI::parse_unsigned_int(value)?;
+            ocl_info.time_and_location_info.delay = INI::parse_duration_unsigned_int(value)?;
             continue;
         }
 
@@ -278,7 +278,7 @@ fn parse_bridge_ocl_field(
             } else {
                 value
             };
-            ocl_info.time_and_location_info.delay = INI::parse_unsigned_int(delay_value)?;
+            ocl_info.time_and_location_info.delay = INI::parse_duration_unsigned_int(delay_value)?;
             continue;
         }
 
@@ -2179,5 +2179,28 @@ mod tests {
     #[test]
     fn test_scaffolding_system() {
         // Test scaffolding creation and removal
+    }
+
+    #[test]
+    fn bridge_fx_and_ocl_delays_parse_as_durations() {
+        let mut data = BridgeBehaviorModuleData::default();
+
+        parse_bridge_fx_field(
+            &mut INI::new(),
+            &mut data,
+            &["=", "FX:BridgeExplosion", "Delay:3000", "Bone:Mid"],
+        )
+        .unwrap();
+        parse_bridge_ocl_field(
+            &mut INI::new(),
+            &mut data,
+            &["=", "OCL:BridgeDebris", "Delay:", "1.5s", "Bone:", "End"],
+        )
+        .unwrap();
+
+        assert_eq!(data.fx[0].time_and_location_info.delay, 90);
+        assert_eq!(data.fx[0].time_and_location_info.bone_name.as_str(), "Mid");
+        assert_eq!(data.ocl[0].time_and_location_info.delay, 45);
+        assert_eq!(data.ocl[0].time_and_location_info.bone_name.as_str(), "End");
     }
 }
