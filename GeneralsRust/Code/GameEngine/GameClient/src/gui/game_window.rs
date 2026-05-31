@@ -728,9 +728,11 @@ impl GameWindow {
             height as WindowMsgData,
         );
         let mut resize_tab_panes = false;
+        let mut sync_listbox_inset = false;
         match self.widget.as_mut() {
             Some(WindowWidget::ListBox(listbox)) => {
                 listbox.set_size(width.max(0) as u32, height.max(0) as u32);
+                sync_listbox_inset = true;
             }
             Some(WindowWidget::TabControl(tab_control)) => {
                 tab_control.set_size(width.max(0) as u32, height.max(0) as u32);
@@ -740,6 +742,9 @@ impl GameWindow {
         }
         if resize_tab_panes {
             self.resize_tab_panes_to_content();
+        }
+        if sync_listbox_inset {
+            self.sync_listbox_content_top_inset();
         }
         if self.slider_thumb.is_some() {
             self.update_slider_thumb();
@@ -904,10 +909,8 @@ impl GameWindow {
             let child_borrow = child.borrow();
             let contains_point = child_borrow.point_in_window(x, y);
             let hidden = child_borrow.is_hidden();
-            let enabled = ignore_enabled
-                || child_borrow
-                    .get_status()
-                    .contains(WindowStatus::ENABLED);
+            let enabled =
+                ignore_enabled || child_borrow.get_status().contains(WindowStatus::ENABLED);
             drop(child_borrow);
 
             if contains_point && !hidden && enabled {
@@ -1075,6 +1078,7 @@ impl GameWindow {
         if let Some(display) = self.ensure_display_text() {
             display.borrow_mut().set_text(text.to_string());
         }
+        self.sync_listbox_content_top_inset();
         Ok(())
     }
 
@@ -1134,6 +1138,7 @@ impl GameWindow {
                 edit_box.borrow_mut().set_font(font_for_children);
             }
         }
+        self.sync_listbox_content_top_inset();
     }
 
     /// Get window font
@@ -1711,6 +1716,7 @@ impl GameWindow {
     /// Attach a gadget widget to this window.
     pub fn set_widget(&mut self, widget: WindowWidget) {
         self.widget = Some(widget);
+        self.sync_listbox_content_top_inset();
     }
 
     pub fn widget(&self) -> Option<&WindowWidget> {
@@ -1763,6 +1769,27 @@ impl GameWindow {
         match self.widget.as_mut() {
             Some(WindowWidget::ListBox(widget)) => Some(widget),
             _ => None,
+        }
+    }
+
+    fn listbox_content_top_inset(&self) -> u32 {
+        if self.inst_data.text.is_empty() {
+            return 0;
+        }
+        let font_height = with_window_manager_ref(|manager| {
+            self.inst_data
+                .font
+                .as_ref()
+                .map(|font| manager.win_font_height(font))
+                .unwrap_or(12)
+        });
+        (font_height + 1).max(0) as u32
+    }
+
+    fn sync_listbox_content_top_inset(&mut self) {
+        let inset = self.listbox_content_top_inset();
+        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+            listbox.set_content_top_inset(inset);
         }
     }
 
@@ -2049,6 +2076,7 @@ impl GameWindow {
         data1: WindowMsgData,
         data2: WindowMsgData,
     ) -> WindowMsgHandled {
+        self.sync_listbox_content_top_inset();
         let Some(widget) = self.widget.as_mut() else {
             return WindowMsgHandled::Ignored;
         };
@@ -2539,7 +2567,8 @@ impl GameWindow {
                 if code == GPM_SET_PROGRESS {
                     let progress = data1 as i32;
                     if (0..=100).contains(&progress) {
-                        if let Some(WindowWidget::ProgressBar(progress_bar)) = self.widget.as_mut() {
+                        if let Some(WindowWidget::ProgressBar(progress_bar)) = self.widget.as_mut()
+                        {
                             progress_bar.set_progress(progress as f32);
                         }
                     }
@@ -4161,7 +4190,10 @@ mod tests {
         );
         assert_eq!(window.horizontal_slider_mut().unwrap().range(), (10, 20));
         assert_eq!(window.horizontal_slider_mut().unwrap().value(), 10);
-        assert_eq!(thumb.borrow().get_position(), (0, HORIZONTAL_SLIDER_THUMB_POSITION));
+        assert_eq!(
+            thumb.borrow().get_position(),
+            (0, HORIZONTAL_SLIDER_THUMB_POSITION)
+        );
 
         assert_eq!(
             window.send_system_message(WindowMessage::User(GSM_SET_SLIDER), 15, 0),
@@ -4263,19 +4295,13 @@ mod tests {
             window.send_system_message(WindowMessage::InputFocus, 1, 0),
             WindowMsgHandled::Handled
         );
-        assert!(window
-            .instance_data()
-            .state
-            .contains(WindowState::HILITED));
+        assert!(window.instance_data().state.contains(WindowState::HILITED));
 
         assert_eq!(
             window.send_system_message(WindowMessage::InputFocus, 0, 0),
             WindowMsgHandled::Handled
         );
-        assert!(!window
-            .instance_data()
-            .state
-            .contains(WindowState::HILITED));
+        assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
         assert_eq!(
             owner_seen.borrow().as_slice(),
@@ -4461,6 +4487,30 @@ mod tests {
     }
 
     #[test]
+    fn titled_listbox_input_uses_title_content_inset_like_cpp() {
+        let mut window = GameWindow::new();
+        window.set_id(42);
+        window.set_size(100, 60).unwrap();
+        window.enable(true).unwrap();
+        window.set_text("Title").unwrap();
+
+        let mut listbox = ListBox::new(42, 0, 0, 100, 60).with_item_height(10);
+        listbox.add_item_with_id(100, "alpha");
+        listbox.add_item_with_id(200, "bravo");
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        assert_eq!(window.list_box_mut().unwrap().content_top_inset(), 13);
+
+        window.set_cursor_position(1, 12).unwrap();
+        let _ = window.send_routed_input_message(WindowMessage::LeftUp, 0, 0);
+        assert!(window.list_box_mut().unwrap().selected_indices().is_empty());
+
+        window.set_cursor_position(1, 13).unwrap();
+        let _ = window.send_routed_input_message(WindowMessage::LeftUp, 0, 0);
+        assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[0]);
+    }
+
+    #[test]
     fn listbox_scroll_buffer_and_update_display_system_messages_match_cpp() {
         let mut window = GameWindow::new();
         let mut listbox = ListBox::new(42, 0, 0, 100, 40);
@@ -4523,7 +4573,11 @@ mod tests {
         single_window.set_widget(WindowWidget::ListBox(single));
 
         assert_eq!(
-            single_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
+            single_window.send_system_message(
+                WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION),
+                1,
+                0
+            ),
             WindowMsgHandled::Handled
         );
         assert!(single_window
@@ -4545,19 +4599,28 @@ mod tests {
             multi_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
             WindowMsgHandled::Handled
         );
-        assert_eq!(multi_window.list_box_mut().unwrap().selected_indices(), &[1]);
+        assert_eq!(
+            multi_window.list_box_mut().unwrap().selected_indices(),
+            &[1]
+        );
 
         assert_eq!(
             multi_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 2, 0),
             WindowMsgHandled::Handled
         );
-        assert_eq!(multi_window.list_box_mut().unwrap().selected_indices(), &[1, 2]);
+        assert_eq!(
+            multi_window.list_box_mut().unwrap().selected_indices(),
+            &[1, 2]
+        );
 
         assert_eq!(
             multi_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
             WindowMsgHandled::Handled
         );
-        assert_eq!(multi_window.list_box_mut().unwrap().selected_indices(), &[2]);
+        assert_eq!(
+            multi_window.list_box_mut().unwrap().selected_indices(),
+            &[2]
+        );
 
         assert_eq!(
             multi_window.send_system_message(
@@ -4723,15 +4786,11 @@ mod tests {
         assert!(window.get_draw_callback().is_some());
         assert!(window.get_tooltip_callback().is_none());
         assert_eq!(
-            window
-                .get_input_callback()
-                .unwrap()(&window, WindowMessage::LeftDown, 0, 0),
+            window.get_input_callback().unwrap()(&window, WindowMessage::LeftDown, 0, 0),
             WindowMsgHandled::Ignored
         );
         assert_eq!(
-            window
-                .get_system_callback()
-                .unwrap()(&window, WindowMessage::Create, 0, 0),
+            window.get_system_callback().unwrap()(&window, WindowMessage::Create, 0, 0),
             WindowMsgHandled::Ignored
         );
     }
@@ -4813,9 +4872,7 @@ mod tests {
         );
         window.draw();
         assert_eq!(*drawn.borrow(), 1);
-        window
-            .get_tooltip_callback()
-            .unwrap()(&window, window.instance_data(), 42);
+        window.get_tooltip_callback().unwrap()(&window, window.instance_data(), 42);
         assert_eq!(*tooltip_seen.borrow(), 42);
 
         window.set_callbacks(None, None, None);
