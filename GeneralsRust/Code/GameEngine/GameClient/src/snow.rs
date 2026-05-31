@@ -28,19 +28,19 @@ pub struct WeatherSetting {
 impl Default for WeatherSetting {
     fn default() -> Self {
         Self {
-            snow_texture: String::new(),
-            snow_frequency_scale_x: 1.0,
-            snow_frequency_scale_y: 1.0,
-            snow_amplitude: 1.0,
+            snow_texture: "EXSnowFlake.tga".to_string(),
+            snow_frequency_scale_x: 0.0533,
+            snow_frequency_scale_y: 0.0275,
+            snow_amplitude: 5.0,
             snow_point_size: 1.0,
-            snow_max_point_size: 1.0,
-            snow_min_point_size: 1.0,
-            snow_quad_size: 1.0,
-            snow_box_dimensions: 128.0,
+            snow_max_point_size: 64.0,
+            snow_min_point_size: 0.0,
+            snow_quad_size: 0.5,
+            snow_box_dimensions: 200.0,
             snow_box_density: 1.0,
-            snow_velocity: 1.0,
-            use_point_sprites: false,
-            snow_enabled: true,
+            snow_velocity: 4.0,
+            use_point_sprites: true,
+            snow_enabled: false,
         }
     }
 }
@@ -223,5 +223,52 @@ impl SnowManager {
 
     pub fn is_visible(&self) -> bool {
         self.is_visible
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weather_setting_defaults_match_cpp_constructor() {
+        let setting = WeatherSetting::default();
+
+        assert_eq!(setting.snow_texture, "EXSnowFlake.tga");
+        assert!((setting.snow_frequency_scale_x - 0.0533).abs() < f32::EPSILON);
+        assert!((setting.snow_frequency_scale_y - 0.0275).abs() < f32::EPSILON);
+        assert!((setting.snow_amplitude - 5.0).abs() < f32::EPSILON);
+        assert!((setting.snow_point_size - 1.0).abs() < f32::EPSILON);
+        assert!((setting.snow_max_point_size - 64.0).abs() < f32::EPSILON);
+        assert!((setting.snow_min_point_size - 0.0).abs() < f32::EPSILON);
+        assert!((setting.snow_quad_size - 0.5).abs() < f32::EPSILON);
+        assert!((setting.snow_box_dimensions - 200.0).abs() < f32::EPSILON);
+        assert!((setting.snow_box_density - 1.0).abs() < f32::EPSILON);
+        assert!((setting.snow_velocity - 4.0).abs() < f32::EPSILON);
+        assert!(setting.use_point_sprites);
+        assert!(!setting.snow_enabled);
+    }
+
+    #[test]
+    fn weather_fields_accept_cpp_ini_token_style() {
+        let mut setting = WeatherSetting::default();
+
+        setting
+            .apply_field("SnowTexture", &["=", "CustomSnow.tga"])
+            .expect("texture");
+        setting
+            .apply_field("SnowAmplitude", &["=", "7.5f"])
+            .expect("amplitude");
+        setting
+            .apply_field("SnowPointSprites", &["=", "false"])
+            .expect("point sprites");
+        setting
+            .apply_field("SnowEnabled", &["=", "true"])
+            .expect("enabled");
+
+        assert_eq!(setting.snow_texture, "CustomSnow.tga");
+        assert!((setting.snow_amplitude - 7.5).abs() < f32::EPSILON);
+        assert!(!setting.use_point_sprites);
+        assert!(setting.snow_enabled);
     }
 }
