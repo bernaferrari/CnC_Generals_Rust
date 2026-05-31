@@ -380,6 +380,18 @@ impl Gadget for CheckBox {
                         KeyCode::Space | KeyCode::Enter => {
                             return self.handle_click();
                         }
+                        KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "tab_next".to_string(),
+                            }];
+                        }
+                        KeyCode::Left | KeyCode::Up => {
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "tab_prev".to_string(),
+                            }];
+                        }
                         _ => {}
                     }
                 }
@@ -587,6 +599,30 @@ mod tests {
         assert!(matches!(
             messages.as_slice(),
             [GadgetMessage::RightClicked { gadget_id: 1 }]
+        ));
+    }
+
+    #[test]
+    fn keyboard_arrows_and_tab_request_focus_navigation_like_cpp() {
+        let mut checkbox = CheckBox::new(1, 10, 20, 20);
+        checkbox.set_focus(true);
+
+        let next = checkbox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Tab,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            next.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_next"
+        ));
+
+        let prev = checkbox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Left,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            prev.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_prev"
         ));
     }
 }
