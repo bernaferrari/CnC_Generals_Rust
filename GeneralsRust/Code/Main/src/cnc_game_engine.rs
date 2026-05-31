@@ -1998,6 +1998,7 @@ impl CnCGameEngine {
                 apparent_color: None,
                 apparent_text_color: None,
                 is_ai: false,
+                has_map: true,
                 visible: true,
             };
             let mut context = game_client::gui::load_screen::LoadScreenInitContext::default();

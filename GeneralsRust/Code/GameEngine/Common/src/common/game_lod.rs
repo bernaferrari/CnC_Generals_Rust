@@ -8,6 +8,9 @@ use std::sync::{OnceLock, RwLock};
 use crate::common::ini::ini_game_data::get_global_data;
 use crate::common::ini::ini_game_lod::{get_game_lod_manager, StaticGameLODLevel};
 
+const MINIMUM_MEMORY_BYTES: u64 = 256 * 1024 * 1024;
+const PROFILE_ERROR_LIMIT: f32 = 0.94;
+
 /// LOD levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LodLevel {
@@ -47,6 +50,7 @@ static DYNAMIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
 static DYNAMIC_LOD_SLOW_DEATH: OnceLock<RwLock<HashMap<String, f32>>> = OnceLock::new();
 static STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
 static IDEAL_STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
+static MEM_PASSED_OVERRIDE: OnceLock<RwLock<Option<bool>>> = OnceLock::new();
 
 fn dynamic_lod_name() -> &'static RwLock<String> {
     DYNAMIC_LOD_NAME.get_or_init(|| RwLock::new("High".to_string()))
@@ -64,6 +68,10 @@ fn ideal_static_lod_name() -> &'static RwLock<String> {
     IDEAL_STATIC_LOD_NAME.get_or_init(|| RwLock::new("Unknown".to_string()))
 }
 
+fn mem_passed_override() -> &'static RwLock<Option<bool>> {
+    MEM_PASSED_OVERRIDE.get_or_init(|| RwLock::new(None))
+}
+
 fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
     match value.trim().to_ascii_lowercase().as_str() {
         "low" => Some("Low"),
@@ -73,6 +81,21 @@ fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
         "unknown" => Some("Unknown"),
         _ => None,
     }
+}
+
+#[cfg(unix)]
+fn detected_physical_memory_bytes() -> Option<u64> {
+    let pages = unsafe { libc::sysconf(libc::_SC_PHYS_PAGES) };
+    let page_size = unsafe { libc::sysconf(libc::_SC_PAGE_SIZE) };
+    if pages <= 0 || page_size <= 0 {
+        return None;
+    }
+    Some((pages as u64).saturating_mul(page_size as u64))
+}
+
+#[cfg(not(unix))]
+fn detected_physical_memory_bytes() -> Option<u64> {
+    None
 }
 
 pub fn set_dynamic_lod(name: &str) {
@@ -174,6 +197,31 @@ pub fn get_ideal_static_lod() -> String {
         .unwrap_or_else(|_| "Unknown".to_string())
 }
 
+/// Matches C++ GameLODManager::didMemPass.
+///
+/// C++ sets this during GameLODManager::init when detected physical memory is
+/// within PROFILE_ERROR_LIMIT of 256 MB. Rust falls back to passing when memory
+/// detection is unavailable so low-level load-screen code does not trigger
+/// graphics/display probing.
+pub fn did_mem_pass() -> bool {
+    if let Some(value) = mem_passed_override().read().ok().and_then(|guard| *guard) {
+        return value;
+    }
+
+    detected_physical_memory_bytes()
+        .map(|total_bytes| {
+            (total_bytes as f32 / MINIMUM_MEMORY_BYTES as f32) >= PROFILE_ERROR_LIMIT
+        })
+        .unwrap_or(true)
+}
+
+#[doc(hidden)]
+pub fn set_mem_passed_override_for_tests(value: Option<bool>) {
+    if let Ok(mut guard) = mem_passed_override().write() {
+        *guard = value;
+    }
+}
+
 pub fn prefers_low_res_movies() -> bool {
     matches!(get_static_lod().as_str(), "Low") || matches!(get_ideal_static_lod().as_str(), "Low")
 }
@@ -264,5 +312,16 @@ mod tests {
         set_static_lod_from_string("High");
         set_ideal_static_lod_from_string("Low");
         assert!(prefers_low_res_movies());
+    }
+
+    #[test]
+    fn did_mem_pass_uses_override_for_cpp_load_screen_gate() {
+        set_mem_passed_override_for_tests(Some(false));
+        assert!(!did_mem_pass());
+
+        set_mem_passed_override_for_tests(Some(true));
+        assert!(did_mem_pass());
+
+        set_mem_passed_override_for_tests(None);
     }
 }
