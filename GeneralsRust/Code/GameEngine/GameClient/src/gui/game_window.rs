@@ -21,7 +21,7 @@ use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 use super::gadgets::{
     CheckBox, ComboBox, Gadget, GadgetMessage, GadgetState, GadgetValue, HorizontalSlider,
     InputEvent, KeyCode, KeyModifiers, ListBox, MouseButton, ProgressBar, PushButton, RadioButton,
-    StaticText, TabControl, TabControlData, TextEntry, VerticalSlider,
+    SelectionMode, StaticText, TabControl, TabControlData, TextEntry, VerticalSlider,
 };
 use super::{
     display_string::DisplayStringHandle,
@@ -67,6 +67,7 @@ const GLM_DEL_ENTRY: u32 = GGM_LEFT_DRAG + 16;
 const GLM_DEL_ALL: u32 = GGM_LEFT_DRAG + 17;
 const GLM_SELECTED: u32 = GGM_LEFT_DRAG + 18;
 const GLM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 21;
+const GLM_TOGGLE_MULTI_SELECTION: u32 = GGM_LEFT_DRAG + 23;
 const GLM_SCROLL_BUFFER: u32 = GGM_LEFT_DRAG + 28;
 const GLM_UPDATE_DISPLAY: u32 = GGM_LEFT_DRAG + 29;
 pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
@@ -2378,6 +2379,12 @@ impl GameWindow {
                         }
                         return WindowMsgHandled::Handled;
                     }
+                    GLM_TOGGLE_MULTI_SELECTION => {
+                        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                            let _ = listbox.toggle_multi_selection(data1 as i32);
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
                     GLM_SCROLL_BUFFER => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                             let _ = listbox.scroll_buffer(data1 as usize);
@@ -4492,6 +4499,80 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 0);
+    }
+
+    #[test]
+    fn listbox_toggle_multi_selection_system_message_matches_cpp() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut single_window = GameWindow::new();
+        single_window.set_owner(Some(&owner));
+        let mut single = ListBox::new(42, 0, 0, 100, 40);
+        single.add_item("alpha");
+        single.add_item("bravo");
+        single_window.set_widget(WindowWidget::ListBox(single));
+
+        assert_eq!(
+            single_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(single_window
+            .list_box_mut()
+            .unwrap()
+            .selected_indices()
+            .is_empty());
+
+        let mut multi_window = GameWindow::new();
+        multi_window.set_owner(Some(&owner));
+        let mut multi =
+            ListBox::new(43, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
+        multi.add_item("alpha");
+        multi.add_item("bravo");
+        multi.add_item("charlie");
+        multi_window.set_widget(WindowWidget::ListBox(multi));
+
+        assert_eq!(
+            multi_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(multi_window.list_box_mut().unwrap().selected_indices(), &[1]);
+
+        assert_eq!(
+            multi_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 2, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(multi_window.list_box_mut().unwrap().selected_indices(), &[1, 2]);
+
+        assert_eq!(
+            multi_window.send_system_message(WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION), 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(multi_window.list_box_mut().unwrap().selected_indices(), &[2]);
+
+        assert_eq!(
+            multi_window.send_system_message(
+                WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION),
+                (-1i32) as u32,
+                0,
+            ),
+            WindowMsgHandled::Handled
+        );
+        assert!(multi_window
+            .list_box_mut()
+            .unwrap()
+            .selected_indices()
+            .is_empty());
+        assert!(owner_seen.borrow().is_empty());
     }
 
     #[test]
