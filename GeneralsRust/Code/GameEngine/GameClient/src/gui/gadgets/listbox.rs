@@ -699,6 +699,31 @@ impl ListBox {
             data: "double_click".to_string(),
         }]
     }
+
+    fn select_next_matching_initial(&mut self, ch: char) -> bool {
+        if self.selection_mode != SelectionMode::Single || self.items.is_empty() {
+            return false;
+        }
+
+        let start = self
+            .selected_indices
+            .first()
+            .map(|&index| index + 1)
+            .unwrap_or(0);
+        let needle = ch.to_lowercase().collect::<String>();
+
+        for offset in 0..self.items.len() {
+            let index = (start + offset) % self.items.len();
+            let Some(first) = self.items[index].text.chars().next() else {
+                continue;
+            };
+            if first.to_lowercase().collect::<String>() == needle {
+                return self.select_index(index, KeyModifiers::none());
+            }
+        }
+
+        false
+    }
 }
 
 impl Gadget for ListBox {
@@ -902,6 +927,9 @@ impl Gadget for ListBox {
                             }];
                         }
                     }
+                    KeyCode::Char(ch) => {
+                        self.select_next_matching_initial(*ch);
+                    }
                     _ => {}
                 }
                 Vec::new()
@@ -1045,5 +1073,48 @@ mod tests {
         let second = click_first_row(&mut listbox);
         assert_eq!(listbox.selected_indices(), &[0]);
         assert_eq!(value_changed_integer(&second), Some(42));
+    }
+
+    #[test]
+    fn single_select_char_key_selects_next_matching_initial_like_cpp() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.add_item_with_id(10, "Alpha");
+        listbox.add_item_with_id(20, "Bravo");
+        listbox.add_item_with_id(30, "Beta");
+        listbox.add_item_with_id(40, "Charlie");
+        listbox.set_focus(true);
+        listbox.select_index(1, KeyModifiers::none());
+
+        let messages = listbox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Char('b'),
+            modifiers: KeyModifiers::none(),
+        });
+
+        assert!(messages.is_empty());
+        assert_eq!(listbox.selected_indices(), &[2]);
+
+        listbox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Char('B'),
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(listbox.selected_indices(), &[1]);
+    }
+
+    #[test]
+    fn multi_select_char_key_is_ignored_like_cpp_multi_listbox() {
+        let mut listbox =
+            ListBox::new(7, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
+        listbox.add_item_with_id(10, "Alpha");
+        listbox.add_item_with_id(20, "Bravo");
+        listbox.set_focus(true);
+        listbox.select_index(0, KeyModifiers::none());
+
+        let messages = listbox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Char('b'),
+            modifiers: KeyModifiers::none(),
+        });
+
+        assert!(messages.is_empty());
+        assert_eq!(listbox.selected_indices(), &[0]);
     }
 }
