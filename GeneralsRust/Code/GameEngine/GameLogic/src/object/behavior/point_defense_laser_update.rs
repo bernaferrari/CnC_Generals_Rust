@@ -71,9 +71,16 @@ fn parse_weapon_template(
     data: &mut PointDefenseLaserUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.weapon_template = token.to_string();
+    data.weapon_template = required_value(tokens)?.to_string();
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 fn parse_primary_target_types(
@@ -101,8 +108,7 @@ fn parse_scan_rate(
     data: &mut PointDefenseLaserUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.scan_rate = INI::parse_duration_unsigned_int(token)?;
+    data.scan_rate = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -111,8 +117,7 @@ fn parse_scan_range(
     data: &mut PointDefenseLaserUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.scan_range = INI::parse_real(token)?;
+    data.scan_range = INI::parse_real(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -121,8 +126,7 @@ fn parse_velocity_factor(
     data: &mut PointDefenseLaserUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.velocity_factor = INI::parse_real(token)?;
+    data.velocity_factor = INI::parse_real(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -594,4 +598,38 @@ pub fn point_defense_laser_update_module_factory(
         &module_name,
         module_data_arc,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn point_defense_laser_fields_use_cpp_ini_token_handling() {
+        let mut data = PointDefenseLaserUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        parse_weapon_template(&mut ini, &mut data, &["=", "PointDefenseLaser"])
+            .expect("weapon template");
+        parse_scan_rate(&mut ini, &mut data, &["=", "1s"]).expect("scan rate");
+        parse_scan_range(&mut ini, &mut data, &["=", "250.5f"]).expect("scan range");
+        parse_velocity_factor(&mut ini, &mut data, &["=", "0.75f"]).expect("velocity factor");
+
+        assert_eq!(data.weapon_template, "PointDefenseLaser");
+        assert_eq!(data.scan_rate, 30);
+        assert!((data.scan_range - 250.5).abs() < f32::EPSILON);
+        assert!((data.velocity_factor - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn point_defense_laser_rejects_missing_value_tokens_like_cpp_parsers() {
+        let mut data = PointDefenseLaserUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        let err = parse_scan_rate(&mut ini, &mut data, &["="]).expect_err("missing duration");
+        assert!(matches!(err, INIError::InvalidData));
+
+        let err = parse_scan_range(&mut ini, &mut data, &["="]).expect_err("missing real");
+        assert!(matches!(err, INIError::InvalidData));
+    }
 }
