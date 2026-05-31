@@ -120,6 +120,10 @@ impl ProgressBar {
 
     /// Set percentage (0-100)
     pub fn set_percentage(&mut self, percentage: f32) {
+        if !(0.0..=100.0).contains(&percentage) {
+            return;
+        }
+
         self.set_value(percentage / 100.0);
     }
 
@@ -401,6 +405,22 @@ mod tests {
         bar.set_percentage(75.0);
         assert_eq!(bar.value(), 0.75);
         assert_eq!(bar.percentage(), 75.0);
+    }
+
+    #[test]
+    fn test_set_progress_ignores_out_of_range_like_cpp() {
+        let mut bar = ProgressBar::new(1, 10, 20, 200, 20);
+        bar.set_progress(40.0);
+        assert_eq!(bar.percentage(), 40.0);
+
+        bar.set_progress(-1.0);
+        assert_eq!(bar.percentage(), 40.0);
+
+        bar.set_progress(101.0);
+        assert_eq!(bar.percentage(), 40.0);
+
+        bar.set_progress(100.0);
+        assert_eq!(bar.percentage(), 100.0);
     }
 
     #[test]
