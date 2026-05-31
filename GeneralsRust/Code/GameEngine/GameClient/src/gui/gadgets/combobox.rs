@@ -415,21 +415,17 @@ impl Gadget for ComboBox {
                         KeyCode::Escape => {
                             self.close();
                         }
-                        KeyCode::Up => {
-                            if let Some(index) = self.selected_index {
-                                if index > 0 {
-                                    self.select_index(index - 1);
-                                }
-                            }
+                        KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "tab_next".to_string(),
+                            }];
                         }
-                        KeyCode::Down => {
-                            if let Some(index) = self.selected_index {
-                                if index + 1 < self.items.len() {
-                                    self.select_index(index + 1);
-                                }
-                            } else if !self.items.is_empty() {
-                                self.select_index(0);
-                            }
+                        KeyCode::Left | KeyCode::Up => {
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "tab_prev".to_string(),
+                            }];
                         }
                         KeyCode::Backspace => {
                             if self.is_editable && !self.text.is_empty() {
@@ -576,5 +572,34 @@ mod tests {
         assert!(combobox.is_open());
         combobox.toggle();
         assert!(!combobox.is_open());
+    }
+
+    #[test]
+    fn keyboard_arrows_and_tab_request_focus_navigation_like_cpp() {
+        let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
+        combobox.add_item(ComboBoxItem::new(1, "Item 1"));
+        combobox.add_item(ComboBoxItem::new(2, "Item 2"));
+        combobox.select_index(0);
+        combobox.set_focus(true);
+
+        let next = combobox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(combobox.selected_index(), Some(0));
+        assert!(matches!(
+            next.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_next"
+        ));
+
+        let prev = combobox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Up,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(combobox.selected_index(), Some(0));
+        assert!(matches!(
+            prev.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_prev"
+        ));
     }
 }
