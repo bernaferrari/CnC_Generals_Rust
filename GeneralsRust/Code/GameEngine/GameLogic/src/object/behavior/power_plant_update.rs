@@ -113,20 +113,23 @@ impl PowerPlantUpdate {
     /// Extend or retract the power plant rods
     pub fn extend_rods(&mut self, extend: Bool) {
         // Matches C++ PowerPlantUpdate::extendRods (sets upgrading flag and wake frame)
-        if extend && !self.extended {
-            if let Some(object) = self.object.upgrade() {
-                if let Ok(mut obj) = object.write() {
-                    let current_frame = get_game_logic()
-                        .lock()
-                        .map(|logic| logic.get_frame())
-                        .unwrap_or(0);
-                    self.extend_done_frame = current_frame + self.module_data.rods_extend_time;
+        if extend {
+            if !self.extended {
+                let current_frame = get_game_logic()
+                    .lock()
+                    .map(|logic| logic.get_frame())
+                    .unwrap_or(0);
+                self.extend_done_frame = current_frame + self.module_data.rods_extend_time;
+                self.extended = true;
 
-                    // Set upgrading model condition so the animation plays while extending
-                    obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
+                if let Some(object) = self.object.upgrade() {
+                    if let Ok(mut obj) = object.write() {
+                        // Set upgrading model condition so the animation plays while extending
+                        obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
+                    }
                 }
             }
-        } else if !extend && self.extended {
+        } else {
             self.extended = false;
             self.extend_done_frame = 0;
 
@@ -156,15 +159,13 @@ impl UpdateModuleInterface for PowerPlantUpdate {
                     .unwrap_or(0);
 
                 // Check if extension is complete
-                if !self.extended && self.extend_done_frame > 0 {
-                    if current_frame >= self.extend_done_frame {
-                        self.extended = true;
-                        self.extend_done_frame = 0;
+                if self.extend_done_frame > 0 && current_frame >= self.extend_done_frame {
+                    self.extended = true;
+                    self.extend_done_frame = 0;
 
-                        // Replace upgrading with upgraded model condition (matches C++)
-                        obj.clear_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
-                        obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADED);
-                    }
+                    // Replace upgrading with upgraded model condition (matches C++)
+                    obj.clear_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
+                    obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADED);
                 }
 
                 // Only need to update while extending
@@ -303,6 +304,43 @@ mod tests {
     fn test_power_plant_creation() {
         let data = PowerPlantUpdateModuleData::default();
         assert_eq!(data.rods_extend_time, 0);
+    }
+
+    #[test]
+    fn power_plant_retract_cancels_pending_extension_before_completion() {
+        let module_data = Arc::new(PowerPlantUpdateModuleData::default());
+        let mut update = PowerPlantUpdate {
+            object: Weak::new(),
+            module_data,
+            next_call_frame_and_phase: 0,
+            extended: false,
+            extend_done_frame: 123,
+        };
+
+        update.extend_rods(false);
+
+        assert!(!update.extended);
+        assert_eq!(update.extend_done_frame, 0);
+    }
+
+    #[test]
+    fn power_plant_extension_marks_extended_immediately_like_cpp() {
+        let module_data = Arc::new(PowerPlantUpdateModuleData {
+            rods_extend_time: 25,
+            ..PowerPlantUpdateModuleData::default()
+        });
+        let mut update = PowerPlantUpdate {
+            object: Weak::new(),
+            module_data,
+            next_call_frame_and_phase: 0,
+            extended: false,
+            extend_done_frame: 0,
+        };
+
+        update.extend_rods(true);
+
+        assert!(update.extended);
+        assert_eq!(update.extend_done_frame, 25);
     }
 
     #[test]
