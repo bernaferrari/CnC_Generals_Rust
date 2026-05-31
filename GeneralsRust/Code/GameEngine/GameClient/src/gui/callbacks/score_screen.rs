@@ -30,6 +30,7 @@ use std::rc::Rc;
 const KEY_ESC: u32 = 0x1B;
 const KEY_STATE_UP: u32 = 0x0001;
 const MAX_SLOTS: i32 = 8;
+const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScoreScreenType {
@@ -201,8 +202,11 @@ fn update_score_screen_music(state: &mut ScoreScreenState) {
     };
 
     if !local_template_name.is_empty() {
-        let event = gamelogic::common::audio::AudioEventRts::new(local_template_name);
+        audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
+        let mut event = gamelogic::common::audio::AudioEventRts::new(local_template_name);
+        event.set_should_fade(true);
         let _ = audio.add_audio_event(&event);
+        audio.update();
     }
 }
 
@@ -1121,7 +1125,7 @@ pub fn score_screen_shutdown(layout: &WindowLayout, _user_data: Option<&mut dyn 
     let _ = get_shell().shutdown_complete(None, false);
 
     if let Some(audio) = TheAudio::get() {
-        audio.remove_audio_event(0);
+        audio.remove_audio_event(AHSV_STOP_THE_MUSIC_FADE);
     }
 }
 
@@ -1271,5 +1275,10 @@ mod tests {
         let window = window.borrow();
         assert_eq!(window.get_enabled_text_color(), 0xaabbccdd);
         assert_eq!(window.get_enabled_text_border_color(), 0x55667788);
+    }
+
+    #[test]
+    fn score_screen_music_uses_cpp_fade_stop_sentinel() {
+        assert_eq!(AHSV_STOP_THE_MUSIC_FADE, 0xFFFF_FFF1);
     }
 }
