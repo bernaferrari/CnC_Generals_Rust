@@ -335,6 +335,7 @@ pub fn download_menu_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
@@ -352,6 +353,33 @@ pub fn download_menu_system(
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn download_menu_system_consumes_lifecycle_messages_like_cpp() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            download_menu_system(&window, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            download_menu_system(&window, WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            download_menu_system(&window, WindowMessage::InputFocus, 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            download_menu_system(&window, WindowMessage::MousePos, 0, 0),
+            WindowMsgHandled::Ignored
+        );
     }
 }
 
