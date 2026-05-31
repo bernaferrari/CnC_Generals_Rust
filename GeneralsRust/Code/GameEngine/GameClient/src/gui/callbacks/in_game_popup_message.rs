@@ -184,6 +184,7 @@ pub fn in_game_popup_message_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
@@ -202,5 +203,32 @@ pub fn in_game_popup_message_system(
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popup_system_consumes_lifecycle_messages_like_cpp() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            in_game_popup_message_system(&window, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            in_game_popup_message_system(&window, WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            in_game_popup_message_system(&window, WindowMessage::InputFocus, 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            in_game_popup_message_system(&window, WindowMessage::MousePos, 0, 0),
+            WindowMsgHandled::Ignored
+        );
     }
 }
