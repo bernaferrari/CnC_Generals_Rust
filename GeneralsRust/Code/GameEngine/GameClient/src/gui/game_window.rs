@@ -2508,7 +2508,13 @@ impl GameWindow {
             } else {
                 Vec::new()
             };
-            self.set_hilite_state(focused);
+            if focused {
+                if !matches!(self.widget, Some(WindowWidget::RadioButton(_))) {
+                    self.set_hilite_state(true);
+                }
+            } else {
+                self.set_hilite_state(false);
+            }
             if !self.owner_is_self {
                 if let Some(owner) = self.get_owner() {
                     let _ = owner.borrow_mut().send_system_message(
@@ -4214,6 +4220,53 @@ mod tests {
             &[
                 (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 31),
                 (WindowMessage::User(GGM_FOCUS_CHANGE), 0, 31),
+            ]
+        );
+    }
+
+    #[test]
+    fn radio_input_focus_does_not_set_hilite_on_gain_like_cpp() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut window = GameWindow::new();
+        window.set_id(32);
+        window.set_owner(Some(&owner));
+        window.set_widget(WindowWidget::RadioButton(RadioButton::new(
+            32,
+            0,
+            0,
+            16,
+            RadioButtonGroup::new(4),
+        )));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::InputFocus, 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(!window.instance_data().state.contains(WindowState::HILITED));
+
+        window.set_hilite_state(true);
+        assert_eq!(
+            window.send_system_message(WindowMessage::InputFocus, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(!window.instance_data().state.contains(WindowState::HILITED));
+
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[
+                (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 32),
+                (WindowMessage::User(GGM_FOCUS_CHANGE), 0, 32),
             ]
         );
     }
