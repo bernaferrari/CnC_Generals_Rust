@@ -765,8 +765,8 @@ mod tests {
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
     use super::{static_text_draw_data, static_text_text_colors, WIN_COLOR_UNDEFINED};
     use super::{
-        text_entry_focus_matches, text_entry_image_tile_rects, text_entry_text_draw_x,
-        truncate_to_i32, TextEntryImageTileKind,
+        text_entry_focus_matches, text_entry_image_tile_rects, text_entry_text_color_defined,
+        text_entry_text_draw_x, truncate_to_i32, TextEntryImageTileKind,
     };
     use crate::gui::gadgets::{TabControl, TabControlData};
     use crate::gui::game_window::{GameWindow, WindowInstanceData, WindowState, WindowStatus};
@@ -814,6 +814,12 @@ mod tests {
     fn text_entry_text_draw_x_keeps_long_end_visible_like_cpp() {
         assert_eq!(text_entry_text_draw_x(10, 100, 40), 12);
         assert_eq!(text_entry_text_draw_x(10, 100, 240), -138);
+    }
+
+    #[test]
+    fn text_entry_skips_undefined_text_color_like_cpp() {
+        assert!(text_entry_text_color_defined(0xFF102030));
+        assert!(!text_entry_text_color_defined(WIN_COLOR_UNDEFINED));
     }
 
     #[test]
@@ -4372,6 +4378,9 @@ fn draw_text_entry_text(
     width: i32,
     font_height: i32,
 ) {
+    if !text_entry_text_color_defined(text_color) {
+        return;
+    }
     let Some(widget) = window.widget() else {
         return;
     };
@@ -4439,6 +4448,10 @@ fn text_entry_text_draw_x(start_x: i32, width: i32, text_width: i32) -> i32 {
     }
     let div = text_width / half_width - 1;
     draw_x - (div * half_width)
+}
+
+fn text_entry_text_color_defined(text_color: u32) -> bool {
+    text_color != WIN_COLOR_UNDEFINED
 }
 
 fn text_entry_caret_has_focus(window: &GameWindow) -> bool {
