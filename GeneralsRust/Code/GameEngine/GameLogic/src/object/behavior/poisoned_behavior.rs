@@ -52,8 +52,7 @@ fn parse_poison_damage_interval(
     data: &mut PoisonedBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.poison_damage_interval = INI::parse_duration_unsigned_int(token)?;
+    data.poison_damage_interval = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -62,9 +61,16 @@ fn parse_poison_duration(
     data: &mut PoisonedBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.poison_duration = INI::parse_duration_unsigned_int(token)?;
+    data.poison_duration = INI::parse_duration_unsigned_int(required_value(tokens)?)?;
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    match tokens {
+        ["=", value, ..] => Ok(*value),
+        [value, ..] if *value != "=" => Ok(*value),
+        _ => Err(INIError::InvalidData),
+    }
 }
 
 const POISONED_BEHAVIOR_FIELDS: &[FieldParse<PoisonedBehaviorModuleData>] = &[
@@ -376,5 +382,48 @@ impl BehaviorModuleInterface for PoisonedBehaviorModule {
 
     fn get_damage(&mut self) -> Option<&mut dyn DamageModuleInterface> {
         Some(&mut self.behavior)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_match_cpp_constructor() {
+        let data = PoisonedBehaviorModuleData::default();
+
+        assert_eq!(data.poison_damage_interval, 0);
+        assert_eq!(data.poison_duration, 0);
+    }
+
+    #[test]
+    fn duration_fields_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = PoisonedBehaviorModuleData::default();
+
+        parse_poison_damage_interval(&mut ini, &mut data, &["=", "1000ms"]).unwrap();
+        parse_poison_duration(&mut ini, &mut data, &["=", "2s"]).unwrap();
+
+        assert_eq!(
+            data.poison_damage_interval,
+            INI::parse_duration_unsigned_int("1000ms").unwrap()
+        );
+        assert_eq!(
+            data.poison_duration,
+            INI::parse_duration_unsigned_int("2s").unwrap()
+        );
+    }
+
+    #[test]
+    fn duration_fields_reject_missing_values() {
+        let mut ini = INI::new();
+        let mut data = PoisonedBehaviorModuleData::default();
+
+        let interval_err = parse_poison_damage_interval(&mut ini, &mut data, &["="]).unwrap_err();
+        let duration_err = parse_poison_duration(&mut ini, &mut data, &["="]).unwrap_err();
+
+        assert!(matches!(interval_err, INIError::InvalidData));
+        assert!(matches!(duration_err, INIError::InvalidData));
     }
 }
