@@ -305,16 +305,7 @@ impl SliderBase {
 
     /// Update thumb position based on current value
     fn update_thumb_position(&mut self) {
-        let track_length = self.get_track_length();
-        let value_range = self.config.max_value - self.config.min_value;
-
-        if value_range > 0 {
-            let value_ratio =
-                (self.current_value - self.config.min_value) as f32 / value_range as f32;
-            self.thumb_position = (value_ratio * track_length as f32) as i32;
-        } else {
-            self.thumb_position = 0;
-        }
+        self.thumb_position = self.value_to_pixel(self.current_value);
     }
 
     /// Get the length of the track in pixels
@@ -339,7 +330,14 @@ impl SliderBase {
         let clamped_pos = pixel_pos.max(0).min(track_length);
         let ratio = clamped_pos as f32 / track_length as f32;
         let value_range = self.config.max_value - self.config.min_value;
-        let raw_value = self.config.min_value + (ratio * value_range as f32) as i32;
+        let raw_value = match self.orientation {
+            SliderOrientation::Horizontal => {
+                self.config.min_value + (ratio * value_range as f32) as i32
+            }
+            SliderOrientation::Vertical => {
+                self.config.max_value - (ratio * value_range as f32) as i32
+            }
+        };
 
         self.clamp_value(raw_value)
     }
@@ -351,7 +349,10 @@ impl SliderBase {
 
         if value_range > 0 {
             let ratio = (value - self.config.min_value) as f32 / value_range as f32;
-            (ratio * track_length as f32) as i32
+            match self.orientation {
+                SliderOrientation::Horizontal => (ratio * track_length as f32) as i32,
+                SliderOrientation::Vertical => ((1.0 - ratio) * track_length as f32) as i32,
+            }
         } else {
             0
         }
@@ -1209,6 +1210,16 @@ mod tests {
         assert_eq!(slider.value(), 128);
         assert_eq!(slider.range(), (0, 255));
         assert_eq!(slider.base.orientation, SliderOrientation::Vertical);
+    }
+
+    #[test]
+    fn vertical_slider_value_pixel_mapping_matches_cpp_axis() {
+        let slider = VerticalSlider::new(1, 0, 0, 20, 120).with_range(0, 100);
+
+        assert_eq!(slider.base.value_to_pixel(100), 0);
+        assert_eq!(slider.base.value_to_pixel(0), 100);
+        assert_eq!(slider.base.pixel_to_value(0), 100);
+        assert_eq!(slider.base.pixel_to_value(100), 0);
     }
 
     #[test]

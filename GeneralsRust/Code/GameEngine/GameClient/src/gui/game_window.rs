@@ -2197,6 +2197,10 @@ impl GameWindow {
                         handled = true;
                         continue;
                     }
+                    if data == "input_handled" {
+                        handled = true;
+                        continue;
+                    }
                     (WindowMessage::User(0x8000), self.id as u32)
                 }
             };
