@@ -27,9 +27,9 @@ impl Default for PilotFindVehicleUpdateModuleData {
     fn default() -> Self {
         Self {
             base: BehaviorModuleData::default(),
-            scan_rate: 15,
-            scan_range: 150.0,
-            min_health: 1.0,
+            scan_rate: 0,
+            scan_range: 0.0,
+            min_health: 0.5,
         }
     }
 }
@@ -281,5 +281,52 @@ impl PilotFindVehicleUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(PilotFindVehicleUpdate::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pilot_find_vehicle_defaults_match_cpp_constructor() {
+        let data = PilotFindVehicleUpdateModuleData::default();
+
+        assert_eq!(data.scan_rate, 0);
+        assert_eq!(data.scan_range, 0.0);
+        assert_eq!(data.min_health, 0.5);
+    }
+
+    #[test]
+    fn pilot_find_vehicle_fields_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = PilotFindVehicleUpdateModuleData::default();
+
+        parse_scan_rate(&mut ini, &mut data, &["=", "1s"]).unwrap();
+        parse_scan_range(&mut ini, &mut data, &["=", "275.5"]).unwrap();
+        parse_min_health(&mut ini, &mut data, &["=", "0.25"]).unwrap();
+
+        assert_eq!(data.scan_rate, 30);
+        assert_eq!(data.scan_range, 275.5);
+        assert_eq!(data.min_health, 0.25);
+    }
+
+    #[test]
+    fn pilot_find_vehicle_rejects_missing_values_like_cpp_parsers() {
+        let mut ini = INI::new();
+        let mut data = PilotFindVehicleUpdateModuleData::default();
+
+        assert!(matches!(
+            parse_scan_rate(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_scan_range(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_min_health(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
     }
 }
