@@ -197,10 +197,7 @@ impl SabotageSupplyCenterCrateCollide {
             target_money.withdraw(cash_to_steal)?;
             attacker_money.deposit(cash_to_steal)?;
 
-            // Update score keeper
-            let mut attacker_player_lock =
-                attacker_player.write().map_err(|_| GameError::LockError)?;
-            attacker_player_lock
+            attacker_player_guard
                 .get_score_keeper_mut()
                 .add_money_earned(cash_to_steal);
         }
