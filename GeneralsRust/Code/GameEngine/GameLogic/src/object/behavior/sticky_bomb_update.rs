@@ -76,8 +76,8 @@ fn parse_attach_to_bone(
     data: &mut StickyBombUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.attach_to_bone = AsciiString::from(*token);
+    let token = required_value(tokens)?;
+    data.attach_to_bone = AsciiString::from(INI::parse_ascii_string(token)?.as_str());
     Ok(())
 }
 
@@ -86,7 +86,7 @@ fn parse_offset_z(
     data: &mut StickyBombUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.offset_z = INI::parse_real(token)?;
     Ok(())
 }
@@ -96,7 +96,7 @@ fn parse_geometry_based_damage_weapon(
     data: &mut StickyBombUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     let template =
         with_weapon_store(|weapon_store| weapon_store.find_weapon_template(token).cloned())
             .ok()
@@ -110,13 +110,21 @@ fn parse_geometry_based_damage_fx(
     data: &mut StickyBombUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         data.geometry_based_damage_fx = None;
     } else {
         data.geometry_based_damage_fx = TheFXListStore::find_fx_list(token);
     }
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 const STICKY_BOMB_UPDATE_FIELDS: &[FieldParse<StickyBombUpdateModuleData>] = &[
@@ -677,6 +685,46 @@ mod tests {
         control.init_sticky_bomb(OBJECT_INVALID_ID, OBJECT_INVALID_ID);
 
         assert_eq!(module.behavior.target_id, OBJECT_INVALID_ID);
+    }
+
+    #[test]
+    fn sticky_bomb_fields_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = StickyBombUpdateModuleData::default();
+
+        parse_attach_to_bone(&mut ini, &mut data, &["=", "BOMB_BONE"]).unwrap();
+        parse_offset_z(&mut ini, &mut data, &["=", "14.5"]).unwrap();
+        parse_geometry_based_damage_weapon(&mut ini, &mut data, &["=", "DemoTrapDetonationWeapon"])
+            .unwrap();
+        parse_geometry_based_damage_fx(&mut ini, &mut data, &["=", "NONE"]).unwrap();
+
+        assert_eq!(data.attach_to_bone.as_str(), "BOMB_BONE");
+        assert_eq!(data.offset_z, 14.5);
+        assert!(data.geometry_based_damage_weapon_template.is_none());
+        assert!(data.geometry_based_damage_fx.is_none());
+    }
+
+    #[test]
+    fn sticky_bomb_rejects_missing_values_like_cpp_parsers() {
+        let mut ini = INI::new();
+        let mut data = StickyBombUpdateModuleData::default();
+
+        assert!(matches!(
+            parse_attach_to_bone(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_offset_z(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_geometry_based_damage_weapon(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_geometry_based_damage_fx(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
     }
 }
 
