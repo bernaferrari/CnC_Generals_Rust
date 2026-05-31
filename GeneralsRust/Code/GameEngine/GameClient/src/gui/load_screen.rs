@@ -423,7 +423,7 @@ pub fn load_screen_init_context_from_game_info(
             local_general_portrait: local_general_presentation.portrait,
             local_load_screen_music: local_general_presentation.load_screen_music,
             local_team_number: local_slot.player_id,
-            shell_game_did_mem_pass: true,
+            shell_game_did_mem_pass: game_engine::common::game_lod::did_mem_pass(),
             map_name: load_screen_map_name_from_game_info(game_info),
             start_positions,
             slots,
@@ -2942,6 +2942,29 @@ mod tests {
         assert_eq!(game_info.get_local_slot_num(), -1);
         assert_eq!(context.local_player_name, "Host");
         assert_eq!(context.map_name, None);
+    }
+
+    #[test]
+    fn game_info_context_uses_game_lod_mem_pass_for_shell_intro_gate() {
+        game_engine::common::game_lod::set_mem_passed_override_for_tests(Some(false));
+
+        let mut game_info = GameInfo::new();
+        game_info.set_in_game();
+        game_info.set_local_ip(0x7F00_0001);
+
+        let mut local = GameSlot::new();
+        local.set_state(SlotState::Player, "Local".to_string(), 0x7F00_0001);
+        local.set_player_template(-1);
+        game_info.set_slot(0, local);
+
+        let context = load_screen_init_context_from_game_info(&game_info);
+        assert!(!context.shell_game_did_mem_pass);
+
+        game_engine::common::game_lod::set_mem_passed_override_for_tests(Some(true));
+        let context = load_screen_init_context_from_game_info(&game_info);
+        assert!(context.shell_game_did_mem_pass);
+
+        game_engine::common::game_lod::set_mem_passed_override_for_tests(None);
     }
 
     #[test]
