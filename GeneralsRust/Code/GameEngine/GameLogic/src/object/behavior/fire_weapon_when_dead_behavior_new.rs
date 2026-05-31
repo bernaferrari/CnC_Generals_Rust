@@ -52,7 +52,7 @@ impl Default for FireWeaponWhenDeadBehaviorModuleData {
             die_mux_data: DieMuxData::default(),
             upgrade_mux_data: UpgradeMuxData::default(),
             death_weapon: None,
-            initially_active: true,
+            initially_active: false,
         }
     }
 }
@@ -494,7 +494,7 @@ mod tests {
     #[test]
     fn test_module_data_defaults() {
         let data = FireWeaponWhenDeadBehaviorModuleData::default();
-        assert!(data.initially_active);
+        assert!(!data.initially_active);
         assert!(data.death_weapon.is_none());
     }
 }
