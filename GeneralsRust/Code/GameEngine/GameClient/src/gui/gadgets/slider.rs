@@ -543,14 +543,22 @@ impl SliderBase {
         let new_value = match (self.orientation, key) {
             (SliderOrientation::Horizontal, KeyCode::Right) => self.current_value - (step * 2),
             (SliderOrientation::Horizontal, KeyCode::Left) => self.current_value + (step * 2),
-            (SliderOrientation::Horizontal, KeyCode::Up | KeyCode::Down | KeyCode::Tab) => {
-                return Vec::new();
+            (SliderOrientation::Horizontal, KeyCode::Down | KeyCode::Tab)
+            | (SliderOrientation::Vertical, KeyCode::Right | KeyCode::Tab) => {
+                return vec![GadgetMessage::Custom {
+                    gadget_id: self.id,
+                    data: "tab_next".to_string(),
+                }];
+            }
+            (SliderOrientation::Horizontal, KeyCode::Up)
+            | (SliderOrientation::Vertical, KeyCode::Left) => {
+                return vec![GadgetMessage::Custom {
+                    gadget_id: self.id,
+                    data: "tab_prev".to_string(),
+                }];
             }
             (SliderOrientation::Vertical, KeyCode::Up) => self.current_value + (step * 2),
             (SliderOrientation::Vertical, KeyCode::Down) => self.current_value - (step * 2),
-            (SliderOrientation::Vertical, KeyCode::Left | KeyCode::Right | KeyCode::Tab) => {
-                return Vec::new();
-            }
             (_, KeyCode::PageUp) => match self.orientation {
                 SliderOrientation::Horizontal => self.current_value + large_step,
                 SliderOrientation::Vertical => self.current_value - large_step,
@@ -1324,6 +1332,55 @@ mod tests {
                 gadget_id: 1,
                 value: GadgetValue::Integer(5)
             }]
+        ));
+    }
+
+    #[test]
+    fn slider_perpendicular_keys_emit_tab_navigation_like_cpp() {
+        let mut horizontal = HorizontalSlider::new(1, 0, 0, 100, 20)
+            .with_range(0, 10)
+            .with_value(5);
+        horizontal.set_focus(true);
+
+        let next = horizontal.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            next.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_next"
+        ));
+
+        let prev = horizontal.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Up,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            prev.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_prev"
+        ));
+
+        let mut vertical = VerticalSlider::new(2, 0, 0, 20, 100)
+            .with_range(0, 10)
+            .with_value(5);
+        vertical.set_focus(true);
+
+        let next = vertical.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Right,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            next.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 2, data } ] if data == "tab_next"
+        ));
+
+        let prev = vertical.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Left,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            prev.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 2, data } ] if data == "tab_prev"
         ));
     }
 
