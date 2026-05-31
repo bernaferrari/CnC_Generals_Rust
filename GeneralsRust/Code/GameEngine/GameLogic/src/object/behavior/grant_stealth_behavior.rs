@@ -249,6 +249,10 @@ impl GrantStealthBehavior {
             }
         }
 
+        if let Ok(obj_guard) = object.read() {
+            TheGameLogic::set_wake_frame(obj_guard.get_id(), UPDATE_SLEEP_NONE);
+        }
+
         Ok(behavior)
     }
 
