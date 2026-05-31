@@ -103,6 +103,24 @@ fn parse_bool(tokens: &[&str]) -> Result<Bool, INIError> {
     INI::parse_bool(token)
 }
 
+fn horde_terrain_decal_type(
+    is_infantry: bool,
+    has_nationalism: bool,
+    has_fanaticism: bool,
+) -> TerrainDecalType {
+    if has_nationalism {
+        if has_fanaticism {
+            TerrainDecalType::HordeWithFanaticismUpgrade
+        } else {
+            TerrainDecalType::HordeWithNationalismUpgrade
+        }
+    } else if is_infantry {
+        TerrainDecalType::Horde
+    } else {
+        TerrainDecalType::HordeVehicle
+    }
+}
+
 fn parse_update_rate(
     _ini: &mut INI,
     data: &mut HordeUpdateModuleData,
@@ -487,23 +505,11 @@ impl UpdateModuleInterface for HordeUpdate {
                 if draw_icon_ui {
                     if self.in_horde && !is_portable_structure {
                         let decal_type = if is_infantry {
-                            if has_fanaticism {
-                                TerrainDecalType::HordeWithFanaticismUpgrade
-                            } else if has_nationalism {
-                                TerrainDecalType::HordeWithNationalismUpgrade
-                            } else {
-                                TerrainDecalType::Horde
-                            }
+                            horde_terrain_decal_type(true, has_nationalism, has_fanaticism)
                         } else {
                             let size = 3.5 * obj.get_geometry_info().get_major_radius();
                             drawable.set_terrain_decal_size(size, size);
-                            if has_fanaticism {
-                                TerrainDecalType::HordeWithFanaticismUpgrade
-                            } else if has_nationalism {
-                                TerrainDecalType::HordeWithNationalismUpgradeVehicle
-                            } else {
-                                TerrainDecalType::HordeVehicle
-                            }
+                            horde_terrain_decal_type(false, has_nationalism, has_fanaticism)
                         };
 
                         drawable.set_terrain_decal(decal_type);
@@ -650,5 +656,47 @@ impl HordeUpdateFactory {
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(HordeUpdate::new(thing, module_data)?))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn horde_decal_selection_matches_cpp_bonus_nesting() {
+        assert_eq!(
+            horde_terrain_decal_type(true, false, false),
+            TerrainDecalType::Horde
+        );
+        assert_eq!(
+            horde_terrain_decal_type(true, true, false),
+            TerrainDecalType::HordeWithNationalismUpgrade
+        );
+        assert_eq!(
+            horde_terrain_decal_type(true, false, true),
+            TerrainDecalType::Horde
+        );
+        assert_eq!(
+            horde_terrain_decal_type(true, true, true),
+            TerrainDecalType::HordeWithFanaticismUpgrade
+        );
+
+        assert_eq!(
+            horde_terrain_decal_type(false, false, false),
+            TerrainDecalType::HordeVehicle
+        );
+        assert_eq!(
+            horde_terrain_decal_type(false, true, false),
+            TerrainDecalType::HordeWithNationalismUpgrade
+        );
+        assert_eq!(
+            horde_terrain_decal_type(false, false, true),
+            TerrainDecalType::HordeVehicle
+        );
+        assert_eq!(
+            horde_terrain_decal_type(false, true, true),
+            TerrainDecalType::HordeWithFanaticismUpgrade
+        );
     }
 }
