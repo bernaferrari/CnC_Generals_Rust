@@ -354,12 +354,16 @@ impl MoneyCrateCollide {
             return Ok(());
         };
 
-        let event = TheAudio::get_misc_audio().crate_money.clone();
-        let mut audio_event = crate::common::audio::AudioEventRts::new(event.sound_type);
-        let position = other.get_position();
-        audio_event.set_position(&(position.x, position.y, position.z));
+        let audio_event = Self::money_audio_event_for(other);
         audio.add_audio_event(&audio_event);
         Ok(())
+    }
+
+    fn money_audio_event_for(other: &dyn GameObject) -> crate::common::audio::AudioEventRts {
+        let event = TheAudio::get_misc_audio().crate_money.clone();
+        let mut audio_event = crate::common::audio::AudioEventRts::new(event.sound_type);
+        audio_event.set_object_id(other.get_id());
+        audio_event
     }
 }
 
@@ -450,6 +454,23 @@ impl MoneyCrateCollideFactory {
 }
 
 // Mock-based tests removed to avoid mocks in fidelity-critical code.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::Object;
+    use std::sync::RwLock;
+
+    #[test]
+    fn money_audio_binds_to_collector_object_like_cpp() {
+        let collector = Arc::new(RwLock::new(Object::new_test(12_345, 100.0)));
+
+        let event = MoneyCrateCollide::money_audio_event_for(&collector);
+
+        assert_eq!(event.object_id, 12_345);
+        assert!(event.position.is_none());
+    }
+}
 
 impl game_engine::common::system::Snapshotable for MoneyCrateCollide {
     fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
