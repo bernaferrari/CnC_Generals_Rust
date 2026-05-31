@@ -815,17 +815,7 @@ fn challenge_taunt_seed() -> usize {
 }
 
 fn challenge_taunt_sound(persona: &ChallengePersonaText, seed: usize) -> Option<&str> {
-    let sounds: Vec<&str> = persona
-        .taunt_sounds
-        .iter()
-        .map(String::as_str)
-        .filter(|sound| !sound.is_empty())
-        .collect();
-    if sounds.is_empty() {
-        None
-    } else {
-        Some(sounds[seed % sounds.len()])
-    }
+    Some(persona.taunt_sounds[seed % persona.taunt_sounds.len()].as_str())
 }
 
 fn activate_challenge_pieces_frame_windows(wm: &mut WindowManager, frame: i32) {
@@ -3189,6 +3179,20 @@ mod tests {
             ),
             Some("OpponentTaunt2")
         );
+        let sparse_taunts = ChallengePersonaText {
+            taunt_sounds: [
+                String::new(),
+                "SparseOpponentTaunt2".to_string(),
+                String::new(),
+            ],
+            ..ChallengePersonaText::default()
+        };
+        assert_eq!(challenge_taunt_sound(&sparse_taunts, 0), Some(""));
+        assert_eq!(
+            challenge_taunt_sound(&sparse_taunts, 1),
+            Some("SparseOpponentTaunt2")
+        );
+        assert_eq!(challenge_taunt_sound(&sparse_taunts, 2), Some(""));
 
         finish_challenge_load_screen_audio_postlude();
         let first = with_challenge_load_screen_state(|state| {
