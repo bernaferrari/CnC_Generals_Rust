@@ -572,6 +572,31 @@ impl ListBox {
         self.last_selected = self.selected_indices.last().copied();
     }
 
+    pub fn toggle_multi_selection(&mut self, index: i32) -> bool {
+        if self.selection_mode != SelectionMode::Multiple {
+            return false;
+        }
+        if index < 0 {
+            self.selected_indices.clear();
+            self.last_selected = None;
+            return true;
+        }
+
+        let index = index as usize;
+        if index >= self.items.len() {
+            return false;
+        }
+
+        if let Some(pos) = self.selected_indices.iter().position(|&i| i == index) {
+            self.selected_indices.remove(pos);
+            self.last_selected = self.selected_indices.last().copied();
+        } else {
+            self.selected_indices.push(index);
+            self.last_selected = Some(index);
+        }
+        true
+    }
+
     pub fn get_bottom_visible_entry(&self) -> usize {
         let visible = self.visible_rows();
         let bottom = self.scroll_offset + visible;
@@ -1239,5 +1264,28 @@ mod tests {
         assert!(listbox.scroll_buffer(1));
 
         assert_eq!(listbox.selected_indices(), &[1]);
+    }
+
+    #[test]
+    fn toggle_multi_selection_matches_cpp_multi_only_rules() {
+        let mut single = ListBox::new(7, 0, 0, 100, 40);
+        single.add_item_with_id(10, "Alpha");
+        assert!(!single.toggle_multi_selection(0));
+        assert!(single.selected_indices().is_empty());
+
+        let mut multi =
+            ListBox::new(8, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
+        multi.add_item_with_id(10, "Alpha");
+        multi.add_item_with_id(20, "Bravo");
+        multi.add_item_with_id(30, "Charlie");
+
+        assert!(multi.toggle_multi_selection(1));
+        assert_eq!(multi.selected_indices(), &[1]);
+        assert!(multi.toggle_multi_selection(2));
+        assert_eq!(multi.selected_indices(), &[1, 2]);
+        assert!(multi.toggle_multi_selection(1));
+        assert_eq!(multi.selected_indices(), &[2]);
+        assert!(multi.toggle_multi_selection(-1));
+        assert!(multi.selected_indices().is_empty());
     }
 }
