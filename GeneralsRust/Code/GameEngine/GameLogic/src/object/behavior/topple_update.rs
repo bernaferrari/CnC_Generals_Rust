@@ -82,7 +82,7 @@ impl ToppleUpdateModuleData {
 }
 
 fn parse_fx_list(data_field: &mut Option<Arc<FXList>>, tokens: &[&str]) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         *data_field = None;
         return Ok(());
@@ -112,9 +112,17 @@ fn parse_stump_name(
     data: &mut ToppleUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.stump_name = AsciiString::from(*token);
+    let token = required_value(tokens)?;
+    data.stump_name = AsciiString::from(token);
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 fn parse_bool_field(
@@ -122,7 +130,7 @@ fn parse_bool_field(
     setter: &mut dyn FnMut(bool),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_bool(token)?);
     Ok(())
 }
@@ -132,7 +140,7 @@ fn parse_percent_field(
     setter: &mut dyn FnMut(Real),
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     setter(INI::parse_percent_to_real(token)?);
     Ok(())
 }
@@ -835,6 +843,78 @@ impl Snapshotable for ToppleUpdate {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn topple_update_defaults_match_cpp_constructor() {
+        let data = ToppleUpdateModuleData::default();
+
+        assert!(data.topple_fx.is_none());
+        assert!(data.bounce_fx.is_none());
+        assert!(data.stump_name.is_empty());
+        assert_eq!(data.initial_velocity_percent, 0.2);
+        assert_eq!(data.initial_accel_percent, 0.01);
+        assert_eq!(data.bounce_velocity_percent, 0.3);
+        assert!(data.kill_when_toppled);
+        assert!(!data.kill_when_start_toppled);
+        assert!(!data.kill_stump_when_toppled);
+        assert!(!data.topple_left_or_right_only);
+        assert!(!data.reorient_toppled_rubble);
+    }
+
+    #[test]
+    fn topple_update_fields_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = ToppleUpdateModuleData::default();
+
+        parse_stump_name(&mut ini, &mut data, &["=", "TreeStump"]).unwrap();
+        parse_bool_field(
+            &mut ini,
+            &mut |value| data.kill_when_start_toppled = value,
+            &["=", "yes"],
+        )
+        .unwrap();
+        parse_percent_field(
+            &mut ini,
+            &mut |value| data.initial_velocity_percent = value,
+            &["=", "55%"],
+        )
+        .unwrap();
+        parse_fx_list(&mut data.bounce_fx, &["=", "NONE"]).unwrap();
+
+        assert_eq!(data.stump_name.as_str(), "TreeStump");
+        assert!(data.kill_when_start_toppled);
+        assert!((data.initial_velocity_percent - 0.55).abs() < Real::EPSILON);
+        assert!(data.bounce_fx.is_none());
+    }
+
+    #[test]
+    fn topple_update_rejects_missing_values_like_cpp_parsers() {
+        let mut ini = INI::new();
+        let mut value = false;
+        let mut percent = 0.0;
+        let mut fx = None;
+
+        assert!(matches!(
+            parse_bool_field(&mut ini, &mut |parsed| value = parsed, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_percent_field(&mut ini, &mut |parsed| percent = parsed, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_fx_list(&mut fx, &["="]),
+            Err(INIError::InvalidData)
+        ));
+
+        assert!(!value);
+        assert_eq!(percent, 0.0);
     }
 }
 
