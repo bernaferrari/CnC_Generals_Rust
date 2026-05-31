@@ -10,6 +10,7 @@ use crate::gui::campaign_manager::{
 };
 use crate::gui::challenge_generals::get_challenge_generals;
 use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
+use crate::gui::shell::Shell;
 use crate::gui::{
     get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
     WindowMsgHandled, WindowStatus,
@@ -247,11 +248,30 @@ pub fn score_screen_enable_controls(enable: bool) {
     });
 }
 
+trait NextCampaignShellActions {
+    fn pop_score_screen_immediate(&mut self);
+    fn hide_shell_for_next_campaign(&mut self);
+}
+
+impl NextCampaignShellActions for Shell {
+    fn pop_score_screen_immediate(&mut self) {
+        let _ = self.pop_immediate();
+    }
+
+    fn hide_shell_for_next_campaign(&mut self) {
+        let _ = self.hide_shell();
+    }
+}
+
+fn leave_score_screen_for_next_campaign(shell: &mut impl NextCampaignShellActions) {
+    shell.pop_score_screen_immediate();
+    shell.hide_shell_for_next_campaign();
+}
+
 fn start_next_campaign_game() {
     {
         let mut shell = get_shell();
-        let _ = shell.pop();
-        let _ = shell.hide_shell();
+        leave_score_screen_for_next_campaign(&mut *shell);
     }
 
     let pending_file = {
@@ -1280,5 +1300,29 @@ mod tests {
     #[test]
     fn score_screen_music_uses_cpp_fade_stop_sentinel() {
         assert_eq!(AHSV_STOP_THE_MUSIC_FADE, 0xFFFF_FFF1);
+    }
+
+    #[test]
+    fn next_campaign_leaves_score_screen_with_immediate_pop_like_cpp() {
+        #[derive(Default)]
+        struct TestShellActions {
+            events: Vec<&'static str>,
+        }
+
+        impl NextCampaignShellActions for TestShellActions {
+            fn pop_score_screen_immediate(&mut self) {
+                self.events.push("pop_immediate");
+            }
+
+            fn hide_shell_for_next_campaign(&mut self) {
+                self.events.push("hide_shell");
+            }
+        }
+
+        let mut shell = TestShellActions::default();
+
+        leave_score_screen_for_next_campaign(&mut shell);
+
+        assert_eq!(shell.events, ["pop_immediate", "hide_shell"]);
     }
 }
