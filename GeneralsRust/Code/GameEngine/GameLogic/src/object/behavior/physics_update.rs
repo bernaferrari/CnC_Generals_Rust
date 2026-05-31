@@ -1009,10 +1009,7 @@ fn parse_height_to_speed(
     data: &mut PhysicsBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    let height: Real = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
+    let height = INI::parse_real(required_value(tokens)?)?;
     data.min_fall_speed_for_damage = height_to_speed(height);
     Ok(())
 }
@@ -1022,19 +1019,13 @@ fn parse_friction_per_sec(
     target: &mut Real,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    let fric_per_sec: Real = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
+    let fric_per_sec = INI::parse_real(required_value(tokens)?)?;
     *target = fric_per_sec * SECONDS_PER_LOGICFRAME_REAL;
     Ok(())
 }
 
 fn parse_real_field(_ini: &mut INI, target: &mut Real, tokens: &[&str]) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    *target = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
+    *target = INI::parse_real(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -1043,10 +1034,7 @@ fn parse_positive_non_zero_real(
     target: &mut Real,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    let value: Real = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
+    let value = INI::parse_real(required_value(tokens)?)?;
     if value <= 0.0 {
         return Err(INIError::InvalidData);
     }
@@ -1055,11 +1043,7 @@ fn parse_positive_non_zero_real(
 }
 
 fn parse_bool_field(_ini: &mut INI, target: &mut bool, tokens: &[&str]) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    let token = tokens[0].to_ascii_lowercase();
-    *target = token == "true" || token == "yes" || token == "1";
+    *target = INI::parse_bool(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -1068,11 +1052,16 @@ fn parse_weapon_template_name(
     target: &mut AsciiString,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    *target = AsciiString::from(tokens[0]);
+    *target = AsciiString::from(required_value(tokens)?);
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 const PHYSICS_BEHAVIOR_FIELDS: &[FieldParse<PhysicsBehaviorModuleData>] = &[
@@ -1175,3 +1164,55 @@ const PHYSICS_BEHAVIOR_FIELDS: &[FieldParse<PhysicsBehaviorModuleData>] = &[
         },
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_field(data: &mut PhysicsBehaviorModuleData, token: &str, tokens: &[&str]) {
+        let field = PHYSICS_BEHAVIOR_FIELDS
+            .iter()
+            .find(|field| field.token == token)
+            .expect("field");
+        let mut ini = INI::new();
+        (field.parse)(&mut ini, data, tokens).expect("parse field");
+    }
+
+    #[test]
+    fn physics_real_fields_use_cpp_ini_token_handling() {
+        let mut data = PhysicsBehaviorModuleData::default();
+
+        parse_field(&mut data, "Mass", &["=", "2.5f"]);
+        parse_field(&mut data, "ForwardFriction", &["=", "0.9f"]);
+        parse_field(&mut data, "CenterOfMassOffset", &["=", "-0.25f"]);
+        parse_field(
+            &mut data,
+            "VehicleCrashesIntoBuildingWeaponTemplate",
+            &["=", "VehicleCrashesIntoBuildingWeapon"],
+        );
+
+        assert!((data.mass - 2.5).abs() < f32::EPSILON);
+        assert!((data.forward_friction - 0.03).abs() < f32::EPSILON);
+        assert!((data.center_of_mass_offset + 0.25).abs() < f32::EPSILON);
+        assert_eq!(
+            data.vehicle_crashes_into_building_weapon_template.as_str(),
+            "VehicleCrashesIntoBuildingWeapon"
+        );
+    }
+
+    #[test]
+    fn physics_bool_fields_reject_unknown_values_like_cpp_parse_bool() {
+        let mut data = PhysicsBehaviorModuleData::default();
+        let field = PHYSICS_BEHAVIOR_FIELDS
+            .iter()
+            .find(|field| field.token == "AllowBouncing")
+            .expect("field");
+        let mut ini = INI::new();
+
+        (field.parse)(&mut ini, &mut data, &["=", "yes"]).expect("parse yes");
+        assert!(data.allow_bouncing);
+
+        let err = (field.parse)(&mut ini, &mut data, &["maybe"]).expect_err("invalid bool");
+        assert!(matches!(err, INIError::InvalidData));
+    }
+}
