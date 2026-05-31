@@ -65,6 +65,10 @@ const GSM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 12;
 const GSM_SET_MIN_MAX: u32 = GGM_LEFT_DRAG + 13;
 const GLM_DEL_ENTRY: u32 = GGM_LEFT_DRAG + 16;
 const GLM_DEL_ALL: u32 = GGM_LEFT_DRAG + 17;
+const GLM_SELECTED: u32 = GGM_LEFT_DRAG + 18;
+const GLM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 21;
+const GLM_SCROLL_BUFFER: u32 = GGM_LEFT_DRAG + 28;
+const GLM_UPDATE_DISPLAY: u32 = GGM_LEFT_DRAG + 29;
 pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
 
 // Window style flags (GWS_*)
@@ -2347,6 +2351,47 @@ impl GameWindow {
                         self.update_listbox_scrollbar();
                         return WindowMsgHandled::Handled;
                     }
+                    GLM_SET_SELECTION => {
+                        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                            let select_index = data1 as i32;
+                            if select_index < 0 || select_index as usize >= listbox.items().len() {
+                                listbox.set_selected_indices(&[]);
+                            } else {
+                                let _ = listbox
+                                    .select_index(select_index as usize, KeyModifiers::none());
+                            }
+                        }
+                        self.update_listbox_scrollbar();
+                        if !self.owner_is_self {
+                            if let Some(owner) = self.get_owner() {
+                                let selected = self
+                                    .list_box_mut()
+                                    .and_then(|listbox| listbox.selected_indices().first().copied())
+                                    .map(|index| index as u32)
+                                    .unwrap_or((-1i32) as u32);
+                                let _ = owner.borrow_mut().send_system_message(
+                                    WindowMessage::User(GLM_SELECTED),
+                                    self.id as u32,
+                                    selected,
+                                );
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GLM_SCROLL_BUFFER => {
+                        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                            let _ = listbox.scroll_buffer(data1 as usize);
+                        }
+                        self.update_listbox_scrollbar();
+                        return WindowMsgHandled::Handled;
+                    }
+                    GLM_UPDATE_DISPLAY => {
+                        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                            listbox.set_top_visible_entry(data1 as i32);
+                        }
+                        self.update_listbox_scrollbar();
+                        return WindowMsgHandled::Handled;
+                    }
                     _ => {}
                 }
             }
@@ -4360,6 +4405,93 @@ mod tests {
         assert!(listbox.items().is_empty());
         assert!(listbox.selected_indices().is_empty());
         assert_eq!(listbox.scroll_offset(), 0);
+    }
+
+    #[test]
+    fn listbox_selection_system_message_notifies_owner_like_cpp() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut window = GameWindow::new();
+        window.set_id(42);
+        window.set_owner(Some(&owner));
+        let mut listbox = ListBox::new(42, 0, 0, 100, 60);
+        listbox.add_item("alpha");
+        listbox.add_item("bravo");
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GLM_SET_SELECTION), 1, 1),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[1]);
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[(WindowMessage::User(GLM_SELECTED), 42, 1)]
+        );
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GLM_SET_SELECTION), (-1i32) as u32, 1,),
+            WindowMsgHandled::Handled
+        );
+        assert!(window.list_box_mut().unwrap().selected_indices().is_empty());
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[
+                (WindowMessage::User(GLM_SELECTED), 42, 1),
+                (WindowMessage::User(GLM_SELECTED), 42, (-1i32) as u32),
+            ]
+        );
+    }
+
+    #[test]
+    fn listbox_scroll_buffer_and_update_display_system_messages_match_cpp() {
+        let mut window = GameWindow::new();
+        let mut listbox = ListBox::new(42, 0, 0, 100, 40);
+        listbox.add_item("alpha");
+        listbox.add_item("bravo");
+        listbox.add_item("charlie");
+        listbox.add_item("delta");
+        assert!(listbox.select_index(0, KeyModifiers::none()));
+        listbox.set_top_visible_entry(2);
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GLM_SCROLL_BUFFER), 1, 0),
+            WindowMsgHandled::Handled
+        );
+        let listbox = window.list_box_mut().unwrap();
+        assert_eq!(
+            listbox
+                .items()
+                .iter()
+                .map(|item| item.text.as_str())
+                .collect::<Vec<_>>(),
+            vec!["bravo", "charlie", "delta"]
+        );
+        assert_eq!(listbox.selected_indices(), &[0]);
+        assert_eq!(listbox.scroll_offset(), 1);
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GLM_UPDATE_DISPLAY), 99, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 1);
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GLM_UPDATE_DISPLAY), 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 0);
     }
 
     #[test]
