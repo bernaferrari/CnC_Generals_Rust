@@ -91,6 +91,7 @@ pub struct LoadScreenInitContext {
     pub local_general_portrait: Option<String>,
     pub local_load_screen_music: String,
     pub local_team_number: i32,
+    pub shell_game_did_mem_pass: bool,
     pub map_name: Option<String>,
     pub start_positions: Vec<Option<usize>>,
     pub slots: Vec<LoadScreenSlotInitContext>,
@@ -224,6 +225,7 @@ impl Default for LoadScreenInitContext {
             local_general_portrait: None,
             local_load_screen_music: String::new(),
             local_team_number: 0,
+            shell_game_did_mem_pass: true,
             map_name: None,
             start_positions: Vec::new(),
             slots: Vec::new(),
@@ -390,6 +392,7 @@ pub fn load_screen_init_context_from_game_info(
             local_general_portrait: local_general_presentation.portrait,
             local_load_screen_music: local_general_presentation.load_screen_music,
             local_team_number: local_slot.player_id,
+            shell_game_did_mem_pass: true,
             map_name: load_screen_map_name_from_game_info(game_info),
             start_positions,
             slots,
@@ -521,7 +524,9 @@ fn initialize_kind_windows(
     context: &LoadScreenInitContext,
 ) {
     match kind {
-        LoadScreenKind::ShellGame => initialize_shell_game_windows(wm),
+        LoadScreenKind::ShellGame => {
+            initialize_shell_game_windows(wm, context.shell_game_did_mem_pass)
+        }
         LoadScreenKind::SinglePlayer => initialize_single_player_windows(wm),
         LoadScreenKind::Challenge => initialize_challenge_windows(wm),
         LoadScreenKind::Multiplayer => {
@@ -531,14 +536,10 @@ fn initialize_kind_windows(
     }
 }
 
-fn initialize_shell_game_windows(wm: &mut WindowManager) {
-    let is_first_load = with_shell_game_first_load(|first_load| {
-        let was_first_load = *first_load;
-        *first_load = false;
-        was_first_load
-    });
+fn initialize_shell_game_windows(wm: &mut WindowManager, did_mem_pass: bool) {
+    let is_first_load = with_shell_game_first_load(|first_load| *first_load);
 
-    if is_first_load {
+    if is_first_load && did_mem_pass {
         set_window_image(
             wm,
             "ShellGameLoadScreen.wnd:ParentShellGameLoadScreen",
@@ -549,6 +550,7 @@ fn initialize_shell_game_windows(wm: &mut WindowManager) {
         hide_window(wm, "ShellGameLoadScreen.wnd:StaticTextLegal", false);
         hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", true);
         run_shell_game_legal_hold(wm);
+        with_shell_game_first_load(|first_load| *first_load = false);
         hide_window(wm, "ShellGameLoadScreen.wnd:ProgressLoad", false);
     }
 }
@@ -1868,6 +1870,7 @@ mod tests {
             local_general_portrait: None,
             local_load_screen_music: String::new(),
             local_team_number: 0,
+            shell_game_did_mem_pass: true,
             map_name: None,
             start_positions: Vec::new(),
             slots: vec![
@@ -1968,6 +1971,7 @@ mod tests {
             local_general_portrait: None,
             local_load_screen_music: String::new(),
             local_team_number: 0,
+            shell_game_did_mem_pass: true,
             map_name: None,
             start_positions: Vec::new(),
             slots: vec![load_screen_slot("Local", "USA", 1, false, true)],
@@ -2022,6 +2026,7 @@ mod tests {
             local_general_portrait: Some("SAGeneralPortrait".to_string()),
             local_load_screen_music: "Load_USA".to_string(),
             local_team_number: 0,
+            shell_game_did_mem_pass: true,
             map_name: None,
             start_positions: Vec::new(),
             slots: vec![load_screen_slot("Local", "USA", 0, false, true)],
@@ -2062,6 +2067,7 @@ mod tests {
             local_general_portrait: None,
             local_load_screen_music: String::new(),
             local_team_number: 0,
+            shell_game_did_mem_pass: true,
             map_name: None,
             start_positions: Vec::new(),
             slots: vec![
@@ -2111,6 +2117,7 @@ mod tests {
             local_general_portrait: None,
             local_load_screen_music: String::new(),
             local_team_number: 0,
+            shell_game_did_mem_pass: true,
             map_name: None,
             start_positions: Vec::new(),
             slots: vec![
@@ -2164,6 +2171,7 @@ mod tests {
             local_general_portrait: None,
             local_load_screen_music: String::new(),
             local_team_number: 7,
+            shell_game_did_mem_pass: true,
             map_name: None,
             start_positions: Vec::new(),
             slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
@@ -2211,6 +2219,7 @@ mod tests {
             local_general_portrait: None,
             local_load_screen_music: String::new(),
             local_team_number: 0,
+            shell_game_did_mem_pass: true,
             map_name: None,
             start_positions: Vec::new(),
             slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
@@ -2246,6 +2255,7 @@ mod tests {
             local_general_portrait: None,
             local_load_screen_music: String::new(),
             local_team_number: 4,
+            shell_game_did_mem_pass: true,
             map_name: None,
             start_positions: Vec::new(),
             slots: Vec::new(),
@@ -3041,7 +3051,7 @@ mod tests {
         named_test_window(&mut wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
         named_test_window(&mut wm, "ShellGameLoadScreen.wnd:ProgressLoad");
 
-        initialize_shell_game_windows(&mut wm);
+        initialize_shell_game_windows(&mut wm, true);
 
         let root = wm
             .find_window_by_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen")
@@ -3069,12 +3079,65 @@ mod tests {
             .set_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen");
         named_test_window(&mut second_wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
 
-        initialize_shell_game_windows(&mut second_wm);
+        initialize_shell_game_windows(&mut second_wm, true);
 
         let second_legal = second_wm
             .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
             .expect("legal");
         assert!(second_legal.borrow().is_hidden());
+        reset_shell_game_first_load_for_tests(true);
+    }
+
+    #[test]
+    fn shell_game_first_load_skips_legal_intro_when_mem_check_fails_like_cpp() {
+        reset_shell_game_first_load_for_tests(true);
+        let mut wm = WindowManager::new();
+        let root = wm.create_window(None, 0, 0, 800, 600).expect("root");
+        root.borrow_mut()
+            .set_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen");
+        named_test_window(&mut wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
+        named_test_window(&mut wm, "ShellGameLoadScreen.wnd:ProgressLoad");
+
+        initialize_shell_game_windows(&mut wm, false);
+
+        let root = wm
+            .find_window_by_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen")
+            .expect("root");
+        assert!(root
+            .borrow()
+            .get_enabled_draw_data(0)
+            .and_then(|draw| draw.image)
+            .is_none());
+        let legal = wm
+            .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
+            .expect("legal");
+        assert!(legal.borrow().is_hidden());
+
+        let mut later_wm = WindowManager::new();
+        let later_root = later_wm.create_window(None, 0, 0, 800, 600).expect("root");
+        later_root
+            .borrow_mut()
+            .set_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen");
+        named_test_window(&mut later_wm, "ShellGameLoadScreen.wnd:StaticTextLegal");
+        named_test_window(&mut later_wm, "ShellGameLoadScreen.wnd:ProgressLoad");
+
+        initialize_shell_game_windows(&mut later_wm, true);
+
+        assert_eq!(
+            later_wm
+                .find_window_by_name("ShellGameLoadScreen.wnd:ParentShellGameLoadScreen")
+                .expect("root")
+                .borrow()
+                .get_enabled_draw_data(0)
+                .and_then(|draw| draw.image)
+                .map(|image| image.name),
+            Some("TitleScreen".to_string())
+        );
+        assert!(!later_wm
+            .find_window_by_name("ShellGameLoadScreen.wnd:StaticTextLegal")
+            .expect("legal")
+            .borrow()
+            .is_hidden());
         reset_shell_game_first_load_for_tests(true);
     }
 
