@@ -2508,7 +2508,17 @@ impl GameWindow {
             } else {
                 Vec::new()
             };
-            if focused {
+            if matches!(self.widget, Some(WindowWidget::TextEntry(_))) {
+                if focused {
+                    self.inst_data
+                        .state
+                        .insert(WindowState::SELECTED | WindowState::HILITED);
+                } else {
+                    self.inst_data
+                        .state
+                        .remove(WindowState::SELECTED | WindowState::HILITED);
+                }
+            } else if focused {
                 if !matches!(self.widget, Some(WindowWidget::RadioButton(_))) {
                     self.set_hilite_state(true);
                 }
@@ -4267,6 +4277,52 @@ mod tests {
             &[
                 (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 32),
                 (WindowMessage::User(GGM_FOCUS_CHANGE), 0, 32),
+            ]
+        );
+    }
+
+    #[test]
+    fn text_entry_input_focus_sets_selected_and_hilite_like_cpp() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut window = GameWindow::new();
+        window.set_id(33);
+        window.set_owner(Some(&owner));
+        window.set_widget(WindowWidget::TextEntry(TextEntry::new(33, 0, 0, 100, 20)));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::InputFocus, 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(window
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED | WindowState::HILITED));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::InputFocus, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(!window
+            .instance_data()
+            .state
+            .intersects(WindowState::SELECTED | WindowState::HILITED));
+
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[
+                (WindowMessage::User(GGM_FOCUS_CHANGE), 1, 33),
+                (WindowMessage::User(GGM_FOCUS_CHANGE), 0, 33),
             ]
         );
     }
