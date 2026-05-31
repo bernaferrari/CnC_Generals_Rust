@@ -8,6 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::game_text::GameText;
 use crate::gui::window_manager::{with_window_manager, with_window_manager_ref};
 use game_engine::common::recorder::{self, ReplayHeader as CommonReplayHeader};
 
@@ -543,15 +544,14 @@ impl ReplayMenu {
         }
 
         let entry = &self.replay_list[index as usize];
-        let mut fname = entry.name.clone();
+        entry.filename.clone()
+    }
 
-        // Check if this is the "Last Replay" special entry
-        if fname == "GUI:LastReplay" {
-            fname = self.last_replay_filename.clone();
-        }
-
-        // Append extension
-        format!("{}{}", fname, self.replay_extension)
+    fn replay_display_name_from_filename(filename: &str, replay_extension: &str) -> String {
+        filename
+            .strip_suffix(replay_extension)
+            .unwrap_or(filename)
+            .to_string()
     }
 
     /// Populate the listbox with replay files
@@ -576,17 +576,16 @@ impl ReplayMenu {
                         .unwrap_or("")
                         .to_string();
 
-                    // Remove extension from display name
-                    let mut display_name = header.replay_name.clone();
-                    for _ in 0..self.replay_extension.len() {
-                        display_name.pop();
-                    }
+                    // C++ overwrites header.replayName with the directory filename before
+                    // stripping the replay extension for display.
+                    let mut display_name =
+                        Self::replay_display_name_from_filename(&filename, &self.replay_extension);
 
                     // Check if this is the last replay
                     let last_replay_full =
                         format!("{}{}", self.last_replay_filename, self.replay_extension);
                     if filename == last_replay_full {
-                        display_name = "GUI:LastReplay".to_string();
+                        display_name = GameText::fetch("GUI:LastReplay");
                     }
 
                     // Format date/time
@@ -1084,6 +1083,36 @@ mod tests {
         assert_eq!(entry.name, "Test Replay");
         assert_eq!(entry.map, "TestMap");
         assert_eq!(entry.filename, "test.rep");
+    }
+
+    #[test]
+    fn replay_filename_lookup_uses_stored_filename_like_cpp() {
+        let mut menu = ReplayMenu::new(PathBuf::from("/replays"), ".rep".to_string());
+        menu.replay_list.push(ReplayListEntry::new(
+            "HeaderReplayName".to_string(),
+            "2024-01-01".to_string(),
+            "1.0".to_string(),
+            "TestMap".to_string(),
+            Color::white(),
+            "ActualFileName.rep".to_string(),
+        ));
+
+        assert_eq!(
+            menu.get_replay_filename_from_listbox(0),
+            "ActualFileName.rep"
+        );
+    }
+
+    #[test]
+    fn replay_display_name_is_derived_from_filename_like_cpp() {
+        assert_eq!(
+            ReplayMenu::replay_display_name_from_filename("ActualFileName.rep", ".rep"),
+            "ActualFileName"
+        );
+        assert_eq!(
+            ReplayMenu::replay_display_name_from_filename("HeaderNameWasDifferent.rep", ".rep"),
+            "HeaderNameWasDifferent"
+        );
     }
 
     #[test]
