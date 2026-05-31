@@ -64,7 +64,7 @@ fn parse_pulse_fx(
     data: &mut TechBuildingBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.pulse_fx = TheFXListStore::find_fx_list(token);
     Ok(())
 }
@@ -74,9 +74,17 @@ fn parse_pulse_fx_rate(
     data: &mut TechBuildingBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.pulse_fx_rate = INI::parse_duration_unsigned_int(token)?;
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 const TECH_BUILDING_BEHAVIOR_FIELDS: &[FieldParse<TechBuildingBehaviorModuleData>] = &[
@@ -346,5 +354,32 @@ mod tests {
         let data = TechBuildingBehaviorModuleData::default();
         assert!(data.pulse_fx.is_none());
         assert_eq!(data.pulse_fx_rate, 0);
+    }
+
+    #[test]
+    fn tech_building_fields_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = TechBuildingBehaviorModuleData::default();
+
+        parse_pulse_fx(&mut ini, &mut data, &["=", "TechPulseFX"]).unwrap();
+        parse_pulse_fx_rate(&mut ini, &mut data, &["=", "1s"]).unwrap();
+
+        assert!(data.pulse_fx.is_none());
+        assert_eq!(data.pulse_fx_rate, 30);
+    }
+
+    #[test]
+    fn tech_building_rejects_missing_values_like_cpp_parsers() {
+        let mut ini = INI::new();
+        let mut data = TechBuildingBehaviorModuleData::default();
+
+        assert!(matches!(
+            parse_pulse_fx(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
+        assert!(matches!(
+            parse_pulse_fx_rate(&mut ini, &mut data, &["="]),
+            Err(INIError::InvalidData)
+        ));
     }
 }
