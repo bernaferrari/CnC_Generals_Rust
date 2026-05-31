@@ -323,6 +323,7 @@ pub fn popup_replay_system(
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
@@ -381,5 +382,24 @@ pub fn popup_replay_system(
             WindowMsgHandled::Handled
         }
         _ => WindowMsgHandled::Ignored,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popup_replay_system_consumes_lifecycle_messages_like_cpp() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            popup_replay_system(&window, WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            popup_replay_system(&window, WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
     }
 }
