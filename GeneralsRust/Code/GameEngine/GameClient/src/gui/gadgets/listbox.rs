@@ -470,6 +470,50 @@ impl ListBox {
         true
     }
 
+    pub fn scroll_buffer(&mut self, count: usize) -> bool {
+        if count == 0 {
+            return true;
+        }
+        if count > self.items.len() {
+            return false;
+        }
+
+        self.items.drain(0..count);
+        let has_shifted_row = !self.items.is_empty();
+        self.selected_indices = self
+            .selected_indices
+            .iter()
+            .filter_map(|idx| match self.selection_mode {
+                SelectionMode::Single => idx
+                    .checked_sub(count)
+                    .or_else(|| has_shifted_row.then_some(0)),
+                SelectionMode::Multiple => idx.checked_sub(count),
+            })
+            .collect();
+        self.last_selected = self
+            .last_selected
+            .and_then(|idx| match self.selection_mode {
+                SelectionMode::Single => idx
+                    .checked_sub(count)
+                    .or_else(|| has_shifted_row.then_some(0)),
+                SelectionMode::Multiple => idx.checked_sub(count),
+            });
+        self.scroll_offset = self.scroll_offset.saturating_sub(count);
+        let visible = self.visible_rows();
+        self.scroll_offset = self
+            .scroll_offset
+            .min(self.items.len().saturating_sub(visible));
+        self.last_right_click = self.last_right_click.and_then(|rc| {
+            let shifted = rc.index.checked_sub(count as i32)?;
+            Some(ListBoxRightClick {
+                index: shifted,
+                mouse_x: rc.mouse_x,
+                mouse_y: rc.mouse_y,
+            })
+        });
+        true
+    }
+
     pub fn get_top_visible_entry(&self) -> i32 {
         self.scroll_offset as i32
     }
@@ -1160,5 +1204,40 @@ mod tests {
 
         assert_eq!(listbox.items()[0].text, " ");
         assert_eq!(listbox.items()[1].text, " ");
+    }
+
+    #[test]
+    fn single_select_scroll_buffer_preserves_shifted_first_row_like_cpp() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.add_item_with_id(10, "Alpha");
+        listbox.add_item_with_id(20, "Bravo");
+        listbox.add_item_with_id(30, "Charlie");
+        listbox.select_index(0, KeyModifiers::none());
+
+        assert!(listbox.scroll_buffer(1));
+
+        assert_eq!(
+            listbox
+                .items()
+                .iter()
+                .map(|item| item.id)
+                .collect::<Vec<_>>(),
+            vec![20, 30]
+        );
+        assert_eq!(listbox.selected_indices(), &[0]);
+    }
+
+    #[test]
+    fn multi_select_scroll_buffer_drops_purged_entries_and_shifts_rest() {
+        let mut listbox =
+            ListBox::new(7, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
+        listbox.add_item_with_id(10, "Alpha");
+        listbox.add_item_with_id(20, "Bravo");
+        listbox.add_item_with_id(30, "Charlie");
+        listbox.set_selected_indices(&[0, 2]);
+
+        assert!(listbox.scroll_buffer(1));
+
+        assert_eq!(listbox.selected_indices(), &[1]);
     }
 }
