@@ -69,7 +69,8 @@ pub use button::{
 pub use checkbox::{CheckBox, CheckBoxBuilder, CheckBoxCallback, CheckBoxConfig, CheckBoxStyle};
 pub use combobox::{ComboBox, ComboBoxCallback, ComboBoxItem};
 pub use listbox::{
-    ListBox, ListBoxCallback, ListBoxItem, ListBoxItemData, ListBoxRightClick, SelectionMode,
+    ListBox, ListBoxCallback, ListBoxItem, ListBoxItemData, ListBoxRightClick, ListBoxSelection,
+    ListBoxTextAndColor, SelectionMode,
 };
 pub use progressbar::{
     ProgressBar, ProgressBarBuilder, ProgressBarConfig, ProgressBarOrientation, ProgressBarStyle,
