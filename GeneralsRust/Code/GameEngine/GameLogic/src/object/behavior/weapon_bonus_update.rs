@@ -274,14 +274,24 @@ impl WeaponBonusUpdateFactory {
 }
 
 fn parse_duration_frames(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     INI::parse_duration_unsigned_int(token)
 }
 
-fn parse_bonus_condition(token: &str) -> Option<WeaponBonusConditionType> {
-    INI::parse_index_list(token, WEAPON_BONUS_NAMES)
-        .ok()
-        .and_then(|idx| WEAPON_BONUS_TYPES.get(idx).copied())
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_bonus_condition(token: &str) -> Result<WeaponBonusConditionType, INIError> {
+    let idx = INI::parse_index_list(token, WEAPON_BONUS_NAMES)?;
+    WEAPON_BONUS_TYPES
+        .get(idx)
+        .copied()
+        .ok_or(INIError::InvalidData)
 }
 
 fn parse_required_affect_kind_of(
@@ -325,7 +335,7 @@ fn parse_bonus_range(
     data: &mut WeaponBonusUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     data.bonus_range = INI::parse_real(token)?;
     Ok(())
 }
@@ -335,11 +345,7 @@ fn parse_bonus_condition_type(
     data: &mut WeaponBonusUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.bonus_condition_type =
-        parse_bonus_condition(tokens[0]).unwrap_or(WeaponBonusConditionType::Invalid);
+    data.bonus_condition_type = parse_bonus_condition(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -429,3 +435,39 @@ const WEAPON_BONUS_NAMES: &[&str] = &[
     "FRENZY_TWO",
     "FRENZY_THREE",
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn weapon_bonus_fields_use_cpp_ini_token_handling() {
+        let mut data = WeaponBonusUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        parse_bonus_duration(&mut ini, &mut data, &["=", "1500ms"]).expect("duration");
+        parse_bonus_delay(&mut ini, &mut data, &["=", "1.5s"]).expect("delay");
+        parse_bonus_range(&mut ini, &mut data, &["=", "125.5f"]).expect("range");
+        parse_bonus_condition_type(&mut ini, &mut data, &["=", "FRENZY_TWO"]).expect("condition");
+
+        assert_eq!(data.bonus_duration, 45);
+        assert_eq!(data.bonus_delay, 45);
+        assert!((data.bonus_range - 125.5).abs() < f32::EPSILON);
+        assert_eq!(
+            data.bonus_condition_type,
+            WeaponBonusConditionType::FrenzyTwo
+        );
+    }
+
+    #[test]
+    fn weapon_bonus_condition_rejects_unknown_tokens_like_cpp_parse_index_list() {
+        let mut data = WeaponBonusUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        let err = parse_bonus_condition_type(&mut ini, &mut data, &["NOT_A_BONUS"])
+            .expect_err("invalid bonus condition");
+
+        assert!(matches!(err, INIError::InvalidData));
+        assert_eq!(data.bonus_condition_type, WeaponBonusConditionType::Invalid);
+    }
+}
