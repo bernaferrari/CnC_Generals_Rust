@@ -255,6 +255,10 @@ impl SliderBase {
 
     /// Set the current value
     fn set_value(&mut self, value: i32) {
+        if value < self.config.min_value || value > self.config.max_value {
+            return;
+        }
+
         let new_value = self.clamp_value(value);
         if new_value != self.current_value {
             self.current_value = new_value;
@@ -284,7 +288,14 @@ impl SliderBase {
 
         if let Some(step) = self.config.step_size {
             if step > 0 {
-                let steps_from_min = (clamped - self.config.min_value) / step;
+                let offset = clamped - self.config.min_value;
+                let lower_steps = offset / step;
+                let remainder = offset % step;
+                let steps_from_min = if remainder * 2 >= step {
+                    lower_steps + 1
+                } else {
+                    lower_steps
+                };
                 return self.config.min_value + (steps_from_min * step);
             }
         }
@@ -371,6 +382,38 @@ impl SliderBase {
         self.get_thumb_bounds().contains_point(x, y)
     }
 
+    fn apply_track_page_click(&mut self, x: i32, y: i32) {
+        let (click_pos, thumb_half, page_pixels, track_extent) = match self.orientation {
+            SliderOrientation::Horizontal => (
+                x - self.bounds.x,
+                self.config.thumb_size.0 as i32 / 2,
+                self.bounds.width as i32 / 5,
+                self.bounds.width as i32,
+            ),
+            SliderOrientation::Vertical => (
+                y - self.bounds.y,
+                self.config.thumb_size.1 as i32 / 2,
+                self.bounds.height as i32 / 5,
+                self.bounds.height as i32,
+            ),
+        };
+
+        let thumb_center = self.value_to_pixel(self.current_value) + thumb_half;
+        let max_center = track_extent - thumb_half;
+        if max_center < thumb_half {
+            return;
+        }
+
+        let mut paged_center = if click_pos >= thumb_center {
+            (thumb_center + page_pixels).min(click_pos)
+        } else {
+            (thumb_center - page_pixels).max(click_pos)
+        };
+
+        paged_center = paged_center.clamp(thumb_half, max_center);
+        self.set_value(self.pixel_to_value(paged_center - thumb_half));
+    }
+
     /// Handle mouse press on slider
     fn handle_mouse_press(&mut self, x: i32, y: i32, button: MouseButton) -> Vec<GadgetMessage> {
         if !self.enabled {
@@ -404,33 +447,6 @@ impl SliderBase {
                         SliderOrientation::Horizontal => x - thumb_center,
                         SliderOrientation::Vertical => y - thumb_center,
                     };
-                } else {
-                    // Click on track - jump to position
-                    let track_pos = match self.orientation {
-                        SliderOrientation::Horizontal => {
-                            x - self.bounds.x - (self.config.thumb_size.0 as i32 / 2)
-                        }
-                        SliderOrientation::Vertical => {
-                            y - self.bounds.y - (self.config.thumb_size.1 as i32 / 2)
-                        }
-                    };
-
-                    let new_value = self.pixel_to_value(track_pos);
-
-                    // Apply page-click logic (move by page_size towards target)
-                    let current_pixel = self.value_to_pixel(self.current_value);
-                    let target_pixel = self.value_to_pixel(new_value);
-
-                    let page_pixels =
-                        self.value_to_pixel(self.config.page_size) - self.value_to_pixel(0);
-                    let move_pixels = if target_pixel > current_pixel {
-                        page_pixels.min(target_pixel - current_pixel)
-                    } else {
-                        (-page_pixels).max(target_pixel - current_pixel)
-                    };
-
-                    let page_value = self.pixel_to_value(current_pixel + move_pixels);
-                    self.set_value(page_value);
                 }
             }
             _ => {}
@@ -440,12 +456,7 @@ impl SliderBase {
     }
 
     /// Handle mouse release
-    fn handle_mouse_release(
-        &mut self,
-        _x: i32,
-        _y: i32,
-        button: MouseButton,
-    ) -> Vec<GadgetMessage> {
+    fn handle_mouse_release(&mut self, x: i32, y: i32, button: MouseButton) -> Vec<GadgetMessage> {
         if !self.enabled {
             return Vec::new();
         }
@@ -460,6 +471,8 @@ impl SliderBase {
                         ThumbState::Normal
                     };
                     self.drag_offset = 0;
+                } else if !self.is_point_over_thumb(x, y) {
+                    self.apply_track_page_click(x, y);
                 }
             }
             _ => {}
@@ -1146,17 +1159,19 @@ mod tests {
     }
 
     #[test]
-    fn test_value_clamping() {
+    fn test_set_value_ignores_out_of_range_like_cpp() {
         let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20).with_range(10, 90);
 
+        slider.set_value(50);
+
         slider.set_value(-5); // Below minimum
-        assert_eq!(slider.value(), 10);
+        assert_eq!(slider.value(), 50);
 
         slider.set_value(150); // Above maximum
-        assert_eq!(slider.value(), 90);
-
-        slider.set_value(50); // Within range
         assert_eq!(slider.value(), 50);
+
+        slider.set_value(90); // Within range
+        assert_eq!(slider.value(), 90);
     }
 
     #[test]
@@ -1302,6 +1317,35 @@ mod tests {
     }
 
     #[test]
+    fn horizontal_slider_track_click_pages_on_mouse_up_by_cpp_pixel_distance() {
+        let mut slider = HorizontalSlider::new(1, 0, 0, 100, 20)
+            .with_range(0, 100)
+            .with_value(50);
+
+        let down = slider.handle_input(&InputEvent::MouseDown {
+            x: 90,
+            y: 10,
+            button: MouseButton::Left,
+        });
+        assert!(down.is_empty());
+        assert_eq!(slider.value(), 50);
+
+        let up = slider.handle_input(&InputEvent::MouseUp {
+            x: 90,
+            y: 10,
+            button: MouseButton::Left,
+        });
+        assert_eq!(slider.value(), 73);
+        assert!(matches!(
+            up.as_slice(),
+            [GadgetMessage::ValueChanged {
+                gadget_id: 1,
+                value: GadgetValue::Integer(73)
+            }]
+        ));
+    }
+
+    #[test]
     fn test_vertical_slider_keyboard_matches_cpp_axis() {
         let mut slider = VerticalSlider::new(1, 0, 0, 20, 100)
             .with_range(0, 10)
@@ -1360,7 +1404,7 @@ mod tests {
             .with_range(0, 100)
             .with_value(150); // Beyond initial max
 
-        assert_eq!(slider.value(), 100); // Should be clamped to max
+        assert_eq!(slider.value(), 0); // C++ ignores invalid GSM_SET_SLIDER values.
 
         // Update range to accommodate the value
         slider.set_range(0, 200);
