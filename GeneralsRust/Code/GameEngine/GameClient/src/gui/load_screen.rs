@@ -137,6 +137,9 @@ struct SinglePlayerLoadScreenState {
     current_objective_width_offset: i32,
     current_objective_line_character: usize,
     finished_objective_text: bool,
+    briefing_voice_played: bool,
+    briefing_voice_handle: u32,
+    ambient_loop_handle: u32,
 }
 
 static SINGLE_PLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<SinglePlayerLoadScreenState>> =
@@ -431,6 +434,8 @@ pub fn reset_load_screen(kind: LoadScreenKind) {
     });
     if kind == LoadScreenKind::Challenge {
         reset_challenge_load_screen_audio_state();
+    } else if kind == LoadScreenKind::SinglePlayer {
+        reset_single_player_load_screen_audio_state();
     } else if descriptor.slot_count > 0 {
         reset_multiplayer_load_screen_state();
     }
@@ -571,6 +576,21 @@ fn reset_multiplayer_load_screen_state() {
     with_multiplayer_load_screen_state(|state| *state = MultiplayerLoadScreenState::default());
 }
 
+fn reset_single_player_load_screen_audio_state() {
+    let ambient_handle = with_single_player_load_screen_state(|state| {
+        let handle = state.ambient_loop_handle;
+        state.briefing_voice_played = false;
+        state.briefing_voice_handle = 0;
+        state.ambient_loop_handle = 0;
+        handle
+    });
+    if ambient_handle != 0 {
+        if let Some(audio) = TheAudio::get() {
+            audio.remove_audio_event(ambient_handle);
+        }
+    }
+}
+
 #[cfg(not(test))]
 fn shell_game_legal_hold_duration() -> Duration {
     Duration::from_millis(3000)
@@ -660,6 +680,7 @@ fn initialize_single_player_windows(wm: &mut WindowManager) {
             &text.location,
         );
     }
+    finish_single_player_load_screen_audio_prelude();
 }
 
 fn with_single_player_load_screen_state<R>(
@@ -671,6 +692,33 @@ fn with_single_player_load_screen_state<R>(
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     f(&mut guard)
+}
+
+fn finish_single_player_load_screen_audio_prelude() {
+    let should_play_briefing =
+        with_single_player_load_screen_state(|state| !state.briefing_voice_played);
+    let briefing_voice = if should_play_briefing {
+        let campaign_manager = get_campaign_manager();
+        campaign_manager
+            .get_current_mission()
+            .map(|mission| mission.briefing_voice.sound_file.clone())
+    } else {
+        None
+    };
+    let briefing_handle = briefing_voice
+        .as_deref()
+        .filter(|event| !event.is_empty())
+        .map(add_audio_event)
+        .unwrap_or(0);
+    let ambient_handle = add_audio_event("LoadScreenAmbient");
+
+    with_single_player_load_screen_state(|state| {
+        if !state.briefing_voice_played {
+            state.briefing_voice_handle = briefing_handle;
+            state.briefing_voice_played = true;
+        }
+        state.ambient_loop_handle = ambient_handle;
+    });
 }
 
 fn initialize_challenge_windows(wm: &mut WindowManager) {
@@ -2621,6 +2669,52 @@ mod tests {
             assert_eq!(mouse.cursor_tooltip_state().tooltip_text, "");
             assert!(mouse.cursor_tooltip_state().is_tooltip_empty);
         });
+    }
+
+    #[test]
+    fn single_player_audio_prelude_plays_briefing_and_ambient_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_single_player_load_screen_audio_state();
+        with_single_player_load_screen_state(|state| {
+            *state = SinglePlayerLoadScreenState::default()
+        });
+        {
+            let mut manager = get_campaign_manager();
+            let campaign = manager.new_campaign("AudioPrelude".to_string());
+            let mission = campaign.new_mission("Mission1".to_string());
+            mission.briefing_voice =
+                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_sound_file(
+                    "BriefingVoiceEvent".to_string(),
+                );
+            manager.set_campaign_and_mission("AudioPrelude", "Mission1");
+        }
+
+        finish_single_player_load_screen_audio_prelude();
+
+        let (briefing_played, briefing_handle, ambient_handle) =
+            with_single_player_load_screen_state(|state| {
+                (
+                    state.briefing_voice_played,
+                    state.briefing_voice_handle,
+                    state.ambient_loop_handle,
+                )
+            });
+        assert!(briefing_played);
+        assert_eq!(briefing_handle, add_audio_event("BriefingVoiceEvent"));
+        assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
+
+        reset_single_player_load_screen_audio_state();
+        let (briefing_played, briefing_handle, ambient_handle) =
+            with_single_player_load_screen_state(|state| {
+                (
+                    state.briefing_voice_played,
+                    state.briefing_voice_handle,
+                    state.ambient_loop_handle,
+                )
+            });
+        assert!(!briefing_played);
+        assert_eq!(briefing_handle, 0);
+        assert_eq!(ambient_handle, 0);
     }
 
     #[test]
