@@ -760,7 +760,7 @@ mod tests {
     };
     use super::{
         list_box_image_content_width, list_box_selected_image_rect, list_box_selected_image_slots,
-        list_box_solid_content_width,
+        list_box_solid_content_width, list_box_solid_frame_and_content_widths,
     };
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
     use super::{static_text_draw_data, static_text_text_colors, WIN_COLOR_UNDEFINED};
@@ -933,6 +933,18 @@ mod tests {
 
         assert_eq!(list_box_image_content_width(100, Some(17)), 83);
         assert_eq!(list_box_image_content_width(100, None), 100);
+    }
+
+    #[test]
+    fn solid_list_box_keeps_full_frame_width_when_scrollbar_is_visible_like_cpp() {
+        assert_eq!(
+            list_box_solid_frame_and_content_widths(100, Some((17, false))),
+            (100, 80)
+        );
+        assert_eq!(
+            list_box_solid_frame_and_content_widths(100, Some((17, true))),
+            (100, 100)
+        );
     }
 
     #[test]
@@ -4706,6 +4718,10 @@ fn list_box_solid_content_width(width: i32, slider: Option<(i32, bool)>) -> i32 
     }
 }
 
+fn list_box_solid_frame_and_content_widths(width: i32, slider: Option<(i32, bool)>) -> (i32, i32) {
+    (width, list_box_solid_content_width(width, slider))
+}
+
 fn list_box_image_content_width(width: i32, slider_width: Option<i32>) -> i32 {
     match slider_width {
         Some(slider_width) => (width - slider_width).max(0),
@@ -4725,7 +4741,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
     let back = &draw_data[0];
 
     let (mut x, mut y) = window.get_screen_position();
-    let (mut width, mut height) = window.get_size();
+    let (width, mut height) = window.get_size();
     let font_height = with_window_manager_ref(|manager| {
         inst_data
             .font
@@ -4745,22 +4761,32 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
     }
 
     let mut slider_hidden = false;
+    let mut slider_width = None;
     if let Some(links) = window.listbox_links() {
         if let Some(slider) = window.find_child_by_id(links.slider) {
             slider_hidden = slider.borrow().is_hidden();
-            let (slider_width, _) = slider.borrow().get_size();
-            width = list_box_solid_content_width(width, Some((slider_width, slider_hidden)));
+            let (width, _) = slider.borrow().get_size();
+            slider_width = Some(width);
         }
     }
+    let (frame_width, content_width) =
+        list_box_solid_frame_and_content_widths(width, slider_width.map(|w| (w, slider_hidden)));
 
     if back.border_color != WIN_COLOR_UNDEFINED {
         with_window_manager_ref(|manager| {
-            manager.win_open_rect(back.border_color, 1.0, x, y, x + width, y + height);
+            manager.win_open_rect(back.border_color, 1.0, x, y, x + frame_width, y + height);
         });
     }
     if back.color != WIN_COLOR_UNDEFINED {
         with_window_manager_ref(|manager| {
-            manager.win_fill_rect(back.color, 1.0, x + 1, y + 1, x + width - 1, y + height - 1);
+            manager.win_fill_rect(
+                back.color,
+                1.0,
+                x + 1,
+                y + 1,
+                x + frame_width - 1,
+                y + height - 1,
+            );
         });
     }
 
@@ -4771,13 +4797,14 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
             let mut draw_y = y + 4 - scroll;
             let selected = listbox.selected_indices();
             let columns = listbox.columns().max(1) as usize;
-            let mut column_widths = listbox.column_widths_for_width(width as u32);
+            let mut column_widths = listbox.column_widths_for_width(content_width as u32);
             if columns == 1 && slider_hidden {
                 if let Some(first) = column_widths.get_mut(0) {
                     *first = first.saturating_sub(3);
                 }
             }
-            let list_clip = region_from_corners(x + 1, y - 3, x + width - 1, y + height - 1);
+            let list_clip =
+                region_from_corners(x + 1, y - 3, x + content_width - 1, y + height - 1);
             for (idx, item) in listbox.items().iter().enumerate() {
                 if draw_y + item_height < y {
                     draw_y += item_height + 1;
@@ -4791,7 +4818,7 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                         draw_data,
                         x,
                         draw_y,
-                        width,
+                        content_width,
                         item_height,
                         &list_clip,
                     );
