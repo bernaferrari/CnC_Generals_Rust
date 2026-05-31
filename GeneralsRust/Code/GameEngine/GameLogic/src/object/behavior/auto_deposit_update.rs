@@ -414,7 +414,7 @@ impl Module for AutoDepositUpdateModule {
 }
 
 fn parse_duration_frames(tokens: &[&str]) -> Result<UnsignedInt, INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    let token = required_value(tokens)?;
     INI::parse_duration_unsigned_int(token)
 }
 
@@ -432,10 +432,7 @@ fn parse_deposit_amount(
     data: &mut AutoDepositUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.deposit_amount = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
+    data.deposit_amount = INI::parse_int(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -444,10 +441,7 @@ fn parse_initial_capture_bonus(
     data: &mut AutoDepositUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    data.initial_capture_bonus = tokens[0].parse().map_err(|_| INIError::InvalidData)?;
+    data.initial_capture_bonus = INI::parse_int(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -456,11 +450,7 @@ fn parse_actual_money(
     data: &mut AutoDepositUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    let token = tokens[0].to_ascii_lowercase();
-    data.is_actual_money = token == "true" || token == "yes" || token == "1";
+    data.is_actual_money = INI::parse_bool(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -469,12 +459,11 @@ fn parse_upgrade_boost(
     data: &mut AutoDepositUpdateModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-
     let mut parts: Vec<&str> = Vec::new();
     for token in tokens {
+        if *token == "=" {
+            continue;
+        }
         for part in token.split(':') {
             if !part.is_empty() {
                 parts.push(part);
@@ -482,31 +471,33 @@ fn parse_upgrade_boost(
         }
     }
 
-    let mut upgrade_type: Option<AsciiString> = None;
-    let mut boost_amount: Option<Int> = None;
     let mut iter = parts.into_iter();
 
-    while let Some(key) = iter.next() {
-        match key.to_ascii_lowercase().as_str() {
-            "upgradetype" => {
-                let value = iter.next().ok_or(INIError::InvalidData)?;
-                upgrade_type = Some(AsciiString::from(value));
-            }
-            "boost" => {
-                let value = iter.next().ok_or(INIError::InvalidData)?;
-                boost_amount = Some(value.parse().map_err(|_| INIError::InvalidData)?);
-            }
-            _ => {}
-        }
+    let first_key = iter.next().ok_or(INIError::InvalidData)?;
+    if !first_key.eq_ignore_ascii_case("UpgradeType") {
+        return Err(INIError::InvalidData);
     }
+    let upgrade_type = AsciiString::from(iter.next().ok_or(INIError::InvalidData)?);
 
-    let upgrade_type = upgrade_type.ok_or(INIError::InvalidData)?;
-    let boost_amount = boost_amount.ok_or(INIError::InvalidData)?;
+    let second_key = iter.next().ok_or(INIError::InvalidData)?;
+    if !second_key.eq_ignore_ascii_case("Boost") {
+        return Err(INIError::InvalidData);
+    }
+    let boost_amount = INI::parse_int(iter.next().ok_or(INIError::InvalidData)?)?;
+
     data.upgrade_boost.push(UpgradePair {
         upgrade_type,
         boost_amount,
     });
     Ok(())
+}
+
+fn required_value<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 const AUTO_DEPOSIT_UPDATE_FIELDS: &[FieldParse<AutoDepositUpdateModuleData>] = &[
@@ -572,5 +563,51 @@ mod tests {
     fn parse_duration_frames_accepts_duration_suffixes() {
         assert_eq!(parse_duration_frames(&["1500ms"]).expect("duration"), 45);
         assert_eq!(parse_duration_frames(&["1.5s"]).expect("duration"), 45);
+    }
+
+    #[test]
+    fn auto_deposit_fields_use_cpp_ini_token_handling() {
+        let mut data = AutoDepositUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        parse_deposit_timing(&mut ini, &mut data, &["=", "1.5s"]).expect("deposit timing");
+        parse_deposit_amount(&mut ini, &mut data, &["=", "-25"]).expect("deposit amount");
+        parse_initial_capture_bonus(&mut ini, &mut data, &["=", "100"]).expect("capture bonus");
+        parse_actual_money(&mut ini, &mut data, &["=", "no"]).expect("actual money");
+        parse_upgrade_boost(
+            &mut ini,
+            &mut data,
+            &["=", "UpgradeType:UpgradeSupplyLines", "Boost:50"],
+        )
+        .expect("upgrade boost");
+
+        assert_eq!(data.deposit_frame, 45);
+        assert_eq!(data.deposit_amount, -25);
+        assert_eq!(data.initial_capture_bonus, 100);
+        assert!(!data.is_actual_money);
+        assert_eq!(data.upgrade_boost.len(), 1);
+        assert_eq!(
+            data.upgrade_boost[0].upgrade_type.as_str(),
+            "UpgradeSupplyLines"
+        );
+        assert_eq!(data.upgrade_boost[0].boost_amount, 50);
+    }
+
+    #[test]
+    fn auto_deposit_rejects_invalid_bool_and_malformed_upgrade_pair_like_cpp() {
+        let mut data = AutoDepositUpdateModuleData::default();
+        let mut ini = INI::new();
+
+        let err = parse_actual_money(&mut ini, &mut data, &["maybe"]).expect_err("invalid bool");
+        assert!(matches!(err, INIError::InvalidData));
+
+        let err = parse_upgrade_boost(
+            &mut ini,
+            &mut data,
+            &["=", "Boost:50", "UpgradeType:UpgradeSupplyLines"],
+        )
+        .expect_err("wrong key order");
+        assert!(matches!(err, INIError::InvalidData));
+        assert!(data.upgrade_boost.is_empty());
     }
 }
