@@ -48,8 +48,7 @@ fn parse_show_prisoners(
     data: &mut PrisonBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.show_prisoners = INI::parse_bool(token)?;
+    data.show_prisoners = INI::parse_bool(required_value(tokens)?)?;
     Ok(())
 }
 
@@ -59,9 +58,18 @@ fn parse_yard_bone_prefix(
     data: &mut PrisonBehaviorModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let token = tokens.first().ok_or(INIError::InvalidData)?;
-    data.prison_yard_bone_prefix = AsciiString::from(*token);
+    data.prison_yard_bone_prefix =
+        AsciiString::from(INI::parse_ascii_string(required_value(tokens)?)?);
     Ok(())
+}
+
+#[cfg(feature = "allow_surrender")]
+fn required_value<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
+    match tokens {
+        ["=", value, ..] => Ok(*value),
+        [value, ..] if *value != "=" => Ok(*value),
+        _ => Err(INIError::InvalidData),
+    }
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -698,3 +706,40 @@ pub struct PrisonBehavior;
 #[cfg(not(feature = "allow_surrender"))]
 #[derive(Debug, Default)]
 pub struct PrisonBehaviorModule;
+
+#[cfg(all(test, feature = "allow_surrender"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_match_cpp_constructor() {
+        let data = PrisonBehaviorModuleData::default();
+
+        assert!(!data.show_prisoners);
+        assert_eq!(data.prison_yard_bone_prefix.as_str(), "");
+    }
+
+    #[test]
+    fn field_parsers_use_cpp_ini_token_handling() {
+        let mut ini = INI::new();
+        let mut data = PrisonBehaviorModuleData::default();
+
+        parse_show_prisoners(&mut ini, &mut data, &["=", "yes"]).unwrap();
+        parse_yard_bone_prefix(&mut ini, &mut data, &["=", "YardBone"]).unwrap();
+
+        assert!(data.show_prisoners);
+        assert_eq!(data.prison_yard_bone_prefix.as_str(), "YardBone");
+    }
+
+    #[test]
+    fn field_parsers_reject_missing_values() {
+        let mut ini = INI::new();
+        let mut data = PrisonBehaviorModuleData::default();
+
+        let prisoners_err = parse_show_prisoners(&mut ini, &mut data, &["="]).unwrap_err();
+        let prefix_err = parse_yard_bone_prefix(&mut ini, &mut data, &["="]).unwrap_err();
+
+        assert!(matches!(prisoners_err, INIError::InvalidData));
+        assert!(matches!(prefix_err, INIError::InvalidData));
+    }
+}
