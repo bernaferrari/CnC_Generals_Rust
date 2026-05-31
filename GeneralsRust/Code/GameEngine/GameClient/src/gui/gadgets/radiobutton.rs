@@ -402,6 +402,18 @@ impl Gadget for RadioButton {
                         KeyCode::Space | KeyCode::Enter => {
                             return self.handle_click();
                         }
+                        KeyCode::Tab | KeyCode::Right | KeyCode::Down => {
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "tab_next".to_string(),
+                            }];
+                        }
+                        KeyCode::Left | KeyCode::Up => {
+                            return vec![GadgetMessage::Custom {
+                                gadget_id: self.id,
+                                data: "tab_prev".to_string(),
+                            }];
+                        }
                         _ => {}
                     }
                 }
@@ -608,5 +620,30 @@ mod tests {
 
         assert_eq!(radio.label(), "Test Option");
         assert!(radio.is_selected());
+    }
+
+    #[test]
+    fn keyboard_arrows_and_tab_request_focus_navigation_like_cpp() {
+        let group = RadioButtonGroup::new(1);
+        let mut radio = RadioButton::new(1, 10, 20, 20, group);
+        radio.set_focus(true);
+
+        let next = radio.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Down,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            next.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_next"
+        ));
+
+        let prev = radio.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Up,
+            modifiers: KeyModifiers::none(),
+        });
+        assert!(matches!(
+            prev.as_slice(),
+            [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "tab_prev"
+        ));
     }
 }

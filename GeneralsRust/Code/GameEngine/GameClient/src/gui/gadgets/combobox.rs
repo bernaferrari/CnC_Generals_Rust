@@ -88,13 +88,6 @@ impl ComboBox {
     /// Add an item
     pub fn add_item(&mut self, item: ComboBoxItem) {
         self.items.push(item);
-
-        if self.selected_index.is_none() {
-            self.selected_index = Some(0);
-            if let Some(item) = self.items.first() {
-                self.text = item.text.clone();
-            }
-        }
     }
 
     pub fn set_item_data(&mut self, index: usize, data: i32) -> bool {
@@ -547,7 +540,20 @@ mod tests {
         combobox.add_item(ComboBoxItem::new(2, "Item 2"));
 
         assert_eq!(combobox.items().len(), 2);
+        assert_eq!(combobox.selected_index(), None);
+        assert_eq!(combobox.text(), "");
+        assert!(!combobox.is_open());
+    }
+
+    #[test]
+    fn select_index_sets_text_after_explicit_selection_like_cpp() {
+        let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
+        combobox.add_item(ComboBoxItem::new(1, "Item 1"));
+        combobox.add_item(ComboBoxItem::new(2, "Item 2"));
+
+        assert!(combobox.select_index(0));
         assert_eq!(combobox.selected_index(), Some(0));
+        assert_eq!(combobox.text(), "Item 1");
     }
 
     #[test]
