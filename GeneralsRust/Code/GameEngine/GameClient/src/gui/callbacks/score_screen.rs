@@ -1180,6 +1180,7 @@ pub fn score_screen_system(
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
     with_score_screen_state(|state| match msg {
+        WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => WindowMsgHandled::Handled,
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
@@ -1280,6 +1281,16 @@ mod tests {
         assert_eq!(
             score_screen_input(&window, WindowMessage::Char, b'A' as u32, 0),
             WindowMsgHandled::Ignored
+        );
+    }
+
+    #[test]
+    fn score_screen_system_consumes_destroy_like_cpp() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            score_screen_system(&window, WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
         );
     }
 
