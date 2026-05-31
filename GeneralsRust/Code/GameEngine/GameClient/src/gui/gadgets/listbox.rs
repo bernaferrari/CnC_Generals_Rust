@@ -26,7 +26,11 @@ impl ListBoxItem {
         let text = text.into();
         Self {
             id,
-            text: if text.is_empty() { " ".to_string() } else { text },
+            text: if text.is_empty() {
+                " ".to_string()
+            } else {
+                text
+            },
             enabled: true,
             text_color: None,
             data: None,
@@ -122,6 +126,7 @@ pub struct ListBox {
     columns: u32,
     column_width_percentages: Vec<u32>,
     last_right_click: Option<ListBoxRightClick>,
+    content_top_inset: u32,
 }
 
 impl ListBox {
@@ -154,6 +159,7 @@ impl ListBox {
             columns: 1,
             column_width_percentages: Vec::new(),
             last_right_click: None,
+            content_top_inset: 0,
         }
     }
 
@@ -215,6 +221,15 @@ impl ListBox {
 
     pub fn content_width(&self) -> u32 {
         self.content_width.max(1)
+    }
+
+    pub fn set_content_top_inset(&mut self, inset: u32) {
+        self.content_top_inset = inset.min(self.bounds.height);
+        self.set_scroll_offset(self.scroll_offset);
+    }
+
+    pub fn content_top_inset(&self) -> u32 {
+        self.content_top_inset
     }
 
     pub fn column_widths_for_width(&self, total_width: u32) -> Vec<u32> {
@@ -315,10 +330,7 @@ impl ListBox {
                 self.selected_indices = self
                     .selected_indices
                     .iter()
-                    .filter_map(|idx| {
-                        idx.checked_sub(1)
-                            .or_else(|| has_shifted_row.then_some(0))
-                    })
+                    .filter_map(|idx| idx.checked_sub(1).or_else(|| has_shifted_row.then_some(0)))
                     .collect();
                 self.last_selected = self
                     .last_selected
@@ -730,7 +742,9 @@ impl ListBox {
         if !self.bounds.contains_point(x, y) {
             return (-1, -1);
         }
-        let rel_y = y - self.bounds.y;
+        let Some(rel_y) = self.content_relative_y(y) else {
+            return (-1, -1);
+        };
         let row = rel_y / self.item_height as i32;
         let index = self.scroll_offset + row.max(0) as usize;
         if index >= self.items.len() {
@@ -889,14 +903,14 @@ impl ListBox {
     }
 
     fn visible_rows(&self) -> usize {
-        (self.bounds.height / self.item_height).max(1) as usize
+        (self.content_height() / self.item_height).max(1) as usize
     }
 
     fn item_at_position(&self, x: i32, y: i32) -> Option<usize> {
         if !self.bounds.contains_point(x, y) {
             return None;
         }
-        let local_y = y - self.bounds.y;
+        let local_y = self.content_relative_y(y)?;
         let row = (local_y as u32 / self.item_height) as usize;
         let index = self.scroll_offset + row;
         if index < self.items.len() {
@@ -904,6 +918,15 @@ impl ListBox {
         } else {
             None
         }
+    }
+
+    fn content_height(&self) -> u32 {
+        self.bounds.height.saturating_sub(self.content_top_inset)
+    }
+
+    fn content_relative_y(&self, y: i32) -> Option<i32> {
+        let local_y = y - self.bounds.y - self.content_top_inset as i32;
+        (local_y >= 0).then_some(local_y)
     }
 
     fn ensure_visible(&mut self, index: usize) {
@@ -1038,6 +1061,8 @@ impl Gadget for ListBox {
         self.bounds.width = width;
         self.bounds.height = height;
         self.content_width = width.max(1);
+        self.content_top_inset = self.content_top_inset.min(height);
+        self.set_scroll_offset(self.scroll_offset);
     }
 
     fn state(&self) -> GadgetState {
@@ -1355,6 +1380,34 @@ mod tests {
     }
 
     #[test]
+    fn content_top_inset_keeps_title_area_out_of_row_hit_testing_like_cpp() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 60).with_item_height(10);
+        listbox.add_item_with_id(42, "first");
+        listbox.add_item_with_id(43, "second");
+        listbox.set_content_top_inset(13);
+
+        assert_eq!(listbox.entry_from_xy(1, 12), (-1, -1));
+        assert_eq!(listbox.item_at_position(1, 12), None);
+        assert_eq!(listbox.entry_from_xy(1, 13), (0, 0));
+
+        let title_click = listbox.handle_input(&InputEvent::MouseUp {
+            x: 1,
+            y: 12,
+            button: MouseButton::Left,
+        });
+        assert!(title_click.is_empty());
+        assert!(listbox.selected_indices().is_empty());
+
+        let content_click = listbox.handle_input(&InputEvent::MouseUp {
+            x: 1,
+            y: 13,
+            button: MouseButton::Left,
+        });
+        assert_eq!(value_changed_integer(&content_click), Some(42));
+        assert_eq!(listbox.selected_indices(), &[0]);
+    }
+
+    #[test]
     fn single_select_force_select_keeps_existing_selection_on_click() {
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
         listbox.set_force_select(true);
@@ -1491,8 +1544,7 @@ mod tests {
         assert!(!single.toggle_multi_selection(0));
         assert!(single.selected_indices().is_empty());
 
-        let mut multi =
-            ListBox::new(8, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
+        let mut multi = ListBox::new(8, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
         multi.add_item_with_id(10, "Alpha");
         multi.add_item_with_id(20, "Bravo");
         multi.add_item_with_id(30, "Charlie");
@@ -1575,15 +1627,20 @@ mod tests {
         single.set_selected_indices(&[]);
         assert_eq!(single.get_selection(), ListBoxSelection::Single(-1));
 
-        let mut multi =
-            ListBox::new(8, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
+        let mut multi = ListBox::new(8, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
         multi.add_item_with_id(10, "Alpha");
         multi.add_item_with_id(20, "Bravo");
         multi.add_item_with_id(30, "Charlie");
 
-        assert_eq!(multi.get_selection(), ListBoxSelection::Multiple(Vec::new()));
+        assert_eq!(
+            multi.get_selection(),
+            ListBoxSelection::Multiple(Vec::new())
+        );
         multi.set_selected_indices(&[0, 2]);
-        assert_eq!(multi.get_selection(), ListBoxSelection::Multiple(vec![0, 2]));
+        assert_eq!(
+            multi.get_selection(),
+            ListBoxSelection::Multiple(vec![0, 2])
+        );
     }
 
     #[test]
@@ -1806,9 +1863,12 @@ mod tests {
             listbox.items()[0].column_colors.first(),
             Some(&Some(Color::new(255, 255, 255, 255)))
         );
-        assert_eq!(listbox.get_text_and_color(0, 0), ListBoxTextAndColor {
-            text: String::new(),
-            color: Color::new(0, 0, 0, 0),
-        });
+        assert_eq!(
+            listbox.get_text_and_color(0, 0),
+            ListBoxTextAndColor {
+                text: String::new(),
+                color: Color::new(0, 0, 0, 0),
+            }
+        );
     }
 }
