@@ -23,9 +23,10 @@ pub struct ListBoxItem {
 
 impl ListBoxItem {
     pub fn new(id: i32, text: impl Into<String>) -> Self {
+        let text = text.into();
         Self {
             id,
-            text: text.into(),
+            text: if text.is_empty() { " ".to_string() } else { text },
             enabled: true,
             text_color: None,
             data: None,
@@ -289,12 +290,18 @@ impl ListBox {
         if self.max_length > 0 && self.items.len() >= self.max_length {
             if self.auto_purge {
                 self.items.remove(0);
+                let has_shifted_row = !self.items.is_empty();
                 self.selected_indices = self
                     .selected_indices
                     .iter()
-                    .filter_map(|idx| idx.checked_sub(1))
+                    .filter_map(|idx| {
+                        idx.checked_sub(1)
+                            .or_else(|| has_shifted_row.then_some(0))
+                    })
                     .collect();
-                self.last_selected = self.last_selected.and_then(|idx| idx.checked_sub(1));
+                self.last_selected = self
+                    .last_selected
+                    .and_then(|idx| idx.checked_sub(1).or_else(|| has_shifted_row.then_some(0)));
             } else {
                 return self.items.len();
             }
@@ -317,13 +324,13 @@ impl ListBox {
     }
 
     pub fn add_item_with_id(&mut self, id: i32, text: &str) {
-        self.items.push(ListBoxItem::new(id, text));
+        self.push_item(ListBoxItem::new(id, text));
     }
 
     pub fn add_item_with_data(&mut self, id: i32, text: &str, data: Option<ListBoxItemData>) {
         let mut item = ListBoxItem::new(id, text);
         item.data = data;
-        self.items.push(item);
+        self.push_item(item);
     }
 
     pub fn set_item_data(&mut self, index: usize, data: Option<ListBoxItemData>) -> bool {
@@ -1116,5 +1123,42 @@ mod tests {
 
         assert!(messages.is_empty());
         assert_eq!(listbox.selected_indices(), &[0]);
+    }
+
+    #[test]
+    fn id_and_data_add_paths_apply_cpp_add_entry_buffer_rules() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.set_max_length(2);
+        listbox.set_auto_purge(true);
+        listbox.set_force_select(true);
+
+        listbox.add_item_with_id(10, "Alpha");
+        listbox.add_item_with_data(20, "Bravo", Some(ListBoxItemData::Integer(2)));
+        listbox.add_item_with_id(30, "Charlie");
+
+        assert_eq!(
+            listbox
+                .items()
+                .iter()
+                .map(|item| item.id)
+                .collect::<Vec<_>>(),
+            vec![20, 30]
+        );
+        assert_eq!(listbox.selected_indices(), &[0]);
+        assert!(matches!(
+            listbox.get_item_data(0),
+            Some(ListBoxItemData::Integer(2))
+        ));
+    }
+
+    #[test]
+    fn empty_text_entries_are_normalized_like_cpp() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+
+        listbox.add_item("");
+        listbox.add_item_with_id(2, "");
+
+        assert_eq!(listbox.items()[0].text, " ");
+        assert_eq!(listbox.items()[1].text, " ");
     }
 }
