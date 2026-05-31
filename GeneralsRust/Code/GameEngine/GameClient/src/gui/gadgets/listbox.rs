@@ -62,6 +62,12 @@ pub struct ListBoxRightClick {
     pub mouse_y: i32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListBoxTextAndColor {
+    pub text: String,
+    pub color: Color,
+}
+
 /// Selection mode for list boxes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionMode {
@@ -440,6 +446,48 @@ impl ListBox {
             .get(index)
             .and_then(|item| item.column_user_data.get(column))
             .and_then(|data| data.as_ref())
+    }
+
+    pub fn get_text_and_color(&self, row: i32, column: i32) -> ListBoxTextAndColor {
+        let empty = || ListBoxTextAndColor {
+            text: String::new(),
+            color: Color::new(0, 0, 0, 0),
+        };
+        if row < 0 || column < 0 || column >= self.columns as i32 {
+            return empty();
+        }
+
+        let Some(item) = self.items.get(row as usize) else {
+            return empty();
+        };
+        let column = column as usize;
+        let color = item
+            .column_colors
+            .get(column)
+            .and_then(|color| *color)
+            .or(if column == 0 { item.text_color } else { None })
+            .unwrap_or_else(|| Color::new(0, 0, 0, 0));
+
+        if let Some(data) = item.column_data.get(column) {
+            if let ListBoxItemData::Text(text) = data {
+                return ListBoxTextAndColor {
+                    text: text.clone(),
+                    color,
+                };
+            }
+            if matches!(data, ListBoxItemData::Image { .. }) || column != 0 {
+                return empty();
+            }
+        }
+
+        if column == 0 {
+            return ListBoxTextAndColor {
+                text: item.text.clone(),
+                color,
+            };
+        }
+
+        empty()
     }
 
     pub fn remove_item(&mut self, index: usize) -> bool {
@@ -1287,5 +1335,61 @@ mod tests {
         assert_eq!(multi.selected_indices(), &[2]);
         assert!(multi.toggle_multi_selection(-1));
         assert!(multi.selected_indices().is_empty());
+    }
+
+    #[test]
+    fn get_text_and_color_matches_cpp_invalid_and_text_cell_rules() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.set_columns(2);
+        let row = listbox.add_item_with_color("Alpha", Color::new(0x11, 0x22, 0x33, 0x44));
+        let _ = listbox.set_item_column_data(row, 1, ListBoxItemData::Text("Bravo".to_string()));
+        let _ = listbox.set_item_column_color(row, 1, Some(Color::new(0x55, 0x66, 0x77, 0x88)));
+        let image_row = listbox.add_item_with_data_and_color(2, "Image", None, None);
+        let _ = listbox.set_item_column_data(
+            image_row,
+            0,
+            ListBoxItemData::Image {
+                name: "icon".to_string(),
+                width: 16,
+                height: 16,
+                text: Some("ignored".to_string()),
+            },
+        );
+
+        assert_eq!(
+            listbox.get_text_and_color(0, 0),
+            ListBoxTextAndColor {
+                text: "Alpha".to_string(),
+                color: Color::new(0x11, 0x22, 0x33, 0x44),
+            }
+        );
+        assert_eq!(
+            listbox.get_text_and_color(0, 1),
+            ListBoxTextAndColor {
+                text: "Bravo".to_string(),
+                color: Color::new(0x55, 0x66, 0x77, 0x88),
+            }
+        );
+        assert_eq!(
+            listbox.get_text_and_color(image_row as i32, 0),
+            ListBoxTextAndColor {
+                text: String::new(),
+                color: Color::new(0, 0, 0, 0),
+            }
+        );
+        assert_eq!(
+            listbox.get_text_and_color(-1, 0),
+            ListBoxTextAndColor {
+                text: String::new(),
+                color: Color::new(0, 0, 0, 0),
+            }
+        );
+        assert_eq!(
+            listbox.get_text_and_color(0, 2),
+            ListBoxTextAndColor {
+                text: String::new(),
+                color: Color::new(0, 0, 0, 0),
+            }
+        );
     }
 }
