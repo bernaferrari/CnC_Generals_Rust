@@ -5,7 +5,7 @@
 //! Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, Bool, Coord3D, KindOf, KindOfMaskType, ModuleData, NameKeyType,
+    AsciiString, Bool, Coord3D, DisabledMaskType, KindOf, KindOfMaskType, ModuleData, NameKeyType,
     ObjectShroudStatus, ObjectStatusTypes, ParticleSystemID, Real, UnsignedInt, XferVersion,
     ALL_KIND_OF,
 };
@@ -816,6 +816,10 @@ impl UpdateModuleInterface for StealthDetectorUpdate {
 
         UpdateSleepTime::Forever
     }
+
+    fn get_disabled_types_to_process(&self) -> DisabledMaskType {
+        DisabledMaskType::HELD
+    }
 }
 
 impl BehaviorModuleInterface for StealthDetectorUpdate {
@@ -925,5 +929,23 @@ mod tests {
         assert_eq!(data.update_rate, 1);
         assert_eq!(data.detection_range, 0.0);
         assert!(!data.initially_disabled);
+    }
+
+    #[test]
+    fn stealth_detector_processes_held_disabled_like_cpp() {
+        let detector = StealthDetectorUpdate {
+            object: Weak::new(),
+            module_data: Arc::new(StealthDetectorUpdateModuleData::default()),
+            next_call_frame_and_phase: 0,
+            enabled: true,
+            grid_particle_ids: Vec::new(),
+            ping_particle_id: None,
+            beacon_particle_id: None,
+        };
+
+        assert_eq!(
+            detector.get_disabled_types_to_process(),
+            DisabledMaskType::HELD
+        );
     }
 }
