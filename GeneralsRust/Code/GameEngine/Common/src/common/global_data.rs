@@ -748,10 +748,10 @@ impl GlobalData {
         true
     }
 
-    /// Initialize global data with default values
+    /// Initialize global data.
     pub fn init(&mut self) {
-        // Reset to defaults
-        *self = GlobalData::default();
+        // C++ GlobalData::init() is a no-op; construction and INI parsing own
+        // the actual values. Preserve loaded/user-modified state here.
     }
 
     /// Reset global data
@@ -1607,12 +1607,22 @@ mod tests {
 
     #[test]
     fn test_global_data_init_reset() {
-        // Test init and reset functions
         let mut data = write();
+        data.camera_height = 123.0;
+        data.use_trees = true;
         data.set_override("test", GlobalValue::Int(99));
 
-        // Reset clears overrides
+        data.init();
+        assert_eq!(data.camera_height, 123.0);
+        assert!(data.use_trees);
+        assert_eq!(
+            data.get_override("test").and_then(GlobalValue::as_int),
+            Some(99)
+        );
+
         data.reset();
+        assert_eq!(data.camera_height, 123.0);
+        assert!(data.use_trees);
         assert!(data.get_override("test").is_none());
     }
 
