@@ -166,7 +166,10 @@ impl ControlBarCommandProcessor {
             // C++ parity: GUI_COMMAND_SELL -> MSG_SELL
             CommandType::Sell => {
                 if let Ok(mut stream) = get_message_stream().write() {
-                    let obj_id = selected_objects_for_local_player().first().copied().unwrap_or(0);
+                    let obj_id = selected_objects_for_local_player()
+                        .first()
+                        .copied()
+                        .unwrap_or(0);
                     stream.append_message(GameMessageType::Sell(obj_id));
                 }
                 true
@@ -174,7 +177,10 @@ impl ControlBarCommandProcessor {
 
             // C++ parity: GUI_COMMAND_EXIT_CONTAINER -> MSG_EXIT
             CommandType::Exit => {
-                let obj_id = selected_objects_for_local_player().first().copied().unwrap_or(0);
+                let obj_id = selected_objects_for_local_player()
+                    .first()
+                    .copied()
+                    .unwrap_or(0);
                 if let Ok(mut stream) = get_message_stream().write() {
                     stream.append_message(GameMessageType::Exit(obj_id));
                 }
@@ -265,7 +271,11 @@ impl ControlBarCommandProcessor {
             CommandType::DoGuardPosition => {
                 if let Ok(mut stream) = get_message_stream().write() {
                     stream.append_message(GameMessageType::DoGuardPosition(
-                        MsgCoord3D { x: 0.0, y: 0.0, z: 0.0 },
+                        MsgCoord3D {
+                            x: 0.0,
+                            y: 0.0,
+                            z: 0.0,
+                        },
                         0,
                     ));
                 }
@@ -475,10 +485,7 @@ impl ControlBarCommandProcessor {
             return false;
         }
 
-        TheInGameUI::place_build_available(
-            Some(thing_template.get_name().to_string()),
-            None,
-        );
+        TheInGameUI::place_build_available(Some(thing_template.get_name().to_string()), None);
 
         true
     }
@@ -519,7 +526,10 @@ impl ControlBarCommandProcessor {
             return false;
         };
 
-        let obj_id = selected_objects_for_local_player().first().copied().unwrap_or(0);
+        let obj_id = selected_objects_for_local_player()
+            .first()
+            .copied()
+            .unwrap_or(0);
 
         let upgrade_key = upgrade_template.get_name_key() as u32;
         if let Ok(mut stream) = get_message_stream().write() {
@@ -549,7 +559,11 @@ impl ControlBarCommandProcessor {
         let source_obj_id: u32 = 0;
 
         if let Ok(mut stream) = get_message_stream().write() {
-            stream.append_message(GameMessageType::DoSpecialPower(sp_id, options, source_obj_id));
+            stream.append_message(GameMessageType::DoSpecialPower(
+                sp_id,
+                options,
+                source_obj_id,
+            ));
             return true;
         }
         false

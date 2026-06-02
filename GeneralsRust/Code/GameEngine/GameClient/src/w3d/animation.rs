@@ -1,7 +1,6 @@
 use glam::Mat4;
 use ww3d_animation::{
-    AnimatedModel, HAnimClass, HTreeClass, SkeletonState,
-    AnimationMode as W3DAnimMode,
+    AnimatedModel, AnimationMode as W3DAnimMode, HAnimClass, HTreeClass, SkeletonState,
 };
 
 pub struct W3DSkeletonState {

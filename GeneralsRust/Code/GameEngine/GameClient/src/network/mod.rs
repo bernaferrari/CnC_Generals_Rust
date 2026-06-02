@@ -43,9 +43,9 @@ impl NetworkBridgeHandle {
 
 #[cfg(not(feature = "network"))]
 pub fn is_network_command_message(
-    ty: crate::message_stream::game_message::GameMessageType,
+    ty: &crate::message_stream::game_message::GameMessageType,
 ) -> bool {
-    game_engine::common::message_stream::is_network_command_message(&ty)
+    game_engine::common::message_stream::is_network_command_message(ty)
 }
 
 #[cfg(all(test, not(feature = "network")))]
@@ -55,16 +55,16 @@ mod tests {
 
     #[test]
     fn network_command_classifier_matches_command_messages_in_default_build() {
-        assert!(is_network_command_message(GameMessageType::DoMoveTo(
+        assert!(is_network_command_message(&GameMessageType::DoMoveTo(
             Coord3D::default()
         )));
-        assert!(is_network_command_message(GameMessageType::LogicCRC(
+        assert!(is_network_command_message(&GameMessageType::LogicCRC(
             0xDEADBEEF
         )));
         assert!(is_network_command_message(
-            GameMessageType::CaptureBuilding(1, 2)
+            &GameMessageType::CaptureBuilding(1, 2)
         ));
-        assert!(!is_network_command_message(GameMessageType::NewGame));
-        assert!(!is_network_command_message(GameMessageType::FrameTick(30)));
+        assert!(!is_network_command_message(&GameMessageType::NewGame));
+        assert!(!is_network_command_message(&GameMessageType::FrameTick(30)));
     }
 }

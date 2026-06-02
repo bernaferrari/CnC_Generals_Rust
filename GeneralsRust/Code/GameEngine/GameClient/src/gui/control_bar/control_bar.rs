@@ -547,9 +547,7 @@ impl ControlBar {
 
             let has_garrisonable_contain = obj
                 .get_contain()
-                .and_then(|contain| {
-                    contain.lock().ok().map(|c| c.is_displayed_on_control_bar())
-                })
+                .and_then(|contain| contain.lock().ok().map(|c| c.is_displayed_on_control_bar()))
                 .unwrap_or(false);
 
             if has_garrisonable_contain && !has_command_set {
@@ -1808,8 +1806,12 @@ impl ControlBar {
                 .ok()
                 .and_then(|list| list.get_player(i as PlayerIndex).cloned());
 
-            let Some(player_arc) = player_arc else { continue };
-            let Ok(player) = player_arc.read() else { continue };
+            let Some(player_arc) = player_arc else {
+                continue;
+            };
+            let Ok(player) = player_arc.read() else {
+                continue;
+            };
 
             if player.is_player_observer() {
                 continue;
@@ -1834,7 +1836,14 @@ impl ControlBar {
             let units_killed = score_keeper.get_total_units_destroyed();
             let units_lost = score_keeper.get_total_units_lost();
 
-            observer_stats.push((display_name, money, num_units, num_buildings, units_killed, units_lost));
+            observer_stats.push((
+                display_name,
+                money,
+                num_units,
+                num_buildings,
+                units_killed,
+                units_lost,
+            ));
         }
 
         if let Ok(mut ctx) = self.context.write() {
@@ -2115,7 +2124,11 @@ impl ControlBar {
             .read()
             .ok()
             .and_then(|list| list.get_local_player().cloned())
-            .and_then(|p| p.read().ok().map(|guard| guard.get_science_purchase_points()))
+            .and_then(|p| {
+                p.read()
+                    .ok()
+                    .map(|guard| guard.get_science_purchase_points())
+            })
             .unwrap_or(0);
 
         if self.last_flashed_at_point_value > current_points || current_points <= 0 {
@@ -2124,7 +2137,9 @@ impl ControlBar {
             self.last_flashed_at_point_value = current_points;
         }
 
-        if self.gen_star_flash && self.current_frame % LOGICFRAMES_PER_SECOND > LOGICFRAMES_PER_SECOND / 2 {
+        if self.gen_star_flash
+            && self.current_frame % LOGICFRAMES_PER_SECOND > LOGICFRAMES_PER_SECOND / 2
+        {
             // C++ flashes the general button highlight
         }
     }
@@ -2168,7 +2183,8 @@ impl ControlBar {
             self.radar_attack_glow_on = false;
             return;
         }
-        self.remaining_radar_attack_glow_frames = self.remaining_radar_attack_glow_frames.saturating_sub(1);
+        self.remaining_radar_attack_glow_frames =
+            self.remaining_radar_attack_glow_frames.saturating_sub(1);
         if self.remaining_radar_attack_glow_frames == 0 {
             self.radar_attack_glow_on = false;
             return;
@@ -2283,9 +2299,13 @@ impl ControlBar {
             .ok()
             .and_then(|list| list.get_local_player().cloned());
         let Some(player_arc) = player_arc else { return };
-        let Ok(player) = player_arc.read() else { return };
+        let Ok(player) = player_arc.read() else {
+            return;
+        };
 
-        let Some(store) = get_science_store() else { return };
+        let Some(store) = get_science_store() else {
+            return;
+        };
 
         self.science_state.available_points = player.get_science_purchase_points();
         self.science_state.rank_level = player.get_rank_level() as i32;
@@ -2304,7 +2324,9 @@ impl ControlBar {
             .ok()
             .and_then(|list| list.get_local_player().cloned());
         let Some(player_arc) = player_arc else { return };
-        let Ok(player) = player_arc.read() else { return };
+        let Ok(player) = player_arc.read() else {
+            return;
+        };
 
         self.science_state.available_points = player.get_science_purchase_points();
     }
@@ -2387,7 +2409,9 @@ impl ControlBar {
             .ok()
             .and_then(|list| list.get_local_player().cloned());
         let Some(player_arc) = player_arc else { return };
-        let Ok(player) = player_arc.read() else { return };
+        let Ok(player) = player_arc.read() else {
+            return;
+        };
 
         if !player.is_player_active() {
             return;
@@ -2395,12 +2419,13 @@ impl ControlBar {
 
         self.special_power_shortcut_count = MAX_SPECIAL_POWER_SHORTCUTS;
         for _ in 0..self.special_power_shortcut_count {
-            self.special_power_shortcuts.push(SpecialPowerShortcutState {
-                command_name: String::new(),
-                availability: CommandAvailability::Hidden,
-                multiplier_count: 1,
-                is_hidden: true,
-            });
+            self.special_power_shortcuts
+                .push(SpecialPowerShortcutState {
+                    command_name: String::new(),
+                    availability: CommandAvailability::Hidden,
+                    multiplier_count: 1,
+                    is_hidden: true,
+                });
         }
     }
 
@@ -2413,25 +2438,38 @@ impl ControlBar {
             .read()
             .ok()
             .and_then(|list| list.get_local_player().cloned());
-        let Some(player_arc) = player_arc else { return Ok(()) };
-        let Ok(player) = player_arc.read() else { return Ok(()) };
+        let Some(player_arc) = player_arc else {
+            return Ok(());
+        };
+        let Ok(player) = player_arc.read() else {
+            return Ok(());
+        };
 
         let control_bar = get_control_bar_bridge();
-        let Some(control_bar) = control_bar else { return Ok(()) };
+        let Some(control_bar) = control_bar else {
+            return Ok(());
+        };
 
-        let command_set = control_bar.find_command_set_by_name("SpecialPowerShortcut")
+        let command_set = control_bar
+            .find_command_set_by_name("SpecialPowerShortcut")
             .or_else(|| control_bar.find_command_set_by_name("SPECIALPOWERSHORTCUT"));
 
-        let Some(command_set) = command_set else { return Ok(()) };
+        let Some(command_set) = command_set else {
+            return Ok(());
+        };
 
         let mut current_button = 0;
-        for i in 0..self.special_power_shortcut_count.min(command_set.buttons.len()) {
+        for i in 0..self
+            .special_power_shortcut_count
+            .min(command_set.buttons.len())
+        {
             let Some(logic_button) = command_set.buttons.get(i).and_then(|b| b.as_ref()) else {
                 continue;
             };
 
             if (logic_button.get_options_bits() & CommandOption::NeedUpgrade as u32) != 0 {
-                let upgrade_name = logic_button.get_upgrade_template()
+                let upgrade_name = logic_button
+                    .get_upgrade_template()
                     .map(|t| t.get_name().as_str().to_string())
                     .unwrap_or_default();
                 if !upgrade_name.is_empty() {
@@ -2446,9 +2484,11 @@ impl ControlBar {
             }
 
             if current_button < self.special_power_shortcuts.len() {
-                self.special_power_shortcuts[current_button].command_name = logic_button.get_name().to_string();
+                self.special_power_shortcuts[current_button].command_name =
+                    logic_button.get_name().to_string();
                 self.special_power_shortcuts[current_button].is_hidden = false;
-                self.special_power_shortcuts[current_button].availability = CommandAvailability::Available;
+                self.special_power_shortcuts[current_button].availability =
+                    CommandAvailability::Available;
                 current_button += 1;
             }
         }
@@ -2523,7 +2563,10 @@ impl ControlBar {
         self.border_colors.system = system;
     }
 
-    pub fn get_border_color_for_type(&self, border_type: CommandButtonMappedBorderType) -> Option<u32> {
+    pub fn get_border_color_for_type(
+        &self,
+        border_type: CommandButtonMappedBorderType,
+    ) -> Option<u32> {
         match border_type {
             CommandButtonMappedBorderType::Build => self.border_colors.build,
             CommandButtonMappedBorderType::Upgrade => self.border_colors.upgrade,

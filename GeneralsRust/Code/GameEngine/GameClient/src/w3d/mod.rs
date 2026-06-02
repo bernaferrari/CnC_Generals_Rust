@@ -113,7 +113,7 @@ pub mod shader;
 pub mod texture;
 
 // Re-export core types for convenience
-pub use animation::{W3DAnimationController, W3DAnimatedModel, W3DSkeletonState};
+pub use animation::{W3DAnimatedModel, W3DAnimationController, W3DSkeletonState};
 pub use bone::W3DHTree;
 pub use device::{W3DDevice, W3DDeviceError, W3DDeviceSettings};
 pub use format::{W3DChunk, W3DFileFormat, W3DLoader};
