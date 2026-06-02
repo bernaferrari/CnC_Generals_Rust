@@ -9,6 +9,9 @@ use log::{debug, warn};
 use once_cell::sync::Lazy;
 
 use crate::gui::callbacks::ingame_callbacks::push_network_chat_message;
+use crate::gui::load_screen::{
+    clear_map_transfer_liteupdate_hook, register_map_transfer_liteupdate_hook,
+};
 use crate::message_stream::command_list::get_command_list;
 use crate::message_stream::game_message::GameMessage;
 
@@ -51,6 +54,14 @@ impl NetworkBridgeHandle {
         let listener_id = network.register_frame_listener(listener);
         debug!("Registered network frame listener with id {}", listener_id);
 
+        let liteupdate_network = Arc::clone(&network);
+        register_map_transfer_liteupdate_hook(move || {
+            if let Err(err) = pollster::block_on(liteupdate_network.update()) {
+                warn!("Map transfer liteupdate failed: {err}");
+            }
+        });
+        debug!("Registered map-transfer liteupdate hook");
+
         Some(Self {
             network,
             listener_id,
@@ -71,6 +82,8 @@ impl Drop for NetworkBridgeHandle {
                 self.listener_id
             );
         }
+        clear_map_transfer_liteupdate_hook();
+        debug!("Cleared map-transfer liteupdate hook");
     }
 }
 
