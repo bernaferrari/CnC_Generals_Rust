@@ -5,8 +5,8 @@ use std::net::{IpAddr, Ipv4Addr, UdpSocket};
 use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
-use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::callbacks::{set_lan_button_pushed, set_lan_is_shutting_down};
+use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
     get_shell, with_window_manager, GameWindow, LanPreferences, WindowLayout, WindowMessage,
     WindowMsgData, WindowMsgHandled,

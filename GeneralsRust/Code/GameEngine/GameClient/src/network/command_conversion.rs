@@ -431,7 +431,7 @@ pub fn encode_game_message(message: &GameMessage) -> Option<GameCommandData> {
             position: Some((coord.x, coord.y, coord.z)),
             parameters: encode_params(vec![
                 CommandParameter::Int(building_type as i32),
-                CommandParameter::Float(*angle),
+                CommandParameter::Float(angle),
             ]),
             checksum: 0,
         }),
@@ -442,7 +442,7 @@ pub fn encode_game_message(message: &GameMessage) -> Option<GameCommandData> {
                 position: Some((start.x, start.y, start.z)),
                 parameters: encode_params(vec![
                     CommandParameter::Int(building_type as i32),
-                    CommandParameter::Float(*angle),
+                    CommandParameter::Float(angle),
                     CommandParameter::Position(end.x, end.y, end.z),
                 ]),
                 checksum: 0,

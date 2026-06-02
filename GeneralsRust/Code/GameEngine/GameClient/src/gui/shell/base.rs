@@ -75,12 +75,12 @@ pub enum ShellError {
     AnimationError(String),
 }
 
-#[cfg(feature = "network")]
+#[cfg(feature = "online_ui")]
 fn close_shell_gamespy_overlays() {
     crate::gamespy_overlay::close_all_overlays();
 }
 
-#[cfg(not(feature = "network"))]
+#[cfg(not(feature = "online_ui"))]
 fn close_shell_gamespy_overlays() {}
 
 /// Animation types for window transitions

@@ -745,7 +745,7 @@ impl DisconnectMenu {
             return;
         };
         tokio::spawn(async move {
-            if let Err(err) = network.vote_for_player_disconnect(slot as i32).await {
+            if let Err(err) = network.vote_for_player_disconnect(slot).await {
                 log::warn!("Failed to vote for player {} disconnect: {}", slot, err);
             }
         });

@@ -218,7 +218,10 @@ pub fn yuv422_to_rgba(yuv_data: &[u8], width: u32, height: u32) -> Vec<u8> {
             let macroblock = col / 2;
             let src_base = row * src_stride + macroblock * 4;
 
-            let y = yuv_data.get(src_base + (col % 2) * 2).copied().unwrap_or(16);
+            let y = yuv_data
+                .get(src_base + (col % 2) * 2)
+                .copied()
+                .unwrap_or(16);
             let u = yuv_data.get(src_base + 1).copied().unwrap_or(128);
             let v = yuv_data.get(src_base + 3).copied().unwrap_or(128);
 
@@ -336,7 +339,12 @@ impl VideoDecoder for StubVideoDecoder {
 
         self.current_frame += 1;
 
-        Ok(Some(VideoFrame::new(self.width, self.height, data, timestamp)))
+        Ok(Some(VideoFrame::new(
+            self.width,
+            self.height,
+            data,
+            timestamp,
+        )))
     }
 
     fn is_finished(&self) -> bool {
@@ -523,7 +531,12 @@ impl VideoDecoder for RawFrameDecoder {
 
         self.current_frame += 1;
 
-        Ok(Some(VideoFrame::new(self.width, self.height, data, timestamp)))
+        Ok(Some(VideoFrame::new(
+            self.width,
+            self.height,
+            data,
+            timestamp,
+        )))
     }
 
     fn is_finished(&self) -> bool {
@@ -1126,7 +1139,9 @@ impl VideoTextureManager {
         decoder: Box<dyn VideoDecoder>,
         config: VideoConfig,
     ) -> Arc<std::sync::Mutex<VideoTexture>> {
-        let video = Arc::new(std::sync::Mutex::new(VideoTexture::new(path, decoder, config)));
+        let video = Arc::new(std::sync::Mutex::new(VideoTexture::new(
+            path, decoder, config,
+        )));
         self.videos.push(video.clone());
         video
     }
@@ -1185,7 +1200,10 @@ mod tests {
         assert_eq!(decoder.duration(), Duration::from_secs(10));
         assert_eq!(decoder.fps(), 30.0);
 
-        let frame = decoder.decode_frame().expect("should decode").expect("should have frame");
+        let frame = decoder
+            .decode_frame()
+            .expect("should decode")
+            .expect("should have frame");
         assert_eq!(frame.width(), 640);
         assert_eq!(frame.height(), 480);
         assert_eq!(frame.data().len(), 640 * 480 * 4);
@@ -1194,12 +1212,14 @@ mod tests {
 
     #[test]
     fn test_stub_decoder_state_transitions() {
-        let decoder = Box::new(StubVideoDecoder::new(640, 480, Duration::from_secs(1), 30.0));
-        let mut video = VideoTexture::new(
-            PathBuf::from("test.bik"),
-            decoder,
-            VideoConfig::default(),
-        );
+        let decoder = Box::new(StubVideoDecoder::new(
+            640,
+            480,
+            Duration::from_secs(1),
+            30.0,
+        ));
+        let mut video =
+            VideoTexture::new(PathBuf::from("test.bik"), decoder, VideoConfig::default());
 
         assert_eq!(video.state(), VideoState::Stopped);
 
@@ -1356,8 +1376,7 @@ mod tests {
         let frame0 = vec![255u8; frame_size];
         let frame1 = vec![0u8; frame_size];
 
-        let mut decoder =
-            RawFrameDecoder::from_frames(width, height, 30.0, &[&frame0, &frame1]);
+        let mut decoder = RawFrameDecoder::from_frames(width, height, 30.0, &[&frame0, &frame1]);
         assert_eq!(decoder.total_frames(), 2);
 
         let f0 = decoder.decode_frame().unwrap().unwrap();
@@ -1429,7 +1448,12 @@ mod tests {
 
     #[test]
     fn test_video_state_machine_transitions() {
-        let decoder = Box::new(StubVideoDecoder::new(640, 480, Duration::from_secs(1), 30.0));
+        let decoder = Box::new(StubVideoDecoder::new(
+            640,
+            480,
+            Duration::from_secs(1),
+            30.0,
+        ));
         let mut video = VideoTexture::new(
             PathBuf::from("test.bik"),
             decoder,
@@ -1470,12 +1494,14 @@ mod tests {
 
     #[test]
     fn test_volume_clamping() {
-        let decoder = Box::new(StubVideoDecoder::new(640, 480, Duration::from_secs(1), 30.0));
-        let mut video = VideoTexture::new(
-            PathBuf::from("test.bik"),
-            decoder,
-            VideoConfig::default(),
-        );
+        let decoder = Box::new(StubVideoDecoder::new(
+            640,
+            480,
+            Duration::from_secs(1),
+            30.0,
+        ));
+        let mut video =
+            VideoTexture::new(PathBuf::from("test.bik"), decoder, VideoConfig::default());
 
         video.set_volume(1.5);
         assert!((video.volume() - 1.0).abs() < f32::EPSILON);

@@ -21,7 +21,7 @@ ww3d-gpu = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu" }
 ww3d-assets = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets" }
 ww3d-animation = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-animation" }
 ww3d-renderer-3d = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d" }
-game_network = { path = "../GameNetwork", optional = true }
+game_network_crate = { package = "game_network", path = "../GameNetwork", optional = true }
 gamelogic = { path = "../GameLogic" }
 game_engine = { path = "../Common" }
 
@@ -211,8 +211,9 @@ mockall = "0.12"
 [features]
 default = ["platform-native"]
 video = []  # Video features temporarily disabled
-network = ["dep:game_network"]
+network = ["dep:game_network_crate"]
 multiplayer = ["network", "quinn"]
+online_ui = ["network"]
 debug_graphics = []
 benchmark = []
 internal = ["gamelogic/internal"]

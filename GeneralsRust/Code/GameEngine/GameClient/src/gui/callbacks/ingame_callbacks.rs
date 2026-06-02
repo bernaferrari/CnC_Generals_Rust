@@ -346,8 +346,9 @@ impl InGameChatCallbacks {
                 get_language_filter().filter_line(&mut filtered);
 
                 if let Some(network) = game_network::get_network() {
-                    let _ =
-                        pollster::block_on(network.send_chat(filtered.clone(), player_mask as u32));
+                    let _ = pollster::block_on(
+                        network.send_chat_message(filtered.clone(), player_mask as u8),
+                    );
                 } else {
                     warn!("send_chat ignored; network not initialized");
                 }

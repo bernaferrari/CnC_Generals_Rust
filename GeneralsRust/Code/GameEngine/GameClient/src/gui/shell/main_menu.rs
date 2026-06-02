@@ -68,20 +68,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use thiserror::Error;
 
-#[cfg(feature = "network")]
+#[cfg(feature = "online_ui")]
 fn raise_gamespy_message_boxes() {
     crate::gamespy_overlay::raise_gs_message_box();
 }
 
-#[cfg(not(feature = "network"))]
+#[cfg(not(feature = "online_ui"))]
 fn raise_gamespy_message_boxes() {}
 
-#[cfg(feature = "network")]
+#[cfg(feature = "online_ui")]
 fn update_gamespy_overlays() {
     crate::gamespy_overlay::update_overlays();
 }
 
-#[cfg(not(feature = "network"))]
+#[cfg(not(feature = "online_ui"))]
 fn update_gamespy_overlays() {}
 
 fn http_startup() {}

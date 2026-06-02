@@ -59,9 +59,9 @@ pub mod display_string;
 pub mod display_string_manager;
 pub mod draw_group_info;
 pub mod game_text;
-#[cfg(feature = "network")]
+#[cfg(feature = "online_ui")]
 pub mod gamespy_game;
-#[cfg(feature = "network")]
+#[cfg(feature = "online_ui")]
 pub mod gamespy_overlay;
 pub mod global_language;
 
@@ -69,12 +69,64 @@ pub mod global_language;
 pub mod message_stream;
 pub mod network;
 
+#[cfg(feature = "network")]
+extern crate game_network_crate;
+#[cfg(feature = "network")]
+pub use game_network_crate::game_info::MAX_SLOTS;
+#[cfg(feature = "network")]
+pub use game_network_crate::{
+    game_info_to_ascii_string, get_network, parse_ascii_string_to_game_info, ExecutedFrame,
+    FirewallBehaviorType, FrameListener, FrameListenerId, GameInfo, GameSlot, Money,
+    NetCommandType, NetworkInterface, SkirmishGameInfo, SlotState, PLAYERTEMPLATE_MIN,
+    PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM,
+};
+#[cfg(feature = "network")]
+pub mod commands {
+    pub use crate::game_network_crate::commands::*;
+}
+#[cfg(feature = "network")]
+pub mod download_manager {
+    pub use crate::game_network_crate::download_manager::*;
+}
+#[cfg(feature = "network")]
+pub mod game_info {
+    pub use crate::game_network_crate::game_info::*;
+
+    pub mod serialization {
+        pub use crate::{game_info_to_ascii_string, parse_ascii_string_to_game_info};
+    }
+}
+#[cfg(feature = "network")]
+pub mod gamespy {
+    pub use crate::game_network_crate::gamespy::*;
+}
+#[cfg(feature = "network")]
+pub mod lan_api {
+    pub use crate::game_network_crate::lan_api::*;
+}
+#[cfg(feature = "network")]
+pub mod matchmaking {
+    pub use crate::game_network_crate::matchmaking::*;
+
+    pub mod slots {
+        pub use crate::game_network_crate::matchmaking::slots::*;
+    }
+}
+#[cfg(feature = "network")]
+pub mod rank_point_value {
+    pub use crate::game_network_crate::rank_point_value::*;
+}
+#[cfg(feature = "network")]
+pub fn get_favorite_side(
+    stats: &game_network_crate::gamespy::persistent_storage_thread::PSPlayerStats,
+) -> i32 {
+    game_network_crate::rank_point_value::get_favorite_side(stats)
+}
 #[cfg(not(feature = "network"))]
 #[path = "game_network.rs"]
 mod game_network_compat;
 #[cfg(not(feature = "network"))]
 pub use game_network_compat::*;
-#[cfg(not(feature = "network"))]
 extern crate self as game_network;
 
 // Platform abstraction layer
