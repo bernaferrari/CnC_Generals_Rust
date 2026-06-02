@@ -1309,18 +1309,20 @@ impl WindowManager {
             if should_send_leaving {
                 let (px, py) = prev.borrow().get_screen_position();
                 let _ = prev.borrow_mut().set_cursor_position(x - px, y - py);
-                let _ = prev
-                    .borrow_mut()
-                    .send_routed_input_message(WindowMessage::MouseLeaving, 0, 0);
+                let _ =
+                    prev.borrow_mut()
+                        .send_routed_input_message(WindowMessage::MouseLeaving, 0, 0);
             }
         }
 
         if let Some(new_window) = new_window {
             let (wx, wy) = new_window.borrow().get_screen_position();
             let _ = new_window.borrow_mut().set_cursor_position(x - wx, y - wy);
-            let _ = new_window
-                .borrow_mut()
-                .send_routed_input_message(WindowMessage::MouseEntering, 0, 0);
+            let _ = new_window.borrow_mut().send_routed_input_message(
+                WindowMessage::MouseEntering,
+                0,
+                0,
+            );
             self.current_mouse_region = Some(Rc::downgrade(new_window));
         } else {
             self.current_mouse_region = None;
@@ -1619,7 +1621,12 @@ impl WindowManager {
 
     fn get_input_window_under_cursor(&self, x: i32, y: i32) -> Option<Rc<RefCell<GameWindow>>> {
         if let Some(modal) = &self.modal_stack {
-            return self.normalize_input_hit(self.find_window_at_point_raw(&modal.window, x, y, false));
+            return self.normalize_input_hit(self.find_window_at_point_raw(
+                &modal.window,
+                x,
+                y,
+                false,
+            ));
         }
 
         let passes: [fn(WindowStatus) -> bool; 3] = [
@@ -1647,7 +1654,11 @@ impl WindowManager {
         window: Option<Rc<RefCell<GameWindow>>>,
     ) -> Option<Rc<RefCell<GameWindow>>> {
         let window = window?;
-        if !window.borrow().get_status().contains(WindowStatus::NO_INPUT) {
+        if !window
+            .borrow()
+            .get_status()
+            .contains(WindowStatus::NO_INPUT)
+        {
             return Some(window);
         }
 
@@ -3830,6 +3841,9 @@ impl WindowManager {
             }
             let _ = edit_mut.set_tooltip(window.borrow().get_tooltip());
             edit_mut.instance_data_mut().tooltip_delay = window.borrow().get_tooltip_delay();
+            if let Some(WindowWidget::TextEntry(entry)) = edit_mut.widget_mut() {
+                entry.set_draw_text_from_start(!is_editable);
+            }
             if let Some(data) = window_def.combo_box_data.as_ref() {
                 if let Some(WindowWidget::TextEntry(entry)) = edit_mut.widget_mut() {
                     let validation = if data.ascii_only {
@@ -5188,6 +5202,7 @@ impl Default for WindowManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::window_script::ComboBoxData;
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -5289,6 +5304,44 @@ mod tests {
             seen.borrow().as_slice(),
             &[(WindowMessage::ScriptCreate, child_id as WindowMsgData, 0)]
         );
+    }
+
+    #[test]
+    fn combo_edit_child_draws_from_start_only_when_non_editable_like_cpp() {
+        for (is_editable, expected_draw_from_start) in [(false, true), (true, false)] {
+            let mut manager = WindowManager::new();
+            let layout = Rc::new(RefCell::new(WindowLayout::new("test.wnd".to_string())));
+            let layout_def = WindowLayoutDefinition::default();
+            let mut info = WindowLayoutInfo::default();
+            let combo_def = WindowDefinition {
+                name: format!("test.wnd:Combo{}", is_editable),
+                window_type: "COMBOBOX".to_string(),
+                status: WindowStatus::ENABLED,
+                style: GWS_COMBO_BOX,
+                size: (120, 20),
+                combo_box_data: Some(ComboBoxData {
+                    is_editable,
+                    ..Default::default()
+                }),
+                ..WindowDefinition::default()
+            };
+
+            let combo = manager
+                .create_window_from_definition(&combo_def, None, &layout, &layout_def, &mut info)
+                .unwrap();
+            let links = combo.borrow().combobox_links().unwrap();
+            let edit = combo.borrow().find_child_by_id(links.edit_box).unwrap();
+            let edit_borrow = edit.borrow();
+            let WindowWidget::TextEntry(entry) = edit_borrow.widget().unwrap() else {
+                panic!("combo edit child should be a text entry");
+            };
+
+            assert_eq!(entry.draw_text_from_start(), expected_draw_from_start);
+            assert_eq!(
+                edit_borrow.get_status().contains(WindowStatus::NO_INPUT),
+                !is_editable
+            );
+        }
     }
 
     #[test]
@@ -5416,10 +5469,7 @@ mod tests {
         assert_eq!(manager.root_windows.len(), 1);
         assert!(Rc::ptr_eq(&manager.root_windows[0], &parent));
         assert!(parent.borrow().is_child(&window.borrow()));
-        assert!(Rc::ptr_eq(
-            &window.borrow().get_parent().unwrap(),
-            &parent
-        ));
+        assert!(Rc::ptr_eq(&window.borrow().get_parent().unwrap(), &parent));
     }
 
     #[test]
@@ -5567,7 +5617,9 @@ mod tests {
     fn test_focus_acceptance_can_come_from_parent() {
         let mut manager = WindowManager::new();
         let parent = manager.create_window(None, 0, 0, 100, 100).unwrap();
-        let child = manager.create_window(Some(&parent), 10, 10, 20, 20).unwrap();
+        let child = manager
+            .create_window(Some(&parent), 10, 10, 20, 20)
+            .unwrap();
         parent
             .borrow_mut()
             .set_system_callback(|_, msg, data1, _| match msg {
@@ -5665,10 +5717,12 @@ mod tests {
     fn mouse_up_does_not_auto_release_capture_like_cpp() {
         let mut manager = WindowManager::new();
         let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
-        window.borrow_mut().set_input_callback(|_, msg, _, _| match msg {
-            WindowMessage::LeftUp => WindowMsgHandled::Handled,
-            _ => WindowMsgHandled::Ignored,
-        });
+        window
+            .borrow_mut()
+            .set_input_callback(|_, msg, _, _| match msg {
+                WindowMessage::LeftUp => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
 
         manager.capture_mouse(&window).unwrap();
         let result = manager.process_mouse_event(WindowMessage::LeftUp, 10, 10, 0);
@@ -5886,7 +5940,10 @@ mod tests {
         {
             let seen = Rc::clone(&seen);
             first.borrow_mut().set_input_callback(move |_, msg, _, _| {
-                if matches!(msg, WindowMessage::MouseEntering | WindowMessage::MouseLeaving) {
+                if matches!(
+                    msg,
+                    WindowMessage::MouseEntering | WindowMessage::MouseLeaving
+                ) {
                     seen.borrow_mut().push(("first", msg));
                     WindowMsgHandled::Handled
                 } else {
@@ -5897,7 +5954,10 @@ mod tests {
         {
             let seen = Rc::clone(&seen);
             second.borrow_mut().set_input_callback(move |_, msg, _, _| {
-                if matches!(msg, WindowMessage::MouseEntering | WindowMessage::MouseLeaving) {
+                if matches!(
+                    msg,
+                    WindowMessage::MouseEntering | WindowMessage::MouseLeaving
+                ) {
                     seen.borrow_mut().push(("second", msg));
                     WindowMsgHandled::Handled
                 } else {
@@ -5931,7 +5991,10 @@ mod tests {
         {
             let seen = Rc::clone(&seen);
             captor.borrow_mut().set_input_callback(move |_, msg, _, _| {
-                if matches!(msg, WindowMessage::MouseEntering | WindowMessage::MouseLeaving) {
+                if matches!(
+                    msg,
+                    WindowMessage::MouseEntering | WindowMessage::MouseLeaving
+                ) {
                     seen.borrow_mut().push(("captor", msg));
                     WindowMsgHandled::Handled
                 } else {
@@ -5942,7 +6005,10 @@ mod tests {
         {
             let seen = Rc::clone(&seen);
             child.borrow_mut().set_input_callback(move |_, msg, _, _| {
-                if matches!(msg, WindowMessage::MouseEntering | WindowMessage::MouseLeaving) {
+                if matches!(
+                    msg,
+                    WindowMessage::MouseEntering | WindowMessage::MouseLeaving
+                ) {
                     seen.borrow_mut().push(("child", msg));
                     WindowMsgHandled::Handled
                 } else {
@@ -6029,9 +6095,7 @@ mod tests {
     fn captured_mouse_input_bubbles_only_to_captor_like_cpp() {
         let mut manager = WindowManager::new();
         let root = manager.create_window(None, 0, 0, 200, 200).unwrap();
-        let captor = manager
-            .create_window(Some(&root), 0, 0, 100, 100)
-            .unwrap();
+        let captor = manager.create_window(Some(&root), 0, 0, 100, 100).unwrap();
         let child = manager
             .create_window(Some(&captor), 10, 10, 40, 40)
             .unwrap();
@@ -6198,10 +6262,11 @@ mod tests {
                 }
             });
         }
-        lone.borrow_mut().set_input_callback(|_, msg, _, _| match msg {
-            WindowMessage::LeftDown => WindowMsgHandled::Handled,
-            _ => WindowMsgHandled::Ignored,
-        });
+        lone.borrow_mut()
+            .set_input_callback(|_, msg, _, _| match msg {
+                WindowMessage::LeftDown => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
 
         manager.set_lone_window(Some(&lone));
         let result = manager.process_mouse_event(WindowMessage::LeftDown, 10, 10, 0);
@@ -6229,10 +6294,12 @@ mod tests {
                 }
             });
         }
-        child.borrow_mut().set_input_callback(|_, msg, _, _| match msg {
-            WindowMessage::LeftDown => WindowMsgHandled::Handled,
-            _ => WindowMsgHandled::Ignored,
-        });
+        child
+            .borrow_mut()
+            .set_input_callback(|_, msg, _, _| match msg {
+                WindowMessage::LeftDown => WindowMsgHandled::Handled,
+                _ => WindowMsgHandled::Ignored,
+            });
 
         manager.set_lone_window(Some(&lone));
         let result = manager.process_mouse_event(WindowMessage::LeftDown, 20, 20, 0);
@@ -6975,7 +7042,9 @@ mod tests {
         let mut manager = WindowManager::new();
         let disabled = manager.create_window(None, 0, 0, 100, 100).unwrap();
 
-        disabled.borrow_mut().set_status_exact(WindowStatus::empty());
+        disabled
+            .borrow_mut()
+            .set_status_exact(WindowStatus::empty());
 
         assert!(manager.get_window_under_cursor(10, 10, true).is_none());
     }

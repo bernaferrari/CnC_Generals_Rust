@@ -5,7 +5,7 @@
 //! event callbacks, and drawing.
 
 use bitflags::bitflags;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::{Rc, Weak};
@@ -447,7 +447,7 @@ pub struct GameWindow {
     status: WindowStatus,
     size: Point2D,
     region: WindowRegion,
-    cursor_pos: Point2D,
+    cursor_pos: Cell<Point2D>,
 
     // Instance data
     inst_data: WindowInstanceData,
@@ -569,7 +569,7 @@ impl GameWindow {
             status: WindowStatus::NONE,
             size: Point2D { x: 0, y: 0 },
             region: WindowRegion::default(),
-            cursor_pos: Point2D { x: 0, y: 0 },
+            cursor_pos: Cell::new(Point2D { x: 0, y: 0 }),
             inst_data: WindowInstanceData::default(),
             user_data: None,
             edit_data: None,
@@ -888,14 +888,18 @@ impl GameWindow {
 
     /// Set cursor position within window
     pub fn set_cursor_position(&mut self, x: i32, y: i32) -> WindowResult<()> {
-        self.cursor_pos.x = x;
-        self.cursor_pos.y = y;
+        self.set_cursor_position_from_draw(x, y);
         Ok(())
+    }
+
+    pub(crate) fn set_cursor_position_from_draw(&self, x: i32, y: i32) {
+        self.cursor_pos.set(Point2D { x, y });
     }
 
     /// Get cursor position within window
     pub fn get_cursor_position(&self) -> (i32, i32) {
-        (self.cursor_pos.x, self.cursor_pos.y)
+        let cursor = self.cursor_pos.get();
+        (cursor.x, cursor.y)
     }
 
     /// Check if point is within window (including children)
@@ -2101,7 +2105,8 @@ impl GameWindow {
             return WindowMsgHandled::Handled;
         }
 
-        let (x, y) = (self.cursor_pos.x, self.cursor_pos.y);
+        let cursor = self.cursor_pos.get();
+        let (x, y) = (cursor.x, cursor.y);
         let event = match msg {
             WindowMessage::MousePos => Some(InputEvent::MouseMove { x, y }),
             WindowMessage::MouseEntering => Some(InputEvent::MouseEnter { x, y }),
