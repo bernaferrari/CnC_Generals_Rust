@@ -633,17 +633,23 @@ impl GameWindow {
     }
 
     fn sync_state_from_widget(&mut self) {
-        let (pressed, hilited, has_widget) = if let Some(widget) = self.widget.as_ref() {
+        let (pressed, hilited, selected, has_widget) = if let Some(widget) = self.widget.as_ref() {
             let widget_state = widget.state();
+            let selected = match widget {
+                WindowWidget::CheckBox(checkbox) => Some(checkbox.is_checked()),
+                WindowWidget::RadioButton(radio) => Some(radio.is_selected()),
+                _ => None,
+            };
             (
                 matches!(widget_state, GadgetState::Pressed),
                 matches!(widget_state, GadgetState::Hovered | GadgetState::Pressed),
+                selected,
                 true,
             )
         } else {
             let pressed = self.inst_data.state.contains(WindowState::PUSHED);
             let hilited = self.inst_data.state.contains(WindowState::HILITED) || pressed;
-            (pressed, hilited, false)
+            (pressed, hilited, None, false)
         };
 
         if has_widget {
@@ -654,6 +660,9 @@ impl GameWindow {
             }
             if pressed {
                 state.insert(WindowState::PUSHED);
+            }
+            if let Some(selected) = selected {
+                state.set(WindowState::SELECTED, selected);
             }
             self.inst_data.state = state;
         }
@@ -2545,6 +2554,7 @@ impl GameWindow {
                     if let Some(WindowWidget::RadioButton(radio)) = self.widget.as_mut() {
                         if !radio.is_selected() {
                             radio.select();
+                            self.inst_data.state.insert(WindowState::SELECTED);
                             newly_selected = true;
                         }
                     }
@@ -4243,6 +4253,10 @@ mod tests {
             silent_window.widget(),
             Some(WindowWidget::RadioButton(radio)) if radio.is_selected()
         ));
+        assert!(silent_window
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED));
         assert!(owner_seen.borrow().is_empty());
 
         let mut notifying_window = GameWindow::new();
@@ -4264,12 +4278,32 @@ mod tests {
             owner_seen.borrow().as_slice(),
             &[(WindowMessage::GadgetSelected, 18)]
         );
+        assert!(notifying_window
+            .instance_data()
+            .state
+            .contains(WindowState::SELECTED));
 
         assert_eq!(
             notifying_window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(owner_seen.borrow().len(), 1);
+    }
+
+    #[test]
+    fn checkbox_widget_sync_sets_selected_state_like_cpp_instance_data() {
+        let mut window = GameWindow::new();
+        window.set_id(19);
+        window.enable(true).unwrap();
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(19, 0, 0, 16)));
+        window.check_box_mut().unwrap().set_checked(true);
+        window.sync_state_from_widget();
+
+        assert!(matches!(
+            window.widget(),
+            Some(WindowWidget::CheckBox(checkbox)) if checkbox.is_checked()
+        ));
+        assert!(window.instance_data().state.contains(WindowState::SELECTED));
     }
 
     #[test]
