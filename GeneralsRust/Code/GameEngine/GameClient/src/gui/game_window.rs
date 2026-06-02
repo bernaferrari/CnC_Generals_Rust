@@ -2665,27 +2665,49 @@ impl GameWindow {
         entry.set_text(combo.text());
     }
 
+    fn combo_box_dropdown_visible_count(entry_count: usize, max_display: usize) -> usize {
+        if max_display > 0 {
+            entry_count.min(max_display)
+        } else {
+            entry_count
+        }
+    }
+
+    fn combo_box_dropdown_height(entry_count: usize, max_display: usize, font_height: i32) -> i32 {
+        let visible = Self::combo_box_dropdown_visible_count(entry_count, max_display);
+        (font_height.max(0) * visible as i32) + (visible as i32 * 2) + 4
+    }
+
     fn resize_combobox_listbox(&mut self, list_box: &Rc<RefCell<GameWindow>>) {
         let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() else {
             return;
         };
-        let count = combo.items().len().max(1);
+        let count = combo.items().len();
         let max_display = combo.max_display();
-        let visible = if max_display > 0 {
-            count.min(max_display)
-        } else {
-            count
-        };
+        let visible = Self::combo_box_dropdown_visible_count(count, max_display);
         let show_scrollbar = max_display > 0 && count > max_display;
-        let item_height = list_box
-            .borrow()
-            .widget()
-            .and_then(|widget| match widget {
-                WindowWidget::ListBox(listbox) => Some(listbox.item_height() as i32),
-                _ => None,
+        let font_height = {
+            let list_box_ref = list_box.borrow();
+            with_window_manager_ref(|manager| {
+                list_box_ref
+                    .inst_data
+                    .font
+                    .as_ref()
+                    .map(|font| manager.win_font_height(font))
+                    .unwrap_or_else(|| {
+                        list_box_ref
+                            .widget()
+                            .and_then(|widget| match widget {
+                                WindowWidget::ListBox(listbox) => {
+                                    Some(listbox.item_height().saturating_sub(2) as i32)
+                                }
+                                _ => None,
+                            })
+                            .unwrap_or(16)
+                    })
             })
-            .unwrap_or(18);
-        let height = (visible as i32 * item_height).max(item_height);
+        };
+        let height = Self::combo_box_dropdown_height(count, max_display, font_height);
         let (width, _) = list_box.borrow().get_size();
         let _ = list_box.borrow_mut().set_size(width as i32, height);
         if let Some(links) = list_box.borrow().listbox_links() {
@@ -3973,6 +3995,13 @@ mod tests {
         assert_eq!(drop_down.inst_data.hilite_text.color, 0);
         assert_eq!(drop_down.inst_data.ime_composite_text.color, 0);
         assert!(drop_down.get_font().is_none());
+    }
+
+    #[test]
+    fn combo_box_dropdown_height_matches_cpp_font_formula() {
+        assert_eq!(GameWindow::combo_box_dropdown_height(3, 5, 14), 52);
+        assert_eq!(GameWindow::combo_box_dropdown_height(7, 5, 14), 84);
+        assert_eq!(GameWindow::combo_box_dropdown_height(0, 5, 14), 4);
     }
 
     #[test]
