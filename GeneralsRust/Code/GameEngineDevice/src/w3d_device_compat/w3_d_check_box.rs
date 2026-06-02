@@ -1,2 +1,4 @@
 // Auto-generated C++ compatibility shim
-pub use crate::w3d_device::game_client::gui::gadget::wthree_d_check_box::*;
+pub use game_client_rust::gui::w3d_gadget_draw::{
+    w3d_gadget_check_box_draw, w3d_gadget_check_box_image_draw,
+};
