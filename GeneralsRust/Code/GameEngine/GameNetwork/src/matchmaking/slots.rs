@@ -130,17 +130,18 @@ pub enum PlayerColor {
 
 impl PlayerColor {
     /// Get all available colors
-    pub fn all() -> Vec<Self> {
-        vec![
-            Self::Red,
-            Self::Blue,
-            Self::Green,
-            Self::Yellow,
-            Self::Orange,
-            Self::Purple,
-            Self::Cyan,
-            Self::Pink,
-        ]
+    pub fn all() -> &'static [Self] {
+        const COLORS: [PlayerColor; 8] = [
+            PlayerColor::Red,
+            PlayerColor::Blue,
+            PlayerColor::Green,
+            PlayerColor::Yellow,
+            PlayerColor::Orange,
+            PlayerColor::Purple,
+            PlayerColor::Cyan,
+            PlayerColor::Pink,
+        ];
+        &COLORS
     }
 
     /// Get color name
@@ -386,15 +387,17 @@ impl SlotManager {
             .remove(&player_id)
             .ok_or_else(|| NetworkError::invalid_command("Player not in any slot".to_string()))?;
 
-        let slot = self.get_slot_mut(slot_num)?;
+        let player_ip = {
+            let slot = self.get_slot_mut(slot_num)?;
+            let player_ip = slot.slot.player.as_ref().map(|player| player.ip);
+            slot.slot.clear_player();
+            slot.faction = None;
+            player_ip
+        };
 
-        // Get player IP before clearing
-        if let Some(player) = &slot.slot.player {
-            self.ip_slots.remove(&player.ip);
+        if let Some(player_ip) = player_ip {
+            self.ip_slots.remove(&player_ip);
         }
-
-        slot.slot.clear_player();
-        slot.faction = None;
 
         Ok(())
     }
@@ -410,11 +413,10 @@ impl SlotManager {
         }
 
         // Get current slot
-        let current_slot_num = self
-            .player_slots
-            .get(&player_id)
-            .copied()
-            .ok_or_else(|| NetworkError::invalid_command("Player not in any slot".to_string()))?;
+        let current_slot_num =
+            self.player_slots.get(&player_id).copied().ok_or_else(|| {
+                NetworkError::invalid_command("Player not in any slot".to_string())
+            })?;
 
         // Move player
         let player = {
@@ -440,16 +442,11 @@ impl SlotManager {
     }
 
     /// Set player faction
-    pub fn set_player_faction(
-        &mut self,
-        player_id: Uuid,
-        faction: Faction,
-    ) -> NetworkResult<()> {
-        let slot_num = self
-            .player_slots
-            .get(&player_id)
-            .copied()
-            .ok_or_else(|| NetworkError::invalid_command("Player not in any slot".to_string()))?;
+    pub fn set_player_faction(&mut self, player_id: Uuid, faction: Faction) -> NetworkResult<()> {
+        let slot_num =
+            self.player_slots.get(&player_id).copied().ok_or_else(|| {
+                NetworkError::invalid_command("Player not in any slot".to_string())
+            })?;
 
         let slot = self.get_slot_mut(slot_num)?;
         slot.set_faction(faction)?;
@@ -458,16 +455,11 @@ impl SlotManager {
     }
 
     /// Set player color
-    pub fn set_player_color(
-        &mut self,
-        player_id: Uuid,
-        color: PlayerColor,
-    ) -> NetworkResult<()> {
-        let slot_num = self
-            .player_slots
-            .get(&player_id)
-            .copied()
-            .ok_or_else(|| NetworkError::invalid_command("Player not in any slot".to_string()))?;
+    pub fn set_player_color(&mut self, player_id: Uuid, color: PlayerColor) -> NetworkResult<()> {
+        let slot_num =
+            self.player_slots.get(&player_id).copied().ok_or_else(|| {
+                NetworkError::invalid_command("Player not in any slot".to_string())
+            })?;
 
         // Check if color is already taken
         if self.is_color_taken(color, Some(slot_num)) {
@@ -484,11 +476,10 @@ impl SlotManager {
 
     /// Set player team
     pub fn set_player_team(&mut self, player_id: Uuid, team: u8) -> NetworkResult<()> {
-        let slot_num = self
-            .player_slots
-            .get(&player_id)
-            .copied()
-            .ok_or_else(|| NetworkError::invalid_command("Player not in any slot".to_string()))?;
+        let slot_num =
+            self.player_slots.get(&player_id).copied().ok_or_else(|| {
+                NetworkError::invalid_command("Player not in any slot".to_string())
+            })?;
 
         let slot = self.get_slot_mut(slot_num)?;
         slot.set_team(team)?;
@@ -512,18 +503,15 @@ impl SlotManager {
     /// Get available colors
     pub fn get_available_colors(&self, current_slot: Option<u8>) -> Vec<PlayerColor> {
         PlayerColor::all()
-            .into_iter()
+            .iter()
+            .copied()
             .filter(|&color| !self.is_color_taken(color, current_slot))
             .collect()
     }
 
     /// Balance teams automatically
     pub fn balance_teams(&mut self) -> NetworkResult<()> {
-        let player_slots: Vec<_> = self
-            .slots
-            .iter_mut()
-            .filter(|s| s.has_player())
-            .collect();
+        let player_slots: Vec<_> = self.slots.iter_mut().filter(|s| s.has_player()).collect();
 
         let player_count = player_slots.len();
         if player_count < 2 {
@@ -573,7 +561,9 @@ impl SlotManager {
         let slot = self.get_slot_mut(slot_num)?;
 
         if !slot.slot.is_empty() {
-            return Err(NetworkError::invalid_command("Slot is not empty".to_string()));
+            return Err(NetworkError::invalid_command(
+                "Slot is not empty".to_string(),
+            ));
         }
 
         slot.slot.set_ai(difficulty);
@@ -724,9 +714,7 @@ mod tests {
             ..Default::default()
         };
 
-        manager
-            .add_player(player1_id, player1.ip, player1)
-            .unwrap();
+        manager.add_player(player1_id, player1.ip, player1).unwrap();
 
         // Try to set color
         manager
@@ -746,9 +734,7 @@ mod tests {
             ..Default::default()
         };
 
-        manager
-            .add_player(player2_id, player2.ip, player2)
-            .unwrap();
+        manager.add_player(player2_id, player2.ip, player2).unwrap();
 
         // Should fail to set same color
         assert!(manager

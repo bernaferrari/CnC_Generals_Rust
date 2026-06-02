@@ -464,7 +464,8 @@ impl Particle {
 impl Snapshotable for ParticleInfo {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -530,7 +531,8 @@ impl Snapshotable for ParticleInfo {
 impl Snapshotable for ParticleSystemInfo {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -654,7 +656,8 @@ impl Snapshotable for ParticleSystemInfo {
 impl Snapshotable for Particle {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -766,7 +769,8 @@ impl Snapshotable for Particle {
 impl Snapshotable for ParticleSystem {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 

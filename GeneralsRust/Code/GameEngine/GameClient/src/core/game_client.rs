@@ -3174,7 +3174,7 @@ impl GameClient {
             if let Ok(mut command_list) = write_result {
                 command_list.retain_messages(|msg| {
                     let msg_type = msg.get_type().clone();
-                    !(is_network_command_message(msg_type.clone())
+                    !(is_network_command_message(&msg_type)
                         && !matches!(msg_type, GameMessageType::LogicCRC(_)))
                 });
             }
@@ -4157,7 +4157,7 @@ impl GameClientMessageDispatcher {
     }
 
     fn is_network_message(&self, msg_type: &GameMessageType) -> bool {
-        is_network_command_message(msg_type.clone())
+        is_network_command_message(msg_type)
     }
 
     pub fn add_filter(&mut self, filter: Box<dyn MessageFilter + Send + Sync>) {
@@ -5069,7 +5069,7 @@ mod tests {
             if let Ok(mut command_list) = command_list_arc.write() {
                 command_list.retain_messages(|msg| {
                     let msg_type = msg.get_type().clone();
-                    !(is_network_command_message(msg_type.clone())
+                    !(is_network_command_message(&msg_type)
                         && !matches!(msg_type, GameMessageType::LogicCRC(_)))
                 });
             };

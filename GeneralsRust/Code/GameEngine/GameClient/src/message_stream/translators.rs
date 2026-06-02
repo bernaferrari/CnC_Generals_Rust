@@ -196,10 +196,7 @@ fn is_enemy_target(_local_player: i32, _target_id: ObjectID) -> bool {
     false
 }
 
-fn selection_has_quick_path_to(
-    _selection: &HashSet<ObjectID>,
-    _world: &Coord3D,
-) -> bool {
+fn selection_has_quick_path_to(_selection: &HashSet<ObjectID>, _world: &Coord3D) -> bool {
     true
 }
 

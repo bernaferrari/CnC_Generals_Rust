@@ -16,6 +16,7 @@ pub mod browser;
 pub mod lobby;
 pub mod matchmaker;
 pub mod ranking;
+pub mod slots;
 pub mod social;
 
 /// Matchmaking service configuration

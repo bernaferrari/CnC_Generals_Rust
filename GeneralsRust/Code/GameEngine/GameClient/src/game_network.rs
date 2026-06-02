@@ -55,11 +55,19 @@ impl NetworkFacade {
         Ok(())
     }
 
-    pub async fn vote_for_player_disconnect(&self, _slot: i32) -> Result<(), String> {
+    pub async fn vote_for_player_disconnect(&self, _slot: u8) -> Result<(), String> {
         Ok(())
     }
 
     pub async fn send_chat(&self, _message: String, _player_mask: u32) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub async fn send_chat_message(
+        &self,
+        _message: String,
+        _player_mask: u8,
+    ) -> Result<(), String> {
         Ok(())
     }
 }

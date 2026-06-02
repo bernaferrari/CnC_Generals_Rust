@@ -426,7 +426,8 @@ pub struct RenderBridge {
     scene: Scene,
     pending: Vec<DrawSubmission>,
     pending_projectile_streams: Vec<ProjectileStreamSubmission>,
-    scene_lines: HashMap<game_engine::common::system::scene_submission::SceneLineId, SceneLineEntry>,
+    scene_lines:
+        HashMap<game_engine::common::system::scene_submission::SceneLineId, SceneLineEntry>,
     camera: Option<Camera>,
     model_cache: HashMap<String, Arc<dyn RenderObject>>,
     asset_manager: AssetManager,
@@ -810,7 +811,12 @@ impl RenderBridge {
     ///
     /// Lines persist across frames until explicitly removed via `remove_line`.
     /// Only lines with `visible == true` are returned.
-    pub fn visible_scene_lines(&self) -> Vec<(game_engine::common::system::scene_submission::SceneLineId, &SceneLineEntry)> {
+    pub fn visible_scene_lines(
+        &self,
+    ) -> Vec<(
+        game_engine::common::system::scene_submission::SceneLineId,
+        &SceneLineEntry,
+    )> {
         self.scene_lines
             .iter()
             .filter(|(_, entry)| entry.visible)
@@ -916,15 +922,20 @@ impl RenderObject for WrapRenderObj {
     }
 
     fn get_obj_space_bounding_sphere(&self) -> BoundingSphere {
-        self.0.get_obj_space_bounding_sphere()
+        self.0
+            .get_obj_space_bounding_sphere()
             .map(|(center, radius)| BoundingSphere::new(center, radius))
             .unwrap_or(BoundingSphere::zero())
     }
 
     fn get_obj_space_bounding_box(&self) -> AABox {
-        self.0.get_obj_space_bounding_box()
+        self.0
+            .get_obj_space_bounding_box()
             .map(|(min, max)| AABox { min, max })
-            .unwrap_or(AABox { min: glam::Vec3::ZERO, max: glam::Vec3::ZERO })
+            .unwrap_or(AABox {
+                min: glam::Vec3::ZERO,
+                max: glam::Vec3::ZERO,
+            })
     }
 
     fn get_transform(&self) -> ww3d_core::glam::Mat4 {
@@ -949,12 +960,20 @@ use game_engine::common::system::scene_submission::{
 };
 
 impl SceneSubmissionTrait for RenderBridge {
-    fn submit_line(&self, _drawable_id: u32, desc: &game_engine::common::system::scene_submission::SceneLineDesc) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
+    fn submit_line(
+        &self,
+        _drawable_id: u32,
+        desc: &game_engine::common::system::scene_submission::SceneLineDesc,
+    ) -> Option<game_engine::common::system::scene_submission::SceneLineId> {
         let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(bridge) = guard.as_mut() {
             let id = NEXT_LINE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let entry = SceneLineEntry {
-                start: glam::Vec3::new(desc.start.x as f32, desc.start.y as f32, desc.start.z as f32),
+                start: glam::Vec3::new(
+                    desc.start.x as f32,
+                    desc.start.y as f32,
+                    desc.start.z as f32,
+                ),
                 end: glam::Vec3::new(desc.end.x as f32, desc.end.y as f32, desc.end.z as f32),
                 width: desc.width,
                 color: [desc.color_r, desc.color_g, desc.color_b, desc.opacity],
@@ -963,18 +982,31 @@ impl SceneSubmissionTrait for RenderBridge {
                 visible: desc.visible,
             };
             bridge.scene_lines.insert(id, entry);
-            log::debug!("SceneSubmission::submit_line drawable_id={} id={}", _drawable_id, id);
+            log::debug!(
+                "SceneSubmission::submit_line drawable_id={} id={}",
+                _drawable_id,
+                id
+            );
             return Some(id);
         }
         None
     }
 
-    fn update_line(&self, id: game_engine::common::system::scene_submission::SceneLineId, desc: &game_engine::common::system::scene_submission::SceneLineDesc) {
+    fn update_line(
+        &self,
+        id: game_engine::common::system::scene_submission::SceneLineId,
+        desc: &game_engine::common::system::scene_submission::SceneLineDesc,
+    ) {
         let mut guard = THE_RENDER_BRIDGE.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(bridge) = guard.as_mut() {
             if let Some(entry) = bridge.scene_lines.get_mut(&id) {
-                entry.start = glam::Vec3::new(desc.start.x as f32, desc.start.y as f32, desc.start.z as f32);
-                entry.end = glam::Vec3::new(desc.end.x as f32, desc.end.y as f32, desc.end.z as f32);
+                entry.start = glam::Vec3::new(
+                    desc.start.x as f32,
+                    desc.start.y as f32,
+                    desc.start.z as f32,
+                );
+                entry.end =
+                    glam::Vec3::new(desc.end.x as f32, desc.end.y as f32, desc.end.z as f32);
                 entry.width = desc.width;
                 entry.color = [desc.color_r, desc.color_g, desc.color_b, desc.opacity];
                 entry.texture_name = desc.texture_name.clone().unwrap_or_default();
@@ -1027,17 +1059,25 @@ impl DrawSubmission {
 
         let world_transform = game_logic_matrix3d_to_glam(&desc.world_transform);
 
-        let bone_overrides = desc.bone_overrides.into_iter().map(|b| BoneOverride {
-            bone_index: b.bone_index,
-            bone_name: b.bone_name,
-            transform: game_logic_matrix3d_to_glam(&b.transform),
-        }).collect();
+        let bone_overrides = desc
+            .bone_overrides
+            .into_iter()
+            .map(|b| BoneOverride {
+                bone_index: b.bone_index,
+                bone_name: b.bone_name,
+                transform: game_logic_matrix3d_to_glam(&b.transform),
+            })
+            .collect();
 
-        let mesh_uv_overrides = desc.mesh_uv_overrides.into_iter().map(|uv| MeshUvOverride {
-            mesh_name_prefix: uv.mesh_name_prefix,
-            u_offset: uv.u_offset,
-            v_offset: uv.v_offset,
-        }).collect();
+        let mesh_uv_overrides = desc
+            .mesh_uv_overrides
+            .into_iter()
+            .map(|uv| MeshUvOverride {
+                mesh_name_prefix: uv.mesh_name_prefix,
+                u_offset: uv.u_offset,
+                v_offset: uv.v_offset,
+            })
+            .collect();
 
         let bs_center = ww3d_core::glam::Vec3::new(
             desc.bounding_sphere_center.x as f32,
@@ -1068,9 +1108,15 @@ impl DrawSubmission {
 
 impl ProjectileStreamSubmission {
     fn from_scene_desc(desc: SceneProjectileStreamDesc) -> Self {
-        let lines = desc.lines.into_iter().map(|line| {
-            line.into_iter().map(|c| glam::Vec3::new(c.x as f32, c.y as f32, c.z as f32)).collect()
-        }).collect();
+        let lines = desc
+            .lines
+            .into_iter()
+            .map(|line| {
+                line.into_iter()
+                    .map(|c| glam::Vec3::new(c.x as f32, c.y as f32, c.z as f32))
+                    .collect()
+            })
+            .collect();
 
         Self {
             drawable_id: desc.drawable_id,
@@ -1599,14 +1645,8 @@ mod tests {
             ProjectileStreamSubmission {
                 drawable_id: 202,
                 lines: vec![
-                    vec![
-                        GameVec3::new(0.0, 0.0, 0.0),
-                        GameVec3::new(8.0, 0.0, 0.0),
-                    ],
-                    vec![
-                        GameVec3::new(8.0, 0.0, 0.0),
-                        GameVec3::new(12.0, 4.0, 0.0),
-                    ],
+                    vec![GameVec3::new(0.0, 0.0, 0.0), GameVec3::new(8.0, 0.0, 0.0)],
+                    vec![GameVec3::new(8.0, 0.0, 0.0), GameVec3::new(12.0, 4.0, 0.0)],
                 ],
                 texture_name: "EXLaser".to_string(),
                 width: 2.5,

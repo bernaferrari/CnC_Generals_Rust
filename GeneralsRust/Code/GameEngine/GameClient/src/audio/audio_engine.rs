@@ -530,7 +530,11 @@ impl AudioEngine {
                 .kira_handle
                 .set_volume(Volume::Amplitude(inst.volume as f64), Tween::default())
             {
-                log::debug!("AudioEngine: volume update failed for handle {}: {}", handle, err);
+                log::debug!(
+                    "AudioEngine: volume update failed for handle {}: {}",
+                    handle,
+                    err
+                );
             }
             true
         } else {
@@ -823,18 +827,21 @@ impl AudioEngine {
         }
 
         let fade_duration = fade_in_seconds.unwrap_or(0.0).max(0.0);
-        let initial_volume = if fade_duration > 0.0 { 0.0 } else { effective_vol };
+        let initial_volume = if fade_duration > 0.0 {
+            0.0
+        } else {
+            effective_vol
+        };
 
         // Attempt playback via kira.
         let is_looping = info.loop_count == 0 || info.loop_count > 1;
-        let kira_handle =
-            match self.play_file_with_kira(&full_path, initial_volume, is_looping) {
-                Ok(h) => h,
-                Err(e) => {
-                    log::warn!("AudioEngine: failed to play {:?}: {}", full_path, e);
-                    return 0;
-                }
-            };
+        let kira_handle = match self.play_file_with_kira(&full_path, initial_volume, is_looping) {
+            Ok(h) => h,
+            Err(e) => {
+                log::warn!("AudioEngine: failed to play {:?}: {}", full_path, e);
+                return 0;
+            }
+        };
 
         let handle = self.allocate_handle();
         self.instances.insert(
@@ -967,10 +974,10 @@ impl SubsystemInterface for AudioEngine {
             };
             let new_volume = fade.from_volume + (fade.to_volume - fade.from_volume) * progress;
             inst.volume = new_volume;
-            if let Err(err) = inst
-                .kira_handle
-                .set_volume(Volume::Amplitude(new_volume.max(0.0) as f64), Tween::default())
-            {
+            if let Err(err) = inst.kira_handle.set_volume(
+                Volume::Amplitude(new_volume.max(0.0) as f64),
+                Tween::default(),
+            ) {
                 log::debug!(
                     "AudioEngine: fade volume update failed for handle {}: {}",
                     inst.handle,

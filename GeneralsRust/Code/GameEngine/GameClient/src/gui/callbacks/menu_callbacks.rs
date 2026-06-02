@@ -33,25 +33,25 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, RwLock};
 
-#[cfg(feature = "network")]
+#[cfg(feature = "online_ui")]
 use crate::gamespy_overlay::{close_overlay, is_overlay_open, GameSpyOverlayType};
 
-#[cfg(feature = "network")]
+#[cfg(feature = "online_ui")]
 fn options_overlay_is_open() -> bool {
     is_overlay_open(GameSpyOverlayType::Options)
 }
 
-#[cfg(not(feature = "network"))]
+#[cfg(not(feature = "online_ui"))]
 fn options_overlay_is_open() -> bool {
     false
 }
 
-#[cfg(feature = "network")]
+#[cfg(feature = "online_ui")]
 fn close_options_overlay() {
     close_overlay(GameSpyOverlayType::Options);
 }
 
-#[cfg(not(feature = "network"))]
+#[cfg(not(feature = "online_ui"))]
 fn close_options_overlay() {}
 
 /// Menu callback trait

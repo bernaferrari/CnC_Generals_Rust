@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::core::DrawableId;
 use crate::system::SubsystemInterface;
-use game_engine::common::ini::{INI, INILoadType};
+use game_engine::common::ini::{INILoadType, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::Snapshotable;
 use game_engine::System::XferVersion;
@@ -1022,10 +1022,7 @@ impl SubsystemInterface for ParticleSystemManager {
         let mut ini = INI::new();
         if let Err(e) = ini.load("Data/INI/ParticleSystem.ini", INILoadType::Overwrite) {
             // Log warning but don't fail init — particle systems can be loaded later
-            eprintln!(
-                "Warning: Failed to load Data/INI/ParticleSystem.ini: {}",
-                e
-            );
+            eprintln!("Warning: Failed to load Data/INI/ParticleSystem.ini: {}", e);
         }
 
         Ok(())

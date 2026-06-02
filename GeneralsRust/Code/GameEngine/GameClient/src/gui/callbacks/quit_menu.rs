@@ -106,12 +106,12 @@ fn send_back_button_selection(button_name: &str) -> bool {
     })
 }
 
-#[cfg(feature = "network")]
+#[cfg(feature = "online_ui")]
 fn internet_session_is_sandbox() -> bool {
     crate::gamespy_game::with_gamespy_game_info(|info| info.is_sandbox())
 }
 
-#[cfg(not(feature = "network"))]
+#[cfg(not(feature = "online_ui"))]
 fn internet_session_is_sandbox() -> bool {
     false
 }
