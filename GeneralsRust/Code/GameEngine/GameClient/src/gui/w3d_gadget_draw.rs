@@ -3175,11 +3175,8 @@ fn draw_check_box_text(window: &GameWindow, inst_data: &WindowInstanceData) {
     if text.is_empty() {
         return;
     }
-    let rect = press_scaled_rect(window);
-    let origin_x = rect.x as i32;
-    let origin_y = rect.y as i32;
-    let size_x = rect.width as i32;
-    let size_y = rect.height as i32;
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
 
     let (text_color, drop_color) =
         if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
@@ -3213,12 +3210,7 @@ fn draw_check_box_text(window: &GameWindow, inst_data: &WindowInstanceData) {
 }
 
 fn is_check_box_checked(window: &GameWindow) -> bool {
-    if let Some(widget) = window.widget() {
-        if let super::game_window::WindowWidget::CheckBox(checkbox) = widget {
-            return checkbox.is_checked();
-        }
-    }
-    window.instance_data().state.contains(WindowState::PUSHED)
+    window.instance_data().state.contains(WindowState::SELECTED)
 }
 
 fn check_box_image_source(state: WindowState, enabled: bool) -> (PushButtonDrawBank, usize) {
@@ -3258,11 +3250,8 @@ pub fn w3d_gadget_check_box_draw(window: &GameWindow, inst_data: &WindowInstance
         &draw_data[1]
     };
 
-    let rect = press_scaled_rect(window);
-    let origin_x = rect.x as i32;
-    let origin_y = rect.y as i32;
-    let size_x = rect.width as i32;
-    let size_y = rect.height as i32;
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
     let check_offset = size_x / 16;
 
     if back.border_color != WIN_COLOR_UNDEFINED {
@@ -3351,11 +3340,8 @@ fn draw_radio_button_text(window: &GameWindow, inst_data: &WindowInstanceData) {
     if text.is_empty() {
         return;
     }
-    let rect = press_scaled_rect(window);
-    let origin_x = rect.x as i32;
-    let origin_y = rect.y as i32;
-    let size_x = rect.width as i32;
-    let size_y = rect.height as i32;
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
 
     let (text_color, drop_color) =
         if !window.is_enabled() || inst_data.state.contains(WindowState::DISABLED) {
@@ -3389,12 +3375,7 @@ fn draw_radio_button_text(window: &GameWindow, inst_data: &WindowInstanceData) {
 }
 
 fn is_radio_selected(window: &GameWindow) -> bool {
-    if let Some(widget) = window.widget() {
-        if let super::game_window::WindowWidget::RadioButton(radio) = widget {
-            return radio.is_selected();
-        }
-    }
-    window.instance_data().state.contains(WindowState::PUSHED)
+    window.instance_data().state.contains(WindowState::SELECTED)
 }
 
 fn radio_button_image_sources(
@@ -3439,11 +3420,8 @@ pub fn w3d_gadget_radio_button_draw(window: &GameWindow, inst_data: &WindowInsta
     let back = &draw_data[0];
     let radio_box = draw_data.get(box_index).unwrap_or(&draw_data[1]);
 
-    let rect = press_scaled_rect(window);
-    let origin_x = rect.x as i32;
-    let origin_y = rect.y as i32;
-    let size_x = rect.width as i32;
-    let size_y = rect.height as i32;
+    let (origin_x, origin_y) = window.get_screen_position();
+    let (size_x, size_y) = window.get_size();
 
     if back.border_color != WIN_COLOR_UNDEFINED {
         with_window_manager_ref(|manager| {
