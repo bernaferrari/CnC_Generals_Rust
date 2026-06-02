@@ -543,6 +543,7 @@ pub struct TextEntry {
     validation_mode: ValidationMode,
     is_password: bool,
     is_multiline: bool,
+    draw_text_from_start: bool,
 
     // Cursor and selection
     cursor_position: usize,
@@ -600,6 +601,7 @@ impl TextEntry {
             validation_mode: ValidationMode::None,
             is_password: false,
             is_multiline: false,
+            draw_text_from_start: false,
 
             cursor_position: 0,
             selection_start: None,
@@ -710,6 +712,15 @@ impl TextEntry {
     /// Check if multiline mode is enabled
     pub fn is_multiline(&self) -> bool {
         self.is_multiline
+    }
+
+    /// Match C++ EntryData::drawTextFromStart for non-editable combo edit boxes.
+    pub fn set_draw_text_from_start(&mut self, draw_from_start: bool) {
+        self.draw_text_from_start = draw_from_start;
+    }
+
+    pub fn draw_text_from_start(&self) -> bool {
+        self.draw_text_from_start
     }
 
     /// Set the text content

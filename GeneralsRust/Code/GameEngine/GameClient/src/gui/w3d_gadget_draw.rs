@@ -765,7 +765,8 @@ mod tests {
     use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
     use super::{static_text_draw_data, static_text_text_colors, WIN_COLOR_UNDEFINED};
     use super::{
-        text_entry_focus_matches, text_entry_image_tile_rects, text_entry_text_color_defined,
+        text_entry_clip_region, text_entry_cursor_window_x, text_entry_focus_matches,
+        text_entry_image_tile_rects, text_entry_start_y, text_entry_text_color_defined,
         text_entry_text_draw_x, truncate_to_i32, TextEntryImageTileKind,
     };
     use crate::gui::gadgets::{TabControl, TabControlData};
@@ -812,8 +813,28 @@ mod tests {
 
     #[test]
     fn text_entry_text_draw_x_keeps_long_end_visible_like_cpp() {
-        assert_eq!(text_entry_text_draw_x(10, 100, 40), 12);
-        assert_eq!(text_entry_text_draw_x(10, 100, 240), -138);
+        assert_eq!(text_entry_text_draw_x(false, 10, 100, 40), 12);
+        assert_eq!(text_entry_text_draw_x(false, 10, 100, 240), -138);
+    }
+
+    #[test]
+    fn text_entry_draw_from_start_uses_cpp_x_and_full_window_clip() {
+        assert_eq!(text_entry_text_draw_x(true, 10, 100, 240), 15);
+        assert_eq!(
+            text_entry_clip_region(true, 10, 20, 100, 14, 7, 9, 120, 22),
+            super::region_from_corners(7, 9, 127, 31)
+        );
+        assert_eq!(
+            text_entry_clip_region(false, 10, 20, 100, 14, 7, 9, 120, 22),
+            super::region_from_corners(10, 20, 110, 34)
+        );
+    }
+
+    #[test]
+    fn text_entry_one_line_y_and_cursor_position_match_cpp() {
+        assert_eq!(text_entry_start_y(50, 20, 12, true), 4);
+        assert_eq!(text_entry_start_y(50, 20, 12, false), 55);
+        assert_eq!(text_entry_cursor_window_x(138, 100), 40);
     }
 
     #[test]
@@ -4367,6 +4388,10 @@ fn draw_text_entry_text(
     start_y: i32,
     width: i32,
     font_height: i32,
+    origin_x: i32,
+    origin_y: i32,
+    size_x: i32,
+    size_y: i32,
 ) {
     if !text_entry_text_color_defined(text_color) {
         return;
@@ -4388,15 +4413,21 @@ fn draw_text_entry_text(
     if let Some(font) = inst_data.font.as_ref() {
         display.set_font(font);
     }
-    display.set_clip_region(Some(IRegion2D {
-        x: start_x,
-        y: start_y,
-        width: width.max(0),
-        height: font_height.max(0),
-    }));
+    let draw_from_start = entry.draw_text_from_start();
+    display.set_clip_region(Some(text_entry_clip_region(
+        draw_from_start,
+        start_x,
+        start_y,
+        width,
+        font_height,
+        origin_x,
+        origin_y,
+        size_x,
+        size_y,
+    )));
 
     let text_width = display.get_width(-1);
-    let draw_x = text_entry_text_draw_x(start_x, width, text_width);
+    let draw_x = text_entry_text_draw_x(draw_from_start, start_x, width, text_width);
     display.draw(draw_x, start_y, text_color, drop_color);
     let mut cursor_pos = draw_x + display.get_width(entry.cursor_position() as i32);
 
@@ -4416,18 +4447,21 @@ fn draw_text_entry_text(
                 text_color,
                 1.0,
                 cursor_pos,
-                start_y + 3,
+                origin_y + 3,
                 cursor_pos + 2,
-                start_y + font_height - 3,
+                origin_y + size_y - 3,
             );
         });
     }
 
+    window.set_cursor_position_from_draw(text_entry_cursor_window_x(cursor_pos, origin_x), 0);
     display.set_clip_region(None);
-    let _ = cursor_pos;
 }
 
-fn text_entry_text_draw_x(start_x: i32, width: i32, text_width: i32) -> i32 {
+fn text_entry_text_draw_x(draw_from_start: bool, start_x: i32, width: i32, text_width: i32) -> i32 {
+    if draw_from_start {
+        return start_x + 5;
+    }
     let draw_x = start_x + 2;
     if text_width < width {
         return draw_x;
@@ -4438,6 +4472,46 @@ fn text_entry_text_draw_x(start_x: i32, width: i32, text_width: i32) -> i32 {
     }
     let div = text_width / half_width - 1;
     draw_x - (div * half_width)
+}
+
+fn text_entry_clip_region(
+    draw_from_start: bool,
+    start_x: i32,
+    start_y: i32,
+    width: i32,
+    font_height: i32,
+    origin_x: i32,
+    origin_y: i32,
+    size_x: i32,
+    size_y: i32,
+) -> IRegion2D {
+    if draw_from_start {
+        IRegion2D {
+            x: origin_x,
+            y: origin_y,
+            width: size_x.max(0),
+            height: size_y.max(0),
+        }
+    } else {
+        IRegion2D {
+            x: start_x,
+            y: start_y,
+            width: width.max(0),
+            height: font_height.max(0),
+        }
+    }
+}
+
+fn text_entry_start_y(origin_y: i32, size_y: i32, font_height: i32, one_line: bool) -> i32 {
+    if one_line {
+        size_y / 2 - font_height / 2
+    } else {
+        origin_y + 5
+    }
+}
+
+fn text_entry_cursor_window_x(cursor_pos: i32, origin_x: i32) -> i32 {
+    cursor_pos + 2 - origin_x
 }
 
 fn text_entry_text_color_defined(text_color: u32) -> bool {
@@ -4520,11 +4594,12 @@ pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanc
     let start_offset = 5;
     let width = size_x - (2 * start_offset);
     let start_x = origin_x + start_offset;
-    let start_y = if window.get_status().contains(WindowStatus::ONE_LINE) {
-        origin_y + (size_y / 2) - (font_height / 2)
-    } else {
-        origin_y + start_offset
-    };
+    let start_y = text_entry_start_y(
+        origin_y,
+        size_y,
+        font_height,
+        window.get_status().contains(WindowStatus::ONE_LINE),
+    );
 
     draw_text_entry_text(
         window,
@@ -4537,6 +4612,10 @@ pub fn w3d_gadget_text_entry_draw(window: &GameWindow, inst_data: &WindowInstanc
         start_y,
         width,
         font_height,
+        origin_x,
+        origin_y,
+        size_x,
+        size_y,
     );
 }
 
@@ -4595,11 +4674,12 @@ pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowI
     let start_offset = 5;
     let width = size_x - (2 * start_offset);
     let start_x = origin_x + start_offset;
-    let start_y = if window.get_status().contains(WindowStatus::ONE_LINE) {
-        origin_y + (size_y / 2) - (font_height / 2)
-    } else {
-        origin_y + start_offset
-    };
+    let start_y = text_entry_start_y(
+        origin_y,
+        size_y,
+        font_height,
+        window.get_status().contains(WindowStatus::ONE_LINE),
+    );
 
     draw_text_entry_text(
         window,
@@ -4612,6 +4692,10 @@ pub fn w3d_gadget_text_entry_image_draw(window: &GameWindow, inst_data: &WindowI
         start_y,
         width,
         font_height,
+        origin_x,
+        origin_y,
+        size_x,
+        size_y,
     );
 }
 
