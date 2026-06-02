@@ -161,3 +161,43 @@ impl Default for WthreeDGameWindowManager {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::WthreeDGameWindowManager;
+    use game_client_rust::gui::game_window::default_draw_callback;
+    use game_client_rust::gui::w3d_gadget_draw::{
+        w3d_gadget_check_box_draw, w3d_gadget_check_box_image_draw, w3d_gadget_radio_button_draw,
+        w3d_gadget_radio_button_image_draw,
+    };
+
+    #[test]
+    fn check_box_and_radio_getters_use_gameclient_w3d_draw_callbacks() {
+        let manager = WthreeDGameWindowManager::new();
+
+        assert_eq!(
+            manager.get_check_box_draw_func() as usize,
+            w3d_gadget_check_box_draw as usize
+        );
+        assert_eq!(
+            manager.get_check_box_image_draw_func() as usize,
+            w3d_gadget_check_box_image_draw as usize
+        );
+        assert_eq!(
+            manager.get_radio_button_draw_func() as usize,
+            w3d_gadget_radio_button_draw as usize
+        );
+        assert_eq!(
+            manager.get_radio_button_image_draw_func() as usize,
+            w3d_gadget_radio_button_image_draw as usize
+        );
+        assert_ne!(
+            manager.get_check_box_draw_func() as usize,
+            default_draw_callback as usize
+        );
+        assert_ne!(
+            manager.get_radio_button_draw_func() as usize,
+            default_draw_callback as usize
+        );
+    }
+}
