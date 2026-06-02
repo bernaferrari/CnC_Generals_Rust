@@ -30,11 +30,9 @@ ktx2 = "0.3"                           # Compressed texture format support
 
 # Shader compilation and management
 naga = { version = "0.19", features = ["wgsl-in", "wgsl-out", "glsl-in", "hlsl-out"] }
-wgsl_to_wgpu = "27.0.1"                  # WGSL shader compilation
 
 # Model loading and animation
 gltf = { version = "1.4", features = ["utils"] }       # glTF 2.0 model loading
-russimp = "2.0"                        # Assimp binding for various model formats
 
 # Memory and performance optimization
 rayon = "1.7"                          # Data parallelism for scene processing
@@ -47,7 +45,6 @@ slotmap = "1.0"                        # Entity storage with generational indice
 
 # SIMD optimization
 wide = { version = "0.7", optional = true }                           # SIMD math operations
-packed_simd = { version = "0.3", optional = true }
 
 # Memory management
 region = "3.0"                         # Memory protection and mapping
@@ -113,17 +110,14 @@ bitflags = "2.4"
 [features]
 default = ["async", "simd"]
 async = ["tokio", "async-trait", "futures"]
-simd = ["wide", "packed_simd"]
+simd = ["wide"]
+legacy-full = []
 vulkan = ["wgpu/vulkan"]
 dx12 = ["wgpu/dx12"]
 metal = ["wgpu/metal"]
-opengl = ["wgpu/gl"]
+opengl = ["wgpu/gles"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.4"
 tokio-test = "0.4"
-
-[[bench]]
-name = "graphics_benchmarks"
-harness = false
