@@ -1,2 +1,4 @@
 // Auto-generated C++ compatibility shim
-pub use crate::w3d_device::game_client::gui::gadget::wthree_d_radio_button::*;
+pub use game_client_rust::gui::w3d_gadget_draw::{
+    w3d_gadget_radio_button_draw, w3d_gadget_radio_button_image_draw,
+};

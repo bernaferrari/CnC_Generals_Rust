@@ -70,6 +70,12 @@ members = [
     "Code/Tools/Launcher",
 ]
 
+exclude = [
+    # Legacy W3DDevice compatibility tree. It intentionally stays outside the
+    # main workspace until its wrappers are merged into Code/GameEngine/GameEngineDevice.
+    "Code/GameEngineDevice",
+]
+
 default-members = [
     "Code/Main",
 ]
