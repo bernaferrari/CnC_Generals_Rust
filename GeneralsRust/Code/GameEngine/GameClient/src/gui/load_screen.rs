@@ -24,7 +24,7 @@ use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAX_LOAD_SCREEN_SLOTS: usize = 8;
@@ -168,6 +168,10 @@ static SHELL_GAME_FIRST_LOAD: OnceLock<Mutex<bool>> = OnceLock::new();
 static MULTIPLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<MultiplayerLoadScreenState>> = OnceLock::new();
 static MAP_TRANSFER_LOAD_SCREEN_STATE: OnceLock<Mutex<MapTransferLoadScreenState>> =
     OnceLock::new();
+static MAP_TRANSFER_LITEUPDATE_HOOK: OnceLock<Mutex<Option<MapTransferLiteupdateHook>>> =
+    OnceLock::new();
+
+type MapTransferLiteupdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ChallengePersonaText {
@@ -480,6 +484,9 @@ pub fn reset_load_screen(kind: LoadScreenKind) {
 pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
     let descriptor = descriptor_for_kind(kind);
     let percent = transformed_progress_percent(descriptor, raw_percent);
+    if kind == LoadScreenKind::MapTransfer {
+        map_transfer_liteupdate();
+    }
     clear_load_screen_cursor_tooltip();
     if kind == LoadScreenKind::MapTransfer {
         return;
@@ -508,6 +515,38 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
 
 fn clear_load_screen_cursor_tooltip() {
     with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
+}
+
+pub fn register_map_transfer_liteupdate_hook(
+    hook: impl Fn() + Send + Sync + 'static,
+) -> Option<MapTransferLiteupdateHook> {
+    let hook = Arc::new(hook);
+    let state = MAP_TRANSFER_LITEUPDATE_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.replace(hook)
+}
+
+pub fn clear_map_transfer_liteupdate_hook() -> Option<MapTransferLiteupdateHook> {
+    let state = MAP_TRANSFER_LITEUPDATE_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.take()
+}
+
+fn map_transfer_liteupdate() {
+    let hook = {
+        let state = MAP_TRANSFER_LITEUPDATE_HOOK.get_or_init(|| Mutex::new(None));
+        let guard = state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.clone()
+    };
+    if let Some(hook) = hook {
+        hook();
+    }
 }
 
 pub fn process_load_screen_progress(kind: LoadScreenKind, player_id: i32, percentage: f32) -> bool {
@@ -1964,7 +2003,10 @@ mod tests {
     use crate::gui::game_window::WindowWidget;
     use game_engine::common::ini::ini_map_cache::{Coord3D, Region3D};
     use game_engine::common::language::Language;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex, OnceLock,
+    };
 
     static TEST_LANGUAGE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     static TEST_LOAD_SCREEN_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -3107,6 +3149,51 @@ mod tests {
             assert_eq!(mouse.cursor_tooltip_state().tooltip_text, "");
             assert!(mouse.cursor_tooltip_state().is_tooltip_empty);
         });
+    }
+
+    #[test]
+    fn map_transfer_update_pumps_liteupdate_before_clearing_tooltip_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        let _mouse_guard = lock_test_mouse();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let hook_calls = Arc::clone(&calls);
+        clear_map_transfer_liteupdate_hook();
+        register_map_transfer_liteupdate_hook(move || {
+            hook_calls.fetch_add(1, Ordering::SeqCst);
+            with_mouse(|mouse| {
+                mouse.set_cursor_tooltip(
+                    "Network pump touched tooltip".to_string(),
+                    None,
+                    None,
+                    None,
+                )
+            });
+        });
+
+        update_load_screen(LoadScreenKind::MapTransfer, 0.0);
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        with_mouse(|mouse| {
+            assert_eq!(mouse.cursor_tooltip_state().tooltip_text, "");
+            assert!(mouse.cursor_tooltip_state().is_tooltip_empty);
+        });
+        clear_map_transfer_liteupdate_hook();
+    }
+
+    #[test]
+    fn non_map_transfer_updates_do_not_pump_liteupdate() {
+        let _state_guard = lock_test_load_screen_state();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let hook_calls = Arc::clone(&calls);
+        clear_map_transfer_liteupdate_hook();
+        register_map_transfer_liteupdate_hook(move || {
+            hook_calls.fetch_add(1, Ordering::SeqCst);
+        });
+
+        update_load_screen(LoadScreenKind::SinglePlayer, 0.0);
+
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        clear_map_transfer_liteupdate_hook();
     }
 
     #[test]
