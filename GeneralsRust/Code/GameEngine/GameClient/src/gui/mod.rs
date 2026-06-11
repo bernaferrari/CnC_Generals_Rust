@@ -103,7 +103,7 @@ pub use game_window::{
     write_input_focus_response, GameWindow, WindowCallbacks, WindowDrawData, WindowError, WindowId,
     WindowInputReturnCode, WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled,
     WindowRegion, WindowResult, WindowState, WindowStatus, WindowTextColors, WindowWidget,
-    GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW, WIN_COLOR_UNDEFINED,
+    GLM_SELECTED, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW, WIN_COLOR_UNDEFINED,
 };
 pub use game_window_transitions::GameWindowTransitionsHandler;
 

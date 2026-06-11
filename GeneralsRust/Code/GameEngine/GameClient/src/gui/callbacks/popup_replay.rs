@@ -4,7 +4,7 @@ use crate::game_text::GameText;
 use crate::gui::callbacks::score_screen::score_screen_enable_controls;
 use crate::gui::{
     message_box_ok, message_box_ok_cancel, with_window_manager, write_input_focus_response,
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GLM_SELECTED,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::with_recorder;
@@ -113,6 +113,20 @@ fn get_listbox_text_at_row(state: &PopupReplayState, row: usize) -> Option<Strin
     let mut listbox_guard = listbox.borrow_mut();
     let list_box = listbox_guard.list_box_mut()?;
     list_box.items().get(row).map(|item| item.text.clone())
+}
+
+fn copy_selected_replay_to_text_entry(state: &mut PopupReplayState, row_selected: i32) {
+    if row_selected < 0 {
+        return;
+    }
+
+    if let Some(filename) = get_listbox_text_at_row(state, row_selected as usize) {
+        if let Some(entry) = state.text_entry_window.as_ref() {
+            if let Some(widget) = entry.borrow_mut().text_entry_mut() {
+                widget.set_text(filename);
+            }
+        }
+    }
 }
 
 fn save_replay(filename: &str) {
@@ -317,22 +331,15 @@ pub fn popup_replay_system(
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
-        WindowMessage::GadgetSelected => {
+        WindowMessage::User(code) if code == GLM_SELECTED => {
             let control_id = data1 as i32;
             if control_id == state.listbox_games {
-                let row_selected = data2 as i32;
-                if row_selected >= 0 {
-                    if let Some(filename) = get_listbox_text_at_row(&state, row_selected as usize) {
-                        if let Some(entry) = state.text_entry_window.as_ref() {
-                            if let Some(widget) = entry.borrow_mut().text_entry_mut() {
-                                widget.set_text(filename);
-                            }
-                        }
-                    }
-                }
-                return WindowMsgHandled::Handled;
+                copy_selected_replay_to_text_entry(&mut state, data2 as i32);
             }
-
+            WindowMsgHandled::Handled
+        }
+        WindowMessage::GadgetSelected => {
+            let control_id = data1 as i32;
             if control_id == state.button_save {
                 if let Some(entry) = state.text_entry_window.as_ref() {
                     if let Some(widget) = entry.borrow_mut().text_entry_mut() {
@@ -394,6 +401,66 @@ mod tests {
     }
 
     #[test]
+    fn popup_replay_system_handles_glm_selected_listbox_like_cpp() {
+        let listbox_id = 101;
+        let text_entry_id = 102;
+
+        let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
+        let text_entry_window = Rc::new(RefCell::new(GameWindow::new()));
+        let mut listbox = ListBox::new(listbox_id as u32, 0, 0, 100, 60);
+        listbox.add_item("first-replay");
+        listbox.add_item("selected-replay");
+        listbox.set_selected_indices(&[1]);
+        listbox_window
+            .borrow_mut()
+            .set_widget(WindowWidget::ListBox(listbox));
+        text_entry_window
+            .borrow_mut()
+            .set_widget(WindowWidget::TextEntry(TextEntry::new(
+                text_entry_id as u32,
+                0,
+                0,
+                100,
+                20,
+            )));
+        text_entry_window
+            .borrow_mut()
+            .text_entry_mut()
+            .unwrap()
+            .set_text("unchanged");
+
+        {
+            let state_handle = popup_replay_state();
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            *state = PopupReplayState::default();
+            state.listbox_games = listbox_id;
+            state.text_entry_replay_name = text_entry_id;
+            state.listbox_window = Some(listbox_window);
+            state.text_entry_window = Some(text_entry_window.clone());
+        }
+
+        let window = GameWindow::new();
+        assert_eq!(
+            popup_replay_system(
+                &window,
+                WindowMessage::User(GLM_SELECTED),
+                listbox_id as WindowMsgData,
+                1,
+            ),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(
+            text_entry_window
+                .borrow_mut()
+                .text_entry_mut()
+                .unwrap()
+                .text(),
+            "selected-replay"
+        );
+    }
+
+    #[test]
     fn popup_replay_negative_listbox_row_keeps_text_entry_like_cpp() {
         let listbox_id = 101;
         let text_entry_id = 102;
@@ -435,7 +502,7 @@ mod tests {
         assert_eq!(
             popup_replay_system(
                 &window,
-                WindowMessage::GadgetSelected,
+                WindowMessage::User(GLM_SELECTED),
                 listbox_id as WindowMsgData,
                 (-1isize) as WindowMsgData,
             ),
