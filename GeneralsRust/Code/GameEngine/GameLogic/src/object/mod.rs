@@ -81,13 +81,13 @@ use log::warn;
 use crate::ai::object_registry::{register_legacy_object, unregister_legacy_object};
 use crate::common::types::ControlBarInterface;
 use crate::common::{
-    geometry_type_from_u32, geometry_type_to_u32, AsciiString, Bool, Byte, Color,
-    CommandSourceType, Coord2D, Coord3D, DefaultThingTemplate, Dict, DictType, DisabledMaskType,
-    DisabledType, FormationID, GeometryInfo, ICoord3D, Int, KindOf, KindOfMask, KindOfMaskType,
-    Matrix3D, ModelConditionFlags, NameKeyType, ObjectID, ObjectShroudStatus, ObjectStatusMaskType,
-    PathfindLayerEnum, PlayerId, PlayerMaskType, Real, Relationship, Snapshot, TeamMemberList,
-    Thing, ThingTemplate, TurretType, UnsignedByte, UnsignedInt, UpgradeMaskType, VeterancyLevel,
-    WeaponBonusConditionFlags, LOGICFRAMES_PER_SECOND,
+    AsciiString, Bool, Byte, Color, CommandSourceType, Coord2D, Coord3D, DefaultThingTemplate,
+    Dict, DictType, DisabledMaskType, DisabledType, FormationID, GeometryInfo, ICoord3D, Int,
+    KindOf, KindOfMask, KindOfMaskType, Matrix3D, ModelConditionFlags, NameKeyType, ObjectID,
+    ObjectShroudStatus, ObjectStatusMaskType, PathfindLayerEnum, PlayerId, PlayerMaskType, Real,
+    Relationship, Snapshot, TeamMemberList, Thing, ThingTemplate, TurretType, UnsignedByte,
+    UnsignedInt, UpgradeMaskType, VeterancyLevel, WeaponBonusConditionFlags,
+    LOGICFRAMES_PER_SECOND,
 };
 use game_engine::common::game_common::FOREVER;
 use glam::{EulerRot, Mat4};
@@ -12486,7 +12486,7 @@ impl Snapshot for Object {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
-        let current_version: u8 = 10;
+        let current_version: u8 = 9;
         let mut version = current_version;
         let _ = xfer.xfer_version(&mut version, current_version);
 
@@ -12568,14 +12568,6 @@ impl Snapshot for Object {
         xfer_coord3d_values(xfer, &mut self.geometry_info.bounds.min);
         xfer_coord3d_values(xfer, &mut self.geometry_info.bounds.max);
         let _ = xfer.xfer_real(&mut self.geometry_info.height_above_terrain);
-        if version >= 10 {
-            let mut geometry_type = geometry_type_to_u32(self.geometry_info.geometry_type);
-            let _ = xfer.xfer_unsigned_int(&mut geometry_type);
-            if is_loading {
-                self.geometry_info.geometry_type = geometry_type_from_u32(geometry_type);
-            }
-            let _ = xfer.xfer_bool(&mut self.geometry_info.is_small);
-        }
 
         xfer_sighting_info(xfer, &mut self.partition_last_look);
         if version >= 9 {
@@ -13139,6 +13131,23 @@ mod tests {
 
         assert_eq!(obj.get_health(), 75.0);
         assert_eq!(obj.get_max_health(), 100.0);
+    }
+
+    #[test]
+    fn object_xfer_writes_cpp_version_9() {
+        use game_engine::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut object = Object::new_test(0x0102_0304, 100.0);
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            object.xfer(&mut save);
+        }
+
+        assert_eq!(bytes.first().copied(), Some(9));
+        assert_eq!(&bytes[1..5], &0x0102_0304u32.to_le_bytes());
     }
 
     #[test]
