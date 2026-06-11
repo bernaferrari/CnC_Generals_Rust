@@ -792,25 +792,6 @@ fn initialize_single_player_windows(wm: &mut WindowManager) {
 
     let movie_label = {
         let campaign_manager = get_campaign_manager();
-        if let Some(campaign) = campaign_manager.get_current_campaign() {
-            if let Some((background, progress)) = single_player_campaign_images(&campaign.name) {
-                set_window_image(
-                    wm,
-                    "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
-                    0,
-                    background,
-                    true,
-                );
-                set_window_image(
-                    wm,
-                    "SinglePlayerLoadScreen.wnd:ProgressLoad",
-                    6,
-                    progress,
-                    false,
-                );
-            }
-        }
-
         let mut movie_label = None;
         if let Some(mission) = campaign_manager.get_current_mission() {
             let text = single_player_mission_text(mission);
@@ -848,11 +829,37 @@ fn initialize_single_player_windows(wm: &mut WindowManager) {
         "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
         &movie_label,
     ) {
+        apply_single_player_campaign_images(wm);
         with_single_player_load_screen_state(|state| {
             state.movie_prelude_active = true;
             state.movie_label = movie_label;
         });
     }
+}
+
+fn apply_single_player_campaign_images(wm: &mut WindowManager) {
+    let campaign_manager = get_campaign_manager();
+    let Some(campaign) = campaign_manager.get_current_campaign() else {
+        return;
+    };
+    let Some((background, progress)) = single_player_campaign_images(&campaign.name) else {
+        return;
+    };
+
+    set_window_image(
+        wm,
+        "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+        0,
+        background,
+        true,
+    );
+    set_window_image(
+        wm,
+        "SinglePlayerLoadScreen.wnd:ProgressLoad",
+        6,
+        progress,
+        false,
+    );
 }
 
 fn with_single_player_load_screen_state<R>(
@@ -3552,14 +3559,14 @@ mod tests {
 
         {
             let mut manager = get_campaign_manager();
-            let campaign = manager.new_campaign("MissingMovie".to_string());
+            let campaign = manager.new_campaign("USA".to_string());
             let mission = campaign.new_mission("Mission1".to_string());
             mission.movie_label = "MissingMovie.bik".to_string();
             mission.briefing_voice =
                 game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_sound_file(
                     "BriefingVoiceEvent".to_string(),
                 );
-            manager.set_campaign_and_mission("MissingMovie", "Mission1");
+            manager.set_campaign_and_mission("USA", "Mission1");
         }
 
         let mut wm = WindowManager::new();
@@ -3594,6 +3601,18 @@ mod tests {
             .expect("percent")
             .borrow()
             .is_hidden());
+        assert_eq!(
+            window_enabled_image_name(
+                &wm,
+                "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+                0
+            ),
+            None
+        );
+        assert_eq!(
+            window_enabled_image_name(&wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", 6),
+            None
+        );
 
         clear_single_player_movie_play_hook();
         clear_single_player_movie_playing_hook();
@@ -3620,10 +3639,10 @@ mod tests {
 
         {
             let mut manager = get_campaign_manager();
-            let campaign = manager.new_campaign("MoviePrelude".to_string());
+            let campaign = manager.new_campaign("China".to_string());
             let mission = campaign.new_mission("Mission1".to_string());
             mission.movie_label = "EA_LOGO.BIK".to_string();
-            manager.set_campaign_and_mission("MoviePrelude", "Mission1");
+            manager.set_campaign_and_mission("China", "Mission1");
         }
 
         let mut wm = WindowManager::new();
@@ -3650,6 +3669,18 @@ mod tests {
             .expect("percent")
             .borrow()
             .is_hidden());
+        assert_eq!(
+            window_enabled_image_name(
+                &wm,
+                "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+                0
+            ),
+            Some("MissionLoad_China".to_string())
+        );
+        assert_eq!(
+            window_enabled_image_name(&wm, "SinglePlayerLoadScreen.wnd:ProgressLoad", 6),
+            Some("LoadingBar_ProgressCenter1".to_string())
+        );
 
         with_window_manager(|global_wm| {
             *global_wm = wm;
@@ -4005,6 +4036,15 @@ mod tests {
             .expect(name)
             .borrow()
             .get_enabled_text_color()
+    }
+
+    fn window_enabled_image_name(wm: &WindowManager, name: &str, index: usize) -> Option<String> {
+        wm.find_window_by_name(name)
+            .expect(name)
+            .borrow()
+            .get_enabled_draw_data(index)
+            .and_then(|draw| draw.image)
+            .map(|image| image.name)
     }
 
     fn window_hidden(wm: &WindowManager, name: &str) -> bool {
