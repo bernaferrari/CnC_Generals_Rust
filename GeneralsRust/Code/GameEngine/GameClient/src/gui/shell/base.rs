@@ -2518,6 +2518,11 @@ impl Shell {
         self.is_shell_active
     }
 
+    /// Check if the shell map background has been requested.
+    pub fn is_shell_map_on(&self) -> bool {
+        self.shell_map_on
+    }
+
     /// Show or hide all shell layouts
     pub fn hide(&mut self, hide: bool) {
         for layout in &mut self.screen_stack {
