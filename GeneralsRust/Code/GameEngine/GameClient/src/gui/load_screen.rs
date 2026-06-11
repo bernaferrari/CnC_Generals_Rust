@@ -845,7 +845,6 @@ fn initialize_single_player_windows(wm: &mut WindowManager) {
             "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
             &movie_label,
         ) {
-            hide_window(wm, "SinglePlayerLoadScreen.wnd:Percent", false);
             with_single_player_load_screen_state(|state| {
                 state.movie_prelude_active = true;
                 state.movie_label = movie_label;
@@ -3585,7 +3584,7 @@ mod tests {
         });
         assert!(prelude_active);
         assert_eq!(ambient_handle, 0);
-        assert!(!wm
+        assert!(wm
             .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
             .expect("percent")
             .borrow()
@@ -3607,7 +3606,7 @@ mod tests {
         );
         with_window_manager(|wm| {
             assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "42%");
-            assert!(!wm
+            assert!(wm
                 .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
                 .expect("percent")
                 .borrow()
