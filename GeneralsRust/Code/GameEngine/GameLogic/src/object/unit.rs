@@ -36,6 +36,7 @@ use crate::modules::{
 };
 use crate::object::draw::TerrainDecalType;
 use crate::object::object_factory::{get_object_factory, GameObjectInstance};
+use crate::object::update::ai_update_interface::GuardTargetType;
 use crate::object::update::{
     AssaultTransportAIUpdate, DeliverPayloadAIUpdate, DeployStyleAIUpdate, HackInternetAIUpdate,
     RailedTransportAIUpdate, TransportAIUpdate, WanderAIUpdate,
@@ -57,6 +58,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 const WAYPOINT_PATH_LIMIT: usize = 1024;
+const AI_UPDATE_MAX_WAYPOINTS: usize = 16;
 
 /// Movement states for units
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2517,6 +2519,27 @@ fn xfer_unit_icoord2d(xfer: &mut dyn Xfer, coord: &mut ICoord2D) -> Result<(), S
     Ok(())
 }
 
+fn guard_target_type_from_u32(value: u32) -> Result<GuardTargetType, String> {
+    match value {
+        0 => Ok(GuardTargetType::Location),
+        1 => Ok(GuardTargetType::Object),
+        2 => Ok(GuardTargetType::Area),
+        3 => Ok(GuardTargetType::None_),
+        _ => Err(format!("Invalid AIUpdate guard target type {value}")),
+    }
+}
+
+fn xfer_guard_target_type(
+    xfer: &mut dyn Xfer,
+    guard_target_type: &mut GuardTargetType,
+) -> Result<(), String> {
+    let mut value = *guard_target_type as u32;
+    xfer.xfer_unsigned_int(&mut value)
+        .map_err(|e| e.to_string())?;
+    *guard_target_type = guard_target_type_from_u32(value)?;
+    Ok(())
+}
+
 /// Basic AI update interface that bridges AI commands to unit orders.
 pub struct UnitAIUpdate {
     unit: Weak<RwLock<Unit>>,
@@ -2571,6 +2594,13 @@ pub struct UnitAIUpdate {
     rappel_state: Option<RappelState>,
     original_victim_pos: Option<Coord3D>,
     pending_safe_path: Option<Vec<Coord3D>>,
+    guard_target_type: [GuardTargetType; 2],
+    location_to_guard: Coord3D,
+    object_to_guard: ObjectID,
+    planning_waypoint_queue: [Coord3D; AI_UPDATE_MAX_WAYPOINTS],
+    planning_waypoint_count: Int,
+    planning_waypoint_index: Int,
+    executing_waypoint_queue: Bool,
     requested_victim_id: ObjectID,
     requested_destination: Coord3D,
     requested_destination2: Coord3D,
@@ -2698,6 +2728,13 @@ impl UnitAIUpdate {
             rappel_state: None,
             original_victim_pos: None,
             pending_safe_path: None,
+            guard_target_type: [GuardTargetType::None_; 2],
+            location_to_guard: Coord3D::ZERO,
+            object_to_guard: INVALID_ID,
+            planning_waypoint_queue: [Coord3D::ZERO; AI_UPDATE_MAX_WAYPOINTS],
+            planning_waypoint_count: 0,
+            planning_waypoint_index: 0,
+            executing_waypoint_queue: false,
             requested_victim_id: INVALID_ID,
             requested_destination: Coord3D::ZERO,
             requested_destination2: Coord3D::ZERO,
@@ -2730,6 +2767,19 @@ impl UnitAIUpdate {
             cur_max_blocked_speed: FAST_AS_POSSIBLE,
             bump_speed_limit: FAST_AS_POSSIBLE,
         }
+    }
+
+    fn push_guard_target_type(&mut self, target_type: GuardTargetType) {
+        if self.guard_target_type[1] == GuardTargetType::None_ {
+            self.guard_target_type[1] = target_type;
+        } else {
+            self.guard_target_type[0] = target_type;
+        }
+    }
+
+    fn clear_guard_target_type(&mut self) {
+        self.guard_target_type[1] = self.guard_target_type[0];
+        self.guard_target_type[0] = GuardTargetType::None_;
     }
 
     pub fn apply_ai_update_module_data(
@@ -3465,19 +3515,13 @@ impl AIUpdateInterface for UnitAIUpdate {
             };
         }
 
-        // Guard target type, guarded location/object, area trigger, and attack-info name.
-        // These C++ fields are not owned by UnitAIUpdate yet; keep the serialized slots stable.
-        let mut guard_target_type_0: u32 = 0;
-        let mut guard_target_type_1: u32 = 0;
-        xfer.xfer_unsigned_int(&mut guard_target_type_0)
+        xfer_guard_target_type(xfer, &mut self.guard_target_type[0])?;
+        xfer_guard_target_type(xfer, &mut self.guard_target_type[1])?;
+        xfer_unit_coord3d(xfer, &mut self.location_to_guard)?;
+        xfer.xfer_object_id(&mut self.object_to_guard)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut guard_target_type_1)
-            .map_err(|e| e.to_string())?;
-        let mut location_to_guard = Coord3D::ZERO;
-        xfer_unit_coord3d(xfer, &mut location_to_guard)?;
-        let mut object_to_guard = INVALID_ID;
-        xfer.xfer_object_id(&mut object_to_guard)
-            .map_err(|e| e.to_string())?;
+
+        // Area trigger and attack-info names still need their engine registries wired to UnitAIUpdate.
         let mut area_to_guard_name = String::new();
         xfer.xfer_ascii_string(&mut area_to_guard_name)
             .map_err(|e| e.to_string())?;
@@ -3485,22 +3529,26 @@ impl AIUpdateInterface for UnitAIUpdate {
         xfer.xfer_ascii_string(&mut attack_info_name)
             .map_err(|e| e.to_string())?;
 
-        // C++ planning waypoint queue. Rust Unit owns a separate movement queue; that queue still
-        // needs a dedicated bridge before we can restore it through AIUpdate.
-        let mut waypoint_count: Int = 0;
-        xfer.xfer_int(&mut waypoint_count)
+        xfer.xfer_int(&mut self.planning_waypoint_count)
             .map_err(|e| e.to_string())?;
-        if is_loading && waypoint_count > 0 {
-            for _ in 0..waypoint_count.min(1024) {
-                let mut waypoint = Coord3D::ZERO;
-                xfer_unit_coord3d(xfer, &mut waypoint)?;
-            }
+        if self.planning_waypoint_count < 0
+            || self.planning_waypoint_count as usize > AI_UPDATE_MAX_WAYPOINTS
+        {
+            return Err(format!(
+                "Invalid AIUpdate waypoint count {}, max {}",
+                self.planning_waypoint_count, AI_UPDATE_MAX_WAYPOINTS
+            ));
         }
-        let mut waypoint_index: Int = 0;
-        xfer.xfer_int(&mut waypoint_index)
+        for waypoint in self
+            .planning_waypoint_queue
+            .iter_mut()
+            .take(self.planning_waypoint_count as usize)
+        {
+            xfer_unit_coord3d(xfer, waypoint)?;
+        }
+        xfer.xfer_int(&mut self.planning_waypoint_index)
             .map_err(|e| e.to_string())?;
-        let mut executing_waypoint_queue = false;
-        xfer.xfer_bool(&mut executing_waypoint_queue)
+        xfer.xfer_bool(&mut self.executing_waypoint_queue)
             .map_err(|e| e.to_string())?;
 
         let mut completed_waypoint_id = self
@@ -3509,9 +3557,9 @@ impl AIUpdateInterface for UnitAIUpdate {
         xfer.xfer_unsigned_int(&mut completed_waypoint_id)
             .map_err(|e| e.to_string())?;
         if is_loading {
-            self.completed_waypoint_id =
-                (completed_waypoint_id != crate::common::INVALID_WAYPOINT_ID)
-                    .then_some(completed_waypoint_id);
+            self.completed_waypoint_id = (completed_waypoint_id
+                != crate::common::INVALID_WAYPOINT_ID)
+                .then_some(completed_waypoint_id);
         }
 
         let mut waiting_for_path = self.queue_for_path_frame != 0;
@@ -5932,6 +5980,10 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn queue_waypoint(&mut self, pos: &Coord3D) {
+        if (self.planning_waypoint_count as usize) < AI_UPDATE_MAX_WAYPOINTS {
+            self.planning_waypoint_queue[self.planning_waypoint_count as usize] = *pos;
+            self.planning_waypoint_count += 1;
+        }
         if let Some(unit) = self.unit.upgrade() {
             if let Ok(mut guard) = unit.write() {
                 guard
@@ -5942,6 +5994,10 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn execute_waypoint_queue(&mut self) {
+        if self.planning_waypoint_count > 0 {
+            self.planning_waypoint_index = 0;
+            self.executing_waypoint_queue = true;
+        }
         let first_pos = {
             let unit = match self.unit.upgrade() {
                 Some(u) => u,
@@ -7568,6 +7624,8 @@ impl AIUpdateInterface for UnitAIUpdate {
             .unit
             .upgrade()
             .ok_or_else(|| "unit no longer available".to_string())?;
+        self.push_guard_target_type(GuardTargetType::Location);
+        self.location_to_guard = *pos;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
         guard.current_order = Some(UnitOrder::Guard {
             position: *pos,
@@ -8050,14 +8108,16 @@ impl AIUpdateInterface for UnitAIUpdate {
         &mut self,
         obj_to_guard: &Arc<RwLock<Object>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let target_pos = obj_to_guard
+        let (target_id, target_pos) = obj_to_guard
             .read()
-            .map(|guard| *guard.get_position())
+            .map(|guard| (guard.get_id(), *guard.get_position()))
             .map_err(|_| "target lock poisoned")?;
         let unit = self
             .unit
             .upgrade()
             .ok_or_else(|| "unit no longer available".to_string())?;
+        self.push_guard_target_type(GuardTargetType::Object);
+        self.object_to_guard = target_id;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
         guard.current_order = Some(UnitOrder::Guard {
             position: target_pos,
@@ -8267,6 +8327,39 @@ mod tests {
     }
 
     #[test]
+    fn unit_ai_update_guard_target_slots_match_cpp_shift_semantics() {
+        let mut ai = unit_ai_update_without_unit();
+
+        ai.push_guard_target_type(GuardTargetType::Location);
+        ai.push_guard_target_type(GuardTargetType::Object);
+        ai.clear_guard_target_type();
+
+        assert_eq!(ai.guard_target_type[0], GuardTargetType::None_);
+        assert_eq!(ai.guard_target_type[1], GuardTargetType::Object);
+    }
+
+    #[test]
+    fn unit_ai_update_xfer_roundtrips_guard_target_slots() {
+        let mut saved = unit_ai_update_without_unit();
+        saved.push_guard_target_type(GuardTargetType::Location);
+        saved.location_to_guard = Coord3D::new(11.0, 22.0, 3.0);
+        saved.push_guard_target_type(GuardTargetType::Object);
+        saved.object_to_guard = 91;
+        let bytes = save_unit_ai_update(&mut saved);
+
+        let mut loaded = unit_ai_update_without_unit();
+        {
+            let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+            loaded.xfer_ai_update_state(&mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.guard_target_type[0], GuardTargetType::Object);
+        assert_eq!(loaded.guard_target_type[1], GuardTargetType::Location);
+        assert_eq!(loaded.location_to_guard, Coord3D::new(11.0, 22.0, 3.0));
+        assert_eq!(loaded.object_to_guard, 91);
+    }
+
+    #[test]
     fn unit_ai_update_xfer_roundtrips_requested_path_and_locomotor_slots() {
         let mut saved = unit_ai_update_without_unit();
         saved.requested_victim_id = 77;
@@ -8305,6 +8398,45 @@ mod tests {
         assert!(loaded.movement_complete);
         assert_eq!(loaded.locomotor_goal_type, 2);
         assert_eq!(loaded.locomotor_goal_data, Coord3D::new(70.0, 80.0, 9.0));
+    }
+
+    #[test]
+    fn unit_ai_update_xfer_roundtrips_planning_waypoint_queue() {
+        let mut saved = unit_ai_update_without_unit();
+        saved.queue_waypoint(&Coord3D::new(1.0, 2.0, 3.0));
+        saved.queue_waypoint(&Coord3D::new(4.0, 5.0, 6.0));
+        saved.execute_waypoint_queue();
+        let bytes = save_unit_ai_update(&mut saved);
+
+        let mut loaded = unit_ai_update_without_unit();
+        {
+            let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+            loaded.xfer_ai_update_state(&mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.planning_waypoint_count, 2);
+        assert_eq!(loaded.planning_waypoint_index, 0);
+        assert!(loaded.executing_waypoint_queue);
+        assert_eq!(
+            loaded.planning_waypoint_queue[0],
+            Coord3D::new(1.0, 2.0, 3.0)
+        );
+        assert_eq!(
+            loaded.planning_waypoint_queue[1],
+            Coord3D::new(4.0, 5.0, 6.0)
+        );
+    }
+
+    #[test]
+    fn unit_ai_update_xfer_rejects_invalid_planning_waypoint_count() {
+        let mut ai = unit_ai_update_without_unit();
+        ai.planning_waypoint_count = AI_UPDATE_MAX_WAYPOINTS as Int + 1;
+        let mut bytes = Vec::new();
+        let mut xfer = XferSave::new(Cursor::new(&mut bytes), 1);
+
+        let err = ai.xfer_ai_update_state(&mut xfer).unwrap_err();
+
+        assert!(err.contains("Invalid AIUpdate waypoint count"));
     }
 }
 
