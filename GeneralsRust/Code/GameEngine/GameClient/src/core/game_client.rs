@@ -3577,11 +3577,13 @@ impl GameClient {
         }
 
         let mut shell = get_shell();
-        if shell.get_screen_count() == 0 || !shell.is_shell_active() {
+        let needs_screen = shell.get_screen_count() == 0 && !shell.is_shell_map_on();
+        if needs_screen || !shell.is_shell_active() {
             log::info!(
-                "Activating shell: screen_count={}, shell_active={}",
+                "Activating shell: screen_count={}, shell_active={}, shell_map_on={}",
                 shell.get_screen_count(),
-                shell.is_shell_active()
+                shell.is_shell_active(),
+                shell.is_shell_map_on()
             );
             shell.show_shell_map(true);
             shell.show_shell(true).map_err(|err| {
@@ -4638,6 +4640,58 @@ mod tests {
         assert!(global.allow_exit_out_of_movies);
         assert!(!client.startup_sizzle_pending);
         assert!(!client.startup_movies_active());
+    }
+
+    #[test]
+    fn ensure_shell_visible_does_not_requeue_active_shell_map() {
+        init_global_data();
+        let global_data = get_global_data().expect("global data should be initialized");
+        {
+            let mut global = global_data.write();
+            global.initial_file.clear();
+            global.shell_map_on = false;
+            global.shell_map_name = "Maps\\ShellMap\\ShellMap.map".to_string();
+            global.pending_file.clear();
+        }
+        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+            logic.set_game_mode(gamelogic::system::game_logic::GAME_NONE);
+        }
+
+        {
+            let mut shell = get_shell();
+            let _ = shell.init();
+            let _ = shell.reset();
+            shell.show_shell_map(false);
+        }
+        {
+            let mut stream = THE_MESSAGE_STREAM.write().unwrap_or_else(|e| e.into_inner());
+            stream.clear_messages();
+        }
+        {
+            let mut global = global_data.write();
+            global.shell_map_on = true;
+        }
+
+        let client = GameClient::new().expect("GameClient::new should succeed");
+        client
+            .ensure_shell_visible()
+            .expect("first shell activation should succeed");
+        client
+            .ensure_shell_visible()
+            .expect("second shell activation should succeed");
+
+        let stream = THE_MESSAGE_STREAM.read().unwrap_or_else(|e| e.into_inner());
+        let new_game_count = stream
+            .get_messages()
+            .iter()
+            .filter(|msg| matches!(msg.get_type(), GameMessageType::NewGame))
+            .count();
+        assert_eq!(new_game_count, 1);
+        assert_eq!(
+            global_data.read().pending_file,
+            "Maps\\ShellMap\\ShellMap.map"
+        );
+        assert!(get_shell().is_shell_map_on());
     }
 
     #[test]
