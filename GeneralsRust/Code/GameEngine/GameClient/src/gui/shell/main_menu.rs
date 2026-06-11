@@ -1335,6 +1335,10 @@ impl MainMenu {
         state: &mut MainMenuState,
         control_id: u32,
     ) -> MainMenuResult<()> {
+        if state.button_pushed {
+            return Ok(());
+        }
+
         // Don't allow mouse click slop during transitions - matches C++ lines 1304-1310
         if control_id != state.window_ids.button_easy_id
             && control_id != state.window_ids.button_medium_id
@@ -2569,5 +2573,52 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(options_hooks, vec!["ShellMainMenuOptionsPushed"]);
+    }
+
+    #[test]
+    fn test_selected_ignores_clicks_when_button_pushed() {
+        let menu = MainMenu::new();
+        let ids = build_window_ids();
+        let mut state = MainMenuState::default();
+        state.window_ids = ids.clone();
+        state.button_pushed = true;
+        state.dont_allow_transitions = false;
+        state.launch_challenge_menu = true;
+        state.drop_down = DropdownType::Difficulty;
+
+        menu.handle_button_selected(&mut state, ids.button_credits_id)
+            .unwrap();
+
+        assert!(state.button_pushed);
+        assert!(!state.dont_allow_transitions);
+        assert!(state.launch_challenge_menu);
+        assert_eq!(state.drop_down, DropdownType::Difficulty);
+        assert!(state.pending_actions.is_empty());
+    }
+
+    #[test]
+    fn test_button_pushed_guard_blocks_non_network_pushes() {
+        let menu = MainMenu::new();
+        let ids = build_window_ids();
+
+        for control_id in [
+            ids.button_credits_id,
+            ids.button_load_id,
+            ids.button_replay_id,
+            ids.skirmish_id,
+        ] {
+            let mut state = MainMenuState::default();
+            state.window_ids = ids.clone();
+            state.button_pushed = true;
+            state.drop_down = DropdownType::Difficulty;
+
+            menu.handle_button_selected(&mut state, control_id).unwrap();
+
+            assert!(state.button_pushed);
+            assert!(!state.dont_allow_transitions);
+            assert!(!state.campaign_selected);
+            assert_eq!(state.drop_down, DropdownType::Difficulty);
+            assert!(state.pending_actions.is_empty());
+        }
     }
 }
