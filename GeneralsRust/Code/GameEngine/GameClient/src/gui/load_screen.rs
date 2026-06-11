@@ -157,6 +157,8 @@ struct SinglePlayerLoadScreenState {
     current_objective_width_offset: i32,
     current_objective_line_character: usize,
     finished_objective_text: bool,
+    movie_prelude_active: bool,
+    movie_label: String,
     briefing_voice_played: bool,
     briefing_voice_handle: u32,
     ambient_loop_handle: u32,
@@ -172,9 +174,17 @@ static MAP_TRANSFER_LITEUPDATE_HOOK: OnceLock<Mutex<Option<MapTransferLiteupdate
     OnceLock::new();
 static MULTIPLAYER_LOAD_PROGRESS_HOOK: OnceLock<Mutex<Option<MultiplayerLoadProgressHook>>> =
     OnceLock::new();
+#[cfg(test)]
+static SINGLE_PLAYER_MOVIE_PLAY_HOOK: OnceLock<Mutex<Option<SinglePlayerMoviePlayHook>>> =
+    OnceLock::new();
+#[cfg(test)]
+static SINGLE_PLAYER_MOVIE_PLAYING_HOOK: OnceLock<Mutex<Option<SinglePlayerMoviePlayHook>>> =
+    OnceLock::new();
 
 type MapTransferLiteupdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
+#[cfg(test)]
+type SinglePlayerMoviePlayHook = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ChallengePersonaText {
@@ -508,6 +518,7 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
                 "SinglePlayerLoadScreen.wnd:Percent",
                 &format!("{}%", percent as i32),
             );
+            let _ = update_single_player_load_screen_movie_prelude(wm);
         } else if kind == LoadScreenKind::Challenge {
             update_challenge_load_screen_prelude(wm);
             if raw_percent >= 100.0 {
@@ -715,6 +726,8 @@ fn reset_map_transfer_load_screen_state() {
 fn reset_single_player_load_screen_audio_state() {
     let ambient_handle = with_single_player_load_screen_state(|state| {
         let handle = state.ambient_loop_handle;
+        state.movie_prelude_active = false;
+        state.movie_label.clear();
         state.briefing_voice_played = false;
         state.briefing_voice_handle = 0;
         state.ambient_loop_handle = 0;
@@ -753,6 +766,7 @@ fn run_shell_game_legal_hold(wm: &mut WindowManager) {
 
 fn initialize_single_player_windows(wm: &mut WindowManager) {
     with_single_player_load_screen_state(|state| *state = SinglePlayerLoadScreenState::default());
+    with_window_video_manager(|manager| manager.init());
 
     set_window_text(wm, "SinglePlayerLoadScreen.wnd:Percent", "0%");
     hide_window(wm, "SinglePlayerLoadScreen.wnd:Percent", true);
@@ -774,48 +788,70 @@ fn initialize_single_player_windows(wm: &mut WindowManager) {
         );
     }
 
-    let campaign_manager = get_campaign_manager();
-    if let Some(campaign) = campaign_manager.get_current_campaign() {
-        if let Some((background, progress)) = single_player_campaign_images(&campaign.name) {
-            set_window_image(
+    let movie_label = {
+        let campaign_manager = get_campaign_manager();
+        if let Some(campaign) = campaign_manager.get_current_campaign() {
+            if let Some((background, progress)) = single_player_campaign_images(&campaign.name) {
+                set_window_image(
+                    wm,
+                    "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+                    0,
+                    background,
+                    true,
+                );
+                set_window_image(
+                    wm,
+                    "SinglePlayerLoadScreen.wnd:ProgressLoad",
+                    6,
+                    progress,
+                    false,
+                );
+            }
+        }
+
+        let mut movie_label = None;
+        if let Some(mission) = campaign_manager.get_current_mission() {
+            let text = single_player_mission_text(mission);
+            with_single_player_load_screen_state(|state| {
+                state.mission_text = text.clone();
+                state.current_objective_line = 0;
+                state.current_objective_width_offset = 0;
+                state.current_objective_line_character = 0;
+                state.finished_objective_text = false;
+            });
+            for unit in 0..MAX_DISPLAYED_UNITS {
+                set_window_text(
+                    wm,
+                    &format!("SinglePlayerLoadScreen.wnd:StaticTextCameoText{unit}"),
+                    &text.unit_descriptions[unit],
+                );
+            }
+            set_window_text(
                 wm,
-                "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
-                0,
-                background,
-                true,
+                "SinglePlayerLoadScreen.wnd:StaticTextCameoText3",
+                &text.location,
             );
-            set_window_image(
-                wm,
-                "SinglePlayerLoadScreen.wnd:ProgressLoad",
-                6,
-                progress,
-                false,
-            );
+            movie_label = (!mission.movie_label.trim().is_empty())
+                .then(|| mission.movie_label.trim().to_string());
+        }
+        movie_label
+    };
+
+    if let Some(movie_label) = movie_label {
+        if play_single_player_movie(
+            wm,
+            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+            &movie_label,
+        ) {
+            hide_window(wm, "SinglePlayerLoadScreen.wnd:Percent", false);
+            with_single_player_load_screen_state(|state| {
+                state.movie_prelude_active = true;
+                state.movie_label = movie_label;
+            });
+            return;
         }
     }
 
-    if let Some(mission) = campaign_manager.get_current_mission() {
-        let text = single_player_mission_text(mission);
-        with_single_player_load_screen_state(|state| {
-            state.mission_text = text.clone();
-            state.current_objective_line = 0;
-            state.current_objective_width_offset = 0;
-            state.current_objective_line_character = 0;
-            state.finished_objective_text = false;
-        });
-        for unit in 0..MAX_DISPLAYED_UNITS {
-            set_window_text(
-                wm,
-                &format!("SinglePlayerLoadScreen.wnd:StaticTextCameoText{unit}"),
-                &text.unit_descriptions[unit],
-            );
-        }
-        set_window_text(
-            wm,
-            "SinglePlayerLoadScreen.wnd:StaticTextCameoText3",
-            &text.location,
-        );
-    }
     finish_single_player_load_screen_audio_prelude();
 }
 
@@ -849,12 +885,35 @@ fn finish_single_player_load_screen_audio_prelude() {
     let ambient_handle = add_audio_event("LoadScreenAmbient");
 
     with_single_player_load_screen_state(|state| {
+        state.movie_prelude_active = false;
+        state.movie_label.clear();
         if !state.briefing_voice_played {
             state.briefing_voice_handle = briefing_handle;
             state.briefing_voice_played = true;
         }
         state.ambient_loop_handle = ambient_handle;
     });
+}
+
+fn update_single_player_load_screen_movie_prelude(wm: &mut WindowManager) -> bool {
+    let movie_label = with_single_player_load_screen_state(|state| {
+        state
+            .movie_prelude_active
+            .then(|| state.movie_label.clone())
+            .filter(|label| !label.is_empty())
+    });
+    let Some(movie_label) = movie_label else {
+        return false;
+    };
+
+    with_window_video_manager(|manager| manager.update());
+    if is_single_player_movie_playing(&movie_label) {
+        return true;
+    }
+
+    hide_window(wm, "SinglePlayerLoadScreen.wnd:Percent", true);
+    finish_single_player_load_screen_audio_prelude();
+    true
 }
 
 fn initialize_challenge_windows(wm: &mut WindowManager) {
@@ -1209,6 +1268,90 @@ fn play_challenge_movie(wm: &mut WindowManager, window_name: &str, movie_name: &
             )
         });
     }
+}
+
+fn play_single_player_movie(wm: &mut WindowManager, window_name: &str, movie_name: &str) -> bool {
+    if movie_name.is_empty() {
+        return false;
+    }
+    #[cfg(test)]
+    if let Some(hook) = single_player_movie_play_hook() {
+        return hook(movie_name);
+    }
+    let Some(window) = wm.find_window_by_name(window_name) else {
+        return false;
+    };
+    with_window_video_manager(|manager| {
+        manager.play_movie(window, movie_name.to_string(), WindowVideoPlayType::Once)
+    })
+}
+
+fn is_single_player_movie_playing(movie_name: &str) -> bool {
+    #[cfg(test)]
+    if let Some(hook) = single_player_movie_playing_hook() {
+        return hook(movie_name);
+    }
+    with_window_video_manager(|manager| manager.is_movie_playing(movie_name))
+}
+
+#[cfg(test)]
+fn register_single_player_movie_play_hook(
+    hook: impl Fn(&str) -> bool + Send + Sync + 'static,
+) -> Option<SinglePlayerMoviePlayHook> {
+    let hook = Arc::new(hook);
+    let state = SINGLE_PLAYER_MOVIE_PLAY_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.replace(hook)
+}
+
+#[cfg(test)]
+fn register_single_player_movie_playing_hook(
+    hook: impl Fn(&str) -> bool + Send + Sync + 'static,
+) -> Option<SinglePlayerMoviePlayHook> {
+    let hook = Arc::new(hook);
+    let state = SINGLE_PLAYER_MOVIE_PLAYING_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.replace(hook)
+}
+
+#[cfg(test)]
+fn clear_single_player_movie_play_hook() -> Option<SinglePlayerMoviePlayHook> {
+    let state = SINGLE_PLAYER_MOVIE_PLAY_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.take()
+}
+
+#[cfg(test)]
+fn clear_single_player_movie_playing_hook() -> Option<SinglePlayerMoviePlayHook> {
+    let state = SINGLE_PLAYER_MOVIE_PLAYING_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.take()
+}
+
+#[cfg(test)]
+fn single_player_movie_play_hook() -> Option<SinglePlayerMoviePlayHook> {
+    let state = SINGLE_PLAYER_MOVIE_PLAY_HOOK.get_or_init(|| Mutex::new(None));
+    let guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.clone()
+}
+
+#[cfg(test)]
+fn single_player_movie_playing_hook() -> Option<SinglePlayerMoviePlayHook> {
+    let state = SINGLE_PLAYER_MOVIE_PLAYING_HOOK.get_or_init(|| Mutex::new(None));
+    let guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.clone()
 }
 
 fn play_audio_event(event_name: &str) {
@@ -2043,7 +2186,7 @@ mod tests {
     use game_engine::common::ini::ini_map_cache::{Coord3D, Region3D};
     use game_engine::common::language::Language;
     use std::sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Mutex, OnceLock,
     };
 
@@ -3392,6 +3535,106 @@ mod tests {
         assert!(!briefing_played);
         assert_eq!(briefing_handle, 0);
         assert_eq!(ambient_handle, 0);
+    }
+
+    #[test]
+    fn single_player_movie_prelude_defers_ambient_until_movie_finishes_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_single_player_load_screen_audio_state();
+        clear_single_player_movie_play_hook();
+        clear_single_player_movie_playing_hook();
+        let movie_requests = Arc::new(Mutex::new(Vec::new()));
+        let hook_requests = Arc::clone(&movie_requests);
+        register_single_player_movie_play_hook(move |movie_name| {
+            hook_requests.lock().unwrap().push(movie_name.to_string());
+            true
+        });
+        let movie_playing = Arc::new(AtomicBool::new(true));
+        let hook_movie_playing = Arc::clone(&movie_playing);
+        register_single_player_movie_playing_hook(move |movie_name| {
+            assert_eq!(movie_name, "EA_LOGO.BIK");
+            hook_movie_playing.load(Ordering::SeqCst)
+        });
+
+        {
+            let mut manager = get_campaign_manager();
+            let campaign = manager.new_campaign("MoviePrelude".to_string());
+            let mission = campaign.new_mission("Mission1".to_string());
+            mission.movie_label = "EA_LOGO.BIK".to_string();
+            manager.set_campaign_and_mission("MoviePrelude", "Mission1");
+        }
+
+        let mut wm = WindowManager::new();
+        named_test_window(
+            &mut wm,
+            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+        );
+        named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
+        named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
+
+        initialize_single_player_windows(&mut wm);
+
+        assert_eq!(
+            *movie_requests.lock().unwrap(),
+            vec!["EA_LOGO.BIK".to_string()]
+        );
+        let (prelude_active, ambient_handle) = with_single_player_load_screen_state(|state| {
+            (state.movie_prelude_active, state.ambient_loop_handle)
+        });
+        assert!(prelude_active);
+        assert_eq!(ambient_handle, 0);
+        assert!(!wm
+            .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+            .expect("percent")
+            .borrow()
+            .is_hidden());
+
+        with_window_manager(|global_wm| {
+            *global_wm = wm;
+        });
+
+        update_load_screen(LoadScreenKind::SinglePlayer, 25.0);
+        let (prelude_active, ambient_handle) = with_single_player_load_screen_state(|state| {
+            (state.movie_prelude_active, state.ambient_loop_handle)
+        });
+        assert!(prelude_active);
+        assert_eq!(ambient_handle, 0);
+        assert_eq!(
+            progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad"),
+            Some(0.42)
+        );
+        with_window_manager(|wm| {
+            assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "42%");
+            assert!(!wm
+                .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+                .expect("percent")
+                .borrow()
+                .is_hidden());
+        });
+
+        movie_playing.store(false, Ordering::SeqCst);
+        update_load_screen(LoadScreenKind::SinglePlayer, 50.0);
+        let (prelude_active, ambient_handle) = with_single_player_load_screen_state(|state| {
+            (state.movie_prelude_active, state.ambient_loop_handle)
+        });
+        assert!(!prelude_active);
+        assert_eq!(ambient_handle, add_audio_event("LoadScreenAmbient"));
+        assert_eq!(
+            progress_value("SinglePlayerLoadScreen.wnd:ProgressLoad"),
+            Some(0.61)
+        );
+        with_window_manager(|wm| {
+            assert_eq!(window_text(wm, "SinglePlayerLoadScreen.wnd:Percent"), "61%");
+            assert!(wm
+                .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+                .expect("percent")
+                .borrow()
+                .is_hidden());
+        });
+
+        reset_single_player_load_screen_audio_state();
+        clear_single_player_movie_play_hook();
+        clear_single_player_movie_playing_hook();
     }
 
     #[test]
