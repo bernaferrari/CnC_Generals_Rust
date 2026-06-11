@@ -2571,7 +2571,11 @@ pub struct UnitAIUpdate {
     rappel_state: Option<RappelState>,
     original_victim_pos: Option<Coord3D>,
     pending_safe_path: Option<Vec<Coord3D>>,
+    requested_victim_id: ObjectID,
+    requested_destination: Coord3D,
+    requested_destination2: Coord3D,
     pathfind_goal_cell: ICoord2D,
+    pathfind_cur_cell: ICoord2D,
     pathfind_goal_layer: ClassicPathLayer,
     move_out_of_way_1: ObjectID,
     move_out_of_way_2: ObjectID,
@@ -2584,6 +2588,15 @@ pub struct UnitAIUpdate {
     ai_dead: Bool,
     is_recruitable: Bool,
     next_enemy_scan_time: UnsignedInt,
+    final_position: Coord3D,
+    do_final_position: Bool,
+    is_attack_path: Bool,
+    is_final_goal: Bool,
+    is_approach_path: Bool,
+    is_safe_path: Bool,
+    movement_complete: Bool,
+    locomotor_goal_type: u32,
+    locomotor_goal_data: Coord3D,
     is_blocked: Bool,
     blocked_and_stuck: Bool,
     blocked_frames: u32,
@@ -2685,7 +2698,11 @@ impl UnitAIUpdate {
             rappel_state: None,
             original_victim_pos: None,
             pending_safe_path: None,
+            requested_victim_id: INVALID_ID,
+            requested_destination: Coord3D::ZERO,
+            requested_destination2: Coord3D::ZERO,
             pathfind_goal_cell: ICoord2D::new(-1, -1),
+            pathfind_cur_cell: ICoord2D::new(-1, -1),
             pathfind_goal_layer: ClassicPathLayer::Invalid,
             move_out_of_way_1: INVALID_ID,
             move_out_of_way_2: INVALID_ID,
@@ -2698,6 +2715,15 @@ impl UnitAIUpdate {
             ai_dead: false,
             is_recruitable: true,
             next_enemy_scan_time: 0,
+            final_position: Coord3D::ZERO,
+            do_final_position: false,
+            is_attack_path: false,
+            is_final_goal: false,
+            is_approach_path: false,
+            is_safe_path: false,
+            movement_complete: false,
+            locomotor_goal_type: 0,
+            locomotor_goal_data: Coord3D::ZERO,
             is_blocked: false,
             blocked_and_stuck: false,
             blocked_frames: 0,
@@ -3369,6 +3395,13 @@ impl UnitAIUpdate {
     fn safe_path_search_distance(vision_range: Real, repulsed_distance: Real) -> Real {
         vision_range + repulsed_distance
     }
+
+    fn current_path_extra_distance(&self) -> Real {
+        self.unit
+            .upgrade()
+            .and_then(|unit| unit.read().ok().map(|guard| guard.path_extra_distance))
+            .unwrap_or(0.0)
+    }
 }
 
 impl AIUpdateInterface for UnitAIUpdate {
@@ -3492,51 +3525,47 @@ impl AIUpdateInterface for UnitAIUpdate {
         let mut got_path = false;
         xfer.xfer_bool(&mut got_path).map_err(|e| e.to_string())?;
 
-        let mut requested_victim_id = INVALID_ID;
-        xfer.xfer_object_id(&mut requested_victim_id)
+        xfer.xfer_object_id(&mut self.requested_victim_id)
             .map_err(|e| e.to_string())?;
-        let mut requested_destination = Coord3D::ZERO;
-        xfer_unit_coord3d(xfer, &mut requested_destination)?;
-        let mut requested_destination2 = Coord3D::ZERO;
-        xfer_unit_coord3d(xfer, &mut requested_destination2)?;
+        xfer_unit_coord3d(xfer, &mut self.requested_destination)?;
+        xfer_unit_coord3d(xfer, &mut self.requested_destination2)?;
 
         xfer.xfer_object_id(&mut self.ignore_obstacle_id)
             .map_err(|e| e.to_string())?;
-        let mut path_extra_distance: Real = 0.0;
+        let mut path_extra_distance = self.current_path_extra_distance();
         xfer.xfer_real(&mut path_extra_distance)
             .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.set_path_extra_distance(path_extra_distance)
+                .map_err(|e| e.to_string())?;
+        }
         xfer_unit_icoord2d(xfer, &mut self.pathfind_goal_cell)?;
-        let mut pathfind_cur_cell = ICoord2D::new(-1, -1);
-        xfer_unit_icoord2d(xfer, &mut pathfind_cur_cell)?;
+        xfer_unit_icoord2d(xfer, &mut self.pathfind_cur_cell)?;
 
         xfer.xfer_unsigned_int(&mut self.ignore_collisions_until)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut self.queue_for_path_frame)
             .map_err(|e| e.to_string())?;
 
-        let mut final_position = Coord3D::ZERO;
-        xfer_unit_coord3d(xfer, &mut final_position)?;
-        let mut do_final_position = false;
-        xfer.xfer_bool(&mut do_final_position)
+        xfer_unit_coord3d(xfer, &mut self.final_position)?;
+        xfer.xfer_bool(&mut self.do_final_position)
             .map_err(|e| e.to_string())?;
-        let mut is_attack_path = false;
-        xfer.xfer_bool(&mut is_attack_path)
+        xfer.xfer_bool(&mut self.is_attack_path)
             .map_err(|e| e.to_string())?;
-        let mut is_final_goal = false;
-        xfer.xfer_bool(&mut is_final_goal)
+        xfer.xfer_bool(&mut self.is_final_goal)
             .map_err(|e| e.to_string())?;
-        let mut is_approach_path = false;
-        xfer.xfer_bool(&mut is_approach_path)
+        xfer.xfer_bool(&mut self.is_approach_path)
             .map_err(|e| e.to_string())?;
-        let mut is_safe_path = self.pending_safe_path.is_some();
-        xfer.xfer_bool(&mut is_safe_path)
+        xfer.xfer_bool(&mut self.is_safe_path)
             .map_err(|e| e.to_string())?;
-        let mut movement_complete = false;
-        xfer.xfer_bool(&mut movement_complete)
+        xfer.xfer_bool(&mut self.movement_complete)
             .map_err(|e| e.to_string())?;
-        let mut is_safe_path_duplicate = is_safe_path;
+        let mut is_safe_path_duplicate = self.is_safe_path;
         xfer.xfer_bool(&mut is_safe_path_duplicate)
             .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.is_safe_path = is_safe_path_duplicate;
+        }
 
         xfer.xfer_bool(&mut self.locomotor_upgraded)
             .map_err(|e| e.to_string())?;
@@ -3559,11 +3588,9 @@ impl AIUpdateInterface for UnitAIUpdate {
         xfer.xfer_unsigned_int(&mut current_locomotor_set)
             .map_err(|e| e.to_string())?;
 
-        let mut locomotor_goal_type: u32 = 0;
-        xfer.xfer_unsigned_int(&mut locomotor_goal_type)
+        xfer.xfer_unsigned_int(&mut self.locomotor_goal_type)
             .map_err(|e| e.to_string())?;
-        let mut locomotor_goal_data = Coord3D::ZERO;
-        xfer_unit_coord3d(xfer, &mut locomotor_goal_data)?;
+        xfer_unit_coord3d(xfer, &mut self.locomotor_goal_data)?;
 
         if let Some(machine) = self.turret_primary_machine.as_ref() {
             Self::xfer_turret_ai(machine, xfer)?;
@@ -5985,6 +6012,9 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.blocked_and_stuck = false;
         self.queue_for_path_frame = 0;
         self.path_timestamp = TheGameLogic::get_frame();
+        self.movement_complete = false;
+        self.locomotor_goal_type = 1;
+        self.locomotor_goal_data = Coord3D::ZERO;
 
         if let Some(locomotor) = guard.current_locomotor.as_ref() {
             if let Ok(mut loc_guard) = locomotor.lock() {
@@ -5996,6 +6026,11 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn request_safe_path(&mut self, repulsor_id: ObjectID) -> Result<bool, String> {
+        self.is_final_goal = false;
+        self.is_attack_path = false;
+        self.requested_victim_id = INVALID_ID;
+        self.is_approach_path = false;
+        self.is_safe_path = true;
         if repulsor_id != self.repulsor1 {
             self.repulsor2 = self.repulsor1;
         }
@@ -6065,6 +6100,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             owner_pos.y + (away.y / away_length) * safe_distance,
             owner_pos.z,
         );
+        self.requested_destination = safe_destination;
 
         let mut safe_path_coords: Option<Vec<Coord3D>> = None;
         if let Ok(ai_lock) = THE_AI.read() {
@@ -6923,6 +6959,12 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn request_path(&mut self, destination: &Coord3D, _is_final_goal: bool) -> Result<(), String> {
+        self.requested_destination = *destination;
+        self.is_final_goal = _is_final_goal;
+        self.is_attack_path = false;
+        self.requested_victim_id = INVALID_ID;
+        self.is_approach_path = false;
+        self.is_safe_path = false;
         if !self.has_valid_locomotor_surfaces() {
             return Err("Attempting to path immobile unit".to_string());
         }
@@ -6954,6 +6996,11 @@ impl AIUpdateInterface for UnitAIUpdate {
         victim_id: ObjectID,
         victim_pos: &Coord3D,
     ) -> Result<(), String> {
+        self.requested_destination = *victim_pos;
+        self.requested_victim_id = victim_id;
+        self.is_attack_path = true;
+        self.is_approach_path = false;
+        self.is_safe_path = false;
         if !self.has_valid_locomotor_surfaces() {
             return Err("Attempting to path immobile unit".to_string());
         }
@@ -6974,6 +7021,12 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn request_approach_path(&mut self, destination: &Coord3D) -> Result<(), String> {
+        self.requested_destination = *destination;
+        self.is_final_goal = true;
+        self.is_attack_path = false;
+        self.requested_victim_id = INVALID_ID;
+        self.is_approach_path = true;
+        self.is_safe_path = false;
         if !self.has_valid_locomotor_surfaces() {
             return Err("Attempting to path immobile unit".to_string());
         }
@@ -7051,6 +7104,9 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
         self.path_timestamp = TheGameLogic::get_frame();
+        self.movement_complete = false;
+        self.locomotor_goal_type = 1;
+        self.locomotor_goal_data = Coord3D::ZERO;
         true
     }
 
@@ -7215,6 +7271,8 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn set_locomotor_goal_none(&mut self) {
+        self.locomotor_goal_type = 0;
+        self.locomotor_goal_data = Coord3D::ZERO;
         if let Some(jet_ai) = self.jet_ai.as_ref() {
             if jet_ai.is_takeoff_or_landing_in_progress()
                 && jet_ai.allow_air_loco()
@@ -7241,6 +7299,8 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn set_locomotor_goal_orientation(&mut self, angle: Real) {
+        self.locomotor_goal_type = 3;
+        self.locomotor_goal_data = Coord3D::new(angle, 0.0, 0.0);
         if let Some(unit) = self.unit.upgrade() {
             if let Ok(mut guard) = unit.write() {
                 let _ = guard.set_orientation(angle);
@@ -7249,12 +7309,17 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn set_locomotor_goal_position_explicit(&mut self, pos: Coord3D) {
+        self.locomotor_goal_type = 2;
+        self.locomotor_goal_data = pos;
         let _ = self.set_movement_target(&pos);
     }
 
     fn friend_ending_move(&mut self) {
         self.queue_for_path_frame = 0;
         self.ignore_obstacle_id = INVALID_ID;
+        self.movement_complete = true;
+        self.locomotor_goal_type = 0;
+        self.locomotor_goal_data = Coord3D::ZERO;
         if let Some(unit) = self.unit.upgrade() {
             if let Ok(mut guard) = unit.write() {
                 guard.stop_movement();
@@ -7265,6 +7330,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn friend_starting_move(&mut self) {
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
+        self.movement_complete = false;
         if let Some(unit) = self.unit.upgrade() {
             if let Ok(mut guard) = unit.write() {
                 guard.movement_state = MovementState::Moving;
@@ -8198,6 +8264,47 @@ mod tests {
         }
 
         assert_eq!(loaded.next_enemy_scan_time, 12_345);
+    }
+
+    #[test]
+    fn unit_ai_update_xfer_roundtrips_requested_path_and_locomotor_slots() {
+        let mut saved = unit_ai_update_without_unit();
+        saved.requested_victim_id = 77;
+        saved.requested_destination = Coord3D::new(10.0, 20.0, 3.0);
+        saved.requested_destination2 = Coord3D::new(30.0, 40.0, 5.0);
+        saved.pathfind_goal_cell = ICoord2D::new(11, 12);
+        saved.pathfind_cur_cell = ICoord2D::new(13, 14);
+        saved.final_position = Coord3D::new(50.0, 60.0, 7.0);
+        saved.do_final_position = true;
+        saved.is_attack_path = true;
+        saved.is_final_goal = true;
+        saved.is_approach_path = true;
+        saved.is_safe_path = true;
+        saved.movement_complete = true;
+        saved.locomotor_goal_type = 2;
+        saved.locomotor_goal_data = Coord3D::new(70.0, 80.0, 9.0);
+        let bytes = save_unit_ai_update(&mut saved);
+
+        let mut loaded = unit_ai_update_without_unit();
+        {
+            let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+            loaded.xfer_ai_update_state(&mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.requested_victim_id, 77);
+        assert_eq!(loaded.requested_destination, Coord3D::new(10.0, 20.0, 3.0));
+        assert_eq!(loaded.requested_destination2, Coord3D::new(30.0, 40.0, 5.0));
+        assert_eq!(loaded.pathfind_goal_cell, ICoord2D::new(11, 12));
+        assert_eq!(loaded.pathfind_cur_cell, ICoord2D::new(13, 14));
+        assert_eq!(loaded.final_position, Coord3D::new(50.0, 60.0, 7.0));
+        assert!(loaded.do_final_position);
+        assert!(loaded.is_attack_path);
+        assert!(loaded.is_final_goal);
+        assert!(loaded.is_approach_path);
+        assert!(loaded.is_safe_path);
+        assert!(loaded.movement_complete);
+        assert_eq!(loaded.locomotor_goal_type, 2);
+        assert_eq!(loaded.locomotor_goal_data, Coord3D::new(70.0, 80.0, 9.0));
     }
 }
 
