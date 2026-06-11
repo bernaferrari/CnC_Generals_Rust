@@ -393,7 +393,7 @@ enum ProductionQueueModuleKindMut<'a> {
 impl<'a> ProductionQueueModuleKindMut<'a> {
     fn request_unique_unit_id(self) -> Option<u32> {
         match self {
-            Self::Complete(_) => None,
+            Self::Complete(module) => Some(module.behavior_mut().request_unique_unit_id()),
         }
     }
 
@@ -413,6 +413,29 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     build_cost,
                     build_time,
                     player_id,
+                )
+                .is_ok(),
+        }
+    }
+
+    fn queue_unit_with_production_id(
+        self,
+        template_name: String,
+        build_cost: i32,
+        build_time: u32,
+        player_id: ObjectID,
+        production_id: u32,
+    ) -> bool {
+        match self {
+            Self::Complete(module) => module
+                .behavior_mut()
+                .queue_create_unit_with_id(
+                    template_name,
+                    crate::object::production::ProductionType::Unit,
+                    build_cost,
+                    build_time,
+                    player_id,
+                    production_id,
                 )
                 .is_ok(),
         }
@@ -484,6 +507,29 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
         }
     }
 
+    fn cancel_unit_by_production_id(self, production_id: u32) -> bool {
+        match self {
+            Self::Complete(module) => {
+                let mut refund = |player_id: ObjectID, credits: i32| {
+                    if credits <= 0 {
+                        return;
+                    }
+                    if let Ok(list) = player_list().read() {
+                        if let Some(player_arc) = list.get_player(player_id as i32) {
+                            if let Ok(mut player) = player_arc.write() {
+                                player.get_money_mut().add_money(credits);
+                            }
+                        }
+                    }
+                };
+                module
+                    .behavior_mut()
+                    .cancel_unit_by_production_id(production_id, &mut refund)
+                    .is_ok()
+            }
+        }
+    }
+
     fn set_enabled(self, enabled: bool) {
         match self {
             Self::Complete(module) => {
@@ -544,7 +590,8 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
     fn request_unique_unit_id(self) -> Option<u32> {
         match self {
             Self::Legacy(module) => Some(module.request_unique_unit_id()),
-            Self::Complete(_) | Self::Core(_) => None,
+            Self::Complete(module) => Some(module.request_unique_unit_id()),
+            Self::Core(_) => None,
         }
     }
 
@@ -596,21 +643,23 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                 .queue_create_unit(template_name, production_id)
                 .is_ok(),
             Self::Complete(module) => module
-                .queue_create_unit(
+                .queue_create_unit_with_id(
                     template_name,
                     crate::object::production::ProductionType::Unit,
                     build_cost,
                     build_time,
                     player_id,
+                    production_id,
                 )
                 .is_ok(),
             Self::Core(module) => module
-                .enqueue_production(
+                .enqueue_production_with_id(
                     template_name,
                     crate::object::production::ProductionType::Unit,
                     build_cost,
                     build_time,
                     player_id,
+                    production_id,
                 )
                 .is_ok(),
         }
@@ -700,6 +749,30 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     .is_ok()
             }
             Self::Core(module) => module.cancel_unit_by_template_name(template_name).is_ok(),
+        }
+    }
+
+    fn cancel_unit_by_production_id(self, production_id: u32) -> bool {
+        match self {
+            Self::Legacy(module) => module.cancel_unit_create(production_id).is_some(),
+            Self::Complete(module) => {
+                let mut refund = |player_id: ObjectID, credits: i32| {
+                    if credits <= 0 {
+                        return;
+                    }
+                    if let Ok(list) = player_list().read() {
+                        if let Some(player_arc) = list.get_player(player_id as i32) {
+                            if let Ok(mut player) = player_arc.write() {
+                                player.get_money_mut().add_money(credits);
+                            }
+                        }
+                    }
+                };
+                module
+                    .cancel_unit_by_production_id(production_id, &mut refund)
+                    .is_ok()
+            }
+            Self::Core(module) => module.cancel_unit_by_production_id(production_id).is_ok(),
         }
     }
 
@@ -9797,6 +9870,24 @@ impl Object {
         let build_cost = template.calc_cost_to_build(None);
         let build_time = template.calc_time_to_build(None).max(0) as u32;
 
+        for entry in &self.modules {
+            let queued = entry.with_module(|module| {
+                module_production_queue_kind(module).map(|kind| {
+                    kind.queue_unit_with_production_id(
+                        template_name.clone(),
+                        build_cost,
+                        build_time,
+                        player_id,
+                        production_id,
+                    )
+                })
+            });
+
+            if let Some(result) = queued {
+                return result;
+            }
+        }
+
         for behavior in &self.behaviors {
             let Ok(mut behavior_guard) = behavior.lock() else {
                 continue;
@@ -9908,15 +9999,29 @@ impl Object {
     }
 
     fn cancel_unit_via_production_id(&self, production_id: u32) -> bool {
+        for entry in &self.modules {
+            let canceled = entry.with_module(|module| {
+                module_production_queue_kind(module).and_then(|kind| {
+                    if kind.cancel_unit_by_production_id(production_id) {
+                        Some(())
+                    } else {
+                        None
+                    }
+                })
+            });
+
+            if canceled.is_some() {
+                return true;
+            }
+        }
+
         for behavior in &self.behaviors {
             let Ok(mut behavior_guard) = behavior.lock() else {
                 continue;
             };
 
             if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
-                if let ProductionBehaviorQueueKindMut::Legacy(module) = kind {
-                    return module.cancel_unit_create(production_id).is_some();
-                }
+                return kind.cancel_unit_by_production_id(production_id);
             }
         }
 
