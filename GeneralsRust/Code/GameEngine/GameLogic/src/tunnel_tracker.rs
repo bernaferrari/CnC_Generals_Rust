@@ -8,8 +8,11 @@
 
 use crate::common::{GameResult, KindOf, ObjectID, ObjectStatusTypes, INVALID_ID};
 use crate::damage::DamageInfo;
+use crate::object::drawable::DrawableArcExt;
 use crate::object::Object;
 use crate::system::game_logic::get_game_logic;
+use game_engine::common::system::snapshot::Snapshotable;
+use game_engine::common::system::xfer::{Xfer, XferMode, XferVersion};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// Tracks the objects associated with a single tunnel network.
@@ -22,6 +25,8 @@ pub struct TunnelTracker {
     tunnel_count: u32,
     /// Objects currently in the tunnel network
     contained_objects: Vec<Arc<RwLock<Object>>>,
+    /// Object IDs read from a save before load post-processing resolves them.
+    xfer_contain_list: Vec<ObjectID>,
     /// Size of contained list (maintained separately for save/load)
     contain_list_size: usize,
     /// Current nemesis (enemy unit being tracked)
@@ -40,6 +45,7 @@ impl TunnelTracker {
             tunnel_ids: Vec::new(),
             tunnel_count: 0,
             contained_objects: Vec::new(),
+            xfer_contain_list: Vec::new(),
             contain_list_size: 0,
             cur_nemesis_id: INVALID_ID,
             nemesis_timestamp: 0,
@@ -385,6 +391,104 @@ impl Default for TunnelTracker {
     }
 }
 
+impl Snapshotable for TunnelTracker {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ TunnelTracker::crc is intentionally empty.
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |res: std::io::Result<()>| res.map_err(|err| err.to_string());
+
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer_io(xfer.xfer_version(&mut version, current_version))?;
+
+        if xfer.is_reading() {
+            self.tunnel_ids.clear();
+        }
+        xfer_io(xfer.xfer_stl_object_id_list(&mut self.tunnel_ids))?;
+
+        let mut contain_list_size = self.contained_objects.len() as i32;
+        xfer_io(xfer.xfer_int(&mut contain_list_size))?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.contain_list_size = contain_list_size.max(0) as usize;
+            self.xfer_contain_list.clear();
+            self.contained_objects.clear();
+        } else {
+            self.contain_list_size = self.contained_objects.len();
+        }
+
+        match xfer.get_xfer_mode() {
+            XferMode::Save | XferMode::Crc => {
+                for object in &self.contained_objects {
+                    let mut object_id = object
+                        .read()
+                        .map_err(|_| "TunnelTracker::xfer object lock poisoned".to_string())?
+                        .get_id();
+                    xfer_io(xfer.xfer_object_id(&mut object_id))?;
+                }
+            }
+            XferMode::Load => {
+                for _ in 0..self.contain_list_size {
+                    let mut object_id: ObjectID = INVALID_ID;
+                    xfer_io(xfer.xfer_object_id(&mut object_id))?;
+                    self.xfer_contain_list.push(object_id);
+                }
+            }
+            XferMode::Invalid => {
+                return Err("TunnelTracker::xfer - invalid xfer mode".to_string());
+            }
+        }
+
+        xfer_io(xfer.xfer_unsigned_int(&mut self.tunnel_count))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        if !self.contained_objects.is_empty() {
+            return Err(
+                "TunnelTracker::loadPostProcess - contain list should be empty but is not"
+                    .to_string(),
+            );
+        }
+
+        for object_id in self.xfer_contain_list.drain(..) {
+            let object = find_object_by_id(object_id)
+                .map_err(|err| err.to_string())?
+                .ok_or_else(|| {
+                    format!(
+                        "TunnelTracker::loadPostProcess - unable to find object ID '{}'",
+                        object_id
+                    )
+                })?;
+
+            {
+                let mut guard = object
+                    .write()
+                    .map_err(|_| "TunnelTracker::loadPostProcess object lock poisoned")?;
+                guard.leave_group();
+                let pos = *guard.get_position();
+                let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
+                    manager.remove_pathfinding_obstacle(object_id, &[pos])
+                });
+            }
+
+            if let Ok(guard) = object.read() {
+                if let Some(drawable) = guard.get_drawable() {
+                    drawable.set_drawable_hidden(true);
+                }
+            }
+
+            self.contained_objects.push(object);
+        }
+
+        self.contain_list_size = self.contained_objects.len();
+        Ok(())
+    }
+}
+
 /// Helper function to get current game frame
 fn get_current_frame() -> GameResult<u32> {
     if let Ok(logic) = get_game_logic().lock() {
@@ -423,6 +527,9 @@ fn destroy_object(obj: Arc<RwLock<Object>>) -> GameResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::system::xfer_load::XferLoad;
+    use game_engine::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     #[test]
     fn test_tunnel_tracker_creation() {
@@ -450,5 +557,30 @@ mod tests {
 
         // Simulating destruction of last tunnel would clear contained objects
         // (actual test would require mock objects)
+    }
+
+    #[test]
+    fn tunnel_tracker_xfer_preserves_tunnel_ids_and_count() {
+        let mut original = TunnelTracker::new();
+        original.tunnel_ids = vec![11, 22];
+        original.tunnel_count = 2;
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            original.xfer(&mut save).unwrap();
+        }
+
+        let mut loaded = TunnelTracker::new();
+        {
+            let cursor = Cursor::new(bytes.as_slice());
+            let mut load = XferLoad::new(cursor, 1);
+            loaded.xfer(&mut load).unwrap();
+        }
+
+        assert_eq!(loaded.tunnel_ids, vec![11, 22]);
+        assert_eq!(loaded.tunnel_count, 2);
+        assert!(loaded.xfer_contain_list.is_empty());
     }
 }

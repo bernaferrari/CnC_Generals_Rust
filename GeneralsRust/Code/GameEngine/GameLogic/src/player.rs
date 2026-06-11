@@ -3839,13 +3839,13 @@ impl Snapshotable for Player {
             }
         }
 
-        // AI player data (present bool only, AI state not serialized here)
+        // AI player data (present bool only; external AI manager snapshot is tracked separately).
         {
             let mut ai_present = false;
             xfer.xfer_bool(&mut ai_present).map_err(|e| e.to_string())?;
         }
 
-        // Resource gathering manager (present bool; fields reconstructed from map state)
+        // Resource gathering manager
         {
             let has_rgm = self.resource_manager.is_some();
             let mut rgm_present = has_rgm;
@@ -3858,9 +3858,12 @@ impl Snapshotable for Player {
                     None
                 };
             }
+            if let Some(manager) = self.resource_manager.as_mut() {
+                manager.xfer(xfer)?;
+            }
         }
 
-        // Tunnel tracker (present bool; fields reconstructed from map state)
+        // Tunnel tracker
         {
             let has_tunnel = self.tunnel_tracker.is_some();
             let mut tunnel_present = has_tunnel;
@@ -3872,6 +3875,9 @@ impl Snapshotable for Player {
                 } else {
                     None
                 };
+            }
+            if let Some(tracker) = self.tunnel_tracker.as_mut() {
+                tracker.xfer(xfer)?;
             }
         }
 
@@ -4261,6 +4267,12 @@ impl Snapshotable for Player {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        if let Some(manager) = self.resource_manager.as_mut() {
+            manager.load_post_process()?;
+        }
+        if let Some(tracker) = self.tunnel_tracker.as_mut() {
+            tracker.load_post_process()?;
+        }
         Ok(())
     }
 }

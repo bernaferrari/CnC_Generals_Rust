@@ -34,7 +34,7 @@ use crate::state_machine::{
     StateTransitionUserData,
 };
 use game_engine::common::system::snapshot::Snapshotable;
-use game_engine::common::system::xfer::Xfer;
+use game_engine::common::system::xfer::{Xfer, XferVersion};
 
 pub type ObjectID = u32;
 pub type PlayerIndex = u32;
@@ -460,6 +460,36 @@ impl ResourceGatheringManager {
 impl Default for ResourceGatheringManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Snapshotable for ResourceGatheringManager {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ ResourceGatheringManager::crc is intentionally empty.
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let xfer_io = |res: std::io::Result<()>| res.map_err(|err| err.to_string());
+
+        let current_version: XferVersion = 1;
+        let mut version = current_version;
+        xfer_io(xfer.xfer_version(&mut version, current_version))?;
+
+        if xfer.is_reading() {
+            self.supply_warehouses.clear();
+            self.supply_centers.clear();
+        }
+
+        xfer_io(xfer.xfer_stl_object_id_list(&mut self.supply_warehouses))?;
+        xfer_io(xfer.xfer_stl_object_id_list(&mut self.supply_centers))?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        // C++ ResourceGatheringManager::loadPostProcess is intentionally empty.
+        Ok(())
     }
 }
 
@@ -3878,5 +3908,30 @@ mod tests {
         assert_eq!(loaded.preferred_dock, Some(9001));
         assert!(loaded.force_wanting_state);
         assert!(!loaded.force_busy_state);
+    }
+
+    #[test]
+    fn resource_gathering_manager_xfer_preserves_supply_ids() {
+        let mut original = ResourceGatheringManager::new();
+        original.add_supply_warehouse(101);
+        original.add_supply_warehouse(102);
+        original.add_supply_center(201);
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            original.xfer(&mut save).unwrap();
+        }
+
+        let mut loaded = ResourceGatheringManager::new();
+        {
+            let cursor = Cursor::new(bytes.as_slice());
+            let mut load = XferLoad::new(cursor, 1);
+            loaded.xfer(&mut load).unwrap();
+        }
+
+        assert_eq!(loaded.get_supply_warehouses(), &[101, 102]);
+        assert_eq!(loaded.get_supply_centers(), &[201]);
     }
 }
