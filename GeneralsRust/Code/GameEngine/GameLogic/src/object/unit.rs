@@ -2583,6 +2583,7 @@ pub struct UnitAIUpdate {
     path_timestamp: UnsignedInt,
     ai_dead: Bool,
     is_recruitable: Bool,
+    next_enemy_scan_time: UnsignedInt,
     is_blocked: Bool,
     blocked_and_stuck: Bool,
     blocked_frames: u32,
@@ -2696,6 +2697,7 @@ impl UnitAIUpdate {
             path_timestamp: 0,
             ai_dead: false,
             is_recruitable: true,
+            next_enemy_scan_time: 0,
             is_blocked: false,
             blocked_and_stuck: false,
             blocked_frames: 0,
@@ -2849,6 +2851,16 @@ impl UnitAIUpdate {
             }
         }
         Some(TurretStateMachine::new(Some(turret_ai), owner, "TurretAI"))
+    }
+
+    fn xfer_turret_ai(machine: &TurretStateMachine, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if let Some(turret_ai) = machine.get_turret_ai() {
+            let mut guard = turret_ai
+                .lock()
+                .map_err(|_| "TurretAI lock poisoned during AIUpdate xfer".to_string())?;
+            guard.xfer(xfer)?;
+        }
+        Ok(())
     }
 
     fn start_rappel_state(&mut self, target_id: Option<ObjectID>) -> Result<(), String> {
@@ -3393,9 +3405,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         xfer.xfer_bool(&mut self.is_recruitable)
             .map_err(|e| e.to_string())?;
 
-        // PARITY_TODO: m_nextEnemyScanTime is currently distributed through Unit scan timing.
-        let mut next_enemy_scan_time: UnsignedInt = 0;
-        xfer.xfer_unsigned_int(&mut next_enemy_scan_time)
+        xfer.xfer_unsigned_int(&mut self.next_enemy_scan_time)
             .map_err(|e| e.to_string())?;
 
         let mut current_victim_id = self.get_current_victim().unwrap_or(INVALID_ID);
@@ -3555,7 +3565,13 @@ impl AIUpdateInterface for UnitAIUpdate {
         let mut locomotor_goal_data = Coord3D::ZERO;
         xfer_unit_coord3d(xfer, &mut locomotor_goal_data)?;
 
-        // PARITY_TODO: turret AI snapshots and sync flag.
+        if let Some(machine) = self.turret_primary_machine.as_ref() {
+            Self::xfer_turret_ai(machine, xfer)?;
+        }
+        if let Some(machine) = self.turret_secondary_machine.as_ref() {
+            Self::xfer_turret_ai(machine, xfer)?;
+        }
+
         let mut turret_sync_flag: u32 = 0;
         xfer.xfer_unsigned_int(&mut turret_sync_flag)
             .map_err(|e| e.to_string())?;
@@ -8050,6 +8066,9 @@ impl Drop for UnitAIUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     fn unit_ai_update_without_unit() -> UnitAIUpdate {
         UnitAIUpdate::new(
@@ -8069,6 +8088,20 @@ mod tests {
             None,
             None,
         )
+    }
+
+    fn test_turret_machine() -> TurretStateMachine {
+        let turret_ai = Arc::new(Mutex::new(TurretAI::new(Weak::new())));
+        TurretStateMachine::new(Some(turret_ai), Weak::new(), "TurretAI")
+    }
+
+    fn save_unit_ai_update(ai: &mut UnitAIUpdate) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut xfer = XferSave::new(Cursor::new(&mut bytes), 1);
+            ai.xfer_ai_update_state(&mut xfer).unwrap();
+        }
+        bytes
     }
 
     #[test]
@@ -8128,6 +8161,43 @@ mod tests {
     #[test]
     fn unit_ai_update_safe_path_distance_matches_cpp_inputs() {
         assert!((UnitAIUpdate::safe_path_search_distance(120.0, 35.0) - 155.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn unit_ai_update_xfer_serializes_turret_ai_snapshots_before_sync_flag() {
+        let mut without_turret = unit_ai_update_without_unit();
+        let without_turret_bytes = save_unit_ai_update(&mut without_turret);
+
+        let mut with_primary = unit_ai_update_without_unit();
+        with_primary.turret_primary_machine = Some(test_turret_machine());
+        let with_primary_bytes = save_unit_ai_update(&mut with_primary);
+
+        let mut with_both = unit_ai_update_without_unit();
+        with_both.turret_primary_machine = Some(test_turret_machine());
+        with_both.turret_secondary_machine = Some(test_turret_machine());
+        let with_both_bytes = save_unit_ai_update(&mut with_both);
+
+        assert!(with_primary_bytes.len() > without_turret_bytes.len());
+        assert!(with_both_bytes.len() > with_primary_bytes.len());
+        assert_eq!(
+            with_primary_bytes.len() - without_turret_bytes.len(),
+            with_both_bytes.len() - with_primary_bytes.len()
+        );
+    }
+
+    #[test]
+    fn unit_ai_update_xfer_roundtrips_next_enemy_scan_time() {
+        let mut saved = unit_ai_update_without_unit();
+        saved.next_enemy_scan_time = 12_345;
+        let bytes = save_unit_ai_update(&mut saved);
+
+        let mut loaded = unit_ai_update_without_unit();
+        {
+            let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+            loaded.xfer_ai_update_state(&mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.next_enemy_scan_time, 12_345);
     }
 }
 
