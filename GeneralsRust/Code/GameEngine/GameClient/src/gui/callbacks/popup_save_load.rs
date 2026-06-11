@@ -10,7 +10,7 @@ use crate::gui::menu_flags::{
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
     get_shell, with_window_manager, write_input_focus_response, GameWindow, KeyModifiers,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
@@ -27,7 +27,6 @@ use std::sync::{Arc, Mutex};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
-const DOUBLE_CLICK_MSG: u32 = 0x8000;
 const DIFFICULTY_NORMAL: i32 = 1;
 
 struct SaveLoadMenuState {
@@ -336,6 +335,36 @@ mod tests {
             WindowMsgHandled::Handled
         );
     }
+
+    #[test]
+    fn save_load_menu_system_handles_glm_double_clicked_like_cpp() {
+        let listbox_id = 101;
+        let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
+        listbox_window
+            .borrow_mut()
+            .set_widget(crate::gui::WindowWidget::ListBox(
+                crate::gui::gadgets::ListBox::new(listbox_id as u32, 0, 0, 200, 80),
+            ));
+
+        {
+            let state_handle = save_load_menu_state();
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            *state = SaveLoadMenuState::default();
+            state.listbox_games = listbox_id;
+            state.listbox_games_window = Some(listbox_window);
+        }
+
+        let window = GameWindow::new();
+        assert_eq!(
+            save_load_menu_system(
+                &window,
+                WindowMessage::User(GLM_DOUBLE_CLICKED),
+                listbox_id as WindowMsgData,
+                (-1isize) as WindowMsgData,
+            ),
+            WindowMsgHandled::Handled
+        );
+    }
 }
 
 fn selected_game_info(state: &SaveLoadMenuState) -> Option<AvailableGameInfo> {
@@ -631,7 +660,7 @@ pub fn save_load_menu_system(
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
-        WindowMessage::User(code) if code == DOUBLE_CLICK_MSG => {
+        WindowMessage::User(code) if code == GLM_DOUBLE_CLICKED => {
             if data1 as i32 == state.listbox_games {
                 let row_selected = data2 as i32;
                 if row_selected >= 0 {
