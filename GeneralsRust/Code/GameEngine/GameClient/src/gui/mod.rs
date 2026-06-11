@@ -100,10 +100,10 @@ pub mod window_video_manager;
 
 // Re-export main types for convenience
 pub use game_window::{
-    GameWindow, WindowCallbacks, WindowDrawData, WindowError, WindowId, WindowInputReturnCode,
-    WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled, WindowRegion, WindowResult,
-    WindowState, WindowStatus, WindowTextColors, WindowWidget, GWS_PUSH_BUTTON, GWS_STATIC_TEXT,
-    GWS_USER_WINDOW, WIN_COLOR_UNDEFINED,
+    write_input_focus_response, GameWindow, WindowCallbacks, WindowDrawData, WindowError, WindowId,
+    WindowInputReturnCode, WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled,
+    WindowRegion, WindowResult, WindowState, WindowStatus, WindowTextColors, WindowWidget,
+    GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW, WIN_COLOR_UNDEFINED,
 };
 pub use game_window_transitions::GameWindowTransitionsHandler;
 

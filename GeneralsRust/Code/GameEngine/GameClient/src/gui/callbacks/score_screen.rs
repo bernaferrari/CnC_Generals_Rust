@@ -12,8 +12,8 @@ use crate::gui::challenge_generals::get_challenge_generals;
 use crate::gui::menu_flags::{set_dont_show_main_menu, set_replay_was_pressed};
 use crate::gui::shell::Shell;
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowStatus,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
 };
 use game_engine::common::game_lod::prefers_low_res_movies;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -1179,11 +1179,11 @@ pub fn score_screen_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     with_score_screen_state(|state| match msg {
         WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             with_window_manager(|manager| manager.transition_remove("ScoreScreenShow", true));

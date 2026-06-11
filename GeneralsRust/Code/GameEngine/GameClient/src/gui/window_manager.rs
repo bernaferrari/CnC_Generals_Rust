@@ -1057,9 +1057,12 @@ impl WindowManager {
                     .map(|new_focus| !Rc::ptr_eq(&old_focus, new_focus))
                     .unwrap_or(true);
                 if changing_focus {
-                    old_focus
-                        .borrow_mut()
-                        .send_system_message(WindowMessage::InputFocus, 0, 0);
+                    let mut wants_focus = false;
+                    old_focus.borrow_mut().send_system_message(
+                        WindowMessage::InputFocus,
+                        0,
+                        (&mut wants_focus as *mut bool) as WindowMsgData,
+                    );
                 }
             }
         }
@@ -1071,12 +1074,12 @@ impl WindowManager {
             let mut wants_focus = false;
             let mut focus_probe = Some(new_focus.clone());
             while let Some(window) = focus_probe {
-                let result =
-                    window
-                        .borrow_mut()
-                        .send_system_message(WindowMessage::InputFocus, 1, 0);
-                if result.is_handled() {
-                    wants_focus = true;
+                window.borrow_mut().send_system_message(
+                    WindowMessage::InputFocus,
+                    1,
+                    (&mut wants_focus as *mut bool) as WindowMsgData,
+                );
+                if wants_focus {
                     break;
                 }
                 focus_probe = window.borrow().get_parent();
@@ -5512,14 +5515,14 @@ mod tests {
         let window2 = manager.create_window(None, 100, 100, 100, 100).unwrap();
         window1
             .borrow_mut()
-            .set_system_callback(|_, msg, _, _| match msg {
-                WindowMessage::InputFocus => WindowMsgHandled::Handled,
+            .set_system_callback(|_, msg, data1, data2| match msg {
+                WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
                 _ => WindowMsgHandled::Ignored,
             });
         window2
             .borrow_mut()
-            .set_system_callback(|_, msg, _, _| match msg {
-                WindowMessage::InputFocus => WindowMsgHandled::Handled,
+            .set_system_callback(|_, msg, data1, data2| match msg {
+                WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
                 _ => WindowMsgHandled::Ignored,
             });
 
@@ -5557,14 +5560,10 @@ mod tests {
             let focus_messages = Rc::clone(&focus_messages);
             window
                 .borrow_mut()
-                .set_system_callback(move |_, msg, data1, _| {
+                .set_system_callback(move |_, msg, data1, data2| {
                     if msg == WindowMessage::InputFocus {
                         focus_messages.borrow_mut().push(data1);
-                        return if data1 != 0 {
-                            WindowMsgHandled::Handled
-                        } else {
-                            WindowMsgHandled::Ignored
-                        };
+                        return write_input_focus_response(data1, data2, data1 != 0);
                     }
                     WindowMsgHandled::Ignored
                 });
@@ -5589,14 +5588,10 @@ mod tests {
             let focus_messages = Rc::clone(&focus_messages);
             focused
                 .borrow_mut()
-                .set_system_callback(move |_, msg, data1, _| {
+                .set_system_callback(move |_, msg, data1, data2| {
                     if msg == WindowMessage::InputFocus {
                         focus_messages.borrow_mut().push(data1);
-                        return if data1 != 0 {
-                            WindowMsgHandled::Handled
-                        } else {
-                            WindowMsgHandled::Ignored
-                        };
+                        return write_input_focus_response(data1, data2, data1 != 0);
                     }
                     WindowMsgHandled::Ignored
                 });
@@ -5622,8 +5617,10 @@ mod tests {
             .unwrap();
         parent
             .borrow_mut()
-            .set_system_callback(|_, msg, data1, _| match msg {
-                WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+            .set_system_callback(|_, msg, data1, data2| match msg {
+                WindowMessage::InputFocus if data1 != 0 => {
+                    write_input_focus_response(data1, data2, true)
+                }
                 _ => WindowMsgHandled::Ignored,
             });
 
@@ -5644,8 +5641,10 @@ mod tests {
 
         parent
             .borrow_mut()
-            .set_system_callback(|_, msg, data1, _| match msg {
-                WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+            .set_system_callback(|_, msg, data1, data2| match msg {
+                WindowMessage::InputFocus if data1 != 0 => {
+                    write_input_focus_response(data1, data2, true)
+                }
                 _ => WindowMsgHandled::Ignored,
             });
 
@@ -5888,8 +5887,10 @@ mod tests {
 
         focused
             .borrow_mut()
-            .set_system_callback(|_, msg, data1, _| match msg {
-                WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+            .set_system_callback(|_, msg, data1, data2| match msg {
+                WindowMessage::InputFocus if data1 != 0 => {
+                    write_input_focus_response(data1, data2, true)
+                }
                 _ => WindowMsgHandled::Ignored,
             });
         {
@@ -6355,8 +6356,10 @@ mod tests {
             let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
             window
                 .borrow_mut()
-                .set_system_callback(|_, msg, data1, _| match msg {
-                    WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus if data1 != 0 => {
+                        write_input_focus_response(data1, data2, true)
+                    }
                     _ => WindowMsgHandled::Ignored,
                 });
             layout.borrow_mut().add_window(window.clone());
@@ -6389,8 +6392,10 @@ mod tests {
                 .unwrap();
             child
                 .borrow_mut()
-                .set_system_callback(|_, msg, data1, _| match msg {
-                    WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus if data1 != 0 => {
+                        write_input_focus_response(data1, data2, true)
+                    }
                     _ => WindowMsgHandled::Ignored,
                 });
 
@@ -7196,8 +7201,10 @@ mod tests {
         let window = manager.create_window(None, 0, 0, 100, 100).unwrap();
         window
             .borrow_mut()
-            .set_system_callback(|_, msg, data1, _| match msg {
-                WindowMessage::InputFocus if data1 != 0 => WindowMsgHandled::Handled,
+            .set_system_callback(|_, msg, data1, data2| match msg {
+                WindowMessage::InputFocus if data1 != 0 => {
+                    write_input_focus_response(data1, data2, true)
+                }
                 _ => WindowMsgHandled::Ignored,
             });
 
@@ -7264,8 +7271,8 @@ mod tests {
         for window in [&window1, &window2, &window3] {
             window
                 .borrow_mut()
-                .set_system_callback(|_, msg, _, _| match msg {
-                    WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
                     _ => WindowMsgHandled::Ignored,
                 });
         }
@@ -7304,8 +7311,8 @@ mod tests {
         for window in [&window1, &window2] {
             window
                 .borrow_mut()
-                .set_system_callback(|_, msg, _, _| match msg {
-                    WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
                     _ => WindowMsgHandled::Ignored,
                 });
         }
@@ -7329,8 +7336,8 @@ mod tests {
         for window in [&window1, &window2] {
             window
                 .borrow_mut()
-                .set_system_callback(|_, msg, _, _| match msg {
-                    WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
                     _ => WindowMsgHandled::Ignored,
                 });
         }
@@ -7368,8 +7375,8 @@ mod tests {
         for window in [&window1, &window2, &outside_focus] {
             window
                 .borrow_mut()
-                .set_system_callback(|_, msg, _, _| match msg {
-                    WindowMessage::InputFocus => WindowMsgHandled::Handled,
+                .set_system_callback(|_, msg, data1, data2| match msg {
+                    WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
                     _ => WindowMsgHandled::Ignored,
                 });
         }

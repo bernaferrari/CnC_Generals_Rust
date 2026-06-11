@@ -12,8 +12,8 @@ use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::shell::main_menu::{get_main_menu, DisplaySettings};
 use crate::gui::{
-    get_shell, with_window_manager, AnimationType, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowWidget,
+    get_shell, with_window_manager, write_input_focus_response, AnimationType, GameWindow,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
 };
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
 use crate::message_stream::{get_message_stream, GameMessageType};
@@ -309,11 +309,11 @@ impl MenuCallbacks for SinglePlayerMenu {
         _window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
         match msg {
             WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-            WindowMessage::InputFocus => WindowMsgHandled::Handled,
+            WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
             WindowMessage::GadgetSelected => {
                 if self.button_pushed {
                     return WindowMsgHandled::Handled;
@@ -1187,12 +1187,11 @@ impl MenuCallbacks for OptionsMenu {
         _window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
         match msg {
-            WindowMessage::Create | WindowMessage::Destroy | WindowMessage::InputFocus => {
-                WindowMsgHandled::Handled
-            }
+            WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
+            WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
             WindowMessage::GadgetValueChanged => {
                 if self.ignore_selected {
                     return WindowMsgHandled::Handled;
@@ -1583,11 +1582,11 @@ impl MenuCallbacks for MapSelectMenu {
         _window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
         match msg {
             WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-            WindowMessage::InputFocus => WindowMsgHandled::Handled,
+            WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
             WindowMessage::GadgetSelected => {
                 if self.button_pushed {
                     return WindowMsgHandled::Handled;
@@ -1837,14 +1836,14 @@ impl MenuCallbacks for CreditsMenu {
         &mut self,
         _window: &GameWindow,
         msg: WindowMessage,
-        _data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
         match msg {
-            WindowMessage::Create
-            | WindowMessage::Destroy
-            | WindowMessage::InputFocus
-            | WindowMessage::GadgetSelected => WindowMsgHandled::Handled,
+            WindowMessage::Create | WindowMessage::Destroy | WindowMessage::GadgetSelected => {
+                WindowMsgHandled::Handled
+            }
+            WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
             _ => WindowMsgHandled::Ignored,
         }
     }

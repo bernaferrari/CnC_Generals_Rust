@@ -4,7 +4,8 @@
 //! standard message boxes, extended message boxes, and quit dialogs.
 
 use crate::gui::{
-    with_window_manager, GameWindow, WindowId, WindowMessage, WindowMsgData, WindowMsgHandled,
+    with_window_manager, write_input_focus_response, GameWindow, WindowId, WindowMessage,
+    WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use log::{debug, info, warn};
@@ -210,7 +211,7 @@ impl MessageBoxCallbacks {
             }
             WindowMessage::InputFocus => {
                 if data1 != 0 {
-                    WindowMsgHandled::Handled
+                    write_input_focus_response(data1, data2, true)
                 } else {
                     WindowMsgHandled::Ignored
                 }
@@ -410,7 +411,7 @@ impl ExtendedMessageBoxCallbacks {
             }
             WindowMessage::InputFocus => {
                 if data1 != 0 {
-                    WindowMsgHandled::Handled
+                    write_input_focus_response(data1, data2, true)
                 } else {
                     WindowMsgHandled::Ignored
                 }
@@ -615,7 +616,7 @@ impl QuitMessageBoxCallbacks {
             }
             WindowMessage::InputFocus => {
                 if data1 != 0 {
-                    WindowMsgHandled::Handled
+                    write_input_focus_response(data1, data2, true)
                 } else {
                     WindowMsgHandled::Ignored
                 }

@@ -4,8 +4,8 @@ use crate::game_text::GameText;
 use crate::gui::shell::replay_menu::ReplayMenu as ShellReplayMenu;
 use crate::gui::{
     get_shell, message_box_ok, message_box_ok_cancel, message_box_yes_no, with_window_manager,
-    Color as WindowColor, GameWindow, KeyModifiers, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled,
+    write_input_focus_response, Color as WindowColor, GameWindow, KeyModifiers, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_mut};
@@ -381,7 +381,7 @@ pub fn replay_menu_system(
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => write_input_focus_response(data1, _data2, true),
         WindowMessage::GadgetSelected | WindowMessage::GadgetValueChanged => {
             let control_id = data1 as i32;
             if control_id == state.listbox_id {
