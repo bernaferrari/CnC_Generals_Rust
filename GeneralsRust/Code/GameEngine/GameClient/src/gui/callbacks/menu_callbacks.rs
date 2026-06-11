@@ -356,8 +356,8 @@ impl MenuCallbacks for SinglePlayerMenu {
         if let Some(parent) = self.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,
-                self.button_back_id as u32,
-                self.button_back_id as u32,
+                self.button_back_id as WindowMsgData,
+                self.button_back_id as WindowMsgData,
             );
         }
 
@@ -1262,8 +1262,8 @@ impl MenuCallbacks for OptionsMenu {
             if let Some(parent) = self.parent.as_ref() {
                 let _ = parent.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,
-                    self.button_back_id as u32,
-                    self.button_back_id as u32,
+                    self.button_back_id as WindowMsgData,
+                    self.button_back_id as WindowMsgData,
                 );
             }
         }
@@ -1668,8 +1668,8 @@ impl MenuCallbacks for MapSelectMenu {
                         if let Some(parent) = self.parent.as_ref() {
                             let _ = parent.borrow_mut().send_system_message(
                                 WindowMessage::GadgetSelected,
-                                self.button_ok_id as u32,
-                                self.button_ok_id as u32,
+                                self.button_ok_id as WindowMsgData,
+                                self.button_ok_id as WindowMsgData,
                             );
                         }
                     }
@@ -1702,8 +1702,8 @@ impl MenuCallbacks for MapSelectMenu {
         if let Some(parent) = self.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,
-                self.button_back_id as u32,
-                self.button_back_id as u32,
+                self.button_back_id as WindowMsgData,
+                self.button_back_id as WindowMsgData,
             );
         }
         WindowMsgHandled::Handled
@@ -2063,7 +2063,7 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            menu.input(&window, WindowMessage::Char, b'A' as u32, 0),
+            menu.input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
             WindowMsgHandled::Ignored
         );
     }

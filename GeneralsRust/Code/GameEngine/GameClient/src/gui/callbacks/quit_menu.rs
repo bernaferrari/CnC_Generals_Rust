@@ -99,8 +99,8 @@ fn send_back_button_selection(button_name: &str) -> bool {
         let _ = manager.send_system_message(
             &target,
             WindowMessage::GadgetSelected,
-            button_id as u32,
-            button_id as u32,
+            button_id as WindowMsgData,
+            button_id as WindowMsgData,
         );
         true
     })

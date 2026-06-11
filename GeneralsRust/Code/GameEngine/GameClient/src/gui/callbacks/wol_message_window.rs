@@ -10,8 +10,8 @@ use crate::gui::{
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct WolMessageWindowState {

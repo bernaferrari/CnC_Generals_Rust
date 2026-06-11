@@ -4,7 +4,7 @@ use crate::gui::{GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled};
 use crate::helpers::{TheControlBar, TheInGameUI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
-const KEY_ESC: u32 = 0x1B;
+const KEY_ESC: usize = 0x1B;
 const GGM_LEFT_DRAG: u32 = 16384;
 const GBM_SELECTED: u32 = GGM_LEFT_DRAG + 8;
 

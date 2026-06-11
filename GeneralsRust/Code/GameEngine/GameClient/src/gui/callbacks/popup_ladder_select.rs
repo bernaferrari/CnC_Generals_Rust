@@ -25,8 +25,8 @@ use game_network::gamespy::peer_defs::{
 };
 use game_network::gamespy::persistent_storage_thread::get_ps_message_queue;
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PasswordMode {

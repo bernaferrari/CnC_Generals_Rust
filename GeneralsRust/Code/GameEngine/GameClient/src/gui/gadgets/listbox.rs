@@ -262,6 +262,10 @@ impl ListBox {
         &self.selected_indices
     }
 
+    pub fn selection_mode(&self) -> SelectionMode {
+        self.selection_mode
+    }
+
     pub fn scroll_offset(&self) -> usize {
         self.scroll_offset
     }

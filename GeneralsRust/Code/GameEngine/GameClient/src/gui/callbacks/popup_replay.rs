@@ -14,8 +14,8 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 const SAVE_POPUP_DURATION_MS: u64 = 1000;
 
 #[derive(Default)]
@@ -306,8 +306,8 @@ pub fn popup_replay_input(
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_back as u32,
-            state.button_back as u32,
+            state.button_back as WindowMsgData,
+            state.button_back as WindowMsgData,
         );
     }
     WindowMsgHandled::Handled
