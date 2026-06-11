@@ -68,6 +68,7 @@ mod integration_tests {
             build_time: 300,
             time_spent: 0,
             player_id: 1,
+            production_id: 0,
             is_repeat: false,
             queue_index: 0,
         };
@@ -80,6 +81,7 @@ mod integration_tests {
             build_time: 100,
             time_spent: 0,
             player_id: 1,
+            production_id: 0,
             is_repeat: false,
             queue_index: 0,
         };

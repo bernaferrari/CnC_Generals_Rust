@@ -541,6 +541,26 @@ impl ProductionUpdateComplete {
         build_time: u32,
         player_id: ObjectID,
     ) -> Result<u32, String> {
+        let production_id = self.request_unique_unit_id();
+        self.queue_create_unit_with_id(
+            template_name,
+            production_type,
+            cost,
+            build_time,
+            player_id,
+            production_id,
+        )
+    }
+
+    pub fn queue_create_unit_with_id(
+        &mut self,
+        template_name: String,
+        production_type: ProductionType,
+        cost: i32,
+        build_time: u32,
+        player_id: ObjectID,
+        production_id: u32,
+    ) -> Result<u32, String> {
         // Check if production is enabled
         if !self.production_enabled {
             return Err("Production is currently disabled".to_string());
@@ -556,10 +576,11 @@ impl ProductionUpdateComplete {
             cost,
             build_time,
             player_id,
-        );
-
-        // Generate production ID
-        let production_id = self.request_unique_unit_id();
+        )
+        .with_production_id(production_id);
+        if production_id >= self.unique_id {
+            self.unique_id = production_id.saturating_add(1);
+        }
 
         // Add to queue
         self.queue.enqueue(entry.clone())?;
@@ -705,6 +726,30 @@ impl ProductionUpdateComplete {
             .queue
             .find_by_template_and_type(ProductionType::Unit, template_name)
         else {
+            return Err("Unit not in queue".to_string());
+        };
+        let visual_index = if self.current_production.is_some() {
+            index + 1
+        } else {
+            index
+        };
+
+        self.cancel_production(visual_index, refund_credits)
+    }
+
+    pub fn cancel_unit_by_production_id(
+        &mut self,
+        production_id: u32,
+        refund_credits: &mut dyn FnMut(ObjectID, i32),
+    ) -> Result<(), String> {
+        if self.current_production.as_ref().is_some_and(|prod| {
+            prod.entry.production_type == ProductionType::Unit
+                && prod.entry.production_id == production_id
+        }) {
+            return self.cancel_production(0, refund_credits);
+        }
+
+        let Some(index) = self.queue.find_by_production_id(production_id) else {
             return Err("Unit not in queue".to_string());
         };
         let visual_index = if self.current_production.is_some() {
@@ -1404,6 +1449,8 @@ fn xfer_build_queue_entry(xfer: &mut dyn Xfer, entry: &BuildQueueEntry) -> Resul
     xfer_io(xfer.xfer_object_id(&mut player_id))?;
     let mut is_repeat = entry.is_repeat;
     xfer_io(xfer.xfer_bool(&mut is_repeat))?;
+    let mut production_id = entry.production_id;
+    xfer_io(xfer.xfer_u32(&mut production_id))?;
     let mut queue_index = entry.queue_index as u32;
     xfer_io(xfer.xfer_u32(&mut queue_index))?;
     Ok(())
@@ -1433,10 +1480,13 @@ fn xfer_read_build_queue_entry(xfer: &mut dyn Xfer) -> Result<BuildQueueEntry, S
     xfer_io(xfer.xfer_object_id(&mut player_id))?;
     let mut is_repeat = false;
     xfer_io(xfer.xfer_bool(&mut is_repeat))?;
+    let mut production_id = 0u32;
+    xfer_io(xfer.xfer_u32(&mut production_id))?;
     let mut queue_index = 0u32;
     xfer_io(xfer.xfer_u32(&mut queue_index))?;
 
-    let mut entry = BuildQueueEntry::new(name, production_type, cost, build_time, player_id);
+    let mut entry = BuildQueueEntry::new(name, production_type, cost, build_time, player_id)
+        .with_production_id(production_id);
     entry.priority = match priority {
         0 => super::queue::BuildPriority::Low,
         2 => super::queue::BuildPriority::High,
@@ -1568,5 +1618,77 @@ mod tests {
             "C++ m_productionCount includes current production plus queued entries"
         );
         assert_eq!(ProductionUpdateInterface::get_queue_size(&production), 2);
+    }
+
+    #[test]
+    fn queue_create_unit_with_id_cancels_current_by_production_id() {
+        let mut production =
+            ProductionUpdateComplete::new(ProductionUpdateModuleData::default(), 42);
+        let mut refunds = Vec::new();
+
+        production
+            .queue_create_unit_with_id(
+                "TestInfantry".to_string(),
+                ProductionType::Unit,
+                100,
+                30,
+                7,
+                55,
+            )
+            .expect("unit should queue");
+
+        assert_eq!(
+            production
+                .current_production
+                .as_ref()
+                .map(|prod| prod.entry.production_id),
+            Some(55)
+        );
+
+        production
+            .cancel_unit_by_production_id(55, &mut |player_id, credits| {
+                refunds.push((player_id, credits));
+            })
+            .expect("production id cancel should succeed");
+
+        assert!(production.current_production.is_none());
+        assert_eq!(refunds, vec![(7, 100)]);
+    }
+
+    #[test]
+    fn queue_create_unit_with_id_cancels_queued_by_production_id() {
+        let mut production =
+            ProductionUpdateComplete::new(ProductionUpdateModuleData::default(), 42);
+        let mut refunds = Vec::new();
+
+        production
+            .queue_create_unit_with_id(
+                "TestInfantry".to_string(),
+                ProductionType::Unit,
+                100,
+                30,
+                7,
+                55,
+            )
+            .expect("first unit should queue");
+        production
+            .queue_create_unit_with_id("TestTank".to_string(), ProductionType::Unit, 700, 90, 7, 56)
+            .expect("second unit should queue");
+
+        production
+            .cancel_unit_by_production_id(56, &mut |player_id, credits| {
+                refunds.push((player_id, credits));
+            })
+            .expect("production id cancel should succeed");
+
+        assert_eq!(
+            production
+                .current_production
+                .as_ref()
+                .map(|prod| prod.entry.production_id),
+            Some(55)
+        );
+        assert!(production.queue.is_empty());
+        assert_eq!(refunds, vec![(7, 700)]);
     }
 }
