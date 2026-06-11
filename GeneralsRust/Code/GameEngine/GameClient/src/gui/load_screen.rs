@@ -839,21 +839,20 @@ fn initialize_single_player_windows(wm: &mut WindowManager) {
         movie_label
     };
 
-    if let Some(movie_label) = movie_label {
-        if play_single_player_movie(
-            wm,
-            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
-            &movie_label,
-        ) {
-            with_single_player_load_screen_state(|state| {
-                state.movie_prelude_active = true;
-                state.movie_label = movie_label;
-            });
-            return;
-        }
-    }
+    let Some(movie_label) = movie_label else {
+        return;
+    };
 
-    finish_single_player_load_screen_audio_prelude();
+    if play_single_player_movie(
+        wm,
+        "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+        &movie_label,
+    ) {
+        with_single_player_load_screen_state(|state| {
+            state.movie_prelude_active = true;
+            state.movie_label = movie_label;
+        });
+    }
 }
 
 fn with_single_player_load_screen_state<R>(
@@ -3536,6 +3535,68 @@ mod tests {
         assert!(!briefing_played);
         assert_eq!(briefing_handle, 0);
         assert_eq!(ambient_handle, 0);
+    }
+
+    #[test]
+    fn single_player_movie_open_failure_returns_before_audio_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_single_player_load_screen_audio_state();
+        clear_single_player_movie_play_hook();
+        clear_single_player_movie_playing_hook();
+        let movie_requests = Arc::new(Mutex::new(Vec::new()));
+        let hook_requests = Arc::clone(&movie_requests);
+        register_single_player_movie_play_hook(move |movie_name| {
+            hook_requests.lock().unwrap().push(movie_name.to_string());
+            false
+        });
+
+        {
+            let mut manager = get_campaign_manager();
+            let campaign = manager.new_campaign("MissingMovie".to_string());
+            let mission = campaign.new_mission("Mission1".to_string());
+            mission.movie_label = "MissingMovie.bik".to_string();
+            mission.briefing_voice =
+                game_engine::common::ini::ini_misc_audio::AudioEventRTS::from_sound_file(
+                    "BriefingVoiceEvent".to_string(),
+                );
+            manager.set_campaign_and_mission("MissingMovie", "Mission1");
+        }
+
+        let mut wm = WindowManager::new();
+        named_test_window(
+            &mut wm,
+            "SinglePlayerLoadScreen.wnd:ParentSinglePlayerLoadScreen",
+        );
+        named_progress_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:ProgressLoad");
+        named_test_window(&mut wm, "SinglePlayerLoadScreen.wnd:Percent");
+
+        initialize_single_player_windows(&mut wm);
+
+        assert_eq!(
+            *movie_requests.lock().unwrap(),
+            vec!["MissingMovie.bik".to_string()]
+        );
+        let (prelude_active, briefing_played, briefing_handle, ambient_handle) =
+            with_single_player_load_screen_state(|state| {
+                (
+                    state.movie_prelude_active,
+                    state.briefing_voice_played,
+                    state.briefing_voice_handle,
+                    state.ambient_loop_handle,
+                )
+            });
+        assert!(!prelude_active);
+        assert!(!briefing_played);
+        assert_eq!(briefing_handle, 0);
+        assert_eq!(ambient_handle, 0);
+        assert!(wm
+            .find_window_by_name("SinglePlayerLoadScreen.wnd:Percent")
+            .expect("percent")
+            .borrow()
+            .is_hidden());
+
+        clear_single_player_movie_play_hook();
+        clear_single_player_movie_playing_hook();
     }
 
     #[test]
