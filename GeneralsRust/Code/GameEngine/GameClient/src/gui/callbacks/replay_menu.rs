@@ -5,7 +5,7 @@ use crate::gui::shell::replay_menu::ReplayMenu as ShellReplayMenu;
 use crate::gui::{
     get_shell, message_box_ok, message_box_ok_cancel, message_box_yes_no, with_window_manager,
     write_input_focus_response, Color as WindowColor, GameWindow, KeyModifiers, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    WindowMessage, WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{init_recorder, with_recorder, with_recorder_mut};
@@ -16,7 +16,6 @@ use std::sync::{Arc, Mutex};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
-const DOUBLE_CLICK_MSG: u32 = 0x8000;
 
 struct ReplayMenuState {
     parent_id: i32,
@@ -410,7 +409,7 @@ pub fn replay_menu_system(
             }
             WindowMsgHandled::Handled
         }
-        WindowMessage::User(code) if code == DOUBLE_CLICK_MSG => {
+        WindowMessage::User(code) if code == GLM_DOUBLE_CLICKED => {
             if data1 as i32 == state.listbox_id {
                 if let Some(row_selected) = selected_replay_row_for_double_click(&mut state) {
                     drop(state);
@@ -494,5 +493,35 @@ mod tests {
                 _ => None,
             });
         assert_eq!(selected, Some(1));
+    }
+
+    #[test]
+    fn replay_menu_system_handles_glm_double_clicked_like_cpp() {
+        let listbox_id = 42;
+        let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
+        listbox_window
+            .borrow_mut()
+            .set_widget(crate::gui::WindowWidget::ListBox(
+                crate::gui::gadgets::ListBox::new(listbox_id as u32, 0, 0, 200, 80),
+            ));
+
+        {
+            let state_handle = replay_menu_state();
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            *state = ReplayMenuState::new();
+            state.listbox_id = listbox_id;
+            state.listbox_window = Some(listbox_window);
+        }
+
+        let window = GameWindow::new();
+        assert_eq!(
+            replay_menu_system(
+                &window,
+                WindowMessage::User(GLM_DOUBLE_CLICKED),
+                listbox_id as WindowMsgData,
+                (-1isize) as WindowMsgData,
+            ),
+            WindowMsgHandled::Handled
+        );
     }
 }
