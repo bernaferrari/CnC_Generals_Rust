@@ -482,18 +482,18 @@ pub fn keyboard_options_menu_input(
     data1: WindowMsgData,
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    if msg != WindowMessage::Char || data1 != KEY_ESC {
+    if msg != WindowMessage::Char || data1 != KEY_ESC as WindowMsgData {
         return WindowMsgHandled::Ignored;
     }
 
-    if (data2 & KEY_STATE_UP) != 0 {
+    if (data2 & KEY_STATE_UP as WindowMsgData) != 0 {
         let state_handle = keyboard_options_menu_state();
         let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,
-                state.button_back_id as u32,
-                state.button_back_id as u32,
+                state.button_back_id as WindowMsgData,
+                state.button_back_id as WindowMsgData,
             );
         }
     }
@@ -510,11 +510,11 @@ mod tests {
         let window = GameWindow::new();
 
         assert_eq!(
-            keyboard_options_menu_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            keyboard_options_menu_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            keyboard_options_menu_input(&window, WindowMessage::Char, b'A' as u32, 0),
+            keyboard_options_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
             WindowMsgHandled::Ignored
         );
     }

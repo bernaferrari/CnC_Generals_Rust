@@ -27,8 +27,8 @@ use super::{
     set_lan_slot_updates_enabled,
 };
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 const MAX_SLOTS: usize = 8;
 
 /// Window state stored in thread-local RefCell (single-threaded GUI)
@@ -1170,8 +1170,8 @@ pub fn lan_game_options_menu_input(
             if let Some(parent) = state.parent.as_ref() {
                 let _ = parent.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,
-                    state.button_back_id as u32,
-                    state.button_back_id as u32,
+                    state.button_back_id as WindowMsgData,
+                    state.button_back_id as WindowMsgData,
                 );
             }
         });
@@ -1190,11 +1190,11 @@ mod tests {
         set_lan_button_pushed(false);
 
         assert_eq!(
-            lan_game_options_menu_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            lan_game_options_menu_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            lan_game_options_menu_input(&window, WindowMessage::Char, b'A' as u32, 0),
+            lan_game_options_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
             WindowMsgHandled::Ignored
         );
     }
@@ -1205,7 +1205,12 @@ mod tests {
         set_lan_button_pushed(true);
 
         assert_eq!(
-            lan_game_options_menu_input(&window, WindowMessage::Char, KEY_ESC, KEY_STATE_UP),
+            lan_game_options_menu_input(
+                &window,
+                WindowMessage::Char,
+                KEY_ESC as WindowMsgData,
+                KEY_STATE_UP,
+            ),
             WindowMsgHandled::Ignored
         );
 

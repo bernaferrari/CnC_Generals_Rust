@@ -3,7 +3,7 @@
 use super::game_message::{GameMessage, GameMessageArgumentType, GameMessageType};
 use super::message_stream::{GameMessageDisposition, GameMessageTranslator};
 use crate::game_text::GameText;
-use crate::gui::game_window::{GameWindow, WindowMessage};
+use crate::gui::game_window::{GameWindow, WindowMessage, WindowMsgData};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
 use log::warn;
@@ -143,13 +143,13 @@ impl HotKeyManager {
                 if let Some(parent_rc) = parent {
                     parent_rc.borrow_mut().send_system_message(
                         WindowMessage::GadgetSelected,
-                        window_id as u32,
+                        window_id as WindowMsgData,
                         0,
                     );
                 } else {
                     window_rc.borrow_mut().send_system_message(
                         WindowMessage::GadgetSelected,
-                        window_id as u32,
+                        window_id as WindowMsgData,
                         0,
                     );
                 }

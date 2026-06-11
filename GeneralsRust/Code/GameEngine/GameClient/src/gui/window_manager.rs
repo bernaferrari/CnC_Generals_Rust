@@ -1534,8 +1534,8 @@ impl WindowManager {
             loop {
                 let result = window.borrow_mut().send_input_message(
                     WindowMessage::Char,
-                    key as u32,
-                    state as u32,
+                    key as WindowMsgData,
+                    state as WindowMsgData,
                 );
                 if result == WindowMsgHandled::Handled {
                     return WindowInputReturnCode::Used;

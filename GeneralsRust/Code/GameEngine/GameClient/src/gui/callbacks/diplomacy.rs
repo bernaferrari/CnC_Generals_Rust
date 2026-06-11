@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 /// Maximum number of player slots
 const MAX_SLOTS: usize = 8;
-const KEY_ESC: u32 = 0x1B;
+const KEY_ESC: usize = 0x1B;
 
 /// Diplomatic relationship types
 #[derive(Debug, Clone, PartialEq)]
@@ -852,13 +852,13 @@ mod tests {
 
         diplomacy.toggle_diplomacy(true).unwrap();
         assert_eq!(
-            diplomacy.input(&window, WindowMessage::Char, b'A' as u32, 0),
+            diplomacy.input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
             WindowMsgHandled::Handled
         );
         assert!(diplomacy.is_active());
 
         assert_eq!(
-            diplomacy.input(&window, WindowMessage::Char, KEY_ESC, 0),
+            diplomacy.input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
             WindowMsgHandled::Handled
         );
         assert!(!diplomacy.is_active());

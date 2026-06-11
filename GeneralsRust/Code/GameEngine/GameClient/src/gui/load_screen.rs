@@ -14,7 +14,9 @@ use super::challenge_generals::{
     get_challenge_generals, get_challenge_generals_mut, init_challenge_generals, ChallengeGenerals,
     GeneralPersona,
 };
-use super::game_window::{GameWindow, Image as WindowImage, WindowMessage, GPM_SET_PROGRESS};
+use super::game_window::{
+    GameWindow, Image as WindowImage, WindowMessage, WindowMsgData, GPM_SET_PROGRESS,
+};
 use super::window_video_manager::{with_window_video_manager, WindowVideoPlayType};
 use super::{with_window_manager, WindowManager, WindowStatus};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
@@ -2026,7 +2028,7 @@ fn set_progress_window(wm: &mut WindowManager, name: &str, percent: f32) {
     if let Some(window) = wm.find_window_by_name(name) {
         let _ = window.borrow_mut().send_system_message(
             WindowMessage::User(GPM_SET_PROGRESS),
-            (percent as i32) as u32,
+            (percent as i32) as WindowMsgData,
             0,
         );
     }

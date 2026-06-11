@@ -156,7 +156,8 @@ impl GameMessageTranslator for WindowTranslator {
                         window_msg,
                         self.last_mouse_pos.x,
                         self.last_mouse_pos.y,
-                        pack_legacy_mouse_data(self.last_mouse_pos.x, self.last_mouse_pos.y),
+                        pack_legacy_mouse_data(self.last_mouse_pos.x, self.last_mouse_pos.y)
+                            as crate::gui::WindowMsgData,
                         extract_mouse_delta(msg_type),
                     );
                 });

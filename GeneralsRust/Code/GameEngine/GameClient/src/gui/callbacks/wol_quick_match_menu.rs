@@ -41,8 +41,8 @@ use game_network::gamespy::persistent_storage_thread::{get_ps_message_queue, PSR
 use game_network::rank_point_value::calculate_rank;
 use game_network::{FirewallBehaviorType, SlotState, MAX_SLOTS, PLAYERTEMPLATE_RANDOM};
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 
 const MAX_DISCONNECTS: [i32; 5] = [0, 5, 10, 25, 50];
 
@@ -851,16 +851,16 @@ pub fn wol_quick_match_menu_init(
     if let Some(parent) = state.parent.as_ref() {
         state.button_back = parent
             .borrow()
-            .find_child_by_id(state.button_back_id as u32);
+            .find_child_by_id(state.button_back_id as WindowMsgData);
         state.button_start = parent
             .borrow()
-            .find_child_by_id(state.button_start_id as u32);
+            .find_child_by_id(state.button_start_id as WindowMsgData);
         state.button_stop = parent
             .borrow()
-            .find_child_by_id(state.button_stop_id as u32);
+            .find_child_by_id(state.button_stop_id as WindowMsgData);
         state.button_widen = parent
             .borrow()
-            .find_child_by_id(state.button_widen_id as u32);
+            .find_child_by_id(state.button_widen_id as WindowMsgData);
         state.quickmatch_text_window = parent
             .borrow()
             .find_child_by_id(state.listbox_quick_match_id as u32);
@@ -1387,8 +1387,8 @@ pub fn wol_quick_match_menu_input(
     if let Some(button) = state.button_back.as_ref() {
         let _ = button.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_back_id as u32,
-            state.button_back_id as u32,
+            state.button_back_id as WindowMsgData,
+            state.button_back_id as WindowMsgData,
         );
     }
 

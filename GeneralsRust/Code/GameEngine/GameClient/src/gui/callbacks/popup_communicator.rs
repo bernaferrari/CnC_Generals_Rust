@@ -8,8 +8,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct PopupCommunicatorState {
@@ -86,8 +86,8 @@ pub fn popup_communicator_input(
             manager.send_system_message(
                 &handle,
                 WindowMessage::GadgetSelected,
-                button_ok_id,
-                button_ok_id,
+                button_ok_id as WindowMsgData,
+                button_ok_id as WindowMsgData,
             );
         }
     });

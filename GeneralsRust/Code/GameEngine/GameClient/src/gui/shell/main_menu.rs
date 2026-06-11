@@ -43,6 +43,7 @@ use crate::gui::shell::get_shell;
 use crate::gui::window_manager::{
     with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
 };
+use crate::gui::WindowMsgData;
 use crate::helpers::set_mouse_cursor_visibility;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::map_util::get_map_cache_manager;
@@ -836,7 +837,13 @@ impl MainMenu {
 
     /// Handle input messages
     /// Port of MainMenuInput() - C++ lines 957-1016
-    pub fn input(&mut self, window: u32, msg: u32, data1: u32, data2: u32) -> bool {
+    pub fn input(
+        &mut self,
+        window: u32,
+        msg: u32,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> bool {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
 
         if !state.not_shown {
@@ -886,7 +893,13 @@ impl MainMenu {
 
     /// Handle system messages
     /// Port of MainMenuSystem() - C++ lines 1021-1688
-    pub fn system(&mut self, window: u32, msg: u32, data1: u32, data2: u32) -> bool {
+    pub fn system(
+        &mut self,
+        window: u32,
+        msg: u32,
+        data1: WindowMsgData,
+        data2: WindowMsgData,
+    ) -> bool {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         let mut pending_actions = Vec::new();
 
@@ -926,12 +939,12 @@ impl MainMenu {
                 if window != build_window_ids().main_menu_id {
                     return false;
                 }
-                return Self::write_input_focus_response(data1, data2 as usize);
+                return Self::write_input_focus_response(data1 as u32, data2);
             }
 
             // GBM_MOUSE_ENTERING - matches C++ lines 1060-1176
             GBM_MOUSE_ENTERING => {
-                let control_id = data1;
+                let control_id = data1 as u32;
                 self.handle_mouse_entering(&mut state, control_id);
                 pending_actions.append(&mut state.pending_actions);
                 drop(state);
@@ -941,7 +954,7 @@ impl MainMenu {
 
             // GBM_MOUSE_LEAVING - matches C++ lines 1178-1277
             GBM_MOUSE_LEAVING => {
-                let control_id = data1;
+                let control_id = data1 as u32;
                 self.handle_mouse_leaving(&mut state, control_id);
                 pending_actions.append(&mut state.pending_actions);
                 drop(state);
@@ -951,7 +964,7 @@ impl MainMenu {
 
             // GBM_SELECTED - matches C++ lines 1279-1677
             GBM_SELECTED => {
-                let control_id = data1;
+                let control_id = data1 as u32;
                 if state.button_pushed {
                     return true;
                 }

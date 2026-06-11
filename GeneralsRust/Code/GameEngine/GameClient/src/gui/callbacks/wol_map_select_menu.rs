@@ -22,8 +22,8 @@ use game_engine::common::preferences::CustomMatchPreferences;
 use game_network::gamespy::peer_defs::get_gamespy_info;
 use game_network::{SlotState, MAX_SLOTS};
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct WolMapSelectState {
@@ -349,8 +349,8 @@ pub fn wol_map_select_menu_input(
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_back_id as u32,
-            state.button_back_id as u32,
+            state.button_back_id as WindowMsgData,
+            state.button_back_id as WindowMsgData,
         );
     }
 
