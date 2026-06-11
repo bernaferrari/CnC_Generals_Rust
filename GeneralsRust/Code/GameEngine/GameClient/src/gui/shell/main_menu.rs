@@ -2409,7 +2409,7 @@ mod tests {
     }
 
     #[test]
-    fn test_main_menu_init_does_not_force_hide_startup_controls() {
+    fn test_main_menu_init_unhides_startup_controls_like_cpp_layout_hide() {
         game_engine::common::ini::ini_game_data::init_global_data();
         if let Some(global) = get_global_data() {
             let mut global = global.write();
@@ -2443,6 +2443,8 @@ mod tests {
         let before_get_update = capture_hidden(get_update_id);
         let before_motd = capture_hidden(motd_id);
         let before_map_pack = capture_hidden(map_pack_id);
+        assert_eq!(before_get_update, Some(true));
+        assert_eq!(before_map_pack, Some(true));
 
         menu.init(&*layout.borrow(), None).unwrap();
 
@@ -2450,9 +2452,9 @@ mod tests {
         let after_motd = capture_hidden(motd_id);
         let after_map_pack = capture_hidden(map_pack_id);
 
-        assert_eq!(after_get_update, before_get_update);
+        assert_eq!(after_get_update, Some(false));
         assert_eq!(after_motd, before_motd);
-        assert_eq!(after_map_pack, before_map_pack);
+        assert_eq!(after_map_pack, Some(false));
 
         FIRST_TIME_RUNNING_GAME.store(previous_first_time, std::sync::atomic::Ordering::SeqCst);
     }
