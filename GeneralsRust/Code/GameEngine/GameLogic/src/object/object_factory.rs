@@ -663,7 +663,8 @@ impl ObjectFactory {
                         }
                     }
                     if let Ok(mut obj_guard) = base_object.write() {
-                        obj_guard.set_ai_update_interface(Some(ai_update));
+                        obj_guard.set_ai_update_interface(Some(ai_update.clone()));
+                        obj_guard.attach_ai_update_to_module(ai_update);
                     }
                 }
 

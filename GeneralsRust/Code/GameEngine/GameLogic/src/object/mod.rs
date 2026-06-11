@@ -4546,6 +4546,18 @@ impl Object {
         self.ai = ai;
     }
 
+    pub fn attach_ai_update_to_module(&mut self, ai: Arc<Mutex<dyn AIUpdateInterface>>) {
+        for entry in &self.modules {
+            entry.with_module(|module| {
+                if let Some(ai_module) = (module as &mut dyn Any)
+                    .downcast_mut::<crate::object::update::ai_update_interface::AIUpdateInterfaceModule>()
+                {
+                    ai_module.set_runtime_ai(Arc::clone(&ai));
+                }
+            });
+        }
+    }
+
     /// Invoke a callback with the first dock update interface found.
     pub fn with_dock_update_interface<F, R>(&self, func: F) -> Option<R>
     where
