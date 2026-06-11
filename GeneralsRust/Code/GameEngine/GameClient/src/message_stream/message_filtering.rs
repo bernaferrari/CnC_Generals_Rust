@@ -292,7 +292,7 @@ impl MessageRouter {
             | GameMessageType::DoAttackObject(_)
             | GameMessageType::DozerConstruct(_, _, _)
             | GameMessageType::DozerConstructLine(_, _, _, _)
-            | GameMessageType::QueueUnitCreate(_) => {
+            | GameMessageType::QueueUnitCreate(_, _) => {
                 routed_messages.push(RoutedMessage::broadcast(message).with_priority(priority));
             }
 

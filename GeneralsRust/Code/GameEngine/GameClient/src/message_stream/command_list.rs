@@ -199,7 +199,7 @@ impl CommandList {
                 }
                 GameMessageType::DozerConstruct(_, _, _)
                 | GameMessageType::DozerConstructLine(_, _, _, _)
-                | GameMessageType::QueueUnitCreate(_) => {
+                | GameMessageType::QueueUnitCreate(_, _) => {
                     stats.construction_commands += 1;
                 }
                 _ => {

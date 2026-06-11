@@ -391,6 +391,12 @@ enum ProductionQueueModuleKindMut<'a> {
 }
 
 impl<'a> ProductionQueueModuleKindMut<'a> {
+    fn request_unique_unit_id(self) -> Option<u32> {
+        match self {
+            Self::Complete(_) => None,
+        }
+    }
+
     fn queue_unit(
         self,
         template_name: String,
@@ -535,6 +541,13 @@ enum ProductionBehaviorQueueKindMut<'a> {
 }
 
 impl<'a> ProductionBehaviorQueueKindMut<'a> {
+    fn request_unique_unit_id(self) -> Option<u32> {
+        match self {
+            Self::Legacy(module) => Some(module.request_unique_unit_id()),
+            Self::Complete(_) | Self::Core(_) => None,
+        }
+    }
+
     fn queue_unit(
         self,
         template_name: String,
@@ -549,6 +562,39 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     .queue_create_unit(template_name, production_id)
                     .is_ok()
             }
+            Self::Complete(module) => module
+                .queue_create_unit(
+                    template_name,
+                    crate::object::production::ProductionType::Unit,
+                    build_cost,
+                    build_time,
+                    player_id,
+                )
+                .is_ok(),
+            Self::Core(module) => module
+                .enqueue_production(
+                    template_name,
+                    crate::object::production::ProductionType::Unit,
+                    build_cost,
+                    build_time,
+                    player_id,
+                )
+                .is_ok(),
+        }
+    }
+
+    fn queue_unit_with_production_id(
+        self,
+        template_name: String,
+        build_cost: i32,
+        build_time: u32,
+        player_id: ObjectID,
+        production_id: u32,
+    ) -> bool {
+        match self {
+            Self::Legacy(module) => module
+                .queue_create_unit(template_name, production_id)
+                .is_ok(),
             Self::Complete(module) => module
                 .queue_create_unit(
                     template_name,
@@ -9741,6 +9787,35 @@ impl Object {
         false
     }
 
+    fn queue_unit_via_production_id(
+        &self,
+        template: &Arc<dyn crate::common::ThingTemplate>,
+        production_id: u32,
+    ) -> bool {
+        let template_name = template.get_name().to_string();
+        let player_id = self.get_controlling_player_id().unwrap_or(0) as ObjectID;
+        let build_cost = template.calc_cost_to_build(None);
+        let build_time = template.calc_time_to_build(None).max(0) as u32;
+
+        for behavior in &self.behaviors {
+            let Ok(mut behavior_guard) = behavior.lock() else {
+                continue;
+            };
+
+            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+                return kind.queue_unit_with_production_id(
+                    template_name.clone(),
+                    build_cost,
+                    build_time,
+                    player_id,
+                    production_id,
+                );
+            }
+        }
+
+        self.queue_unit_via_production(template)
+    }
+
     fn queue_upgrade_via_production(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
         let upgrade_name = upgrade.get_name().to_string();
         let player_id = self.get_controlling_player_id().unwrap_or(0) as ObjectID;
@@ -9892,6 +9967,43 @@ impl Object {
 
     pub fn queue_unit(&self, template: &Arc<dyn crate::common::ThingTemplate>) -> bool {
         self.queue_unit_via_production(template)
+    }
+
+    pub fn queue_unit_with_production_id(
+        &self,
+        template: &Arc<dyn crate::common::ThingTemplate>,
+        production_id: u32,
+    ) -> bool {
+        if production_id == 0 {
+            return self.queue_unit_via_production(template);
+        }
+        self.queue_unit_via_production_id(template, production_id)
+    }
+
+    pub fn request_unique_unit_production_id(&mut self) -> Option<u32> {
+        for entry in &mut self.modules {
+            let id = entry.with_module_mut(|module| {
+                module_production_queue_kind(module).and_then(|kind| kind.request_unique_unit_id())
+            });
+
+            if id.is_some() {
+                return id;
+            }
+        }
+
+        for behavior in &self.behaviors {
+            let Ok(mut behavior_guard) = behavior.lock() else {
+                continue;
+            };
+
+            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+                if let Some(id) = kind.request_unique_unit_id() {
+                    return Some(id);
+                }
+            }
+        }
+
+        None
     }
 
     pub fn cancel_upgrade(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {

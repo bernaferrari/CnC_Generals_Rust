@@ -3899,6 +3899,10 @@ impl DefaultCommandHandler {
                 ))
             }
         };
+        let production_id = match command.command.get_argument(1) {
+            Some(CommandArgumentType::Integer(value)) => *value as u32,
+            _ => 0,
+        };
 
         let Some(template) = TheThingFactory::find_template_by_id(template_id) else {
             return CommandExecutionResult::Success;
@@ -3931,7 +3935,7 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Success;
         }
 
-        if guard.queue_unit(&template) {
+        if guard.queue_unit_with_production_id(&template, production_id) {
             return CommandExecutionResult::Success;
         }
 
