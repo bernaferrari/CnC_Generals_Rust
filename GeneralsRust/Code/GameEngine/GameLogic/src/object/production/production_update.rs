@@ -210,6 +210,25 @@ impl ProductionUpdate {
         build_time: u32,
         player_id: ObjectID,
     ) -> Result<(), String> {
+        self.enqueue_production_with_id(
+            template_name,
+            production_type,
+            cost,
+            build_time,
+            player_id,
+            0,
+        )
+    }
+
+    pub fn enqueue_production_with_id(
+        &mut self,
+        template_name: String,
+        production_type: ProductionType,
+        cost: i32,
+        build_time: u32,
+        player_id: ObjectID,
+        production_id: u32,
+    ) -> Result<(), String> {
         // Check if production is enabled
         if !self.production_enabled && self.data.disable_production_toggle {
             return Err("Production is currently disabled".to_string());
@@ -254,7 +273,8 @@ impl ProductionUpdate {
 
         // Create queue entry
         let entry =
-            BuildQueueEntry::new(template_name, production_type, cost, build_time, player_id);
+            BuildQueueEntry::new(template_name, production_type, cost, build_time, player_id)
+                .with_production_id(production_id);
 
         // Add to queue (matches C++ line 434)
         self.queue.enqueue(entry)?;
@@ -265,6 +285,14 @@ impl ProductionUpdate {
         }
 
         Ok(())
+    }
+
+    pub fn cancel_unit_by_production_id(&mut self, production_id: u32) -> Result<(), String> {
+        let Some(index) = self.queue.find_by_production_id(production_id) else {
+            return Err("Unit not in queue".to_string());
+        };
+
+        self.cancel_production(index)
     }
 
     /// Cancel a queue entry with refund
@@ -925,5 +953,28 @@ mod tests {
             money, 2_000,
             "C++ ProductionUpdate::cancelUnitCreate refunds full queued cost"
         );
+    }
+
+    #[test]
+    fn enqueue_with_production_id_cancels_by_id() {
+        let mut production = ProductionUpdate::new(ProductionUpdateData::default(), 1);
+
+        production
+            .enqueue_production_with_id("Tank".to_string(), ProductionType::Unit, 100, 30, 1, 77)
+            .expect("production should enqueue");
+
+        assert_eq!(
+            production
+                .queue()
+                .current()
+                .map(|entry| entry.production_id),
+            Some(77)
+        );
+
+        production
+            .cancel_unit_by_production_id(77)
+            .expect("production id cancel should succeed");
+
+        assert!(production.queue().is_empty());
     }
 }

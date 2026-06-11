@@ -53,6 +53,8 @@ pub struct BuildQueueEntry {
     pub time_spent: u32,
     /// Player who ordered the production
     pub player_id: ObjectID,
+    /// C++ ProductionID used to identify/cancel this order across UI messages.
+    pub production_id: u32,
     /// Whether this is a repeat order
     pub is_repeat: bool,
     /// Index in the visual queue (for UI)
@@ -76,9 +78,15 @@ impl BuildQueueEntry {
             build_time,
             time_spent: 0,
             player_id,
+            production_id: 0,
             is_repeat: false,
             queue_index: 0,
         }
+    }
+
+    pub fn with_production_id(mut self, production_id: u32) -> Self {
+        self.production_id = production_id;
+        self
     }
 
     /// Get progress as a percentage (0.0 to 1.0)
@@ -217,6 +225,17 @@ impl BuildQueue {
         name: &str,
     ) -> Option<BuildQueueEntry> {
         let index = self.find_by_template_and_type(production_type, name)?;
+        self.cancel(index)
+    }
+
+    pub fn find_by_production_id(&self, production_id: u32) -> Option<usize> {
+        self.queue
+            .iter()
+            .position(|entry| entry.production_id == production_id)
+    }
+
+    pub fn cancel_by_production_id(&mut self, production_id: u32) -> Option<BuildQueueEntry> {
+        let index = self.find_by_production_id(production_id)?;
         self.cancel(index)
     }
 
@@ -422,6 +441,30 @@ mod tests {
         assert!(cancelled.is_some());
         assert_eq!(cancelled.unwrap().template_name, "Unit1");
         assert_eq!(queue.len(), 2);
+    }
+
+    #[test]
+    fn test_queue_cancel_by_production_id() {
+        let mut queue = BuildQueue::new(5);
+
+        queue
+            .enqueue(
+                BuildQueueEntry::new("Tank".to_string(), ProductionType::Unit, 100, 100, 1)
+                    .with_production_id(17),
+            )
+            .unwrap();
+        queue
+            .enqueue(
+                BuildQueueEntry::new("Dozer".to_string(), ProductionType::Unit, 100, 100, 1)
+                    .with_production_id(23),
+            )
+            .unwrap();
+
+        let cancelled = queue.cancel_by_production_id(23);
+
+        assert_eq!(cancelled.unwrap().template_name, "Dozer");
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue.current().unwrap().production_id, 17);
     }
 
     #[test]
