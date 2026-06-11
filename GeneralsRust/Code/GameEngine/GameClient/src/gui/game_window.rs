@@ -257,8 +257,30 @@ pub enum WindowInputReturnCode {
 /// Message handling result
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowMsgHandled {
-    Ignored = 0,
+    Ignored,
     Handled,
+    Value(WindowMsgData),
+}
+
+impl WindowMsgHandled {
+    pub fn is_ignored(self) -> bool {
+        matches!(self, Self::Ignored)
+    }
+
+    pub fn is_handled(self) -> bool {
+        !self.is_ignored()
+    }
+
+    pub fn value(self) -> Option<WindowMsgData> {
+        match self {
+            Self::Value(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn value_i32(self) -> Option<i32> {
+        self.value().map(|value| value as i32)
+    }
 }
 
 /// Window error types
@@ -2029,7 +2051,7 @@ impl GameWindow {
         self.update_press_state_from_message(msg);
         if let Some(ref input_callback) = self.callbacks.input {
             let result = input_callback(self, msg, data1, data2);
-            if result == WindowMsgHandled::Ignored {
+            if result.is_ignored() {
                 self.handle_widget_input(msg, data1, data2)
             } else {
                 result
@@ -2052,7 +2074,7 @@ impl GameWindow {
         self.update_press_state_from_message(msg);
         if let Some(ref input_callback) = self.callbacks.input {
             let result = input_callback(self, msg, data1, data2);
-            if result == WindowMsgHandled::Ignored {
+            if result.is_ignored() {
                 self.handle_widget_input(msg, data1, data2)
             } else {
                 result
@@ -2098,7 +2120,7 @@ impl GameWindow {
 
         if let Some(ref system_callback) = self.callbacks.system {
             let result = system_callback(self, msg, data1, data2);
-            if result == WindowMsgHandled::Ignored {
+            if result.is_ignored() {
                 self.handle_widget_system(msg, data1, data2)
             } else {
                 result
@@ -2284,7 +2306,7 @@ impl GameWindow {
             } else {
                 self.send_system_message(msg, data1, 0)
             };
-            if result == WindowMsgHandled::Handled {
+            if result.is_handled() {
                 handled = true;
             }
         }
@@ -2415,12 +2437,13 @@ impl GameWindow {
                         if data1 == 0 {
                             return WindowMsgHandled::Handled;
                         }
+                        let mut added_index = -1;
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                             let entry = unsafe { &*(data1 as *const ListBoxAddEntry) };
-                            let _ = listbox.add_entry(entry.clone());
+                            added_index = listbox.add_entry(entry.clone());
                         }
                         self.update_listbox_scrollbar();
-                        return WindowMsgHandled::Handled;
+                        return WindowMsgHandled::Value(added_index as WindowMsgData);
                     }
                     GLM_DEL_ALL => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
@@ -4874,14 +4897,13 @@ mod tests {
             data: ListBoxItemData::Text("Alpha".to_string()),
             color: Some(ShellColor::new(10, 20, 30, 40)),
         };
-        assert_eq!(
-            window.send_system_message(
-                WindowMessage::User(GLM_ADD_ENTRY),
-                (&entry as *const ListBoxAddEntry) as WindowMsgData,
-                0,
-            ),
-            WindowMsgHandled::Handled
+        let result = window.send_system_message(
+            WindowMessage::User(GLM_ADD_ENTRY),
+            (&entry as *const ListBoxAddEntry) as WindowMsgData,
+            0,
         );
+        assert_eq!(result.value_i32(), Some(0));
+        assert!(result.is_handled());
 
         let entry = ListBoxAddEntry {
             row: 0,
@@ -4890,11 +4912,12 @@ mod tests {
             data: ListBoxItemData::Text("Bravo".to_string()),
             color: Some(ShellColor::new(50, 60, 70, 80)),
         };
-        let _ = window.send_system_message(
+        let result = window.send_system_message(
             WindowMessage::User(GLM_ADD_ENTRY),
             (&entry as *const ListBoxAddEntry) as WindowMsgData,
             0,
         );
+        assert_eq!(result.value_i32(), Some(0));
 
         let pos = ListBoxCellPosition { x: 1, y: 0 };
         let mut text = ListBoxTextAndColor {
@@ -4936,6 +4959,26 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert!(matches!(out_data, Some(ListBoxItemData::Integer(99))));
+
+        let mut full_window = GameWindow::new();
+        let mut full_listbox = ListBox::new(43, 0, 0, 100, 60);
+        full_listbox.set_max_length(1);
+        full_listbox.add_item("existing");
+        full_window.set_widget(WindowWidget::ListBox(full_listbox));
+        let entry = ListBoxAddEntry {
+            row: -1,
+            column: 0,
+            overwrite: true,
+            data: ListBoxItemData::Text("overflow".to_string()),
+            color: Some(ShellColor::new(90, 91, 92, 93)),
+        };
+        let result = full_window.send_system_message(
+            WindowMessage::User(GLM_ADD_ENTRY),
+            (&entry as *const ListBoxAddEntry) as WindowMsgData,
+            0,
+        );
+        assert_eq!(result.value_i32(), Some(-1));
+        assert!(result.is_handled());
     }
 
     #[test]

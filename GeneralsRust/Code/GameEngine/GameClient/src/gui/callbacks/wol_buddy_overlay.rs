@@ -854,7 +854,7 @@ pub fn wol_buddy_overlay_system(
     data1: WindowMsgData,
     _data2: WindowMsgData,
 ) -> WindowMsgHandled {
-    if buddy_control_system(window, msg, data1) == WindowMsgHandled::Handled {
+    if buddy_control_system(window, msg, data1).is_handled() {
         return WindowMsgHandled::Handled;
     }
 
