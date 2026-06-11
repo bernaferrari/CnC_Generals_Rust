@@ -131,21 +131,17 @@ impl LoadScreenPort {
     }
 
     pub fn update_percent(&mut self, percent: i32) {
-        let (min, max) = self.progress_range;
-        let span = (max - min).max(1) as f32;
-        let normalized = ((percent - min) as f32 / span) * 100.0;
         let display_percent = match self.kind {
             LoadScreenKindPort::SinglePlayer | LoadScreenKindPort::Challenge => {
-                (normalized + FRAME_FUDGE_ADD) / 1.3
+                ((percent as f32 + FRAME_FUDGE_ADD) / 1.3) as i32
             }
             LoadScreenKindPort::ShellGame
             | LoadScreenKindPort::Multiplayer
             | LoadScreenKindPort::GameSpy
-            | LoadScreenKindPort::MapTransfer => normalized,
-        }
-        .clamp(0.0, 100.0);
-        self.progress = display_percent / 100.0;
-        self.percent_text = format!("{}%", display_percent.round() as i32);
+            | LoadScreenKindPort::MapTransfer => percent,
+        };
+        self.progress = display_percent as f32 / 100.0;
+        self.percent_text = format!("{display_percent}%");
     }
 
     pub fn start_ambient_loop(&mut self) {
@@ -262,6 +258,25 @@ mod tests {
     #[test]
     fn single_player_progress_applies_fudge_factor() {
         let mut load = LoadScreenPort::default();
+        load.update_percent(35);
+
+        assert_eq!(load.percent_text, "50%");
+        assert!((load.progress - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn single_player_progress_truncates_like_cpp_int_math() {
+        let mut load = LoadScreenPort::default();
+        load.update_percent(36);
+
+        assert_eq!(load.percent_text, "50%");
+        assert!((load.progress - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn single_player_progress_ignores_progress_range_like_cpp() {
+        let mut load = LoadScreenPort::default();
+        load.set_progress_range(25, 75);
         load.update_percent(35);
 
         assert_eq!(load.percent_text, "50%");
