@@ -108,14 +108,6 @@ fn populate_replay_listbox(state: &mut PopupReplayState) {
     }
 }
 
-fn get_selected_listbox_text(state: &PopupReplayState) -> Option<String> {
-    let listbox = state.listbox_window.as_ref()?;
-    let mut listbox_guard = listbox.borrow_mut();
-    let list_box = listbox_guard.list_box_mut()?;
-    let selected = list_box.selected_indices().first().copied()?;
-    list_box.items().get(selected).map(|item| item.text.clone())
-}
-
 fn get_listbox_text_at_row(state: &PopupReplayState, row: usize) -> Option<String> {
     let listbox = state.listbox_window.as_ref()?;
     let mut listbox_guard = listbox.borrow_mut();
@@ -337,12 +329,6 @@ pub fn popup_replay_system(
                             }
                         }
                     }
-                } else if let Some(filename) = get_selected_listbox_text(&state) {
-                    if let Some(entry) = state.text_entry_window.as_ref() {
-                        if let Some(widget) = entry.borrow_mut().text_entry_mut() {
-                            widget.set_text(filename);
-                        }
-                    }
                 }
                 return WindowMsgHandled::Handled;
             }
@@ -388,6 +374,10 @@ pub fn popup_replay_system(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gui::gadgets::{ListBox, TextEntry};
+    use crate::gui::WindowWidget;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     #[test]
     fn popup_replay_system_consumes_lifecycle_messages_like_cpp() {
@@ -400,6 +390,65 @@ mod tests {
         assert_eq!(
             popup_replay_system(&window, WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Handled
+        );
+    }
+
+    #[test]
+    fn popup_replay_negative_listbox_row_keeps_text_entry_like_cpp() {
+        let listbox_id = 101;
+        let text_entry_id = 102;
+
+        let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
+        let text_entry_window = Rc::new(RefCell::new(GameWindow::new()));
+        let mut listbox = ListBox::new(listbox_id as u32, 0, 0, 100, 60);
+        listbox.add_item("selected-replay");
+        listbox.set_selected_indices(&[0]);
+        listbox_window
+            .borrow_mut()
+            .set_widget(WindowWidget::ListBox(listbox));
+        text_entry_window
+            .borrow_mut()
+            .set_widget(WindowWidget::TextEntry(TextEntry::new(
+                text_entry_id as u32,
+                0,
+                0,
+                100,
+                20,
+            )));
+        text_entry_window
+            .borrow_mut()
+            .text_entry_mut()
+            .unwrap()
+            .set_text("unchanged");
+
+        {
+            let state_handle = popup_replay_state();
+            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+            *state = PopupReplayState::default();
+            state.listbox_games = listbox_id;
+            state.text_entry_replay_name = text_entry_id;
+            state.listbox_window = Some(listbox_window);
+            state.text_entry_window = Some(text_entry_window.clone());
+        }
+
+        let window = GameWindow::new();
+        assert_eq!(
+            popup_replay_system(
+                &window,
+                WindowMessage::GadgetSelected,
+                listbox_id as WindowMsgData,
+                (-1isize) as WindowMsgData,
+            ),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(
+            text_entry_window
+                .borrow_mut()
+                .text_entry_mut()
+                .unwrap()
+                .text(),
+            "unchanged"
         );
     }
 }
