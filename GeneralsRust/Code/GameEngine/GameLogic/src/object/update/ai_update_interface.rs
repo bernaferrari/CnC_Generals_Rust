@@ -970,7 +970,7 @@ impl AIUpdateInterface {
         self.waiting_for_path = true;
 
         let now = TheGameLogic::get_frame();
-        if self.path_timestamp > now.saturating_sub(3) {
+        if self.path_timestamp_is_recent(now) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
             if self.path.is_some() && self.is_blocked_and_stuck {
                 self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
@@ -993,7 +993,7 @@ impl AIUpdateInterface {
         self.waiting_for_path = true;
 
         let now = TheGameLogic::get_frame();
-        if self.path_timestamp > now.saturating_sub(3) {
+        if self.path_timestamp_is_recent(now) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
             self.set_locomotor_goal_none();
             return;
@@ -1012,7 +1012,7 @@ impl AIUpdateInterface {
         self.waiting_for_path = true;
 
         let now = TheGameLogic::get_frame();
-        if self.path_timestamp > now.saturating_sub(3) {
+        if self.path_timestamp_is_recent(now) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
             return;
         }
@@ -1033,7 +1033,7 @@ impl AIUpdateInterface {
         self.waiting_for_path = true;
 
         let now = TheGameLogic::get_frame();
-        if self.path_timestamp > now.saturating_sub(3) {
+        if self.path_timestamp_is_recent(now) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
             return;
         }
@@ -1096,6 +1096,10 @@ impl AIUpdateInterface {
         self.waiting_for_path = false;
         self.set_locomotor_goal_position_on_path();
         true
+    }
+
+    fn path_timestamp_is_recent(&self, now: UnsignedInt) -> bool {
+        now < 3 || self.path_timestamp > now - 3
     }
 
     // -----------------------------------------------------------------------
@@ -1218,7 +1222,7 @@ impl AIUpdateInterface {
     /// collide should apply the force.  Determines blocking and stuck state.
     /// Ported from AIUpdate.cpp:1410.
     pub fn process_collision(&mut self, other_id: ObjectID) -> bool {
-        if self.ignore_collisions_until > 0 || self.can_path_through_units {
+        if self.ignore_collisions_until > TheGameLogic::get_frame() || self.can_path_through_units {
             return false;
         }
 
@@ -1537,7 +1541,11 @@ impl AIUpdateInterface {
     }
 
     pub fn set_ignore_collision_time(&mut self, frames: UnsignedInt) {
-        self.ignore_collisions_until = frames;
+        self.ignore_collisions_until = if frames != 0 {
+            TheGameLogic::get_frame().saturating_add(frames)
+        } else {
+            0
+        };
     }
 
     pub fn can_path_through_units(&self) -> bool {
@@ -1802,7 +1810,10 @@ mod tests {
         assert_eq!(ai.blocked_frames, 0);
         assert!(!ai.is_blocked);
         assert!(!ai.is_blocked_and_stuck);
-        assert_eq!(ai.ignore_collisions_until, LOGICFRAMES_PER_SECOND * 2);
+        assert_eq!(
+            ai.ignore_collisions_until,
+            TheGameLogic::get_frame().saturating_add(LOGICFRAMES_PER_SECOND * 2)
+        );
     }
 
     #[test]
@@ -1963,6 +1974,28 @@ mod tests {
 
         assert_eq!(ai.do_locomotor(), 0);
         assert_eq!(ai.blocked_frames, 0);
+    }
+
+    #[test]
+    fn ignore_collision_time_uses_absolute_expiry_frame_like_cpp() {
+        let mut logic = crate::system::game_logic::lock_game_logic().unwrap();
+        logic.set_current_frame(100);
+        drop(logic);
+
+        let mut ai = ai_update();
+        ai.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
+
+        assert_eq!(ai.ignore_collisions_until, 100 + LOGICFRAMES_PER_SECOND * 2);
+
+        let mut logic = crate::system::game_logic::lock_game_logic().unwrap();
+        logic.set_current_frame(u64::from(ai.ignore_collisions_until));
+        drop(logic);
+
+        assert!(!ai.process_collision(42));
+        assert!(!ai.can_path_through_units);
+
+        let mut logic = crate::system::game_logic::lock_game_logic().unwrap();
+        logic.set_current_frame(0);
     }
 
     #[test]
