@@ -9,6 +9,7 @@ use crate::action_manager::{ActionManager, TheActionManager};
 use crate::ai::dock::AIDockMachine;
 use crate::ai::object_registry::get_legacy_object;
 use crate::ai::pathfind::PathfindLayerEnum;
+use crate::ai::pathfind::{Path as AiPath, PathfindLayerEnum as AiPathLayer};
 use crate::ai::pathfind_astar::PathfindLayerEnum as ClassicPathLayer;
 use crate::ai::pathfinding_system::PathfindLayerEnum as PfLayer;
 use crate::ai::states::{AIStateMachine, AIStateType};
@@ -2604,6 +2605,7 @@ pub struct UnitAIUpdate {
     requested_victim_id: ObjectID,
     requested_destination: Coord3D,
     requested_destination2: Coord3D,
+    current_path_snapshot: Option<AiPath>,
     pathfind_goal_cell: ICoord2D,
     pathfind_cur_cell: ICoord2D,
     pathfind_goal_layer: ClassicPathLayer,
@@ -2738,6 +2740,7 @@ impl UnitAIUpdate {
             requested_victim_id: INVALID_ID,
             requested_destination: Coord3D::ZERO,
             requested_destination2: Coord3D::ZERO,
+            current_path_snapshot: None,
             pathfind_goal_cell: ICoord2D::new(-1, -1),
             pathfind_cur_cell: ICoord2D::new(-1, -1),
             pathfind_goal_layer: ClassicPathLayer::Invalid,
@@ -2780,6 +2783,21 @@ impl UnitAIUpdate {
     fn clear_guard_target_type(&mut self) {
         self.guard_target_type[1] = self.guard_target_type[0];
         self.guard_target_type[0] = GuardTargetType::None_;
+    }
+
+    fn set_current_path_snapshot_from_coords(&mut self, path: &[Coord3D]) {
+        let mut snapshot = AiPath::new();
+        for pos in path {
+            snapshot.append_node(pos, AiPathLayer::Ground);
+        }
+        self.current_path_snapshot = Some(snapshot);
+    }
+
+    fn append_current_path_snapshot_goal(&mut self, goal: &Coord3D) {
+        match self.current_path_snapshot.as_mut() {
+            Some(path) => path.append_node(goal, AiPathLayer::Ground),
+            None => self.set_current_path_snapshot_from_coords(&[*goal]),
+        }
     }
 
     pub fn apply_ai_update_module_data(
@@ -3569,9 +3587,14 @@ impl AIUpdateInterface for UnitAIUpdate {
             self.queue_for_path_frame = 0;
         }
 
-        // PARITY_TODO: C++ snapshots Path here. Rust path-following state is not Snapshotable yet.
-        let mut got_path = false;
+        let mut got_path = self.current_path_snapshot.is_some();
         xfer.xfer_bool(&mut got_path).map_err(|e| e.to_string())?;
+        if is_loading {
+            self.current_path_snapshot = got_path.then(AiPath::new);
+        }
+        if let Some(path) = self.current_path_snapshot.as_mut().filter(|_| got_path) {
+            path.xfer(xfer)?;
+        }
 
         xfer.xfer_object_id(&mut self.requested_victim_id)
             .map_err(|e| e.to_string())?;
@@ -5950,6 +5973,12 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.blocked_and_stuck = false;
         self.queue_for_path_frame = 0;
         self.path_timestamp = TheGameLogic::get_frame();
+        self.set_current_path_snapshot_from_coords(
+            &waypoints
+                .iter()
+                .map(|waypoint| waypoint.position)
+                .collect::<Vec<_>>(),
+        );
 
         Ok(())
     }
@@ -6029,6 +6058,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             if let Ok(mut loc_guard) = locomotor.lock() {
                 if let Some(active_path) = loc_guard.active_path.as_mut() {
                     active_path.append_waypoint(*goal);
+                    self.append_current_path_snapshot_goal(goal);
                     return Ok(());
                 }
             }
@@ -6036,6 +6066,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
         if let Some(path) = guard.current_path.as_mut() {
             path.push(Coord2D::new(goal.x, goal.y));
+            self.append_current_path_snapshot_goal(goal);
             return Ok(());
         }
 
@@ -6077,6 +6108,8 @@ impl AIUpdateInterface for UnitAIUpdate {
                 loc_guard.clear_path();
             }
         }
+        drop(guard);
+        self.set_current_path_snapshot_from_coords(path);
 
         Ok(())
     }
@@ -7163,6 +7196,8 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.movement_complete = false;
         self.locomotor_goal_type = 1;
         self.locomotor_goal_data = Coord3D::ZERO;
+        drop(guard);
+        self.set_current_path_snapshot_from_coords(&[*destination]);
         true
     }
 
@@ -8398,6 +8433,28 @@ mod tests {
         assert!(loaded.movement_complete);
         assert_eq!(loaded.locomotor_goal_type, 2);
         assert_eq!(loaded.locomotor_goal_data, Coord3D::new(70.0, 80.0, 9.0));
+    }
+
+    #[test]
+    fn unit_ai_update_xfer_roundtrips_current_path_snapshot() {
+        let mut saved = unit_ai_update_without_unit();
+        saved.set_current_path_snapshot_from_coords(&[
+            Coord3D::new(1.0, 2.0, 3.0),
+            Coord3D::new(4.0, 5.0, 6.0),
+        ]);
+        let bytes = save_unit_ai_update(&mut saved);
+
+        let mut loaded = unit_ai_update_without_unit();
+        {
+            let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+            loaded.xfer_ai_update_state(&mut xfer).unwrap();
+        }
+
+        let path = loaded.current_path_snapshot.as_ref().unwrap();
+        assert_eq!(
+            *path.get_first_node().unwrap().get_position(),
+            Coord3D::new(1.0, 2.0, 3.0)
+        );
     }
 
     #[test]
