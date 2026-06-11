@@ -31,8 +31,8 @@ use game_network::gamespy::persistent_storage_thread::{
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 const NOTIFICATION_EXPIRES_MS: u128 = 3000;
 const GGM_LEFT_DRAG: u32 = 16384;
 const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
@@ -732,8 +732,8 @@ pub fn wol_buddy_overlay_input(
             if let Some(button_hide) = state.button_hide.as_ref() {
                 let _ = button_hide.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,
-                    state.button_hide_id as u32,
-                    state.button_hide_id as u32,
+                    state.button_hide_id as WindowMsgData,
+                    state.button_hide_id as WindowMsgData,
                 );
             }
             return WindowMsgHandled::Handled;

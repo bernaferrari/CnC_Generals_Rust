@@ -25,8 +25,8 @@ use std::fs;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 const DOUBLE_CLICK_MSG: u32 = 0x8000;
 const DIFFICULTY_NORMAL: i32 = 1;
 
@@ -611,8 +611,8 @@ pub fn save_load_menu_input(
     if let Some(parent) = state.parent.as_ref() {
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
-            state.button_back as u32,
-            state.button_back as u32,
+            state.button_back as WindowMsgData,
+            state.button_back as WindowMsgData,
         );
     }
 

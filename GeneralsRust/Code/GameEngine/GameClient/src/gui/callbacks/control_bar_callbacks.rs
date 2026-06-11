@@ -25,7 +25,7 @@ use std::sync::{Arc, RwLock};
 
 const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
 const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
-const KEY_ESC: u32 = 0x1B;
+const KEY_ESC: usize = 0x1B;
 
 /// Control bar system state
 #[derive(Debug, Clone)]
@@ -817,11 +817,11 @@ mod tests {
         let window = GameWindow::new();
 
         assert_eq!(
-            beacon_window_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            beacon_window_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            beacon_window_input(&window, WindowMessage::Char, b'A' as u32, 0),
+            beacon_window_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
             WindowMsgHandled::Ignored
         );
     }

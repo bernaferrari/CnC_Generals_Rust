@@ -22,7 +22,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::SystemTime;
 
-const KEY_ESC: u32 = 0x1B;
+const KEY_ESC: usize = 0x1B;
 
 /// In-game chat types
 #[derive(Debug, Clone, PartialEq)]
@@ -943,7 +943,7 @@ mod tests {
             WindowMsgHandled::Ignored
         );
         assert_eq!(
-            replay.input(&window, WindowMessage::Char, KEY_ESC, 0),
+            replay.input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
             WindowMsgHandled::Ignored
         );
         assert_eq!(

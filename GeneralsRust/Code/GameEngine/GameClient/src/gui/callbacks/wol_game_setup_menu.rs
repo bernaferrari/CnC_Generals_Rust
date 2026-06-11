@@ -46,8 +46,8 @@ use game_network::{
     PLAYERTEMPLATE_MIN, PLAYERTEMPLATE_OBSERVER, PLAYERTEMPLATE_RANDOM,
 };
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 const SUPPLY_TECH_SIZE: i32 = 15;
 
 fn slot_state_from_int(value: i32) -> SlotState {

@@ -20,8 +20,9 @@ use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 
 use super::gadgets::{
     CheckBox, ComboBox, Gadget, GadgetMessage, GadgetState, GadgetValue, HorizontalSlider,
-    InputEvent, KeyCode, KeyModifiers, ListBox, MouseButton, ProgressBar, PushButton, RadioButton,
-    SelectionMode, StaticText, TabControl, TabControlData, TextEntry, VerticalSlider,
+    InputEvent, KeyCode, KeyModifiers, ListBox, ListBoxAddEntry, ListBoxItemData, ListBoxSelection,
+    ListBoxTextAndColor, MouseButton, ProgressBar, PushButton, RadioButton, SelectionMode,
+    StaticText, TabControl, TabControlData, TextEntry, VerticalSlider,
 };
 use super::{
     display_string::DisplayStringHandle,
@@ -45,7 +46,7 @@ const KEY_STATE_RALT: WindowMsgData = 0x0080;
 const GADGET_SIZE: i32 = 16;
 
 /// Window message data type
-pub type WindowMsgData = u32;
+pub type WindowMsgData = usize;
 
 /// Result type for window operations
 pub type WindowResult<T> = Result<T, WindowError>;
@@ -61,15 +62,26 @@ const GGM_LEFT_DRAG: u32 = 16384;
 const GGM_FOCUS_CHANGE: u32 = GGM_LEFT_DRAG + 3;
 const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
 const GBM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 10;
+const GSM_SLIDER_TRACK: u32 = GGM_LEFT_DRAG + 11;
 const GSM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 12;
 const GSM_SET_MIN_MAX: u32 = GGM_LEFT_DRAG + 13;
+const GLM_ADD_ENTRY: u32 = GGM_LEFT_DRAG + 15;
 const GLM_DEL_ENTRY: u32 = GGM_LEFT_DRAG + 16;
 const GLM_DEL_ALL: u32 = GGM_LEFT_DRAG + 17;
 const GLM_SELECTED: u32 = GGM_LEFT_DRAG + 18;
+const GLM_DOUBLE_CLICKED: u32 = GGM_LEFT_DRAG + 19;
+const GLM_RIGHT_CLICKED: u32 = GGM_LEFT_DRAG + 20;
 const GLM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 21;
+const GLM_GET_SELECTION: u32 = GGM_LEFT_DRAG + 22;
 const GLM_TOGGLE_MULTI_SELECTION: u32 = GGM_LEFT_DRAG + 23;
+const GLM_GET_TEXT: u32 = GGM_LEFT_DRAG + 24;
+const GLM_SET_UP_BUTTON: u32 = GGM_LEFT_DRAG + 25;
+const GLM_SET_DOWN_BUTTON: u32 = GGM_LEFT_DRAG + 26;
+const GLM_SET_SLIDER: u32 = GGM_LEFT_DRAG + 27;
 const GLM_SCROLL_BUFFER: u32 = GGM_LEFT_DRAG + 28;
 const GLM_UPDATE_DISPLAY: u32 = GGM_LEFT_DRAG + 29;
+const GLM_GET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 30;
+const GLM_SET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 31;
 pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
 
 // Window style flags (GWS_*)
@@ -103,6 +115,19 @@ pub const GWS_GADGET_WINDOW: u32 = GWS_PUSH_BUTTON
     | GWS_STATIC_TEXT
     | GWS_COMBO_BOX
     | GWS_PROGRESS_BAR;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ListBoxCellPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ListBoxSelectionResult {
+    pub single: i32,
+    pub multiple: Vec<i32>,
+}
 
 bitflags! {
     /// Window status flags
@@ -501,7 +526,7 @@ pub(crate) struct ComboBoxLinks {
     pub list_box: WindowId,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ListBoxLinks {
     pub up_button: WindowId,
     pub down_button: WindowId,
@@ -2210,25 +2235,27 @@ impl GameWindow {
         };
         for message in messages {
             let (msg, data1) = match message {
-                GadgetMessage::Clicked { .. } => (WindowMessage::GadgetSelected, self.id as u32),
+                GadgetMessage::Clicked { .. } => {
+                    (WindowMessage::GadgetSelected, self.id as WindowMsgData)
+                }
                 GadgetMessage::RightClicked { .. } => {
                     if !self.status.contains(WindowStatus::RIGHT_CLICK) {
                         continue;
                     }
-                    (WindowMessage::GadgetRightClick, self.id as u32)
+                    (WindowMessage::GadgetRightClick, self.id as WindowMsgData)
                 }
                 GadgetMessage::LeftDrag { .. } => (WindowMessage::User(GGM_LEFT_DRAG), data1),
                 GadgetMessage::ValueChanged { .. } => {
-                    (WindowMessage::GadgetValueChanged, self.id as u32)
+                    (WindowMessage::GadgetValueChanged, self.id as WindowMsgData)
                 }
                 GadgetMessage::EditingComplete { .. } => {
-                    (WindowMessage::GadgetEditDone, self.id as u32)
+                    (WindowMessage::GadgetEditDone, self.id as WindowMsgData)
                 }
                 GadgetMessage::MouseEnter { .. } => {
-                    (WindowMessage::GadgetMouseEntering, self.id as u32)
+                    (WindowMessage::GadgetMouseEntering, self.id as WindowMsgData)
                 }
                 GadgetMessage::MouseLeave { .. } => {
-                    (WindowMessage::GadgetMouseLeaving, self.id as u32)
+                    (WindowMessage::GadgetMouseLeaving, self.id as WindowMsgData)
                 }
                 GadgetMessage::FocusChanged { has_focus, .. } => {
                     (WindowMessage::InputFocus, if has_focus { 1 } else { 0 })
@@ -2248,7 +2275,7 @@ impl GameWindow {
                         handled = true;
                         continue;
                     }
-                    (WindowMessage::User(0x8000), self.id as u32)
+                    (WindowMessage::User(0x8000), self.id as WindowMsgData)
                 }
             };
 
@@ -2297,7 +2324,8 @@ impl GameWindow {
 
         if matches!(self.widget, Some(WindowWidget::ComboBox(_))) {
             if let Some(links) = self.combobox_links {
-                if msg == WindowMessage::GadgetSelected && data1 == links.drop_down as u32 {
+                if msg == WindowMessage::GadgetSelected && data1 == links.drop_down as WindowMsgData
+                {
                     if let Some(list_box) = self.find_child_by_id(links.list_box) {
                         let is_hidden = list_box.borrow().is_hidden();
                         if is_hidden {
@@ -2322,7 +2350,9 @@ impl GameWindow {
                     }
                 }
 
-                if msg == WindowMessage::GadgetValueChanged && data1 == links.list_box as u32 {
+                if msg == WindowMessage::GadgetValueChanged
+                    && data1 == links.list_box as WindowMsgData
+                {
                     if let Some(list_box) = self.find_child_by_id(links.list_box) {
                         if let Some(selected) =
                             list_box.borrow().widget().and_then(|widget| match widget {
@@ -2357,7 +2387,8 @@ impl GameWindow {
                     }
                 }
 
-                if msg == WindowMessage::GadgetEditDone && data1 == links.edit_box as u32 {
+                if msg == WindowMessage::GadgetEditDone && data1 == links.edit_box as WindowMsgData
+                {
                     if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
                         let edit_text =
                             edit_box.borrow().widget().and_then(|widget| match widget {
@@ -2380,6 +2411,17 @@ impl GameWindow {
         if matches!(self.widget, Some(WindowWidget::ListBox(_))) {
             if let WindowMessage::User(code) = msg {
                 match code {
+                    GLM_ADD_ENTRY => {
+                        if data1 == 0 {
+                            return WindowMsgHandled::Handled;
+                        }
+                        if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                            let entry = unsafe { &*(data1 as *const ListBoxAddEntry) };
+                            let _ = listbox.add_entry(entry.clone());
+                        }
+                        self.update_listbox_scrollbar();
+                        return WindowMsgHandled::Handled;
+                    }
                     GLM_DEL_ALL => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                             listbox.clear();
@@ -2396,12 +2438,34 @@ impl GameWindow {
                     }
                     GLM_SET_SELECTION => {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                            let select_index = data1 as i32;
-                            if select_index < 0 || select_index as usize >= listbox.items().len() {
-                                listbox.set_selected_indices(&[]);
+                            if listbox.selection_mode() == SelectionMode::Multiple
+                                && data1 != 0
+                                && data1 != (-1i32) as WindowMsgData
+                                && data1 > i32::MAX as WindowMsgData
+                            {
+                                let select_list = unsafe {
+                                    std::slice::from_raw_parts(data1 as *const i32, data2)
+                                };
+                                let indices = select_list
+                                    .iter()
+                                    .take_while(|&&index| index >= 0)
+                                    .filter_map(|&index| {
+                                        (index as usize)
+                                            .lt(&listbox.items().len())
+                                            .then_some(index as usize)
+                                    })
+                                    .collect::<Vec<_>>();
+                                listbox.set_selected_indices(&indices);
                             } else {
-                                let _ = listbox
-                                    .select_index(select_index as usize, KeyModifiers::none());
+                                let select_index = data1 as i32;
+                                if select_index < 0
+                                    || select_index as usize >= listbox.items().len()
+                                {
+                                    listbox.set_selected_indices(&[]);
+                                } else {
+                                    let _ = listbox
+                                        .select_index(select_index as usize, KeyModifiers::none());
+                                }
                             }
                         }
                         self.update_listbox_scrollbar();
@@ -2410,13 +2474,32 @@ impl GameWindow {
                                 let selected = self
                                     .list_box_mut()
                                     .and_then(|listbox| listbox.selected_indices().first().copied())
-                                    .map(|index| index as u32)
-                                    .unwrap_or((-1i32) as u32);
+                                    .map(|index| index as i32)
+                                    .unwrap_or(-1);
                                 let _ = owner.borrow_mut().send_system_message(
                                     WindowMessage::User(GLM_SELECTED),
-                                    self.id as u32,
-                                    selected,
+                                    self.id as WindowMsgData,
+                                    selected as WindowMsgData,
                                 );
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GLM_GET_SELECTION => {
+                        if data2 != 0 {
+                            if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                                let result =
+                                    unsafe { &mut *(data2 as *mut ListBoxSelectionResult) };
+                                match listbox.get_selection() {
+                                    ListBoxSelection::Single(index) => {
+                                        result.single = index;
+                                        result.multiple.clear();
+                                    }
+                                    ListBoxSelection::Multiple(indices) => {
+                                        result.single = -1;
+                                        result.multiple = indices;
+                                    }
+                                }
                             }
                         }
                         return WindowMsgHandled::Handled;
@@ -2425,6 +2508,35 @@ impl GameWindow {
                         if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                             let _ = listbox.toggle_multi_selection(data1 as i32);
                         }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GLM_GET_TEXT => {
+                        if data1 != 0 && data2 != 0 {
+                            if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                                let pos = unsafe { &*(data1 as *const ListBoxCellPosition) };
+                                let out = unsafe { &mut *(data2 as *mut ListBoxTextAndColor) };
+                                *out = listbox.get_text_and_color(pos.y, pos.x);
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GLM_SET_UP_BUTTON => {
+                        let mut links = self.listbox_links.unwrap_or_default();
+                        links.up_button = data1 as WindowId;
+                        self.listbox_links = Some(links);
+                        return WindowMsgHandled::Handled;
+                    }
+                    GLM_SET_DOWN_BUTTON => {
+                        let mut links = self.listbox_links.unwrap_or_default();
+                        links.down_button = data1 as WindowId;
+                        self.listbox_links = Some(links);
+                        return WindowMsgHandled::Handled;
+                    }
+                    GLM_SET_SLIDER => {
+                        let mut links = self.listbox_links.unwrap_or_default();
+                        links.slider = data1 as WindowId;
+                        self.listbox_links = Some(links);
+                        self.update_listbox_scrollbar();
                         return WindowMsgHandled::Handled;
                     }
                     GLM_SCROLL_BUFFER => {
@@ -2441,12 +2553,37 @@ impl GameWindow {
                         self.update_listbox_scrollbar();
                         return WindowMsgHandled::Handled;
                     }
+                    GLM_GET_ITEM_DATA => {
+                        if data1 != 0 && data2 != 0 {
+                            if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                                let pos = unsafe { &*(data1 as *const ListBoxCellPosition) };
+                                let out = unsafe { &mut *(data2 as *mut Option<ListBoxItemData>) };
+                                *out = listbox.get_item_data_at(pos.y, pos.x).cloned();
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GLM_SET_ITEM_DATA => {
+                        if data1 != 0 {
+                            if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
+                                let pos = unsafe { &*(data1 as *const ListBoxCellPosition) };
+                                let data = if data2 == 0 {
+                                    None
+                                } else {
+                                    Some(unsafe { (*(data2 as *const ListBoxItemData)).clone() })
+                                };
+                                let _ = listbox.set_item_data_at(pos.y, pos.x, data);
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
                     _ => {}
                 }
             }
 
             if let Some(links) = self.listbox_links {
-                if msg == WindowMessage::GadgetSelected && data1 == links.up_button as u32 {
+                if msg == WindowMessage::GadgetSelected && data1 == links.up_button as WindowMsgData
+                {
                     if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                         listbox.scroll_by(-1);
                     }
@@ -2454,7 +2591,9 @@ impl GameWindow {
                     return WindowMsgHandled::Handled;
                 }
 
-                if msg == WindowMessage::GadgetSelected && data1 == links.down_button as u32 {
+                if msg == WindowMessage::GadgetSelected
+                    && data1 == links.down_button as WindowMsgData
+                {
                     if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
                         listbox.scroll_by(1);
                     }
@@ -2462,7 +2601,9 @@ impl GameWindow {
                     return WindowMsgHandled::Handled;
                 }
 
-                if msg == WindowMessage::GadgetValueChanged && data1 == links.slider as u32 {
+                if msg == WindowMessage::GadgetValueChanged
+                    && data1 == links.slider as WindowMsgData
+                {
                     let slider_value = if let Some(slider) = self.find_child_by_id(links.slider) {
                         match slider.borrow().widget() {
                             Some(WindowWidget::VerticalSlider(slider)) => slider.value(),
@@ -2567,7 +2708,7 @@ impl GameWindow {
                         if let Some(owner) = self.get_owner() {
                             let _ = owner.borrow_mut().send_system_message(
                                 WindowMessage::GadgetSelected,
-                                self.id as u32,
+                                self.id as WindowMsgData,
                                 0,
                             );
                         }
@@ -2626,7 +2767,7 @@ impl GameWindow {
                     let _ = owner.borrow_mut().send_system_message(
                         WindowMessage::User(GGM_FOCUS_CHANGE),
                         data1,
-                        self.id as u32,
+                        self.id as WindowMsgData,
                     );
                 }
             }
@@ -3760,6 +3901,7 @@ mod tests {
     use crate::gui::gadgets::tabcontrol;
     use crate::gui::gadgets::RadioButtonGroup;
     use crate::gui::gadgets::Rect;
+    use crate::gui::shell::Color as ShellColor;
 
     use super::*;
 
@@ -4207,7 +4349,11 @@ mod tests {
         assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
 
         assert_eq!(
-            window.send_system_message(WindowMessage::User(GPM_SET_PROGRESS), (-1i32) as u32, 0),
+            window.send_system_message(
+                WindowMessage::User(GPM_SET_PROGRESS),
+                (-1i32) as WindowMsgData,
+                0,
+            ),
             WindowMsgHandled::Handled
         );
         assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
@@ -4541,7 +4687,11 @@ mod tests {
         );
 
         assert_eq!(
-            window.send_system_message(WindowMessage::User(GLM_SET_SELECTION), (-1i32) as u32, 1,),
+            window.send_system_message(
+                WindowMessage::User(GLM_SET_SELECTION),
+                (-1i32) as WindowMsgData,
+                1,
+            ),
             WindowMsgHandled::Handled
         );
         assert!(window.list_box_mut().unwrap().selected_indices().is_empty());
@@ -4549,7 +4699,11 @@ mod tests {
             owner_seen.borrow().as_slice(),
             &[
                 (WindowMessage::User(GLM_SELECTED), 42, 1),
-                (WindowMessage::User(GLM_SELECTED), 42, (-1i32) as u32),
+                (
+                    WindowMessage::User(GLM_SELECTED),
+                    42,
+                    (-1i32) as WindowMsgData,
+                ),
             ]
         );
     }
@@ -4693,7 +4847,7 @@ mod tests {
         assert_eq!(
             multi_window.send_system_message(
                 WindowMessage::User(GLM_TOGGLE_MULTI_SELECTION),
-                (-1i32) as u32,
+                (-1i32) as WindowMsgData,
                 0,
             ),
             WindowMsgHandled::Handled
@@ -4704,6 +4858,118 @@ mod tests {
             .selected_indices()
             .is_empty());
         assert!(owner_seen.borrow().is_empty());
+    }
+
+    #[test]
+    fn listbox_pointer_system_messages_bridge_cpp_payloads() {
+        let mut window = GameWindow::new();
+        let mut listbox = ListBox::new(42, 0, 0, 100, 60);
+        listbox.set_columns(2);
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        let entry = ListBoxAddEntry {
+            row: -1,
+            column: 0,
+            overwrite: true,
+            data: ListBoxItemData::Text("Alpha".to_string()),
+            color: Some(ShellColor::new(10, 20, 30, 40)),
+        };
+        assert_eq!(
+            window.send_system_message(
+                WindowMessage::User(GLM_ADD_ENTRY),
+                (&entry as *const ListBoxAddEntry) as WindowMsgData,
+                0,
+            ),
+            WindowMsgHandled::Handled
+        );
+
+        let entry = ListBoxAddEntry {
+            row: 0,
+            column: 1,
+            overwrite: true,
+            data: ListBoxItemData::Text("Bravo".to_string()),
+            color: Some(ShellColor::new(50, 60, 70, 80)),
+        };
+        let _ = window.send_system_message(
+            WindowMessage::User(GLM_ADD_ENTRY),
+            (&entry as *const ListBoxAddEntry) as WindowMsgData,
+            0,
+        );
+
+        let pos = ListBoxCellPosition { x: 1, y: 0 };
+        let mut text = ListBoxTextAndColor {
+            text: String::new(),
+            color: ShellColor::new(0, 0, 0, 0),
+        };
+        assert_eq!(
+            window.send_system_message(
+                WindowMessage::User(GLM_GET_TEXT),
+                (&pos as *const ListBoxCellPosition) as WindowMsgData,
+                (&mut text as *mut ListBoxTextAndColor) as WindowMsgData,
+            ),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            text,
+            ListBoxTextAndColor {
+                text: "Bravo".to_string(),
+                color: ShellColor::new(50, 60, 70, 80),
+            }
+        );
+
+        let item_data = ListBoxItemData::Integer(99);
+        assert_eq!(
+            window.send_system_message(
+                WindowMessage::User(GLM_SET_ITEM_DATA),
+                (&pos as *const ListBoxCellPosition) as WindowMsgData,
+                (&item_data as *const ListBoxItemData) as WindowMsgData,
+            ),
+            WindowMsgHandled::Handled
+        );
+        let mut out_data = None;
+        assert_eq!(
+            window.send_system_message(
+                WindowMessage::User(GLM_GET_ITEM_DATA),
+                (&pos as *const ListBoxCellPosition) as WindowMsgData,
+                (&mut out_data as *mut Option<ListBoxItemData>) as WindowMsgData,
+            ),
+            WindowMsgHandled::Handled
+        );
+        assert!(matches!(out_data, Some(ListBoxItemData::Integer(99))));
+    }
+
+    #[test]
+    fn listbox_multi_selection_system_message_accepts_cpp_selection_array() {
+        let mut window = GameWindow::new();
+        let mut listbox =
+            ListBox::new(42, 0, 0, 100, 60).with_selection_mode(SelectionMode::Multiple);
+        listbox.add_item("alpha");
+        listbox.add_item("bravo");
+        listbox.add_item("charlie");
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        let selections = [0, 2];
+        assert_eq!(
+            window.send_system_message(
+                WindowMessage::User(GLM_SET_SELECTION),
+                selections.as_ptr() as WindowMsgData,
+                selections.len(),
+            ),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[0, 2]);
+
+        let mut result = ListBoxSelectionResult::default();
+        assert_eq!(
+            window.send_system_message(
+                WindowMessage::User(GLM_GET_SELECTION),
+                0,
+                (&mut result as *mut ListBoxSelectionResult) as WindowMsgData,
+            ),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(result.single, -1);
+        assert_eq!(result.multiple, vec![0, 2]);
     }
 
     #[test]

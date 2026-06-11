@@ -39,8 +39,8 @@ use game_network::gamespy::persistent_storage_thread::{
 };
 use game_network::rank_point_value::{calculate_rank, get_favorite_side, get_rank_point_values};
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 
 #[derive(Default)]
 struct WolWelcomeState {

@@ -22,8 +22,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 const MAX_SLOTS: usize = 8;
 const MAP_SELECT_PARENT_NAME: &str = "SkirmishMapSelectMenu.wnd:SkrimishMapSelectMenuParent";
 const UNKNOWN_MAP_IMAGE: &str = "UnknownMap";
@@ -425,8 +425,8 @@ pub fn skirmish_map_select_menu_system(
                 if let Some(parent) = state.parent.as_ref() {
                     let _ = parent.borrow_mut().send_system_message(
                         WindowMessage::GadgetSelected,
-                        state.button_ok_id as u32,
-                        state.button_ok_id as u32,
+                        state.button_ok_id as WindowMsgData,
+                        state.button_ok_id as WindowMsgData,
                     );
                 }
                 return WindowMsgHandled::Handled;
@@ -454,8 +454,8 @@ pub fn skirmish_map_select_menu_input(
         if let Some(parent) = state.parent.as_ref() {
             let _ = parent.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,
-                state.button_back_id as u32,
-                state.button_back_id as u32,
+                state.button_back_id as WindowMsgData,
+                state.button_back_id as WindowMsgData,
             );
         }
     }
@@ -733,11 +733,16 @@ mod tests {
         let window = GameWindow::new();
 
         assert_eq!(
-            skirmish_map_select_menu_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            skirmish_map_select_menu_input(
+                &window,
+                WindowMessage::Char,
+                KEY_ESC as WindowMsgData,
+                0,
+            ),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            skirmish_map_select_menu_input(&window, WindowMessage::Char, b'A' as u32, 0),
+            skirmish_map_select_menu_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
             WindowMsgHandled::Ignored
         );
     }

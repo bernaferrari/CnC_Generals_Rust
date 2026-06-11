@@ -28,8 +28,8 @@ use gamelogic::system::game_logic::{GAME_INTERNET, GAME_LAN, GAME_SINGLE_PLAYER,
 use std::cell::RefCell;
 use std::rc::Rc;
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 const MAX_SLOTS: i32 = 8;
 const AHSV_STOP_THE_MUSIC_FADE: u32 = 0xFFFF_FFF1;
 
@@ -1163,9 +1163,11 @@ pub fn score_screen_input(
         let button_ok = name_to_id("ScoreScreen.wnd:ButtonOk") as u32;
         let _ = with_window_manager(|manager| {
             manager.get_window_by_id(window.get_id()).map(|handle| {
-                handle
-                    .borrow_mut()
-                    .send_system_message(WindowMessage::GadgetSelected, button_ok, 0)
+                handle.borrow_mut().send_system_message(
+                    WindowMessage::GadgetSelected,
+                    button_ok as WindowMsgData,
+                    0,
+                )
             })
         });
     }
@@ -1275,11 +1277,11 @@ mod tests {
         let window = GameWindow::new();
 
         assert_eq!(
-            score_screen_input(&window, WindowMessage::Char, KEY_ESC, 0),
+            score_screen_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(
-            score_screen_input(&window, WindowMessage::Char, b'A' as u32, 0),
+            score_screen_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
             WindowMsgHandled::Ignored
         );
     }

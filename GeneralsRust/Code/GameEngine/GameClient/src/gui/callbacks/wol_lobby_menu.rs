@@ -37,8 +37,8 @@ use game_network::gamespy::persistent_storage_thread::{get_ps_message_queue, PSR
 use game_network::rank_point_value::{calculate_rank, get_favorite_side, get_rank_point_values};
 use game_network::{SlotState, MAX_SLOTS};
 
-const KEY_ESC: u32 = 0x1B;
-const KEY_STATE_UP: u32 = 0x0001;
+const KEY_ESC: usize = 0x1B;
+const KEY_STATE_UP: usize = 0x0001;
 const COLUMN_PLAYERNAME: usize = 1;
 const COLUMN_PING: i32 = 7;
 const COLUMN_NUMPLAYERS: i32 = 3;
@@ -1666,8 +1666,8 @@ pub fn wol_lobby_menu_input(
             if let Some(button_back) = state.button_back.as_ref() {
                 let _ = button_back.borrow_mut().send_system_message(
                     WindowMessage::GadgetSelected,
-                    state.button_back_id as u32,
-                    state.button_back_id as u32,
+                    state.button_back_id as WindowMsgData,
+                    state.button_back_id as WindowMsgData,
                 );
             }
             return WindowMsgHandled::Handled;
