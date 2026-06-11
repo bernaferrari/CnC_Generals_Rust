@@ -1,6 +1,8 @@
 //! GeneralsExpPoints.cpp callback port.
 
-use crate::gui::{GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled};
+use crate::gui::{
+    write_input_focus_response, GameWindow, WindowMessage, WindowMsgData, WindowMsgHandled,
+};
 use crate::helpers::{TheControlBar, TheInGameUI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
@@ -36,12 +38,7 @@ pub fn generals_exp_points_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => {
-            if data1 != 0 {
-                let _ = data2;
-            }
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, false),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let button_exit_id =

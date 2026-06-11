@@ -8,8 +8,8 @@ use crate::gui::game_window::Image as WindowImage;
 use crate::gui::get_skirmish_setup;
 use crate::gui::window_video_manager::with_window_video_manager;
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowStatus,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
 };
 use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::game_common::LOGICFRAMES_PER_SECOND;
@@ -570,13 +570,13 @@ pub fn challenge_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let state_handle = challenge_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         msg if is_general_mouse_entering(msg) => {
             let control_id = data1 as i32;
             if let Some(index) = find_general_button(&state, control_id) {

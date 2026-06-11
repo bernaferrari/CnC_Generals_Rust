@@ -8,9 +8,9 @@ use crate::display::image::get_mapped_image_collection;
 use crate::gui::gadgets::{KeyModifiers, ListBoxItemData};
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_shell, get_skirmish_setup, with_window_manager, with_window_manager_ref, GameWindow,
-    WindowInstanceData, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
-    WIN_COLOR_UNDEFINED,
+    get_shell, get_skirmish_setup, with_window_manager, with_window_manager_ref,
+    write_input_focus_response, GameWindow, WindowInstanceData, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, WindowStatus, WIN_COLOR_UNDEFINED,
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image,
@@ -346,10 +346,7 @@ pub fn skirmish_map_select_menu_system(
             nullify_controls();
             return WindowMsgHandled::Handled;
         }
-        WindowMessage::InputFocus => {
-            // C++ parity: acknowledge focus handoff explicitly so the menu can take keyboard focus.
-            return WindowMsgHandled::Handled;
-        }
+        WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_ok_id {

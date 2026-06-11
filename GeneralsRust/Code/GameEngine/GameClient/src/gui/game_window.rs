@@ -283,6 +283,19 @@ impl WindowMsgHandled {
     }
 }
 
+pub fn write_input_focus_response(
+    data1: WindowMsgData,
+    data2: WindowMsgData,
+    wants_focus: bool,
+) -> WindowMsgHandled {
+    if data1 != 0 && data2 != 0 {
+        unsafe {
+            *(data2 as *mut bool) = wants_focus;
+        }
+    }
+    WindowMsgHandled::Handled
+}
+
 /// Window error types
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowError {

@@ -1,8 +1,8 @@
 //! InGamePopupMessage.cpp callback port.
 
 use crate::gui::{
-    get_display_string_manager, get_font_library, with_window_manager, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    get_display_string_manager, get_font_library, with_window_manager, write_input_focus_response,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use crate::helpers::TheInGameUI;
 use crate::message_stream::game_message::GameMessageType;
@@ -181,11 +181,11 @@ pub fn in_game_popup_message_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let state_handle = popup_ui_state();
