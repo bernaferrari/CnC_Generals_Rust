@@ -1075,7 +1075,7 @@ impl WindowManager {
                     window
                         .borrow_mut()
                         .send_system_message(WindowMessage::InputFocus, 1, 0);
-                if result == WindowMsgHandled::Handled {
+                if result.is_handled() {
                     wants_focus = true;
                     break;
                 }
@@ -1399,7 +1399,7 @@ impl WindowManager {
                 }
             };
 
-            if result == WindowMsgHandled::Handled {
+            if result.is_handled() {
                 return Some(window);
             }
 
@@ -1537,7 +1537,7 @@ impl WindowManager {
                     key as WindowMsgData,
                     state as WindowMsgData,
                 );
-                if result == WindowMsgHandled::Handled {
+                if result.is_handled() {
                     return WindowInputReturnCode::Used;
                 }
 

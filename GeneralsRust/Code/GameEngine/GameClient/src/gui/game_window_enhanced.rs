@@ -863,24 +863,24 @@ impl EnhancedGameWindow {
         if let Some(callbacks) = self.callbacks.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
             // Try input handler first
             let result = callbacks.on_input(self, message, wparam, lparam);
-            if result == WindowMsgHandled::Handled {
+            if result.is_handled() {
                 return result;
             }
 
             let widget_result = self.handle_widget_input(message, wparam, lparam);
-            if widget_result == WindowMsgHandled::Handled {
+            if widget_result.is_handled() {
                 return widget_result;
             }
             
             // Then try system handler
             let system_result = callbacks.on_system(self, message, wparam, lparam);
-            if system_result == WindowMsgHandled::Handled {
+            if system_result.is_handled() {
                 return system_result;
             }
             self.handle_widget_system(message, wparam, lparam)
         } else {
             let result = self.handle_widget_input(message, wparam, lparam);
-            if result == WindowMsgHandled::Handled {
+            if result.is_handled() {
                 return result;
             }
             self.handle_widget_system(message, wparam, lparam)
@@ -1117,7 +1117,7 @@ impl EnhancedGameWindow {
             } else {
                 self.send_message(msg, data1, 0)
             };
-            if result == WindowMsgHandled::Handled {
+            if result.is_handled() {
                 handled = true;
             }
         }
