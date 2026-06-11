@@ -3839,10 +3839,49 @@ impl Snapshotable for Player {
             }
         }
 
-        // AI player data (present bool only; external AI manager snapshot is tracked separately).
+        // AI player data. C++ writes a presence bool, then the AIPlayer/AISkirmishPlayer snapshot.
         {
-            let mut ai_present = false;
+            let player_id = self.player_index as u32;
+            let mut ai_present = if xfer.get_xfer_mode() == XferMode::Save {
+                crate::ai::integration::with_ai_integration(|manager| {
+                    manager.has_ai_player(player_id)
+                })
+                .unwrap_or(false)
+            } else {
+                false
+            };
             xfer.xfer_bool(&mut ai_present).map_err(|e| e.to_string())?;
+
+            if ai_present {
+                let xfer_result = crate::ai::integration::with_ai_integration_mut(|manager| {
+                    manager.xfer_ai_player(player_id, self.is_skirmish_ai, xfer)
+                });
+
+                match xfer_result {
+                    Some(Ok(())) => {}
+                    Some(Err(err)) => return Err(err),
+                    None if xfer.get_xfer_mode() == XferMode::Load => {
+                        log::warn!(
+                            "Player::xfer - consuming AI snapshot for player {} without integration manager",
+                            player_id
+                        );
+                        if self.is_skirmish_ai {
+                            let mut ai_player =
+                                crate::ai::skirmish_player::AISkirmishPlayer::new(player_id);
+                            ai_player.xfer(xfer);
+                        } else {
+                            let mut ai_player = crate::ai::ai_player::AIPlayer::new(player_id);
+                            ai_player.xfer(xfer);
+                        }
+                    }
+                    None => {
+                        return Err(format!(
+                            "Player::xfer - AI integration manager unavailable for player {}",
+                            player_id
+                        ));
+                    }
+                }
+            }
         }
 
         // Resource gathering manager
@@ -4267,6 +4306,10 @@ impl Snapshotable for Player {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        let player_id = self.player_index as u32;
+        let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
+            manager.load_post_process_ai_player(player_id);
+        });
         if let Some(manager) = self.resource_manager.as_mut() {
             manager.load_post_process()?;
         }

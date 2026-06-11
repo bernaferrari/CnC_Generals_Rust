@@ -11,8 +11,10 @@ use std::sync::{Arc, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 use crate::common::types::{Coord3D, Real};
+use crate::common::xfer::Xfer;
 use crate::common::KindOf;
 use crate::common::ObjectID;
+use crate::common::Snapshot;
 use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::{player_list, GameDifficulty, Player};
@@ -250,6 +252,20 @@ impl IntegratedAiPlayer {
             IntegratedAiPlayer::Skirmish(player) => player.is_supply_source_attacked(),
         }
     }
+
+    pub fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        match self {
+            IntegratedAiPlayer::Standard(player) => player.xfer(xfer),
+            IntegratedAiPlayer::Skirmish(player) => player.xfer(xfer),
+        }
+    }
+
+    pub fn load_post_process(&mut self) {
+        match self {
+            IntegratedAiPlayer::Standard(player) => player.load_post_process(),
+            IntegratedAiPlayer::Skirmish(player) => player.load_post_process(),
+        }
+    }
 }
 
 /// AI Integration Manager - Coordinates all AI subsystems
@@ -402,6 +418,46 @@ impl AiIntegrationManager {
 
         log::info!("Created AI player for player {}", player_id);
         Ok(())
+    }
+
+    fn insert_ai_player(&mut self, player_id: u32, is_skirmish: bool) {
+        let ai_player = if is_skirmish {
+            IntegratedAiPlayer::Skirmish(AISkirmishPlayer::new(player_id))
+        } else {
+            IntegratedAiPlayer::Standard(AIPlayer::new(player_id))
+        };
+        self.ai_players.insert(player_id, ai_player);
+    }
+
+    pub fn ensure_ai_player(&mut self, player_id: u32, is_skirmish: bool) {
+        if !self.ai_players.contains_key(&player_id) {
+            self.insert_ai_player(player_id, is_skirmish);
+        }
+    }
+
+    pub fn has_ai_player(&self, player_id: u32) -> bool {
+        self.ai_players.contains_key(&player_id)
+    }
+
+    pub fn xfer_ai_player(
+        &mut self,
+        player_id: u32,
+        is_skirmish: bool,
+        xfer: &mut dyn Xfer,
+    ) -> Result<(), String> {
+        self.ensure_ai_player(player_id, is_skirmish);
+        let ai_player = self
+            .ai_players
+            .get_mut(&player_id)
+            .ok_or_else(|| format!("AI player {} is not available for xfer", player_id))?;
+        ai_player.xfer(xfer);
+        Ok(())
+    }
+
+    pub fn load_post_process_ai_player(&mut self, player_id: u32) {
+        if let Some(ai_player) = self.ai_players.get_mut(&player_id) {
+            ai_player.load_post_process();
+        }
     }
 
     /// Remove AI player
@@ -1039,6 +1095,9 @@ mod tests {
     use super::*;
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::Object;
+    use game_engine::system::xfer_load::XferLoad;
+    use game_engine::system::xfer_save::XferSave;
+    use std::io::Cursor;
     use std::sync::{Arc, RwLock};
 
     #[test]
@@ -1048,6 +1107,33 @@ mod tests {
         assert_eq!(manager.get_ai_player_count(), 0);
         assert_eq!(manager.get_unit_group_count(), 0);
         assert_eq!(manager.get_ai_object_count(), 0);
+    }
+
+    #[test]
+    fn integration_manager_xfers_ai_player_snapshot_on_load() {
+        let player_id = 5;
+        let mut original = AiIntegrationManager::new();
+        original.ensure_ai_player(player_id, false);
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            original
+                .xfer_ai_player(player_id, false, &mut save)
+                .expect("AI player should serialize");
+        }
+
+        let mut loaded = AiIntegrationManager::new();
+        {
+            let cursor = Cursor::new(bytes.as_slice());
+            let mut load = XferLoad::new(cursor, 1);
+            loaded
+                .xfer_ai_player(player_id, false, &mut load)
+                .expect("AI player should deserialize");
+        }
+
+        assert!(loaded.has_ai_player(player_id));
     }
 
     #[test]
