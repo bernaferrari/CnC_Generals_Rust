@@ -3494,12 +3494,29 @@ impl GameClient {
         Ok(())
     }
 
+    fn finish_unavailable_startup_movies(&mut self) -> GameClientResult<()> {
+        let Some(global_data) = get_global_data() else {
+            return Ok(());
+        };
+
+        {
+            let mut global = global_data.write();
+            global.break_the_movie = true;
+            global.allow_exit_out_of_movies = true;
+            global.after_intro = false;
+            global.play_intro = false;
+            self.startup_sizzle_pending = false;
+        }
+
+        self.activate_shell_after_startup()
+    }
+
     fn update_startup_movies(&mut self) -> GameClientResult<()> {
         let Some(global_data) = get_global_data() else {
             return Ok(());
         };
         let Some(display_arc) = self.subsystem_manager.display.as_ref().cloned() else {
-            return Ok(());
+            return self.finish_unavailable_startup_movies();
         };
 
         let mut display = display_arc
@@ -4590,6 +4607,37 @@ mod tests {
     #[test]
     fn test_startup_movie_action_ignores_sizzle_when_after_intro_is_clear() {
         assert_eq!(startup_movie_action(false, false, true, true, false), None);
+    }
+
+    #[test]
+    fn update_startup_movies_without_display_finishes_movie_state() {
+        init_global_data();
+        let global_data = get_global_data().expect("global data should be initialized");
+        {
+            let mut global = global_data.write();
+            global.initial_file = "Maps\\TestMap\\TestMap.map".to_string();
+            global.play_intro = true;
+            global.after_intro = false;
+            global.play_sizzle = true;
+            global.break_the_movie = false;
+            global.allow_exit_out_of_movies = false;
+        }
+
+        let mut client = GameClient::new().expect("GameClient::new should succeed");
+        client.startup_sizzle_pending = true;
+        assert!(client.subsystem_manager.display.is_none());
+
+        client
+            .update_startup_movies()
+            .expect("movie fallback should finish without display");
+
+        let global = global_data.read();
+        assert!(!global.play_intro);
+        assert!(!global.after_intro);
+        assert!(global.break_the_movie);
+        assert!(global.allow_exit_out_of_movies);
+        assert!(!client.startup_sizzle_pending);
+        assert!(!client.startup_movies_active());
     }
 
     #[test]
