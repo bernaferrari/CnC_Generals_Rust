@@ -8,7 +8,7 @@
 //!   - AIUpdateInterfaceModule: thin module wrapper for the module system
 
 use std::any::Any;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use game_engine::common::ini::{FieldParse, INIError, INILoadType, INI};
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -1633,6 +1633,7 @@ impl AIUpdateInterface {
 pub struct AIUpdateInterfaceModule {
     module_name_key: NameKeyType,
     data: Arc<AIUpdateModuleData>,
+    runtime_ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
 }
 
 impl AIUpdateInterfaceModule {
@@ -1640,7 +1641,15 @@ impl AIUpdateInterfaceModule {
         Self {
             module_name_key,
             data,
+            runtime_ai: None,
         }
+    }
+
+    pub fn set_runtime_ai(
+        &mut self,
+        runtime_ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>>,
+    ) {
+        self.runtime_ai = Some(runtime_ai);
     }
 }
 
@@ -1660,17 +1669,30 @@ impl Module for AIUpdateInterfaceModule {
 
 impl Snapshotable for AIUpdateInterfaceModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
+        let current_version: u8 = 4;
+        let mut version = current_version;
+        xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
+        if let Some(runtime_ai) = &self.runtime_ai {
+            let mut guard = runtime_ai
+                .lock()
+                .map_err(|_| "AIUpdate runtime lock poisoned during crc".to_string())?;
+            let _ = guard.xfer_ai_update_state(xfer)?;
+        }
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
+        let current_version: u8 = 4;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
+        if let Some(runtime_ai) = &self.runtime_ai {
+            let mut guard = runtime_ai
+                .lock()
+                .map_err(|_| "AIUpdate runtime lock poisoned during xfer".to_string())?;
+            let _ = guard.xfer_ai_update_state(xfer)?;
+        }
         Ok(())
     }
 
@@ -1682,6 +1704,8 @@ impl Snapshotable for AIUpdateInterfaceModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     fn ai_update() -> AIUpdateInterface {
         AIUpdateInterface::new(Arc::new(AIUpdateModuleData::default()))
@@ -1692,6 +1716,53 @@ mod tests {
         data.add_locomotor_set_entry(LocomotorSetType::Normal, "BasicLoco".into());
         data.add_locomotor_set_entry(LocomotorSetType::NormalUpgraded, "UpgradeLoco".into());
         AIUpdateInterface::new(Arc::new(data))
+    }
+
+    #[derive(Debug)]
+    struct RecordingAi {
+        calls: Arc<Mutex<u32>>,
+    }
+
+    impl crate::modules::AIUpdateInterface for RecordingAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        fn xfer_ai_update_state(&mut self, _xfer: &mut dyn Xfer) -> Result<bool, String> {
+            *self.calls.lock().unwrap() += 1;
+            Ok(true)
+        }
+
+        fn is_moving(&self) -> bool {
+            false
+        }
+
+        fn is_idle(&self) -> bool {
+            true
+        }
+
+        fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn ai_update_module_xfer_forwards_to_runtime_ai() {
+        let data = Arc::new(AIUpdateModuleData::default());
+        let mut module = AIUpdateInterfaceModule::new(1, data);
+        let calls = Arc::new(Mutex::new(0));
+        let runtime_ai = Arc::new(Mutex::new(RecordingAi {
+            calls: Arc::clone(&calls),
+        }));
+        module.set_runtime_ai(runtime_ai);
+
+        let writer = Cursor::new(Vec::new());
+        let mut xfer = XferSave::new(writer, 1);
+        module
+            .xfer(&mut xfer)
+            .expect("AIUpdate module xfer should forward to runtime AI");
+
+        assert_eq!(*calls.lock().unwrap(), 1);
     }
 
     #[test]

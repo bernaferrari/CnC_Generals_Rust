@@ -51,6 +51,7 @@ use crate::supply_system::{SupplyTruckAIUpdate, WorkerAIUpdate};
 use crate::team::Team;
 use crate::upgrade::center::get_upgrade_center;
 use crate::weapon::{WeaponAntiMask, WeaponChoiceCriteria, WeaponSet, WeaponSlotType};
+use game_engine::common::system::Xfer;
 use log::error;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -2503,6 +2504,19 @@ fn to_locomotor_body_damage_type(value: crate::common::BodyDamageType) -> BodyDa
     }
 }
 
+fn xfer_unit_coord3d(xfer: &mut dyn Xfer, coord: &mut Coord3D) -> Result<(), String> {
+    xfer.xfer_real(&mut coord.x).map_err(|e| e.to_string())?;
+    xfer.xfer_real(&mut coord.y).map_err(|e| e.to_string())?;
+    xfer.xfer_real(&mut coord.z).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn xfer_unit_icoord2d(xfer: &mut dyn Xfer, coord: &mut ICoord2D) -> Result<(), String> {
+    xfer.xfer_int(&mut coord.x).map_err(|e| e.to_string())?;
+    xfer.xfer_int(&mut coord.y).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Basic AI update interface that bridges AI commands to unit orders.
 pub struct UnitAIUpdate {
     unit: Weak<RwLock<Unit>>,
@@ -2568,6 +2582,7 @@ pub struct UnitAIUpdate {
     queue_for_path_frame: UnsignedInt,
     path_timestamp: UnsignedInt,
     ai_dead: Bool,
+    is_recruitable: Bool,
     is_blocked: Bool,
     blocked_and_stuck: Bool,
     blocked_frames: u32,
@@ -2680,6 +2695,7 @@ impl UnitAIUpdate {
             queue_for_path_frame: 0,
             path_timestamp: 0,
             ai_dead: false,
+            is_recruitable: true,
             is_blocked: false,
             blocked_and_stuck: false,
             blocked_frames: 0,
@@ -3344,6 +3360,228 @@ impl UnitAIUpdate {
 }
 
 impl AIUpdateInterface for UnitAIUpdate {
+    fn xfer_ai_update_state(&mut self, xfer: &mut dyn Xfer) -> Result<bool, String> {
+        const FACADE_WAYPOINT_ID: u32 = 0x00FA_CADE;
+
+        let is_loading = xfer.is_reading();
+
+        let mut prior_waypoint_id = self.prior_waypoint_id.unwrap_or(FACADE_WAYPOINT_ID);
+        xfer.xfer_unsigned_int(&mut prior_waypoint_id)
+            .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.prior_waypoint_id =
+                (prior_waypoint_id != FACADE_WAYPOINT_ID).then_some(prior_waypoint_id);
+        }
+
+        let mut current_waypoint_id = self.current_waypoint_id.unwrap_or(FACADE_WAYPOINT_ID);
+        xfer.xfer_unsigned_int(&mut current_waypoint_id)
+            .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.current_waypoint_id =
+                (current_waypoint_id != FACADE_WAYPOINT_ID).then_some(current_waypoint_id);
+        }
+
+        // PARITY_TODO: C++ xfers m_stateMachine here. Rust AIStateMachine has no Snapshotable
+        // implementation yet, so the surrounding AIUpdate module still cannot be byte-identical.
+
+        xfer.xfer_bool(&mut self.ai_dead)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_recruitable)
+            .map_err(|e| e.to_string())?;
+
+        // PARITY_TODO: m_nextEnemyScanTime is currently distributed through Unit scan timing.
+        let mut next_enemy_scan_time: UnsignedInt = 0;
+        xfer.xfer_unsigned_int(&mut next_enemy_scan_time)
+            .map_err(|e| e.to_string())?;
+
+        let mut current_victim_id = self.get_current_victim().unwrap_or(INVALID_ID);
+        xfer.xfer_object_id(&mut current_victim_id)
+            .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.set_current_victim((current_victim_id != INVALID_ID).then_some(current_victim_id));
+        }
+
+        xfer.xfer_real(&mut self.desired_speed)
+            .map_err(|e| e.to_string())?;
+
+        let mut last_command_source = self.last_command_source as u32;
+        xfer.xfer_unsigned_int(&mut last_command_source)
+            .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.last_command_source = match last_command_source {
+                0 => CommandSourceType::FromPlayer,
+                1 => CommandSourceType::FromScript,
+                2 => CommandSourceType::FromAi,
+                3 => CommandSourceType::FromDozer,
+                4 => CommandSourceType::DefaultSwitchWeapon,
+                _ => CommandSourceType::FromAi,
+            };
+        }
+
+        // Guard target type, guarded location/object, area trigger, and attack-info name.
+        // These C++ fields are not owned by UnitAIUpdate yet; keep the serialized slots stable.
+        let mut guard_target_type_0: u32 = 0;
+        let mut guard_target_type_1: u32 = 0;
+        xfer.xfer_unsigned_int(&mut guard_target_type_0)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut guard_target_type_1)
+            .map_err(|e| e.to_string())?;
+        let mut location_to_guard = Coord3D::ZERO;
+        xfer_unit_coord3d(xfer, &mut location_to_guard)?;
+        let mut object_to_guard = INVALID_ID;
+        xfer.xfer_object_id(&mut object_to_guard)
+            .map_err(|e| e.to_string())?;
+        let mut area_to_guard_name = String::new();
+        xfer.xfer_ascii_string(&mut area_to_guard_name)
+            .map_err(|e| e.to_string())?;
+        let mut attack_info_name = String::new();
+        xfer.xfer_ascii_string(&mut attack_info_name)
+            .map_err(|e| e.to_string())?;
+
+        // C++ planning waypoint queue. Rust Unit owns a separate movement queue; that queue still
+        // needs a dedicated bridge before we can restore it through AIUpdate.
+        let mut waypoint_count: Int = 0;
+        xfer.xfer_int(&mut waypoint_count)
+            .map_err(|e| e.to_string())?;
+        if is_loading && waypoint_count > 0 {
+            for _ in 0..waypoint_count.min(1024) {
+                let mut waypoint = Coord3D::ZERO;
+                xfer_unit_coord3d(xfer, &mut waypoint)?;
+            }
+        }
+        let mut waypoint_index: Int = 0;
+        xfer.xfer_int(&mut waypoint_index)
+            .map_err(|e| e.to_string())?;
+        let mut executing_waypoint_queue = false;
+        xfer.xfer_bool(&mut executing_waypoint_queue)
+            .map_err(|e| e.to_string())?;
+
+        let mut completed_waypoint_id = self
+            .completed_waypoint_id
+            .unwrap_or(crate::common::INVALID_WAYPOINT_ID);
+        xfer.xfer_unsigned_int(&mut completed_waypoint_id)
+            .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.completed_waypoint_id =
+                (completed_waypoint_id != crate::common::INVALID_WAYPOINT_ID)
+                    .then_some(completed_waypoint_id);
+        }
+
+        let mut waiting_for_path = self.queue_for_path_frame != 0;
+        xfer.xfer_bool(&mut waiting_for_path)
+            .map_err(|e| e.to_string())?;
+        if is_loading && !waiting_for_path {
+            self.queue_for_path_frame = 0;
+        }
+
+        // PARITY_TODO: C++ snapshots Path here. Rust path-following state is not Snapshotable yet.
+        let mut got_path = false;
+        xfer.xfer_bool(&mut got_path).map_err(|e| e.to_string())?;
+
+        let mut requested_victim_id = INVALID_ID;
+        xfer.xfer_object_id(&mut requested_victim_id)
+            .map_err(|e| e.to_string())?;
+        let mut requested_destination = Coord3D::ZERO;
+        xfer_unit_coord3d(xfer, &mut requested_destination)?;
+        let mut requested_destination2 = Coord3D::ZERO;
+        xfer_unit_coord3d(xfer, &mut requested_destination2)?;
+
+        xfer.xfer_object_id(&mut self.ignore_obstacle_id)
+            .map_err(|e| e.to_string())?;
+        let mut path_extra_distance: Real = 0.0;
+        xfer.xfer_real(&mut path_extra_distance)
+            .map_err(|e| e.to_string())?;
+        xfer_unit_icoord2d(xfer, &mut self.pathfind_goal_cell)?;
+        let mut pathfind_cur_cell = ICoord2D::new(-1, -1);
+        xfer_unit_icoord2d(xfer, &mut pathfind_cur_cell)?;
+
+        xfer.xfer_unsigned_int(&mut self.ignore_collisions_until)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.queue_for_path_frame)
+            .map_err(|e| e.to_string())?;
+
+        let mut final_position = Coord3D::ZERO;
+        xfer_unit_coord3d(xfer, &mut final_position)?;
+        let mut do_final_position = false;
+        xfer.xfer_bool(&mut do_final_position)
+            .map_err(|e| e.to_string())?;
+        let mut is_attack_path = false;
+        xfer.xfer_bool(&mut is_attack_path)
+            .map_err(|e| e.to_string())?;
+        let mut is_final_goal = false;
+        xfer.xfer_bool(&mut is_final_goal)
+            .map_err(|e| e.to_string())?;
+        let mut is_approach_path = false;
+        xfer.xfer_bool(&mut is_approach_path)
+            .map_err(|e| e.to_string())?;
+        let mut is_safe_path = self.pending_safe_path.is_some();
+        xfer.xfer_bool(&mut is_safe_path)
+            .map_err(|e| e.to_string())?;
+        let mut movement_complete = false;
+        xfer.xfer_bool(&mut movement_complete)
+            .map_err(|e| e.to_string())?;
+        let mut is_safe_path_duplicate = is_safe_path;
+        xfer.xfer_bool(&mut is_safe_path_duplicate)
+            .map_err(|e| e.to_string())?;
+
+        xfer.xfer_bool(&mut self.locomotor_upgraded)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.can_path_through_units)
+            .map_err(|e| e.to_string())?;
+        let mut randomly_offset_mood_check = false;
+        xfer.xfer_bool(&mut randomly_offset_mood_check)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_object_id(&mut self.repulsor1)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_object_id(&mut self.repulsor2)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_object_id(&mut self.move_out_of_way_1)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_object_id(&mut self.move_out_of_way_2)
+            .map_err(|e| e.to_string())?;
+
+        // PARITY_TODO: LocomotorSet::xferSelfAndCurLocoPtr is not ported for UnitAIUpdate yet.
+        let mut current_locomotor_set = self.current_locomotor_set as u32;
+        xfer.xfer_unsigned_int(&mut current_locomotor_set)
+            .map_err(|e| e.to_string())?;
+
+        let mut locomotor_goal_type: u32 = 0;
+        xfer.xfer_unsigned_int(&mut locomotor_goal_type)
+            .map_err(|e| e.to_string())?;
+        let mut locomotor_goal_data = Coord3D::ZERO;
+        xfer_unit_coord3d(xfer, &mut locomotor_goal_data)?;
+
+        // PARITY_TODO: turret AI snapshots and sync flag.
+        let mut turret_sync_flag: u32 = 0;
+        xfer.xfer_unsigned_int(&mut turret_sync_flag)
+            .map_err(|e| e.to_string())?;
+        let mut attitude = self.attitude as u32;
+        xfer.xfer_unsigned_int(&mut attitude)
+            .map_err(|e| e.to_string())?;
+
+        let mut next_mood_check_time = self.get_next_mood_check_time();
+        xfer.xfer_unsigned_int(&mut next_mood_check_time)
+            .map_err(|e| e.to_string())?;
+        if is_loading {
+            self.set_next_mood_check_time(next_mood_check_time);
+        }
+
+        let mut crate_created = self
+            .crate_created
+            .lock()
+            .map(|id| *id)
+            .unwrap_or(INVALID_ID);
+        xfer.xfer_object_id(&mut crate_created)
+            .map_err(|e| e.to_string())?;
+        if is_loading {
+            if let Ok(mut id) = self.crate_created.lock() {
+                *id = crate_created;
+            }
+        }
+
+        Ok(true)
+    }
+
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if self.is_blocked {
             self.blocked_frames = self.blocked_frames.saturating_add(1);
@@ -6600,6 +6838,10 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn mark_as_dead(&mut self) {
         self.ai_dead = true;
+    }
+
+    fn set_is_recruitable(&mut self, recruitable: Bool) {
+        self.is_recruitable = recruitable;
     }
 
     fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
