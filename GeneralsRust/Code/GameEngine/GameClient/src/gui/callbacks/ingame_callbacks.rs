@@ -5,8 +5,8 @@
 
 use crate::game_text::GameText;
 use crate::gui::{
-    get_disconnect_menu, with_window_manager, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    get_disconnect_menu, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
@@ -255,10 +255,10 @@ impl InGameChatCallbacks {
         _window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
         match msg {
-            WindowMessage::InputFocus => WindowMsgHandled::Handled,
+            WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
             WindowMessage::GadgetEditDone => {
                 let _ = self.toggle_in_game_chat(false);
                 WindowMsgHandled::Handled
@@ -285,7 +285,7 @@ impl InGameChatCallbacks {
         _window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
         if msg != WindowMessage::Char {
             return WindowMsgHandled::Ignored;
@@ -662,7 +662,7 @@ impl IdleWorkerCallbacks {
         window: &GameWindow,
         msg: WindowMessage,
         data1: WindowMsgData,
-        _data2: WindowMsgData,
+        data2: WindowMsgData,
     ) -> WindowMsgHandled {
         debug!(
             "Idle worker system message: {:?} for window: {}",
@@ -671,7 +671,7 @@ impl IdleWorkerCallbacks {
         );
 
         match msg {
-            WindowMessage::InputFocus => WindowMsgHandled::Handled,
+            WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
             WindowMessage::GadgetSelected => {
                 let button_id =
                     NameKeyGenerator::name_to_key("IdleWorker.wnd:ButtonSelectNextIdleWorker")

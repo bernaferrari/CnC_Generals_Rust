@@ -3,8 +3,8 @@
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty};
 use crate::gui::shell::main_menu::{get_main_menu, GameDifficulty as MainMenuDifficulty};
 use crate::gui::{
-    with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
-    WindowWidget,
+    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, WindowWidget,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::user_preferences::UserPreferences;
@@ -215,9 +215,8 @@ pub fn difficulty_select_system(
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
-        WindowMessage::Create | WindowMessage::Destroy | WindowMessage::InputFocus => {
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => write_input_focus_response(data1, _data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_ok_id {

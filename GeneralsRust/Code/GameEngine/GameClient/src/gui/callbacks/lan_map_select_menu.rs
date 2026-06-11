@@ -8,8 +8,8 @@ use crate::display::image::get_mapped_image_collection;
 use crate::gui::gadgets::{KeyModifiers, ListBoxItemData};
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
-    get_lan_setup, get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowStatus,
+    get_lan_setup, get_shell, with_window_manager, write_input_focus_response, GameWindow,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowStatus,
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image, populate_map_listbox,
@@ -309,7 +309,7 @@ pub fn lan_map_select_menu_system(
             nullify_controls();
             return WindowMsgHandled::Handled;
         }
-        WindowMessage::InputFocus => return WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.button_ok_id {

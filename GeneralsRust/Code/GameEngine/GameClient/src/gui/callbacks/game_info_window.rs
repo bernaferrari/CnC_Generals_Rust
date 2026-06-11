@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
-    with_window_manager, Color, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled,
+    with_window_manager, write_input_focus_response, Color, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use crate::map_util::get_map_cache_manager;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
@@ -293,7 +293,7 @@ pub fn game_info_window_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::Destroy => WindowMsgHandled::Handled,
         WindowMessage::Create => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,

@@ -3,8 +3,8 @@
 use crate::game_text::GameText;
 use crate::gui::callbacks::score_screen::score_screen_enable_controls;
 use crate::gui::{
-    message_box_ok, message_box_ok_cancel, with_window_manager, GameWindow, WindowLayout,
-    WindowMessage, WindowMsgData, WindowMsgHandled,
+    message_box_ok, message_box_ok_cancel, with_window_manager, write_input_focus_response,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::with_recorder;
@@ -324,7 +324,7 @@ pub fn popup_replay_system(
 
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as i32;
             if control_id == state.listbox_games {

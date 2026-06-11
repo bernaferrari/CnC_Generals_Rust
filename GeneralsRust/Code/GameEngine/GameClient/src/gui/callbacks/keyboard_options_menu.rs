@@ -4,8 +4,8 @@ use crate::game_text::GameText;
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::gadgets::KeyModifiers;
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowWidget,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
 };
 use crate::message_stream::meta_event::{
     get_command_map_entries, reset_command_map_entries, update_command_map_entry, CommandMapEntry,
@@ -538,14 +538,14 @@ pub fn keyboard_options_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let state_handle = keyboard_options_menu_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
 
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as i32;
             if control_id == state.combo_category_id {

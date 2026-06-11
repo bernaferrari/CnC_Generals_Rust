@@ -9,8 +9,8 @@ use crate::gui::menu_flags::{
 };
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, KeyModifiers, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, KeyModifiers,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
@@ -630,7 +630,7 @@ pub fn save_load_menu_system(
 
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => WindowMsgHandled::Handled,
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::User(code) if code == DOUBLE_CLICK_MSG => {
             if data1 as i32 == state.listbox_games {
                 let row_selected = data2 as i32;
