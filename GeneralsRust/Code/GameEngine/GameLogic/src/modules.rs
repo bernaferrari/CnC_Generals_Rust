@@ -1018,6 +1018,13 @@ impl ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>> {
 pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     /// Update AI logic
     fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
+    /// Serialize live AIUpdate runtime state through the owning AIUpdate module.
+    ///
+    /// The default keeps test doubles and non-standard AI shims compatible; concrete
+    /// gameplay AI implementations should override this when they own restorable state.
+    fn xfer_ai_update_state(&mut self, _xfer: &mut dyn Xfer) -> Result<bool, String> {
+        Ok(false)
+    }
     /// Check if the object is moving
     fn is_moving(&self) -> bool;
     /// Check if the object is idle
