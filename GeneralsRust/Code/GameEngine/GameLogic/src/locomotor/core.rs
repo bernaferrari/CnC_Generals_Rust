@@ -3511,6 +3511,7 @@ impl Locomotor {
 #[derive(Debug, Clone)]
 pub struct LocomotorSet {
     locomotors: HashMap<String, Arc<Mutex<Locomotor>>>,
+    locomotor_order: Vec<String>,
     active_locomotor: Option<String>,
     /// Bitmask of valid surfaces across all added locomotors
     /// Matches C++ LocomotorSet::m_validLocomotorSurfaces
@@ -3524,6 +3525,7 @@ impl LocomotorSet {
     pub fn new() -> Self {
         Self {
             locomotors: HashMap::new(),
+            locomotor_order: Vec::new(),
             active_locomotor: None,
             valid_surfaces: 0,
             downhill_only: false,
@@ -3533,6 +3535,7 @@ impl LocomotorSet {
     /// Clear all locomotors - matches C++ LocomotorSet::clear()
     pub fn clear(&mut self) {
         self.locomotors.clear();
+        self.locomotor_order.clear();
         self.active_locomotor = None;
         self.valid_surfaces = 0;
         self.downhill_only = false;
@@ -3550,6 +3553,9 @@ impl LocomotorSet {
         if self.active_locomotor.is_none() {
             self.active_locomotor = Some(name.clone());
         }
+        if !self.locomotors.contains_key(&name) {
+            self.locomotor_order.push(name.clone());
+        }
         self.locomotors.insert(name, locomotor);
     }
 
@@ -3561,10 +3567,12 @@ impl LocomotorSet {
     ) -> Option<Arc<Mutex<Locomotor>>> {
         // C++ iterates m_locomotors and returns the first one whose template
         // surfaces overlap with the requested mask
-        for (_name, loco) in &self.locomotors {
-            if let Ok(l) = loco.lock() {
-                if (l.get_legal_surfaces() & surface_mask) != 0 {
-                    return Some(loco.clone());
+        for name in &self.locomotor_order {
+            if let Some(loco) = self.locomotors.get(name) {
+                if let Ok(l) = loco.lock() {
+                    if (l.get_legal_surfaces() & surface_mask) != 0 {
+                        return Some(loco.clone());
+                    }
                 }
             }
         }
@@ -3607,7 +3615,9 @@ impl LocomotorSet {
         if let Some(active) = self.get_active() {
             return Some(active);
         }
-        self.locomotors.values().next().cloned()
+        self.locomotor_order
+            .first()
+            .and_then(|name| self.locomotors.get(name).cloned())
     }
 
     /// Get number of locomotors in set
@@ -3623,6 +3633,97 @@ impl LocomotorSet {
     /// Iterate over all locomotors
     pub fn iter(&self) -> impl Iterator<Item = (&String, &Arc<Mutex<Locomotor>>)> {
         self.locomotors.iter()
+    }
+
+    /// Serialize this set plus the caller's current locomotor pointer.
+    /// Matches C++ LocomotorSet::xferSelfAndCurLocoPtr.
+    pub fn xfer_self_and_cur_loco_ptr(
+        &mut self,
+        xfer: &mut dyn game_engine::system::Xfer,
+        current_locomotor: &mut Option<Arc<Mutex<Locomotor>>>,
+    ) -> Result<(), String> {
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("LocomotorSet xfer version: {:?}", e))?;
+
+        let mut count: u16 = if xfer.is_loading() {
+            0
+        } else {
+            self.locomotor_order.len() as u16
+        };
+        xfer.xfer_unsigned_short(&mut count)
+            .map_err(|e| format!("LocomotorSet xfer count: {:?}", e))?;
+
+        if xfer.is_loading() {
+            if !self.is_empty() {
+                return Err("LocomotorSet::xfer expected empty set on load".to_string());
+            }
+            for _ in 0..count {
+                let mut name = String::new();
+                xfer.xfer_ascii_string(&mut name)
+                    .map_err(|e| format!("LocomotorSet xfer template name: {:?}", e))?;
+                let template = LOCOMOTOR_STORE
+                    .get_template(&name)
+                    .ok_or_else(|| format!("LocomotorSet xfer unknown template {name}"))?;
+                let mut loco = Locomotor::new(template);
+                loco.loco_xfer(xfer)?;
+                self.add_locomotor(name, Arc::new(Mutex::new(loco)));
+            }
+        } else {
+            for name in self.locomotor_order.clone() {
+                let loco = self
+                    .locomotors
+                    .get(&name)
+                    .ok_or_else(|| format!("LocomotorSet missing ordered locomotor {name}"))?;
+                let mut xfer_name = name;
+                xfer.xfer_ascii_string(&mut xfer_name)
+                    .map_err(|e| format!("LocomotorSet xfer template name: {:?}", e))?;
+                let mut guard = loco
+                    .lock()
+                    .map_err(|_| "LocomotorSet locomotor lock poisoned".to_string())?;
+                guard.loco_xfer(xfer)?;
+            }
+        }
+
+        let mut valid_surfaces = self.valid_surfaces as i32;
+        xfer.xfer_int(&mut valid_surfaces)
+            .map_err(|e| format!("LocomotorSet xfer valid surfaces: {:?}", e))?;
+        if xfer.is_loading() {
+            self.valid_surfaces = valid_surfaces as LocomotorSurfaceTypeMask;
+        }
+        xfer.xfer_bool(&mut self.downhill_only)
+            .map_err(|e| format!("LocomotorSet xfer downhill only: {:?}", e))?;
+
+        let mut current_name = if xfer.is_loading() {
+            String::new()
+        } else {
+            current_locomotor
+                .as_ref()
+                .and_then(|loco| {
+                    loco.lock()
+                        .ok()
+                        .map(|guard| guard.get_template_name().to_string())
+                })
+                .unwrap_or_default()
+        };
+        xfer.xfer_ascii_string(&mut current_name)
+            .map_err(|e| format!("LocomotorSet xfer current locomotor: {:?}", e))?;
+
+        if xfer.is_loading() {
+            if current_name.is_empty() {
+                *current_locomotor = None;
+                self.active_locomotor = None;
+            } else {
+                let loco = self.get_locomotor(&current_name).ok_or_else(|| {
+                    format!("LocomotorSet xfer current template {current_name} not found")
+                })?;
+                self.active_locomotor = Some(current_name);
+                *current_locomotor = Some(loco);
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -3776,6 +3877,9 @@ pub static LOCOMOTOR_STORE: Lazy<Arc<LocomotorStore>> = Lazy::new(|| {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     struct RegisteredObjectCleanup(ObjectID);
 
@@ -3875,6 +3979,42 @@ mod tests {
 
         let loco = LOCOMOTOR_STORE.create_locomotor("Infantry");
         assert!(loco.is_some());
+    }
+
+    #[test]
+    fn locomotor_set_xfer_roundtrips_current_locomotor_pointer() {
+        let infantry = Arc::new(Mutex::new(
+            LOCOMOTOR_STORE.create_locomotor("Infantry").unwrap(),
+        ));
+        let wheeled = Arc::new(Mutex::new(
+            LOCOMOTOR_STORE.create_locomotor("Wheeled").unwrap(),
+        ));
+        let mut saved = LocomotorSet::new();
+        saved.add_locomotor("Infantry".to_string(), infantry.clone());
+        saved.add_locomotor("Wheeled".to_string(), wheeled.clone());
+        let mut saved_current = Some(wheeled);
+
+        let mut bytes = Vec::new();
+        {
+            let mut xfer = XferSave::new(Cursor::new(&mut bytes), 1);
+            saved
+                .xfer_self_and_cur_loco_ptr(&mut xfer, &mut saved_current)
+                .unwrap();
+        }
+
+        let mut loaded = LocomotorSet::new();
+        let mut loaded_current = None;
+        {
+            let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+            loaded
+                .xfer_self_and_cur_loco_ptr(&mut xfer, &mut loaded_current)
+                .unwrap();
+        }
+
+        assert_eq!(loaded.len(), 2);
+        let current = loaded_current.unwrap();
+        assert_eq!(current.lock().unwrap().get_template_name(), "Wheeled");
+        assert!(loaded.get_locomotor("Infantry").is_some());
     }
 
     #[test]
