@@ -3346,14 +3346,11 @@ impl Locomotor {
                 .map_err(|e| format!("Locomotor xfer donutTimer: {:?}", e))?;
         }
 
-        // Maintain pos — not stored as a field in Rust (computed on demand).
-        // Write zero placeholder for save/load compatibility.
-        let mut maintain_pos = Coord3D::new(0.0, 0.0, 0.0);
-        xfer.xfer_real(&mut maintain_pos.x)
+        xfer.xfer_real(&mut self.maintain_pos.x)
             .map_err(|e| format!("Locomotor xfer maintainPos.x: {:?}", e))?;
-        xfer.xfer_real(&mut maintain_pos.y)
+        xfer.xfer_real(&mut self.maintain_pos.y)
             .map_err(|e| format!("Locomotor xfer maintainPos.y: {:?}", e))?;
-        xfer.xfer_real(&mut maintain_pos.z)
+        xfer.xfer_real(&mut self.maintain_pos.z)
             .map_err(|e| format!("Locomotor xfer maintainPos.z: {:?}", e))?;
 
         xfer.xfer_real(&mut self.braking_factor)
@@ -3979,6 +3976,26 @@ mod tests {
 
         let loco = LOCOMOTOR_STORE.create_locomotor("Infantry");
         assert!(loco.is_some());
+    }
+
+    #[test]
+    fn locomotor_xfer_roundtrips_maintain_pos() {
+        let mut saved = LOCOMOTOR_STORE.create_locomotor("Hover").unwrap();
+        saved.maintain_pos = Coord3D::new(12.0, 34.0, 5.0);
+
+        let mut bytes = Vec::new();
+        {
+            let mut xfer = XferSave::new(Cursor::new(&mut bytes), 1);
+            saved.loco_xfer(&mut xfer).unwrap();
+        }
+
+        let mut loaded = LOCOMOTOR_STORE.create_locomotor("Hover").unwrap();
+        {
+            let mut xfer = XferLoad::new(Cursor::new(bytes), 1);
+            loaded.loco_xfer(&mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.maintain_pos, Coord3D::new(12.0, 34.0, 5.0));
     }
 
     #[test]
