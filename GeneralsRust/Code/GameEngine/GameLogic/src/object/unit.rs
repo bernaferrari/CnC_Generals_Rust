@@ -2541,6 +2541,21 @@ fn xfer_guard_target_type(
     Ok(())
 }
 
+fn locomotor_set_type_from_i32(value: i32) -> Result<LocomotorSetType, String> {
+    match value {
+        -1 => Ok(LocomotorSetType::Invalid),
+        0 => Ok(LocomotorSetType::Normal),
+        1 => Ok(LocomotorSetType::NormalUpgraded),
+        2 => Ok(LocomotorSetType::Freefall),
+        3 => Ok(LocomotorSetType::Wander),
+        4 => Ok(LocomotorSetType::Panic),
+        5 => Ok(LocomotorSetType::Taxiing),
+        6 => Ok(LocomotorSetType::Supersonic),
+        7 => Ok(LocomotorSetType::Sluggish),
+        _ => Err(format!("Invalid AIUpdate locomotor set type {value}")),
+    }
+}
+
 /// Basic AI update interface that bridges AI commands to unit orders.
 pub struct UnitAIUpdate {
     unit: Weak<RwLock<Unit>>,
@@ -2798,6 +2813,30 @@ impl UnitAIUpdate {
             Some(path) => path.append_node(goal, AiPathLayer::Ground),
             None => self.set_current_path_snapshot_from_coords(&[*goal]),
         }
+    }
+
+    fn xfer_locomotor_set_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        if let Some(unit) = self.unit.upgrade() {
+            let mut guard = unit
+                .write()
+                .map_err(|_| "unit lock poisoned during locomotor xfer".to_string())?;
+            let guard = &mut *guard;
+            guard
+                .locomotor_set
+                .xfer_self_and_cur_loco_ptr(xfer, &mut guard.current_locomotor)?;
+        } else {
+            let mut empty_set = LocomotorSet::new();
+            let mut current_locomotor = None;
+            empty_set.xfer_self_and_cur_loco_ptr(xfer, &mut current_locomotor)?;
+        }
+
+        let mut current_locomotor_set = self.current_locomotor_set as i32;
+        xfer.xfer_int(&mut current_locomotor_set)
+            .map_err(|e| e.to_string())?;
+        if xfer.is_loading() {
+            self.current_locomotor_set = locomotor_set_type_from_i32(current_locomotor_set)?;
+        }
+        Ok(())
     }
 
     pub fn apply_ai_update_module_data(
@@ -3654,10 +3693,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         xfer.xfer_object_id(&mut self.move_out_of_way_2)
             .map_err(|e| e.to_string())?;
 
-        // PARITY_TODO: LocomotorSet::xferSelfAndCurLocoPtr is not ported for UnitAIUpdate yet.
-        let mut current_locomotor_set = self.current_locomotor_set as u32;
-        xfer.xfer_unsigned_int(&mut current_locomotor_set)
-            .map_err(|e| e.to_string())?;
+        self.xfer_locomotor_set_state(xfer)?;
 
         xfer.xfer_unsigned_int(&mut self.locomotor_goal_type)
             .map_err(|e| e.to_string())?;
@@ -8409,6 +8445,7 @@ mod tests {
         saved.is_approach_path = true;
         saved.is_safe_path = true;
         saved.movement_complete = true;
+        saved.current_locomotor_set = LocomotorSetType::Supersonic;
         saved.locomotor_goal_type = 2;
         saved.locomotor_goal_data = Coord3D::new(70.0, 80.0, 9.0);
         let bytes = save_unit_ai_update(&mut saved);
@@ -8431,8 +8468,17 @@ mod tests {
         assert!(loaded.is_approach_path);
         assert!(loaded.is_safe_path);
         assert!(loaded.movement_complete);
+        assert_eq!(loaded.current_locomotor_set, LocomotorSetType::Supersonic);
         assert_eq!(loaded.locomotor_goal_type, 2);
         assert_eq!(loaded.locomotor_goal_data, Coord3D::new(70.0, 80.0, 9.0));
+    }
+
+    #[test]
+    fn unit_ai_update_rejects_invalid_locomotor_set_type() {
+        assert_eq!(
+            locomotor_set_type_from_i32(8).unwrap_err(),
+            "Invalid AIUpdate locomotor set type 8"
+        );
     }
 
     #[test]
