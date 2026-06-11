@@ -10,7 +10,8 @@ use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
     get_shell, get_skirmish_setup, with_window_manager, with_window_manager_ref,
     write_input_focus_response, GameWindow, WindowInstanceData, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowStatus, WIN_COLOR_UNDEFINED,
+    WindowMsgData, WindowMsgHandled, WindowStatus, GLM_DOUBLE_CLICKED, GLM_SELECTED,
+    WIN_COLOR_UNDEFINED,
 };
 use crate::map_util::{
     find_draw_positions, get_map_cache_manager, get_map_preview_image,
@@ -408,7 +409,14 @@ pub fn skirmish_map_select_menu_system(
                 return WindowMsgHandled::Handled;
             }
         }
-        WindowMessage::User(0x8000) => {
+        WindowMessage::User(code) if code == GLM_SELECTED => {
+            if data1 as i32 == state.listbox_map_id {
+                update_selected_map(&mut state);
+                update_preview(&mut state);
+                return WindowMsgHandled::Handled;
+            }
+        }
+        WindowMessage::User(code) if code == GLM_DOUBLE_CLICKED => {
             if data1 as i32 == state.listbox_map_id {
                 if (data2 as i32) >= 0 {
                     if let Some(listbox) = state.listbox_map.as_ref() {
@@ -755,6 +763,86 @@ mod tests {
         assert_eq!(
             skirmish_map_select_menu_system(&window, WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Handled
+        );
+    }
+
+    fn install_map_listbox_for_test(listbox_id: i32, selected: Option<usize>) {
+        let mut listbox = crate::gui::gadgets::ListBox::new(listbox_id as u32, 0, 0, 200, 80);
+        listbox.add_item_with_data(
+            0,
+            "Map One",
+            Some(ListBoxItemData::Text(
+                "maps/map_one/map_one.map".to_string(),
+            )),
+        );
+        listbox.add_item_with_data(
+            1,
+            "Map Two",
+            Some(ListBoxItemData::Text(
+                "maps/map_two/map_two.map".to_string(),
+            )),
+        );
+        if let Some(row) = selected {
+            assert!(listbox.select_index(row, KeyModifiers::none()));
+        }
+
+        let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
+        listbox_window
+            .borrow_mut()
+            .set_widget(crate::gui::WindowWidget::ListBox(listbox));
+
+        let state_handle = map_select_state();
+        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+        *state = SkirmishMapSelectState::default();
+        state.listbox_map_id = listbox_id;
+        state.listbox_map = Some(listbox_window);
+    }
+
+    #[test]
+    fn skirmish_map_select_system_handles_glm_selected_like_cpp() {
+        let listbox_id = 101;
+        install_map_listbox_for_test(listbox_id, Some(1));
+
+        let window = GameWindow::new();
+        assert_eq!(
+            skirmish_map_select_menu_system(
+                &window,
+                WindowMessage::User(GLM_SELECTED),
+                listbox_id as WindowMsgData,
+                1,
+            ),
+            WindowMsgHandled::Handled
+        );
+
+        let state_handle = map_select_state();
+        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            state.selected_map.as_deref(),
+            Some("maps/map_two/map_two.map")
+        );
+    }
+
+    #[test]
+    fn skirmish_map_select_system_handles_glm_double_clicked_like_cpp() {
+        let listbox_id = 101;
+        install_map_listbox_for_test(listbox_id, None);
+
+        let window = GameWindow::new();
+        assert_eq!(
+            skirmish_map_select_menu_system(
+                &window,
+                WindowMessage::User(GLM_DOUBLE_CLICKED),
+                listbox_id as WindowMsgData,
+                1,
+            ),
+            WindowMsgHandled::Handled
+        );
+
+        let state_handle = map_select_state();
+        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+        assert_eq!(
+            state.selected_map.as_deref(),
+            Some("maps/map_two/map_two.map")
         );
     }
 }
