@@ -51,7 +51,7 @@ use crate::supply_system::{SupplyTruckAIUpdate, WorkerAIUpdate};
 use crate::team::Team;
 use crate::upgrade::center::get_upgrade_center;
 use crate::weapon::{WeaponAntiMask, WeaponChoiceCriteria, WeaponSet, WeaponSlotType};
-use game_engine::common::system::Xfer;
+use game_engine::common::system::{Snapshotable, Xfer};
 use log::error;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -3381,8 +3381,12 @@ impl AIUpdateInterface for UnitAIUpdate {
                 (current_waypoint_id != FACADE_WAYPOINT_ID).then_some(current_waypoint_id);
         }
 
-        // PARITY_TODO: C++ xfers m_stateMachine here. Rust AIStateMachine has no Snapshotable
-        // implementation yet, so the surrounding AIUpdate module still cannot be byte-identical.
+        if let Some(state_machine) = self.ai_state_machine.as_ref() {
+            let mut machine = state_machine
+                .lock()
+                .map_err(|_| "AIUpdate state machine lock poisoned during xfer".to_string())?;
+            machine.xfer(xfer)?;
+        }
 
         xfer.xfer_bool(&mut self.ai_dead)
             .map_err(|e| e.to_string())?;
