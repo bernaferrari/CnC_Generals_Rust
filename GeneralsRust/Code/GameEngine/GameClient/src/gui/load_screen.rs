@@ -170,8 +170,11 @@ static MAP_TRANSFER_LOAD_SCREEN_STATE: OnceLock<Mutex<MapTransferLoadScreenState
     OnceLock::new();
 static MAP_TRANSFER_LITEUPDATE_HOOK: OnceLock<Mutex<Option<MapTransferLiteupdateHook>>> =
     OnceLock::new();
+static MULTIPLAYER_LOAD_PROGRESS_HOOK: OnceLock<Mutex<Option<MultiplayerLoadProgressHook>>> =
+    OnceLock::new();
 
 type MapTransferLiteupdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
+type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ChallengePersonaText {
@@ -493,6 +496,7 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
     }
     if descriptor.slot_count > 0 {
         let local_player_id = with_multiplayer_load_screen_state(|state| state.local_player_id);
+        report_multiplayer_load_progress(local_player_id, percent);
         let _ = process_load_screen_progress(kind, local_player_id, percent);
         return;
     }
@@ -536,6 +540,25 @@ pub fn clear_map_transfer_liteupdate_hook() -> Option<MapTransferLiteupdateHook>
     guard.take()
 }
 
+pub fn register_multiplayer_load_progress_hook(
+    hook: impl Fn(i32, i32) + Send + Sync + 'static,
+) -> Option<MultiplayerLoadProgressHook> {
+    let hook = Arc::new(hook);
+    let state = MULTIPLAYER_LOAD_PROGRESS_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.replace(hook)
+}
+
+pub fn clear_multiplayer_load_progress_hook() -> Option<MultiplayerLoadProgressHook> {
+    let state = MULTIPLAYER_LOAD_PROGRESS_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.take()
+}
+
 fn map_transfer_liteupdate() {
     let hook = {
         let state = MAP_TRANSFER_LITEUPDATE_HOOK.get_or_init(|| Mutex::new(None));
@@ -546,6 +569,22 @@ fn map_transfer_liteupdate() {
     };
     if let Some(hook) = hook {
         hook();
+    }
+}
+
+fn report_multiplayer_load_progress(player_id: i32, percentage: f32) {
+    if !(0.0..=100.0).contains(&percentage) {
+        return;
+    }
+    let hook = {
+        let state = MULTIPLAYER_LOAD_PROGRESS_HOOK.get_or_init(|| Mutex::new(None));
+        let guard = state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        guard.clone()
+    };
+    if let Some(hook) = hook {
+        hook(player_id, percentage as i32);
     }
 }
 
@@ -2635,6 +2674,101 @@ mod tests {
     }
 
     #[test]
+    fn multiplayer_update_reports_progress_before_local_ui_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_multiplayer_load_screen_state();
+        clear_multiplayer_load_progress_hook();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let hook_calls = Arc::clone(&calls);
+        register_multiplayer_load_progress_hook(move |player_id, percent| {
+            hook_calls.lock().unwrap().push((player_id, percent));
+        });
+
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 2);
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Bob".to_string(),
+            local_side_name: "China".to_string(),
+            local_template_name: "FactionChina".to_string(),
+            local_general_name: "China".to_string(),
+            local_general_features: "China".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
+            local_team_number: 1,
+            shell_game_did_mem_pass: true,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: vec![
+                load_screen_slot("Alice", "USA", 0, false, true),
+                load_screen_slot("Bob", "China", 1, false, true),
+            ],
+        };
+
+        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+        with_window_manager(|global_wm| {
+            *global_wm = wm;
+        });
+
+        update_load_screen(LoadScreenKind::Multiplayer, 41.0);
+
+        assert_eq!(*calls.lock().unwrap(), vec![(1, 41)]);
+        assert_eq!(
+            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
+            Some(0.41)
+        );
+        clear_multiplayer_load_progress_hook();
+    }
+
+    #[test]
+    fn gamespy_update_reports_progress_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_multiplayer_load_screen_state();
+        clear_multiplayer_load_progress_hook();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let hook_calls = Arc::clone(&calls);
+        register_multiplayer_load_progress_hook(move |player_id, percent| {
+            hook_calls.lock().unwrap().push((player_id, percent));
+        });
+
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "GameSpyLoadScreen.wnd", 1);
+        create_gamespy_slot_windows(&mut wm, 1);
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Alice".to_string(),
+            local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
+            local_team_number: 0,
+            shell_game_did_mem_pass: true,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
+        };
+
+        initialize_gamespy_windows(&mut wm, &context);
+        with_window_manager(|global_wm| {
+            *global_wm = wm;
+        });
+
+        update_load_screen(LoadScreenKind::GameSpy, 77.0);
+
+        assert_eq!(*calls.lock().unwrap(), vec![(0, 77)]);
+        assert_eq!(
+            progress_value("GameSpyLoadScreen.wnd:ProgressLoad0"),
+            Some(0.77)
+        );
+        clear_multiplayer_load_progress_hook();
+    }
+
+    #[test]
     fn multiplayer_init_resets_all_progress_bars_like_cpp() {
         let _state_guard = lock_test_load_screen_state();
         reset_multiplayer_load_screen_state();
@@ -3194,6 +3328,24 @@ mod tests {
 
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         clear_map_transfer_liteupdate_hook();
+    }
+
+    #[test]
+    fn non_multiplayer_updates_do_not_report_load_progress() {
+        let _state_guard = lock_test_load_screen_state();
+        clear_multiplayer_load_progress_hook();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let hook_calls = Arc::clone(&calls);
+        register_multiplayer_load_progress_hook(move |_, _| {
+            hook_calls.fetch_add(1, Ordering::SeqCst);
+        });
+
+        update_load_screen(LoadScreenKind::SinglePlayer, 50.0);
+        update_load_screen(LoadScreenKind::Challenge, 50.0);
+        update_load_screen(LoadScreenKind::MapTransfer, 50.0);
+
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        clear_multiplayer_load_progress_hook();
     }
 
     #[test]
