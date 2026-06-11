@@ -69,6 +69,14 @@ fn last_replay_filename() -> String {
         .unwrap_or_else(|| "00000000".to_string())
 }
 
+fn replay_display_name_for_popup(entry: &str, last_replay: &str) -> String {
+    if entry.eq_ignore_ascii_case(last_replay) {
+        GameText::fetch("GUI:LastReplay")
+    } else {
+        entry.to_string()
+    }
+}
+
 fn populate_replay_listbox(state: &mut PopupReplayState) {
     let Some(listbox) = state.listbox_window.as_ref() else {
         return;
@@ -99,12 +107,8 @@ fn populate_replay_listbox(state: &mut PopupReplayState) {
     entries.sort();
 
     let last_replay = last_replay_filename();
-    if entries.iter().any(|name| name == &last_replay) {
-        list_box.add_item(&GameText::fetch("GUI:LastReplay"));
-    }
-
     for entry in entries {
-        list_box.add_item(&entry);
+        list_box.add_item(&replay_display_name_for_popup(&entry, &last_replay));
     }
 }
 
@@ -398,6 +402,20 @@ mod tests {
             popup_replay_system(&window, WindowMessage::Destroy, 0, 0),
             WindowMsgHandled::Handled
         );
+    }
+
+    #[test]
+    fn popup_replay_last_replay_replaces_row_label_without_duplicate() {
+        let rows = ["00000000", "Custom"]
+            .into_iter()
+            .map(|entry| replay_display_name_for_popup(entry, "00000000"))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            rows,
+            vec![GameText::fetch("GUI:LastReplay"), "Custom".to_string()]
+        );
+        assert!(!rows.iter().any(|row| row == "00000000"));
     }
 
     #[test]
