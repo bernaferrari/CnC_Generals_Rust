@@ -505,8 +505,20 @@ impl ControlBarCommandProcessor {
         };
 
         let template_id = thing_template.get_id();
+        let production_id = selected_objects_for_local_player()
+            .first()
+            .copied()
+            .and_then(|producer_id| OBJECT_REGISTRY.get_object(producer_id))
+            .and_then(|producer| {
+                producer
+                    .write()
+                    .ok()
+                    .and_then(|mut guard| guard.request_unique_unit_production_id())
+            })
+            .unwrap_or(0);
+
         if let Ok(mut stream) = get_message_stream().write() {
-            stream.append_message(GameMessageType::QueueUnitCreate(template_id));
+            stream.append_message(GameMessageType::QueueUnitCreate(template_id, production_id));
             return true;
         }
         false
@@ -556,7 +568,10 @@ impl ControlBarCommandProcessor {
 
         let sp_id = sp_template.get_id() as u32;
         let options = logic_button.get_options_bits();
-        let source_obj_id: u32 = 0;
+        let source_obj_id = selected_objects_for_local_player()
+            .first()
+            .copied()
+            .unwrap_or(0);
 
         if let Ok(mut stream) = get_message_stream().write() {
             stream.append_message(GameMessageType::DoSpecialPower(

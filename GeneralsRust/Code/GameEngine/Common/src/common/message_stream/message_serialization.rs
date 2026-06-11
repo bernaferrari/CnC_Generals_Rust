@@ -177,10 +177,13 @@ impl MessageSerializer {
             | PurchaseScience(weapon_id)
             | QueueUpgrade(weapon_id)
             | CancelUpgrade(weapon_id)
-            | QueueUnitCreate(weapon_id)
             | CancelUnitCreate(weapon_id) => {
                 vec![GameMessageArgumentType::Integer(*weapon_id as i32)]
             }
+            QueueUnitCreate(unit_type_id, production_id) => vec![
+                GameMessageArgumentType::Integer(*unit_type_id as i32),
+                GameMessageArgumentType::Integer(*production_id as i32),
+            ],
             DoSpecialPower(power_id, options, source) => vec![
                 GameMessageArgumentType::Integer(*power_id as i32),
                 GameMessageArgumentType::Integer(*options as i32),
@@ -438,7 +441,15 @@ impl MessageSerializer {
             95 => PurchaseScience(reader.read_int()? as u32),
             96 => QueueUpgrade(reader.read_int()? as u32),
             97 => CancelUpgrade(reader.read_int()? as u32),
-            98 => QueueUnitCreate(reader.read_int()? as u32),
+            98 => {
+                let unit_type_id = reader.read_int()? as u32;
+                let production_id = if reader.index < reader.args.len() {
+                    reader.read_int()? as u32
+                } else {
+                    0
+                };
+                QueueUnitCreate(unit_type_id, production_id)
+            }
             99 => CancelUnitCreate(reader.read_int()? as u32),
             100 => {
                 let building_type = reader.read_int()? as u32;
@@ -1263,6 +1274,22 @@ mod tests {
             }
             _ => panic!("Wrong type"),
         }
+    }
+
+    #[test]
+    fn queue_unit_create_serializes_template_and_production_id() {
+        let message = GameMessage::with_player(GameMessageType::QueueUnitCreate(1234, 77), 2);
+        let bytes = MessageSerializer::serialize(&message).unwrap();
+        let header = MessageHeader::from_bytes(&bytes).unwrap();
+
+        assert_eq!(header.argument_count, 2);
+
+        let decoded = MessageSerializer::deserialize(&bytes).unwrap();
+        assert_eq!(decoded.get_player_index(), 2);
+        assert_eq!(
+            decoded.get_type(),
+            &GameMessageType::QueueUnitCreate(1234, 77)
+        );
     }
 
     #[test]

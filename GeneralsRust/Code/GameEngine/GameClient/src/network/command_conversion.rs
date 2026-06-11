@@ -411,11 +411,14 @@ pub fn encode_game_message(message: &GameMessage) -> Option<GameCommandData> {
             parameters: encode_params(vec![CommandParameter::Int(upgrade_id as i32)]),
             checksum: 0,
         }),
-        GameMessageType::QueueUnitCreate(unit_type) => Some(GameCommandData {
+        GameMessageType::QueueUnitCreate(unit_type, production_id) => Some(GameCommandData {
             command_type: CommandType::QueueUnitCreate as u32,
             target_id: None,
             position: None,
-            parameters: encode_params(vec![CommandParameter::Int(unit_type as i32)]),
+            parameters: encode_params(vec![
+                CommandParameter::Int(unit_type as i32),
+                CommandParameter::Int(production_id as i32),
+            ]),
             checksum: 0,
         }),
         GameMessageType::CancelUnitCreate(unit_type) => Some(GameCommandData {
@@ -962,8 +965,13 @@ pub fn decode_game_command(data: &GameCommandData, player_id: u8) -> Option<Game
         CommandType::QueueUnitCreate => {
             let params = ordered_params(data);
             let unit_type = parameter_to_int(params.get(0)?)? as u32;
+            let production_id = params
+                .get(1)
+                .and_then(|param| parameter_to_int(param).map(|value| value as u32))
+                .unwrap_or(0);
             Some(GameMessage::new(GameMessageType::QueueUnitCreate(
                 unit_type,
+                production_id,
             )))
         }
         CommandType::CancelUnitCreate => {

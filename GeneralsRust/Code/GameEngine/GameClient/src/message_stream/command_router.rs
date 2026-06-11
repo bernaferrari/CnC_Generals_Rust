@@ -399,11 +399,13 @@ fn convert_game_message(message: &GameMessage) -> Option<Command> {
             *id as Int,
             player,
         )),
-        QueueUnitCreate(id) => Some(integer_command(
-            CommandType::QueueUnitCreate,
-            *id as Int,
-            player,
-        )),
+        QueueUnitCreate(template_id, production_id) => {
+            let mut command = Command::new(CommandType::QueueUnitCreate);
+            command.set_player_index(player);
+            command.append_integer_argument(*template_id as Int);
+            command.append_integer_argument(*production_id as Int);
+            Some(command)
+        }
         CancelUnitCreate(id) => Some(integer_command(
             CommandType::CancelUnitCreate,
             *id as Int,
@@ -635,6 +637,24 @@ mod tests {
                 assert_eq!(location.z, 5.0);
             }
             other => panic!("expected location argument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn convert_queue_unit_create_preserves_production_id_argument() {
+        let msg = GameMessage::with_player(GameMessageType::QueueUnitCreate(1234, 77), 3);
+        let command = convert_game_message(&msg).expect("queue unit create should route");
+
+        assert_eq!(command.get_type(), CommandType::QueueUnitCreate);
+        assert_eq!(command.get_player_index(), 3);
+        assert_eq!(command.get_argument_count(), 2);
+        match command.get_argument(0) {
+            Some(CommandArgumentType::Integer(template_id)) => assert_eq!(*template_id, 1234),
+            other => panic!("expected template id argument, got {other:?}"),
+        }
+        match command.get_argument(1) {
+            Some(CommandArgumentType::Integer(production_id)) => assert_eq!(*production_id, 77),
+            other => panic!("expected production id argument, got {other:?}"),
         }
     }
 

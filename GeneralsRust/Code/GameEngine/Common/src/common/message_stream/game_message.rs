@@ -298,7 +298,7 @@ pub enum GameMessageType {
     PurchaseScience(u32), // science ID
     QueueUpgrade(u32),    // upgrade ID
     CancelUpgrade(u32),
-    QueueUnitCreate(u32), // unit type ID
+    QueueUnitCreate(u32, u32), // unit type ID, production ID
     CancelUnitCreate(u32),
     DozerConstruct(u32, Coord3D, f32), // building type, location, angle
     DozerConstructLine(u32, Coord3D, Coord3D, f32), // building type, start, end, angle
