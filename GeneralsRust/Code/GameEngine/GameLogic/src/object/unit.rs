@@ -2897,6 +2897,33 @@ impl UnitAIUpdate {
             .unwrap_or(false)
     }
 
+    fn current_locomotor_is_ultra_accurate(&self) -> bool {
+        self.unit
+            .upgrade()
+            .and_then(|unit| {
+                unit.read().ok().and_then(|guard| {
+                    guard.current_locomotor.as_ref().and_then(|locomotor| {
+                        locomotor.lock().ok().map(|loc| loc.is_ultra_accurate())
+                    })
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    fn path_with_cpp_final_node(&self, path: &[Coord3D]) -> Result<Vec<Coord3D>, String> {
+        if path.is_empty() {
+            return Err("set_path_from_coords missing path points".to_string());
+        }
+
+        let mut installed_path = path.to_vec();
+        if self.current_locomotor_is_ultra_accurate() {
+            if let Some(last) = installed_path.last_mut() {
+                *last = self.requested_destination;
+            }
+        }
+        Ok(installed_path)
+    }
+
     fn try_install_closest_path_for_invalid_destination(
         &mut self,
         destination: &Coord3D,
@@ -6279,25 +6306,22 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn set_path_from_coords(&mut self, path: &[Coord3D]) -> Result<(), String> {
+        let installed_path = self.path_with_cpp_final_node(path)?;
         let unit = self
             .unit
             .upgrade()
             .ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
 
-        if path.is_empty() {
-            return Err("set_path_from_coords missing path points".to_string());
-        }
-
-        let last = *path.last().unwrap();
+        let last = *installed_path.last().unwrap();
         guard.target_position = Some(last);
         guard.movement_state = MovementState::Moving;
         guard.current_speed = 0.0;
         guard.path_index = 0;
         guard.path_following_state = None;
         guard.current_path = Some({
-            let mut v = Vec::with_capacity(path.len());
-            v.extend(path.iter().map(|pos| Coord2D::new(pos.x, pos.y)));
+            let mut v = Vec::with_capacity(installed_path.len());
+            v.extend(installed_path.iter().map(|pos| Coord2D::new(pos.x, pos.y)));
             v
         });
         self.blocked_frames = 0;
@@ -6314,7 +6338,13 @@ impl AIUpdateInterface for UnitAIUpdate {
             }
         }
         drop(guard);
-        self.set_current_path_snapshot_from_coords(path);
+        self.set_current_path_snapshot_from_coords(&installed_path);
+        if self.is_final_goal && self.is_doing_ground_movement() {
+            let layer = TheTerrainLogic::get()
+                .map(|terrain| terrain.get_layer_for_destination(&last))
+                .unwrap_or(crate::common::PathfindLayerEnum::Ground);
+            self.update_goal_position(&last, layer)?;
+        }
 
         Ok(())
     }
@@ -6534,6 +6564,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         goal: &Coord3D,
         layer: crate::common::PathfindLayerEnum,
     ) -> Result<(), String> {
+        let is_ground_movement = self.is_doing_ground_movement();
         let unit = self
             .unit
             .upgrade()
@@ -6628,7 +6659,6 @@ impl AIUpdateInterface for UnitAIUpdate {
                     && obj.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
             })
             .unwrap_or(false);
-        let is_ground_movement = self.is_doing_ground_movement();
 
         if let Ok(ai_lock) = THE_AI.read() {
             if let Some(pathfinder) = ai_lock.pathfinder() {
@@ -8769,6 +8799,91 @@ mod tests {
             unit_guard.target_position,
             Some(Coord3D::new(-5.0, 0.0, 3.0))
         );
+    }
+
+    #[test]
+    fn installed_path_uses_exact_requested_destination_for_ultra_accurate_loco_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(49, 100.0)));
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let mut loco = Locomotor::new(loco_template);
+        loco.set_ultra_accurate(true);
+        unit.current_locomotor = Some(Arc::new(Mutex::new(loco)));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        ai.requested_destination = Coord3D::new(14.25, 2.5, 3.0);
+
+        ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(14.0, 2.0, 0.0)])
+            .unwrap();
+
+        let unit_guard = unit.read().unwrap();
+        assert_eq!(unit_guard.target_position, Some(ai.requested_destination));
+        assert_eq!(
+            unit_guard.current_path.as_ref().unwrap().last(),
+            Some(&Coord2D::new(14.25, 2.5))
+        );
+        assert!(ai.current_path_snapshot.is_some());
+    }
+
+    #[test]
+    fn final_ground_path_install_updates_goal_layer_like_cpp_do_pathfind() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(50, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            object.set_destination_layer(crate::common::PathfindLayerEnum::Top);
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        ai.is_final_goal = true;
+        ai.requested_destination = Coord3D::new(32.0, 64.0, 0.0);
+
+        ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 0.0), Coord3D::new(32.0, 64.0, 0.0)])
+            .unwrap();
+
+        assert_eq!(
+            base_object.read().unwrap().get_destination_layer(),
+            crate::common::PathfindLayerEnum::Ground
+        );
+        let unit_guard = unit.read().unwrap();
+        let target = unit_guard.target_position.unwrap();
+        assert_eq!((target.x, target.y), (32.0, 64.0));
     }
 
     fn save_unit_ai_update(ai: &mut UnitAIUpdate) -> Vec<u8> {
