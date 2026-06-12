@@ -2600,6 +2600,29 @@ pub enum ArmorSetFlag {
     CrateUpgradeTwo = 1,
 }
 
+fn armor_set_type_for_flag(flag: ArmorSetFlag) -> crate::object::body::body_module::ArmorSetType {
+    match flag {
+        ArmorSetFlag::CrateUpgradeOne => {
+            crate::object::body::body_module::ArmorSetType::CrateUpgradeOne
+        }
+        ArmorSetFlag::CrateUpgradeTwo => {
+            crate::object::body::body_module::ArmorSetType::CrateUpgradeTwo
+        }
+    }
+}
+
+fn weapon_set_model_condition(flag: WeaponSetType) -> Option<ModelConditionFlags> {
+    match flag {
+        WeaponSetType::Veteran => Some(ModelConditionFlags::WEAPONSET_VETERAN),
+        WeaponSetType::Elite => Some(ModelConditionFlags::WEAPONSET_ELITE),
+        WeaponSetType::Hero => Some(ModelConditionFlags::WEAPONSET_HERO),
+        WeaponSetType::PlayerUpgrade => Some(ModelConditionFlags::WEAPONSET_PLAYER_UPGRADE),
+        WeaponSetType::CrateUpgradeOne => Some(ModelConditionFlags::WEAPONSET_CRATEUPGRADE_ONE),
+        WeaponSetType::CrateUpgradeTwo => Some(ModelConditionFlags::WEAPONSET_CRATEUPGRADE_TWO),
+        _ => None,
+    }
+}
+
 impl Object {
     fn disabled_tint_exceptions() -> DisabledMaskType {
         let mut exceptions = DisabledMaskType::none();
@@ -4391,6 +4414,9 @@ impl Object {
         let _ = self
             .weapon_set
             .update_weapon_set(self.id, &self.cur_weapon_set_flags);
+        if let Some(condition) = weapon_set_model_condition(flag) {
+            self.set_model_condition_state(condition);
+        }
     }
 
     pub fn has_weapon_set_template(&self, flag: WeaponSetType) -> bool {
@@ -4404,18 +4430,36 @@ impl Object {
         let _ = self
             .weapon_set
             .update_weapon_set(self.id, &self.cur_weapon_set_flags);
+        if let Some(condition) = weapon_set_model_condition(flag) {
+            self.clear_model_condition_state(condition);
+        }
     }
 
     /// Flag helpers for salvage armor upgrades.
     pub fn test_armor_set_flag(&self, flag: ArmorSetFlag) -> bool {
+        if let Some(body) = &self.body {
+            if let Ok(body_guard) = body.lock() {
+                return body_guard.test_armor_set_flag(armor_set_type_for_flag(flag));
+            }
+        }
         self.armor_set_flags.test(flag)
     }
 
     pub fn set_armor_set_flag(&mut self, flag: ArmorSetFlag) {
+        if let Some(body) = &self.body {
+            if let Ok(mut body_guard) = body.lock() {
+                let _ = body_guard.set_armor_set_flag(armor_set_type_for_flag(flag));
+            }
+        }
         self.armor_set_flags.set(flag);
     }
 
     pub fn clear_armor_set_flag(&mut self, flag: ArmorSetFlag) {
+        if let Some(body) = &self.body {
+            if let Ok(mut body_guard) = body.lock() {
+                let _ = body_guard.clear_armor_set_flag(armor_set_type_for_flag(flag));
+            }
+        }
         self.armor_set_flags.clear(flag);
     }
 
@@ -13472,6 +13516,45 @@ mod tests {
             .kill_with_type(Some(DamageType::Unresistable), Some(DeathType::Normal))
             .is_ok());
         assert!(obj.is_effectively_dead());
+    }
+
+    #[test]
+    fn salvage_armor_flags_delegate_to_body_module_like_cpp() {
+        let mut obj = Object::new_test(1, 100.0);
+
+        obj.set_armor_set_flag(ArmorSetFlag::CrateUpgradeOne);
+
+        assert!(obj.test_armor_set_flag(ArmorSetFlag::CrateUpgradeOne));
+        let body = obj.get_body_module().expect("test object has active body");
+        assert!(body
+            .lock()
+            .expect("body lock")
+            .test_armor_set_flag(crate::object::body::body_module::ArmorSetType::CrateUpgradeOne));
+
+        obj.clear_armor_set_flag(ArmorSetFlag::CrateUpgradeOne);
+
+        assert!(!obj.test_armor_set_flag(ArmorSetFlag::CrateUpgradeOne));
+        assert!(!body
+            .lock()
+            .expect("body lock")
+            .test_armor_set_flag(crate::object::body::body_module::ArmorSetType::CrateUpgradeOne));
+    }
+
+    #[test]
+    fn weapon_set_flags_map_to_cpp_model_conditions() {
+        assert_eq!(
+            weapon_set_model_condition(WeaponSetType::Veteran),
+            Some(ModelConditionFlags::WEAPONSET_VETERAN)
+        );
+        assert_eq!(
+            weapon_set_model_condition(WeaponSetType::CrateUpgradeOne),
+            Some(ModelConditionFlags::WEAPONSET_CRATEUPGRADE_ONE)
+        );
+        assert_eq!(
+            weapon_set_model_condition(WeaponSetType::CrateUpgradeTwo),
+            Some(ModelConditionFlags::WEAPONSET_CRATEUPGRADE_TWO)
+        );
+        assert_eq!(weapon_set_model_condition(WeaponSetType::CarBomb), None);
     }
 
     #[test]
