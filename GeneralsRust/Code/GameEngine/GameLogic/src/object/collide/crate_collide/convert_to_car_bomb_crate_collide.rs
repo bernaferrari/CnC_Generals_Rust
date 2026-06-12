@@ -208,6 +208,11 @@ impl ConvertToCarBombCrateCollide {
             }
         }
 
+        other
+            .read()
+            .map_err(|_| GameError::LockError)?
+            .refresh_radar_object_from_state();
+
         Ok(true)
     }
 }
