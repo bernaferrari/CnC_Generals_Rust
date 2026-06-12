@@ -3920,6 +3920,7 @@ impl GameLogic {
             crate::helpers::TheGameLogic::update_load_progress(
                 crate::system::game_initialization::LOAD_PROGRESS_END,
             );
+            crate::helpers::TheGameLogic::run_load_screen_completion_transition(loading_save_game);
         }
         crate::helpers::TheGameLogic::end_load_screen();
         self.set_loading_map(false);
@@ -5209,6 +5210,13 @@ mod tests {
                     .lock()
                     .unwrap()
                     .push(format!("update:{progress}"));
+            }
+
+            fn run_load_screen_completion_transition(&self, loading_save_game: bool) {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push(format!("finish-transition:{loading_save_game}"));
             }
 
             fn end_load_screen(&self) {

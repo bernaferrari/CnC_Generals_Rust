@@ -14,7 +14,7 @@ use crate::display::view::{with_tactical_view, with_tactical_view_ref, Point3};
 use crate::game_text::GameText;
 use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::load_screen::{
-    init_load_screen, reset_load_screen, select_load_screen,
+    init_load_screen, pump_load_screen_presentation, reset_load_screen, select_load_screen,
     update_load_screen as update_game_load_screen, LoadScreenGameMode, LoadScreenInitContext,
     LoadScreenKind, LoadScreenRequest,
 };
@@ -327,6 +327,9 @@ struct GameClientLoadScreenHooks {
     active_kind: Mutex<Option<LoadScreenKind>>,
 }
 
+const LOAD_SCREEN_COMPLETION_TRANSITION_GROUP: &str = "FadeWholeScreen";
+const LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES: usize = 180;
+
 impl GameClientLoadScreenHooks {
     fn new() -> Self {
         Self {
@@ -386,6 +389,25 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
         }
     }
 
+    fn run_load_screen_completion_transition(&self, loading_save_game: bool) {
+        if loading_save_game {
+            return;
+        }
+
+        with_window_manager(|wm| {
+            wm.transition_set_group(LOAD_SCREEN_COMPLETION_TRANSITION_GROUP, false)
+        });
+
+        for _ in 0..LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES {
+            if with_window_manager(|wm| wm.transitions_finished()) {
+                break;
+            }
+            with_window_manager(|wm| wm.update());
+            pump_load_screen_presentation();
+            gamelogic::system::game_logic::set_fp_mode();
+        }
+    }
+
     fn end_load_screen(&self) {
         let kind = self
             .active_kind
@@ -402,7 +424,12 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
 #[cfg(test)]
 mod load_screen_hook_tests {
     use super::*;
+    use crate::gui::load_screen::{
+        clear_load_screen_presentation_pump, register_load_screen_presentation_pump,
+    };
     use gamelogic::helpers::LoadScreenHooks;
+    use std::cell::Cell;
+    use std::rc::Rc;
     use std::sync::OnceLock;
 
     static TEST_MOUSE_VISIBILITY_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -438,6 +465,23 @@ mod load_screen_hook_tests {
         hooks.end_load_screen();
 
         assert!(is_mouse_cursor_visible());
+    }
+
+    #[test]
+    fn save_load_completion_skips_fade_transition_like_cpp() {
+        let _guard = lock_test_mouse_visibility();
+        clear_load_screen_presentation_pump();
+        let pump_count = Rc::new(Cell::new(0usize));
+        let pump_count_for_hook = Rc::clone(&pump_count);
+        register_load_screen_presentation_pump(move || {
+            pump_count_for_hook.set(pump_count_for_hook.get() + 1);
+        });
+
+        let hooks = GameClientLoadScreenHooks::new();
+        hooks.run_load_screen_completion_transition(true);
+
+        clear_load_screen_presentation_pump();
+        assert_eq!(pump_count.get(), 0);
     }
 }
 
