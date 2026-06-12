@@ -240,6 +240,9 @@ use crate::object::collide::crate_collide::convert_to_car_bomb_crate_collide::{
 use crate::object::collide::crate_collide::convert_to_hijacked_vehicle_crate_collide::{
     ConvertToHijackedVehicleCrateCollide, ConvertToHijackedVehicleCrateCollideModuleData,
 };
+use crate::object::collide::crate_collide::heal_crate_collide::{
+    HealCrateCollide, HealCrateCollideModuleData,
+};
 use crate::object::collide::crate_collide::money_crate_collide::{
     MoneyCrateCollide, MoneyCrateCollideModuleData,
 };
@@ -269,6 +272,9 @@ use crate::object::collide::crate_collide::sabotage_supply_dropzone_crate_collid
 };
 use crate::object::collide::crate_collide::salvage_crate_collide::{
     SalvageCrateCollide, SalvageCrateCollideModuleData,
+};
+use crate::object::collide::crate_collide::shroud_crate_collide::{
+    ShroudCrateCollide, ShroudCrateCollideModuleData,
 };
 use crate::object::collide::crate_collide::unit_crate_collide::{
     UnitCrateCollide, UnitCrateCollideModuleData,
@@ -2294,6 +2300,37 @@ fn convert_to_hijacked_vehicle_crate_collide_module_factory(
         object_id,
     ))
 }
+fn heal_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = HealCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse HealCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn heal_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<CrateCollideDataAdapter<HealCrateCollideModuleData>>(
+        "HealCrateCollide",
+        &module_data,
+    );
+    let object_id = resolve_owner_id(&thing);
+    let collide = HealCrateCollide::new(object_id, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "HealCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 fn sabotage_command_center_crate_collide_data_factory(
     ini: Option<&mut INI>,
 ) -> Box<dyn ModuleData> {
@@ -2616,6 +2653,37 @@ fn salvage_crate_collide_module_factory(
     let collide = SalvageCrateCollide::new(object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SalvageCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
+fn shroud_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = ShroudCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse ShroudCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn shroud_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<CrateCollideDataAdapter<ShroudCrateCollideModuleData>>(
+        "ShroudCrateCollide",
+        &module_data,
+    );
+    let object_id = resolve_owner_id(&thing);
+    let collide = ShroudCrateCollide::new(object_id, data_arc.data.crate_data());
+    Box::new(LegacyCrateCollideModule::new(
+        "ShroudCrateCollide",
         data_arc,
         collide,
         object_id,
@@ -5885,6 +5953,12 @@ fn install_contain_overrides() -> Result<(), String> {
         convert_to_hijacked_vehicle_crate_collide_data_factory,
     )?;
     register_module_override(
+        "HealCrateCollide",
+        ModuleType::Behavior,
+        heal_crate_collide_module_factory,
+        heal_crate_collide_data_factory,
+    )?;
+    register_module_override(
         "SabotageCommandCenterCrateCollide",
         ModuleType::Behavior,
         sabotage_command_center_crate_collide_module_factory,
@@ -5943,6 +6017,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         salvage_crate_collide_module_factory,
         salvage_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "ShroudCrateCollide",
+        ModuleType::Behavior,
+        shroud_crate_collide_module_factory,
+        shroud_crate_collide_data_factory,
     )?;
     register_module_override(
         "UnitCrateCollide",
