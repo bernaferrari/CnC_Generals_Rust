@@ -16,7 +16,8 @@ use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::{
     game_client_random_value, game_client_random_value_real, BoneOverrideState,
-    MeshUvOverrideState, ModelDrawState, TheGameClient, TheGameLogic, TheParticleSystemManager,
+    MeshUvOverrideState, ModelDrawState, SubObjectVisibilityState, TheGameClient, TheGameLogic,
+    TheParticleSystemManager,
 };
 use crate::upgrade::modules::model_condition::parse_model_condition_flag;
 use game_engine::common::ini::{INIError, INI};
@@ -1362,7 +1363,6 @@ impl W3DModelDraw {
     /// Apply pending sub-object visibility updates.
     pub fn update_sub_objects(&mut self) {
         self.normalize_sub_object_entries();
-        // Render-object visibility bridge is pending; keep logic-side visibility state canonical.
         self.sub_objects_dirty = false;
     }
 
@@ -1893,6 +1893,14 @@ impl W3DModelDraw {
         // TREADSL/TREADSR mesh sub-objects. Other draw modules (truck, etc.)
         // do similar UV scrolling on moving parts.
         let mesh_uv_overrides = self.collect_mesh_uv_overrides();
+        let sub_object_visibility = self
+            .sub_object_vec
+            .iter()
+            .map(|entry| SubObjectVisibilityState {
+                sub_object_name: entry.sub_obj_name.to_string(),
+                hidden: entry.hide,
+            })
+            .collect();
 
         // Phase 5: Apply instance scaling to the world transform.
         //
@@ -1914,6 +1922,7 @@ impl W3DModelDraw {
             animation_time: anim_time,
             animation_mode: anim_mode,
             mesh_uv_overrides,
+            sub_object_visibility,
         };
 
         client.set_drawable_model_draw(owner_id, state);

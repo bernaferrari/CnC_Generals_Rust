@@ -184,6 +184,12 @@ pub struct MeshUvOverride {
     pub v_offset: f32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubObjectVisibility {
+    pub sub_object_name: String,
+    pub hidden: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Per-frame draw submission
 // ---------------------------------------------------------------------------
@@ -218,6 +224,7 @@ pub struct DrawSubmission {
     pub render_state: RenderStateOverrides,
     pub bone_overrides: Vec<BoneOverride>,
     pub mesh_uv_overrides: Vec<MeshUvOverride>,
+    pub sub_object_visibility: Vec<SubObjectVisibility>,
     pub animation_name: Option<String>,
     pub animation_mode: Option<AnimationMode>,
     pub animation_time: f32,
@@ -239,6 +246,7 @@ impl Default for DrawSubmission {
             render_state: RenderStateOverrides::default(),
             bone_overrides: Vec::new(),
             mesh_uv_overrides: Vec::new(),
+            sub_object_visibility: Vec::new(),
             animation_name: None,
             animation_mode: None,
             animation_time: 0.0,
@@ -384,6 +392,12 @@ pub struct MeshUvOverrideStateSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubObjectVisibilityStateSummary {
+    pub sub_object_name: String,
+    pub hidden: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RenderObjectStateSummary {
     pub drawable_id: u32,
     pub model_name: String,
@@ -399,6 +413,8 @@ pub struct RenderObjectStateSummary {
     pub hidden: bool,
     pub mesh_uv_override_count: usize,
     pub mesh_uv_overrides: Vec<MeshUvOverrideStateSummary>,
+    pub sub_object_visibility_count: usize,
+    pub sub_object_visibility: Vec<SubObjectVisibilityStateSummary>,
     pub bone_override_count: usize,
     pub animation_name: Option<String>,
     pub world_translation_bits: [u32; 3],
@@ -1041,6 +1057,12 @@ impl RenderObjectStateSummary {
                 .iter()
                 .map(MeshUvOverrideStateSummary::from_override)
                 .collect(),
+            sub_object_visibility_count: submission.sub_object_visibility.len(),
+            sub_object_visibility: submission
+                .sub_object_visibility
+                .iter()
+                .map(SubObjectVisibilityStateSummary::from_visibility)
+                .collect(),
             bone_override_count: submission.bone_overrides.len(),
             animation_name: submission.animation_name.clone(),
             world_translation_bits: [
@@ -1059,6 +1081,15 @@ impl MeshUvOverrideStateSummary {
             mesh_name_prefix: uv_override.mesh_name_prefix.clone(),
             u_offset_bits: uv_override.u_offset.to_bits(),
             v_offset_bits: uv_override.v_offset.to_bits(),
+        }
+    }
+}
+
+impl SubObjectVisibilityStateSummary {
+    fn from_visibility(visibility: &SubObjectVisibility) -> Self {
+        Self {
+            sub_object_name: visibility.sub_object_name.clone(),
+            hidden: visibility.hidden,
         }
     }
 }
@@ -1281,6 +1312,7 @@ impl DrawSubmission {
             render_state,
             bone_overrides,
             mesh_uv_overrides,
+            sub_object_visibility: Vec::new(),
             animation_name: desc.animation_name,
             animation_mode: None,
             animation_time: desc.animation_time,
@@ -1385,6 +1417,11 @@ fn stable_render_fingerprint(
             hash.write_str(&uv_override.mesh_name_prefix);
             hash.write_u32(uv_override.u_offset_bits);
             hash.write_u32(uv_override.v_offset_bits);
+        }
+        hash.write_usize(object.sub_object_visibility_count);
+        for visibility in &object.sub_object_visibility {
+            hash.write_str(&visibility.sub_object_name);
+            hash.write_bool(visibility.hidden);
         }
         hash.write_usize(object.bone_override_count);
         if let Some(animation_name) = &object.animation_name {
@@ -1941,6 +1978,16 @@ mod tests {
                     v_offset: 0.0,
                 },
             ],
+            sub_object_visibility: vec![
+                SubObjectVisibility {
+                    sub_object_name: "muzzleflash01".to_string(),
+                    hidden: true,
+                },
+                SubObjectVisibility {
+                    sub_object_name: "payloadcrate".to_string(),
+                    hidden: false,
+                },
+            ],
             bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 12.0),
             bounding_box: AABox::new(WwVec3::new(-6.0, 0.0, -8.0), WwVec3::new(6.0, 8.0, 8.0)),
             opaque: true,
@@ -1987,11 +2034,25 @@ mod tests {
                 },
             ]
         );
+        assert_eq!(summary.objects[0].sub_object_visibility_count, 2);
+        assert_eq!(
+            summary.objects[0].sub_object_visibility,
+            vec![
+                SubObjectVisibilityStateSummary {
+                    sub_object_name: "muzzleflash01".to_string(),
+                    hidden: true,
+                },
+                SubObjectVisibilityStateSummary {
+                    sub_object_name: "payloadcrate".to_string(),
+                    hidden: false,
+                },
+            ]
+        );
         assert!(summary.objects[0].selected);
         assert!(summary.objects[0].night);
         assert_eq!(summary.objects[1].drawable_id, 101);
         assert!(summary.objects[1].snow);
-        assert_eq!(summary.fingerprint, 0xadbc86b303c293a1);
+        assert_eq!(summary.fingerprint, 0x9a2e2a9a0a0e585e);
     }
 
     #[test]
@@ -2063,7 +2124,7 @@ mod tests {
         assert_eq!(summary.projectile_streams[0].drawable_id, 202);
         assert_eq!(summary.projectile_streams[0].line_count, 2);
         assert_eq!(summary.projectile_streams[0].point_count, 4);
-        assert_eq!(summary.fingerprint, 0x549be75a19474244);
+        assert_eq!(summary.fingerprint, 0x91b4d089c7211e84);
     }
 
     #[test]
