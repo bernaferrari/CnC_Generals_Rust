@@ -3718,15 +3718,16 @@ impl Drawable for BasicDrawable {
         }
 
         let anchor_width = 32.0_f32;
+        let anchor_height = 32.0_f32;
         let base_x = if draw_group_info.using_pixel_offset_x {
-            screen_pos.x
+            screen_pos.x + draw_group_info.pixel_offset_x
         } else {
             screen_pos.x + (anchor_width * draw_group_info.percent_offset_x) as i32
         };
         let base_y = if draw_group_info.using_pixel_offset_y {
             screen_pos.y + draw_group_info.pixel_offset_y
         } else {
-            screen_pos.y
+            screen_pos.y + (anchor_height * draw_group_info.percent_offset_y) as i32
         };
 
         let mut drew_anything = false;

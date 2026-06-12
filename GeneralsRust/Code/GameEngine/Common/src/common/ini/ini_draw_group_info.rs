@@ -76,7 +76,7 @@ impl Default for FontInfo {
     fn default() -> Self {
         Self {
             name: "Arial".to_string(),
-            size: 12,
+            size: 10,
             is_bold: false,
         }
     }
@@ -167,13 +167,13 @@ impl Default for DrawGroupInfo {
     fn default() -> Self {
         Self {
             font: FontInfo::default(),
-            use_player_color: false,
+            use_player_color: true,
             color_for_text: Color::white(),
             color_for_text_drop_shadow: Color::black(),
-            drop_shadow_offset_x: 1,
-            drop_shadow_offset_y: 1,
-            offset_x: PositionOffset::default(),
-            offset_y: PositionOffset::default(),
+            drop_shadow_offset_x: -1,
+            drop_shadow_offset_y: -1,
+            offset_x: PositionOffset::new_percent(-0.05),
+            offset_y: PositionOffset::new_pixel(-10),
         }
     }
 }
@@ -224,7 +224,7 @@ impl DrawGroupInfo {
         if self.offset_x.using_pixel {
             self.offset_x.value as i32
         } else {
-            ((self.offset_x.value / 100.0) * screen_width as f32) as i32
+            (self.offset_x.value * screen_width as f32) as i32
         }
     }
 
@@ -233,7 +233,7 @@ impl DrawGroupInfo {
         if self.offset_y.using_pixel {
             self.offset_y.value as i32
         } else {
-            ((self.offset_y.value / 100.0) * screen_height as f32) as i32
+            (self.offset_y.value * screen_height as f32) as i32
         }
     }
 
@@ -500,9 +500,15 @@ mod tests {
     fn test_draw_group_info_creation() {
         let dgi = DrawGroupInfo::new();
         assert_eq!(dgi.font.name, "Arial");
-        assert_eq!(dgi.font.size, 12);
+        assert_eq!(dgi.font.size, 10);
         assert!(!dgi.font.is_bold);
-        assert!(!dgi.use_player_color);
+        assert!(dgi.use_player_color);
+        assert_eq!(dgi.drop_shadow_offset_x, -1);
+        assert_eq!(dgi.drop_shadow_offset_y, -1);
+        assert!(!dgi.offset_x.using_pixel);
+        assert_eq!(dgi.offset_x.value, -0.05);
+        assert!(dgi.offset_y.using_pixel);
+        assert_eq!(dgi.offset_y.value, -10.0);
     }
 
     #[test]
@@ -528,8 +534,8 @@ mod tests {
         assert_eq!(dgi.get_y_pixels(800), 200);
 
         // Test percentage positioning
-        dgi.set_draw_position_x_percent(25.0);
-        dgi.set_draw_position_y_percent(50.0);
+        dgi.set_draw_position_x_percent(0.25);
+        dgi.set_draw_position_y_percent(0.5);
 
         assert_eq!(dgi.get_x_pixels(1000), 250);
         assert_eq!(dgi.get_y_pixels(800), 400);
@@ -552,7 +558,7 @@ mod tests {
     fn test_font_info() {
         let mut font = FontInfo::default();
         assert_eq!(font.name, "Arial");
-        assert_eq!(font.size, 12);
+        assert_eq!(font.size, 10);
         assert!(!font.is_bold);
 
         font.name = "Times New Roman".to_string();
