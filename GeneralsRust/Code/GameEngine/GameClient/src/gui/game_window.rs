@@ -137,6 +137,45 @@ pub fn gadget_list_box_get_selected(listbox: &mut GameWindow, select_list: &mut 
     );
 }
 
+pub fn gadget_list_box_get_bottom_visible_entry(listbox: &GameWindow) -> i32 {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.get_bottom_visible_entry(),
+        _ => 0,
+    }
+}
+
+pub fn gadget_list_box_is_full(listbox: &GameWindow) -> bool {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.is_full(),
+        _ => false,
+    }
+}
+
+pub fn gadget_list_box_set_bottom_visible_entry(listbox: &mut GameWindow, index: i32) {
+    if let Some(WindowWidget::ListBox(listbox)) = listbox.widget.as_mut() {
+        listbox.set_bottom_visible_entry(index);
+    }
+}
+
+pub fn gadget_list_box_get_top_visible_entry(listbox: &GameWindow) -> i32 {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.get_top_visible_entry(),
+        _ => 0,
+    }
+}
+
+pub fn gadget_list_box_set_top_visible_entry(listbox: &mut GameWindow, index: i32) {
+    if let Some(WindowWidget::ListBox(listbox)) = listbox.widget.as_mut() {
+        listbox.set_top_visible_entry(index);
+    }
+}
+
+pub fn gadget_list_box_set_audio_feedback(listbox: &mut GameWindow, enable: bool) {
+    if let Some(WindowWidget::ListBox(listbox)) = listbox.widget.as_mut() {
+        listbox.set_audio_feedback(enable);
+    }
+}
+
 bitflags! {
     /// Window status flags
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -5009,6 +5048,34 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 0);
+    }
+
+    #[test]
+    fn listbox_visible_entry_helpers_match_cpp_public_api() {
+        let mut window = GameWindow::new();
+        let mut listbox = ListBox::new(42, 0, 0, 100, 30).with_item_height(10);
+        listbox.add_item("alpha");
+        listbox.add_item("bravo");
+        listbox.add_item("charlie");
+        listbox.add_item("delta");
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        assert_eq!(gadget_list_box_get_top_visible_entry(&window), 0);
+        assert_eq!(gadget_list_box_get_bottom_visible_entry(&window), 2);
+        assert!(gadget_list_box_is_full(&window));
+
+        gadget_list_box_set_bottom_visible_entry(&mut window, 3);
+        assert_eq!(gadget_list_box_get_top_visible_entry(&window), 1);
+        assert_eq!(gadget_list_box_get_bottom_visible_entry(&window), 3);
+
+        gadget_list_box_set_top_visible_entry(&mut window, 0);
+        assert_eq!(gadget_list_box_get_top_visible_entry(&window), 0);
+        assert_eq!(gadget_list_box_get_bottom_visible_entry(&window), 2);
+
+        let non_listbox = GameWindow::new();
+        assert_eq!(gadget_list_box_get_top_visible_entry(&non_listbox), 0);
+        assert_eq!(gadget_list_box_get_bottom_visible_entry(&non_listbox), 0);
+        assert!(!gadget_list_box_is_full(&non_listbox));
     }
 
     #[test]

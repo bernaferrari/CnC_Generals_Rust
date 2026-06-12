@@ -100,7 +100,10 @@ pub mod window_video_manager;
 
 // Re-export main types for convenience
 pub use game_window::{
-    gadget_list_box_get_selected, write_input_focus_response, GameWindow, WindowCallbacks,
+    gadget_list_box_get_bottom_visible_entry, gadget_list_box_get_selected,
+    gadget_list_box_get_top_visible_entry, gadget_list_box_is_full,
+    gadget_list_box_set_audio_feedback, gadget_list_box_set_bottom_visible_entry,
+    gadget_list_box_set_top_visible_entry, write_input_focus_response, GameWindow, WindowCallbacks,
     WindowDrawData, WindowError, WindowId, WindowInputReturnCode, WindowInstanceData,
     WindowMessage, WindowMsgData, WindowMsgHandled, WindowRegion, WindowResult, WindowState,
     WindowStatus, WindowTextColors, WindowWidget, GLM_DOUBLE_CLICKED, GLM_RIGHT_CLICKED,

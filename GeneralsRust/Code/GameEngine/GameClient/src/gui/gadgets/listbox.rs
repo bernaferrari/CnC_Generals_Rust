@@ -852,10 +852,32 @@ impl ListBox {
         true
     }
 
-    pub fn get_bottom_visible_entry(&self) -> usize {
+    pub fn get_bottom_visible_entry(&self) -> i32 {
+        if self.items.is_empty() {
+            return 0;
+        }
         let visible = self.visible_rows();
-        let bottom = self.scroll_offset + visible;
-        bottom.min(self.items.len())
+        let bottom = self.scroll_offset + visible.saturating_sub(1);
+        bottom.min(self.items.len() - 1) as i32
+    }
+
+    pub fn set_bottom_visible_entry(&mut self, index: i32) {
+        if self.items.is_empty() {
+            self.scroll_offset = 0;
+            return;
+        }
+        let visible = self.visible_rows();
+        let max_offset = self.items.len().saturating_sub(visible);
+        let target = index.max(0) as usize;
+        self.scroll_offset = target
+            .saturating_add(1)
+            .saturating_sub(visible)
+            .min(max_offset);
+    }
+
+    pub fn is_full(&self) -> bool {
+        let visible = self.visible_rows();
+        self.items.len().saturating_sub(self.scroll_offset) >= visible
     }
 
     pub fn select_index(&mut self, index: usize, modifiers: KeyModifiers) -> bool {
@@ -1605,6 +1627,32 @@ mod tests {
         assert!(listbox.scroll_buffer(1));
 
         assert_eq!(listbox.selected_indices(), &[1]);
+    }
+
+    #[test]
+    fn bottom_visible_entry_and_fullness_match_cpp_index_rules() {
+        let mut listbox = ListBox::new(1, 0, 0, 100, 30).with_item_height(10);
+        assert_eq!(listbox.get_bottom_visible_entry(), 0);
+        assert!(!listbox.is_full());
+
+        listbox.add_item("alpha");
+        listbox.add_item("bravo");
+        assert_eq!(listbox.get_bottom_visible_entry(), 1);
+        assert!(!listbox.is_full());
+
+        listbox.add_item("charlie");
+        listbox.add_item("delta");
+        assert_eq!(listbox.get_top_visible_entry(), 0);
+        assert_eq!(listbox.get_bottom_visible_entry(), 2);
+        assert!(listbox.is_full());
+
+        listbox.set_bottom_visible_entry(3);
+        assert_eq!(listbox.get_top_visible_entry(), 1);
+        assert_eq!(listbox.get_bottom_visible_entry(), 3);
+
+        listbox.set_bottom_visible_entry(1);
+        assert_eq!(listbox.get_top_visible_entry(), 0);
+        assert_eq!(listbox.get_bottom_visible_entry(), 2);
     }
 
     #[test]
