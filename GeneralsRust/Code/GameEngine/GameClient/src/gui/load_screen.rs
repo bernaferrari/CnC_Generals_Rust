@@ -177,6 +177,9 @@ static MAP_TRANSFER_LITEUPDATE_HOOK: OnceLock<Mutex<Option<MapTransferLiteupdate
 static MULTIPLAYER_LOAD_PROGRESS_HOOK: OnceLock<Mutex<Option<MultiplayerLoadProgressHook>>> =
     OnceLock::new();
 #[cfg(test)]
+static LOAD_SCREEN_FINISH_UPDATE_HOOK: OnceLock<Mutex<Option<LoadScreenFinishUpdateHook>>> =
+    OnceLock::new();
+#[cfg(test)]
 static SINGLE_PLAYER_MOVIE_PLAY_HOOK: OnceLock<Mutex<Option<SinglePlayerMoviePlayHook>>> =
     OnceLock::new();
 #[cfg(test)]
@@ -185,6 +188,8 @@ static SINGLE_PLAYER_MOVIE_PLAYING_HOOK: OnceLock<Mutex<Option<SinglePlayerMovie
 
 type MapTransferLiteupdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
+#[cfg(test)]
+type LoadScreenFinishUpdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 #[cfg(test)]
 type SinglePlayerMoviePlayHook = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
 
@@ -504,12 +509,14 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
     }
     clear_load_screen_cursor_tooltip();
     if kind == LoadScreenKind::MapTransfer {
+        finish_load_screen_update();
         return;
     }
     if descriptor.slot_count > 0 {
         let local_player_id = with_multiplayer_load_screen_state(|state| state.local_player_id);
         report_multiplayer_load_progress(local_player_id, percent);
         let _ = process_load_screen_progress(kind, local_player_id, percent);
+        finish_load_screen_update();
         return;
     }
     with_window_manager(|wm| {
@@ -528,10 +535,24 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
             }
         }
     });
+    finish_load_screen_update();
 }
 
 fn clear_load_screen_cursor_tooltip() {
     with_mouse(|mouse| mouse.set_cursor_tooltip(String::new(), None, None, None));
+}
+
+fn finish_load_screen_update() {
+    // C++ LoadScreen::update does this last: pump windows/display and restore FP mode.
+    // Display drawing is owned by the runtime display bridge; the GUI-level parity step
+    // we can safely perform here is the WindowManager update.
+    with_window_manager(|wm| wm.update());
+    gamelogic::system::game_logic::set_fp_mode();
+
+    #[cfg(test)]
+    if let Some(hook) = load_screen_finish_update_hook() {
+        hook();
+    }
 }
 
 pub fn register_map_transfer_liteupdate_hook(
@@ -570,6 +591,35 @@ pub fn clear_multiplayer_load_progress_hook() -> Option<MultiplayerLoadProgressH
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.take()
+}
+
+#[cfg(test)]
+fn register_load_screen_finish_update_hook(
+    hook: impl Fn() + Send + Sync + 'static,
+) -> Option<LoadScreenFinishUpdateHook> {
+    let state = LOAD_SCREEN_FINISH_UPDATE_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.replace(Arc::new(hook))
+}
+
+#[cfg(test)]
+fn clear_load_screen_finish_update_hook() -> Option<LoadScreenFinishUpdateHook> {
+    let state = LOAD_SCREEN_FINISH_UPDATE_HOOK.get_or_init(|| Mutex::new(None));
+    let mut guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.take()
+}
+
+#[cfg(test)]
+fn load_screen_finish_update_hook() -> Option<LoadScreenFinishUpdateHook> {
+    let state = LOAD_SCREEN_FINISH_UPDATE_HOOK.get_or_init(|| Mutex::new(None));
+    let guard = state
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    guard.clone()
 }
 
 fn map_transfer_liteupdate() {
@@ -3496,6 +3546,40 @@ mod tests {
 
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         clear_multiplayer_load_progress_hook();
+    }
+
+    #[test]
+    fn update_load_screen_finishes_every_branch_after_local_work_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        let _mouse_guard = lock_test_mouse();
+        clear_map_transfer_liteupdate_hook();
+        clear_multiplayer_load_progress_hook();
+        clear_load_screen_finish_update_hook();
+
+        let finish_calls = Arc::new(AtomicUsize::new(0));
+        let hook_finish_calls = Arc::clone(&finish_calls);
+        register_load_screen_finish_update_hook(move || {
+            hook_finish_calls.fetch_add(1, Ordering::SeqCst);
+            with_mouse(|mouse| {
+                assert_eq!(mouse.cursor_tooltip_state().tooltip_text, "");
+                assert!(mouse.cursor_tooltip_state().is_tooltip_empty);
+            });
+        });
+
+        register_map_transfer_liteupdate_hook(|| {
+            with_mouse(|mouse| {
+                mouse.set_cursor_tooltip("Liteupdate touched tooltip".to_string(), None, None, None)
+            });
+        });
+
+        update_load_screen(LoadScreenKind::MapTransfer, 0.0);
+        update_load_screen(LoadScreenKind::SinglePlayer, 25.0);
+        update_load_screen(LoadScreenKind::Challenge, 50.0);
+        update_load_screen(LoadScreenKind::Multiplayer, 75.0);
+
+        assert_eq!(finish_calls.load(Ordering::SeqCst), 4);
+        clear_map_transfer_liteupdate_hook();
+        clear_load_screen_finish_update_hook();
     }
 
     #[test]
