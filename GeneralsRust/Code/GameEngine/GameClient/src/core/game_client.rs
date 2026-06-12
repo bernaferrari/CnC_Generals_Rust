@@ -100,6 +100,7 @@ use crate::video_player::{
 use game_engine::common::game_common::SECONDS_PER_LOGICFRAME_REAL;
 use game_engine::common::game_lod::prefers_low_res_movies;
 use game_engine::common::global_data as runtime_global_data;
+use game_engine::common::ini::ini_game_data::TimeOfDay as IniTimeOfDay;
 use game_engine::common::ini::{get_global_data, get_global_language_read, INILoadType, INI};
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::{init_recorder, with_recorder_mut};
@@ -1260,6 +1261,15 @@ impl CommandTranslator for RwLock<CommandTranslatorImpl> {
     }
 }
 
+fn map_client_time_of_day_to_ini(time_of_day: TimeOfDay) -> IniTimeOfDay {
+    match time_of_day {
+        TimeOfDay::Morning => IniTimeOfDay::Morning,
+        TimeOfDay::Afternoon => IniTimeOfDay::Afternoon,
+        TimeOfDay::Evening => IniTimeOfDay::Evening,
+        TimeOfDay::Night => IniTimeOfDay::Night,
+    }
+}
+
 impl GameClient {
     /// Creates a new GameClient instance
     pub fn new() -> GameClientResult<Self> {
@@ -1939,6 +1949,13 @@ impl GameClient {
 
     /// Sets time of day for all drawables
     pub fn set_time_of_day(&mut self, tod: TimeOfDay) -> GameClientResult<()> {
+        if let Some(display) = self.subsystem_manager.display.as_ref().map(Arc::clone) {
+            let mut display = display.lock().map_err(|_| {
+                GameClientError::SubsystemError("Display lock poisoned".to_string())
+            })?;
+            display.set_time_of_day(map_client_time_of_day_to_ini(tod));
+        }
+
         self.iterate_drawables_in_region(None, |drawable| {
             let _ = drawable.set_time_of_day(tod);
         })
