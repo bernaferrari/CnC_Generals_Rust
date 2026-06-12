@@ -1423,6 +1423,24 @@ impl MapSelectMenu {
             });
     }
 
+    fn set_map_selection_from_cpp_row(&mut self, row: i32) {
+        let Some(listbox) = self.listbox_map.as_ref() else {
+            return;
+        };
+        let mut listbox_guard = listbox.borrow_mut();
+        let Some(widget) = listbox_guard.widget_mut() else {
+            return;
+        };
+        let WindowWidget::ListBox(listbox) = widget else {
+            return;
+        };
+        if row < 0 {
+            listbox.set_selected_indices(&[]);
+        } else {
+            let _ = listbox.select_index(row as usize, crate::gui::gadgets::KeyModifiers::none());
+        }
+    }
+
     fn start_game(&mut self) {
         let Some(map_name) = self.selected_map.clone() else {
             return;
@@ -1702,6 +1720,7 @@ impl MenuCallbacks for MapSelectMenu {
                 }
                 let control_id = data1 as i32;
                 if control_id == self.listbox_map_id {
+                    self.set_map_selection_from_cpp_row(data2 as i32);
                     self.update_selected_map();
                     if self.current_map_selection().is_some() {
                         if let Some(parent) = self.parent.as_ref() {
@@ -2170,7 +2189,7 @@ mod tests {
     }
 
     #[test]
-    fn map_select_double_click_uses_current_listbox_selection_like_cpp() {
+    fn map_select_double_click_uses_event_row_selection_like_cpp() {
         let mut menu = MapSelectMenu::new();
         menu.listbox_map_id = 42;
         menu.button_ok_id = 77;
@@ -2203,10 +2222,7 @@ mod tests {
             WindowMsgHandled::Handled
         );
 
-        assert_eq!(
-            menu.selected_map.as_deref(),
-            Some("Maps\\Second\\Second.map")
-        );
+        assert_eq!(menu.selected_map.as_deref(), Some("Maps\\First\\First.map"));
         let selected = listbox_window
             .borrow()
             .widget()
@@ -2214,6 +2230,6 @@ mod tests {
                 WindowWidget::ListBox(listbox) => listbox.selected_indices().first().copied(),
                 _ => None,
             });
-        assert_eq!(selected, Some(1));
+        assert_eq!(selected, Some(0));
     }
 }
