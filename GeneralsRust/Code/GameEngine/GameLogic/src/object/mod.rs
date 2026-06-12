@@ -1765,6 +1765,9 @@ impl ModuleUpdateProxy {
         update_via_behavior!(crate::contain_module_overrides::ActiveBehaviorModule<
             crate::object::behavior::deletion_update::DeletionUpdate,
         >);
+        update_via_behavior!(crate::contain_module_overrides::ActiveBehaviorModule<
+            crate::object::behavior::animation_steering_update::AnimationSteeringUpdate,
+        >);
 
         update_via_behavior!(crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule);
         update_via_behavior!(
@@ -13171,6 +13174,35 @@ mod tests {
             sleep = ModuleUpdateProxy::dispatch_update(module);
         });
         assert_eq!(sleep, Some(UpdateSleepTime::Frames(7)));
+    }
+
+    #[test]
+    fn module_update_proxy_dispatches_active_animation_steering_update() {
+        let data = Arc::new(
+            crate::object::behavior::animation_steering_update::AnimationSteeringUpdateModuleData {
+                transition_frames: 3,
+                ..Default::default()
+            },
+        );
+        let object = Arc::new(RwLock::new(Object::new_test(9102, 100.0)));
+        let legacy_data: Arc<dyn crate::common::ModuleData> = data.clone();
+        let engine_data: Arc<dyn game_engine::common::thing::module::ModuleData> = data.clone();
+        let behavior =
+            crate::object::behavior::animation_steering_update::AnimationSteeringUpdate::new(
+                Arc::clone(&object),
+                legacy_data,
+            )
+            .expect("animation steering update");
+        let mut module = crate::contain_module_overrides::ActiveBehaviorModule::new(
+            "AnimationSteeringUpdate",
+            engine_data,
+            behavior,
+        );
+
+        assert_eq!(
+            ModuleUpdateProxy::dispatch_update(&mut module),
+            Some(UpdateSleepTime::Frames(1))
+        );
     }
 
     #[derive(Debug)]
