@@ -7,9 +7,13 @@
 use super::*;
 use crate::common::{kindof_from_name, FieldParse, FieldType, KindOf};
 use crate::experience::ExperienceRequirements;
-use crate::helpers::{TheGameLogic, ThePartitionManager};
+use crate::helpers::TheGameLogic;
 use crate::object::collide::crate_collide::crate_collide::CrateCollide as LegacyCrateCollide;
+use crate::object::collide::partition_filters::{
+    PartitionFilterSameMapStatus, PartitionFilterSamePlayer,
+};
 use crate::object::collide::*;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::scripting::engine::transfer_object_name;
 use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 use std::sync::{Arc, Mutex};
@@ -434,6 +438,36 @@ impl VeterancyCrateCollide {
     ///
     /// This method grants veterancy experience to the target object or all objects
     /// within the specified range, depending on the module configuration.
+    fn collect_area_effect_object_ids(&self, other: &dyn GameObject, range: f32) -> Vec<ObjectId> {
+        let center = other.get_position();
+        let range_sqr = range * range;
+        let same_player_filter = PartitionFilterSamePlayer::new(other.get_controlling_player());
+        let same_map_status_filter = PartitionFilterSameMapStatus::new(other.get_id());
+
+        OBJECT_REGISTRY
+            .get_all_objects()
+            .into_iter()
+            .filter_map(|obj_arc| {
+                let obj_position = obj_arc.get_position();
+                let dx = obj_position.x - center.x;
+                let dy = obj_position.y - center.y;
+                if dx * dx + dy * dy > range_sqr {
+                    return None;
+                }
+                if !same_player_filter.allow(&obj_arc) || !same_map_status_filter.allow(&obj_arc) {
+                    return None;
+                }
+                obj_arc.read().ok().and_then(|obj_guard| {
+                    if obj_guard.is_destroyed() {
+                        None
+                    } else {
+                        Some(obj_guard.get_id())
+                    }
+                })
+            })
+            .collect()
+    }
+
     fn execute_crate_behavior_internal(
         &self,
         other: &dyn GameObject,
@@ -447,34 +481,11 @@ impl VeterancyCrateCollide {
         let range = self.module_data.range_of_effect as f32;
 
         let mut affected_objects = Vec::new();
-        let controlling_player = other.get_controlling_player();
-        let match_above_terrain = other.is_significantly_above_terrain();
 
         if range == 0.0 {
             affected_objects.push(other.get_id());
-        } else if let Some(partition_manager) = ThePartitionManager::get() {
-            let center = other.get_position();
-            let center_pos = crate::common::Coord3D::new(center.x, center.y, center.z);
-            let candidates = partition_manager.get_objects_in_range(&center_pos, range);
-            for object_id in candidates {
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                    continue;
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if obj_guard.is_destroyed() {
-                    continue;
-                }
-                if obj_guard.get_controlling_player_id() != Some(controlling_player.value() as u32)
-                {
-                    continue;
-                }
-                if obj_guard.is_significantly_above_terrain() != match_above_terrain {
-                    continue;
-                }
-                affected_objects.push(object_id);
-            }
+        } else {
+            affected_objects.extend(self.collect_area_effect_object_ids(other, range));
         }
 
         let requirements = ExperienceRequirements::default_requirements();
@@ -602,6 +613,27 @@ mod tests {
         obj
     }
 
+    fn create_registered_test_object(
+        id: ObjectId,
+        team_arc: &Arc<RwLock<crate::team::Team>>,
+        position: Coord3D,
+    ) -> Arc<RwLock<crate::object::Object>> {
+        let object = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
+        {
+            let mut guard = object.write().expect("object write");
+            let object_position = crate::common::Coord3D::new(position.x, position.y, position.z);
+            guard
+                .set_position(&object_position)
+                .expect("object position");
+            guard.set_height_above_terrain(position.z);
+            guard
+                .set_team(Some(Arc::clone(team_arc)))
+                .expect("object team");
+        }
+        OBJECT_REGISTRY.register_object(id, &object);
+        object
+    }
+
     #[test]
     fn veterancy_crate_parse_from_ini_preserves_cpp_fields() {
         let _lock = crate::test_sync::lock();
@@ -709,6 +741,43 @@ mod tests {
 
         let veterancy_crate_no_owner = VeterancyCrateCollide::new(1, module_data_no_owner);
         assert_eq!(veterancy_crate_no_owner.get_levels_to_gain(), 1);
+    }
+
+    #[test]
+    fn veterancy_area_effect_uses_same_map_status_not_height_like_cpp() {
+        let _lock = crate::test_sync::lock();
+
+        OBJECT_REGISTRY.clear();
+
+        let team_arc = setup_player_with_team(1, "VeterancyAreaTeam");
+        let map_extent = crate::helpers::TheTerrainLogic::get()
+            .expect("terrain logic")
+            .get_maximum_pathfind_extent();
+        let edge_x = map_extent.hi.x;
+        let y = map_extent.lo.y + 10.0;
+
+        let other =
+            create_registered_test_object(71_000, &team_arc, Coord3D::new(edge_x - 10.0, y, 0.0));
+        let elevated_on_map =
+            create_registered_test_object(71_001, &team_arc, Coord3D::new(edge_x - 5.0, y, 100.0));
+        let off_map_nearby =
+            create_registered_test_object(71_002, &team_arc, Coord3D::new(edge_x + 10.0, y, 0.0));
+
+        assert!(!other.is_significantly_above_terrain());
+        assert!(elevated_on_map.is_significantly_above_terrain());
+        assert!(!other.read().expect("other read").is_off_map());
+        assert!(!elevated_on_map.read().expect("elevated read").is_off_map());
+        assert!(off_map_nearby.read().expect("off map read").is_off_map());
+
+        let veterancy_crate =
+            VeterancyCrateCollide::new(71_100, VeterancyCrateCollideModuleData::default());
+        let affected = veterancy_crate.collect_area_effect_object_ids(&other, 50.0);
+
+        assert!(affected.contains(&71_000));
+        assert!(affected.contains(&71_001));
+        assert!(!affected.contains(&71_002));
+
+        OBJECT_REGISTRY.clear();
     }
 
     #[test]
