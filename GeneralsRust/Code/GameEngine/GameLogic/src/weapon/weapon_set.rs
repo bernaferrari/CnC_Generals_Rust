@@ -520,7 +520,7 @@ impl WeaponSet {
                     }
                 }
 
-                if match_count > best_match_count {
+                if best_set.is_none() || match_count > best_match_count {
                     best_match_count = match_count;
                     best_set = Some(Arc::clone(template_set));
                 }
@@ -1416,6 +1416,25 @@ mod tests {
         assert!(!weapon_set.has_any_weapon());
         assert!(!weapon_set.has_any_damage_weapon());
         assert!(weapon_set.is_out_of_ammo());
+    }
+
+    #[test]
+    fn weapon_set_update_selects_default_unconditioned_set() {
+        let primary = test_weapon_template("DefaultPrimary", 4);
+        let default_set = test_template_set(primary, None, false);
+        let mut weapon_set = WeaponSet::new();
+        weapon_set.weapon_template_sets.push(default_set);
+
+        weapon_set
+            .update_weapon_set(77, &WeaponSetFlags::new())
+            .expect("default weapon set");
+
+        let weapon = weapon_set
+            .get_current_weapon()
+            .expect("current default weapon")
+            .0;
+        assert_eq!(weapon.get_name(), "DefaultPrimary");
+        assert_eq!(weapon.get_status(), WeaponStatus::ReadyToFire);
     }
 
     #[test]

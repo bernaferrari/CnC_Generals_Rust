@@ -204,11 +204,11 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
             return false;
         }
 
-        // Logic frames check or weapon status check
-        if let Some(weapon) = me.get_weapon_in_slot(self.module_data.weapon_slot) {
-            return weapon.get_status() == WeaponStatus::ReadyToFire;
-        }
-        false
+        // C++ checks the current weapon because assisted reload state is shared
+        // across this object's weapons.
+        me.get_current_weapon()
+            .map(|(weapon, _slot)| weapon.get_status() == WeaponStatus::ReadyToFire)
+            .unwrap_or(false)
     }
 
     fn assist_attack(&mut self, requesting_object_id: ObjectID, victim_object_id: ObjectID) {
@@ -409,3 +409,46 @@ const ASSISTED_TARGETING_UPDATE_FIELDS: &[FieldParse<AssistedTargetingUpdateModu
         parse: parse_laser_to_target,
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::Object;
+    use crate::weapon::{WeaponSetFlags, WeaponTemplate, WeaponTemplateSet};
+
+    #[test]
+    fn is_free_to_assist_uses_current_weapon_not_assist_slot() {
+        let object = Arc::new(RwLock::new(Object::new_test(41, 100.0)));
+        let mut set = WeaponTemplateSet::new();
+        let mut template = WeaponTemplate::new("ReadyPrimary".to_string());
+        template.clip_size = 1;
+        set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
+        {
+            let mut object_guard = object.write().unwrap();
+            let object_id = object_guard.get_id();
+            object_guard.weapon_set.add_weapon_template_set(set);
+            object_guard
+                .weapon_set
+                .update_weapon_set(object_id, &WeaponSetFlags::new())
+                .unwrap();
+            assert!(object_guard.get_current_weapon().is_some());
+            assert_eq!(
+                object_guard
+                    .get_current_weapon()
+                    .map(|(weapon, _slot)| weapon.get_status()),
+                Some(WeaponStatus::ReadyToFire)
+            );
+            assert!(object_guard
+                .get_weapon_in_slot(WeaponSlotType::Secondary)
+                .is_none());
+        }
+
+        let module_data: Arc<dyn ModuleData> = Arc::new(AssistedTargetingUpdateModuleData {
+            weapon_slot: WeaponSlotType::Secondary,
+            ..Default::default()
+        });
+        let assisted = AssistedTargetingUpdate::new(Arc::clone(&object), module_data).unwrap();
+
+        assert!(assisted.is_free_to_assist());
+    }
+}
