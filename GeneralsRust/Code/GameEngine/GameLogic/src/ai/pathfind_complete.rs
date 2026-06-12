@@ -531,6 +531,105 @@ impl PathfindingSystem {
         PathResult::none()
     }
 
+    /// Find a short path away from two repulsor positions.
+    /// Matches the contract of C++ Pathfinder::findSafePath(): start from the
+    /// object position and return the first reachable destination outside the
+    /// repulsor radius, falling back to the farthest searched valid cell.
+    pub fn find_safe_path(
+        &self,
+        request: PathRequest,
+        repulsor_pos1: &Coord3D,
+        repulsor_pos2: &Coord3D,
+        repulsor_radius: f32,
+    ) -> PathResult {
+        const MAX_CELLS: usize = 2000;
+
+        let start = GridCoord::from_world(&request.from);
+        if !self.is_valid_coord(start) {
+            return PathResult::none();
+        }
+
+        let (unit_radius_cells, center_in_cell) =
+            Self::compute_radius_and_center(request.unit_radius);
+        let repulsor_radius_sqr = repulsor_radius * repulsor_radius;
+        let mut checked_cells = 0usize;
+        let mut farthest_candidate: Option<(GridCoord, f32)> = None;
+
+        for search_radius in 0i32..=64 {
+            for dx in -search_radius..=search_radius {
+                for dy in -search_radius..=search_radius {
+                    if search_radius > 0 && dx.abs() != search_radius && dy.abs() != search_radius {
+                        continue;
+                    }
+
+                    let candidate = GridCoord::new(start.x + dx, start.y + dy);
+                    if !self.is_valid_coord(candidate) {
+                        continue;
+                    }
+
+                    checked_cells += 1;
+                    let layer = self.get_layer_for_coord(candidate);
+                    let candidate_pos = self.world_pos_for_coord(candidate, layer);
+                    let dist1 = (candidate_pos.x - repulsor_pos1.x)
+                        * (candidate_pos.x - repulsor_pos1.x)
+                        + (candidate_pos.y - repulsor_pos1.y) * (candidate_pos.y - repulsor_pos1.y);
+                    let dist2 = (candidate_pos.x - repulsor_pos2.x)
+                        * (candidate_pos.x - repulsor_pos2.x)
+                        + (candidate_pos.y - repulsor_pos2.y) * (candidate_pos.y - repulsor_pos2.y);
+                    let nearest_repulsor_dist = dist1.min(dist2);
+
+                    if farthest_candidate
+                        .map(|(_, dist)| nearest_repulsor_dist > dist)
+                        .unwrap_or(true)
+                    {
+                        farthest_candidate = Some((candidate, nearest_repulsor_dist));
+                    }
+
+                    if nearest_repulsor_dist > repulsor_radius_sqr
+                        && self.check_destination(
+                            &request,
+                            candidate,
+                            layer,
+                            unit_radius_cells,
+                            center_in_cell,
+                        )
+                    {
+                        let mut candidate_request = request.clone();
+                        candidate_request.to = candidate_pos;
+                        return self.find_path(candidate_request);
+                    }
+
+                    if checked_cells > MAX_CELLS {
+                        break;
+                    }
+                }
+                if checked_cells > MAX_CELLS {
+                    break;
+                }
+            }
+            if checked_cells > MAX_CELLS {
+                break;
+            }
+        }
+
+        if let Some((candidate, _)) = farthest_candidate {
+            let layer = self.get_layer_for_coord(candidate);
+            if self.check_destination(
+                &request,
+                candidate,
+                layer,
+                unit_radius_cells,
+                center_in_cell,
+            ) {
+                let mut candidate_request = request;
+                candidate_request.to = self.world_pos_for_coord(candidate, layer);
+                return self.find_path(candidate_request);
+            }
+        }
+
+        PathResult::none()
+    }
+
     /// Optimize path using line-of-sight checks
     fn optimize_path(
         &self,

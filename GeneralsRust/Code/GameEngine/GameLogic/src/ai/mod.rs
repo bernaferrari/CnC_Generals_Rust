@@ -2065,6 +2065,17 @@ impl Pathfinder {
         self.inner.find_closest_path(request)
     }
 
+    pub fn find_safe_path_result(
+        &self,
+        request: ClassicPathRequest,
+        repulsor_pos1: &Coord3D,
+        repulsor_pos2: &Coord3D,
+        repulsor_radius: f32,
+    ) -> ClassicPathResult {
+        self.inner
+            .find_safe_path(request, repulsor_pos1, repulsor_pos2, repulsor_radius)
+    }
+
     pub fn client_safe_quick_does_path_exist(
         &self,
         locomotor_set: &crate::locomotor::LocomotorSet,
