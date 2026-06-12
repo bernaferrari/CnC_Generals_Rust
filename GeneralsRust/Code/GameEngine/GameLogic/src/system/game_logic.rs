@@ -3865,7 +3865,9 @@ impl GameLogic {
         crate::helpers::TheGameLogic::clear_start_new_game_request();
         let game_mode_int = self.get_game_mode();
         crate::helpers::TheGameLogic::begin_load_screen(game_mode_int, loading_save_game);
-        crate::helpers::TheGameLogic::update_load_progress(0);
+        crate::helpers::TheGameLogic::update_load_progress(
+            crate::system::game_initialization::LOAD_PROGRESS_START,
+        );
 
         let game_mode = match game_mode_int {
             GAME_SHELL => crate::system::game_initialization::GameMode::ShellMap,
@@ -3915,7 +3917,9 @@ impl GameLogic {
                 .map(|_| ())
                 .map_err(|err| format!("Game initialization failed: {}", err));
         if init_result.is_ok() {
-            crate::helpers::TheGameLogic::update_load_progress(100);
+            crate::helpers::TheGameLogic::update_load_progress(
+                crate::system::game_initialization::LOAD_PROGRESS_END,
+            );
         }
         crate::helpers::TheGameLogic::end_load_screen();
         self.set_loading_map(false);
@@ -5234,6 +5238,7 @@ mod tests {
             &[
                 "begin:2:false".to_string(),
                 "update:0".to_string(),
+                "update:1".to_string(),
                 "end".to_string(),
             ]
         );
