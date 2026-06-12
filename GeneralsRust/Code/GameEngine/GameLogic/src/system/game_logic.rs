@@ -3863,8 +3863,11 @@ impl GameLogic {
         set_fp_mode();
         self.set_loading_map(true);
         crate::helpers::TheGameLogic::clear_start_new_game_request();
+        let game_mode_int = self.get_game_mode();
+        crate::helpers::TheGameLogic::begin_load_screen(game_mode_int, loading_save_game);
+        crate::helpers::TheGameLogic::update_load_progress(0);
 
-        let game_mode = match self.get_game_mode() {
+        let game_mode = match game_mode_int {
             GAME_SHELL => crate::system::game_initialization::GameMode::ShellMap,
             GAME_SKIRMISH => crate::system::game_initialization::GameMode::Skirmish,
             GAME_LAN | GAME_INTERNET => crate::system::game_initialization::GameMode::Multiplayer,
@@ -3911,6 +3914,10 @@ impl GameLogic {
             crate::system::game_initialization::GameInitializer::initialize_game(params)
                 .map(|_| ())
                 .map_err(|err| format!("Game initialization failed: {}", err));
+        if init_result.is_ok() {
+            crate::helpers::TheGameLogic::update_load_progress(100);
+        }
+        crate::helpers::TheGameLogic::end_load_screen();
         self.set_loading_map(false);
         init_result
     }
@@ -5174,6 +5181,62 @@ mod tests {
         logic.set_game_mode(GAME_LAN);
         assert!(!logic.is_in_single_player_game());
         assert!(logic.is_in_multiplayer_game());
+    }
+
+    #[test]
+    fn start_new_game_now_drives_load_screen_lifecycle() {
+        let _guard = test_state_lock();
+
+        #[derive(Default)]
+        struct RecordingLoadScreenHooks {
+            events: Mutex<Vec<String>>,
+        }
+
+        impl crate::helpers::LoadScreenHooks for RecordingLoadScreenHooks {
+            fn begin_load_screen(&self, game_mode: i32, loading_save_game: bool) {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push(format!("begin:{game_mode}:{loading_save_game}"));
+            }
+
+            fn update_load_screen(&self, progress: i32) {
+                self.events
+                    .lock()
+                    .unwrap()
+                    .push(format!("update:{progress}"));
+            }
+
+            fn end_load_screen(&self) {
+                self.events.lock().unwrap().push("end".to_string());
+            }
+        }
+
+        let hooks = std::sync::Arc::new(RecordingLoadScreenHooks::default());
+        crate::helpers::clear_load_screen_hooks();
+        crate::helpers::register_load_screen_hooks(hooks.clone());
+
+        let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
+        let original_map_name = global_data.read().map_name.clone();
+        global_data.write().map_name = "__definitely_missing_load_screen_map__.map".to_string();
+
+        let mut logic = GameLogic::new();
+        logic.set_game_mode(GAME_SKIRMISH);
+        let result = logic.start_new_game_now(false);
+
+        global_data.write().map_name = original_map_name;
+        crate::helpers::clear_load_screen_hooks();
+
+        assert!(result.is_err());
+        assert!(!logic.is_loading_map());
+        assert_eq!(
+            hooks.events.lock().unwrap().as_slice(),
+            &[
+                "begin:2:false".to_string(),
+                "update:0".to_string(),
+                "end".to_string(),
+            ]
+        );
     }
 
     #[test]

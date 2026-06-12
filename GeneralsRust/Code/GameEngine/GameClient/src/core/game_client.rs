@@ -3001,6 +3001,7 @@ impl GameClient {
         crate::core::subsystems::register_tactical_view_snapshot_block();
 
         crate::helpers::register_prepare_new_game_hooks();
+        crate::helpers::register_load_screen_hooks();
         crate::helpers::register_observer_audio_locality_hooks();
         crate::helpers::register_observer_audio_view_hooks();
         self.install_script_action_handler();
