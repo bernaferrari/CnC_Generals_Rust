@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use wgpu::util::DeviceExt;
 
-use crate::render_bridge::{self, get_render_bridge, DrawableId};
+use crate::render_bridge::{self, get_render_bridge, DrainedDrawSubmission, DrawableId};
 
 // ---------------------------------------------------------------------------
 // Vertex / Uniform layouts
@@ -482,13 +482,13 @@ impl DrawableDrawPipeline {
         // 3. Opaque pass (front-to-back, already sorted by RenderBridge)
         let opaque: Vec<_> = submissions
             .iter()
-            .filter(|(_, is_transparent)| !is_transparent)
+            .filter(|drained| !drained.is_transparent)
             .collect();
 
         if !opaque.is_empty() {
             pass.set_pipeline(&self.opaque_pipeline);
-            for (submission, _) in &opaque {
-                self.draw_submission(pass, submission);
+            for drained in &opaque {
+                self.draw_submission(pass, drained);
                 draw_calls += 1;
             }
         }
@@ -496,13 +496,13 @@ impl DrawableDrawPipeline {
         // 4. Transparent pass (back-to-front, already sorted by RenderBridge)
         let transparent: Vec<_> = submissions
             .iter()
-            .filter(|(_, is_transparent)| *is_transparent)
+            .filter(|drained| drained.is_transparent)
             .collect();
 
         if !transparent.is_empty() {
             pass.set_pipeline(&self.transparent_pipeline);
-            for (submission, _) in &transparent {
-                self.draw_submission(pass, submission);
+            for drained in &transparent {
+                self.draw_submission(pass, drained);
                 draw_calls += 1;
             }
         }
@@ -511,11 +511,8 @@ impl DrawableDrawPipeline {
     }
 
     /// Draw a single DrawSubmission.
-    fn draw_submission(
-        &self,
-        pass: &mut wgpu::RenderPass,
-        submission: &render_bridge::DrawSubmission,
-    ) {
+    fn draw_submission(&self, pass: &mut wgpu::RenderPass, drained: &DrainedDrawSubmission) {
+        let submission = &drained.submission;
         // Update per-object uniform
         let color_tint = object_color_tint(&submission.render_state);
 
@@ -536,11 +533,14 @@ impl DrawableDrawPipeline {
         // TODO: We should wait for the uniform write to complete via a submission.
         // For now this works because the queue writes are ordered relative to submits.
 
-        // Look up mesh buffers (use fallback if model not loaded)
-        let mesh = self
-            .mesh_cache
-            .get(&submission.model_name.to_lowercase())
-            .unwrap_or(&self.fallback_mesh);
+        let key = submission.model_name.to_lowercase();
+        let mesh = if let Some(mesh) = self.mesh_cache.get(&key) {
+            mesh
+        } else if drained.model_resolution == Some(render_bridge::ModelResolution::Asset) {
+            return;
+        } else {
+            &self.fallback_mesh
+        };
         let texture_bind_group = mesh
             .texture_name
             .as_ref()
