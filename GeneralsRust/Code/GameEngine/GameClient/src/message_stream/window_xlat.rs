@@ -88,6 +88,14 @@ fn is_legacy_left_mouse_message(msg_type: &GameMessageType) -> bool {
     )
 }
 
+fn should_keep_message_while_mouse_locked(msg_type: &GameMessageType, scrolling: bool) -> bool {
+    if scrolling {
+        !is_legacy_left_mouse_message(msg_type)
+    } else {
+        true
+    }
+}
+
 #[derive(Default)]
 pub struct WindowTranslator {
     last_mouse_pos: ICoord2D,
@@ -107,7 +115,9 @@ impl GameMessageTranslator for WindowTranslator {
         let mut return_code = WindowInputReturnCode::NotUsed;
         let mut force_keep_message = false;
 
-        if is_mouse_locked() && !is_legacy_left_mouse_message(msg_type) {
+        if is_mouse_locked()
+            && should_keep_message_while_mouse_locked(msg_type, TheInGameUI::is_scrolling())
+        {
             return GameMessageDisposition::KeepMessage;
         }
 
@@ -243,5 +253,30 @@ mod tests {
             Some(ICoord2D { x: 14, y: 17 })
         );
         assert_eq!(extract_mouse_delta(&msg), Some((4, -3)));
+    }
+
+    #[test]
+    fn locked_mouse_without_scrolling_keeps_left_clicks_like_cpp() {
+        let left_down = GameMessageType::RawMouseLeftButtonDown(ICoord2D { x: 1, y: 2 }, 0, 0);
+        let left_up = GameMessageType::RawMouseLeftButtonUp(ICoord2D { x: 1, y: 2 }, 0, 0);
+        let position = GameMessageType::RawMousePosition(ICoord2D { x: 1, y: 2 });
+
+        assert!(should_keep_message_while_mouse_locked(&left_down, false));
+        assert!(should_keep_message_while_mouse_locked(&left_up, false));
+        assert!(should_keep_message_while_mouse_locked(&position, false));
+    }
+
+    #[test]
+    fn locked_mouse_while_scrolling_only_passes_left_clicks_like_cpp() {
+        let left_down = GameMessageType::RawMouseLeftButtonDown(ICoord2D { x: 1, y: 2 }, 0, 0);
+        let left_up = GameMessageType::RawMouseLeftButtonUp(ICoord2D { x: 1, y: 2 }, 0, 0);
+        let right_down = GameMessageType::RawMouseRightButtonDown(ICoord2D { x: 1, y: 2 }, 0, 0);
+        let drag =
+            GameMessageType::RawMouseLeftDrag(ICoord2D { x: 1, y: 2 }, ICoord2D { x: 2, y: 3 });
+
+        assert!(!should_keep_message_while_mouse_locked(&left_down, true));
+        assert!(!should_keep_message_while_mouse_locked(&left_up, true));
+        assert!(should_keep_message_while_mouse_locked(&right_down, true));
+        assert!(should_keep_message_while_mouse_locked(&drag, true));
     }
 }
