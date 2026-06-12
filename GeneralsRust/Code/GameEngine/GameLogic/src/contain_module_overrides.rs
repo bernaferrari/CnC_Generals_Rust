@@ -2536,13 +2536,37 @@ fn money_crate_collide_module_factory(
         object_id,
     ))
 }
-object_id_crate_collide_factories!(
-    salvage_crate_collide_data_factory,
-    salvage_crate_collide_module_factory,
-    SalvageCrateCollideModuleData,
-    SalvageCrateCollide,
-    "SalvageCrateCollide"
-);
+fn salvage_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SalvageCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SalvageCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn salvage_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<CrateCollideDataAdapter<SalvageCrateCollideModuleData>>(
+        "SalvageCrateCollide",
+        &module_data,
+    );
+    let object_id = resolve_owner_id(&thing);
+    let collide = SalvageCrateCollide::new(object_id, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "SalvageCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 fn unit_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = UnitCrateCollideModuleData::default();
     if let Some(ini) = ini {
