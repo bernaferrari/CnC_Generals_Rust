@@ -134,24 +134,20 @@ impl SabotageCommandCenterCrateCollide {
 
         // Reset ALL special powers on the command center
         let other_lock = other.read().map_err(|_| GameError::LockError)?;
-        let mut reset = false;
         for module_handle in other_lock.modules_with_interface(ModuleInterfaceType::SPECIAL_POWER) {
             module_handle.with_module(|module| {
                 let Some(sp_module) = module_special_power_interface(module) else {
                     return;
                 };
                 let _ = sp_module.start_power_recharge();
-                reset = true;
             });
         }
 
-        if !reset {
-            let behavior_modules = other_lock.get_behavior_modules();
-            for module in behavior_modules {
-                if let Ok(mut module_guard) = module.lock() {
-                    if let Some(special_power) = module_guard.get_special_power() {
-                        special_power.start_power_recharge()?;
-                    }
+        let behavior_modules = other_lock.get_behavior_modules();
+        for module in behavior_modules {
+            if let Ok(mut module_guard) = module.lock() {
+                if let Some(special_power) = module_guard.get_special_power() {
+                    special_power.start_power_recharge()?;
                 }
             }
         }
