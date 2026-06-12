@@ -2363,13 +2363,37 @@ legacy_object_crate_collide_factories!(
     SabotageSupplyCenterCrateCollide,
     "SabotageSupplyCenterCrateCollide"
 );
-object_id_crate_collide_factories!(
-    money_crate_collide_data_factory,
-    money_crate_collide_module_factory,
-    MoneyCrateCollideModuleData,
-    MoneyCrateCollide,
-    "MoneyCrateCollide"
-);
+fn money_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = MoneyCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse MoneyCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn money_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<CrateCollideDataAdapter<MoneyCrateCollideModuleData>>(
+        "MoneyCrateCollide",
+        &module_data,
+    );
+    let object_id = resolve_owner_id(&thing);
+    let collide = MoneyCrateCollide::new(object_id, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "MoneyCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 object_id_crate_collide_factories!(
     salvage_crate_collide_data_factory,
     salvage_crate_collide_module_factory,
