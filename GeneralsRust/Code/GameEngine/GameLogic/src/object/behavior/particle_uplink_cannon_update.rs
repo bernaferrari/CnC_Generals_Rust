@@ -681,8 +681,6 @@ impl ParticleUplinkCannonUpdate {
         object: Arc<RwLock<GameObject>>,
         specific_data: Arc<ParticleUplinkCannonUpdateModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let obj_guard = object.read().unwrap();
-        let position = obj_guard.get_position();
         let outer_count = specific_data.outer_effect_num_bones as usize;
 
         Ok(Self {
@@ -692,8 +690,8 @@ impl ParticleUplinkCannonUpdate {
             status: PUCStatus::Idle,
             laser_status: LaserStatus::None,
             frames: 0,
-            connector_node_position: *position,
-            laser_origin_position: *position,
+            connector_node_position: Coord3D::ZERO,
+            laser_origin_position: Coord3D::ZERO,
             initial_target_position: Coord3D::ZERO,
             current_target_position: Coord3D::ZERO,
             override_target_destination: Coord3D::ZERO,
@@ -721,7 +719,7 @@ impl ParticleUplinkCannonUpdate {
             default_info_cached: false,
             up_bones_cached: false,
             client_shrouded_last_frame: false,
-            invalid_settings: specific_data.special_power_template.is_none(),
+            invalid_settings: false,
             powerup_sound: AudioEventRts::new(specific_data.powerup_sound_name.as_str()),
             unpack_to_ready_sound: AudioEventRts::new(
                 specific_data.unpack_to_ready_sound_name.as_str(),
@@ -1716,8 +1714,107 @@ impl BehaviorModuleInterface for ParticleUplinkCannonUpdate {
         Some(self)
     }
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Module lookup is resolved lazily through Object::with_special_power_module_mut_by_name.
+        if self.module_data.special_power_template.is_none() {
+            self.invalid_settings = true;
+            return Ok(());
+        }
+
+        if let Some(object_arc) = self.object.upgrade() {
+            if let Ok(obj_guard) = object_arc.read() {
+                let position = *obj_guard.get_position();
+                self.connector_node_position = position;
+                self.laser_origin_position = position;
+            }
+        }
+
+        self.powerup_sound
+            .set_event_name(self.module_data.powerup_sound_name.as_str());
+        self.unpack_to_ready_sound
+            .set_event_name(self.module_data.unpack_to_ready_sound_name.as_str());
+        self.firing_to_idle_sound
+            .set_event_name(self.module_data.firing_to_idle_sound_name.as_str());
+        self.annihilation_sound
+            .set_event_name(self.module_data.annihilation_sound_name.as_str());
+
+        // SpecialPowerModule lookup remains lazy through Object::with_special_power_module_mut_by_name.
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::object::special_power_types::SpecialPowerType;
+    use crate::object::Object;
+
+    fn test_object_at(position: Coord3D) -> Arc<RwLock<GameObject>> {
+        let object = Arc::new(RwLock::new(Object::new_test(98_001, 100.0)));
+        object
+            .write()
+            .unwrap()
+            .set_position(&position)
+            .expect("test position is valid");
+        object
+    }
+
+    #[test]
+    fn constructor_defers_invalid_settings_until_object_created() {
+        let object = test_object_at(Coord3D::new(10.0, 20.0, 3.0));
+        let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
+
+        let behavior =
+            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
+
+        assert!(!behavior.invalid_settings);
+        assert_eq!(behavior.connector_node_position, Coord3D::ZERO);
+        assert_eq!(behavior.laser_origin_position, Coord3D::ZERO);
+    }
+
+    #[test]
+    fn object_created_validates_missing_template_like_cpp() {
+        let object = test_object_at(Coord3D::new(10.0, 20.0, 3.0));
+        let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
+        let mut behavior =
+            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
+
+        BehaviorModuleInterface::on_object_created(&mut behavior).unwrap();
+
+        assert!(behavior.invalid_settings);
+        assert_eq!(behavior.connector_node_position, Coord3D::ZERO);
+        assert_eq!(behavior.laser_origin_position, Coord3D::ZERO);
+    }
+
+    #[test]
+    fn object_created_captures_origin_position_and_audio_names() {
+        let position = Coord3D::new(-12.5, 44.0, 6.25);
+        let object = test_object_at(position);
+        let mut data = ParticleUplinkCannonUpdateModuleData::default();
+        data.special_power_template = Some(Arc::new(SpecialPowerTemplate::new(
+            "SPECIAL_PARTICLE_UPLINK_CANNON".to_string(),
+            SpecialPowerType::ParticleUplinkCannon as u32,
+        )));
+        data.powerup_sound_name = AsciiString::from("PowerUpLoop");
+        data.unpack_to_ready_sound_name = AsciiString::from("UnpackLoop");
+        data.firing_to_idle_sound_name = AsciiString::from("PackLoop");
+        data.annihilation_sound_name = AsciiString::from("AnnihilationLoop");
+        let mut behavior =
+            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), Arc::new(data)).unwrap();
+
+        BehaviorModuleInterface::on_object_created(&mut behavior).unwrap();
+
+        assert!(!behavior.invalid_settings);
+        assert_eq!(behavior.connector_node_position, position);
+        assert_eq!(behavior.laser_origin_position, position);
+        assert_eq!(behavior.powerup_sound.get_event_name(), "PowerUpLoop");
+        assert_eq!(
+            behavior.unpack_to_ready_sound.get_event_name(),
+            "UnpackLoop"
+        );
+        assert_eq!(behavior.firing_to_idle_sound.get_event_name(), "PackLoop");
+        assert_eq!(
+            behavior.annihilation_sound.get_event_name(),
+            "AnnihilationLoop"
+        );
     }
 }
 
