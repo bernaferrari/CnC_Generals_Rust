@@ -6,6 +6,7 @@
 
 use super::{CollisionError, Coord3D, GameObject};
 use crate::common::*;
+use crate::object::behavior::behavior_module::xfer_behavior_module_base_versions;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
@@ -197,16 +198,17 @@ impl CollideModuleInterface for CollideModule {
 }
 
 impl game_engine::common::system::Snapshotable for CollideModule {
-    fn crc(&self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|err| err.to_string())
+    fn crc(&self, _xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+        // C++ CollideModule::crc only delegates to BehaviorModule::crc, whose base chain has no
+        // stored state in the current Rust port.
+        Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
         let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
-            .map_err(|err| err.to_string())
+            .map_err(|err| err.to_string())?;
+        xfer_behavior_module_base_versions(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -226,6 +228,76 @@ impl CollideModuleFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::{
+        Snapshot, Snapshotable, XferBlockSize, XferMode, XferStatus,
+    };
+
+    #[derive(Default)]
+    struct CountingXfer {
+        bytes: usize,
+    }
+
+    impl game_engine::common::system::Xfer for CountingXfer {
+        fn get_xfer_mode(&self) -> XferMode {
+            XferMode::Save
+        }
+
+        fn get_identifier(&self) -> &str {
+            "collide-module-test"
+        }
+
+        fn set_options(&mut self, _options: u32) {}
+
+        fn clear_options(&mut self, _options: u32) {}
+
+        fn get_options(&self) -> u32 {
+            0
+        }
+
+        fn open(&mut self, _identifier: &str) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+            Ok(0)
+        }
+
+        fn end_block(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn skip(&mut self, data_size: i32) -> Result<(), XferStatus> {
+            self.bytes += data_size.max(0) as usize;
+            Ok(())
+        }
+
+        fn xfer_snapshot(&mut self, _snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> std::io::Result<()> {
+            self.bytes += 1 + ascii_string_data.len();
+            Ok(())
+        }
+
+        fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> std::io::Result<()> {
+            self.bytes += 1 + unicode_string_data.len();
+            Ok(())
+        }
+
+        unsafe fn xfer_implementation(
+            &mut self,
+            _data: *mut u8,
+            data_size: usize,
+        ) -> std::io::Result<()> {
+            self.bytes += data_size;
+            Ok(())
+        }
+    }
 
     #[test]
     fn test_collide_module_creation() {
@@ -281,5 +353,25 @@ mod tests {
         let module = CollideModuleFactory::create_basic_collide_module(456);
         assert_eq!(module.get_object_id(), 456);
         assert!(module.is_active().unwrap());
+    }
+
+    #[test]
+    fn collide_module_crc_does_not_write_own_version_like_cpp() {
+        let module = CollideModule::new(123, CollideModuleData::new());
+        let mut xfer = CountingXfer::default();
+
+        module.crc(&mut xfer).expect("crc");
+
+        assert_eq!(xfer.bytes, 0);
+    }
+
+    #[test]
+    fn collide_module_xfer_includes_behavior_object_module_base_versions_like_cpp() {
+        let mut module = CollideModule::new(123, CollideModuleData::new());
+        let mut xfer = CountingXfer::default();
+
+        module.xfer(&mut xfer).expect("xfer");
+
+        assert_eq!(xfer.bytes, 4);
     }
 }

@@ -532,7 +532,7 @@ impl CrateCollide {
         _z_rise: f32,
         _fades: bool,
     ) -> Result<(), CollisionError> {
-        if !TheGameLogic::get_draw_icon_ui() || _duration <= 0.0 {
+        if !TheGameLogic::get_draw_icon_ui() {
             return Ok(());
         };
         let Some(collection) = get_anim2d_collection() else {
@@ -721,6 +721,40 @@ mod tests {
         assert_eq!(animations[0].z_rise_per_second, 4.0);
         assert_eq!(animations[0].created_frame, 777);
         OBJECT_REGISTRY.unregister_object(9008);
+    }
+
+    #[test]
+    fn crate_collide_execution_animation_allows_zero_duration_like_cpp() {
+        let _guard = crate_collide_test_guard();
+        set_logic_frame(778);
+        let _frame_reset = LogicFrameReset;
+        TheGameLogic::set_draw_icon_ui(true);
+        let _ = TheInGameUI::take_world_animations();
+        register_anim2d_template("CratePickupZeroDurationAnimTest");
+
+        let template = Arc::new(DefaultThingTemplate::new(
+            "CrateZeroDurationAnimObjectTest".to_string(),
+        ));
+        let object = Object::new_with_id(template, 9010, ObjectStatusMaskType::none(), None)
+            .expect("crate object");
+        let mut data = CrateCollideModuleData::default();
+        data.execution_animation_template = "CratePickupZeroDurationAnimTest".to_string();
+        data.execute_animation_display_time_seconds = 0.0;
+        let collide = CrateCollide::from_object_handle(object, data);
+
+        collide
+            .play_execution_animation()
+            .expect("execution animation");
+
+        let animations = TheInGameUI::take_world_animations();
+        assert_eq!(animations.len(), 1);
+        assert_eq!(
+            animations[0].animation_name,
+            "CratePickupZeroDurationAnimTest"
+        );
+        assert_eq!(animations[0].duration_seconds, 0.0);
+        assert_eq!(animations[0].created_frame, 778);
+        OBJECT_REGISTRY.unregister_object(9010);
     }
 
     #[test]
