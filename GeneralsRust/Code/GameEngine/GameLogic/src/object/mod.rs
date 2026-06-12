@@ -13209,7 +13209,7 @@ mod tests {
         entry.with_module(|module| {
             sleep = ModuleUpdateProxy::dispatch_update(module);
         });
-        assert_eq!(sleep, Some(UpdateSleepTime::Frames(7)));
+        assert_eq!(sleep, Some(UpdateSleepTime::Forever));
     }
 
     #[test]
