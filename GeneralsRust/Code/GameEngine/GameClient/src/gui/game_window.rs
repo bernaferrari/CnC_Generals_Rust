@@ -129,6 +129,14 @@ pub struct ListBoxSelectionResult {
     pub multiple: Vec<i32>,
 }
 
+pub fn gadget_list_box_get_selected(listbox: &mut GameWindow, select_list: &mut WindowMsgData) {
+    let _ = listbox.send_system_message(
+        WindowMessage::User(GLM_GET_SELECTION),
+        0,
+        (select_list as *mut WindowMsgData) as WindowMsgData,
+    );
+}
+
 bitflags! {
     /// Window status flags
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1845,6 +1853,24 @@ impl GameWindow {
         }
     }
 
+    pub fn list_box_selection_result(&self) -> Option<ListBoxSelectionResult> {
+        let Some(WindowWidget::ListBox(listbox)) = self.widget.as_ref() else {
+            return None;
+        };
+        let mut result = ListBoxSelectionResult::default();
+        match listbox.get_selection() {
+            ListBoxSelection::Single(index) => {
+                result.single = index;
+                result.multiple.clear();
+            }
+            ListBoxSelection::Multiple(indices) => {
+                result.single = -1;
+                result.multiple = indices;
+            }
+        }
+        Some(result)
+    }
+
     fn listbox_content_top_inset(&self) -> u32 {
         if self.inst_data.text.is_empty() {
             return 0;
@@ -2582,18 +2608,8 @@ impl GameWindow {
                     GLM_GET_SELECTION => {
                         if data2 != 0 {
                             if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                                let result =
-                                    unsafe { &mut *(data2 as *mut ListBoxSelectionResult) };
-                                match listbox.get_selection() {
-                                    ListBoxSelection::Single(index) => {
-                                        result.single = index;
-                                        result.multiple.clear();
-                                    }
-                                    ListBoxSelection::Multiple(indices) => {
-                                        result.single = -1;
-                                        result.multiple = indices;
-                                    }
-                                }
+                                let out = unsafe { &mut *(data2 as *mut WindowMsgData) };
+                                *out = listbox.cpp_selection_out_value();
                             }
                         }
                         return WindowMsgHandled::Handled;
@@ -5250,7 +5266,7 @@ mod tests {
     }
 
     #[test]
-    fn listbox_multi_selection_system_message_accepts_cpp_selection_array() {
+    fn listbox_selection_system_messages_match_cpp_out_pointer_shape() {
         let mut window = GameWindow::new();
         let mut listbox =
             ListBox::new(42, 0, 0, 100, 60).with_selection_mode(SelectionMode::Multiple);
@@ -5270,17 +5286,31 @@ mod tests {
         );
         assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[0, 2]);
 
-        let mut result = ListBoxSelectionResult::default();
+        let result = window.list_box_selection_result().unwrap();
+        assert_eq!(result.single, -1);
+        assert_eq!(result.multiple, vec![0, 2]);
+
+        let mut selected_out: WindowMsgData = 0;
+        gadget_list_box_get_selected(&mut window, &mut selected_out);
+        let selected = unsafe { std::slice::from_raw_parts(selected_out as *const i32, 3) };
+        assert_eq!(selected, &[0, 2, -1]);
+
+        let mut single_window = GameWindow::new();
+        let mut single = ListBox::new(43, 0, 0, 100, 60);
+        single.add_item("alpha");
+        single.add_item("bravo");
+        assert!(single.select_index(1, KeyModifiers::none()));
+        single_window.set_widget(WindowWidget::ListBox(single));
+        let mut single_out: WindowMsgData = 0;
         assert_eq!(
-            window.send_system_message(
+            single_window.send_system_message(
                 WindowMessage::User(GLM_GET_SELECTION),
                 0,
-                (&mut result as *mut ListBoxSelectionResult) as WindowMsgData,
+                (&mut single_out as *mut WindowMsgData) as WindowMsgData,
             ),
             WindowMsgHandled::Handled
         );
-        assert_eq!(result.single, -1);
-        assert_eq!(result.multiple, vec![0, 2]);
+        assert_eq!(single_out as i32, 1);
     }
 
     #[test]
