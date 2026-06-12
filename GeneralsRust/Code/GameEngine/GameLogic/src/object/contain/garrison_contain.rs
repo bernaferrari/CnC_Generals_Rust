@@ -786,8 +786,12 @@ impl GarrisonContain {
                         self.original_team = None;
                     }
                     owner.clear_status(ObjectStatusMaskType::CAN_ATTACK);
+                    owner.clear_model_condition_state(ModelConditionFlags::GARRISONED);
                 }
             }
+            self.hide_garrisoned_state_from_non_allies = false;
+        } else if self.base.get_stealth_units_contained() != self.base.get_contain_count() {
+            self.hide_garrisoned_state_from_non_allies = false;
         }
 
         if let Ok(mut guard) = obj.write() {
@@ -795,6 +799,8 @@ impl GarrisonContain {
             let occlusion_delay = guard.get_template().get_occlusion_delay();
             guard.set_safe_occlusion_frame(current_frame + occlusion_delay);
         }
+
+        self.recalc_apparent_controlling_player()?;
 
         Ok(())
     }
@@ -3054,6 +3060,7 @@ mod tests {
         .expect("garrison contain");
 
         ContainModuleInterface::contain_object(&mut contain, 96004).expect("contain passenger");
+        contain.hide_garrisoned_state_from_non_allies = true;
         ContainModuleInterface::release_object(&mut contain, 96004).expect("release passenger");
 
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 0);
@@ -3074,6 +3081,7 @@ mod tests {
             .read()
             .expect("owner read")
             .test_status(ObjectStatusTypes::CanAttack));
+        assert!(!contain.hide_garrisoned_state_from_non_allies);
 
         cleanup_objects(&[96003, 96004]);
     }
