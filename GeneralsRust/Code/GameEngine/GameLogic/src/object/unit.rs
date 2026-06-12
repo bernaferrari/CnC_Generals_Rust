@@ -3054,6 +3054,9 @@ impl UnitAIUpdate {
         }
 
         if self.is_attack_path {
+            if self.try_finish_attack_path_if_already_in_range()? {
+                return Ok(true);
+            }
             self.prepare_queued_attack_path_fallback()?;
             destination = self.requested_destination;
         }
@@ -3116,6 +3119,86 @@ impl UnitAIUpdate {
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
         Ok(false)
+    }
+
+    fn try_finish_attack_path_if_already_in_range(&mut self) -> Result<bool, String> {
+        let Some(unit) = self.unit.upgrade() else {
+            return Ok(false);
+        };
+        let unit_guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
+        let owner_id = unit_guard.get_id();
+        let Ok(owner_guard) = unit_guard.base_object.read() else {
+            return Ok(false);
+        };
+        let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+            return Ok(false);
+        };
+
+        let victim = if self.requested_victim_id != INVALID_ID {
+            get_legacy_object(self.requested_victim_id)
+        } else {
+            None
+        };
+        let target_pos = if let Some(victim) = victim.as_ref() {
+            let victim_guard = victim
+                .read()
+                .map_err(|_| "victim lock poisoned".to_string())?;
+            *victim_guard.get_position()
+        } else {
+            self.requested_destination
+        };
+        let in_range = if victim.is_some() {
+            weapon.is_within_attack_range(owner_id, Some(self.requested_victim_id), None)
+        } else {
+            weapon.is_within_attack_range(owner_id, None, Some(&target_pos))
+        };
+        if !in_range {
+            return Ok(false);
+        }
+
+        let view_blocked = if self.is_doing_ground_movement() {
+            THE_AI
+                .read()
+                .ok()
+                .and_then(|ai| ai.pathfinder())
+                .and_then(|pathfinder| {
+                    pathfinder.read().ok().map(|pf| {
+                        if let Some(victim) = victim.as_ref() {
+                            match victim.read() {
+                                Ok(victim_guard) => pf.is_attack_view_blocked_by_obstacle(
+                                    &owner_guard,
+                                    owner_guard.get_position(),
+                                    Some(&victim_guard),
+                                    &target_pos,
+                                ),
+                                Err(_) => false,
+                            }
+                        } else {
+                            pf.is_attack_view_blocked_by_obstacle(
+                                &owner_guard,
+                                owner_guard.get_position(),
+                                None,
+                                &target_pos,
+                            )
+                        }
+                    })
+                })
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        if view_blocked {
+            return Ok(false);
+        }
+
+        drop(owner_guard);
+        drop(unit_guard);
+        self.destroy_path();
+        self.path_timestamp = TheGameLogic::get_frame();
+        self.blocked_frames = 0;
+        self.is_blocked = false;
+        self.blocked_and_stuck = false;
+        Ok(true)
     }
 
     fn prepare_queued_attack_path_fallback(&mut self) -> Result<(), String> {
@@ -8722,6 +8805,67 @@ mod tests {
         )
     }
 
+    fn add_primary_weapon(object: &mut Object, range: Real) {
+        let mut weapon_template =
+            crate::weapon::WeaponTemplate::new(format!("TestAttackRangeWeapon{}", object.get_id()));
+        weapon_template.attack_range = range;
+        weapon_template.minimum_attack_range = 0.0;
+
+        let mut template_set = crate::weapon::WeaponTemplateSet::new();
+        template_set.set_weapon_template(WeaponSlotType::Primary, Arc::new(weapon_template));
+        object.weapon_set.add_weapon_template_set(template_set);
+        object
+            .weapon_set
+            .update_weapon_set(object.get_id(), &crate::weapon::WeaponSetFlags::new())
+            .unwrap();
+    }
+
+    fn unit_ai_update_with_primary_weapon(
+        owner_id: ObjectID,
+        owner_pos: Coord3D,
+        weapon_range: Real,
+    ) -> (Arc<RwLock<Object>>, Arc<RwLock<Unit>>, UnitAIUpdate) {
+        let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&owner_pos);
+            add_primary_weapon(&mut object, weapon_range);
+        }
+        crate::object::registry::OBJECT_REGISTRY.register_object(owner_id, &base_object);
+        crate::ai::object_registry::register_legacy_object(&base_object);
+
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled(format!(
+            "GroundLoco{}",
+            owner_id
+        )));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor(format!("GroundLoco{}", owner_id), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        (base_object, unit, ai)
+    }
+
     fn test_turret_machine() -> TurretStateMachine {
         let turret_ai = Arc::new(Mutex::new(TurretAI::new(Weak::new())));
         TurretStateMachine::new(Some(turret_ai), Weak::new(), "TurretAI")
@@ -9452,6 +9596,58 @@ mod tests {
             ai.queue_for_path_frame,
             now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
         );
+    }
+
+    #[test]
+    fn queued_attack_path_object_in_range_finishes_without_move_path_like_cpp() {
+        let owner_id = 58;
+        let victim_id = 158;
+        let (_base_object, unit, mut ai) =
+            unit_ai_update_with_primary_weapon(owner_id, Coord3D::new(0.0, 0.0, 0.0), 100.0);
+        let victim = Arc::new(RwLock::new(Object::new_test(victim_id, 100.0)));
+        {
+            let mut object = victim.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(20.0, 0.0, 0.0));
+        }
+        crate::object::registry::OBJECT_REGISTRY.register_object(victim_id, &victim);
+        crate::ai::object_registry::register_legacy_object(&victim);
+
+        ai.request_attack_path(victim_id, &Coord3D::new(20.0, 0.0, 0.0))
+            .unwrap();
+        ai.update().unwrap();
+
+        assert!(!ai.is_attack_path);
+        assert!(!ai.waiting_for_path);
+        assert!(ai.current_path_snapshot.is_none());
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.target_position.is_none());
+        assert!(unit_guard.current_path.is_none());
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(victim_id);
+        crate::ai::object_registry::unregister_legacy_object(owner_id);
+        crate::ai::object_registry::unregister_legacy_object(victim_id);
+    }
+
+    #[test]
+    fn queued_attack_path_position_in_range_finishes_without_move_path_like_cpp() {
+        let owner_id = 59;
+        let (_base_object, unit, mut ai) =
+            unit_ai_update_with_primary_weapon(owner_id, Coord3D::new(0.0, 0.0, 0.0), 100.0);
+
+        ai.request_attack_path(INVALID_ID, &Coord3D::new(30.0, 0.0, 0.0))
+            .unwrap();
+        ai.update().unwrap();
+
+        assert!(!ai.is_attack_path);
+        assert!(!ai.waiting_for_path);
+        assert!(ai.current_path_snapshot.is_none());
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.target_position.is_none());
+        assert!(unit_guard.current_path.is_none());
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::ai::object_registry::unregister_legacy_object(owner_id);
     }
 
     #[test]
