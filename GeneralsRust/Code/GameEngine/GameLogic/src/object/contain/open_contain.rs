@@ -516,6 +516,12 @@ impl OpenContain {
         ]
     }
 
+    pub(crate) fn is_die_applicable(&self, obj: &Object, damage_info: &DamageInfo) -> bool {
+        self.module_data
+            .die_mux_data
+            .is_die_applicable(obj, damage_info)
+    }
+
     fn xfer_coord_3d(xfer: &mut dyn Xfer, coord: &mut Coord3D) -> Result<(), String> {
         xfer.xfer_real(&mut coord.x).map_err(|e| e.to_string())?;
         xfer.xfer_real(&mut coord.y).map_err(|e| e.to_string())?;
