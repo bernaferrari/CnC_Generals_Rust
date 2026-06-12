@@ -7,15 +7,16 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, TransportContain};
-use crate::common::{BodyDamageType, GameResult, ObjectID, PlayerMaskType, ThingFactory};
+use crate::common::{BodyDamageType, GameResult, ObjectID, PlayerMaskType};
 use crate::damage::DamageInfo;
-use crate::helpers::TheGameLogic;
+use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
     ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, UpdateSleepTime,
 };
 use crate::object::Object;
 use crate::player::Player;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Configuration data for HelixContain module
 #[derive(Debug, Clone)]
@@ -101,8 +102,6 @@ pub struct HelixContain {
     module_data: HelixContainModuleData,
     /// Portable structure object ID
     portable_structure_id: Option<ObjectID>,
-    /// Whether payload has been created
-    payload_created: bool,
 }
 
 impl HelixContain {
@@ -118,7 +117,6 @@ impl HelixContain {
             object,
             module_data: module_data.clone(),
             portable_structure_id: None,
-            payload_created: false,
         })
     }
 
@@ -522,53 +520,70 @@ impl HelixContain {
 
     /// Create initial payload
     pub fn create_payload(&mut self) -> GameResult<()> {
-        if self.payload_created {
+        if self.base.is_payload_created() {
             return Ok(());
         }
 
         let owner = self.get_object().ok_or("Helix object no longer exists")?;
-        let owner_guard = owner.read().map_err(|_| "Owner lock poisoned")?;
+        let (owner_name, owner_team) = {
+            let owner_guard = owner.read().map_err(|_| "Owner lock poisoned")?;
+            (owner_guard.get_name().to_string(), owner_guard.get_team())
+        };
 
-        if let Ok(factory) = ThingFactory::get() {
-            if let Some(contain) = owner_guard.get_contain() {
-                contain.enable_load_sounds(false)?;
+        let factory = TheThingFactory::get().map_err(|e| e.to_string())?;
+        let payload_templates = self.module_data.payload_template_name_data.clone();
+        let mut first_error: Option<String> = None;
 
-                for template_name in &self.module_data.payload_template_name_data {
-                    if let Some(template) = ThingFactory::find_template(template_name) {
-                        if let Some(team) = owner_guard.get_team() {
-                            if let Ok(team_ref) = team.read() {
-                                if let Ok(payload) = factory.new_object(template, &*team_ref) {
-                                    if let Ok(payload_ref) = payload.read() {
-                                        if contain.is_valid_container_for(&*payload_ref, true) {
-                                            contain.add_to_contain(&*payload_ref);
-                                        } else {
-                                            return Err(format!(
-                                                "HelixContain::createPayload: {} is full or not valid for payload {}",
-                                                owner_guard.get_name(),
-                                                template_name
-                                            )
-                                            .into());
-                                        }
-                                    }
-                                }
-                            }
-                        }
+        self.base.base.enable_load_sounds(false);
+
+        for template_name in payload_templates {
+            let Some(template) = TheThingFactory::find_template(&template_name) else {
+                continue;
+            };
+
+            let payload = if let Some(team) = owner_team.clone() {
+                factory.new_object_with_team_handle(template, team)
+            } else {
+                factory.new_object_optional_team(template, None)
+            };
+
+            let Ok(payload) = payload else {
+                if first_error.is_none() {
+                    first_error = Some(format!(
+                        "HelixContain::createPayload: failed to create payload {}",
+                        template_name
+                    ));
+                }
+                continue;
+            };
+
+            let can_add = payload
+                .read()
+                .ok()
+                .map(|payload_guard| self.is_valid_container_for(&*payload_guard, true))
+                .unwrap_or(false);
+            if can_add {
+                if let Err(err) = self.add_to_contain(payload) {
+                    if first_error.is_none() {
+                        first_error = Some(err.to_string());
                     }
                 }
-
-                contain.enable_load_sounds(true)?;
+            } else if first_error.is_none() {
+                first_error = Some(format!(
+                    "HelixContain::createPayload: {} is full or not valid for payload {}",
+                    owner_name, template_name
+                ));
             }
         }
 
-        self.payload_created = true;
-        Ok(())
-    }
+        self.base.base.enable_load_sounds(true);
 
-    /// Parse initial payload from INI data
-    #[allow(dead_code)]
-    fn parse_initial_payload(&mut self, _template_names: &[String]) -> GameResult<()> {
-        // Implementation would parse and create payload objects
-        Ok(())
+        self.base.set_payload_created(true);
+        if let Some(error) = first_error {
+            Err(error.into())
+        } else {
+            Ok(())
+        }
     }
 
     // Removed duplicate get_portable_structure() (see private helper above)
@@ -595,11 +610,6 @@ impl HelixContain {
                 id.to_le_bytes().to_vec(),
             );
         }
-
-        state.insert(
-            "payload_created".to_string(),
-            vec![if self.payload_created { 1 } else { 0 }],
-        );
 
         Ok(state)
     }
@@ -628,15 +638,36 @@ impl HelixContain {
             }
         }
 
-        if let Some(data) = state.get("payload_created") {
-            self.payload_created = data.get(0).copied().unwrap_or(0) != 0;
-        }
-
         Ok(())
     }
     /// Post-process after loading
     pub fn load_post_process(&mut self) -> GameResult<()> {
         self.base.load_post_process()
+    }
+}
+
+impl Snapshotable for HelixContain {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(&self.base, xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 2;
+        xfer.xfer_version(&mut version, 2)
+            .map_err(|e| e.to_string())?;
+
+        if version >= 2 {
+            let mut portable_id = self.portable_structure_id.unwrap_or(0);
+            xfer.xfer_object_id(&mut portable_id)
+                .map_err(|e| e.to_string())?;
+            self.portable_structure_id = (portable_id != 0).then_some(portable_id);
+        }
+
+        Snapshotable::xfer(&mut self.base, xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(&mut self.base)
     }
 }
 
@@ -686,6 +717,18 @@ impl ContainModuleInterface for HelixContain {
         }
     }
 
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
+    }
+
     fn on_owner_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         HelixContain::on_object_created(self).map_err(|e| e.into())
     }
@@ -706,6 +749,10 @@ impl ContainModuleInterface for HelixContain {
         damage_info: Option<&DamageInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         HelixContain::on_die(self, damage_info).map_err(|e| e.into())
+    }
+
+    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        HelixContain::on_delete(self).map_err(|e| e.into())
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
@@ -816,17 +863,15 @@ impl ContainModuleInterface for HelixContain {
 
 impl ContainerInterface for HelixContain {
     fn can_contain(&self, obj: &Object) -> bool {
-        ContainerInterface::can_contain(&self.base, obj)
+        self.is_valid_container_for(obj, true)
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.add_object(obj.clone())?;
-        self.on_containing(obj, false)
+        self.add_to_contain(obj)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.on_removing(obj.clone())?;
-        self.base.remove_object(obj)
+        self.remove_from_contain(obj, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {
@@ -837,6 +882,92 @@ impl ContainerInterface for HelixContain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::object::registry::OBJECT_REGISTRY;
+    use game_engine::common::system::{XferBlockSize, XferMode, XferStatus};
+    use std::io;
+
+    struct RecordingXfer {
+        bytes: Vec<u8>,
+    }
+
+    impl RecordingXfer {
+        fn new() -> Self {
+            Self { bytes: Vec::new() }
+        }
+    }
+
+    impl Xfer for RecordingXfer {
+        fn get_xfer_mode(&self) -> XferMode {
+            XferMode::Save
+        }
+
+        fn get_identifier(&self) -> &str {
+            "helix-contain-test"
+        }
+
+        fn set_options(&mut self, _options: u32) {}
+
+        fn clear_options(&mut self, _options: u32) {}
+
+        fn get_options(&self) -> u32 {
+            0
+        }
+
+        fn open(&mut self, _identifier: &str) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+            Ok(0)
+        }
+
+        fn end_block(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn skip(&mut self, _data_size: i32) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_snapshot(
+            &mut self,
+            _snapshot: &mut game_engine::system::Snapshot,
+        ) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_ascii_string(&mut self, _ascii_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn xfer_unicode_string(&mut self, _unicode_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        unsafe fn xfer_implementation(
+            &mut self,
+            data: *mut u8,
+            data_size: usize,
+        ) -> io::Result<()> {
+            let bytes = unsafe { std::slice::from_raw_parts(data, data_size) };
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
+
+    fn object_with_kind(name: &str, id: ObjectID, kind_of: &str) -> Arc<RwLock<Object>> {
+        let mut template = DefaultThingTemplate::new(name.to_string());
+        let mut fields = HashMap::new();
+        fields.insert("KindOf".to_string(), kind_of.to_string());
+        template.parse_object_fields_from_ini(&fields);
+        Object::new_with_id(Arc::new(template), id, ObjectStatusMaskType::none(), None)
+            .expect("test object")
+    }
 
     #[test]
     fn test_helix_contain_creation() {
@@ -864,12 +995,69 @@ mod tests {
             draw_pips: false,
             ..Default::default()
         };
+        let contain =
+            HelixContain::new(Weak::new(), &module_data).expect("helix contain constructs");
 
-        // Create a dummy helix contain for testing
-        // In real implementation, would need proper object reference
+        assert_eq!(
+            contain.get_container_pips_to_show(&module_data),
+            (0, 0, false)
+        );
+    }
 
-        // Test that pips are disabled when draw_pips is false
-        // (total, full, should_show) = get_container_pips_to_show()
-        // Should return (0, 0, false) when draw_pips is false
+    #[test]
+    fn xfer_writes_portable_structure_id_before_transport_state_like_cpp() {
+        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+            .expect("helix contain constructs");
+        contain.set_portable_structure_id(Some(0x0102_0304));
+        contain.base.set_payload_created(true);
+
+        let mut xfer = RecordingXfer::new();
+        Snapshotable::xfer(&mut contain, &mut xfer).expect("helix xfer succeeds");
+
+        assert_eq!(xfer.bytes[0], 2, "HelixContain xfer version");
+        assert_eq!(
+            &xfer.bytes[1..5],
+            &0x0102_0304_u32.to_le_bytes(),
+            "C++ xfers m_portableStructureID before TransportContain state"
+        );
+        assert_eq!(xfer.bytes[5], 1, "delegated TransportContain xfer version");
+    }
+
+    #[test]
+    fn helix_payload_created_uses_transport_state() {
+        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+            .expect("helix contain constructs");
+        contain.base.set_payload_created(true);
+
+        let state = contain.save_state().expect("helix saves state");
+
+        assert_eq!(state.get("base_payload_created"), Some(&vec![1]));
+        assert!(
+            !state.contains_key("payload_created"),
+            "C++ stores Helix payload creation in the inherited TransportContain state"
+        );
+    }
+
+    #[test]
+    fn container_interface_uses_helix_portable_structure_semantics() {
+        let _lock = crate::test_sync::lock();
+        let portable = object_with_kind("PortableGattling", 98001, "PORTABLE_STRUCTURE");
+        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+            .expect("helix contain constructs");
+
+        assert!(ContainerInterface::can_contain(
+            &contain,
+            &portable.read().expect("portable read")
+        ));
+        ContainerInterface::add_object(&mut contain, portable.clone())
+            .expect("portable structure enters as helix rider");
+
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 0);
+        assert_eq!(
+            ContainModuleInterface::friend_get_rider(&contain),
+            Some(98001)
+        );
+
+        OBJECT_REGISTRY.unregister_object(98001);
     }
 }
