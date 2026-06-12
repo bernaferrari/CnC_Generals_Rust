@@ -1437,6 +1437,10 @@ impl crate::modules::DozerAIUpdateInterface for DozerAIUpdate {
     ) {
         self.set_build_task(building_id, total_build_frames, max_health, is_rebuild);
     }
+
+    fn cancel_task(&mut self, task: DozerTask) {
+        self.cancel_task(task);
+    }
 }
 
 /// Module wrapper for DozerAIUpdate to align with module system expectations.

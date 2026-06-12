@@ -2846,6 +2846,10 @@ pub trait DozerAIUpdateInterface: Send + Sync {
         _is_rebuild: bool,
     ) {
     }
+
+    /// Cancel an active or pending dozer task.
+    fn cancel_task(&mut self, _task: crate::object::update::ai_update::dozer_ai_update::DozerTask) {
+    }
 }
 
 /// Physics behavior interface (matching C++ PhysicsBehavior)

@@ -17,8 +17,11 @@ use crate::object::collide::crate_collide::crate_collide::{
 use crate::object::collide::crate_collide::*;
 use crate::object::collide::Coord3D as CollideCoord3D;
 use crate::object::collide::LegacyCollideAdapter;
+use crate::object::collide::COLLISION_MANAGER;
 use crate::object::drawable::DrawableArcExt;
+use crate::object::update::ai_update::dozer_ai_update::DozerTask;
 use crate::object::Object;
+use crate::scripting::engine::transfer_object_name;
 
 /// Module data for hijacked vehicle conversion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -118,6 +121,7 @@ impl ConvertToHijackedVehicleCrateCollide {
     fn execute_crate_behavior(&mut self, other: Arc<RwLock<Object>>) -> Result<bool, GameError> {
         let hijacker = self.base.get_object().map_err(GameError::from)?;
         let hijacker_lock = hijacker.read().map_err(|_| GameError::LockError)?;
+        let hijacker_id = hijacker_lock.get_id();
         let other_id = other.read().map_err(|_| GameError::LockError)?.get_id();
 
         // Require AI goal match to avoid accidental hijack.
@@ -143,7 +147,7 @@ impl ConvertToHijackedVehicleCrateCollide {
             }
         }
 
-        // Transfer ownership to hijacker's team via defect.
+        // Transfer ownership to hijacker's team.
         {
             let hijacker_guard = hijacker.read().map_err(|_| GameError::LockError)?;
             let new_team = if let Some(player_arc) = hijacker_guard.get_controlling_player() {
@@ -159,7 +163,7 @@ impl ConvertToHijackedVehicleCrateCollide {
 
             if let Some(team) = new_team {
                 let mut other_guard = other.write().map_err(|_| GameError::LockError)?;
-                other_guard.defect(Some(team), 0);
+                other_guard.set_team(Some(team)).map_err(GameError::from)?;
             }
         }
 
@@ -176,18 +180,20 @@ impl ConvertToHijackedVehicleCrateCollide {
                 let pos = *other_lock.get_position();
                 ai.ai_move_to_position(&pos, false, CommandSourceType::FromAI);
                 ai.ai_idle(CommandSourceType::FromAI);
+                if let Ok(mut ai_guard) = ai.lock() {
+                    if let Some(dozer_ai) = ai_guard.get_dozer_ai_update_interface_mut() {
+                        for task in [DozerTask::Build, DozerTask::Repair, DozerTask::Fortify] {
+                            dozer_ai.cancel_task(task);
+                        }
+                    }
+                }
             }
         }
 
         // Play hijack driver audio (event name from C++ data).
         if let Some(audio) = TheAudio::get() {
-            let pos = other
-                .read()
-                .map_err(|_| GameError::LockError)?
-                .get_position()
-                .clone();
             let mut event = crate::common::audio::AudioEventRts::new("HijackDriver");
-            event.set_position(&(pos.x, pos.y, pos.z));
+            event.set_object_id(hijacker_id);
             audio.add_audio_event(&event);
         }
 
@@ -195,39 +201,63 @@ impl ConvertToHijackedVehicleCrateCollide {
         {
             let hijacker_guard = hijacker.read().map_err(|_| GameError::LockError)?;
             let hijacker_name = hijacker_guard.get_name().clone();
-            let hijacker_level = hijacker_guard.get_veterancy_level();
+            let hijacker_tracker = hijacker_guard.get_experience_tracker();
             drop(hijacker_guard);
 
-            let mut other_guard = other.write().map_err(|_| GameError::LockError)?;
             if !hijacker_name.is_empty() {
-                other_guard.set_name(hijacker_name);
+                transfer_object_name(&hijacker_name, other_id).ok();
             }
-            if let Some(target_tracker) = other_guard.get_experience_tracker() {
+
+            let target_tracker = other
+                .read()
+                .map_err(|_| GameError::LockError)?
+                .get_experience_tracker();
+            if let (Some(target_tracker), Some(hijacker_tracker)) =
+                (target_tracker, hijacker_tracker)
+            {
+                let target_level = target_tracker
+                    .lock()
+                    .map_err(|_| GameError::LockError)?
+                    .get_veterancy_level();
+                let hijacker_level = hijacker_tracker
+                    .lock()
+                    .map_err(|_| GameError::LockError)?
+                    .get_veterancy_level();
+                let highest_level = target_level.max(hijacker_level);
+
                 if let Ok(mut target_tracker_guard) = target_tracker.lock() {
-                    let target_level = target_tracker_guard.get_veterancy_level();
-                    if hijacker_level > target_level {
-                        target_tracker_guard.set_veterancy_level(hijacker_level);
-                        other_guard.on_veterancy_level_changed(target_level, hijacker_level, true);
-                    }
+                    target_tracker_guard.set_veterancy_level(highest_level);
+                }
+                if let Ok(mut hijacker_tracker_guard) = hijacker_tracker.lock() {
+                    hijacker_tracker_guard.set_veterancy_level(highest_level);
                 }
             }
         }
 
         // If target cannot eject pilots, destroy hijacker and finish.
         if !self.target_supports_eject_pilot(&other)? {
-            let hijacker_id = hijacker.read().map_err(|_| GameError::LockError)?.get_id();
             // C++ path treats this as fire-and-forget cleanup.
             let _ = TheGameLogic::destroy_object_by_id(hijacker_id);
             return Ok(true);
         }
 
         // Attach hijacker to vehicle and hide it.
+        let hijacker_ai = {
+            let mut hijacker_guard = hijacker.write().map_err(|_| GameError::LockError)?;
+            hijacker_guard.leave_group();
+            hijacker_guard.get_ai_update_interface()
+        };
+        if let Some(ai) = hijacker_ai {
+            ai.ai_idle(CommandSourceType::FromAI);
+        }
+
         {
             let mut hijacker_guard = hijacker.write().map_err(|_| GameError::LockError)?;
             hijacker_guard.on_contained_by(other.clone()).ok();
             hijacker_guard.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
             hijacker_guard.set_status(ObjectStatusMaskType::MASKED, true);
             hijacker_guard.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
+            let _ = COLLISION_MANAGER.unregister_object(hijacker_id);
             if let Some(drawable) = hijacker_guard.get_drawable() {
                 let _ = drawable.set_drawable_hidden(true);
             }
