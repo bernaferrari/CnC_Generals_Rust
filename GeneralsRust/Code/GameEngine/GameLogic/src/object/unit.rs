@@ -6529,12 +6529,12 @@ impl AIUpdateInterface for UnitAIUpdate {
         if (self.planning_waypoint_count as usize) < AI_UPDATE_MAX_WAYPOINTS {
             self.planning_waypoint_queue[self.planning_waypoint_count as usize] = *pos;
             self.planning_waypoint_count += 1;
-        }
-        if let Some(unit) = self.unit.upgrade() {
-            if let Ok(mut guard) = unit.write() {
-                guard
-                    .waypoint_queue
-                    .push(Waypoint::new(0, *pos, String::new()));
+            if let Some(unit) = self.unit.upgrade() {
+                if let Ok(mut guard) = unit.write() {
+                    guard
+                        .waypoint_queue
+                        .push(Waypoint::new(0, *pos, String::new()));
+                }
             }
         }
     }
@@ -9250,6 +9250,46 @@ mod tests {
         let unit_guard = unit.read().unwrap();
         assert!(unit_guard.current_path.is_none());
         assert_eq!(unit_guard.movement_state, MovementState::Idle);
+    }
+
+    #[test]
+    fn queue_waypoint_does_not_append_past_cpp_limit() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(61, 100.0)));
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let unit = Arc::new(RwLock::new(
+            Unit::new(Arc::clone(&base_object), &template).unwrap(),
+        ));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        for idx in 0..=AI_UPDATE_MAX_WAYPOINTS {
+            ai.queue_waypoint(&Coord3D::new(idx as Real, 0.0, 0.0));
+        }
+
+        assert_eq!(ai.planning_waypoint_count, AI_UPDATE_MAX_WAYPOINTS as Int);
+        assert_eq!(
+            unit.read().unwrap().waypoint_queue.len(),
+            AI_UPDATE_MAX_WAYPOINTS
+        );
+        assert_eq!(
+            ai.planning_waypoint_queue[AI_UPDATE_MAX_WAYPOINTS - 1],
+            Coord3D::new((AI_UPDATE_MAX_WAYPOINTS - 1) as Real, 0.0, 0.0)
+        );
     }
 
     #[test]
