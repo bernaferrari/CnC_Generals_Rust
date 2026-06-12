@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
+use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{
     AsciiString, GameResult, LocomotorSetType, ModelConditionFlags, ObjectID, ObjectStatusMaskType,
     ObjectStatusTypes, PlayerMaskType,
@@ -599,6 +600,43 @@ mod tests {
     }
 
     #[test]
+    fn payload_created_replacement_uses_evacuate_path_without_scuttling_bike() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("CombatBikePayloadReplace", 97009, 0);
+        let first = rider("BikeRiderOne", 97010, 0);
+        let second = rider("BikeRiderTwo", 97011, 0);
+        let mut contain = rider_change_for(&owner);
+
+        contain
+            .add_to_contain(first.clone(), false)
+            .expect("first rider enters");
+        contain.base.set_payload_created(true);
+        contain
+            .add_to_contain(second.clone(), false)
+            .expect("second rider replaces first through payload branch");
+
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
+        assert_eq!(
+            first.read().expect("first rider read").get_contained_by(),
+            None
+        );
+        assert_eq!(
+            second.read().expect("second rider read").get_contained_by(),
+            Some(97009)
+        );
+        assert!(
+            !owner
+                .read()
+                .expect("owner read")
+                .test_status(ObjectStatusTypes::Unselectable),
+            "replacement should not scuttle the bike"
+        );
+
+        cleanup_objects(&[97009, 97010, 97011]);
+    }
+
+    #[test]
     fn trait_snapshot_xfer_appends_rider_change_shadow_fields_like_cpp() {
         let _lock = crate::test_sync::lock();
         reset_players();
@@ -824,6 +862,10 @@ impl RiderChangeContain {
     ) -> GameResult<()> {
         self.containing = true;
 
+        if self.base.is_payload_created() {
+            self.evacuate_existing_payload_via_owner_ai();
+        }
+
         let contained_items = self.base.base.get_contained_items_list()?;
         for existing in contained_items {
             if Arc::ptr_eq(&existing, &rider) {
@@ -880,6 +922,25 @@ impl RiderChangeContain {
         self.base.on_containing(rider, was_selected)?;
         self.containing = false;
         Ok(())
+    }
+
+    fn evacuate_existing_payload_via_owner_ai(&self) {
+        let Some(owner) = self.object.upgrade() else {
+            return;
+        };
+        let ai = owner
+            .read()
+            .ok()
+            .and_then(|owner_guard| owner_guard.get_ai_update_interface());
+        let Some(ai) = ai else {
+            return;
+        };
+        let lock_result = ai.lock();
+        if let Ok(mut ai_guard) = lock_result {
+            let params =
+                AiCommandParams::new(AiCommandType::EvacuateInstantly, CommandSourceType::FromAi);
+            let _ = ai_guard.execute_command(&params);
+        }
     }
 
     pub fn on_removing(&mut self, rider: Arc<RwLock<Object>>) -> GameResult<()> {
