@@ -173,11 +173,14 @@ fn selection_can_convert_to_carbomb_target(
 }
 
 fn selection_can_attack_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    matches!(
+        selection_attack_result(local_player, selection, target_id),
+        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+    )
 }
 
 fn collect_selectable_objects(
@@ -3750,6 +3753,10 @@ mod tests {
     };
     use gamelogic::team::Team;
     use gamelogic::thing_template::ThingTemplate;
+    use gamelogic::weapon::{
+        WeaponSetFlags as LogicWeaponSetFlags, WeaponSetType as LogicWeaponSetType, WeaponTemplate,
+        WeaponTemplateSet,
+    };
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     fn test_state_lock() -> MutexGuard<'static, ()> {
@@ -3881,6 +3888,27 @@ mod tests {
         object.write().unwrap().set_geometry_info(geometry);
     }
 
+    fn give_test_damage_weapon(object: &Arc<RwLock<gamelogic::object::Object>>, range: Real) {
+        let mut template = WeaponTemplate::new("ContextAttackTestWeapon".to_string());
+        template.primary_damage = 10.0;
+        template.attack_range = range;
+        template.clip_size = 1;
+        template.damage_type = DamageType::Unresistable;
+
+        let mut set = WeaponTemplateSet::new();
+        set.conditions.set(LogicWeaponSetType::PlayerUpgrade);
+        set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
+
+        let mut guard = object.write().unwrap();
+        guard.weapon_set.add_weapon_template_set(set);
+        guard.set_weapon_set_flag(LogicWeaponSetType::PlayerUpgrade);
+        let object_id = guard.get_id();
+        guard
+            .weapon_set
+            .update_weapon_set(object_id, &LogicWeaponSetFlags::new())
+            .unwrap();
+    }
+
     #[test]
     fn test_command_translator() {
         let _guard = test_state_lock();
@@ -3983,6 +4011,71 @@ mod tests {
             object_pick_distance(&pos, &point_region, true, Some(&point_world), 4.0),
             None
         );
+    }
+
+    #[test]
+    fn command_context_attack_accepts_after_moving_like_cpp() {
+        let _guard = test_state_lock();
+        let team = setup_local_player_team();
+        let attacker = register_test_object(
+            78_010,
+            vec![KindOf::Selectable, KindOf::Infantry],
+            team.clone(),
+        );
+        let far_target = register_test_object(78_012, vec![KindOf::Selectable], team);
+
+        give_test_damage_weapon(&attacker, 25.0);
+        set_test_object_position(&attacker, 0.0, 0.0, 0.0);
+        set_test_object_position(&far_target, 100.0, 0.0, 0.0);
+
+        let selection = HashSet::from([78_010]);
+
+        assert_eq!(
+            selection_attack_result(Some(0), &selection, 78_012),
+            CanAttackResult::PossibleAfterMoving
+        );
+        assert!(selection_can_attack_target(Some(0), &selection, 78_012));
+
+        OBJECT_REGISTRY.unregister_object(78_010);
+        OBJECT_REGISTRY.unregister_object(78_012);
+    }
+
+    #[test]
+    fn command_context_attack_rejects_not_possible_like_cpp() {
+        let _guard = test_state_lock();
+        let local_team = setup_local_player_team();
+        let other_team = Arc::new(RwLock::new(Team::new(AsciiString::from("teamOther"), 2)));
+        other_team
+            .write()
+            .unwrap()
+            .set_controlling_player_id(Some(1));
+
+        let unarmed = register_test_object(
+            78_020,
+            vec![KindOf::Selectable, KindOf::Infantry],
+            local_team,
+        );
+        let target = register_test_object(
+            78_021,
+            vec![KindOf::Selectable, KindOf::Vehicle],
+            other_team,
+        );
+
+        let selection = HashSet::from([78_020]);
+
+        assert_eq!(
+            selection_attack_result(Some(0), &selection, 78_021),
+            CanAttackResult::NotPossible
+        );
+        assert!(!selection_can_attack_target(Some(0), &selection, 78_021));
+
+        give_test_damage_weapon(&unarmed, 25.0);
+        assert!(!selection_can_attack_target(Some(1), &selection, 78_021));
+
+        drop(target);
+        drop(unarmed);
+        OBJECT_REGISTRY.unregister_object(78_020);
+        OBJECT_REGISTRY.unregister_object(78_021);
     }
 
     #[test]
