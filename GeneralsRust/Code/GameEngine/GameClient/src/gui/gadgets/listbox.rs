@@ -128,6 +128,7 @@ pub struct ListBox {
     column_width_percentages: Vec<u32>,
     last_right_click: Option<ListBoxRightClick>,
     content_top_inset: u32,
+    selection_out_cache: Vec<i32>,
 }
 
 impl ListBox {
@@ -162,6 +163,7 @@ impl ListBox {
             column_width_percentages: Vec::new(),
             last_right_click: None,
             content_top_inset: 0,
+            selection_out_cache: Vec::new(),
         }
     }
 
@@ -811,6 +813,17 @@ impl ListBox {
                     .map(|index| *index as i32)
                     .collect(),
             ),
+        }
+    }
+
+    pub fn cpp_selection_out_value(&mut self) -> usize {
+        match self.get_selection() {
+            ListBoxSelection::Single(index) => index as isize as usize,
+            ListBoxSelection::Multiple(indices) => {
+                self.selection_out_cache = indices;
+                self.selection_out_cache.push(-1);
+                self.selection_out_cache.as_ptr() as usize
+            }
         }
     }
 
