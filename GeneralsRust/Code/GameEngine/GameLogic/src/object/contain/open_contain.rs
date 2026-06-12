@@ -1579,9 +1579,22 @@ impl OpenContain {
 
     /// Deserialize state for save/load
     pub fn load_state(&mut self, state: &HashMap<String, Vec<u8>>) -> GameResult<()> {
-        if let Some(_data) = state.get("contained_objects") {
-            // Implementation would reconstruct contained objects from IDs
-            // This requires access to object lookup system
+        if let Some(data) = state.get("contained_objects") {
+            if data.len() % std::mem::size_of::<ObjectID>() != 0 {
+                return Err("Invalid contained_objects data".into());
+            }
+
+            self.contained_objects.clear();
+            self.contained_object_ids.clear();
+            self.xfer_contain_id_list.clear();
+
+            for chunk in data.chunks_exact(std::mem::size_of::<ObjectID>()) {
+                let bytes: [u8; std::mem::size_of::<ObjectID>()] = chunk
+                    .try_into()
+                    .map_err(|_| "Invalid contained object id data")?;
+                self.xfer_contain_id_list
+                    .push(ObjectID::from_le_bytes(bytes));
+            }
         }
 
         Ok(())
@@ -1595,7 +1608,44 @@ impl OpenContain {
 
     /// Post-process after loading
     pub fn load_post_process(&mut self) -> GameResult<()> {
-        // Base implementation - nothing special needed
+        if self.xfer_contain_id_list.is_empty() {
+            return Ok(());
+        }
+
+        self.rebuild_contain_list_from_xfer_ids()
+            .map_err(|e| e.into())
+    }
+
+    fn rebuild_contain_list_from_xfer_ids(&mut self) -> Result<(), String> {
+        if !self.contained_objects.is_empty() || !self.contained_object_ids.is_empty() {
+            return Err("OpenContain list must be empty before load_post_process".to_string());
+        }
+
+        let owner = self.get_object().ok_or_else(|| {
+            "OpenContain has no owning object during load_post_process".to_string()
+        })?;
+        let ids = std::mem::take(&mut self.xfer_contain_id_list);
+        for object_id in ids {
+            let obj = TheGameLogic::find_object_by_id(object_id).ok_or_else(|| {
+                format!("OpenContain could not resolve contained object {object_id}")
+            })?;
+            self.contained_object_ids.push(object_id);
+            self.contained_objects.push(obj.clone());
+            let is_enclosing = obj
+                .read()
+                .map(|obj_guard| self.is_enclosing_container_for(&*obj_guard))
+                .unwrap_or(false);
+            if is_enclosing {
+                let _ = self.add_or_remove_obj_from_world(obj.clone(), false);
+            }
+            {
+                let mut obj_guard = obj.write().map_err(|e| e.to_string())?;
+                obj_guard
+                    .on_contained_by(owner.clone())
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+
         Ok(())
     }
 
@@ -2073,34 +2123,7 @@ impl Snapshotable for OpenContain {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        if !self.contained_objects.is_empty() || !self.contained_object_ids.is_empty() {
-            return Err("OpenContain list must be empty before load_post_process".to_string());
-        }
-
-        let owner = self.get_object().ok_or_else(|| {
-            "OpenContain has no owning object during load_post_process".to_string()
-        })?;
-        let ids = std::mem::take(&mut self.xfer_contain_id_list);
-        for object_id in ids {
-            let obj = TheGameLogic::find_object_by_id(object_id).ok_or_else(|| {
-                format!("OpenContain could not resolve contained object {object_id}")
-            })?;
-            self.contained_object_ids.push(object_id);
-            self.contained_objects.push(obj.clone());
-            if let Ok(obj_guard) = obj.read() {
-                if self.is_enclosing_container_for(&*obj_guard) {
-                    let _ = self.add_or_remove_obj_from_world(obj.clone(), false);
-                }
-            }
-            {
-                let mut obj_guard = obj.write().map_err(|e| e.to_string())?;
-                obj_guard
-                    .on_contained_by(owner.clone())
-                    .map_err(|e| e.to_string())?;
-            }
-        }
-
-        Ok(())
+        self.rebuild_contain_list_from_xfer_ids()
     }
 }
 
@@ -2144,9 +2167,21 @@ pub struct ObjectTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::DefaultThingTemplate;
+    use crate::object::registry::OBJECT_REGISTRY;
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
+
+    fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
+        Object::new_with_id(
+            Arc::new(DefaultThingTemplate::new(name.to_string())),
+            id,
+            crate::common::ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("test object")
+    }
 
     #[test]
     fn test_open_contain_creation() {
@@ -2253,6 +2288,43 @@ mod tests {
             Some(&ContainWant::WantsToExit)
         );
         assert!(loaded.module_data.passengers_allowed_to_fire);
+    }
+
+    #[test]
+    fn map_load_state_rebuilds_contained_objects_in_post_process_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let owner = test_object("OpenContainLoadOwner", 92001);
+        let child = test_object("OpenContainLoadChild", 92002);
+        let mut state = HashMap::new();
+        state.insert(
+            "contained_objects".to_string(),
+            92002_u32.to_le_bytes().to_vec(),
+        );
+        let mut contain = OpenContain::new(
+            Arc::downgrade(&owner),
+            &OpenContainModuleData {
+                contain_max: 1,
+                ..Default::default()
+            },
+        )
+        .expect("contain");
+
+        contain.load_state(&state).expect("load state");
+
+        assert_eq!(contain.xfer_contain_id_list, vec![92002]);
+        assert!(contain.contained_object_ids.is_empty());
+
+        contain.load_post_process().expect("load post process");
+
+        assert_eq!(contain.xfer_contain_id_list, Vec::<ObjectID>::new());
+        assert_eq!(contain.contained_object_ids, vec![92002]);
+        assert_eq!(
+            child.read().expect("child read").get_contained_by(),
+            Some(92001)
+        );
+
+        OBJECT_REGISTRY.unregister_object(92001);
+        OBJECT_REGISTRY.unregister_object(92002);
     }
 
     #[test]
