@@ -32,6 +32,7 @@ use crate::gui::window_script::{
     parse_window_script, WindowDefinition, WindowLayoutDefinition, WindowScriptError,
 };
 use crate::gui::{get_disconnect_menu, get_establish_connections_menu};
+use std::any::Any;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -296,7 +297,7 @@ fn unquote(s: &str) -> &str {
 /// from `TheFunctionLexicon->winLayoutInitFunc()` etc.
 pub type LayoutInitFn = Box<dyn Fn(&WindowLayout)>;
 pub type LayoutUpdateFn = Box<dyn Fn(&WindowLayout)>;
-pub type LayoutShutdownFn = Box<dyn Fn(&WindowLayout)>;
+pub type LayoutShutdownFn = Box<dyn Fn(&WindowLayout, Option<&dyn Any>)>;
 
 /// Callback types for window-level events.
 /// PARITY_NOTE: mirrors C++ `GameWinSystemFunc`, `GameWinInputFunc`,
@@ -369,13 +370,21 @@ impl ScriptCallbackRegistry {
 
     /// Register a layout shutdown callback by name.
     /// PARITY_NOTE: mirrors C++ `TheFunctionLexicon->winLayoutShutdownFunc()`.
-    pub fn register_layout_shutdown<F: Fn(&WindowLayout) + 'static>(
+    pub fn register_layout_shutdown<F: Fn(&WindowLayout, Option<&dyn Any>) + 'static>(
         &mut self,
         name: &str,
         callback: F,
     ) {
         self.layout_shutdown
             .insert(name.to_string(), Box::new(callback));
+    }
+
+    pub fn register_layout_shutdown_without_data<F: Fn(&WindowLayout) + 'static>(
+        &mut self,
+        name: &str,
+        callback: F,
+    ) {
+        self.register_layout_shutdown(name, move |layout, _data| callback(layout));
     }
 
     // -- Window-level callback registration --
@@ -952,69 +961,78 @@ impl ScriptCallbackRegistry {
     }
 
     fn populate_layout_shutdown_table(&mut self) {
-        self.register_layout_shutdown("MainMenuShutdown", |layout| {
-            if let Err(err) = get_main_menu().shutdown(layout, None) {
+        self.register_layout_shutdown("MainMenuShutdown", |layout, data| {
+            if let Err(err) = get_main_menu().shutdown(layout, data) {
                 log::warn!("MainMenuShutdown failed: {}", err);
             }
         });
-        self.register_layout_shutdown("OptionsMenuShutdown", options_menu_shutdown);
-        self.register_layout_shutdown("SaveLoadMenuShutdown", |layout| {
+        self.register_layout_shutdown_without_data("OptionsMenuShutdown", options_menu_shutdown);
+        self.register_layout_shutdown_without_data("SaveLoadMenuShutdown", |layout| {
             cb::save_load_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown("PopupCommunicatorShutdown", |layout| {
+        self.register_layout_shutdown_without_data("PopupCommunicatorShutdown", |layout| {
             cb::popup_communicator_shutdown(layout, None)
         });
-        self.register_layout_shutdown("KeyboardOptionsMenuShutdown", |layout| {
+        self.register_layout_shutdown_without_data("KeyboardOptionsMenuShutdown", |layout| {
             cb::keyboard_options_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown("SinglePlayerMenuShutdown", single_player_menu_shutdown);
-        self.register_layout_shutdown("MapSelectMenuShutdown", map_select_menu_shutdown);
-        self.register_layout_shutdown("LanLobbyMenuShutdown", lan_lobby_menu_shutdown);
-        self.register_layout_shutdown("ReplayMenuShutdown", |layout| {
+        self.register_layout_shutdown_without_data(
+            "SinglePlayerMenuShutdown",
+            single_player_menu_shutdown,
+        );
+        self.register_layout_shutdown_without_data(
+            "MapSelectMenuShutdown",
+            map_select_menu_shutdown,
+        );
+        self.register_layout_shutdown_without_data("LanLobbyMenuShutdown", lan_lobby_menu_shutdown);
+        self.register_layout_shutdown_without_data("ReplayMenuShutdown", |layout| {
             cb::replay_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown("CreditsMenuShutdown", credits_menu_shutdown);
-        self.register_layout_shutdown("LanGameOptionsMenuShutdown", |layout| {
+        self.register_layout_shutdown_without_data("CreditsMenuShutdown", credits_menu_shutdown);
+        self.register_layout_shutdown_without_data("LanGameOptionsMenuShutdown", |layout| {
             cb::lan_game_options_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown("LanMapSelectMenuShutdown", |layout| {
+        self.register_layout_shutdown_without_data("LanMapSelectMenuShutdown", |layout| {
             cb::lan_map_select_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown("SkirmishGameOptionsMenuShutdown", |layout| {
+        self.register_layout_shutdown_without_data("SkirmishGameOptionsMenuShutdown", |layout| {
             cb::skirmish_game_options_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown("SkirmishMapSelectMenuShutdown", |layout| {
+        self.register_layout_shutdown_without_data("SkirmishMapSelectMenuShutdown", |layout| {
             cb::skirmish_map_select_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown("ChallengeMenuShutdown", |layout| {
+        self.register_layout_shutdown_without_data("ChallengeMenuShutdown", |layout| {
             cb::challenge_menu_shutdown(layout, None)
         });
 
         // WOL/network callbacks — deferred per AGENTS.md
-        self.register_layout_shutdown("WOLLadderScreenShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLLoginMenuShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLLocaleSelectShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLLobbyMenuShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLGameSetupMenuShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLMapSelectMenuShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLBuddyOverlayShutdown", |_layout| {});
-        self.register_layout_shutdown("GameSpyPlayerInfoOverlayShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLMessageWindowShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLQuickMatchMenuShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLWelcomeMenuShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLStatusMenuShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLQMScoreScreenShutdown", |_layout| {});
-        self.register_layout_shutdown("WOLCustomScoreScreenShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLLadderScreenShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLLoginMenuShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLLocaleSelectShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLLobbyMenuShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLGameSetupMenuShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLMapSelectMenuShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLBuddyOverlayShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data(
+            "GameSpyPlayerInfoOverlayShutdown",
+            |_layout| {},
+        );
+        self.register_layout_shutdown_without_data("WOLMessageWindowShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLQuickMatchMenuShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLWelcomeMenuShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLStatusMenuShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLQMScoreScreenShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("WOLCustomScoreScreenShutdown", |_layout| {});
 
-        self.register_layout_shutdown("NetworkDirectConnectShutdown", |_layout| {});
+        self.register_layout_shutdown_without_data("NetworkDirectConnectShutdown", |_layout| {});
 
-        self.register_layout_shutdown("ScoreScreenShutdown", |layout| {
+        self.register_layout_shutdown_without_data("ScoreScreenShutdown", |layout| {
             cb::score_screen_shutdown(layout, None)
         });
-        self.register_layout_shutdown("DownloadMenuShutdown", |layout| {
+        self.register_layout_shutdown_without_data("DownloadMenuShutdown", |layout| {
             cb::download_menu_shutdown(layout, None)
         });
-        self.register_layout_shutdown("PopupReplayShutdown", |layout| {
+        self.register_layout_shutdown_without_data("PopupReplayShutdown", |layout| {
             cb::popup_replay_shutdown(layout, None)
         });
     }
