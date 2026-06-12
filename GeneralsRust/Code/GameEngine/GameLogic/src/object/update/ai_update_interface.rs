@@ -947,6 +947,9 @@ impl AIUpdateInterface {
         // For now, create a simple two-point path as placeholder.
         let start = self.final_position;
         if start == Coord3D::ZERO {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.is_blocked_and_stuck = false;
             return false;
         }
         self.destroy_path();
@@ -2011,6 +2014,22 @@ mod tests {
         assert!(!ai.is_attack_path);
         assert!(!ai.retry_path);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::None);
+    }
+
+    #[test]
+    fn compute_path_failure_records_attempt_and_clears_stuck_state_like_cpp() {
+        let mut ai = ai_update();
+        ai.blocked_frames = 42;
+        ai.is_blocked = true;
+        ai.is_blocked_and_stuck = true;
+
+        assert!(!ai.compute_path(Coord3D::new(8.0, 9.0, 0.0)));
+
+        assert_eq!(ai.get_path_timestamp(), TheGameLogic::get_frame());
+        assert_eq!(ai.blocked_frames, 0);
+        assert!(ai.is_blocked);
+        assert!(!ai.is_blocked_and_stuck);
+        assert!(ai.get_path().is_none());
     }
 
     #[test]
