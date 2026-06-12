@@ -96,6 +96,10 @@ fn register_loaded_model(
         asset_manager.add_prototype(hlod.name.clone(), Box::new(hlod));
     }
 
+    for hmodel in model.hmodels {
+        asset_manager.add_prototype(hmodel.name.clone(), Box::new(hmodel));
+    }
+
     if let (Some(alias), Some(mesh)) = (single_mesh_alias, model.meshes.first()) {
         let mesh_name = normalized_mesh_name(mesh, None);
         if !mesh_name.eq_ignore_ascii_case(alias) {
@@ -274,6 +278,7 @@ fn fixed_bytes<const N: usize>(value: &str) -> [u8; N] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prototypes::HModelPrototype;
     use std::io::Cursor;
     use ww3d_core::W3DChunkType;
 
@@ -308,6 +313,26 @@ mod tests {
         assert!(asset_manager.is_asset_loaded("internalmesh"));
         assert!(asset_manager.is_asset_loaded("filealias"));
         assert!(asset_manager.create_render_obj("FileAlias").is_some());
+    }
+
+    #[test]
+    fn parse_w3d_file_registers_hmodel_prototype() {
+        let bytes = minimal_hmodel_w3d("TankModel", "TankTree", "Body");
+        let mut reader = Cursor::new(bytes);
+        let mut asset_manager = AssetManager::new();
+
+        parse_w3d_file(&mut reader, &mut asset_manager).unwrap();
+
+        assert!(asset_manager.is_asset_loaded("tankmodel"));
+        assert!(asset_manager.create_render_obj("TANKMODEL").is_some());
+
+        let hmodel = asset_manager
+            .get_prototype_as::<HModelPrototype>("TankModel")
+            .unwrap();
+        assert_eq!(hmodel.hierarchy_name, "TankTree");
+        assert_eq!(hmodel.nodes.len(), 1);
+        assert_eq!(hmodel.nodes[0].render_obj_name, "TankModel.Body");
+        assert_eq!(hmodel.nodes[0].pivot_idx, 3);
     }
 
     fn minimal_mesh_w3d(mesh_name: &str) -> Vec<u8> {
@@ -349,6 +374,32 @@ mod tests {
         push_vec3(&mut bytes, [1.0, 1.0, 0.0]);
         push_vec3(&mut bytes, [0.5, 0.5, 0.0]);
         push_f32(&mut bytes, 1.0);
+        bytes
+    }
+
+    fn minimal_hmodel_w3d(model_name: &str, hierarchy_name: &str, node_name: &str) -> Vec<u8> {
+        let header = chunk(
+            W3DChunkType::HmodelHeader,
+            false,
+            hmodel_header(model_name, hierarchy_name, 1),
+        );
+        let node = chunk(W3DChunkType::Node, false, hmodel_node(node_name, 3));
+        chunk(W3DChunkType::Hmodel, true, [header, node].concat())
+    }
+
+    fn hmodel_header(model_name: &str, hierarchy_name: &str, connections: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        push_u32(&mut bytes, 0x0003_0000);
+        bytes.extend_from_slice(&fixed_bytes::<16>(model_name));
+        bytes.extend_from_slice(&fixed_bytes::<16>(hierarchy_name));
+        push_u32(&mut bytes, connections);
+        bytes
+    }
+
+    fn hmodel_node(render_obj_name: &str, pivot_idx: u32) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&fixed_bytes::<16>(render_obj_name));
+        push_u32(&mut bytes, pivot_idx);
         bytes
     }
 
