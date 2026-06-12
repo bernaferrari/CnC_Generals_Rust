@@ -1499,6 +1499,9 @@ impl AIUpdateInterface {
 
     /// C++ AIUpdateInterface::isDoingGroundMovement – true if moving along ground.
     pub fn is_doing_ground_movement(&self) -> bool {
+        if self.current_locomotor_set_surfaces() == SURFACE_AIR {
+            return false;
+        }
         if self.cur_locomotor_tag == 0 {
             return false;
         }
@@ -2372,6 +2375,16 @@ mod tests {
         assert!(!ai.is_doing_ground_movement());
 
         ai.cur_locomotor_surfaces = SURFACE_GROUND | SURFACE_AIR;
+        assert!(!ai.is_doing_ground_movement());
+    }
+
+    #[test]
+    fn is_doing_ground_movement_air_only_set_wins_over_stale_current_locomotor_like_cpp() {
+        let mut ai = ai_update_with_air_locomotor();
+        ai.cur_locomotor_set = LocomotorSetType::Supersonic;
+        ai.cur_locomotor_tag = 1;
+        ai.cur_locomotor_surfaces = SURFACE_GROUND;
+
         assert!(!ai.is_doing_ground_movement());
     }
 
