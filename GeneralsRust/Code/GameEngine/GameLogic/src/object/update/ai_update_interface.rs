@@ -941,10 +941,23 @@ impl AIUpdateInterface {
         }
 
         if self.is_attack_path {
-            // PARITY_TODO: computeAttackPath() once attack-path logic is ported.
-            // C++ clears m_isAttackPath when attack-path computation fails, then falls
-            // back to a normal path toward the requested destination.
+            let victim_id = self.requested_victim_id;
+            let victim = if victim_id == INVALID_ID {
+                None
+            } else {
+                OBJECT_REGISTRY.get_object(victim_id)
+            };
+            if self.compute_attack_path(victim.as_ref()) {
+                self.is_attack_path = true;
+                return;
+            }
             self.is_attack_path = false;
+            if let Some(victim) = victim {
+                if let Ok(victim_guard) = victim.read() {
+                    self.requested_destination = *victim_guard.get_position();
+                    self.ignore_obstacle(victim_guard.get_id());
+                }
+            }
         }
 
         self.compute_path(self.requested_destination);
@@ -952,6 +965,191 @@ impl AIUpdateInterface {
         if !self.waiting_for_path {
             self.wake_up_now();
         }
+    }
+
+    fn compute_attack_path(&mut self, victim: Option<&Arc<std::sync::RwLock<Object>>>) -> bool {
+        let now = TheGameLogic::get_frame();
+        if self.path_timestamp_is_recent(now) && self.path.is_some() && self.is_blocked_and_stuck {
+            self.set_ignore_collision_time(LOGICFRAMES_PER_SECOND * 2);
+            self.blocked_frames = 0;
+            self.is_blocked = false;
+            self.is_blocked_and_stuck = false;
+            return true;
+        }
+
+        let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
+            return false;
+        };
+        let land_bound = (self.current_locomotor_set_surfaces() & SURFACE_AIR) == 0;
+        let target_pos = victim
+            .and_then(|victim| victim.read().ok().map(|guard| *guard.get_position()))
+            .unwrap_or(self.requested_destination);
+
+        let attack_in_range_and_visible = {
+            let Ok(owner_guard) = owner_arc.read() else {
+                return false;
+            };
+            let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+                return false;
+            };
+            let in_range = if let Some(victim) = victim {
+                if let Ok(victim_guard) = victim.read() {
+                    weapon.is_within_attack_range(
+                        owner_guard.get_id(),
+                        Some(victim_guard.get_id()),
+                        None,
+                    )
+                } else {
+                    false
+                }
+            } else {
+                weapon.is_within_attack_range(owner_guard.get_id(), None, Some(&target_pos))
+            };
+            if !in_range {
+                false
+            } else {
+                let view_blocked = if self.is_doing_ground_movement() {
+                    crate::ai::THE_AI
+                        .read()
+                        .ok()
+                        .and_then(|ai| ai.pathfinder())
+                        .and_then(|pathfinder| {
+                            pathfinder.read().ok().map(|pf| {
+                                if let Some(victim) = victim {
+                                    victim.read().ok().map_or(false, |victim_guard| {
+                                        if victim_guard.is_significantly_above_terrain() {
+                                            false
+                                        } else {
+                                            pf.is_attack_view_blocked_by_obstacle(
+                                                &owner_guard,
+                                                owner_guard.get_position(),
+                                                Some(&victim_guard),
+                                                &target_pos,
+                                            )
+                                        }
+                                    })
+                                } else {
+                                    pf.is_attack_view_blocked_by_obstacle(
+                                        &owner_guard,
+                                        owner_guard.get_position(),
+                                        None,
+                                        &target_pos,
+                                    )
+                                }
+                            })
+                        })
+                        .unwrap_or(false)
+                } else {
+                    false
+                };
+                !view_blocked
+            }
+        };
+        if attack_in_range_and_visible {
+            self.destroy_path();
+            return true;
+        }
+
+        let (is_contact_weapon, owner_pos, owner_above_terrain) = {
+            let Ok(owner_guard) = owner_arc.read() else {
+                return false;
+            };
+            let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+                return false;
+            };
+            (
+                weapon.is_contact_weapon(),
+                *owner_guard.get_position(),
+                owner_guard.is_above_terrain(),
+            )
+        };
+
+        if is_contact_weapon {
+            self.destroy_path();
+            let ok = self.compute_path(target_pos);
+            let Some(path) = self.path.as_mut() else {
+                return false;
+            };
+            let Some(last_node) = path.last_mut() else {
+                return false;
+            };
+            let target_dx = target_pos.x - last_node.x;
+            let target_dy = target_pos.y - last_node.y;
+            if target_dx * target_dx + target_dy * target_dy
+                < (PATHFIND_CELL_SIZE_F * 3.0) * (PATHFIND_CELL_SIZE_F * 3.0)
+            {
+                *last_node = target_pos;
+            }
+            let owner_dx = owner_pos.x - last_node.x;
+            let owner_dy = owner_pos.y - last_node.y;
+            if owner_dx * owner_dx + owner_dy * owner_dy
+                < PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F
+            {
+                self.destroy_path();
+                return false;
+            }
+            return ok;
+        }
+
+        if owner_above_terrain && !land_bound {
+            if self.path.as_ref().is_some_and(|path| {
+                path.len() == 2
+                    && path.last().is_some_and(|last| {
+                        let dx = target_pos.x - last.x;
+                        let dy = target_pos.y - last.y;
+                        dx * dx + dy * dy < 0.25
+                    })
+            }) {
+                return true;
+            }
+            self.destroy_path();
+            let mut start = owner_pos;
+            start.z = target_pos.z;
+            self.path = Some(vec![start, target_pos]);
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.is_blocked_and_stuck = false;
+            self.set_locomotor_goal_position_on_path();
+            return true;
+        }
+
+        self.destroy_path();
+        if !self.compute_path(target_pos) {
+            return false;
+        }
+
+        let Some(goal) = self.path.as_ref().and_then(|path| path.last()).copied() else {
+            return false;
+        };
+        let goal_in_range = {
+            let Ok(owner_guard) = owner_arc.read() else {
+                return false;
+            };
+            let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+                return false;
+            };
+            weapon.is_source_object_with_goal_position_within_attack_range(
+                owner_guard.get_id(),
+                &goal,
+                victim.and_then(|victim| victim.read().ok().map(|guard| guard.get_id())),
+                Some(&target_pos),
+            )
+        };
+        if !goal_in_range {
+            let dx = goal.x - owner_pos.x;
+            let dy = goal.y - owner_pos.y;
+            if (dx * dx + dy * dy).sqrt() < 3.0 * PATHFIND_CELL_SIZE_F {
+                self.destroy_path();
+                return self.compute_approach_path(owner_pos);
+            }
+            self.destroy_path();
+            return false;
+        }
+
+        self.path_timestamp = TheGameLogic::get_frame();
+        self.blocked_frames = 0;
+        self.is_blocked_and_stuck = false;
+        true
     }
 
     /// C++ AIUpdateInterface::computePath – computes a path to destination,
@@ -2477,6 +2675,21 @@ mod tests {
         (object, RegisteredObjectCleanup(id))
     }
 
+    fn add_primary_weapon(object: &mut Object, range: Real) {
+        let mut weapon_template =
+            crate::weapon::WeaponTemplate::new(format!("AIUpdateTestWeapon{}", object.get_id()));
+        weapon_template.attack_range = range;
+        weapon_template.minimum_attack_range = 0.0;
+
+        let mut template_set = crate::weapon::WeaponTemplateSet::new();
+        template_set.set_weapon_template(WeaponSlotType::Primary, Arc::new(weapon_template));
+        object.weapon_set.add_weapon_template_set(template_set);
+        object
+            .weapon_set
+            .update_weapon_set(object.get_id(), &crate::weapon::WeaponSetFlags::new())
+            .unwrap();
+    }
+
     #[test]
     fn ai_update_module_xfer_forwards_to_runtime_ai() {
         let data = Arc::new(AIUpdateModuleData::default());
@@ -2937,6 +3150,73 @@ mod tests {
         let path = ai.get_path().as_ref().unwrap();
         assert_eq!(path.first().copied(), Some(Coord3D::new(6.0, 7.0, 0.0)));
         assert_eq!(path.last().copied(), Some(Coord3D::new(18.0, 21.0, 0.0)));
+    }
+
+    #[test]
+    fn do_pathfind_attack_in_range_finishes_without_move_path_like_cpp() {
+        let owner_id = 7_401;
+        let victim_id = 7_402;
+        let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        add_primary_weapon(&mut owner.write().unwrap(), 80.0);
+        let (_victim, _victim_cleanup) =
+            register_collision_object(victim_id, Coord3D::new(20.0, 0.0, 0.0), 0.0, None);
+        let mut ai =
+            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+        ai.cur_locomotor_tag = 1;
+        ai.cur_locomotor_surfaces = SURFACE_GROUND;
+        ai.path = Some(vec![Coord3D::ZERO, Coord3D::new(4.0, 0.0, 0.0)]);
+        ai.path_timestamp = 1;
+
+        let mut logic = crate::system::game_logic::lock_game_logic().unwrap();
+        logic.set_current_frame(10);
+        drop(logic);
+
+        ai.request_attack_path(victim_id, Coord3D::new(20.0, 0.0, 0.0));
+        ai.do_pathfind();
+
+        assert!(!ai.is_waiting_for_path());
+        assert!(ai.is_attack_path);
+        assert!(ai.get_path().is_none());
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::None);
+
+        let mut logic = crate::system::game_logic::lock_game_logic().unwrap();
+        logic.set_current_frame(0);
+    }
+
+    #[test]
+    fn do_pathfind_attack_reuses_recent_stuck_path_like_cpp() {
+        let owner_id = 7_403;
+        let victim_id = 7_404;
+        let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        add_primary_weapon(&mut owner.write().unwrap(), 5.0);
+        let (_victim, _victim_cleanup) =
+            register_collision_object(victim_id, Coord3D::new(90.0, 0.0, 0.0), 0.0, None);
+        let mut logic = crate::system::game_logic::lock_game_logic().unwrap();
+        logic.set_current_frame(400);
+        drop(logic);
+
+        let mut ai =
+            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+        ai.cur_locomotor_tag = 1;
+        ai.cur_locomotor_surfaces = SURFACE_GROUND;
+        ai.path = Some(vec![Coord3D::ZERO, Coord3D::new(12.0, 0.0, 0.0)]);
+        ai.path_timestamp = 399;
+        ai.is_blocked = true;
+        ai.is_blocked_and_stuck = true;
+        ai.blocked_frames = 8;
+
+        ai.request_attack_path(victim_id, Coord3D::new(90.0, 0.0, 0.0));
+        ai.do_pathfind();
+
+        assert!(ai.is_attack_path);
+        assert!(ai.get_path().is_some());
+        assert_eq!(ai.get_blocked_frames(), 0);
+        assert!(!ai.is_blocked());
+        assert!(!ai.is_blocked_and_stuck());
+        assert_eq!(ai.ignore_collisions_until, 400 + LOGICFRAMES_PER_SECOND * 2);
+
+        let mut logic = crate::system::game_logic::lock_game_logic().unwrap();
+        logic.set_current_frame(0);
     }
 
     #[test]
