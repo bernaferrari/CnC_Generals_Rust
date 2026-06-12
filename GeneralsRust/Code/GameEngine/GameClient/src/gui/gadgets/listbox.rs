@@ -115,6 +115,7 @@ pub struct ListBox {
     item_height: u32,
     double_click_ms: u64,
     last_click: Option<(Instant, usize)>,
+    last_double_click_index: Option<usize>,
     callback: Option<ListBoxCallback>,
     tooltip: Option<String>,
     max_length: usize,
@@ -148,6 +149,7 @@ impl ListBox {
             item_height: 18,
             double_click_ms: 500,
             last_click: None,
+            last_double_click_index: None,
             callback: None,
             tooltip: None,
             max_length: 0,
@@ -780,6 +782,10 @@ impl ListBox {
         self.last_right_click
     }
 
+    pub fn last_double_click_index(&self) -> Option<usize> {
+        self.last_double_click_index
+    }
+
     pub fn selected_item(&self) -> Option<&ListBoxItem> {
         self.selected_indices
             .first()
@@ -982,32 +988,33 @@ impl ListBox {
             && !modifiers.ctrl
             && !modifiers.shift
             && self.selected_indices.first() == Some(&index);
-        if deselected {
+        if self.selection_mode == SelectionMode::Multiple {
+            let _ = self.toggle_multi_selection(index as i32);
+            self.ensure_visible(index);
+        } else if deselected {
             self.selected_indices.clear();
             self.last_selected = None;
         } else {
             self.select_index(index, modifiers);
         }
 
-        let mut messages = vec![
-            GadgetMessage::Clicked { gadget_id: self.id },
-            GadgetMessage::ValueChanged {
-                gadget_id: self.id,
-                value: GadgetValue::Integer(if deselected { -1 } else { self.items[index].id }),
-            },
-        ];
-
+        let mut messages = vec![GadgetMessage::Clicked { gadget_id: self.id }];
         if self.is_double_click(index) {
+            self.last_double_click_index = Some(index);
             messages.push(GadgetMessage::Custom {
                 gadget_id: self.id,
                 data: "double_click".to_string(),
             });
         }
+        messages.push(GadgetMessage::ValueChanged {
+            gadget_id: self.id,
+            value: GadgetValue::Integer(if deselected { -1 } else { index as i32 }),
+        });
 
         messages
     }
 
-    fn handle_keyboard_activate(&self) -> Vec<GadgetMessage> {
+    fn handle_keyboard_activate(&mut self) -> Vec<GadgetMessage> {
         if self.audio_feedback {
             if let Some(audio) = TheAudio::get() {
                 let event = AudioEventRts::new("GUIComboBoxClick");
@@ -1015,6 +1022,7 @@ impl ListBox {
             }
         }
 
+        self.last_double_click_index = self.selected_indices.first().copied();
         vec![GadgetMessage::Custom {
             gadget_id: self.id,
             data: "double_click".to_string(),
@@ -1138,6 +1146,10 @@ impl Gadget for ListBox {
                             audio.add_audio_event(&event);
                         }
                     }
+                    return vec![GadgetMessage::Custom {
+                        gadget_id: self.id,
+                        data: "input_handled".to_string(),
+                    }];
                 }
                 Vec::new()
             }
@@ -1190,7 +1202,7 @@ impl Gadget for ListBox {
                         self.select_index(next, *modifiers);
                         return vec![GadgetMessage::ValueChanged {
                             gadget_id: self.id,
-                            value: GadgetValue::Integer(self.items[next].id),
+                            value: GadgetValue::Integer(next as i32),
                         }];
                     }
                     KeyCode::Down => {
@@ -1205,14 +1217,14 @@ impl Gadget for ListBox {
                         self.select_index(next, *modifiers);
                         return vec![GadgetMessage::ValueChanged {
                             gadget_id: self.id,
-                            value: GadgetValue::Integer(self.items[next].id),
+                            value: GadgetValue::Integer(next as i32),
                         }];
                     }
                     KeyCode::Home => {
                         if !self.items.is_empty() && self.select_index(0, *modifiers) {
                             return vec![GadgetMessage::ValueChanged {
                                 gadget_id: self.id,
-                                value: GadgetValue::Integer(self.items[0].id),
+                                value: GadgetValue::Integer(0),
                             }];
                         }
                     }
@@ -1222,7 +1234,7 @@ impl Gadget for ListBox {
                             if self.select_index(last, *modifiers) {
                                 return vec![GadgetMessage::ValueChanged {
                                     gadget_id: self.id,
-                                    value: GadgetValue::Integer(self.items[last].id),
+                                    value: GadgetValue::Integer(last as i32),
                                 }];
                             }
                         }
@@ -1235,7 +1247,7 @@ impl Gadget for ListBox {
                         if self.select_index(next, *modifiers) {
                             return vec![GadgetMessage::ValueChanged {
                                 gadget_id: self.id,
-                                value: GadgetValue::Integer(self.items[next].id),
+                                value: GadgetValue::Integer(next as i32),
                             }];
                         }
                     }
@@ -1246,7 +1258,7 @@ impl Gadget for ListBox {
                         if self.select_index(next, *modifiers) {
                             return vec![GadgetMessage::ValueChanged {
                                 gadget_id: self.id,
-                                value: GadgetValue::Integer(self.items[next].id),
+                                value: GadgetValue::Integer(next as i32),
                             }];
                         }
                     }
@@ -1376,7 +1388,7 @@ mod tests {
 
         let first = click_first_row(&mut listbox);
         assert_eq!(listbox.selected_indices(), &[0]);
-        assert_eq!(value_changed_integer(&first), Some(42));
+        assert_eq!(value_changed_integer(&first), Some(0));
 
         let second = click_first_row(&mut listbox);
         assert!(listbox.selected_indices().is_empty());
@@ -1407,7 +1419,7 @@ mod tests {
             y: 13,
             button: MouseButton::Left,
         });
-        assert_eq!(value_changed_integer(&content_click), Some(42));
+        assert_eq!(value_changed_integer(&content_click), Some(0));
         assert_eq!(listbox.selected_indices(), &[0]);
     }
 
@@ -1419,11 +1431,11 @@ mod tests {
 
         let first = click_first_row(&mut listbox);
         assert_eq!(listbox.selected_indices(), &[0]);
-        assert_eq!(value_changed_integer(&first), Some(42));
+        assert_eq!(value_changed_integer(&first), Some(0));
 
         let second = click_first_row(&mut listbox);
         assert_eq!(listbox.selected_indices(), &[0]);
-        assert_eq!(value_changed_integer(&second), Some(42));
+        assert_eq!(value_changed_integer(&second), Some(0));
     }
 
     #[test]
@@ -1467,6 +1479,47 @@ mod tests {
 
         assert!(messages.is_empty());
         assert_eq!(listbox.selected_indices(), &[0]);
+    }
+
+    #[test]
+    fn multi_select_mouse_click_toggles_row_without_ctrl_like_cpp() {
+        let mut listbox =
+            ListBox::new(7, 0, 0, 100, 60).with_selection_mode(SelectionMode::Multiple);
+        listbox.add_item_with_id(10, "Alpha");
+        listbox.add_item_with_id(20, "Bravo");
+        listbox.add_item_with_id(30, "Charlie");
+        listbox.set_selected_indices(&[0, 2]);
+
+        let remove_first = listbox.handle_input(&InputEvent::MouseUp {
+            x: 1,
+            y: 1,
+            button: MouseButton::Left,
+        });
+        assert_eq!(value_changed_integer(&remove_first), Some(0));
+        assert_eq!(listbox.selected_indices(), &[2]);
+
+        let add_second = listbox.handle_input(&InputEvent::MouseUp {
+            x: 1,
+            y: 19,
+            button: MouseButton::Left,
+        });
+        assert_eq!(value_changed_integer(&add_second), Some(1));
+        assert_eq!(listbox.selected_indices(), &[2, 1]);
+    }
+
+    #[test]
+    fn right_mouse_down_is_handled_like_cpp_listbox() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        let messages = listbox.handle_input(&InputEvent::MouseDown {
+            x: 1,
+            y: 1,
+            button: MouseButton::Right,
+        });
+
+        assert!(matches!(
+            messages.as_slice(),
+            [GadgetMessage::Custom { data, .. }] if data == "input_handled"
+        ));
     }
 
     #[test]

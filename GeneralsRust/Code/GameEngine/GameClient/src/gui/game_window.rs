@@ -2268,32 +2268,74 @@ impl GameWindow {
         } else {
             None
         };
+        let is_listbox_message = matches!(self.widget, Some(WindowWidget::ListBox(_)));
         for message in messages {
-            let (msg, data1) = match message {
+            let (msg, data1, data2) = match message {
+                GadgetMessage::Clicked { .. } if is_listbox_message => {
+                    continue;
+                }
                 GadgetMessage::Clicked { .. } => {
-                    (WindowMessage::GadgetSelected, self.id as WindowMsgData)
+                    (WindowMessage::GadgetSelected, self.id as WindowMsgData, 0)
+                }
+                GadgetMessage::RightClicked { .. } if is_listbox_message => {
+                    let selected = match &self.widget {
+                        Some(WindowWidget::ListBox(listbox)) => listbox
+                            .last_right_click()
+                            .map(|right_click| right_click.index)
+                            .unwrap_or(-1),
+                        _ => -1,
+                    };
+                    (
+                        WindowMessage::User(GLM_RIGHT_CLICKED),
+                        self.id as WindowMsgData,
+                        selected as WindowMsgData,
+                    )
                 }
                 GadgetMessage::RightClicked { .. } => {
                     if !self.status.contains(WindowStatus::RIGHT_CLICK) {
                         continue;
                     }
-                    (WindowMessage::GadgetRightClick, self.id as WindowMsgData)
+                    (WindowMessage::GadgetRightClick, self.id as WindowMsgData, 0)
                 }
-                GadgetMessage::LeftDrag { .. } => (WindowMessage::User(GGM_LEFT_DRAG), data1),
-                GadgetMessage::ValueChanged { .. } => {
-                    (WindowMessage::GadgetValueChanged, self.id as WindowMsgData)
+                GadgetMessage::LeftDrag { .. } => (WindowMessage::User(GGM_LEFT_DRAG), data1, 0),
+                GadgetMessage::ValueChanged { value, .. } if is_listbox_message => {
+                    let selected = match value {
+                        GadgetValue::Integer(row) => row,
+                        _ => match &self.widget {
+                            Some(WindowWidget::ListBox(listbox)) => listbox
+                                .selected_indices()
+                                .first()
+                                .map(|index| *index as i32)
+                                .unwrap_or(-1),
+                            _ => -1,
+                        },
+                    };
+                    (
+                        WindowMessage::User(GLM_SELECTED),
+                        self.id as WindowMsgData,
+                        selected as WindowMsgData,
+                    )
                 }
+                GadgetMessage::ValueChanged { .. } => (
+                    WindowMessage::GadgetValueChanged,
+                    self.id as WindowMsgData,
+                    0,
+                ),
                 GadgetMessage::EditingComplete { .. } => {
-                    (WindowMessage::GadgetEditDone, self.id as WindowMsgData)
+                    (WindowMessage::GadgetEditDone, self.id as WindowMsgData, 0)
                 }
-                GadgetMessage::MouseEnter { .. } => {
-                    (WindowMessage::GadgetMouseEntering, self.id as WindowMsgData)
-                }
-                GadgetMessage::MouseLeave { .. } => {
-                    (WindowMessage::GadgetMouseLeaving, self.id as WindowMsgData)
-                }
+                GadgetMessage::MouseEnter { .. } => (
+                    WindowMessage::GadgetMouseEntering,
+                    self.id as WindowMsgData,
+                    0,
+                ),
+                GadgetMessage::MouseLeave { .. } => (
+                    WindowMessage::GadgetMouseLeaving,
+                    self.id as WindowMsgData,
+                    0,
+                ),
                 GadgetMessage::FocusChanged { has_focus, .. } => {
-                    (WindowMessage::InputFocus, if has_focus { 1 } else { 0 })
+                    (WindowMessage::InputFocus, if has_focus { 1 } else { 0 }, 0)
                 }
                 GadgetMessage::Custom { data, .. } => {
                     if data == "tab_next" {
@@ -2310,14 +2352,30 @@ impl GameWindow {
                         handled = true;
                         continue;
                     }
-                    (WindowMessage::User(0x8000), self.id as WindowMsgData)
+                    if is_listbox_message && data == "double_click" {
+                        let selected = match &self.widget {
+                            Some(WindowWidget::ListBox(listbox)) => listbox
+                                .last_double_click_index()
+                                .or_else(|| listbox.selected_indices().first().copied())
+                                .map(|index| index as i32)
+                                .unwrap_or(-1),
+                            _ => -1,
+                        };
+                        (
+                            WindowMessage::User(GLM_DOUBLE_CLICKED),
+                            self.id as WindowMsgData,
+                            selected as WindowMsgData,
+                        )
+                    } else {
+                        (WindowMessage::User(0x8000), self.id as WindowMsgData, 0)
+                    }
                 }
             };
 
             let result = if let Some(ref owner) = target_owner {
-                owner.borrow_mut().send_system_message(msg, data1, 0)
+                owner.borrow_mut().send_system_message(msg, data1, data2)
             } else {
-                self.send_system_message(msg, data1, 0)
+                self.send_system_message(msg, data1, data2)
             };
             if result.is_handled() {
                 handled = true;
@@ -4766,6 +4824,94 @@ mod tests {
         window.set_cursor_position(1, 13).unwrap();
         let _ = window.send_routed_input_message(WindowMessage::LeftUp, 0, 0);
         assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[0]);
+    }
+
+    #[test]
+    fn listbox_input_sends_glm_selected_row_to_owner_like_cpp() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut window = GameWindow::new();
+        window.set_id(42);
+        window.set_parent(Some(&owner));
+        window.set_owner(Some(&owner));
+        window.set_size(100, 40).unwrap();
+        window.enable(true).unwrap();
+        let mut listbox = ListBox::new(42, 0, 0, 100, 40).with_item_height(10);
+        listbox.add_item_with_id(100, "alpha");
+        listbox.add_item_with_id(200, "bravo");
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        window.set_cursor_position(1, 11).unwrap();
+        assert_eq!(
+            window.send_routed_input_message(WindowMessage::LeftUp, 0, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(window.list_box_mut().unwrap().selected_indices(), &[1]);
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[(WindowMessage::User(GLM_SELECTED), 42, 1)]
+        );
+    }
+
+    #[test]
+    fn listbox_double_click_sends_glm_double_clicked_before_selection_like_cpp() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut window = GameWindow::new();
+        window.set_id(42);
+        window.set_parent(Some(&owner));
+        window.set_owner(Some(&owner));
+        window.set_size(100, 40).unwrap();
+        window.enable(true).unwrap();
+        let mut listbox = ListBox::new(42, 0, 0, 100, 40).with_item_height(10);
+        listbox.add_item("alpha");
+        listbox.add_item("bravo");
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        window.set_cursor_position(1, 1).unwrap();
+        assert_eq!(
+            window.send_routed_input_message(WindowMessage::LeftUp, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_routed_input_message(WindowMessage::LeftUp, 0, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert!(window.list_box_mut().unwrap().selected_indices().is_empty());
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[
+                (WindowMessage::User(GLM_SELECTED), 42, 0),
+                (WindowMessage::User(GLM_DOUBLE_CLICKED), 42, 0),
+                (
+                    WindowMessage::User(GLM_SELECTED),
+                    42,
+                    (-1i32) as WindowMsgData,
+                ),
+            ]
+        );
     }
 
     #[test]
