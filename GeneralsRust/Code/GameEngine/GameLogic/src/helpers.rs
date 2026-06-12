@@ -3448,6 +3448,49 @@ impl TheThingFactory {
         Ok(base)
     }
 
+    /// Create new object while preserving the exact team handle supplied by the caller.
+    ///
+    /// C++ ThingFactory receives a Team pointer directly. This helper is for call sites
+    /// that still hold the owning Arc and must not re-resolve by TeamFactory ID.
+    pub fn new_object_with_team_handle(
+        &self,
+        template: std::sync::Arc<dyn crate::common::ThingTemplate>,
+        team: std::sync::Arc<std::sync::RwLock<crate::team::Team>>,
+    ) -> Result<
+        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
+        use crate::object_manager::get_object_manager;
+        use crate::object_manager::ObjectCreationFlags;
+
+        let template_name = Self::resolve_build_variation_name(&template);
+
+        let object_id = get_object_manager()
+            .write()
+            .map_err(|_| "ObjectManager lock poisoned")?
+            .create_object(
+                &template_name,
+                Coord3D::new(0.0, 0.0, 0.0),
+                Some(team),
+                ObjectCreationFlags::from_template(),
+            )
+            .map_err(|e| e.to_string())?;
+
+        let instance = get_object_manager()
+            .read()
+            .map_err(|_| "ObjectManager lock poisoned")?
+            .get_object(object_id)
+            .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
+
+        let base = instance
+            .read()
+            .map_err(|_| "GameObjectInstance lock poisoned")?
+            .base
+            .clone();
+
+        Ok(base)
+    }
+
     /// Create new object from template with an optional team (matches C++ NULL-team usage).
     pub fn new_object_optional_team(
         &self,

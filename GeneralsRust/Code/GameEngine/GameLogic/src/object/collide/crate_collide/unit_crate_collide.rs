@@ -156,14 +156,11 @@ impl UnitCrateCollide {
 
         // Create the specified number of units
         for _unit_index in 0..unit_count {
-            let new_obj = {
-                let Ok(team_guard) = team_arc.read() else {
-                    continue;
-                };
-                match thing_factory.new_object(unit_template.clone(), &*team_guard) {
-                    Ok(new_obj) => new_obj,
-                    Err(_) => continue,
-                }
+            let new_obj = match thing_factory
+                .new_object_with_team_handle(unit_template.clone(), team_arc.clone())
+            {
+                Ok(new_obj) => new_obj,
+                Err(_) => continue,
             };
 
             // Set initial position and find a legal position around the crate
@@ -530,6 +527,25 @@ mod tests {
             0
         );
         assert_eq!(data.base.execute_animation_display_time_seconds, 2.5);
+    }
+
+    #[test]
+    fn unit_crate_creation_preserves_unregistered_default_team() {
+        let _lock = crate::test_sync::lock();
+
+        ensure_template_exists("Infantry");
+        let team_arc = setup_player_with_team(2, "UnregisteredDefaultTeam");
+        let team_id = team_arc.read().expect("team read").get_id();
+
+        let thing_factory = TheThingFactory::get().expect("ThingFactory unavailable");
+        let template = TheThingFactory::find_template("Infantry").expect("Template missing");
+        let created = thing_factory
+            .new_object_with_team_handle(template, Arc::clone(&team_arc))
+            .expect("object creates with team handle");
+
+        let created_guard = created.read().expect("created object read");
+        assert_eq!(created_guard.get_team_id(), Some(team_id));
+        assert_eq!(created_guard.get_controlling_player_id(), Some(2));
     }
 
     #[test]
