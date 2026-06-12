@@ -596,8 +596,7 @@ impl MoneyCrateCollide {
     }
 
     fn money_audio_event_for(other: &dyn GameObject) -> crate::common::audio::AudioEventRts {
-        let event = TheAudio::get_misc_audio().crate_money.clone();
-        let mut audio_event = crate::common::audio::AudioEventRts::new(event.sound_type);
+        let mut audio_event = TheAudio::get_misc_audio().crate_money.clone();
         audio_event.set_object_id(other.get_id());
         audio_event
     }
