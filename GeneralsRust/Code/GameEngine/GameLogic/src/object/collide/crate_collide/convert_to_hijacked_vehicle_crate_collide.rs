@@ -135,10 +135,7 @@ fn parse_pickup_science(
     data: &mut ConvertToHijackedVehicleCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.base.pickup_science =
-        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(first_token(tokens)?)
-            as crate::common::science::ScienceType;
-    Ok(())
+    super::parse_crate_pickup_science(&mut data.base, first_token(tokens)?)
 }
 
 fn parse_execute_fx(

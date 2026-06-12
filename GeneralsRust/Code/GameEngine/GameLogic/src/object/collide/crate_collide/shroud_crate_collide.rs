@@ -10,7 +10,6 @@ use crate::helpers::TheAudio;
 use crate::object::collide::crate_collide::crate_collide::CrateCollide as LegacyCrateCollide;
 use crate::object::collide::*;
 use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{ModuleData, NameKeyType, ShroudCrateCollideConfig};
 
@@ -321,9 +320,7 @@ fn parse_pickup_science(
     data: &mut ShroudCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.crate_data.pickup_science =
-        NameKeyGenerator::name_to_key(first_token(tokens)?) as crate::common::science::ScienceType;
-    Ok(())
+    super::parse_crate_pickup_science(&mut data.crate_data, first_token(tokens)?)
 }
 
 fn parse_execute_fx(
