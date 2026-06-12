@@ -433,6 +433,16 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
+    /// Containment reaction to owner body damage state changes.
+    fn on_body_damage_state_change(
+        &mut self,
+        _damage_info: &DamageInfo,
+        _old_state: BodyDamageType,
+        _new_state: BodyDamageType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
     /// Containment reaction to owner deletion.
     fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())

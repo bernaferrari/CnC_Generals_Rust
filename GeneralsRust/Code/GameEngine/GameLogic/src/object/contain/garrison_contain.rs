@@ -2404,6 +2404,16 @@ impl ContainModuleInterface for GarrisonContain {
         GarrisonContain::on_damage(self, damage_info).map_err(|e| e.into())
     }
 
+    fn on_body_damage_state_change(
+        &mut self,
+        damage_info: &DamageInfo,
+        old_state: BodyDamageType,
+        new_state: BodyDamageType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        GarrisonContain::on_body_damage_state_change(self, Some(damage_info), old_state, new_state)
+            .map_err(|e| e.into())
+    }
+
     fn on_die(
         &mut self,
         damage_info: Option<&DamageInfo>,

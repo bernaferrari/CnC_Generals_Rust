@@ -350,7 +350,37 @@ impl HelixContain {
             return Ok(());
         }
 
-        self.base.add_to_contain(obj)
+        let was_selected = obj
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_drawable())
+            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            .unwrap_or(false);
+
+        {
+            let obj_ref = obj.read().map_err(|_| "Object lock poisoned")?;
+            if !self.base.is_valid_container_for(&*obj_ref, true) {
+                return Err("Object not valid for this helix container".into());
+            }
+            if obj_ref.get_contained_by().is_some() {
+                return Ok(());
+            }
+        }
+
+        self.base.add_to_contain_list(obj.clone())?;
+        let should_remove_from_world = obj
+            .read()
+            .map(|obj_guard| self.is_enclosing_container_for(&*obj_guard))
+            .unwrap_or(false);
+        if should_remove_from_world {
+            let _ = self
+                .base
+                .base
+                .add_or_remove_obj_from_world(obj.clone(), false);
+        }
+        self.redeploy_occupants()?;
+        self.on_containing(obj, was_selected)?;
+        Ok(())
     }
 
     /// Add object to contain list
@@ -744,6 +774,16 @@ impl ContainModuleInterface for HelixContain {
         self.base.base.on_damage(damage_info).map_err(|e| e.into())
     }
 
+    fn on_body_damage_state_change(
+        &mut self,
+        damage_info: &DamageInfo,
+        old_state: BodyDamageType,
+        new_state: BodyDamageType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        HelixContain::on_body_damage_state_change(self, Some(damage_info), old_state, new_state)
+            .map_err(|e| e.into())
+    }
+
     fn on_die(
         &mut self,
         damage_info: Option<&DamageInfo>,
@@ -882,7 +922,9 @@ impl ContainerInterface for HelixContain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::common::{Coord3D, DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::damage::DamageInfo;
+    use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
     use crate::object::registry::OBJECT_REGISTRY;
     use game_engine::common::system::{XferBlockSize, XferMode, XferStatus};
     use std::io;
@@ -967,6 +1009,35 @@ mod tests {
         template.parse_object_fields_from_ini(&fields);
         Object::new_with_id(Arc::new(template), id, ObjectStatusMaskType::none(), None)
             .expect("test object")
+    }
+
+    fn transportable_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
+        let obj = object_with_kind(name, id, "INFANTRY");
+        let data = super::super::OpenContainModuleData {
+            contain_max: 1,
+            ..Default::default()
+        };
+        let contain =
+            super::super::OpenContain::new(Arc::downgrade(&obj), &data).expect("slot contain");
+        obj.write()
+            .expect("object write")
+            .set_contain(Some(Arc::new(Mutex::new(contain))));
+        obj
+    }
+
+    fn attach_active_body(obj: &Arc<RwLock<Object>>) {
+        let id = obj.read().expect("object read").get_id();
+        let body = ActiveBody::new_with_owner(
+            ActiveBodyModuleData {
+                max_health: 100.0,
+                initial_health: 100.0,
+                ..Default::default()
+            },
+            id,
+        );
+        obj.write()
+            .expect("object write")
+            .set_body_module(Some(Arc::new(Mutex::new(body))));
     }
 
     #[test]
@@ -1059,5 +1130,66 @@ mod tests {
         );
 
         OBJECT_REGISTRY.unregister_object(98001);
+    }
+
+    #[test]
+    fn add_to_contain_redeploys_passengers_to_owner_z_plus_eight_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let owner = object_with_kind("HelixOwner", 98002, "VEHICLE");
+        owner
+            .write()
+            .expect("owner write")
+            .set_position(&Coord3D::new(10.0, 20.0, 30.0))
+            .expect("owner position");
+        let passenger = transportable_object("HelixPassenger", 98003);
+        let mut data = HelixContainModuleData::default();
+        data.base.slot_capacity = 1;
+        data.base.base.allow_neutral_inside = true;
+        let mut contain =
+            HelixContain::new(Arc::downgrade(&owner), &data).expect("helix contain constructs");
+
+        contain
+            .add_to_contain(passenger.clone())
+            .expect("passenger enters helix");
+
+        assert_eq!(
+            *passenger.read().expect("passenger read").get_position(),
+            Coord3D::new(10.0, 20.0, 38.0)
+        );
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
+
+        OBJECT_REGISTRY.unregister_object(98002);
+        OBJECT_REGISTRY.unregister_object(98003);
+    }
+
+    #[test]
+    fn contain_body_damage_callback_updates_portable_structure_body() {
+        let _lock = crate::test_sync::lock();
+        let portable = object_with_kind("PortableDamageMirror", 98004, "PORTABLE_STRUCTURE");
+        attach_active_body(&portable);
+        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+            .expect("helix contain constructs");
+        ContainerInterface::add_object(&mut contain, portable.clone())
+            .expect("portable structure enters as helix rider");
+
+        ContainModuleInterface::on_body_damage_state_change(
+            &mut contain,
+            &DamageInfo::default(),
+            BodyDamageType::Pristine,
+            BodyDamageType::ReallyDamaged,
+        )
+        .expect("body damage callback");
+
+        let body = portable
+            .read()
+            .expect("portable read")
+            .get_body_module()
+            .expect("portable body");
+        assert_eq!(
+            body.lock().expect("body lock").get_damage_state(),
+            BodyDamageType::ReallyDamaged
+        );
+
+        OBJECT_REGISTRY.unregister_object(98004);
     }
 }
