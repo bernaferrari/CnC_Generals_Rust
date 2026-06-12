@@ -6468,6 +6468,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.requested_victim_id = INVALID_ID;
         self.is_approach_path = false;
         self.is_safe_path = true;
+        self.waiting_for_path = true;
         if repulsor_id != self.repulsor1 {
             self.repulsor2 = self.repulsor1;
         }
@@ -7484,15 +7485,16 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn request_approach_path(&mut self, destination: &Coord3D) -> Result<(), String> {
+        if !self.has_valid_locomotor_surfaces() {
+            return Err("Attempting to path immobile unit".to_string());
+        }
         self.requested_destination = *destination;
         self.is_final_goal = true;
         self.is_attack_path = false;
         self.requested_victim_id = INVALID_ID;
         self.is_approach_path = true;
         self.is_safe_path = false;
-        if !self.has_valid_locomotor_surfaces() {
-            return Err("Attempting to path immobile unit".to_string());
-        }
+        self.waiting_for_path = true;
         let _ = self.ignore_obstacle(None);
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {
@@ -7501,7 +7503,6 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
         self.set_queue_for_path_time(0);
         let _ = self.queue_path_request_now(*destination);
-        let _ = self.set_movement_target(destination);
         self.path_timestamp = now;
         Ok(())
     }
@@ -9066,6 +9067,74 @@ mod tests {
         ai.request_attack_path(INVALID_ID, &destination).unwrap();
 
         assert!(ai.is_attack_path);
+        assert!(ai.waiting_for_path);
+        assert!(ai.is_waiting_for_path());
+        assert_eq!(
+            ai.queue_for_path_frame,
+            now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
+        );
+    }
+
+    #[test]
+    fn request_approach_path_enters_wait_state_before_repath_delay_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(54, 100.0)));
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let now = TheGameLogic::get_frame();
+        ai.path_timestamp = now.saturating_add(1);
+        let destination = Coord3D::new(18.0, 6.0, 0.0);
+
+        ai.request_approach_path(&destination).unwrap();
+
+        assert!(ai.is_approach_path);
+        assert!(ai.waiting_for_path);
+        assert!(ai.is_waiting_for_path());
+        assert_eq!(
+            ai.queue_for_path_frame,
+            now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
+        );
+    }
+
+    #[test]
+    fn request_safe_path_enters_wait_state_before_repath_delay_like_cpp() {
+        let mut ai = unit_ai_update_without_unit();
+        let previous_repulsor = 71;
+        let next_repulsor = 72;
+        ai.repulsor1 = previous_repulsor;
+        let now = TheGameLogic::get_frame();
+        ai.path_timestamp = now.saturating_add(1);
+
+        assert!(!ai.request_safe_path(next_repulsor).unwrap());
+
+        assert_eq!(ai.repulsor2, previous_repulsor);
+        assert_eq!(ai.repulsor1, next_repulsor);
+        assert!(ai.is_safe_path);
+        assert!(!ai.is_approach_path);
+        assert!(!ai.is_attack_path);
+        assert_eq!(ai.requested_victim_id, INVALID_ID);
         assert!(ai.waiting_for_path);
         assert!(ai.is_waiting_for_path());
         assert_eq!(
