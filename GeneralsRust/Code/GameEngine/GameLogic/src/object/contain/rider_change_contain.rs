@@ -18,6 +18,7 @@ use crate::object::{Object, ObjectId};
 use crate::upgrade::modules::model_condition::parse_model_condition_flag as parse_model_condition_name;
 use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Configuration data for RiderChangeContain module
 #[derive(Debug, Clone)]
@@ -293,9 +294,61 @@ fn parse_model_condition_flag(token: &str) -> Result<ModelConditionFlags, INIErr
     parse_model_condition_name(token).ok_or(INIError::InvalidData)
 }
 
+fn rider_info_matches_template(
+    rider_info: &RiderInfo,
+    template: &dyn crate::common::ThingTemplate,
+) -> bool {
+    if rider_info.template_name.is_empty() {
+        return false;
+    }
+
+    if rider_info.template_name == template.get_name().as_str() {
+        return true;
+    }
+
+    if let Some(rider_template) = TheThingFactory::find_template(rider_info.template_name.as_str())
+    {
+        return rider_template.is_equivalent_to(template);
+    }
+
+    false
+}
+
+fn transfer_veterancy(
+    from_tracker: Option<Arc<Mutex<crate::common::ExperienceTracker>>>,
+    to_tracker: Option<Arc<Mutex<crate::common::ExperienceTracker>>>,
+) {
+    let (Some(from_tracker), Some(to_tracker)) = (from_tracker, to_tracker) else {
+        return;
+    };
+
+    let Some(level) = from_tracker
+        .lock()
+        .ok()
+        .map(|tracker| tracker.get_veterancy_level())
+    else {
+        return;
+    };
+
+    if let Ok(mut to_guard) = to_tracker.lock() {
+        to_guard.set_veterancy_level(level);
+    }
+
+    if let Ok(mut from_guard) = from_tracker.lock() {
+        let _ = from_guard.set_experience_and_level(
+            0,
+            &crate::experience::ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
+        );
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::DefaultThingTemplate;
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::player::{Player, ThePlayerList};
+    use crate::team::Team;
 
     #[test]
     fn rider_change_parse_accepts_cpp_canonical_rider_tokens() {
@@ -328,6 +381,146 @@ mod tests {
             .expect("scuttle status parses");
 
         assert_eq!(data.scuttle_state, ModelConditionFlags::DYING);
+    }
+
+    fn reset_players() {
+        let mut list = ThePlayerList().write().expect("player list write");
+        list.clear();
+        list.add_player(Arc::new(RwLock::new(Player::new(0))));
+    }
+
+    fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("{name}Team").into(),
+            id + 10_000,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(player_index));
+        let mut template = DefaultThingTemplate::new(name.to_string());
+        if name.starts_with("BikeRider") {
+            let mut fields = HashMap::new();
+            fields.insert("KindOf".to_string(), "INFANTRY".to_string());
+            template.parse_object_fields_from_ini(&fields);
+        }
+        let template = Arc::new(template);
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
+            .expect("owned test object")
+    }
+
+    fn rider(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+        let obj = owned_object(name, id, player_index);
+        let data = super::super::OpenContainModuleData {
+            contain_max: 1,
+            ..Default::default()
+        };
+        let contain = super::super::OpenContain::new(Arc::downgrade(&obj), &data)
+            .expect("rider slot contain");
+        obj.write()
+            .expect("rider write")
+            .set_contain(Some(Arc::new(Mutex::new(contain))));
+        obj
+    }
+
+    fn cleanup_objects(ids: &[ObjectID]) {
+        for id in ids {
+            OBJECT_REGISTRY.unregister_object(*id);
+        }
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    fn rider_change_for(owner: &Arc<RwLock<Object>>) -> RiderChangeContain {
+        let mut data = RiderChangeContainModuleData {
+            base: super::super::TransportContainModuleData {
+                slot_capacity: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        data.riders[0] = RiderInfo {
+            template_name: "BikeRiderOne".to_string(),
+            model_condition_flag: ModelConditionFlags::RIDER1,
+            weapon_set_flag: WeaponSetType::WeaponRider1,
+            object_status: ObjectStatusMaskType::RIDER1,
+            command_set: AsciiString::from("RiderOneCommandSet"),
+            locomotor_set: LocomotorSetType::Normal,
+        };
+        data.riders[1] = RiderInfo {
+            template_name: "BikeRiderTwo".to_string(),
+            model_condition_flag: ModelConditionFlags::RIDER2,
+            weapon_set_flag: WeaponSetType::WeaponRider2,
+            object_status: ObjectStatusMaskType::RIDER2,
+            command_set: AsciiString::from("RiderTwoCommandSet"),
+            locomotor_set: LocomotorSetType::Normal,
+        };
+        RiderChangeContain::new(Arc::downgrade(owner), &data).expect("rider change contain")
+    }
+
+    #[test]
+    fn valid_replacement_rider_ignores_capacity_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("CombatBike", 97001, 0);
+        let first = rider("BikeRiderOne", 97002, 0);
+        let second = rider("BikeRiderTwo", 97003, 0);
+        let mut contain = rider_change_for(&owner);
+
+        contain
+            .add_to_contain(first.clone(), false)
+            .expect("first rider enters");
+
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
+        assert_eq!(
+            ContainModuleInterface::friend_get_rider(&contain),
+            Some(97002)
+        );
+        assert_eq!(ContainerInterface::get_usage(&contain), (0, 0));
+        assert!(
+            contain.is_valid_container_for(&second.read().expect("second rider read"), true),
+            "C++ RiderChangeContain ignores capacity because the new rider replaces the old one"
+        );
+
+        cleanup_objects(&[97001, 97002, 97003]);
+    }
+
+    #[test]
+    fn replacement_rider_uses_rider_change_removal_hook_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("CombatBikeReplace", 97004, 0);
+        let first = rider("BikeRiderOne", 97005, 0);
+        let second = rider("BikeRiderTwo", 97006, 0);
+        let mut contain = rider_change_for(&owner);
+
+        contain
+            .add_to_contain(first.clone(), false)
+            .expect("first rider enters");
+        contain
+            .add_to_contain(second.clone(), false)
+            .expect("second rider replaces first");
+
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
+        assert_eq!(
+            first.read().expect("first rider read").get_contained_by(),
+            None
+        );
+        assert_eq!(
+            second.read().expect("second rider read").get_contained_by(),
+            Some(97004)
+        );
+        assert_eq!(
+            ContainModuleInterface::friend_get_rider(&contain),
+            Some(97006)
+        );
+
+        let owner_guard = owner.read().expect("owner read");
+        assert!(!owner_guard.test_status(ObjectStatusTypes::Rider1));
+        assert!(owner_guard.test_status(ObjectStatusTypes::Rider2));
+        assert!(!owner_guard.test_weapon_set_flag(WeaponSetType::WeaponRider1));
+        assert!(owner_guard.test_weapon_set_flag(WeaponSetType::WeaponRider2));
+        assert_eq!(owner_guard.get_command_set_string(), "RiderTwoCommandSet");
+
+        cleanup_objects(&[97004, 97005, 97006]);
     }
 }
 
@@ -368,6 +561,18 @@ impl RiderChangeContain {
         true
     }
 
+    pub fn friend_get_rider(&self) -> Option<Arc<RwLock<Object>>> {
+        self.base
+            .base
+            .get_contained_items_list()
+            .ok()
+            .and_then(|items| items.into_iter().next())
+    }
+
+    pub fn is_exit_busy(&self) -> bool {
+        false
+    }
+
     /// Transform riders to new type
     pub fn change_riders(&mut self, new_template: &str) -> GameResult<()> {
         // Implementation would transform contained units
@@ -376,6 +581,7 @@ impl RiderChangeContain {
     }
 
     pub fn is_valid_container_for(&self, rider: &Object, check_capacity: bool) -> bool {
+        let _ = check_capacity;
         if !self.base.is_valid_container_for(rider, false) {
             return false;
         }
@@ -384,18 +590,10 @@ impl RiderChangeContain {
             return false;
         }
 
+        let rider_template = rider.get_template();
         for rider_info in &self.module_data.riders {
-            if rider_info.template_name.is_empty() {
-                continue;
-            }
-
-            let Some(template) = TheThingFactory::find_template(rider_info.template_name.as_str())
-            else {
-                continue;
-            };
-
-            if template.is_equivalent_to(rider.get_template().as_ref()) {
-                return !check_capacity || self.base.is_valid_container_for(rider, true);
+            if rider_info_matches_template(rider_info, rider_template.as_ref()) {
+                return true;
             }
         }
 
@@ -434,10 +632,35 @@ impl RiderChangeContain {
         {
             let _ = pos;
             self.base.base.remove_from_contain_list(rider_id);
+            let should_add_to_world = rider
+                .read()
+                .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
+                .unwrap_or(false);
+            if should_add_to_world {
+                let _ = self
+                    .base
+                    .base
+                    .add_or_remove_obj_from_world(rider.clone(), true);
+                if let Some(owner) = self.object.upgrade() {
+                    if let (Ok(owner_guard), Ok(mut rider_guard)) = (owner.read(), rider.write()) {
+                        let _ = rider_guard.set_position(owner_guard.get_position());
+                        rider_guard.set_layer(owner_guard.get_layer());
+                    }
+                }
+            }
+            if expose_stealth_units {
+                if let Ok(rider_guard) = rider.read() {
+                    if let Some(stealth) = rider_guard.get_stealth() {
+                        if let Ok(mut stealth_guard) = stealth.lock() {
+                            stealth_guard.mark_as_detected();
+                        }
+                    }
+                }
+            }
+            self.base.base.do_unload_sound();
             self.on_removing(rider)?;
         }
 
-        let _ = expose_stealth_units;
         Ok(())
     }
 
@@ -453,7 +676,7 @@ impl RiderChangeContain {
             if Arc::ptr_eq(&existing, &rider) {
                 continue;
             }
-            let _ = self.base.remove_from_contain(existing, true);
+            let _ = self.remove_from_contain(existing, true);
         }
 
         let rider_template = rider
@@ -462,20 +685,18 @@ impl RiderChangeContain {
             .get_template()
             .clone();
 
+        let rider_tracker = rider_guard_experience(&rider);
+        let owner_tracker = self.object.upgrade().and_then(|owner| {
+            owner
+                .read()
+                .ok()
+                .and_then(|owner_guard| owner_guard.get_experience_tracker())
+        });
+
         if let Some(owner) = self.object.upgrade() {
             if let Ok(mut owner_guard) = owner.write() {
                 for rider_info in &self.module_data.riders {
-                    if rider_info.template_name.is_empty() {
-                        continue;
-                    }
-
-                    let Some(template) =
-                        TheThingFactory::find_template(rider_info.template_name.as_str())
-                    else {
-                        continue;
-                    };
-
-                    if template.is_equivalent_to(rider_template.as_ref()) {
+                    if rider_info_matches_template(rider_info, rider_template.as_ref()) {
                         owner_guard.set_model_condition_state(rider_info.model_condition_flag);
                         owner_guard.set_weapon_set_flag(rider_info.weapon_set_flag);
                         owner_guard.set_status(rider_info.object_status, true);
@@ -496,28 +717,13 @@ impl RiderChangeContain {
                             }
                         }
 
-                        if let (Some(rider_tracker), Some(owner_tracker)) = (
-                            rider_guard_experience(&rider),
-                            owner_guard.get_experience_tracker(),
-                        ) {
-                            if let (Ok(mut rider_tracker), Ok(mut owner_tracker)) =
-                                (rider_tracker.lock(), owner_tracker.lock())
-                            {
-                                owner_tracker
-                                    .set_veterancy_level(rider_tracker.get_veterancy_level());
-                                let _ = rider_tracker.set_experience_and_level(
-                                    0,
-                                    &crate::experience::ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                                );
-                            }
-                        }
-
                         break;
                     }
                 }
             }
         }
 
+        transfer_veterancy(rider_tracker, owner_tracker);
         self.base.on_containing(rider, was_selected)?;
         self.containing = false;
         Ok(())
@@ -541,42 +747,25 @@ impl RiderChangeContain {
             .map_err(|_| "Rider lock poisoned")?
             .get_template()
             .clone();
+        let rider_tracker = rider_guard_experience(&rider);
+        let owner_tracker = self.object.upgrade().and_then(|owner| {
+            owner
+                .read()
+                .ok()
+                .and_then(|owner_guard| owner_guard.get_experience_tracker())
+        });
+        let mut transfer_to_rider = false;
 
         if let Some(owner) = self.object.upgrade() {
             if let Ok(mut owner_guard) = owner.write() {
                 for rider_info in &self.module_data.riders {
-                    if rider_info.template_name.is_empty() {
-                        continue;
-                    }
-
-                    let Some(template) =
-                        TheThingFactory::find_template(rider_info.template_name.as_str())
-                    else {
-                        continue;
-                    };
-
-                    if template.is_equivalent_to(rider_template.as_ref()) {
+                    if rider_info_matches_template(rider_info, rider_template.as_ref()) {
                         let _ = owner_guard.clear_model_condition_flags(
                             rider_info.model_condition_flag | ModelConditionFlags::DOOR_1_CLOSING,
                         );
                         owner_guard.clear_weapon_set_flag(rider_info.weapon_set_flag);
                         owner_guard.set_status(rider_info.object_status, false);
-
-                        if let (Some(rider_tracker), Some(owner_tracker)) = (
-                            rider_guard_experience(&rider),
-                            owner_guard.get_experience_tracker(),
-                        ) {
-                            if let (Ok(mut rider_tracker), Ok(mut owner_tracker)) =
-                                (rider_tracker.lock(), owner_tracker.lock())
-                            {
-                                rider_tracker
-                                    .set_veterancy_level(owner_tracker.get_veterancy_level());
-                                let _ = owner_tracker.set_experience_and_level(
-                                    0,
-                                    &crate::experience::ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                                );
-                            }
-                        }
+                        transfer_to_rider = true;
 
                         break;
                     }
@@ -602,6 +791,10 @@ impl RiderChangeContain {
                     }
                 }
             }
+        }
+
+        if transfer_to_rider {
+            transfer_veterancy(owner_tracker, rider_tracker);
         }
 
         Ok(())
@@ -642,6 +835,23 @@ impl RiderChangeContain {
     /// Deserialize state for save/load
     pub fn load_state(&mut self, state: &HashMap<String, Vec<u8>>) -> GameResult<()> {
         self.base.load_state(state)
+    }
+}
+
+impl Snapshotable for RiderChangeContain {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(&self.base, xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        Snapshotable::xfer(&mut self.base, xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(&mut self.base)
     }
 }
 
@@ -764,6 +974,11 @@ impl ContainModuleInterface for RiderChangeContain {
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base.kill_all_contained().map_err(|e| e.into())
     }
+
+    fn friend_get_rider(&self) -> Option<ObjectID> {
+        self.friend_get_rider()
+            .and_then(|rider| rider.read().ok().map(|guard| guard.get_id()))
+    }
 }
 
 impl ContainerInterface for RiderChangeContain {
@@ -780,7 +995,7 @@ impl ContainerInterface for RiderChangeContain {
     }
 
     fn get_usage(&self) -> (u32, u32) {
-        self.base.get_usage()
+        (0, 0)
     }
 }
 
