@@ -7019,6 +7019,13 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn mark_as_dead(&mut self) {
         self.ai_dead = true;
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(unit_guard) = unit.read() {
+                if let Ok(mut object_guard) = unit_guard.base_object.write() {
+                    object_guard.set_effectively_dead(true);
+                }
+            }
+        }
     }
 
     fn set_is_recruitable(&mut self, recruitable: Bool) {
@@ -8290,6 +8297,36 @@ mod tests {
     fn test_turret_machine() -> TurretStateMachine {
         let turret_ai = Arc::new(Mutex::new(TurretAI::new(Weak::new())));
         TurretStateMachine::new(Some(turret_ai), Weak::new(), "TurretAI")
+    }
+
+    #[test]
+    fn mark_as_dead_sets_owner_effectively_dead_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
+        let template = DefaultThingTemplate::new("TestUnit".to_string());
+        let unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        ai.mark_as_dead();
+
+        assert!(ai.is_ai_in_dead_state());
+        assert!(base_object.read().unwrap().is_effectively_dead());
     }
 
     fn save_unit_ai_update(ai: &mut UnitAIUpdate) -> Vec<u8> {
