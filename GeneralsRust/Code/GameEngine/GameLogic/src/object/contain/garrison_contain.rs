@@ -1848,21 +1848,11 @@ impl GarrisonContain {
         };
 
         self.station_point_list.clear();
-        if !positions.is_empty() {
-            for pos in positions {
-                self.station_point_list.push(StationPointData {
-                    occupant_id: None,
-                    position: pos,
-                });
-            }
-        } else {
-            let base_pos = *owner.get_position();
-            for _ in 0..max_points {
-                self.station_point_list.push(StationPointData {
-                    occupant_id: None,
-                    position: base_pos,
-                });
-            }
+        for pos in positions {
+            self.station_point_list.push(StationPointData {
+                occupant_id: None,
+                position: pos,
+            });
         }
 
         let _ =
@@ -2742,6 +2732,7 @@ impl ContainerInterface for GarrisonContain {
 mod tests {
     use super::*;
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType, WeaponBonusConditionFlags};
+    use crate::object::drawable::{DrawableExt, DrawableType};
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::player::{Player, ThePlayerList};
     use game_engine::common::system::{XferBlockSize, XferStatus};
@@ -2947,6 +2938,40 @@ mod tests {
 
         assert!(!state.contains_key("station_garrison_points_initialized"));
         assert!(!state.contains_key("station_points"));
+    }
+
+    #[test]
+    fn load_station_garrison_points_leaves_empty_list_without_station_bones_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("StationlessGarrisonOwner", 96007, 0);
+        let drawable = Arc::new(RwLock::new(Drawable::new(
+            97007,
+            96007,
+            "StationlessGarrisonModel".to_string(),
+            DrawableType::Static,
+        )));
+        owner
+            .write()
+            .expect("owner write")
+            .set_drawable(Some(drawable));
+        let data = GarrisonContainModuleData {
+            is_enclosing_container: false,
+            ..Default::default()
+        };
+        let mut contain =
+            GarrisonContain::new(Arc::downgrade(&owner), &data).expect("garrison constructs");
+
+        contain
+            .load_station_garrison_points()
+            .expect("station point load succeeds");
+
+        assert!(contain.station_garrison_points_initialized);
+        assert!(
+            contain.station_point_list.is_empty(),
+            "C++ pushes only returned STATION bones and leaves the list empty when none exist"
+        );
+        cleanup_objects(&[96007]);
     }
 
     #[test]
