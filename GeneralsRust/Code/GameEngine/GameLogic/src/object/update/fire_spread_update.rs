@@ -2,6 +2,7 @@
 // Author: Graham Smallwood, April 2002
 // Ported to Rust
 
+use crate::common::types::PartitionManagerInterface;
 use crate::modules::FlammableUpdateExt;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::ObjectArcExt;
@@ -212,6 +213,62 @@ impl FireSpreadUpdate {
         UpdateSleepTime::Frames(self.calc_next_spread_delay())
     }
 
+    pub fn update_simple(&mut self) -> UpdateSleepTime {
+        let object_to_light = {
+            let Some(me_arc) = crate::object::OBJECT_REGISTRY.get_object(self.thing) else {
+                return UpdateSleepTime::Forever;
+            };
+            let Ok(me) = me_arc.read() else {
+                return UpdateSleepTime::Forever;
+            };
+
+            if !me.get_status_bits().test(ObjectStatus::Aflame) {
+                return UpdateSleepTime::Forever;
+            }
+
+            if let Some(ocl_key) = self.module_data.ocl_embers {
+                if let Some(ocl_name) = NameKeyGenerator::key_to_name(ocl_key as NameKeyType) {
+                    if let Some(ocl) =
+                        crate::helpers::TheObjectCreationListStore::find_object_creation_list(
+                            &ocl_name,
+                        )
+                    {
+                        let ctx = crate::object_creation_list::live_creation_context();
+                        let pos = *me.get_position();
+                        let _ = ocl.create_with_angle(
+                            &ctx,
+                            Some(&me),
+                            &pos,
+                            &pos,
+                            me.get_orientation(),
+                            0,
+                        );
+                    }
+                }
+            }
+
+            if self.module_data.spread_try_range != 0.0 {
+                let partition = crate::helpers::ThePartitionManagerBridge;
+                partition.get_closest_object(
+                    &me,
+                    self.module_data.spread_try_range,
+                    PartitionDistanceType::Center3D,
+                    &[PartitionFilter::Flammable],
+                )
+            } else {
+                None
+            }
+        };
+
+        if let Some(object_to_light) = object_to_light {
+            if let Some(flammable) = object_to_light.find_flammable_update() {
+                flammable.try_to_ignite_without_context();
+            }
+        }
+
+        UpdateSleepTime::Frames(self.calc_next_spread_delay())
+    }
+
     /// Start fire spreading behavior
     /// Matches C++ FireSpreadUpdate.cpp:139-145
     pub fn start_fire_spreading(&mut self, ctx: &mut UpdateContext<'_>) {
@@ -356,6 +413,20 @@ impl Module for FireSpreadUpdateModule {
 impl FireSpreadControlInterface for FireSpreadUpdateModule {
     fn wake_delay_if_aflame(&mut self, is_aflame: bool) -> Option<u32> {
         self.behavior.wake_delay_if_aflame(is_aflame)
+    }
+}
+
+trait FlammableUpdateGlobalExt {
+    fn try_to_ignite_without_context(&self);
+}
+
+impl FlammableUpdateGlobalExt
+    for Arc<std::sync::Mutex<dyn crate::modules::BehaviorModuleInterface>>
+{
+    fn try_to_ignite_without_context(&self) {
+        if let Ok(mut guard) = self.lock() {
+            guard.try_to_ignite_flammable();
+        }
     }
 }
 
