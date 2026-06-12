@@ -304,6 +304,25 @@ impl SalvageCrateCollide {
         }
         Ok(())
     }
+
+    fn record_salvage_collected(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
+        let owner = {
+            let guard = other
+                .read()
+                .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
+            guard.get_controlling_player()
+        };
+
+        let Some(player_arc) = owner else {
+            return Ok(());
+        };
+
+        let mut player = player_arc
+            .write()
+            .map_err(|_| CollisionError::InvalidObject("player lock poisoned".into()))?;
+        player.get_academy_stats_mut().record_salvage_collected();
+        Ok(())
+    }
 }
 
 impl CrateCollideBehavior for SalvageCrateCollide {
@@ -327,6 +346,8 @@ impl CrateCollideBehavior for SalvageCrateCollide {
                 self.do_money(&handle)?;
             }
         }
+
+        self.record_salvage_collected(&handle)?;
 
         Ok(true)
     }
@@ -385,6 +406,58 @@ enum SalvageType {
     WeaponSet,
     Level,
     Money,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::player::{player_list, Player};
+    use crate::team::Team;
+
+    #[test]
+    fn successful_salvage_records_academy_stat_like_cpp() {
+        player_list().write().expect("player list write").clear();
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        player_list()
+            .write()
+            .expect("player list write")
+            .add_player(Arc::clone(&player));
+
+        let team = Arc::new(RwLock::new(Team::new("SalvageCollectorTeam".into(), 991)));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(0));
+
+        let collector = Arc::new(RwLock::new(Object::new_test(991, 100.0)));
+        collector
+            .write()
+            .expect("collector write")
+            .set_team(Some(team))
+            .expect("collector team set");
+
+        let data = SalvageCrateCollideModuleData {
+            minimum_money: 0,
+            maximum_money: 0,
+            ..Default::default()
+        };
+        let mut module = SalvageCrateCollide::new(1001, data);
+
+        assert!(module
+            .execute_crate_behavior(&collector)
+            .expect("salvage executes"));
+
+        assert_eq!(
+            player
+                .read()
+                .expect("player read")
+                .get_academy_stats()
+                .get_salvage_collected(),
+            1
+        );
+
+        player_list().write().expect("player list write").clear();
+    }
 }
 
 impl game_engine::common::system::Snapshotable for SalvageCrateCollide {
