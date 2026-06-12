@@ -52,6 +52,49 @@ use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
+fn selection_any_local_object_can_target<F>(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
+    mut can_do: F,
+) -> bool
+where
+    F: FnMut(&gamelogic::object::Object, &gamelogic::object::Object) -> bool,
+{
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if can_do(&sel_guard, &target_guard) {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn selection_can_enter_target(
     local_player: Option<u32>,
     selection: &HashSet<ObjectID>,
@@ -142,82 +185,184 @@ fn selection_can_repair_target(
 }
 
 fn selection_can_get_repaired_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        ActionManager::can_get_repaired_at(selected, target, CommandSourceType::FromPlayer)
+    })
 }
 
 fn selection_can_get_healed_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        if !ActionManager::can_get_healed_at(selected, target, CommandSourceType::FromPlayer) {
+            return false;
+        }
+
+        if let Some(contain) = target.get_contain() {
+            if let Ok(contain_guard) = contain.lock() {
+                if contain_guard.is_heal_contain() {
+                    return false;
+                }
+            }
+        }
+
+        true
+    })
 }
 
 fn selection_can_hijack_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        ActionManager::can_hijack_vehicle(selected, target, CommandSourceType::FromPlayer)
+    })
 }
 
 fn selection_can_sabotage_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        ActionManager::can_sabotage_building(selected, target, CommandSourceType::FromPlayer)
+    })
 }
 
 fn selection_can_capture_building_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        ActionManager::can_capture_building(selected, target, CommandSourceType::FromPlayer)
+    })
 }
 
 fn selection_can_disable_vehicle_hack_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        ActionManager::can_disable_vehicle_via_hacking(
+            selected,
+            target,
+            CommandSourceType::FromPlayer,
+            true,
+        )
+    })
 }
 
 fn selection_can_steal_cash_hack_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        ActionManager::can_steal_cash_via_hacking(selected, target, CommandSourceType::FromPlayer)
+    })
 }
 
 fn selection_can_disable_building_hack_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        ActionManager::can_disable_building_via_hacking(
+            selected,
+            target,
+            CommandSourceType::FromPlayer,
+        )
+    })
 }
 
 fn selection_can_pickup_crate_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> Option<Coord3D> {
+    let target = OBJECT_REGISTRY.get_object(target_id)?;
+    let target_guard = target.read().ok()?;
+    if !target_guard.is_kind_of(KindOf::Crate)
+        || target_guard.is_salvage_crate()
+        || target_guard.is_effectively_dead()
+    {
+        return None;
+    }
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if sel_guard.is_mobile() {
+            let pos = target_guard.get_position();
+            return Some(Coord3D::new(pos.x, pos.y, pos.z));
+        }
+    }
+
     None
 }
 
 fn selection_can_salvage_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> Option<Coord3D> {
+    let target = OBJECT_REGISTRY.get_object(target_id)?;
+    let target_guard = target.read().ok()?;
+    if !target_guard.is_salvage_crate() {
+        return None;
+    }
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if sel_guard.is_kind_of(KindOf::Salvager) {
+            let pos = target_guard.get_position();
+            return Some(Coord3D::new(pos.x, pos.y, pos.z));
+        }
+    }
+
     None
 }
 
@@ -265,19 +410,27 @@ fn selection_can_resume_construction_target(
 }
 
 fn selection_can_dock_at_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        ActionManager::can_dock_at(selected, target, CommandSourceType::FromPlayer)
+    })
 }
 
 fn selection_can_convert_to_carbomb_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |selected, target| {
+        ActionManager::can_convert_object_to_car_bomb(
+            selected,
+            target,
+            CommandSourceType::FromPlayer,
+        )
+    })
 }
 
 fn selection_can_attack_target(
@@ -4289,6 +4442,52 @@ mod tests {
         drop(dozer);
         OBJECT_REGISTRY.unregister_object(78_050);
         OBJECT_REGISTRY.unregister_object(78_051);
+    }
+
+    #[test]
+    fn command_context_pickup_crate_returns_target_position_for_local_mobile_selection() {
+        let _guard = test_state_lock();
+        let team = setup_local_player_team();
+        let unit = register_test_object(
+            78_060,
+            vec![KindOf::Selectable, KindOf::Infantry],
+            team.clone(),
+        );
+        let crate_obj = register_test_object(78_061, vec![KindOf::Crate], team);
+        set_test_object_position(&crate_obj, 11.0, 22.0, 3.0);
+
+        let selection = HashSet::from([78_060]);
+        let dest = selection_can_pickup_crate_target(Some(0), &selection, 78_061)
+            .expect("local mobile infantry should move to ordinary crate");
+
+        assert_eq!(dest, Coord3D::new(11.0, 22.0, 3.0));
+        assert!(selection_can_pickup_crate_target(Some(1), &selection, 78_061).is_none());
+
+        drop(crate_obj);
+        drop(unit);
+        OBJECT_REGISTRY.unregister_object(78_060);
+        OBJECT_REGISTRY.unregister_object(78_061);
+    }
+
+    #[test]
+    fn command_context_salvage_rejects_non_salvage_crates_like_cpp() {
+        let _guard = test_state_lock();
+        let team = setup_local_player_team();
+        let salvager = register_test_object(
+            78_070,
+            vec![KindOf::Selectable, KindOf::Salvager],
+            team.clone(),
+        );
+        let ordinary_crate = register_test_object(78_071, vec![KindOf::Crate], team);
+
+        let selection = HashSet::from([78_070]);
+
+        assert!(selection_can_salvage_target(Some(0), &selection, 78_071).is_none());
+
+        drop(ordinary_crate);
+        drop(salvager);
+        OBJECT_REGISTRY.unregister_object(78_070);
+        OBJECT_REGISTRY.unregister_object(78_071);
     }
 
     #[test]
