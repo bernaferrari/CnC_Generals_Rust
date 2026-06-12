@@ -169,11 +169,7 @@ impl MoneyCrateCollide {
         let base_money = self.module_data.money_provided;
         let (upgrade_bonus, contributing_upgrades) = self.get_upgraded_supply_boost(other)?;
 
-        let total_money = if upgrade_bonus < 0 {
-            base_money.saturating_sub((-upgrade_bonus) as u32)
-        } else {
-            base_money.saturating_add(upgrade_bonus as u32)
-        };
+        let total_money = Self::apply_money_boost(base_money, upgrade_bonus);
 
         // Deposit money to player's account
         self.deposit_money_to_player(player_id, total_money)?;
@@ -206,18 +202,28 @@ impl MoneyCrateCollide {
         other: &dyn GameObject,
     ) -> Result<(i32, Vec<String>), CollisionError> {
         let player_id = other.get_controlling_player();
-        let mut total_boost = 0i32;
-        let mut contributing_upgrades = Vec::new();
+        self.get_upgraded_supply_boost_for_player(player_id)
+    }
 
-        // Loop through upgrade pairs and check if player has them
+    fn get_upgraded_supply_boost_for_player(
+        &self,
+        player_id: PlayerId,
+    ) -> Result<(i32, Vec<String>), CollisionError> {
         for upgrade_pair in &self.module_data.upgrade_boosts {
             if self.player_has_upgrade(player_id, &upgrade_pair.upgrade_type)? {
-                total_boost += upgrade_pair.amount;
-                contributing_upgrades.push(upgrade_pair.upgrade_type.clone());
+                return Ok((upgrade_pair.amount, vec![upgrade_pair.upgrade_type.clone()]));
             }
         }
 
-        Ok((total_boost, contributing_upgrades))
+        Ok((0, Vec::new()))
+    }
+
+    fn apply_money_boost(base_money: u32, boost: i32) -> u32 {
+        if boost < 0 {
+            base_money.saturating_sub((-boost) as u32)
+        } else {
+            base_money.saturating_add(boost as u32)
+        }
     }
 
     /// Get the last collection statistics
@@ -252,22 +258,8 @@ impl MoneyCrateCollide {
         player_id: PlayerId,
     ) -> Result<u32, CollisionError> {
         let base_money = self.module_data.money_provided;
-        let mut total_boost = 0i32;
-
-        // Calculate upgrade bonuses
-        for upgrade_pair in &self.module_data.upgrade_boosts {
-            if self.player_has_upgrade(player_id, &upgrade_pair.upgrade_type)? {
-                total_boost += upgrade_pair.amount;
-            }
-        }
-
-        let total_money = if total_boost < 0 {
-            base_money.saturating_sub((-total_boost) as u32)
-        } else {
-            base_money.saturating_add(total_boost as u32)
-        };
-
-        Ok(total_money)
+        let (boost, _) = self.get_upgraded_supply_boost_for_player(player_id)?;
+        Ok(Self::apply_money_boost(base_money, boost))
     }
 
     // Helper methods that would interface with the game engine
@@ -459,6 +451,8 @@ impl MoneyCrateCollideFactory {
 mod tests {
     use super::*;
     use crate::object::Object;
+    use crate::player::{player_list, Player, PlayerArcExt};
+    use crate::upgrade::{center::with_upgrade_center_mut, UpgradeStatus};
     use std::sync::RwLock;
 
     #[test]
@@ -469,6 +463,60 @@ mod tests {
 
         assert_eq!(event.object_id, 12_345);
         assert!(event.position.is_none());
+    }
+
+    #[test]
+    fn completed_boost_selection_stops_at_first_match_like_cpp() {
+        let first_upgrade = "MoneyCrateFirstMatchBoost";
+        let second_upgrade = "MoneyCrateSecondMatchBoost";
+        let (first_template, second_template) = with_upgrade_center_mut(|center| {
+            (
+                center.new_upgrade(first_upgrade.into()),
+                center.new_upgrade(second_upgrade.into()),
+            )
+        });
+
+        let crate_module = MoneyCrateCollideFactory::create_with_upgrades(
+            1,
+            200,
+            vec![
+                UpgradePair::new(first_upgrade.to_string(), 25),
+                UpgradePair::new(second_upgrade.to_string(), 50),
+            ],
+        );
+
+        {
+            let player = Arc::new(RwLock::new(Player::new(0)));
+            player.add_upgrade(&first_template, UpgradeStatus::Complete);
+            player.add_upgrade(&second_template, UpgradeStatus::Complete);
+
+            let mut players = player_list().write().expect("player list write");
+            players.clear();
+            players.add_player(player);
+        }
+
+        assert_eq!(
+            crate_module
+                .calculate_total_money_for_player(PlayerId(0))
+                .expect("money calculates"),
+            225
+        );
+
+        {
+            let player = Arc::new(RwLock::new(Player::new(0)));
+            player.add_upgrade(&second_template, UpgradeStatus::Complete);
+
+            let mut players = player_list().write().expect("player list write");
+            players.clear();
+            players.add_player(player);
+        }
+
+        assert_eq!(
+            crate_module
+                .calculate_total_money_for_player(PlayerId(0))
+                .expect("money calculates"),
+            250
+        );
     }
 }
 
