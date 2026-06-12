@@ -2181,6 +2181,22 @@ mod tests {
     }
 
     #[test]
+    fn shutdown_with_immediate_userdata_completes_without_animation_like_cpp() {
+        let mut menu = MainMenu::new();
+        {
+            let mut state = menu.state.write().unwrap_or_else(|e| e.into_inner());
+            state.is_shutting_down = true;
+            state.start_game = false;
+        }
+
+        let pop_immediate = true;
+        menu.shutdown(&(), Some(&pop_immediate)).unwrap();
+
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        assert!(!state.is_shutting_down);
+    }
+
+    #[test]
     fn test_dropdown_type_conversion() {
         assert_eq!(DropdownType::from_i32(0), Some(DropdownType::None));
         assert_eq!(DropdownType::from_i32(1), Some(DropdownType::Single));
