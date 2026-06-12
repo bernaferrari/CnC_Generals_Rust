@@ -3953,6 +3953,27 @@ impl UnitAIUpdate {
             .and_then(|unit| unit.read().ok().map(|guard| guard.path_extra_distance))
             .unwrap_or(0.0)
     }
+
+    fn finish_completed_movement_like_cpp(&mut self) {
+        if !self.movement_complete {
+            return;
+        }
+
+        self.set_queue_for_path_time(0);
+        self.destroy_path();
+        self.set_locomotor_goal_none();
+
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(guard) = unit.read() {
+                if let Ok(mut object) = guard.base_object.write() {
+                    object.clear_model_condition_state(ModelConditionFlags::MOVING);
+                }
+            }
+        }
+
+        self.movement_complete = false;
+        self.ignore_obstacle_id = INVALID_ID;
+    }
 }
 
 impl AIUpdateInterface for UnitAIUpdate {
@@ -4282,6 +4303,8 @@ impl AIUpdateInterface for UnitAIUpdate {
                 let _ = machine.update_state_machine();
             }
         }
+
+        self.finish_completed_movement_like_cpp();
 
         let now = TheGameLogic::get_frame();
         if self.waiting_for_path
@@ -9176,6 +9199,57 @@ mod tests {
             .current_locomotor
             .as_ref()
             .is_some_and(|current| Arc::ptr_eq(current, &locomotor)));
+    }
+
+    #[test]
+    fn update_consumes_completed_movement_cleanup_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(60, 100.0)));
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        unit.current_path = Some(vec![Coord2D::new(1.0, 1.0), Coord2D::new(2.0, 2.0)]);
+        unit.target_position = Some(Coord3D::new(2.0, 2.0, 0.0));
+        unit.movement_state = MovementState::Moving;
+        let unit = Arc::new(RwLock::new(unit));
+
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        ai.set_current_path_snapshot_from_coords(&[
+            Coord3D::new(1.0, 1.0, 0.0),
+            Coord3D::new(2.0, 2.0, 0.0),
+        ]);
+        ai.movement_complete = true;
+        ai.queue_for_path_frame = TheGameLogic::get_frame().saturating_add(20);
+        ai.ignore_obstacle_id = 1234;
+        ai.locomotor_goal_type = 2;
+        ai.locomotor_goal_data = Coord3D::new(2.0, 2.0, 0.0);
+
+        ai.update().unwrap();
+
+        assert!(!ai.movement_complete);
+        assert_eq!(ai.queue_for_path_frame, 0);
+        assert_eq!(ai.ignore_obstacle_id, INVALID_ID);
+        assert_eq!(ai.locomotor_goal_type, 0);
+        assert_eq!(ai.locomotor_goal_data, Coord3D::ZERO);
+        assert!(ai.current_path_snapshot.is_none());
+
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.current_path.is_none());
+        assert_eq!(unit_guard.movement_state, MovementState::Idle);
     }
 
     #[test]
