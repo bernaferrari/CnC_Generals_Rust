@@ -1112,10 +1112,6 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::isPathAvailable – checks if a path exists
     /// between current position and destination.
     pub fn is_path_available(&self, destination: Coord3D) -> bool {
-        // PARITY_TODO: delegate to pathfinder->clientSafeQuickDoesPathExist once
-        // the pathfinder bridge is ported. Until then, answer against the same
-        // information compute_path can actually use instead of treating any
-        // unrelated current path as proof that this destination is reachable.
         if let Some(path) = self.path.as_ref() {
             if let Some(close_node) = path.last() {
                 let dx = destination.x - close_node.x;
@@ -1126,7 +1122,24 @@ impl AIUpdateInterface {
                 }
             }
         }
-        self.final_position != Coord3D::ZERO && destination != Coord3D::ZERO
+        if self.final_position == Coord3D::ZERO || destination == Coord3D::ZERO {
+            return false;
+        }
+
+        let surfaces = self.current_locomotor_set_surfaces();
+        if surfaces == 0 {
+            return false;
+        }
+
+        let Some(pathfinder) = crate::ai::THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
+            return false;
+        };
+        let Ok(pathfinder) = pathfinder.read() else {
+            return false;
+        };
+        pathfinder
+            .find_path(&self.final_position, &destination, surfaces, false)
+            .is_some()
     }
 
     /// C++ AIUpdateInterface::canComputeQuickPath – airborne units can skip
@@ -2127,7 +2140,13 @@ mod tests {
         assert!(!ai.is_path_available(Coord3D::new(99.0, 99.0, 0.0)));
 
         ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
+        assert!(!ai.is_path_available(Coord3D::new(99.0, 99.0, 0.0)));
+
+        let mut ai = ai_update_with_locomotors();
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
+        ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
         assert!(ai.is_path_available(Coord3D::new(99.0, 99.0, 0.0)));
+        assert!(!ai.is_path_available(Coord3D::new(20_000.0, 20_000.0, 0.0)));
     }
 
     #[test]
