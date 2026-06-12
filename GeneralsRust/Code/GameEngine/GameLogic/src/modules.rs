@@ -490,6 +490,14 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         self.contain_object(object_id).map_err(|err| err.into())
     }
 
+    /// Add object to the literal contain list without full enter callbacks.
+    fn add_to_contain_list(
+        &mut self,
+        obj: &Object,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.add_to_contain(obj)
+    }
+
     /// Enable or disable load sounds for this container
     fn enable_load_sounds(
         &mut self,

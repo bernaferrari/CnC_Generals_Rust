@@ -22,6 +22,7 @@ use crate::modules::{
 use crate::object::{Object, ObjectId};
 use crate::player::Player;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Configuration data for OverlordContain module
 /// Matches C++ OverlordContainModuleData (OverlordContain.h:20-33)
@@ -109,8 +110,6 @@ pub struct OverlordContain {
     module_data: OverlordContainModuleData,
     /// Whether redirection to bunker is currently active
     redirection_activated: bool,
-    /// Whether payload has been created
-    payload_created: bool,
 }
 
 impl OverlordContain {
@@ -127,7 +126,6 @@ impl OverlordContain {
             object,
             module_data: module_data.clone(),
             redirection_activated: false,
-            payload_created: false,
         })
     }
 
@@ -426,7 +424,7 @@ impl OverlordContain {
         if let Some(redirected) = self.get_redirected_contain() {
             if let Ok(mut guard) = redirected.lock() {
                 if let Ok(obj_guard) = obj.read() {
-                    let _ = guard.add_to_contain(&*obj_guard);
+                    guard.add_to_contain_list(&*obj_guard)?;
                 }
             }
             return Ok(());
@@ -458,7 +456,9 @@ impl OverlordContain {
         if let Some(redirected) = self.get_redirected_contain() {
             if let Ok(mut guard) = redirected.lock() {
                 if let Ok(obj_guard) = obj.read() {
-                    let _ = guard.release_object(obj_guard.get_id());
+                    guard.release_object(obj_guard.get_id()).map_err(
+                        |e: String| -> Box<dyn std::error::Error + Send + Sync> { e.into() },
+                    )?;
                 }
             }
             return Ok(());
@@ -615,7 +615,7 @@ impl OverlordContain {
     /// Create initial payload.
     /// Matches C++ OverlordContain::createPayload (OverlordContain.cpp:95-136)
     pub fn create_payload(&mut self) -> GameResult<()> {
-        if self.payload_created {
+        if self.base.is_payload_created() {
             return Ok(());
         }
 
@@ -656,7 +656,7 @@ impl OverlordContain {
             }
         }
 
-        self.payload_created = true;
+        self.base.set_payload_created(true);
         Ok(())
     }
 
@@ -734,7 +734,7 @@ impl OverlordContain {
     /// Update method called once per frame.
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
         // Create payload if not already created
-        if !self.payload_created {
+        if !self.base.is_payload_created() {
             self.create_payload()?;
         }
 
@@ -749,11 +749,6 @@ impl OverlordContain {
             "redirection_activated".to_string(),
             vec![if self.redirection_activated { 1 } else { 0 }],
         );
-        state.insert(
-            "payload_created".to_string(),
-            vec![if self.payload_created { 1 } else { 0 }],
-        );
-
         Ok(state)
     }
 
@@ -765,15 +760,32 @@ impl OverlordContain {
             self.redirection_activated = data.get(0).copied().unwrap_or(0) != 0;
         }
 
-        if let Some(data) = state.get("payload_created") {
-            self.payload_created = data.get(0).copied().unwrap_or(0) != 0;
-        }
-
         Ok(())
     }
     /// Post-process after loading
     pub fn load_post_process(&mut self) -> GameResult<()> {
         self.base.load_post_process()
+    }
+}
+
+impl Snapshotable for OverlordContain {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(&self.base, xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+
+        Snapshotable::xfer(&mut self.base, xfer)?;
+        xfer.xfer_bool(&mut self.redirection_activated)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(&mut self.base)
     }
 }
 
@@ -822,6 +834,18 @@ impl ContainModuleInterface for OverlordContain {
         }
     }
 
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
+    }
+
     fn on_owner_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         OverlordContain::on_object_created(self).map_err(|e| e.into())
     }
@@ -863,6 +887,16 @@ impl ContainModuleInterface for OverlordContain {
         obj: &Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.contain_object(obj.get_id()).map_err(|e| e.into())
+    }
+
+    fn add_to_contain_list(
+        &mut self,
+        obj: &Object,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let object_id = obj.get_id();
+        let obj = TheGameLogic::find_object_by_id(object_id)
+            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
+        OverlordContain::add_to_contain_list(self, obj).map_err(|e| e.into())
     }
 
     fn enable_load_sounds(
@@ -976,29 +1010,11 @@ impl ContainerInterface for OverlordContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        if let Some(redirected) = self.get_redirected_contain() {
-            if let (Ok(obj_guard), Ok(mut guard)) = (obj.read(), redirected.lock()) {
-                guard.add_to_contain(&*obj_guard)?;
-            }
-        } else {
-            self.base.base.add_to_contain(obj.clone())?;
-            self.on_containing(obj, false)?;
-        }
-        Ok(())
+        self.add_to_contain(obj)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        if let Some(redirected) = self.get_redirected_contain() {
-            if let (Ok(obj_guard), Ok(mut guard)) = (obj.read(), redirected.lock()) {
-                guard.release_object(obj_guard.get_id()).map_err(
-                    |e: String| -> Box<dyn std::error::Error + Send + Sync> { e.into() },
-                )?;
-            }
-        } else {
-            self.base.base.remove_from_contain(obj.clone(), false)?;
-            self.on_removing(obj)?;
-        }
-        Ok(())
+        self.remove_from_contain(obj, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {
@@ -1015,6 +1031,81 @@ impl ContainerInterface for OverlordContain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::{XferBlockSize, XferMode, XferStatus};
+    use std::io;
+
+    struct RecordingXfer {
+        bytes: Vec<u8>,
+    }
+
+    impl RecordingXfer {
+        fn new() -> Self {
+            Self { bytes: Vec::new() }
+        }
+    }
+
+    impl Xfer for RecordingXfer {
+        fn get_xfer_mode(&self) -> XferMode {
+            XferMode::Save
+        }
+
+        fn get_identifier(&self) -> &str {
+            "overlord-contain-test"
+        }
+
+        fn set_options(&mut self, _options: u32) {}
+
+        fn clear_options(&mut self, _options: u32) {}
+
+        fn get_options(&self) -> u32 {
+            0
+        }
+
+        fn open(&mut self, _identifier: &str) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+            Ok(0)
+        }
+
+        fn end_block(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn skip(&mut self, _data_size: i32) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_snapshot(
+            &mut self,
+            _snapshot: &mut game_engine::system::Snapshot,
+        ) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_ascii_string(&mut self, _ascii_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn xfer_unicode_string(&mut self, _unicode_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        unsafe fn xfer_implementation(
+            &mut self,
+            data: *mut u8,
+            data_size: usize,
+        ) -> io::Result<()> {
+            let bytes = unsafe { std::slice::from_raw_parts(data, data_size) };
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
 
     #[test]
     fn test_overlord_module_data_defaults() {
@@ -1028,5 +1119,39 @@ mod tests {
         // Would require mock object setup
         // let overlord = OverlordContain::new(...).unwrap();
         // assert!(overlord.is_special_overlord_style_container());
+    }
+
+    #[test]
+    fn overlord_payload_created_uses_inherited_transport_state_like_cpp() {
+        let mut contain = OverlordContain::new(Weak::new(), &OverlordContainModuleData::default())
+            .expect("overlord contain constructs");
+        contain.base.set_payload_created(true);
+
+        let state = contain.save_state().expect("overlord saves state");
+
+        assert_eq!(state.get("payload_created"), Some(&vec![1]));
+        assert_eq!(state.get("redirection_activated"), Some(&vec![0]));
+    }
+
+    #[test]
+    fn xfer_writes_transport_state_before_overlord_redirection_like_cpp() {
+        let mut contain = OverlordContain::new(Weak::new(), &OverlordContainModuleData::default())
+            .expect("overlord contain constructs");
+        contain.base.set_payload_created(true);
+        contain.redirection_activated = true;
+
+        let mut xfer = RecordingXfer::new();
+        Snapshotable::xfer(&mut contain, &mut xfer).expect("overlord xfer succeeds");
+
+        assert_eq!(xfer.bytes[0], 1, "OverlordContain xfer version");
+        assert_eq!(xfer.bytes[1], 1, "delegated TransportContain xfer version");
+        let redirection_bytes: [u8; 4] = xfer.bytes[xfer.bytes.len() - 4..]
+            .try_into()
+            .expect("redirection bool bytes");
+        assert_eq!(
+            u32::from_le_bytes(redirection_bytes),
+            1,
+            "C++ xfers m_redirectionActivated after TransportContain state"
+        );
     }
 }
