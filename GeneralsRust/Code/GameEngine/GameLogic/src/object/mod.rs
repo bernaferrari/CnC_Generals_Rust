@@ -3356,7 +3356,7 @@ impl Object {
         local_player_guard.is_enemy_with_team(&team_guard)
     }
 
-    fn refresh_radar_object_from_state(&self) {
+    pub(crate) fn refresh_radar_object_from_state(&self) {
         let Some(radar_data) = &self.radar_data else {
             return;
         };
