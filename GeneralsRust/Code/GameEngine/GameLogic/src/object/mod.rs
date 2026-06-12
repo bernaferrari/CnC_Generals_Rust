@@ -13009,7 +13009,9 @@ impl ObjectArcExt for Arc<rhai::Locked<Object>> {
             if let Ok(module_guard) = module.try_lock() {
                 if module_guard
                     .as_any()
-                    .is::<crate::object::behavior::flammable_update::FlammableUpdate>()
+                    .downcast_ref::<crate::object::behavior::flammable_update::FlammableUpdate>()
+                    .map(|flammable| flammable.would_ignite())
+                    .unwrap_or(false)
                 {
                     return Some(Arc::clone(&module));
                 }
@@ -13136,6 +13138,40 @@ mod tests {
             ModuleUpdateProxy::dispatch_update(&mut module),
             Some(UpdateSleepTime::Forever)
         ));
+    }
+
+    #[test]
+    fn find_flammable_update_requires_currently_ignitable_module() {
+        let normal_object = Arc::new(RwLock::new(Object::new_test(9103, 100.0)));
+        let normal_data = Arc::new(
+            crate::object::behavior::flammable_update::FlammableUpdateModuleData::default(),
+        );
+        let normal_flammable = crate::object::behavior::flammable_update::FlammableUpdate::new(
+            Arc::clone(&normal_object),
+            normal_data,
+        )
+        .expect("flammable module");
+        let normal_module: Arc<Mutex<dyn BehaviorModuleInterface>> =
+            Arc::new(Mutex::new(normal_flammable));
+        normal_object.write().unwrap().behaviors.push(normal_module);
+
+        assert!(normal_object.find_flammable_update().is_some());
+
+        let aflame_object = Arc::new(RwLock::new(Object::new_test(9104, 100.0)));
+        let aflame_data = Arc::new(
+            crate::object::behavior::flammable_update::FlammableUpdateModuleData::default(),
+        );
+        let mut aflame_flammable = crate::object::behavior::flammable_update::FlammableUpdate::new(
+            Arc::clone(&aflame_object),
+            aflame_data,
+        )
+        .expect("flammable module");
+        aflame_flammable.try_to_ignite();
+        let aflame_module: Arc<Mutex<dyn BehaviorModuleInterface>> =
+            Arc::new(Mutex::new(aflame_flammable));
+        aflame_object.write().unwrap().behaviors.push(aflame_module);
+
+        assert!(aflame_object.find_flammable_update().is_none());
     }
 
     #[test]
