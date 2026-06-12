@@ -190,6 +190,95 @@ pub fn gadget_list_box_get_column_width(listbox: &GameWindow, column: i32) -> i3
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn gadget_list_box_set_colors(
+    listbox: &mut GameWindow,
+    enabled_color: Color,
+    enabled_border_color: Color,
+    enabled_selected_item_color: Color,
+    enabled_selected_item_border_color: Color,
+    disabled_color: Color,
+    disabled_border_color: Color,
+    disabled_selected_item_color: Color,
+    disabled_selected_item_border_color: Color,
+    hilite_color: Color,
+    hilite_border_color: Color,
+    hilite_selected_item_color: Color,
+    hilite_selected_item_border_color: Color,
+) {
+    let _ = listbox.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+    let _ = listbox.set_enabled_draw_colors(
+        1,
+        enabled_selected_item_color,
+        enabled_selected_item_border_color,
+    );
+    let _ = listbox.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+    let _ = listbox.set_disabled_draw_colors(
+        1,
+        disabled_selected_item_color,
+        disabled_selected_item_border_color,
+    );
+    let _ = listbox.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+    let _ = listbox.set_hilite_draw_colors(
+        1,
+        hilite_selected_item_color,
+        hilite_selected_item_border_color,
+    );
+
+    let Some(links) = listbox.listbox_links else {
+        return;
+    };
+    let Some(slider) = listbox.find_child_by_id(links.slider) else {
+        return;
+    };
+    {
+        let mut slider = slider.borrow_mut();
+        let _ = slider.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+        let _ = slider.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+        let _ = slider.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+    }
+
+    let thumb_selected = links
+        .thumb
+        .and_then(|thumb_id| listbox.find_child_by_id(thumb_id));
+    let enabled_selected = thumb_selected
+        .as_ref()
+        .and_then(|thumb| thumb.borrow().get_enabled_draw_data(1))
+        .unwrap_or_default();
+    let disabled_selected = thumb_selected
+        .as_ref()
+        .and_then(|thumb| thumb.borrow().get_disabled_draw_data(1))
+        .unwrap_or_default();
+    let hilite_selected = thumb_selected
+        .as_ref()
+        .and_then(|thumb| thumb.borrow().get_hilite_draw_data(1))
+        .unwrap_or_default();
+
+    for button_id in [links.up_button, links.down_button] {
+        if let Some(button) = listbox.find_child_by_id(button_id) {
+            let mut button = button.borrow_mut();
+            let _ = button.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+            let _ = button.set_enabled_draw_colors(
+                1,
+                enabled_selected.color,
+                enabled_selected.border_color,
+            );
+            let _ = button.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+            let _ = button.set_disabled_draw_colors(
+                1,
+                disabled_selected.color,
+                disabled_selected.border_color,
+            );
+            let _ = button.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+            let _ = button.set_hilite_draw_colors(
+                1,
+                hilite_selected.color,
+                hilite_selected.border_color,
+            );
+        }
+    }
+}
+
 bitflags! {
     /// Window status flags
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -1325,6 +1414,14 @@ impl GameWindow {
         Some(self.inst_data.disabled_draw_data[index].clone())
     }
 
+    /// Get hilite draw data for the specified index.
+    pub fn get_hilite_draw_data(&self, index: usize) -> Option<WindowDrawData> {
+        if index >= MAX_DRAW_DATA {
+            return None;
+        }
+        Some(self.inst_data.hilite_draw_data[index].clone())
+    }
+
     /// Get the enabled text color.
     pub fn get_enabled_text_color(&self) -> Color {
         self.inst_data.enabled_text.color
@@ -1426,6 +1523,76 @@ impl GameWindow {
         }
         self.inst_data.enabled_draw_data[index].color = color;
         Ok(())
+    }
+
+    pub fn set_enabled_border_color(&mut self, index: usize, color: Color) -> WindowResult<()> {
+        if index >= MAX_DRAW_DATA {
+            return Err(WindowError::InvalidParameter);
+        }
+        self.inst_data.enabled_draw_data[index].border_color = color;
+        Ok(())
+    }
+
+    pub fn set_enabled_draw_colors(
+        &mut self,
+        index: usize,
+        color: Color,
+        border_color: Color,
+    ) -> WindowResult<()> {
+        self.set_enabled_color(index, color)?;
+        self.set_enabled_border_color(index, border_color)
+    }
+
+    pub fn set_disabled_color(&mut self, index: usize, color: Color) -> WindowResult<()> {
+        if index >= MAX_DRAW_DATA {
+            return Err(WindowError::InvalidParameter);
+        }
+        self.inst_data.disabled_draw_data[index].color = color;
+        Ok(())
+    }
+
+    pub fn set_disabled_border_color(&mut self, index: usize, color: Color) -> WindowResult<()> {
+        if index >= MAX_DRAW_DATA {
+            return Err(WindowError::InvalidParameter);
+        }
+        self.inst_data.disabled_draw_data[index].border_color = color;
+        Ok(())
+    }
+
+    pub fn set_disabled_draw_colors(
+        &mut self,
+        index: usize,
+        color: Color,
+        border_color: Color,
+    ) -> WindowResult<()> {
+        self.set_disabled_color(index, color)?;
+        self.set_disabled_border_color(index, border_color)
+    }
+
+    pub fn set_hilite_color(&mut self, index: usize, color: Color) -> WindowResult<()> {
+        if index >= MAX_DRAW_DATA {
+            return Err(WindowError::InvalidParameter);
+        }
+        self.inst_data.hilite_draw_data[index].color = color;
+        Ok(())
+    }
+
+    pub fn set_hilite_border_color(&mut self, index: usize, color: Color) -> WindowResult<()> {
+        if index >= MAX_DRAW_DATA {
+            return Err(WindowError::InvalidParameter);
+        }
+        self.inst_data.hilite_draw_data[index].border_color = color;
+        Ok(())
+    }
+
+    pub fn set_hilite_draw_colors(
+        &mut self,
+        index: usize,
+        color: Color,
+        border_color: Color,
+    ) -> WindowResult<()> {
+        self.set_hilite_color(index, color)?;
+        self.set_hilite_border_color(index, border_color)
     }
 
     /// Set text colors for enabled state
@@ -5110,6 +5277,104 @@ mod tests {
         let non_listbox = GameWindow::new();
         assert_eq!(gadget_list_box_get_num_columns(&non_listbox), 0);
         assert_eq!(gadget_list_box_get_column_width(&non_listbox, 0), 0);
+    }
+
+    #[test]
+    fn listbox_set_colors_propagates_to_scrollbar_like_cpp() {
+        let mut listbox = GameWindow::new();
+        listbox.set_widget(WindowWidget::ListBox(ListBox::new(42, 0, 0, 120, 60)));
+
+        let up = Rc::new(RefCell::new(GameWindow::new()));
+        up.borrow_mut().set_id(10);
+        let down = Rc::new(RefCell::new(GameWindow::new()));
+        down.borrow_mut().set_id(11);
+        let slider = Rc::new(RefCell::new(GameWindow::new()));
+        slider.borrow_mut().set_id(12);
+        let thumb = Rc::new(RefCell::new(GameWindow::new()));
+        thumb.borrow_mut().set_id(13);
+
+        thumb
+            .borrow_mut()
+            .set_enabled_draw_colors(1, 0x10101010, 0x20202020)
+            .unwrap();
+        thumb
+            .borrow_mut()
+            .set_disabled_draw_colors(1, 0x30303030, 0x40404040)
+            .unwrap();
+        thumb
+            .borrow_mut()
+            .set_hilite_draw_colors(1, 0x50505050, 0x60606060)
+            .unwrap();
+
+        slider.borrow_mut().add_child(thumb.clone());
+        listbox.add_child(up.clone());
+        listbox.add_child(down.clone());
+        listbox.add_child(slider.clone());
+        listbox.set_listbox_links(ListBoxLinks {
+            up_button: 10,
+            down_button: 11,
+            slider: 12,
+            thumb: Some(13),
+        });
+
+        gadget_list_box_set_colors(
+            &mut listbox,
+            0x01010101,
+            0x02020202,
+            0x03030303,
+            0x04040404,
+            0x05050505,
+            0x06060606,
+            0x07070707,
+            0x08080808,
+            0x09090909,
+            0x0a0a0a0a,
+            0x0b0b0b0b,
+            0x0c0c0c0c,
+        );
+
+        assert_eq!(listbox.get_enabled_draw_data(0).unwrap().color, 0x01010101);
+        assert_eq!(
+            listbox.get_enabled_draw_data(0).unwrap().border_color,
+            0x02020202
+        );
+        assert_eq!(listbox.get_enabled_draw_data(1).unwrap().color, 0x03030303);
+        assert_eq!(
+            listbox.get_disabled_draw_data(1).unwrap().border_color,
+            0x08080808
+        );
+        assert_eq!(listbox.get_hilite_draw_data(1).unwrap().color, 0x0b0b0b0b);
+
+        assert_eq!(
+            slider.borrow().get_enabled_draw_data(0).unwrap().color,
+            0x01010101
+        );
+        assert_eq!(
+            slider
+                .borrow()
+                .get_disabled_draw_data(0)
+                .unwrap()
+                .border_color,
+            0x06060606
+        );
+        assert_eq!(
+            slider.borrow().get_hilite_draw_data(0).unwrap().color,
+            0x09090909
+        );
+
+        for button in [up, down] {
+            let button = button.borrow();
+            assert_eq!(button.get_enabled_draw_data(0).unwrap().color, 0x01010101);
+            assert_eq!(
+                button.get_enabled_draw_data(1).unwrap().border_color,
+                0x20202020
+            );
+            assert_eq!(button.get_disabled_draw_data(1).unwrap().color, 0x30303030);
+            assert_eq!(
+                button.get_hilite_draw_data(1).unwrap().border_color,
+                0x60606060
+            );
+        }
     }
 
     #[test]
