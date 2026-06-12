@@ -4,8 +4,10 @@
 //! Author: EA Pacific (C++ version) | Rust conversion: 2025
 
 use crate::common::{
-    AsciiString, DamageInfo, ModuleData, Real, UnsignedInt, XferVersion, LOGICFRAMES_PER_SECOND,
+    AsciiString, DamageInfo, DisabledMaskType, ModuleData, Real, UnsignedInt, XferVersion,
+    LOGICFRAMES_PER_SECOND,
 };
+use crate::damage::{DamageInfoInput, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheGlobalData};
 use crate::modules::{
     BehaviorModuleInterface, DamageModuleInterface, UpdateModuleInterface, UpdateSleepTime,
@@ -78,7 +80,7 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
         let Some(object_arc) = self.object.upgrade() else {
             return UpdateSleepTime::Forever;
         };
-        let mut obj = match object_arc.write() {
+        let obj = match object_arc.write() {
             Ok(guard) => guard,
             Err(_) => return UpdateSleepTime::Forever,
         };
@@ -111,8 +113,27 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
             / LOGICFRAMES_PER_SECOND as Real;
         drop(body_guard);
 
-        let _ = obj.attempt_healing(amount, None);
+        let source_id = obj.get_id();
+        let mut healing_info = DamageInfo {
+            input: DamageInfoInput {
+                damage_type: DamageType::Healing,
+                death_type: DeathType::None,
+                source_id,
+                amount,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        healing_info.sync_from_input();
+
+        if let Ok(mut body_guard) = body.lock() {
+            let _ = body_guard.attempt_healing(&mut healing_info);
+        }
         UpdateSleepTime::Frames(HEAL_RATE)
+    }
+
+    fn get_disabled_types_to_process(&self) -> DisabledMaskType {
+        DisabledMaskType::DISABLED_UNDERPOWERED
     }
 }
 
@@ -280,3 +301,20 @@ impl BaseRegenerateUpdateFactory {
 }
 
 const BASE_REGENERATE_UPDATE_FIELDS: &[FieldParse<BaseRegenerateUpdateModuleData>] = &[];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn processes_while_underpowered_like_cpp() {
+        let object = Arc::new(RwLock::new(GameObject::new_test(9601, 100.0)));
+        let data: Arc<dyn ModuleData> = Arc::new(BaseRegenerateUpdateModuleData::default());
+        let update = BaseRegenerateUpdate::new(object, data).unwrap();
+
+        assert_eq!(
+            update.get_disabled_types_to_process(),
+            DisabledMaskType::DISABLED_UNDERPOWERED
+        );
+    }
+}
