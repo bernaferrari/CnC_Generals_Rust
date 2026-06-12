@@ -18,12 +18,15 @@ use std::collections::HashMap;
 
 use crate::ai::turret::TurretAI;
 use crate::common::{
-    AsciiString, Bool, Coord3D, ICoord2D, Int, LocomotorSetType, ObjectID, Real, UnsignedInt,
-    WhichTurretType, INVALID_ID, LOGICFRAMES_PER_SECOND, WEAPONSLOT_COUNT,
+    AsciiString, Bool, Coord3D, FormationID, ICoord2D, Int, KindOf, LocomotorSetType, ObjectID,
+    Real, UnsignedInt, Vec3D, WhichTurretType, INVALID_ID, LOGICFRAMES_PER_SECOND,
+    WEAPONSLOT_COUNT,
 };
 use crate::helpers::TheGameLogic;
 use crate::locomotor::{LOCOMOTOR_STORE, SURFACE_AIR, SURFACE_GROUND};
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::{CrushSquishTestType, Object};
+use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::weapon::WeaponSlotType;
 
 // ---------------------------------------------------------------------------
@@ -38,6 +41,24 @@ pub const MAX_WAYPOINTS: usize = 16;
 
 /// Maximum turrets per unit (C++ MAX_TURRETS = 2).
 pub const MAX_TURRETS: usize = 2;
+
+#[derive(Clone)]
+struct CollisionObjectSnapshot {
+    id: ObjectID,
+    position: Coord3D,
+    direction: (Real, Real),
+    velocity: Vec3D,
+    has_physics: bool,
+    is_infantry: bool,
+    is_vehicle: bool,
+    is_dozer: bool,
+    moving: bool,
+    ground: bool,
+    dead: bool,
+    path_destination: Option<Coord3D>,
+    frames_blocked: u32,
+    formation_id: FormationID,
+}
 
 // ---------------------------------------------------------------------------
 // Auto-acquire bit flags (C++ AutoAcquireStates)
@@ -1548,24 +1569,288 @@ impl AIUpdateInterface {
         false
     }
 
+    fn normalize_relative_angle(mut angle: Real) -> Real {
+        while angle > std::f32::consts::PI {
+            angle -= std::f32::consts::PI * 2.0;
+        }
+        while angle < -std::f32::consts::PI {
+            angle += std::f32::consts::PI * 2.0;
+        }
+        angle
+    }
+
+    fn relative_angle(direction: (Real, Real), vector_to_target: (Real, Real)) -> Real {
+        let facing_angle = direction.1.atan2(direction.0);
+        let target_angle = vector_to_target.1.atan2(vector_to_target.0);
+        Self::normalize_relative_angle(target_angle - facing_angle)
+    }
+
+    fn physics_velocity(obj: &Object) -> (Vec3D, bool) {
+        obj.get_physics()
+            .and_then(|physics| physics.lock().ok().map(|physics| physics.get_velocity()))
+            .map(|velocity| (velocity, true))
+            .unwrap_or((Vec3D::ZERO, false))
+    }
+
+    fn self_collision_snapshot(&self) -> Option<CollisionObjectSnapshot> {
+        let obj_arc = OBJECT_REGISTRY.get_object(self.owner_object_id)?;
+        let obj = obj_arc.read().ok()?;
+        let (velocity, has_physics) = Self::physics_velocity(&obj);
+        Some(CollisionObjectSnapshot {
+            id: obj.get_id(),
+            position: *obj.get_position(),
+            direction: obj.get_unit_direction_vector_2d(),
+            velocity,
+            has_physics,
+            is_infantry: obj.is_kind_of(KindOf::Infantry),
+            is_vehicle: obj.is_kind_of(KindOf::Vehicle),
+            is_dozer: obj.is_kind_of(KindOf::Dozer),
+            moving: self.is_moving,
+            ground: self.is_doing_ground_movement(),
+            dead: self.is_ai_dead,
+            path_destination: self.path.as_ref().and_then(|path| path.last().copied()),
+            frames_blocked: self.blocked_frames,
+            formation_id: obj.get_formation_id(),
+        })
+    }
+
+    fn other_collision_snapshot(other_id: ObjectID) -> Option<CollisionObjectSnapshot> {
+        let obj_arc = OBJECT_REGISTRY.get_object(other_id)?;
+        let (
+            id,
+            position,
+            direction,
+            velocity,
+            has_physics,
+            is_infantry,
+            is_vehicle,
+            is_dozer,
+            formation_id,
+            ai,
+        ) = {
+            let obj = obj_arc.read().ok()?;
+            let (velocity, has_physics) = Self::physics_velocity(&obj);
+            (
+                obj.get_id(),
+                *obj.get_position(),
+                obj.get_unit_direction_vector_2d(),
+                velocity,
+                has_physics,
+                obj.is_kind_of(KindOf::Infantry),
+                obj.is_kind_of(KindOf::Vehicle),
+                obj.is_kind_of(KindOf::Dozer),
+                obj.get_formation_id(),
+                obj.get_ai_update_interface()?,
+            )
+        };
+        let ai = ai.lock().ok()?;
+        Some(CollisionObjectSnapshot {
+            id,
+            position,
+            direction,
+            velocity,
+            has_physics,
+            is_infantry,
+            is_vehicle,
+            is_dozer,
+            moving: ai.is_moving(),
+            ground: ai.is_doing_ground_movement(),
+            dead: ai.is_ai_in_dead_state(),
+            path_destination: ai.get_path_destination(),
+            frames_blocked: ai.get_num_frames_blocked(),
+            formation_id,
+        })
+    }
+
+    fn can_crush_or_squish(&self, other_id: ObjectID) -> bool {
+        let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
+            return false;
+        };
+        let Some(other_arc) = OBJECT_REGISTRY.get_object(other_id) else {
+            return false;
+        };
+        let Ok(owner) = owner_arc.read() else {
+            return false;
+        };
+        let Ok(other) = other_arc.read() else {
+            return false;
+        };
+        owner.can_crush_or_squish(&other, CrushSquishTestType::TestCrushOrSquish)
+    }
+
+    fn has_higher_path_priority(
+        &self,
+        owner: &CollisionObjectSnapshot,
+        other: &CollisionObjectSnapshot,
+    ) -> bool {
+        if owner.is_dozer && !other.is_dozer {
+            return true;
+        }
+        if !owner.is_dozer && other.is_dozer {
+            return false;
+        }
+        if owner.is_vehicle && other.is_infantry {
+            return true;
+        }
+        if owner.is_infantry && other.is_vehicle {
+            return false;
+        }
+
+        let dot = owner.direction.0 * other.direction.0 + owner.direction.1 * other.direction.1;
+        if dot <= 0.0 {
+            return owner.id < other.id;
+        }
+
+        let combined = (
+            owner.direction.0 + other.direction.0,
+            owner.direction.1 + other.direction.1,
+        );
+        let vector_to_other = (
+            other.position.x - owner.position.x,
+            other.position.y - owner.position.y,
+        );
+        let dot_product = combined.0 * vector_to_other.0 + combined.1 * vector_to_other.1;
+        if dot_product > 0.0 {
+            return false;
+        }
+        if dot_product < 0.0 {
+            return true;
+        }
+        owner.id < other.id
+    }
+
     /// C++ AIUpdateInterface::blockedBy – returns true if we are blocked by
     /// the other object.  Ported from AIUpdate.cpp:1272.
-    pub fn blocked_by(&self, _other_id: ObjectID) -> bool {
+    pub fn blocked_by(&self, other_id: ObjectID) -> bool {
         if !self.is_moving {
             return false;
         }
         if self.is_approach_path {
             return false;
         }
-        // PARITY_TODO: full angle/distance/infantry check once Object position access is wired
-        false
+        let Some(owner) = self.self_collision_snapshot() else {
+            return false;
+        };
+        let Some(other) = Self::other_collision_snapshot(other_id) else {
+            return false;
+        };
+
+        if let Some(goal) = owner.path_destination {
+            let dx = (goal.x - owner.position.x).abs();
+            let dy = (goal.y - owner.position.y).abs();
+            if dx < PATHFIND_CELL_SIZE_F && dy < PATHFIND_CELL_SIZE_F {
+                return false;
+            }
+        }
+
+        if self.can_crush_or_squish(other_id) {
+            return false;
+        }
+        if !other.ground {
+            return false;
+        }
+
+        let dx = owner.position.x - other.position.x;
+        let dy = owner.position.y - other.position.y;
+        let cur_dist_sqr = dx * dx + dy * dy;
+
+        let dot_dir = owner.direction.0 * other.direction.0 + owner.direction.1 * other.direction.1;
+        if owner.is_infantry && other.is_infantry {
+            return false;
+        }
+
+        let same_cell = PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F * 0.0001;
+        if cur_dist_sqr < same_cell {
+            return self.has_higher_path_priority(&owner, &other);
+        }
+
+        if owner.frames_blocked > LOGICFRAMES_PER_SECOND && dot_dir <= 0.0 {
+            return false;
+        }
+
+        let vector_to_other = (
+            other.position.x - owner.position.x,
+            other.position.y - owner.position.y,
+        );
+        let collision_angle = Self::relative_angle(owner.direction, vector_to_other);
+        let other_angle =
+            Self::relative_angle(other.direction, (-vector_to_other.0, -vector_to_other.1));
+        if collision_angle > std::f32::consts::PI / 2.0
+            || collision_angle < -std::f32::consts::PI / 2.0
+        {
+            return false;
+        }
+
+        let mut angle_limit = std::f32::consts::PI / 4.0;
+        if !other.moving {
+            angle_limit *= 0.75;
+        }
+        if collision_angle > angle_limit || collision_angle < -angle_limit {
+            if dot_dir <= 0.0 {
+                return false;
+            }
+            if other.moving && (other_angle > angle_limit || other_angle < -angle_limit) {
+                let adjusted_dx = dx + owner.direction.0 - other.direction.0;
+                let adjusted_dy = dy + owner.direction.1 - other.direction.1;
+                if cur_dist_sqr > adjusted_dx * adjusted_dx + adjusted_dy * adjusted_dy {
+                    if self.has_higher_path_priority(&owner, &other) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        !other.dead
     }
 
     /// C++ AIUpdateInterface::calculateMaxBlockedSpeed – max speed we can have
     /// and not run into the blocking unit.  Ported from AIUpdate.cpp:1234.
-    pub fn calculate_max_blocked_speed(&self, _other_id: ObjectID) -> Real {
-        // PARITY_TODO: full vector math once Object position access is wired
-        self.cur_max_blocked_speed
+    pub fn calculate_max_blocked_speed(&self, other_id: ObjectID) -> Real {
+        let Some(owner) = self.self_collision_snapshot() else {
+            return self.cur_max_blocked_speed;
+        };
+        let Some(other) = Self::other_collision_snapshot(other_id) else {
+            return self.cur_max_blocked_speed;
+        };
+
+        let mut vector_to_other = (
+            other.position.x - owner.position.x,
+            other.position.y - owner.position.y,
+        );
+        let length =
+            (vector_to_other.0 * vector_to_other.0 + vector_to_other.1 * vector_to_other.1).sqrt();
+        if length > 0.0 {
+            vector_to_other.0 /= length;
+            vector_to_other.1 /= length;
+        }
+
+        let dot_product =
+            vector_to_other.0 * other.direction.0 + vector_to_other.1 * other.direction.1;
+        if dot_product < 0.0 {
+            return 0.0;
+        }
+        if !other.has_physics {
+            return self.cur_max_blocked_speed;
+        }
+
+        let mut other_velocity = other.velocity;
+        other_velocity.z = 0.0;
+        let away_speed = other_velocity.length() * dot_product;
+        let towards_dot =
+            vector_to_other.0 * owner.direction.0 + vector_to_other.1 * owner.direction.1;
+        if towards_dot <= 0.0 {
+            return self.cur_max_blocked_speed;
+        }
+
+        let mut max_speed = away_speed / towards_dot;
+        if other.formation_id != FormationID::NONE && owner.formation_id == other.formation_id {
+            max_speed *= 0.55;
+        }
+        max_speed.min(self.cur_max_blocked_speed)
     }
 
     /// C++ AIUpdateInterface::needToRotate – returns true if we need to rotate
@@ -1574,11 +1859,35 @@ impl AIUpdateInterface {
         if self.waiting_for_path {
             return true;
         }
-        if self.path.is_none() {
+        let Some(path) = self.path.as_ref() else {
+            return false;
+        };
+        let Some(owner_arc) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
+            return false;
+        };
+        let Ok(owner) = owner_arc.read() else {
+            return false;
+        };
+        let position = *owner.get_position();
+        let Some(path_point) = path
+            .iter()
+            .copied()
+            .find(|point| {
+                let dx = point.x - position.x;
+                let dy = point.y - position.y;
+                dx * dx + dy * dy > f32::EPSILON
+            })
+            .or_else(|| path.last().copied())
+        else {
+            return false;
+        };
+        let delta = path_point - position;
+        if delta.length_squared() < f32::EPSILON {
             return false;
         }
-        // PARITY_TODO: compute angle delta from path direction once path math is ported
-        false
+        let desired_angle = delta.y.atan2(delta.x);
+        let delta_angle = Self::normalize_relative_angle(desired_angle - owner.get_orientation());
+        delta_angle.abs() > (std::f32::consts::PI / 30.0)
     }
 
     // -----------------------------------------------------------------------
@@ -2104,6 +2413,70 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Default)]
+    struct CollisionAi {
+        moving: bool,
+        ground: bool,
+        dead: bool,
+        path_destination: Option<Coord3D>,
+        frames_blocked: u32,
+    }
+
+    impl crate::modules::AIUpdateInterface for CollisionAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        fn is_moving(&self) -> bool {
+            self.moving
+        }
+
+        fn is_idle(&self) -> bool {
+            !self.moving
+        }
+
+        fn set_movement_target(&mut self, _target: &Coord3D) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn is_doing_ground_movement(&self) -> bool {
+            self.ground
+        }
+
+        fn is_ai_in_dead_state(&self) -> bool {
+            self.dead
+        }
+
+        fn get_path_destination(&self) -> Option<Coord3D> {
+            self.path_destination
+        }
+
+        fn get_num_frames_blocked(&self) -> u32 {
+            self.frames_blocked
+        }
+    }
+
+    fn register_collision_object(
+        id: ObjectID,
+        position: Coord3D,
+        orientation: Real,
+        ai: Option<CollisionAi>,
+    ) -> (Arc<RwLock<Object>>, RegisteredObjectCleanup) {
+        let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        {
+            let mut object_guard = object.write().unwrap();
+            object_guard.set_position(&position).unwrap();
+            object_guard.set_orientation(orientation).unwrap();
+            if let Some(ai) = ai {
+                let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> =
+                    Arc::new(Mutex::new(ai));
+                object_guard.set_ai_update_interface(Some(ai));
+            }
+        }
+        OBJECT_REGISTRY.register_object(id, &object);
+        (object, RegisteredObjectCleanup(id))
+    }
+
     #[test]
     fn ai_update_module_xfer_forwards_to_runtime_ai() {
         let data = Arc::new(AIUpdateModuleData::default());
@@ -2407,6 +2780,129 @@ mod tests {
         ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
         assert!(ai.is_path_available(Coord3D::new(99.0, 99.0, 0.0)));
         assert!(!ai.is_path_available(Coord3D::new(20_000.0, 20_000.0, 0.0)));
+    }
+
+    #[test]
+    fn blocked_by_detects_live_ground_object_ahead_like_cpp() {
+        let owner_id = 7_301;
+        let other_id = 7_302;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        let (_other, _other_cleanup) = register_collision_object(
+            other_id,
+            Coord3D::new(20.0, 0.0, 0.0),
+            0.0,
+            Some(CollisionAi {
+                ground: true,
+                ..CollisionAi::default()
+            }),
+        );
+        let mut ai =
+            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+        ai.cur_locomotor_tag = 1;
+        ai.cur_locomotor_surfaces = SURFACE_GROUND;
+        ai.is_moving = true;
+        ai.path = Some(vec![Coord3D::new(100.0, 0.0, 0.0)]);
+
+        assert!(ai.blocked_by(other_id));
+    }
+
+    #[test]
+    fn blocked_by_ignores_near_final_goal_like_cpp() {
+        let owner_id = 7_303;
+        let other_id = 7_304;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        let (_other, _other_cleanup) = register_collision_object(
+            other_id,
+            Coord3D::new(2.0, 0.0, 0.0),
+            0.0,
+            Some(CollisionAi {
+                ground: true,
+                ..CollisionAi::default()
+            }),
+        );
+        let mut ai =
+            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+        ai.cur_locomotor_tag = 1;
+        ai.cur_locomotor_surfaces = SURFACE_GROUND;
+        ai.is_moving = true;
+        ai.path = Some(vec![Coord3D::new(5.0, 5.0, 0.0)]);
+
+        assert!(!ai.blocked_by(other_id));
+    }
+
+    #[test]
+    fn calculate_max_blocked_speed_returns_zero_when_other_moves_toward_owner_like_cpp() {
+        let owner_id = 7_305;
+        let other_id = 7_306;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        let (_other, _other_cleanup) = register_collision_object(
+            other_id,
+            Coord3D::new(20.0, 0.0, 0.0),
+            std::f32::consts::PI,
+            Some(CollisionAi {
+                ground: true,
+                ..CollisionAi::default()
+            }),
+        );
+        let mut ai =
+            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+        ai.cur_locomotor_tag = 1;
+        ai.cur_locomotor_surfaces = SURFACE_GROUND;
+        ai.cur_max_blocked_speed = 12.0;
+
+        assert_eq!(ai.calculate_max_blocked_speed(other_id), 0.0);
+    }
+
+    #[test]
+    fn process_collision_marks_stationary_blocker_stuck_like_cpp() {
+        let owner_id = 7_307;
+        let other_id = 7_308;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        let (_other, _other_cleanup) = register_collision_object(
+            other_id,
+            Coord3D::new(20.0, 0.0, 0.0),
+            std::f32::consts::PI,
+            Some(CollisionAi {
+                ground: true,
+                ..CollisionAi::default()
+            }),
+        );
+        let mut ai =
+            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+        ai.cur_locomotor_tag = 1;
+        ai.cur_locomotor_surfaces = SURFACE_GROUND;
+        ai.cur_max_blocked_speed = AI_FAST_AS_POSSIBLE;
+        ai.is_moving = true;
+        ai.path = Some(vec![Coord3D::new(100.0, 0.0, 0.0)]);
+
+        assert!(!ai.process_collision(other_id));
+        assert!(ai.is_blocked());
+        assert_eq!(ai.get_blocked_frames(), 1);
+        assert_eq!(ai.cur_max_blocked_speed, 0.0);
+        assert!(ai.is_blocked_and_stuck());
+    }
+
+    #[test]
+    fn need_to_rotate_uses_owner_facing_and_path_direction_like_cpp() {
+        let owner_id = 7_309;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        let mut ai =
+            AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), owner_id);
+
+        ai.path = Some(vec![Coord3D::new(10.0, 0.0, 0.0)]);
+        assert!(!ai.need_to_rotate());
+
+        ai.path = Some(vec![Coord3D::new(0.0, 10.0, 0.0)]);
+        assert!(ai.need_to_rotate());
+
+        ai.waiting_for_path = true;
+        ai.path = None;
+        assert!(ai.need_to_rotate());
     }
 
     #[test]
