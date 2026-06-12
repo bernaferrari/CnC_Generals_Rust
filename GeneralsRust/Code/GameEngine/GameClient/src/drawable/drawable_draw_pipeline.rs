@@ -4,7 +4,6 @@
 //! - Owns wgpu render pipelines (opaque + transparent)
 //! - Owns camera and per-object uniform buffers + bind groups
 //! - Maintains a mesh cache mapping model names to vertex/index buffers
-//! - Provides a fallback unit cube for models without loaded geometry
 //!
 //! Usage: `DrawableDrawPipeline::record_draw()` is called from
 //! `DrawableManager::render_pass_through()` after the drawable iteration loop
@@ -173,9 +172,6 @@ pub struct DrawableDrawPipeline {
     texture_bind_groups: HashMap<String, wgpu::BindGroup>,
     default_texture_bind_group: wgpu::BindGroup,
     texture_sampler: wgpu::Sampler,
-
-    // Fallback unit cube
-    fallback_mesh: MeshBuffers,
 }
 
 impl DrawableDrawPipeline {
@@ -419,9 +415,6 @@ impl DrawableDrawPipeline {
             cache: None,
         });
 
-        // --- Fallback unit cube ---
-        let fallback_mesh = Self::create_unit_cube(&device);
-
         Ok(Self {
             device,
             queue,
@@ -438,7 +431,6 @@ impl DrawableDrawPipeline {
             texture_bind_groups: HashMap::new(),
             default_texture_bind_group,
             texture_sampler: sampler,
-            fallback_mesh,
         })
     }
 
@@ -536,10 +528,8 @@ impl DrawableDrawPipeline {
         let key = submission.model_name.to_lowercase();
         let mesh = if let Some(mesh) = self.mesh_cache.get(&key) {
             mesh
-        } else if drained.model_resolution == Some(render_bridge::ModelResolution::Asset) {
-            return;
         } else {
-            &self.fallback_mesh
+            return;
         };
         let texture_bind_group = mesh
             .texture_name
@@ -725,70 +715,5 @@ impl DrawableDrawPipeline {
                 },
             ],
         })
-    }
-
-    /// Create a unit cube (1x1x1 centered at origin) as the fallback mesh.
-    fn create_unit_cube(device: &wgpu::Device) -> MeshBuffers {
-        // Six faces, each with 4 vertices (24 total) and 6 indices (36 total)
-        let vertices = vec![
-            // Front face (+Z)
-            MeshVertex::new([-0.5, -0.5, 0.5], [0.0, 0.0, 1.0], [0.0, 1.0]),
-            MeshVertex::new([0.5, -0.5, 0.5], [0.0, 0.0, 1.0], [1.0, 1.0]),
-            MeshVertex::new([0.5, 0.5, 0.5], [0.0, 0.0, 1.0], [1.0, 0.0]),
-            MeshVertex::new([-0.5, 0.5, 0.5], [0.0, 0.0, 1.0], [0.0, 0.0]),
-            // Back face (-Z)
-            MeshVertex::new([0.5, -0.5, -0.5], [0.0, 0.0, -1.0], [0.0, 1.0]),
-            MeshVertex::new([-0.5, -0.5, -0.5], [0.0, 0.0, -1.0], [1.0, 1.0]),
-            MeshVertex::new([-0.5, 0.5, -0.5], [0.0, 0.0, -1.0], [1.0, 0.0]),
-            MeshVertex::new([0.5, 0.5, -0.5], [0.0, 0.0, -1.0], [0.0, 0.0]),
-            // Top face (+Y)
-            MeshVertex::new([-0.5, 0.5, 0.5], [0.0, 1.0, 0.0], [0.0, 1.0]),
-            MeshVertex::new([0.5, 0.5, 0.5], [0.0, 1.0, 0.0], [1.0, 1.0]),
-            MeshVertex::new([0.5, 0.5, -0.5], [0.0, 1.0, 0.0], [1.0, 0.0]),
-            MeshVertex::new([-0.5, 0.5, -0.5], [0.0, 1.0, 0.0], [0.0, 0.0]),
-            // Bottom face (-Y)
-            MeshVertex::new([-0.5, -0.5, -0.5], [0.0, -1.0, 0.0], [0.0, 1.0]),
-            MeshVertex::new([0.5, -0.5, -0.5], [0.0, -1.0, 0.0], [1.0, 1.0]),
-            MeshVertex::new([0.5, -0.5, 0.5], [0.0, -1.0, 0.0], [1.0, 0.0]),
-            MeshVertex::new([-0.5, -0.5, 0.5], [0.0, -1.0, 0.0], [0.0, 0.0]),
-            // Right face (+X)
-            MeshVertex::new([0.5, -0.5, 0.5], [1.0, 0.0, 0.0], [0.0, 1.0]),
-            MeshVertex::new([0.5, -0.5, -0.5], [1.0, 0.0, 0.0], [1.0, 1.0]),
-            MeshVertex::new([0.5, 0.5, -0.5], [1.0, 0.0, 0.0], [1.0, 0.0]),
-            MeshVertex::new([0.5, 0.5, 0.5], [1.0, 0.0, 0.0], [0.0, 0.0]),
-            // Left face (-X)
-            MeshVertex::new([-0.5, -0.5, -0.5], [-1.0, 0.0, 0.0], [0.0, 1.0]),
-            MeshVertex::new([-0.5, -0.5, 0.5], [-1.0, 0.0, 0.0], [1.0, 1.0]),
-            MeshVertex::new([-0.5, 0.5, 0.5], [-1.0, 0.0, 0.0], [1.0, 0.0]),
-            MeshVertex::new([-0.5, 0.5, -0.5], [-1.0, 0.0, 0.0], [0.0, 0.0]),
-        ];
-
-        let indices: Vec<u32> = vec![
-            0, 1, 2, 0, 2, 3, // front
-            4, 5, 6, 4, 6, 7, // back
-            8, 9, 10, 8, 10, 11, // top
-            12, 13, 14, 12, 14, 15, // bottom
-            16, 17, 18, 16, 18, 19, // right
-            20, 21, 22, 20, 22, 23, // left
-        ];
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Drawable Fallback Cube VB"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Drawable Fallback Cube IB"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        MeshBuffers {
-            vertex_buffer,
-            index_buffer,
-            index_count: indices.len() as u32,
-            texture_name: None,
-        }
     }
 }
