@@ -304,9 +304,9 @@ impl SabotageFakeBuildingCrateCollide {
         // C++ feedback calls do not abort sabotage damage.
         let _ = TheRadar::try_infiltration_event(other.clone());
 
-        // Do sabotage feedback FX
-        self.base
-            .do_sabotage_feedback_fx(&other, SabotageVictimType::FakeBuilding)?;
+        let _ = self
+            .base
+            .do_sabotage_feedback_fx(&other, SabotageVictimType::FakeBuilding);
 
         // Play eva sound if locally controlled
         {
@@ -376,6 +376,10 @@ impl LegacyCollideAdapter for SabotageFakeBuildingCrateCollide {
         other: Arc<RwLock<Object>>,
     ) -> Result<bool, GameError> {
         SabotageFakeBuildingCrateCollide::is_valid_to_execute(self, other)
+    }
+
+    fn legacy_is_sabotage_building_crate_collide(&self) -> bool {
+        true
     }
 }
 

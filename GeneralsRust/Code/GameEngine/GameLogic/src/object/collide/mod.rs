@@ -214,6 +214,26 @@ pub trait LegacyCollideAdapter: Send + Sync {
         &self,
         other: Arc<RwLock<Object>>,
     ) -> Result<bool, GameError>;
+
+    fn legacy_is_hijacked_vehicle_crate_collide(&self) -> bool {
+        false
+    }
+
+    fn legacy_is_sabotage_building_crate_collide(&self) -> bool {
+        false
+    }
+
+    fn legacy_is_car_bomb_crate_collide(&self) -> bool {
+        false
+    }
+
+    fn legacy_is_railroad(&self) -> bool {
+        false
+    }
+
+    fn legacy_is_salvage_crate_collide(&self) -> bool {
+        false
+    }
 }
 
 fn resolve_object_handle(other: &dyn GameObject) -> Result<Arc<RwLock<Object>>, CollisionError> {
@@ -245,6 +265,26 @@ impl<T: LegacyCollideAdapter> CollideModule for T {
                 .unwrap_or(false),
             Err(_) => false,
         }
+    }
+
+    fn is_hijacked_vehicle_crate_collide(&self) -> bool {
+        self.legacy_is_hijacked_vehicle_crate_collide()
+    }
+
+    fn is_sabotage_building_crate_collide(&self) -> bool {
+        self.legacy_is_sabotage_building_crate_collide()
+    }
+
+    fn is_car_bomb_crate_collide(&self) -> bool {
+        self.legacy_is_car_bomb_crate_collide()
+    }
+
+    fn is_railroad(&self) -> bool {
+        self.legacy_is_railroad()
+    }
+
+    fn is_salvage_crate_collide(&self) -> bool {
+        self.legacy_is_salvage_crate_collide()
     }
 }
 

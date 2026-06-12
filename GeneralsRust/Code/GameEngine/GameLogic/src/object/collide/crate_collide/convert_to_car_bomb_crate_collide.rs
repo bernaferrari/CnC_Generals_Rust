@@ -6,7 +6,9 @@
 
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::common::{FieldParse, FieldType, KindOf, ObjectStatusMaskType, ObjectStatusTypes};
+use crate::common::{
+    kindof_from_name, FieldParse, FieldType, KindOf, ObjectStatusMaskType, ObjectStatusTypes,
+};
 use crate::effects::FXList;
 use crate::helpers::TheFXListStore;
 use crate::object::collide::crate_collide::crate_collide::{
@@ -62,12 +64,35 @@ fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
         .ok_or(INIError::InvalidData)
 }
 
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+    if tokens.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+
+    let mut mask = 0u64;
+    for token in tokens
+        .iter()
+        .filter(|token| **token != "=")
+        .flat_map(|token| token.split('|'))
+    {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let Some(kind) = kindof_from_name(token) else {
+            return Err(INIError::InvalidData);
+        };
+        mask |= 1u64 << (kind as u32);
+    }
+    Ok(mask)
+}
+
 fn parse_required_kind_of(
     _ini: &mut INI,
     data: &mut ConvertToCarBombCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.base.required_kind_of = INI::parse_unsigned_int(first_token(tokens)?)? as u64;
+    data.base.required_kind_of = parse_kind_of_mask(tokens)?;
     Ok(())
 }
 
@@ -76,7 +101,7 @@ fn parse_forbidden_kind_of(
     data: &mut ConvertToCarBombCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.base.forbidden_kind_of = INI::parse_unsigned_int(first_token(tokens)?)? as u64;
+    data.base.forbidden_kind_of = parse_kind_of_mask(tokens)?;
     Ok(())
 }
 
@@ -422,6 +447,10 @@ impl LegacyCollideAdapter for ConvertToCarBombCrateCollide {
     ) -> Result<bool, GameError> {
         ConvertToCarBombCrateCollide::is_valid_to_execute(self, other)
     }
+
+    fn legacy_is_car_bomb_crate_collide(&self) -> bool {
+        true
+    }
 }
 
 impl CrateCollideModule for ConvertToCarBombCrateCollide {
@@ -483,5 +512,44 @@ mod tests {
         assert!(fields
             .iter()
             .any(|field| field.token == "FXList" && field.target == "fx_list"));
+    }
+
+    #[test]
+    fn car_bomb_crate_parse_from_ini_accepts_cpp_kindof_masks() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = ConvertToCarBombCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "RequiredKindOf = VEHICLE|INFANTRY\n\
+             ForbiddenKindOf = AIRCRAFT\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("car bomb crate kind-of masks parse");
+
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            0
+        );
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Infantry as u32)),
+            0
+        );
+        assert_ne!(
+            data.base.forbidden_kind_of & (1u64 << (KindOf::Aircraft as u32)),
+            0
+        );
+    }
+
+    #[test]
+    fn car_bomb_crate_collide_identifies_like_cpp() {
+        let object = Arc::new(RwLock::new(Object::new_test(77_100, 100.0)));
+        let module = ConvertToCarBombCrateCollide::new(
+            object,
+            ConvertToCarBombCrateCollideModuleData::default(),
+        );
+
+        assert!(crate::object::collide::CollideModule::is_car_bomb_crate_collide(&module));
     }
 }

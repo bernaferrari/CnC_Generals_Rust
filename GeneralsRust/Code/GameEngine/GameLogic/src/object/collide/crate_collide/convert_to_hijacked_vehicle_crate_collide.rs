@@ -532,6 +532,10 @@ impl LegacyCollideAdapter for ConvertToHijackedVehicleCrateCollide {
     ) -> Result<bool, GameError> {
         ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(self, other)
     }
+
+    fn legacy_is_hijacked_vehicle_crate_collide(&self) -> bool {
+        true
+    }
 }
 
 impl CrateCollideModule for ConvertToHijackedVehicleCrateCollide {
