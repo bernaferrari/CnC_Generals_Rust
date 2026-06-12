@@ -24,8 +24,8 @@ impl Default for UnitCrateCollideModuleData {
     fn default() -> Self {
         Self {
             base: CrateCollideModuleData::default(),
-            unit_count: 1,
-            unit_type: "Infantry".to_string(),
+            unit_count: 0,
+            unit_type: String::new(),
         }
     }
 }
@@ -76,12 +76,9 @@ impl CollideModule for UnitCrateCollide {
             if self.base.is_valid_to_execute(other_obj) {
                 // Execute the unit crate behavior
                 let success = self.execute_crate_behavior_internal(other_obj)?;
-                if !success {
-                    return Err(CollisionError::InvalidObject(
-                        "Failed to execute unit crate behavior".to_string(),
-                    ));
+                if success {
+                    self.base.finalize_collection(other_obj)?;
                 }
-                self.base.finalize_collection(other_obj)?;
             }
         }
 
@@ -116,13 +113,10 @@ impl UnitCrateCollide {
             CollisionError::InvalidObject(format!("Failed to acquire thing factory: {}", e))
         })?;
 
-        let unit_template = TheThingFactory::find_template(&self.module_data.unit_type)
-            .ok_or_else(|| {
-                CollisionError::InvalidObject(format!(
-                    "Unit template '{}' not found",
-                    self.module_data.unit_type
-                ))
-            })?;
+        let Some(unit_template) = TheThingFactory::find_template(&self.module_data.unit_type)
+        else {
+            return Ok(false);
+        };
 
         let controlling_player = other.get_controlling_player();
         let team_arc = {
@@ -287,6 +281,10 @@ mod tests {
     fn test_unit_crate_creation() {
         let _lock = crate::test_sync::lock();
 
+        let default_data = UnitCrateCollideModuleData::default();
+        assert_eq!(default_data.unit_count, 0);
+        assert!(default_data.unit_type.is_empty());
+
         let module_data = UnitCrateCollideModuleData {
             unit_count: 3,
             unit_type: "Infantry".to_string(),
@@ -344,9 +342,8 @@ mod tests {
         let unit_crate = UnitCrateCollide::new(1, module_data);
         let game_obj = create_object_for_player("Infantry", 0, Coord3D::new(10.0, 20.0, 0.0));
 
-        // Test that the behavior fails with invalid template
         let result = unit_crate.execute_crate_behavior_internal(&game_obj);
-        assert!(result.is_err());
+        assert!(matches!(result, Ok(false)));
     }
 
     #[test]
