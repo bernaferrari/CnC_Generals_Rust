@@ -3602,7 +3602,7 @@ impl Snapshotable for Player {
         let mut level_down: Int = 0;
         xfer.xfer_int(&mut level_down).map_err(|e| e.to_string())?;
         let mut general_name = self.general_name.clone();
-        xfer.xfer_ascii_string(&mut general_name)
+        xfer.xfer_unicode_string(&mut general_name)
             .map_err(|e| e.to_string())?;
 
         // Relations
@@ -3959,8 +3959,8 @@ impl Snapshotable for Player {
         let mut level_down: Int = 0;
         xfer.xfer_int(&mut level_down).map_err(|e| e.to_string())?;
 
-        // General name (C++ uses UnicodeString, we use String)
-        xfer.xfer_ascii_string(&mut self.general_name)
+        // General name (C++ Player::xfer writes UnicodeString)
+        xfer.xfer_unicode_string(&mut self.general_name)
             .map_err(|e| e.to_string())?;
 
         // Player relations (inline, matching C++ PlayerRelationMap::xfer v1)
