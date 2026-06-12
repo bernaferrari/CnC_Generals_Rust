@@ -1757,6 +1757,11 @@ impl ModuleUpdateProxy {
         ) {
             return Some(module.update_simple());
         }
+        if let Some(module) = (module as &mut dyn Any)
+            .downcast_mut::<crate::object::update::fire_spread_update::FireSpreadUpdateModule>(
+        ) {
+            return Some(module.behavior_mut().update_simple());
+        }
 
         update_via_behavior!(crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule);
         update_via_behavior!(
@@ -13099,6 +13104,25 @@ mod tests {
             .expect("test state lock poisoned")
     }
     use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
+
+    #[test]
+    fn module_update_proxy_dispatches_fire_spread_update() {
+        let data = Arc::new(
+            crate::object::update::fire_spread_update::FireSpreadUpdateModuleData::default(),
+        );
+        let behavior =
+            crate::object::update::fire_spread_update::FireSpreadUpdate::new(9001, (*data).clone());
+        let mut module = crate::object::update::fire_spread_update::FireSpreadUpdateModule::new(
+            behavior,
+            &AsciiString::from("FireSpreadUpdate"),
+            data,
+        );
+
+        assert!(matches!(
+            ModuleUpdateProxy::dispatch_update(&mut module),
+            Some(UpdateSleepTime::Forever)
+        ));
+    }
 
     #[derive(Debug)]
     struct TestContainModule {
