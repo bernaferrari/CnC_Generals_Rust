@@ -8,12 +8,16 @@
 //! - Double-click for selecting all of same type
 
 use log::{debug, warn};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::time::Instant;
 
 use super::game_message::*;
 use super::message_stream::{emit_message, GameMessageDisposition, GameMessageTranslator};
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
+use crate::gui::game_window::{GameWindow, WindowStatus};
+use crate::gui::window_manager::with_window_manager_ref;
 use crate::helpers::TheInGameUI;
 use crate::input::{KeyCode, KeyModifiers};
 use game_engine::common::ini::ini_game_data::get_global_data;
@@ -44,6 +48,31 @@ fn is_alternate_mouse_enabled() -> bool {
     get_global_data()
         .map(|data| data.read().use_alternate_mouse)
         .unwrap_or(false)
+}
+
+fn selection_window_chain_blocks_world_input(mut window: Option<Rc<RefCell<GameWindow>>>) -> bool {
+    while let Some(current) = window {
+        let guard = current.borrow();
+        if !guard.get_status().contains(WindowStatus::SEE_THRU) {
+            return true;
+        }
+        window = guard.get_parent();
+    }
+
+    false
+}
+
+fn world_position_is_under_opaque_window(position: &Coord3D) -> bool {
+    let point = Point3::new(position.x, position.y, position.z);
+    let Some(screen) = with_tactical_view_ref(|view| view.world_to_screen(&point)) else {
+        return false;
+    };
+
+    with_window_manager_ref(|manager| {
+        selection_window_chain_blocks_world_input(
+            manager.get_window_under_cursor(screen.x, screen.y, false),
+        )
+    })
 }
 
 /// Drawable selection state
@@ -97,6 +126,12 @@ impl SelectableDrawable {
         // Hidden objects cannot be selected
         // Matches C++ SelectionXlat.cpp:129-132
         if self.is_hidden {
+            return false;
+        }
+
+        // Ignore objects obscured by opaque GUI windows
+        // Matches C++ SelectionXlat.cpp:134-153
+        if world_position_is_under_opaque_window(&self.position) {
             return false;
         }
 
@@ -1267,6 +1302,44 @@ mod tests {
         let mut hidden = drawable.clone();
         hidden.is_hidden = true;
         assert!(!hidden.can_select(false));
+    }
+
+    #[test]
+    fn opaque_window_chain_blocks_selection_like_cpp() {
+        let _guard = test_state_lock();
+        let opaque = Rc::new(RefCell::new(GameWindow::new()));
+        opaque
+            .borrow_mut()
+            .set_status_exact(WindowStatus::ENABLED | WindowStatus::ACTIVE);
+
+        assert!(selection_window_chain_blocks_world_input(Some(opaque)));
+    }
+
+    #[test]
+    fn see_thru_window_chain_allows_selection_like_cpp() {
+        let _guard = test_state_lock();
+        let see_thru = Rc::new(RefCell::new(GameWindow::new()));
+        see_thru.borrow_mut().set_status_exact(
+            WindowStatus::ENABLED | WindowStatus::ACTIVE | WindowStatus::SEE_THRU,
+        );
+
+        assert!(!selection_window_chain_blocks_world_input(Some(see_thru)));
+    }
+
+    #[test]
+    fn see_thru_child_with_opaque_parent_blocks_selection_like_cpp() {
+        let _guard = test_state_lock();
+        let parent = Rc::new(RefCell::new(GameWindow::new()));
+        parent
+            .borrow_mut()
+            .set_status_exact(WindowStatus::ENABLED | WindowStatus::ACTIVE);
+        let child = Rc::new(RefCell::new(GameWindow::new()));
+        child.borrow_mut().set_status_exact(
+            WindowStatus::ENABLED | WindowStatus::ACTIVE | WindowStatus::SEE_THRU,
+        );
+        child.borrow_mut().set_parent(Some(&parent));
+
+        assert!(selection_window_chain_blocks_world_input(Some(child)));
     }
 
     #[test]
