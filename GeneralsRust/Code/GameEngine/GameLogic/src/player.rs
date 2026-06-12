@@ -22,7 +22,7 @@ use crate::special_power_module::integration::{FrameCount, PlayerInterface};
 use crate::special_power_module::types::SpecialPowerID;
 use crate::squad::Squad;
 use crate::supply_system::ResourceGatheringManager;
-use crate::team::{Team, TeamID, TeamPrototype, TeamRelationMap};
+use crate::team::{get_team_factory, Team, TeamID, TeamPrototype, TeamRelationMap};
 use crate::tunnel_tracker::TunnelTracker;
 use crate::upgrade::{PlayerUpgradeManager, Upgrade, UpgradeTemplate};
 use game_engine::common::global_data;
@@ -1728,6 +1728,28 @@ impl Player {
         self.default_team
             .as_ref()
             .and_then(|team| team.read().ok().map(|t| t.get_id()))
+    }
+
+    /// Heal all objects owned by this player.
+    /// Matches C++ Player::healAllObjects.
+    pub fn heal_all_objects(&mut self) {
+        if let Ok(factory) = get_team_factory().lock() {
+            for prototype in &self.player_team_prototypes {
+                for team in factory.find_team_instances(prototype.get_name().as_str()) {
+                    if let Ok(mut team_guard) = team.write() {
+                        team_guard.heal_all_objects();
+                    }
+                }
+            }
+        }
+
+        if self.player_team_prototypes.is_empty() {
+            if let Some(team) = &self.default_team {
+                if let Ok(mut team_guard) = team.write() {
+                    team_guard.heal_all_objects();
+                }
+            }
+        }
     }
 
     // Getters for core properties
