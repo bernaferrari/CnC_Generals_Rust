@@ -2320,13 +2320,40 @@ fn convert_to_hijacked_vehicle_crate_collide_module_factory(
         object_id,
     ))
 }
-legacy_object_crate_collide_factories!(
-    sabotage_command_center_crate_collide_data_factory,
-    sabotage_command_center_crate_collide_module_factory,
-    SabotageCommandCenterCrateCollideModuleData,
-    SabotageCommandCenterCrateCollide,
-    "SabotageCommandCenterCrateCollide"
-);
+fn sabotage_command_center_crate_collide_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
+    let mut data = SabotageCommandCenterCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SabotageCommandCenterCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn sabotage_command_center_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<
+        CrateCollideDataAdapter<SabotageCommandCenterCrateCollideModuleData>,
+    >("SabotageCommandCenterCrateCollide", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .unwrap_or_else(|| panic!("SabotageCommandCenterCrateCollide requires a valid object"));
+    let collide = SabotageCommandCenterCrateCollide::new(object, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "SabotageCommandCenterCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 legacy_object_crate_collide_factories!(
     sabotage_fake_building_crate_collide_data_factory,
     sabotage_fake_building_crate_collide_module_factory,
