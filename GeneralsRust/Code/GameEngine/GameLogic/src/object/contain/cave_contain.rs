@@ -17,9 +17,10 @@ use crate::object::{Object, ObjectId};
 use crate::player::Player;
 use crate::system::cave_system::CaveSystem;
 use crate::system::game_logic::GameLogic;
-use crate::team::Team;
+use crate::team::{Team, TeamID, TheTeamFactory, TEAM_ID_INVALID};
 use crate::tunnel_tracker::TunnelTracker;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Configuration data for CaveContain module
 #[derive(Debug, Clone)]
@@ -394,9 +395,17 @@ impl CaveContain {
     }
 
     /// Handle death event
-    pub fn on_die(&mut self, _damage_info: Option<&DamageInfo>) -> GameResult<()> {
+    pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        let Some(damage_info) = damage_info else {
+            return Ok(());
+        };
+
         if let Some(owner_obj) = self.get_object() {
             if let Ok(owner) = owner_obj.read() {
+                if !self.base.is_die_applicable(&*owner, damage_info) {
+                    return Ok(());
+                }
+
                 if owner.is_under_construction() {
                     return Ok(()); // Never registered itself as a tunnel
                 }
@@ -517,6 +526,28 @@ impl CaveContain {
         self.original_team = old_team;
     }
 
+    fn original_team_id(&self) -> TeamID {
+        self.original_team
+            .as_ref()
+            .and_then(|team| team.upgrade())
+            .and_then(|team| team.read().ok().map(|guard| guard.get_id()))
+            .unwrap_or(TEAM_ID_INVALID)
+    }
+
+    fn restore_original_team_by_id(&mut self, team_id: TeamID) -> Result<(), String> {
+        if team_id == TEAM_ID_INVALID {
+            self.original_team = None;
+            return Ok(());
+        }
+
+        let factory = TheTeamFactory().lock().map_err(|e| e.to_string())?;
+        let team = factory
+            .find_team_by_id(team_id)
+            .ok_or_else(|| format!("CaveContain::xfer could not find original team {team_id}"))?;
+        self.original_team = Some(Arc::downgrade(&team));
+        Ok(())
+    }
+
     /// Recalculate apparent controlling player
     pub fn recalc_apparent_controlling_player(&mut self) -> GameResult<()> {
         // Record original team first time through
@@ -580,21 +611,35 @@ impl CaveContain {
 
         if let Ok(tunnel) = tracker.read() {
             let all_caves = tunnel.get_container_list()?;
+            let team_arc = new_team.as_ref().and_then(|weak| weak.upgrade());
 
             for cave_id in all_caves {
                 let Some(obj_arc) = TheGameLogic::find_object_by_id(cave_id) else {
                     continue;
                 };
+
+                let (contain_arc, current_team) = {
+                    let Ok(obj_guard) = obj_arc.read() else {
+                        continue;
+                    };
+                    (obj_guard.get_contain(), obj_guard.get_team())
+                };
+
+                if let Some(contain) = contain_arc {
+                    if let Ok(mut contain_guard) = contain.lock() {
+                        let original_team = if set_original_teams {
+                            current_team.as_ref().map(Arc::downgrade)
+                        } else {
+                            None
+                        };
+                        contain_guard.set_original_team(original_team);
+                    }
+                }
+
                 let Ok(mut obj_guard) = obj_arc.write() else {
                     continue;
                 };
-
-                let team_arc = new_team.as_ref().and_then(|weak| weak.upgrade());
-                let _ = if set_original_teams {
-                    obj_guard.set_team(team_arc)
-                } else {
-                    obj_guard.set_temporary_team(team_arc)
-                };
+                obj_guard.defect(team_arc.clone(), 0);
             }
         }
         Ok(())
@@ -625,7 +670,10 @@ impl CaveContain {
         );
 
         // Save original team ID if present
-        // Implementation would depend on team ID system
+        state.insert(
+            "original_team_id".to_string(),
+            self.original_team_id().to_le_bytes().to_vec(),
+        );
 
         Ok(state)
     }
@@ -645,9 +693,53 @@ impl CaveContain {
             }
         }
 
-        // Load original team would require team lookup system
+        if let Some(data) = state.get("original_team_id") {
+            if data.len() >= 4 {
+                let bytes: [u8; 4] = data[0..4]
+                    .try_into()
+                    .map_err(|_| "Invalid original_team_id data")?;
+                self.restore_original_team_by_id(TeamID::from_le_bytes(bytes))?;
+            }
+        }
 
         Ok(())
+    }
+}
+
+impl Snapshotable for CaveContain {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(&self.base, xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+
+        Snapshotable::xfer(&mut self.base, xfer)?;
+
+        xfer.xfer_bool(&mut self.need_to_run_on_build_complete)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.cave_index)
+            .map_err(|e| e.to_string())?;
+
+        let mut team_id = self.original_team_id();
+        unsafe {
+            xfer.xfer_user(
+                &mut team_id as *mut TeamID as *mut u8,
+                std::mem::size_of::<TeamID>(),
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.restore_original_team_by_id(team_id)?;
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(&mut self.base)
     }
 }
 
@@ -697,6 +789,18 @@ impl ContainModuleInterface for CaveContain {
         } else {
             max as usize
         }
+    }
+
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
     }
 
     fn try_to_set_cave_index(&mut self, new_index: crate::common::Int) {
@@ -764,6 +868,10 @@ impl ContainModuleInterface for CaveContain {
 
     fn is_bustable(&self) -> bool {
         CaveContain::is_bustable(self)
+    }
+
+    fn set_original_team(&mut self, old_team: Option<Weak<RwLock<Team>>>) {
+        CaveContain::set_original_team(self, old_team);
     }
 
     fn is_passenger_allowed_to_fire(&self, id: Option<ObjectID>) -> bool {
@@ -834,7 +942,48 @@ impl ContainerInterface for CaveContain {
 mod tests {
     use super::*;
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::damage::{
+        set_death_type_flag, DamageInfo, DamageType, DeathType, DEATH_TYPE_FLAGS_NONE,
+    };
     use crate::object::registry::OBJECT_REGISTRY;
+
+    #[derive(Debug)]
+    struct RecordingContain {
+        original_team_calls: Arc<Mutex<Vec<bool>>>,
+    }
+
+    impl ContainModuleInterface for RecordingContain {
+        fn can_contain(&self, _object_id: ObjectID) -> bool {
+            false
+        }
+
+        fn contain_object(&mut self, _object_id: ObjectID) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn release_object(&mut self, _object_id: ObjectID) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn get_contained_objects(&self) -> &[ObjectID] {
+            &[]
+        }
+
+        fn get_contained_count(&self) -> usize {
+            0
+        }
+
+        fn get_max_capacity(&self) -> usize {
+            0
+        }
+
+        fn set_original_team(&mut self, old_team: Option<Weak<RwLock<Team>>>) {
+            self.original_team_calls
+                .lock()
+                .expect("calls lock")
+                .push(old_team.is_some());
+        }
+    }
 
     fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
         let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
@@ -845,6 +994,16 @@ mod tests {
         owner: &Arc<RwLock<Object>>,
         cave_index: i32,
     ) -> (CaveContain, Arc<Mutex<CaveSystem>>) {
+        let mut data = CaveContainModuleData::default();
+        data.base.allow_neutral_inside = true;
+        cave_with_data_registered_tracker(owner, cave_index, data)
+    }
+
+    fn cave_with_data_registered_tracker(
+        owner: &Arc<RwLock<Object>>,
+        cave_index: i32,
+        mut data: CaveContainModuleData,
+    ) -> (CaveContain, Arc<Mutex<CaveSystem>>) {
         let cave_system = Arc::new(Mutex::new(CaveSystem::new()));
         cave_system
             .lock()
@@ -852,9 +1011,7 @@ mod tests {
             .register_new_cave(cave_index)
             .expect("register cave");
 
-        let mut data = CaveContainModuleData::default();
         data.cave_index_data = cave_index;
-        data.base.allow_neutral_inside = true;
 
         let mut cave =
             CaveContain::new(Arc::downgrade(owner), &data, Some(Arc::clone(&cave_system)))
@@ -920,5 +1077,111 @@ mod tests {
 
         OBJECT_REGISTRY.unregister_object(93003);
         OBJECT_REGISTRY.unregister_object(93004);
+    }
+
+    #[test]
+    fn connected_cave_team_change_updates_each_cave_original_team_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let cave_a = test_object("CaveTeamA", 93005);
+        let cave_b = test_object("CaveTeamB", 93006);
+        let (mut controller, cave_system) = cave_with_registered_tracker(&cave_a, 0);
+        let team = Arc::new(RwLock::new(Team::new("TunnelTeam".into(), 930)));
+
+        cave_a
+            .write()
+            .expect("cave a write")
+            .set_team(Some(Arc::clone(&team)))
+            .expect("set cave a team");
+        cave_b
+            .write()
+            .expect("cave b write")
+            .set_team(Some(Arc::clone(&team)))
+            .expect("set cave b team");
+
+        let calls_a = Arc::new(Mutex::new(Vec::new()));
+        let calls_b = Arc::new(Mutex::new(Vec::new()));
+        cave_a
+            .write()
+            .expect("cave a write")
+            .set_contain(Some(Arc::new(Mutex::new(RecordingContain {
+                original_team_calls: Arc::clone(&calls_a),
+            }))));
+        cave_b
+            .write()
+            .expect("cave b write")
+            .set_contain(Some(Arc::new(Mutex::new(RecordingContain {
+                original_team_calls: Arc::clone(&calls_b),
+            }))));
+
+        let tracker = cave_system
+            .lock()
+            .expect("cave system lock")
+            .get_tunnel_tracker_for_cave_index(0)
+            .expect("tracker");
+        {
+            let mut tracker = tracker.write().expect("tracker write");
+            tracker
+                .on_tunnel_created(&*cave_a.read().expect("cave a read"))
+                .expect("register cave a");
+            tracker
+                .on_tunnel_created(&*cave_b.read().expect("cave b read"))
+                .expect("register cave b");
+        }
+
+        controller
+            .change_team_on_all_connected_caves(None, true)
+            .expect("capture team change");
+        controller
+            .change_team_on_all_connected_caves(None, false)
+            .expect("uncapture team change");
+
+        assert_eq!(*calls_a.lock().expect("calls a lock"), vec![true, false]);
+        assert_eq!(*calls_b.lock().expect("calls b lock"), vec![true, false]);
+
+        OBJECT_REGISTRY.unregister_object(93005);
+        OBJECT_REGISTRY.unregister_object(93006);
+    }
+
+    #[test]
+    fn on_die_respects_die_mux_before_destroying_tunnel_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let owner = test_object("CaveDieMuxOwner", 93007);
+        let mut data = CaveContainModuleData::default();
+        data.base.die_mux_data.death_types =
+            set_death_type_flag(DEATH_TYPE_FLAGS_NONE, DeathType::Exploded);
+        let (mut cave, cave_system) = cave_with_data_registered_tracker(&owner, 0, data);
+
+        let tracker = cave_system
+            .lock()
+            .expect("cave system lock")
+            .get_tunnel_tracker_for_cave_index(0)
+            .expect("tracker");
+        tracker
+            .write()
+            .expect("tracker write")
+            .on_tunnel_created(&*owner.read().expect("owner read"))
+            .expect("register owner tunnel");
+
+        let rejected = DamageInfo::with_simple(1.0, 0, DamageType::Explosion, DeathType::Crushed);
+        cave.on_die(Some(&rejected)).expect("rejected death");
+        assert_eq!(
+            tracker
+                .read()
+                .expect("tracker read")
+                .get_container_list()
+                .expect("container list"),
+            vec![93007]
+        );
+
+        let accepted = DamageInfo::with_simple(1.0, 0, DamageType::Explosion, DeathType::Exploded);
+        cave.on_die(Some(&accepted)).expect("accepted death");
+        assert!(tracker
+            .read()
+            .expect("tracker read")
+            .get_container_list()
+            .expect("container list")
+            .is_empty());
+
+        OBJECT_REGISTRY.unregister_object(93007);
     }
 }

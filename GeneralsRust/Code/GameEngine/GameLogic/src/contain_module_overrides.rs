@@ -4623,9 +4623,19 @@ fn cave_contain_module_factory(
 ) -> Box<dyn Module> {
     let contain_data = contain_adapter_data::<CaveContainModuleData>("CaveContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = CaveContain::new(owner_weak(owner_id), contain_data, None).unwrap_or_else(|_| {
-        CaveContain::new(Weak::new(), &CaveContainModuleData::default(), None)
-            .expect("CaveContain default construction failed")
+    let cave_system = crate::system::cave_system::TheCaveSystem();
+    let contain = CaveContain::new(
+        owner_weak(owner_id),
+        contain_data,
+        Some(cave_system.clone()),
+    )
+    .unwrap_or_else(|_| {
+        CaveContain::new(
+            Weak::new(),
+            &CaveContainModuleData::default(),
+            Some(cave_system),
+        )
+        .expect("CaveContain default construction failed")
     });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
     build_contain_module("CaveContain", thing, module_data, contain)
