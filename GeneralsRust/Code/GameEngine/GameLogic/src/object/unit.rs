@@ -3026,7 +3026,7 @@ impl UnitAIUpdate {
         self.waiting_for_path = false;
         self.set_queue_for_path_time(0);
         self.retry_path = false;
-        let destination = self.requested_destination;
+        let mut destination = self.requested_destination;
 
         if self.is_safe_path {
             return self.do_queued_safe_pathfind_now();
@@ -3037,6 +3037,11 @@ impl UnitAIUpdate {
         }
         if self.is_approach_path {
             return self.do_queued_approach_pathfind_now(destination);
+        }
+
+        if self.is_attack_path {
+            self.prepare_queued_attack_path_fallback()?;
+            destination = self.requested_destination;
         }
 
         if self.try_install_closest_path_for_invalid_destination(&destination)? {
@@ -3097,6 +3102,25 @@ impl UnitAIUpdate {
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
         Ok(false)
+    }
+
+    fn prepare_queued_attack_path_fallback(&mut self) -> Result<(), String> {
+        self.is_attack_path = false;
+        if self.requested_victim_id == INVALID_ID {
+            return Ok(());
+        }
+
+        let Some(victim) = get_legacy_object(self.requested_victim_id) else {
+            return Ok(());
+        };
+        let victim_pos = victim
+            .read()
+            .map_err(|_| "victim lock poisoned".to_string())?
+            .get_position()
+            .to_owned();
+        self.requested_destination = victim_pos;
+        let _ = self.ignore_obstacle(Some(&victim));
+        Ok(())
     }
 
     fn do_queued_approach_pathfind_now(&mut self, destination: Coord3D) -> Result<bool, String> {
@@ -9103,6 +9127,76 @@ mod tests {
             ai.queue_for_path_frame,
             now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
         );
+    }
+
+    #[test]
+    fn queued_attack_path_fallback_clears_attack_and_tracks_live_victim_like_cpp() {
+        let owner_id = 57;
+        let victim_id = 157;
+        let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let victim = Arc::new(RwLock::new(Object::new_test(victim_id, 100.0)));
+        {
+            let mut object = victim.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(20.0, 0.0, 0.0));
+        }
+        crate::object::registry::OBJECT_REGISTRY.register_object(owner_id, &base_object);
+        crate::object::registry::OBJECT_REGISTRY.register_object(victim_id, &victim);
+        crate::ai::object_registry::register_legacy_object(&base_object);
+        crate::ai::object_registry::register_legacy_object(&victim);
+
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        ai.request_attack_path(victim_id, &Coord3D::new(10.0, 0.0, 0.0))
+            .unwrap();
+
+        assert!(ai.is_attack_path);
+        assert_eq!(ai.requested_destination, Coord3D::new(10.0, 0.0, 0.0));
+
+        ai.update().unwrap();
+
+        assert!(!ai.is_attack_path);
+        assert!(!ai.waiting_for_path);
+        assert_eq!(ai.requested_destination, Coord3D::new(20.0, 0.0, 0.0));
+        assert_eq!(ai.ignore_obstacle_id, victim_id);
+        let unit_guard = unit.read().unwrap();
+        assert_eq!(
+            unit_guard.target_position,
+            Some(Coord3D::new(20.0, 0.0, 0.0))
+        );
+        assert!(unit_guard.current_path.is_some());
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(victim_id);
+        crate::ai::object_registry::unregister_legacy_object(owner_id);
+        crate::ai::object_registry::unregister_legacy_object(victim_id);
     }
 
     #[test]
