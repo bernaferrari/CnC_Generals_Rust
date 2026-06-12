@@ -31,7 +31,8 @@
 
 use crate::gui::callbacks::download_menu::download_menu_update;
 use crate::gui::callbacks::message_box::{
-    message_box_ok, message_box_ok_cancel, quit_message_box_yes_no, MessageBoxFunc,
+    ex_message_box_ok_cancel, message_box_ok, message_box_ok_cancel, quit_message_box_yes_no,
+    ExtendedMessageBoxFunc, MessageBoxFunc, MessageBoxReturnType as ExMessageBoxReturnType,
 };
 use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{
@@ -1039,17 +1040,28 @@ impl MainMenu {
             .map(|data| data.read().windowed)
             .unwrap_or(true);
         if windowed {
-            Self::perform_quit_now();
+            self.confirm_quit();
             return;
         }
 
-        let yes: MessageBoxFunc = Box::new(Self::perform_quit_now);
+        let yes: MessageBoxFunc = Box::new(|| {
+            let menu = get_main_menu();
+            menu.confirm_quit();
+        });
         let _ = quit_message_box_yes_no(
             &crate::game_text::GameText::fetch("GUI:QuitPopupTitle"),
             &crate::game_text::GameText::fetch("GUI:QuitPopupMessage"),
             Some(yes),
             None,
         );
+    }
+
+    fn confirm_quit(&self) {
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        state.button_pushed = true;
+        drop(state);
+
+        Self::perform_quit_now();
     }
 
     fn perform_quit_now() {
@@ -1554,7 +1566,7 @@ impl MainMenu {
             log::info!("Get Update button selected");
         } else if control_id == state.window_ids.exit_id {
             // Exit button - C++ lines 1502-1521
-            self.quit_callback(state);
+            self.request_quit(state);
             log::info!("Exit button selected");
         } else if control_id == state.window_ids.button_challenge_id {
             // Challenge button - C++ lines 1522-1538
@@ -1733,12 +1745,9 @@ impl MainMenu {
         );
     }
 
-    /// Quit callback
-    /// Port of quitCallback() - C++ lines 227-250
-    fn quit_callback(&self, state: &mut MainMenuState) {
-        state.button_pushed = true;
+    fn request_quit(&self, state: &mut MainMenuState) {
         Self::queue_action(state, PendingMainMenuAction::QuitRequest);
-        log::info!("Quit callback - exiting game");
+        log::info!("Quit requested from main menu");
     }
 
     /// Setup game start
@@ -1813,6 +1822,26 @@ impl MainMenu {
         self.prepare_campaign_game(&mut state, diff);
     }
 
+    fn retry_campaign_start_after_cd_check(
+        &mut self,
+        diff: GameDifficulty,
+    ) -> ExMessageBoxReturnType {
+        self.retry_campaign_start_after_cd_check_with_status(diff, Self::is_first_cd_present())
+    }
+
+    fn retry_campaign_start_after_cd_check_with_status(
+        &mut self,
+        diff: GameDifficulty,
+        cd_present: bool,
+    ) -> ExMessageBoxReturnType {
+        if !cd_present {
+            return ExMessageBoxReturnType::KeepOpen;
+        }
+
+        self.run_campaign_start_after_cd_check(diff);
+        ExMessageBoxReturnType::Close
+    }
+
     fn cancel_campaign_start_after_cd_check(&mut self) {
         let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
         state.button_pushed = false;
@@ -1829,17 +1858,19 @@ impl MainMenu {
     fn check_cd_before_campaign(&self, state: &mut MainMenuState, diff: GameDifficulty) {
         if !Self::is_first_cd_present() {
             state.button_pushed = false;
-            let ok: MessageBoxFunc = Box::new(move || {
+            let ok: ExtendedMessageBoxFunc = Box::new(move |_| {
                 let mut menu = get_main_menu();
-                menu.run_campaign_start_after_cd_check(diff);
+                menu.retry_campaign_start_after_cd_check(diff)
             });
-            let cancel: MessageBoxFunc = Box::new(|| {
+            let cancel: ExtendedMessageBoxFunc = Box::new(|_| {
                 let mut menu = get_main_menu();
                 menu.cancel_campaign_start_after_cd_check();
+                ExMessageBoxReturnType::Close
             });
-            let _ = message_box_ok_cancel(
+            let _ = ex_message_box_ok_cancel(
                 &crate::game_text::GameText::fetch("GUI:InsertCDPrompt"),
                 &crate::game_text::GameText::fetch("GUI:InsertCDMessage"),
+                None,
                 Some(ok),
                 Some(cancel),
             );
@@ -2621,6 +2652,36 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(options_hooks, vec!["ShellMainMenuOptionsPushed"]);
+    }
+
+    #[test]
+    fn test_exit_selection_defers_button_latch_until_quit_confirmed() {
+        let menu = MainMenu::new();
+        let ids = build_window_ids();
+        let mut state = MainMenuState::default();
+        state.window_ids = ids.clone();
+
+        menu.handle_button_selected(&mut state, ids.exit_id)
+            .unwrap();
+
+        assert!(!state.button_pushed);
+        assert!(matches!(
+            state.pending_actions.as_slice(),
+            [PendingMainMenuAction::QuitRequest]
+        ));
+    }
+
+    #[test]
+    fn test_no_cd_retry_keeps_prompt_open_without_starting_campaign() {
+        let mut menu = MainMenu::new();
+
+        let result =
+            menu.retry_campaign_start_after_cd_check_with_status(GameDifficulty::Normal, false);
+
+        assert_eq!(result, ExMessageBoxReturnType::KeepOpen);
+        let state = menu.state.read().unwrap_or_else(|e| e.into_inner());
+        assert!(!state.start_game);
+        assert!(!state.dont_allow_transitions);
     }
 
     #[test]
