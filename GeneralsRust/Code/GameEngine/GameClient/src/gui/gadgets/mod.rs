@@ -873,7 +873,7 @@ mod tests {
             messages.as_slice(),
             [GadgetMessage::ValueChanged {
                 gadget_id: 10,
-                value: GadgetValue::Integer(100)
+                value: GadgetValue::Integer(0)
             }]
         ));
 
@@ -886,7 +886,7 @@ mod tests {
             messages.as_slice(),
             [GadgetMessage::ValueChanged {
                 gadget_id: 10,
-                value: GadgetValue::Integer(200)
+                value: GadgetValue::Integer(1)
             }]
         ));
 
@@ -899,7 +899,7 @@ mod tests {
             messages.as_slice(),
             [GadgetMessage::ValueChanged {
                 gadget_id: 10,
-                value: GadgetValue::Integer(200)
+                value: GadgetValue::Integer(1)
             }]
         ));
 
