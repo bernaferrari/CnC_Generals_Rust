@@ -2399,6 +2399,33 @@ impl TheGameClient {
             .and_then(|state| state.drawable.as_ref().cloned())
     }
 
+    #[cfg(test)]
+    pub(crate) fn register_drawable_arc_for_test(&self, id: u32, drawable: Arc<RwLock<Drawable>>) {
+        let position = drawable
+            .read()
+            .ok()
+            .map(|guard| guard.get_position())
+            .unwrap_or(Coord3D::ZERO);
+        let mut map = DRAWABLE_STATE.lock().unwrap();
+        map.insert(
+            id,
+            DrawableState {
+                template_name: "TestDrawable".to_string(),
+                indicator_color: Color::default(),
+                position,
+                orientation: 0.0,
+                shroud_status_object_id: INVALID_ID,
+                beam_start: None,
+                beam_end: None,
+                beam_width: None,
+                projectile_stream: None,
+                model_draw: None,
+                drawable: Some(drawable),
+                expiration_frame: None,
+            },
+        );
+    }
+
     pub fn set_drawable_expiration_date(&self, id: u32, frame: UnsignedInt) {
         let mut map = DRAWABLE_STATE.lock().unwrap();
         if let Some(state) = map.get_mut(&id) {

@@ -2,7 +2,7 @@
 // Author: Kris Morness, July 2002
 // Ported to Rust
 
-use crate::helpers::{TheGameLogic, TheParticleSystemManager};
+use crate::helpers::{TheGameClient, TheGameLogic, TheParticleSystemManager};
 use crate::object::drawable::DrawableArcExt;
 use crate::object::ObjectArcExt;
 use crate::player::ThePlayerList;
@@ -528,34 +528,30 @@ impl LaserUpdate {
             return;
         };
 
-        let Some(parent_obj) = TheGameLogic::find_object_by_id(parent_id) else {
+        let Some(parent_drawable) =
+            TheGameClient::get().and_then(|client| client.get_drawable_arc(parent_id))
+        else {
             return;
         };
 
         let old_start_pos = self.start_pos;
 
-        if let Ok(parent_guard) = parent_obj.read() {
-            if let Some(drawable) = parent_guard.get_drawable() {
-                if let Ok(drawable_guard) = drawable.read() {
-                    if !self.parent_bone_name.is_empty() {
-                        if let Some(bone_matrix) = drawable_guard
-                            .get_current_worldspace_client_bone_positions(&self.parent_bone_name)
-                        {
-                            let translation = bone_matrix.w_axis;
-                            self.start_pos = Coord3D {
-                                x: translation.x,
-                                y: translation.y,
-                                z: translation.z,
-                            };
-                        } else {
-                            self.start_pos = drawable_guard.get_position();
-                        }
-                    } else {
-                        self.start_pos = drawable_guard.get_position();
-                    }
+        if let Ok(drawable_guard) = parent_drawable.read() {
+            if !self.parent_bone_name.is_empty() {
+                if let Some(bone_matrix) = drawable_guard
+                    .get_current_worldspace_client_bone_positions(&self.parent_bone_name)
+                {
+                    let translation = bone_matrix.w_axis;
+                    self.start_pos = Coord3D {
+                        x: translation.x,
+                        y: translation.y,
+                        z: translation.z,
+                    };
+                } else {
+                    self.start_pos = drawable_guard.get_position();
                 }
             } else {
-                self.start_pos = *parent_guard.get_position();
+                self.start_pos = drawable_guard.get_position();
             }
         }
 
@@ -571,14 +567,16 @@ impl LaserUpdate {
 
         let old_end_pos = self.end_pos;
 
-        let target_obj = TheGameLogic::find_object_by_id(target_id);
-        let target_dead = target_obj
+        let target_drawable =
+            TheGameClient::get().and_then(|client| client.get_drawable_arc(target_id));
+        let target_dead = target_drawable
             .as_ref()
-            .and_then(|obj| obj.read().ok())
-            .map(|guard| guard.is_effectively_dead())
-            .unwrap_or(true);
+            .and_then(|drawable| drawable.read().ok())
+            .and_then(|drawable_guard| drawable_guard.get_object())
+            .and_then(|object| object.read().ok().map(|guard| guard.is_effectively_dead()))
+            .unwrap_or(false);
 
-        if target_obj.is_none() || target_dead {
+        if target_drawable.is_none() || target_dead {
             // Target is gone. Punch through the old spot
             if self.module_data.punch_through_scalar > 0.0 {
                 let laser_vector = Vector3::new(
@@ -593,15 +591,9 @@ impl LaserUpdate {
             }
 
             self.target_id = None;
-        } else if let Some(target_obj) = target_obj {
-            if let Ok(target_guard) = target_obj.read() {
-                if let Some(drawable) = target_guard.get_drawable() {
-                    if let Ok(drawable_guard) = drawable.read() {
-                        self.end_pos = drawable_guard.get_position();
-                    }
-                } else {
-                    self.end_pos = *target_guard.get_position();
-                }
+        } else if let Some(target_drawable) = target_drawable {
+            if let Ok(drawable_guard) = target_drawable.read() {
+                self.end_pos = drawable_guard.get_position();
             }
         }
 
@@ -833,9 +825,30 @@ impl Drop for LaserUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::Matrix3D;
+    use crate::object::drawable::{Drawable, DrawableType};
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
+    use std::sync::{Mutex, RwLock};
+
+    static DRAWABLE_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn register_test_drawable(id: u32, position: Coord3D) {
+        let drawable = Arc::new(RwLock::new(Drawable::new(
+            id,
+            0x0bad_f00d,
+            "TestDrawable".to_string(),
+            DrawableType::Animated,
+        )));
+        drawable
+            .write()
+            .unwrap()
+            .set_transform(Matrix3D::from_translation(position));
+        TheGameClient::get()
+            .unwrap()
+            .register_drawable_arc_for_test(id, drawable);
+    }
 
     #[test]
     fn laser_update_xfer_preserves_cpp_runtime_fields() {
@@ -947,6 +960,75 @@ mod tests {
         assert_eq!(update.target_particle_system_id, None);
         assert_eq!(update.parent_id, None);
         assert_eq!(update.target_id, None);
+    }
+
+    #[test]
+    fn laser_update_start_position_tracks_parent_drawable_id() {
+        let _guard = DRAWABLE_TEST_LOCK.lock().unwrap();
+        let client = TheGameClient::get().unwrap();
+        let drawable_id = 0x0100_0001;
+        client.destroy_drawable(drawable_id);
+
+        let parent_position = Coord3D::new(12.0, -4.0, 7.5);
+        register_test_drawable(drawable_id, parent_position);
+
+        let mut update = LaserUpdate::new(99, LaserUpdateModuleData::default());
+        update.start_pos = Coord3D::new(0.0, 0.0, 0.0);
+        update.parent_id = Some(drawable_id);
+        update.dirty = false;
+
+        update.update_start_pos();
+
+        assert_eq!(update.start_pos, parent_position);
+        assert!(update.dirty);
+
+        client.destroy_drawable(drawable_id);
+    }
+
+    #[test]
+    fn laser_update_end_position_tracks_target_drawable_id() {
+        let _guard = DRAWABLE_TEST_LOCK.lock().unwrap();
+        let client = TheGameClient::get().unwrap();
+        let drawable_id = 0x0100_0002;
+        client.destroy_drawable(drawable_id);
+
+        let target_position = Coord3D::new(-8.0, 3.25, 11.0);
+        register_test_drawable(drawable_id, target_position);
+
+        let mut update = LaserUpdate::new(99, LaserUpdateModuleData::default());
+        update.end_pos = Coord3D::new(0.0, 0.0, 0.0);
+        update.target_id = Some(drawable_id);
+        update.dirty = false;
+
+        update.update_end_pos();
+
+        assert_eq!(update.end_pos, target_position);
+        assert_eq!(update.target_id, Some(drawable_id));
+        assert!(update.dirty);
+
+        client.destroy_drawable(drawable_id);
+    }
+
+    #[test]
+    fn laser_update_missing_target_drawable_clears_id_and_punches_through() {
+        let _guard = DRAWABLE_TEST_LOCK.lock().unwrap();
+        let client = TheGameClient::get().unwrap();
+        let drawable_id = 0x0100_0003;
+        client.destroy_drawable(drawable_id);
+
+        let mut data = LaserUpdateModuleData::default();
+        data.punch_through_scalar = 2.0;
+        let mut update = LaserUpdate::new(99, data);
+        update.start_pos = Coord3D::new(1.0, 2.0, 3.0);
+        update.end_pos = Coord3D::new(4.0, 6.0, 3.0);
+        update.target_id = Some(drawable_id);
+        update.dirty = false;
+
+        update.update_end_pos();
+
+        assert_eq!(update.target_id, None);
+        assert_eq!(update.end_pos, Coord3D::new(7.0, 10.0, 3.0));
+        assert!(update.dirty);
     }
 
     #[test]
