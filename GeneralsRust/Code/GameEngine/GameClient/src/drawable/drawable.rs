@@ -2688,15 +2688,14 @@ impl BasicDrawable {
             return;
         };
 
-        let contained_count = contain_guard.get_contained_count();
-        if contained_count == 0 {
+        let (num_total, num_full, show_pips) = contain_guard.get_container_pips_to_show();
+        if !show_pips || num_full == 0 {
             self.overlay_data.show_contained = false;
             return;
         }
 
-        let max_capacity = contain_guard.get_max_capacity();
-        self.overlay_data.contained_full = contained_count.min(u8::MAX as usize) as u8;
-        self.overlay_data.contained_total = max_capacity.min(u8::MAX as usize) as u8;
+        self.overlay_data.contained_full = num_full.max(0).min(u8::MAX as i32) as u8;
+        self.overlay_data.contained_total = num_total.max(0).min(u8::MAX as i32) as u8;
         self.overlay_data.show_contained = true;
 
         // C++ counts infantry among contained items for green/blue color coding

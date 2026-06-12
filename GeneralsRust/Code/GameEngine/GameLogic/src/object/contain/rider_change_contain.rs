@@ -901,6 +901,10 @@ impl ContainModuleInterface for RiderChangeContain {
         }
     }
 
+    fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
+        (0, 0, false)
+    }
+
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         RiderChangeContain::update(self)?;
         Ok(UpdateSleepTime::Frames(1))
