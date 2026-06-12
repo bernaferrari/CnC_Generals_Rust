@@ -17,6 +17,7 @@ use crate::object::collide::crate_collide::*;
 use crate::object::collide::Coord3D as CollideCoord3D;
 use crate::object::collide::LegacyCollideAdapter;
 use crate::object::*;
+use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 
 /// Module data for sabotage supply dropzone crate collide behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +38,10 @@ impl Default for SabotageSupplyDropzoneCrateCollideModuleData {
 }
 
 impl SabotageSupplyDropzoneCrateCollideModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, SABOTAGE_SUPPLY_DROPZONE_CRATE_COLLIDE_FIELDS)
+    }
+
     /// Build field parser for INI configuration
     pub fn build_field_parse() -> Vec<FieldParse> {
         let mut fields = LegacyCrateCollideModuleData::build_field_parse();
@@ -47,6 +52,220 @@ impl SabotageSupplyDropzoneCrateCollideModuleData {
         )]);
         fields
     }
+}
+
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+    if tokens.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+
+    let mut mask = 0u64;
+    for token in tokens
+        .iter()
+        .filter(|token| **token != "=")
+        .flat_map(|token| token.split('|'))
+    {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let Some(kind) = kindof_from_name(token) else {
+            return Err(INIError::InvalidData);
+        };
+        mask |= 1u64 << (kind as u32);
+    }
+    Ok(mask)
+}
+
+fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_required_kind_of(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.required_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbidden_kind_of(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.forbidden_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbid_owner_player(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_forbid_owner_player = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_building_pickup(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_building_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_human_only(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_human_only_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_pickup_science(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.pickup_science =
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(first_token(tokens)?)
+            as crate::common::science::ScienceType;
+    Ok(())
+}
+
+fn parse_execute_fx(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_fx = Some(first_token(tokens)?.to_string());
+    Ok(())
+}
+
+fn parse_execute_animation(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execution_animation_template = first_token(tokens)?.to_string();
+    Ok(())
+}
+
+fn parse_execute_animation_time(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_display_time_seconds = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_z_rise(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_z_rise_per_second = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_fades(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_fades = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_steal_cash_amount(
+    _ini: &mut INI,
+    data: &mut SabotageSupplyDropzoneCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.steal_cash_amount = INI::parse_unsigned_int(first_token(tokens)?)?;
+    Ok(())
+}
+
+const SABOTAGE_SUPPLY_DROPZONE_CRATE_COLLIDE_FIELDS: &[IniFieldParse<
+    SabotageSupplyDropzoneCrateCollideModuleData,
+>] = &[
+    IniFieldParse {
+        token: "RequiredKindOf",
+        parse: parse_required_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbiddenKindOf",
+        parse: parse_forbidden_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbidOwnerPlayer",
+        parse: parse_forbid_owner_player,
+    },
+    IniFieldParse {
+        token: "BuildingPickup",
+        parse: parse_building_pickup,
+    },
+    IniFieldParse {
+        token: "HumanOnly",
+        parse: parse_human_only,
+    },
+    IniFieldParse {
+        token: "PickupScience",
+        parse: parse_pickup_science,
+    },
+    IniFieldParse {
+        token: "ExecuteFX",
+        parse: parse_execute_fx,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimation",
+        parse: parse_execute_animation,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationTime",
+        parse: parse_execute_animation_time,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationZRise",
+        parse: parse_execute_animation_z_rise,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationFades",
+        parse: parse_execute_animation_fades,
+    },
+    IniFieldParse {
+        token: "StealCashAmount",
+        parse: parse_steal_cash_amount,
+    },
+];
+
+fn format_cash_template(template: &str, amount: u32, fallback_prefix: &str) -> String {
+    let amount = amount.to_string();
+    if template.contains("%d") || template.contains("%i") || template.contains("%u") {
+        template
+            .replace("%d", &amount)
+            .replace("%i", &amount)
+            .replace("%u", &amount)
+    } else {
+        format!("{fallback_prefix}${amount}")
+    }
+}
+
+fn format_add_cash(amount: u32) -> String {
+    format_cash_template(&TheGameText::fetch("GUI:AddCash"), amount, "+")
+}
+
+fn format_lose_cash(amount: u32) -> String {
+    format_cash_template(&TheGameText::fetch("GUI:LoseCash"), amount, "-")
 }
 
 /// Sabotage Supply Dropzone Crate Collide module
@@ -177,16 +396,6 @@ impl SabotageSupplyDropzoneCrateCollide {
             }
         }
 
-        // Find the OCLUpdate module via behavior interfaces as a fallback.
-        for module in other_lock.get_behavior_modules() {
-            if let Ok(mut guard) = module.lock() {
-                if let Some(ocl_update) = guard.get_ocl_update_interface() {
-                    ocl_update.reset_timer()?;
-                    break;
-                }
-            }
-        }
-
         Ok(())
     }
 
@@ -244,16 +453,14 @@ impl SabotageSupplyDropzoneCrateCollide {
         let other_lock = other.read().map_err(|_| GameError::LockError)?;
 
         // Display cash income floating over the saboteur
-        let add_cash_text = TheGameText::fetch("GUI:AddCash");
-        let money_string = format!("{}: {}", add_cash_text, cash_amount);
+        let money_string = format_add_cash(cash_amount);
         let mut pos = *object_lock.get_position();
         pos.z += 20.0; // Add a little z to make it show up above the unit
         let green_color = Color::new(0, 255, 0, 255);
         TheInGameUI::add_floating_text(&money_string, &pos, green_color)?;
 
         // Display cash lost floating over the target
-        let lose_cash_text = TheGameText::fetch("GUI:LoseCash");
-        let loss_string = format!("{}: {}", lose_cash_text, cash_amount);
+        let loss_string = format_lose_cash(cash_amount);
         let mut target_pos = *other_lock.get_position();
         target_pos.z += 30.0; // Add a little z to make it show up above the unit
         let red_color = Color::new(255, 0, 0, 255);
@@ -325,5 +532,50 @@ impl game_engine::common::system::Snapshotable for SabotageSupplyDropzoneCrateCo
 
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn steal_cash_amount_parse_from_ini_preserves_cpp_field() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = SabotageSupplyDropzoneCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "StealCashAmount = 1750\n\
+             RequiredKindOf = FS_SUPPLY_DROPZONE\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("sabotage supply dropzone ini parses");
+
+        assert_eq!(data.steal_cash_amount, 1750);
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::FSSupplyDropzone as u32)),
+            0
+        );
+    }
+
+    #[test]
+    fn steal_cash_amount_rejects_missing_value_like_cpp() {
+        let mut data = SabotageSupplyDropzoneCrateCollideModuleData::default();
+        let mut ini = INI::new();
+
+        let err = parse_steal_cash_amount(&mut ini, &mut data, &["="])
+            .expect_err("missing cash amount should fail");
+
+        assert!(matches!(err, INIError::InvalidData));
+        assert_eq!(data.steal_cash_amount, 0);
+    }
+
+    #[test]
+    fn cash_labels_format_cpp_style_templates() {
+        assert_eq!(format_cash_template("+$%d", 125, "+"), "+$125");
+        assert_eq!(format_cash_template("-$%u", 125, "-"), "-$125");
+        assert_eq!(format_cash_template("GUI:AddCash", 125, "+"), "+$125");
     }
 }
