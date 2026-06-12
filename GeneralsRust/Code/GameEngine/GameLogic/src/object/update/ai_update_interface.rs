@@ -931,9 +931,15 @@ impl AIUpdateInterface {
     /// returns false if no path found.  Lines ~AIUpdate.cpp:440.
     pub fn compute_path(&mut self, destination: Coord3D) -> bool {
         self.requested_destination = destination;
+        if !self.is_blocked_and_stuck {
+            self.destroy_path();
+        }
+
         if self.can_compute_quick_path() {
             return self.compute_quick_path(destination);
         }
+
+        self.retry_path = false;
 
         // PARITY_TODO: delegate to pathfinder->findPath() once pathfinder bridge is ported.
         // For now, create a simple two-point path as placeholder.
@@ -941,6 +947,7 @@ impl AIUpdateInterface {
         if start == Coord3D::ZERO {
             return false;
         }
+        self.destroy_path();
         self.path = Some(vec![start, destination]);
         self.path_timestamp = TheGameLogic::get_frame();
         self.blocked_frames = 0;
@@ -1916,6 +1923,7 @@ mod tests {
         ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
         ai.is_blocked = true;
         ai.is_blocked_and_stuck = true;
+        ai.retry_path = true;
         ai.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
 
         assert!(ai.compute_path(Coord3D::new(8.0, 9.0, 0.0)));
@@ -1923,6 +1931,7 @@ mod tests {
         assert_eq!(ai.get_path_timestamp(), TheGameLogic::get_frame());
         assert!(!ai.is_blocked);
         assert!(!ai.is_blocked_and_stuck);
+        assert!(!ai.retry_path);
         assert_eq!(ai.get_queue_for_path_frame(), 0);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
         assert_eq!(ai.locomotor_goal_data, Coord3D::ZERO);
@@ -1935,6 +1944,26 @@ mod tests {
         assert!(ai.get_path().is_none());
         assert!(!ai.is_waiting_for_path());
         assert!(!ai.is_attack_path);
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::None);
+    }
+
+    #[test]
+    fn compute_path_destroys_stale_non_stuck_path_before_failure_like_cpp() {
+        let mut ai = ai_update();
+        ai.path = Some(vec![
+            Coord3D::new(2.0, 3.0, 0.0),
+            Coord3D::new(4.0, 5.0, 0.0),
+        ]);
+        ai.waiting_for_path = true;
+        ai.is_attack_path = true;
+        ai.retry_path = true;
+
+        assert!(!ai.compute_path(Coord3D::new(8.0, 9.0, 0.0)));
+
+        assert!(ai.get_path().is_none());
+        assert!(!ai.is_waiting_for_path());
+        assert!(!ai.is_attack_path);
+        assert!(!ai.retry_path);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::None);
     }
 
