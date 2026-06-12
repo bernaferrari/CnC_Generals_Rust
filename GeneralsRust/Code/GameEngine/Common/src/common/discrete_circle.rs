@@ -46,7 +46,9 @@ impl DiscreteCircle {
     {
         for edge in &self.edges {
             callback(edge.x_start, edge.x_end, edge.y_pos);
-            callback(edge.x_start, edge.x_end, self.y_pos_doubled - edge.y_pos);
+            if edge.y_pos != self.y_center {
+                callback(edge.x_start, edge.x_end, self.y_pos_doubled - edge.y_pos);
+            }
         }
     }
 
@@ -107,11 +109,31 @@ mod tests {
     }
 
     #[test]
+    fn center_scanline_is_drawn_once() {
+        let c = DiscreteCircle::new(0, 0, 5);
+        let mut center_rows = 0;
+        c.draw_circle(|_xs, _xe, y| {
+            if y == 0 {
+                center_rows += 1;
+            }
+        });
+        assert_eq!(center_rows, 1);
+    }
+
+    #[test]
+    fn radius_zero_draws_one_scanline() {
+        let c = DiscreteCircle::new(0, 0, 0);
+        let mut rows = Vec::new();
+        c.draw_circle(|xs, xe, y| rows.push((xs, xe, y)));
+        assert_eq!(rows, vec![(0, 0, 0)]);
+    }
+
+    #[test]
     fn circle_is_symmetric() {
         let c = DiscreteCircle::new(0, 0, 20);
         let mut top_count = 0;
         let mut bottom_count = 0;
-        for edge in &c.edges {
+        for _edge in &c.edges {
             top_count += 1;
             bottom_count += 1;
         }
