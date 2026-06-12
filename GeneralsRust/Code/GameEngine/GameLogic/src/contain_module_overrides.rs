@@ -2369,13 +2369,38 @@ legacy_object_crate_collide_factories!(
     SabotageMilitaryFactoryCrateCollide,
     "SabotageMilitaryFactoryCrateCollide"
 );
-legacy_object_crate_collide_factories!(
-    sabotage_power_plant_crate_collide_data_factory,
-    sabotage_power_plant_crate_collide_module_factory,
-    SabotagePowerPlantCrateCollideModuleData,
-    SabotagePowerPlantCrateCollide,
-    "SabotagePowerPlantCrateCollide"
-);
+fn sabotage_power_plant_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SabotagePowerPlantCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SabotagePowerPlantCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn sabotage_power_plant_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<
+        CrateCollideDataAdapter<SabotagePowerPlantCrateCollideModuleData>,
+    >("SabotagePowerPlantCrateCollide", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .expect("SabotagePowerPlantCrateCollide requires a valid object");
+    let collide = SabotagePowerPlantCrateCollide::new(object, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "SabotagePowerPlantCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 legacy_object_crate_collide_factories!(
     sabotage_superweapon_crate_collide_data_factory,
     sabotage_superweapon_crate_collide_module_factory,
