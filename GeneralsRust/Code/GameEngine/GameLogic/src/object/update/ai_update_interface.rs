@@ -19,11 +19,13 @@ use std::collections::HashMap;
 use crate::ai::turret::TurretAI;
 use crate::common::{
     AsciiString, Bool, Coord3D, FormationID, ICoord2D, Int, KindOf, LocomotorSetType, ObjectID,
-    Real, UnsignedInt, Vec3D, WhichTurretType, INVALID_ID, LOGICFRAMES_PER_SECOND,
-    WEAPONSLOT_COUNT,
+    ObjectStatusMaskType, ObjectStatusTypes, Real, UnsignedInt, Vec3D, WhichTurretType, INVALID_ID,
+    LOGICFRAMES_PER_SECOND, WEAPONSLOT_COUNT,
 };
 use crate::helpers::TheGameLogic;
-use crate::locomotor::{LOCOMOTOR_STORE, SURFACE_AIR, SURFACE_GROUND};
+use crate::locomotor::LOCOMOTOR_STORE;
+use crate::locomotor::{ActivePath, BodyDamageType as LocoBodyDamageType, Locomotor};
+use crate::locomotor::{SURFACE_AIR, SURFACE_GROUND};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{CrushSquishTestType, Object};
 use crate::path::PATHFIND_CELL_SIZE_F;
@@ -766,6 +768,8 @@ pub struct AIUpdateInterface {
     cur_locomotor_tag: UnsignedInt,
     cur_locomotor_template: AsciiString,
     cur_locomotor_surfaces: u32,
+    cur_locomotor: Option<Locomotor>,
+    cur_locomotor_speed: Real,
     cur_locomotor_set: LocomotorSetType,
     locomotor_goal_type: LocoGoalType,
     locomotor_goal_data: Coord3D,
@@ -875,6 +879,8 @@ impl AIUpdateInterface {
             cur_locomotor_tag: 0,
             cur_locomotor_template: AsciiString::new(),
             cur_locomotor_surfaces: 0,
+            cur_locomotor: None,
+            cur_locomotor_speed: 0.0,
             cur_locomotor_set: LocomotorSetType::Invalid,
             locomotor_goal_type: LocoGoalType::None,
             locomotor_goal_data: Coord3D::ZERO,
@@ -1578,13 +1584,13 @@ impl AIUpdateInterface {
                     if self.path.is_none() && self.waiting_for_path {
                         return u32::MAX;
                     }
-                    // PARITY_TODO: move along path using cur_locomotor once locomotor bridge is ported
+                    self.locomotor_move_along_path(blocked);
                 }
                 LocoGoalType::PositionExplicit => {
-                    // PARITY_TODO: move to explicit position
+                    self.locomotor_move_towards(self.locomotor_goal_data, blocked);
                 }
                 LocoGoalType::Angle => {
-                    // PARITY_TODO: rotate to angle
+                    self.locomotor_rotate_towards(self.locomotor_goal_data.x);
                 }
             }
 
@@ -1595,6 +1601,214 @@ impl AIUpdateInterface {
         }
 
         0
+    }
+
+    fn locomotor_move_along_path(&mut self, blocked: bool) {
+        if !self.is_doing_ground_movement() {
+            if let Some(goal_pos) = self.path.as_ref().and_then(|path| path.last()).copied() {
+                self.locomotor_move_towards(goal_pos, blocked);
+            }
+            return;
+        }
+
+        let Some(path) = self.path.clone() else {
+            return;
+        };
+        let Some((current_pos, current_angle, body_condition)) = self.owner_locomotor_inputs()
+        else {
+            return;
+        };
+        let current_speed = self.cur_locomotor_speed;
+        let mut speed = {
+            let Some(locomotor) = self.cur_locomotor.as_ref() else {
+                return;
+            };
+            self.clamped_desired_speed(locomotor, body_condition)
+        };
+        speed = self.apply_blocked_speed_limit(speed, blocked);
+
+        let Some(locomotor) = self.cur_locomotor.as_mut() else {
+            return;
+        };
+        let current_frame = TheGameLogic::get_frame();
+        let path_changed = locomotor
+            .active_path
+            .as_ref()
+            .map(|active_path| active_path.waypoints != path)
+            .unwrap_or(true);
+        if path_changed {
+            locomotor.active_path = Some(ActivePath::new(path, current_frame));
+        }
+        let delta_time = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+        if let Some((new_pos, new_angle, new_speed)) = locomotor.update_path_following(
+            current_pos,
+            current_angle,
+            current_speed,
+            body_condition,
+            speed,
+            current_frame,
+            delta_time,
+        ) {
+            self.apply_locomotor_result(current_pos, current_angle, new_pos, new_angle, new_speed);
+        }
+        self.do_final_position = false;
+    }
+
+    fn locomotor_move_towards(&mut self, goal_pos: Coord3D, blocked: bool) {
+        let Some((current_pos, current_angle, body_condition)) = self.owner_locomotor_inputs()
+        else {
+            return;
+        };
+        let current_speed = self.cur_locomotor_speed;
+        let mut speed = {
+            let Some(locomotor) = self.cur_locomotor.as_ref() else {
+                return;
+            };
+            self.clamped_desired_speed(locomotor, body_condition)
+        };
+        speed = self.apply_blocked_speed_limit(speed, blocked);
+
+        let Some(locomotor) = self.cur_locomotor.as_mut() else {
+            return;
+        };
+        let delta_time = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+        let (new_pos, new_angle, new_speed) = locomotor.move_towards(
+            current_pos,
+            current_angle,
+            current_speed,
+            goal_pos,
+            speed,
+            body_condition,
+            delta_time,
+        );
+        self.apply_locomotor_result(current_pos, current_angle, new_pos, new_angle, new_speed);
+        self.do_final_position = false;
+    }
+
+    fn locomotor_rotate_towards(&mut self, angle: Real) {
+        let Some((current_pos, current_angle, body_condition)) = self.owner_locomotor_inputs()
+        else {
+            return;
+        };
+        let current_speed = self.cur_locomotor_speed;
+        let Some(locomotor) = self.cur_locomotor.as_mut() else {
+            return;
+        };
+        let delta_time = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+        let (new_pos, new_angle, new_speed) = locomotor.loco_update_move_towards_angle(
+            current_pos,
+            current_angle,
+            angle,
+            current_speed,
+            body_condition,
+            delta_time,
+        );
+        self.apply_locomotor_result(current_pos, current_angle, new_pos, new_angle, new_speed);
+        self.do_final_position = false;
+    }
+
+    fn owner_locomotor_inputs(&self) -> Option<(Coord3D, Real, LocoBodyDamageType)> {
+        let owner = OBJECT_REGISTRY.get_object(self.owner_object_id)?;
+        let owner = owner.read().ok()?;
+        Some((
+            *owner.get_position(),
+            owner.get_orientation(),
+            Self::owner_body_damage_type(&owner),
+        ))
+    }
+
+    fn owner_body_damage_type(owner: &Object) -> LocoBodyDamageType {
+        owner
+            .get_body_module()
+            .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
+            .map(|state| match state {
+                crate::common::BodyDamageType::Pristine => LocoBodyDamageType::Pristine,
+                crate::common::BodyDamageType::Damaged => LocoBodyDamageType::Damaged,
+                crate::common::BodyDamageType::ReallyDamaged => LocoBodyDamageType::ReallyDamaged,
+                crate::common::BodyDamageType::Rubble => LocoBodyDamageType::Rubble,
+            })
+            .unwrap_or(LocoBodyDamageType::Pristine)
+    }
+
+    fn clamped_desired_speed(&self, locomotor: &Locomotor, condition: LocoBodyDamageType) -> Real {
+        let max_speed = locomotor.get_max_speed_for_condition(condition);
+        if self.desired_speed == AI_FAST_AS_POSSIBLE || self.desired_speed > max_speed {
+            max_speed
+        } else {
+            self.desired_speed
+        }
+    }
+
+    fn apply_blocked_speed_limit(&mut self, speed: Real, blocked: bool) -> Real {
+        if blocked && speed > self.cur_max_blocked_speed {
+            let mut speed = self.cur_max_blocked_speed;
+            if self.bump_speed_limit > speed {
+                self.bump_speed_limit = speed;
+            }
+            self.bump_speed_limit *= 0.95;
+            speed = self.bump_speed_limit;
+            speed
+        } else {
+            if self.bump_speed_limit < AI_FAST_AS_POSSIBLE {
+                if self.bump_speed_limit < speed * 0.2 {
+                    self.bump_speed_limit = speed * 0.2;
+                }
+                self.bump_speed_limit *= 1.05;
+            }
+            speed.min(self.bump_speed_limit)
+        }
+    }
+
+    fn apply_locomotor_result(
+        &mut self,
+        old_pos: Coord3D,
+        old_angle: Real,
+        new_pos: Coord3D,
+        new_angle: Real,
+        new_speed: Real,
+    ) {
+        self.cur_locomotor_speed = new_speed;
+        let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_object_id) else {
+            return;
+        };
+        let Ok(mut owner) = owner.write() else {
+            return;
+        };
+        let _ = owner.set_position(&new_pos);
+        let _ = owner.set_orientation(new_angle);
+        if let Some(physics) = owner.get_physics() {
+            if let Ok(mut physics) = physics.lock() {
+                let delta_time = 1.0 / LOGICFRAMES_PER_SECOND as Real;
+                let velocity = (new_pos - old_pos) / delta_time;
+                physics.set_velocity(&velocity);
+
+                let mut yaw_delta = new_angle - old_angle;
+                let two_pi = std::f32::consts::PI * 2.0;
+                while yaw_delta > std::f32::consts::PI {
+                    yaw_delta -= two_pi;
+                }
+                while yaw_delta < -std::f32::consts::PI {
+                    yaw_delta += two_pi;
+                }
+                physics.set_yaw_rate(yaw_delta / delta_time);
+                physics.set_turning(if yaw_delta > 0.0 {
+                    1
+                } else if yaw_delta < 0.0 {
+                    -1
+                } else {
+                    0
+                });
+            }
+        }
+
+        if let Some(locomotor) = self.cur_locomotor.as_ref() {
+            let airborne = owner.get_height_above_terrain()
+                > locomotor.template.airborne_targeting_height as Real;
+            owner.set_status(
+                ObjectStatusMaskType::from_status(ObjectStatusTypes::AirborneTarget),
+                airborne,
+            );
+        }
     }
 
     /// C++ AIUpdateInterface::setLocomotorGoalPositionOnPath – sets the
@@ -1713,6 +1927,26 @@ impl AIUpdateInterface {
             self.cur_locomotor_tag = 0;
             self.cur_locomotor_template.clear();
             self.cur_locomotor_surfaces = 0;
+        }
+        self.sync_cur_locomotor_state();
+    }
+
+    fn sync_cur_locomotor_state(&mut self) {
+        if self.cur_locomotor_tag == 0 || self.cur_locomotor_template.is_empty() {
+            self.cur_locomotor = None;
+            self.cur_locomotor_speed = 0.0;
+            return;
+        }
+
+        let template_name = self.cur_locomotor_template.as_str();
+        let is_current = self
+            .cur_locomotor
+            .as_ref()
+            .map(|locomotor| locomotor.get_template_name() == template_name)
+            .unwrap_or(false);
+        if !is_current {
+            self.cur_locomotor = LOCOMOTOR_STORE.create_locomotor(template_name);
+            self.cur_locomotor_speed = 0.0;
         }
     }
 
@@ -2439,6 +2673,8 @@ impl AIUpdateInterface {
         self.cur_locomotor_tag = 0;
         self.cur_locomotor_template.clear();
         self.cur_locomotor_surfaces = 0;
+        self.cur_locomotor = None;
+        self.cur_locomotor_speed = 0.0;
         self.cur_locomotor_set = wst;
         true
     }
@@ -3307,6 +3543,66 @@ mod tests {
 
         assert_eq!(ai.do_locomotor(), 0);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
+    }
+
+    #[test]
+    fn do_locomotor_explicit_goal_moves_owner_with_locomotor_like_cpp() {
+        let owner_id = 7_501;
+        let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        let mut data = AIUpdateModuleData::default();
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
+        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), owner_id);
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
+
+        ai.set_locomotor_goal_position_explicit(Coord3D::new(40.0, 0.0, 0.0));
+        assert_eq!(ai.do_locomotor(), 0);
+
+        let position = *owner.read().unwrap().get_position();
+        assert!(position.x > 0.0);
+        assert!(position.y.abs() < 0.01);
+        assert!(ai.cur_locomotor_speed > 0.0);
+        assert!(!ai.do_final_position);
+    }
+
+    #[test]
+    fn do_locomotor_path_goal_moves_toward_next_path_point_like_cpp() {
+        let owner_id = 7_502;
+        let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        let mut data = AIUpdateModuleData::default();
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
+        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), owner_id);
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
+        ai.path = Some(vec![
+            Coord3D::ZERO,
+            Coord3D::new(30.0, 0.0, 0.0),
+            Coord3D::new(60.0, 0.0, 0.0),
+        ]);
+        ai.set_locomotor_goal_position_on_path();
+
+        assert_eq!(ai.do_locomotor(), 0);
+
+        let position = *owner.read().unwrap().get_position();
+        assert!(position.x > 0.0);
+        assert!(position.x < 30.0);
+        assert!(ai.cur_locomotor_speed > 0.0);
+    }
+
+    #[test]
+    fn do_locomotor_angle_goal_rotates_owner_with_locomotor_like_cpp() {
+        let owner_id = 7_503;
+        let (owner, _owner_cleanup) = register_collision_object(owner_id, Coord3D::ZERO, 0.0, None);
+        let mut data = AIUpdateModuleData::default();
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
+        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), owner_id);
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
+
+        ai.set_locomotor_goal_orientation(std::f32::consts::FRAC_PI_2);
+        assert_eq!(ai.do_locomotor(), 0);
+
+        let orientation = owner.read().unwrap().get_orientation();
+        assert!(orientation > 0.0);
+        assert!(orientation < std::f32::consts::FRAC_PI_2);
+        assert!(!ai.do_final_position);
     }
 
     #[test]
