@@ -1352,26 +1352,28 @@ impl AIUpdateInterface {
         self.is_blocked = false;
         let blocked = self.blocked_frames > 0;
 
-        match self.locomotor_goal_type {
-            LocoGoalType::None => {}
-            LocoGoalType::PositionOnPath => {
-                if self.path.is_none() && self.waiting_for_path {
-                    return u32::MAX;
+        if self.cur_locomotor_tag != 0 {
+            match self.locomotor_goal_type {
+                LocoGoalType::None => {}
+                LocoGoalType::PositionOnPath => {
+                    if self.path.is_none() && self.waiting_for_path {
+                        return u32::MAX;
+                    }
+                    // PARITY_TODO: move along path using cur_locomotor once locomotor bridge is ported
                 }
-                // PARITY_TODO: move along path using cur_locomotor once locomotor bridge is ported
+                LocoGoalType::PositionExplicit => {
+                    // PARITY_TODO: move to explicit position
+                }
+                LocoGoalType::Angle => {
+                    // PARITY_TODO: rotate to angle
+                }
             }
-            LocoGoalType::PositionExplicit => {
-                // PARITY_TODO: move to explicit position
-            }
-            LocoGoalType::Angle => {
-                // PARITY_TODO: rotate to angle
-            }
-        }
 
-        if !blocked && self.blocked_frames > 1 {
-            self.blocked_frames = 1;
+            if !blocked && self.blocked_frames > 1 {
+                self.blocked_frames = 1;
+            }
+            self.cur_max_blocked_speed = AI_FAST_AS_POSSIBLE;
         }
-        self.cur_max_blocked_speed = AI_FAST_AS_POSSIBLE;
 
         0
     }
@@ -1379,11 +1381,6 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::setLocomotorGoalPositionOnPath – sets the
     /// locomotor movement target from the current path.
     pub fn set_locomotor_goal_position_on_path(&mut self) {
-        if self.path.is_none() {
-            self.locomotor_goal_type = LocoGoalType::None;
-            self.locomotor_goal_data = Coord3D::ZERO;
-            return;
-        }
         self.locomotor_goal_type = LocoGoalType::PositionOnPath;
         self.locomotor_goal_data = Coord3D::ZERO;
     }
@@ -1397,13 +1394,12 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::setLocomotorGoalOrientation
     pub fn set_locomotor_goal_orientation(&mut self, angle: Real) {
         self.locomotor_goal_type = LocoGoalType::Angle;
-        self.locomotor_goal_data = Coord3D::new(angle, 0.0, 0.0);
+        self.locomotor_goal_data.x = angle;
     }
 
     /// C++ AIUpdateInterface::setLocomotorGoalNone
     pub fn set_locomotor_goal_none(&mut self) {
         self.locomotor_goal_type = LocoGoalType::None;
-        self.locomotor_goal_data = Coord3D::ZERO;
     }
 
     /// C++ AIUpdateInterface::getCurLocomotorSpeed – current speed for AI decisions.
@@ -1419,41 +1415,83 @@ impl AIUpdateInterface {
             .unwrap_or(0.0)
     }
 
+    fn choose_locomotor_for_owner_position(
+        &self,
+        entries: &[AsciiString],
+    ) -> Option<(usize, AsciiString, u32)> {
+        if self.owner_object_id == INVALID_ID {
+            return None;
+        }
+
+        let owner_arc = OBJECT_REGISTRY.get_object(self.owner_object_id)?;
+        let owner = owner_arc.read().ok()?;
+        let position = owner.get_position().clone();
+        let is_crusher = owner.get_crusher_level() > 0;
+        drop(owner);
+
+        let pathfinder_arc = crate::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())?;
+        let pathfinder = pathfinder_arc.read().ok()?;
+        let ignore_obstacle_id = if self.ignore_obstacle_id == INVALID_ID {
+            None
+        } else {
+            Some(self.ignore_obstacle_id)
+        };
+
+        entries.iter().enumerate().find_map(|(index, entry)| {
+            let template = LOCOMOTOR_STORE.get_template(entry.as_str())?;
+            pathfinder
+                .valid_movement_position_for_surfaces(
+                    template.surfaces,
+                    is_crusher,
+                    &position,
+                    ignore_obstacle_id,
+                )
+                .then(|| (index, entry.clone(), template.surfaces))
+        })
+    }
+
+    fn choose_ground_locomotor(entries: &[AsciiString]) -> Option<(usize, AsciiString, u32)> {
+        entries.iter().enumerate().find_map(|(index, entry)| {
+            let template = LOCOMOTOR_STORE.get_template(entry.as_str())?;
+            ((template.surfaces & SURFACE_GROUND) != 0)
+                .then(|| (index, entry.clone(), template.surfaces))
+        })
+    }
+
     /// C++ AIUpdateInterface::chooseGoodLocomotorFromCurrentSet – selects the
     /// best locomotor from the current set for the object's current position.
     /// Ported from AIUpdate.cpp:833.
     pub fn choose_locomotor_from_current_set(&mut self) {
-        // PARITY_TODO: delegate to pathfinder->chooseBestLocomotorForPosition()
-        // once surface-aware locomotor templates are wired. Until then, keep
-        // the C++ success/failure contract by selecting an available template
-        // from the current set instead of inventing one. If no replacement is
-        // available, keep the previous locomotor like C++ does when physics has
-        // slid the object into an invalid cell.
         let previous_locomotor_tag = self.cur_locomotor_tag;
         let previous_locomotor_template = self.cur_locomotor_template.clone();
         let previous_locomotor_surfaces = self.cur_locomotor_surfaces;
-        let selected_entry = self
+        let entries = self
             .module_data
             .locomotor_sets()
             .get(&self.cur_locomotor_set)
-            .and_then(|entries| entries.first().cloned());
-        self.cur_locomotor_tag = if selected_entry.is_some() {
-            1
-        } else if previous_locomotor_tag != 0 {
-            previous_locomotor_tag
-        } else {
-            0
-        };
-        if let Some(entry) = selected_entry {
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        let selected_entry = self
+            .choose_locomotor_for_owner_position(entries)
+            .or_else(|| {
+                (previous_locomotor_tag == 0)
+                    .then(|| Self::choose_ground_locomotor(entries))
+                    .flatten()
+            });
+
+        if let Some((index, entry, surfaces)) = selected_entry {
+            self.cur_locomotor_tag = (index + 1) as UnsignedInt;
             self.cur_locomotor_template = entry.clone();
-            self.cur_locomotor_surfaces = LOCOMOTOR_STORE
-                .get_template(entry.as_str())
-                .map(|template| template.surfaces)
-                .unwrap_or(0);
-        } else if self.cur_locomotor_tag != 0 {
+            self.cur_locomotor_surfaces = surfaces;
+        } else if previous_locomotor_tag != 0 {
+            self.cur_locomotor_tag = previous_locomotor_tag;
             self.cur_locomotor_template = previous_locomotor_template;
             self.cur_locomotor_surfaces = previous_locomotor_surfaces;
-        } else if self.cur_locomotor_tag == 0 {
+        } else {
+            self.cur_locomotor_tag = 0;
             self.cur_locomotor_template.clear();
             self.cur_locomotor_surfaces = 0;
         }
@@ -1972,8 +2010,34 @@ impl Snapshotable for AIUpdateInterfaceModule {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::pathfind_astar::PathfindCellType;
+    use crate::locomotor::SURFACE_WATER;
+    use crate::object::Object;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
+    use std::sync::RwLock;
+
+    struct RegisteredObjectCleanup(ObjectID);
+
+    impl Drop for RegisteredObjectCleanup {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(self.0);
+        }
+    }
+
+    struct PathfinderCellCleanup(Coord3D);
+
+    impl Drop for PathfinderCellCleanup {
+        fn drop(&mut self) {
+            let Some(pathfinder) = crate::ai::THE_AI.read().ok().and_then(|ai| ai.pathfinder())
+            else {
+                return;
+            };
+            if let Ok(mut pathfinder) = pathfinder.write() {
+                pathfinder.set_cell_type_for_test(&self.0, PathfindCellType::Clear);
+            };
+        }
+    }
 
     fn ai_update() -> AIUpdateInterface {
         AIUpdateInterface::new(Arc::new(AIUpdateModuleData::default()))
@@ -2125,6 +2189,40 @@ mod tests {
         assert!(!ai.is_attack_path);
         assert!(!ai.is_approach_path);
         assert!(ai.is_safe_path);
+    }
+
+    #[test]
+    fn set_locomotor_goal_position_on_path_without_path_still_sets_position_on_path_like_cpp() {
+        let mut ai = ai_update();
+        ai.path = None;
+        ai.locomotor_goal_data = Coord3D::new(4.0, 5.0, 6.0);
+
+        ai.set_locomotor_goal_position_on_path();
+
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
+        assert_eq!(ai.locomotor_goal_data, Coord3D::ZERO);
+    }
+
+    #[test]
+    fn set_locomotor_goal_orientation_preserves_existing_y_z_like_cpp() {
+        let mut ai = ai_update();
+        ai.locomotor_goal_data = Coord3D::new(1.0, 2.0, 3.0);
+
+        ai.set_locomotor_goal_orientation(45.0);
+
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::Angle);
+        assert_eq!(ai.locomotor_goal_data, Coord3D::new(45.0, 2.0, 3.0));
+    }
+
+    #[test]
+    fn set_locomotor_goal_none_preserves_goal_data_like_cpp() {
+        let mut ai = ai_update();
+        ai.locomotor_goal_data = Coord3D::new(7.0, 8.0, 9.0);
+
+        ai.set_locomotor_goal_none();
+
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::None);
+        assert_eq!(ai.locomotor_goal_data, Coord3D::new(7.0, 8.0, 9.0));
     }
 
     #[test]
@@ -2350,8 +2448,21 @@ mod tests {
     }
 
     #[test]
-    fn do_locomotor_updates_blocked_state_like_cpp() {
+    fn do_locomotor_without_current_locomotor_preserves_blocked_speed_like_cpp() {
         let mut ai = ai_update();
+        ai.cur_max_blocked_speed = 12.0;
+        ai.is_blocked = true;
+
+        assert_eq!(ai.do_locomotor(), 0);
+        assert_eq!(ai.blocked_frames, 1);
+        assert!(!ai.is_blocked);
+        assert_eq!(ai.cur_max_blocked_speed, 12.0);
+    }
+
+    #[test]
+    fn do_locomotor_with_current_locomotor_resets_blocked_speed_like_cpp() {
+        let mut ai = ai_update_with_locomotors();
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.cur_max_blocked_speed = 12.0;
         ai.is_blocked = true;
 
@@ -2387,13 +2498,25 @@ mod tests {
     }
 
     #[test]
-    fn do_locomotor_waits_forever_for_pending_path() {
-        let mut ai = ai_update();
+    fn do_locomotor_waits_forever_for_pending_path_with_current_locomotor_like_cpp() {
+        let mut ai = ai_update_with_locomotors();
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.locomotor_goal_type = LocoGoalType::PositionOnPath;
         ai.waiting_for_path = true;
         ai.path = None;
 
         assert_eq!(ai.do_locomotor(), u32::MAX);
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
+    }
+
+    #[test]
+    fn do_locomotor_without_current_locomotor_does_not_wait_for_pending_path_like_cpp() {
+        let mut ai = ai_update();
+        ai.locomotor_goal_type = LocoGoalType::PositionOnPath;
+        ai.waiting_for_path = true;
+        ai.path = None;
+
+        assert_eq!(ai.do_locomotor(), 0);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
     }
 
@@ -2433,6 +2556,54 @@ mod tests {
         assert_eq!(ai.cur_locomotor_template.as_str(), "Wheeled");
         assert_eq!(ai.cur_locomotor_surfaces, SURFACE_GROUND);
         assert_eq!(ai.get_cur_locomotor_speed(), 15.0);
+    }
+
+    #[test]
+    fn choose_locomotor_falls_back_to_ground_when_no_current_cell_locomotor_like_cpp() {
+        let mut data = AIUpdateModuleData::default();
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "Thrust".into());
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
+        let mut ai = AIUpdateInterface::new(Arc::new(data));
+        ai.cur_locomotor_set = LocomotorSetType::Normal;
+
+        ai.choose_locomotor_from_current_set();
+
+        assert_eq!(ai.cur_locomotor_tag, 2);
+        assert_eq!(ai.cur_locomotor_template.as_str(), "Wheeled");
+        assert_eq!(ai.cur_locomotor_surfaces, SURFACE_GROUND);
+    }
+
+    #[test]
+    fn choose_locomotor_uses_pathfinder_valid_cell_like_cpp() {
+        let object_id = 7_201;
+        let position = Coord3D::new(48.0, 48.0, 0.0);
+        let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
+        object.write().unwrap().set_position(&position).unwrap();
+        OBJECT_REGISTRY.register_object(object_id, &object);
+        let _object_cleanup = RegisteredObjectCleanup(object_id);
+
+        let pathfinder = crate::ai::THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .unwrap();
+        pathfinder
+            .write()
+            .unwrap()
+            .set_cell_type_for_test(&position, PathfindCellType::Water);
+        let _cell_cleanup = PathfinderCellCleanup(position);
+
+        let mut data = AIUpdateModuleData::default();
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "Hover".into());
+        let mut ai = AIUpdateInterface::new_for_object(Arc::new(data), object_id);
+        ai.cur_locomotor_set = LocomotorSetType::Normal;
+
+        ai.choose_locomotor_from_current_set();
+
+        assert_eq!(ai.cur_locomotor_tag, 2);
+        assert_eq!(ai.cur_locomotor_template.as_str(), "Hover");
+        assert_eq!(ai.cur_locomotor_surfaces, SURFACE_GROUND | SURFACE_WATER);
     }
 
     #[test]

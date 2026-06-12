@@ -2239,6 +2239,25 @@ impl Pathfinder {
             .valid_movement_position(surfaces, is_crusher, pos, ignore_obstacle_id)
     }
 
+    pub fn valid_movement_position_for_surfaces(
+        &self,
+        mut surfaces: u32,
+        is_crusher: bool,
+        pos: &Coord3D,
+        ignore_obstacle_id: Option<ObjectID>,
+    ) -> bool {
+        if is_crusher {
+            surfaces |= crate::path::SURFACE_RUBBLE;
+        }
+        self.inner
+            .valid_movement_position(surfaces, is_crusher, pos, ignore_obstacle_id)
+    }
+
+    #[cfg(test)]
+    pub fn set_cell_type_for_test(&mut self, pos: &Coord3D, cell_type: PathfindCellType) {
+        self.inner.set_cell_type(pos, cell_type);
+    }
+
     pub fn snap_position(&self, pos: &Coord3D) -> Coord3D {
         self.inner.snap_position(pos)
     }
