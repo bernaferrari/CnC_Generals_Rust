@@ -10,7 +10,7 @@ use crate::helpers::{TheAudio, TheGameLogic};
 use crate::object::collide::crate_collide::*;
 use crate::player::{player_list, PlayerIndex};
 use crate::upgrade::center::get_upgrade_center;
-use std::collections::HashMap;
+use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 use std::sync::{Arc, Mutex};
 
 /// Upgrade pair structure for bonus calculations
@@ -66,6 +66,19 @@ impl MoneyCrateCollideModuleData {
         self.upgrade_boosts = boosts;
         self
     }
+
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, MONEY_CRATE_COLLIDE_FIELDS)
+    }
+
+    pub fn build_field_parse() -> Vec<FieldParse> {
+        let mut fields = CrateCollideModuleData::build_field_parse();
+        fields.extend([
+            FieldParse::new("MoneyProvided", FieldType::UnsignedInt, "money_provided"),
+            FieldParse::new("UpgradedBoost", FieldType::String, "upgrade_boosts"),
+        ]);
+        fields
+    }
 }
 
 impl Default for MoneyCrateCollideModuleData {
@@ -73,6 +86,237 @@ impl Default for MoneyCrateCollideModuleData {
         Self::new()
     }
 }
+
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+    if tokens.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+
+    let mut mask = 0u64;
+    for token in tokens
+        .iter()
+        .filter(|token| **token != "=")
+        .flat_map(|token| token.split('|'))
+    {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let Some(kind) = kindof_from_name(token) else {
+            return Err(INIError::InvalidData);
+        };
+        mask |= 1u64 << (kind as u32);
+    }
+    Ok(mask)
+}
+
+fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_required_kind_of(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.required_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbidden_kind_of(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.forbidden_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbid_owner_player(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_forbid_owner_player = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_building_pickup(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_building_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_human_only(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_human_only_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_pickup_science(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.pickup_science =
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(first_token(tokens)?)
+            as crate::common::science::ScienceType;
+    Ok(())
+}
+
+fn parse_execute_fx(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_fx = Some(first_token(tokens)?.to_string());
+    Ok(())
+}
+
+fn parse_execute_animation(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execution_animation_template = first_token(tokens)?.to_string();
+    Ok(())
+}
+
+fn parse_execute_animation_time(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_display_time_seconds = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_z_rise(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_z_rise_per_second = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_fades(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_fades = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_money_provided(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.money_provided = INI::parse_unsigned_int(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_upgrade_boost(
+    _ini: &mut INI,
+    data: &mut MoneyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let mut parts: Vec<&str> = Vec::new();
+    for token in tokens {
+        if *token == "=" {
+            continue;
+        }
+        for part in token.split(':') {
+            if !part.is_empty() {
+                parts.push(part);
+            }
+        }
+    }
+
+    let mut iter = parts.into_iter();
+    let first_key = iter.next().ok_or(INIError::InvalidData)?;
+    if !first_key.eq_ignore_ascii_case("UpgradeType") {
+        return Err(INIError::InvalidData);
+    }
+    let upgrade_type = iter.next().ok_or(INIError::InvalidData)?;
+
+    let second_key = iter.next().ok_or(INIError::InvalidData)?;
+    if !second_key.eq_ignore_ascii_case("Boost") {
+        return Err(INIError::InvalidData);
+    }
+    let amount = INI::parse_int(iter.next().ok_or(INIError::InvalidData)?)?;
+
+    data.upgrade_boosts
+        .push(UpgradePair::new(upgrade_type.to_string(), amount));
+    Ok(())
+}
+
+const MONEY_CRATE_COLLIDE_FIELDS: &[IniFieldParse<MoneyCrateCollideModuleData>] = &[
+    IniFieldParse {
+        token: "RequiredKindOf",
+        parse: parse_required_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbiddenKindOf",
+        parse: parse_forbidden_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbidOwnerPlayer",
+        parse: parse_forbid_owner_player,
+    },
+    IniFieldParse {
+        token: "BuildingPickup",
+        parse: parse_building_pickup,
+    },
+    IniFieldParse {
+        token: "HumanOnly",
+        parse: parse_human_only,
+    },
+    IniFieldParse {
+        token: "PickupScience",
+        parse: parse_pickup_science,
+    },
+    IniFieldParse {
+        token: "ExecuteFX",
+        parse: parse_execute_fx,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimation",
+        parse: parse_execute_animation,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationTime",
+        parse: parse_execute_animation_time,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationZRise",
+        parse: parse_execute_animation_z_rise,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationFades",
+        parse: parse_execute_animation_fades,
+    },
+    IniFieldParse {
+        token: "MoneyProvided",
+        parse: parse_money_provided,
+    },
+    IniFieldParse {
+        token: "UpgradedBoost",
+        parse: parse_upgrade_boost,
+    },
+];
 
 /// Money collection statistics
 #[derive(Debug, Clone)]
@@ -517,6 +761,64 @@ mod tests {
                 .expect("money calculates"),
             250
         );
+    }
+
+    #[test]
+    fn money_crate_parse_from_ini_preserves_cpp_fields() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = MoneyCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "MoneyProvided = 750\n\
+             UpgradedBoost = UpgradeType:UpgradeSupplyLines Boost:125\n\
+             ExecuteAnimationTime = 2.25\n\
+             RequiredKindOf = VEHICLE|INFANTRY\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("money crate ini parses");
+
+        assert_eq!(data.money_provided, 750);
+        assert_eq!(data.upgrade_boosts.len(), 1);
+        assert_eq!(data.upgrade_boosts[0].upgrade_type, "UpgradeSupplyLines");
+        assert_eq!(data.upgrade_boosts[0].amount, 125);
+        assert!((data.base.execute_animation_display_time_seconds - 2.25).abs() < f32::EPSILON);
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            0
+        );
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Infantry as u32)),
+            0
+        );
+    }
+
+    #[test]
+    fn money_crate_rejects_malformed_upgrade_pair_like_cpp() {
+        let mut data = MoneyCrateCollideModuleData::default();
+        let mut ini = INI::new();
+
+        let err = parse_upgrade_boost(
+            &mut ini,
+            &mut data,
+            &["=", "Boost:125", "UpgradeType:UpgradeSupplyLines"],
+        )
+        .expect_err("wrong key order should fail");
+
+        assert!(matches!(err, INIError::InvalidData));
+        assert!(data.upgrade_boosts.is_empty());
+    }
+
+    #[test]
+    fn money_crate_build_field_parse_exposes_cpp_tokens() {
+        let fields = MoneyCrateCollideModuleData::build_field_parse();
+        assert!(fields
+            .iter()
+            .any(|field| field.token == "MoneyProvided" && field.target == "money_provided"));
+        assert!(fields
+            .iter()
+            .any(|field| field.token == "UpgradedBoost" && field.target == "upgrade_boosts"));
     }
 }
 
