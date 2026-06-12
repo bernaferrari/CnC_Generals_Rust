@@ -384,9 +384,8 @@ impl CollideModule for SalvageCrateCollide {
             return Ok(());
         }
 
-        if self.execute_crate_behavior(other_obj)? {
-            self.base.finalize_collection(other_obj)?;
-        }
+        let success = self.execute_crate_behavior(other_obj)?;
+        self.base.finish_execution_attempt(other_obj, success)?;
 
         Ok(())
     }
@@ -416,6 +415,8 @@ mod tests {
 
     #[test]
     fn successful_salvage_records_academy_stat_like_cpp() {
+        let _lock = crate::test_sync::lock();
+
         player_list().write().expect("player list write").clear();
 
         let player = Arc::new(RwLock::new(Player::new(0)));

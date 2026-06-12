@@ -226,11 +226,11 @@ impl LegacyCollideAdapter for ConvertToCarBombCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if ConvertToCarBombCrateCollide::is_valid_to_execute(self, other.clone())?
-            && ConvertToCarBombCrateCollide::execute_crate_behavior(self, other.clone())?
-        {
+        if ConvertToCarBombCrateCollide::is_valid_to_execute(self, other.clone())? {
+            let success =
+                ConvertToCarBombCrateCollide::execute_crate_behavior(self, other.clone())?;
             self.base
-                .finalize_collection(&other)
+                .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
         }
 

@@ -277,11 +277,11 @@ impl LegacyCollideAdapter for SabotageSupplyDropzoneCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if SabotageSupplyDropzoneCrateCollide::is_valid_to_execute(self, other.clone())?
-            && SabotageSupplyDropzoneCrateCollide::execute_crate_behavior(self, other.clone())?
-        {
+        if SabotageSupplyDropzoneCrateCollide::is_valid_to_execute(self, other.clone())? {
+            let success =
+                SabotageSupplyDropzoneCrateCollide::execute_crate_behavior(self, other.clone())?;
             self.base
-                .finalize_collection(&other)
+                .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
         }
 

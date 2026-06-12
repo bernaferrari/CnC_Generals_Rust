@@ -99,9 +99,7 @@ impl CollideModule for VeterancyCrateCollide {
             if self.is_valid_to_execute_internal(other_obj) {
                 // Execute the veterancy crate behavior
                 let success = self.execute_crate_behavior_internal(other_obj)?;
-                if success {
-                    self.base.finalize_collection(other_obj)?;
-                }
+                self.base.finish_execution_attempt(other_obj, success)?;
             }
         }
 
