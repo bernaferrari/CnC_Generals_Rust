@@ -91,6 +91,63 @@ pub(crate) fn parse_crate_pickup_science(
     Ok(())
 }
 
+pub(crate) fn format_cpp_integer_template(template: &str, amount: u32) -> Option<String> {
+    let amount = amount.to_string();
+    let mut output = String::with_capacity(template.len() + amount.len());
+    let mut chars = template.chars().peekable();
+    let mut replaced = false;
+
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            output.push(ch);
+            continue;
+        }
+
+        if matches!(chars.peek(), Some('%')) {
+            chars.next();
+            output.push('%');
+            continue;
+        }
+
+        let mut specifier = String::from("%");
+        while let Some(next) = chars.next() {
+            specifier.push(next);
+            if matches!(next, 'd' | 'i' | 'u') {
+                output.push_str(&amount);
+                replaced = true;
+                break;
+            }
+            if !matches!(next, '-' | '+' | ' ' | '#' | '0' | '1'..='9' | '.') {
+                output.push_str(&specifier);
+                break;
+            }
+        }
+    }
+
+    replaced.then_some(output)
+}
+
+pub(crate) fn format_cash_template(template: &str, amount: u32, fallback_prefix: &str) -> String {
+    format_cpp_integer_template(template, amount)
+        .unwrap_or_else(|| format!("{fallback_prefix}${amount}"))
+}
+
+pub(crate) fn format_add_cash(amount: u32) -> String {
+    format_cash_template(
+        &crate::helpers::TheGameText::fetch("GUI:AddCash"),
+        amount,
+        "+",
+    )
+}
+
+pub(crate) fn format_lose_cash(amount: u32) -> String {
+    format_cash_template(
+        &crate::helpers::TheGameText::fetch("GUI:LoseCash"),
+        amount,
+        "-",
+    )
+}
+
 /// Sabotage victim types for feedback effects.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SabotageVictimType {
