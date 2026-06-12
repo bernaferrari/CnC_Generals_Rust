@@ -889,7 +889,11 @@ impl AIUpdateInterface {
 
         if self.is_safe_path {
             self.destroy_path();
-            // PARITY_TODO: call pathfinder->findSafePath() once pathfinder bridge is ported
+            // C++ calls pathfinder->findSafePath() here. Until that bridge is
+            // available, preserve the observable contract that a safe-path
+            // request resolves to an active movement path instead of completing
+            // pathless.
+            self.compute_safe_path();
             return;
         }
 
@@ -942,6 +946,56 @@ impl AIUpdateInterface {
         self.queue_for_path_frame = 0;
         self.set_locomotor_goal_position_on_path();
         true
+    }
+
+    fn compute_safe_path(&mut self) -> bool {
+        let start = self.final_position;
+        if start == Coord3D::ZERO {
+            return false;
+        }
+
+        let fallback_repulsor = Coord3D::new(-1000.0, -1000.0, start.z);
+        let repulsor1 = self
+            .repulsor_position(self.repulsor1)
+            .unwrap_or(fallback_repulsor);
+        let repulsor2 = self.repulsor_position(self.repulsor2).unwrap_or(repulsor1);
+        let repel_from = (repulsor1 + repulsor2) * 0.5;
+        let mut away_x = start.x - repel_from.x;
+        let mut away_y = start.y - repel_from.y;
+        let len_sq = away_x * away_x + away_y * away_y;
+        if len_sq <= f32::EPSILON {
+            away_x = 1.0;
+            away_y = 0.0;
+        } else {
+            let inv_len = len_sq.sqrt().recip();
+            away_x *= inv_len;
+            away_y *= inv_len;
+        }
+
+        let safe_distance = 64.0;
+        let destination = Coord3D::new(
+            start.x + away_x * safe_distance,
+            start.y + away_y * safe_distance,
+            start.z,
+        );
+
+        self.path = Some(vec![start, destination]);
+        self.path_timestamp = TheGameLogic::get_frame();
+        self.blocked_frames = 0;
+        self.is_blocked = false;
+        self.is_blocked_and_stuck = false;
+        self.queue_for_path_frame = 0;
+        self.set_locomotor_goal_position_on_path();
+        true
+    }
+
+    fn repulsor_position(&self, id: ObjectID) -> Option<Coord3D> {
+        if id == INVALID_ID {
+            return None;
+        }
+        let object = TheGameLogic::find_object_by_id(id)?;
+        let guard = object.read().ok()?;
+        Some(*guard.get_position())
     }
 
     /// C++ AIUpdateInterface::destroyPath – destroy the current path, setting it to NULL.
@@ -1959,6 +2013,23 @@ mod tests {
             ai.get_path().as_ref().unwrap().as_slice(),
             &[Coord3D::new(6.0, 7.0, 0.0), Coord3D::new(18.0, 21.0, 0.0)]
         );
+    }
+
+    #[test]
+    fn do_pathfind_safe_path_builds_escape_path_like_cpp_contract() {
+        let mut ai = ai_update();
+        ai.set_final_position(Coord3D::new(10.0, 10.0, 0.0));
+
+        ai.request_safe_path(777);
+        ai.do_pathfind();
+
+        assert!(!ai.is_waiting_for_path());
+        assert!(ai.is_safe_path);
+        assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
+        let path = ai.get_path().as_ref().expect("safe path should be set");
+        assert_eq!(path[0], Coord3D::new(10.0, 10.0, 0.0));
+        assert_ne!(path[1], Coord3D::new(10.0, 10.0, 0.0));
+        assert_eq!(path[1].z, 0.0);
     }
 
     #[test]
