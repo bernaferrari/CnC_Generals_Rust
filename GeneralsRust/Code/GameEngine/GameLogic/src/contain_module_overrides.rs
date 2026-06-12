@@ -3734,6 +3734,17 @@ impl Module for ContainBindingModule {
             }
         }
     }
+
+    fn on_delete(&mut self) {
+        if let Ok(mut contain_guard) = self.contain.lock() {
+            if let Err(err) = contain_guard.on_delete() {
+                warn!(
+                    "Contain module on_delete failed for object {}: {}",
+                    self.owner_id, err
+                );
+            }
+        }
+    }
 }
 
 impl Snapshotable for ContainBindingModule {

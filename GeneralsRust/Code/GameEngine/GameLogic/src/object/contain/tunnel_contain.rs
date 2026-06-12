@@ -13,16 +13,18 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
 use crate::common::{Coord3D, GameResult, PlayerMaskType};
-use crate::damage::DamageInfo;
+use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::get_game_logic_random_value_real;
 use crate::helpers::TheGameLogic;
 use crate::modules::{
-    ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, DISABLED_HELD,
+    ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, UpdateSleepTime, DISABLED_HELD,
 };
+use crate::object::contain::open_contain::ObjectRelationship;
 use crate::object::contain::OpenContain;
 use crate::object::{Object, ObjectID, INVALID_ID};
 use crate::terrain::THE_TERRAIN_LOGIC;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Configuration data for TunnelContain module
 #[derive(Debug, Clone)]
@@ -83,13 +85,16 @@ const TUNNEL_CONTAIN_FIELDS: &[FieldParse<TunnelContainModuleData>] = &[FieldPar
 pub struct TunnelContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
+    /// Configuration retained for per-frame tunnel healing.
+    module_data: TunnelContainModuleData,
     /// Reference to the owning object (the tunnel entrance)
     object: Weak<RwLock<Object>>,
     /// Whether we need to run onBuildComplete logic
-    #[allow(dead_code)]
     need_to_run_on_build_complete: bool,
     /// Whether this tunnel is currently registered with the TunnelTracker
     is_currently_registered: bool,
+    /// Cached tracker object IDs for trait APIs that return borrowed slices.
+    contained_object_ids: Vec<ObjectID>,
 }
 
 impl TunnelContain {
@@ -103,9 +108,11 @@ impl TunnelContain {
 
         Ok(Self {
             base,
+            module_data: module_data.clone(),
             object,
             need_to_run_on_build_complete: true,
             is_currently_registered: false,
+            contained_object_ids: Vec::new(),
         })
     }
 
@@ -119,17 +126,56 @@ impl TunnelContain {
     pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
         let owner = self.get_object()?;
         let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
+        let obj_id = obj.read().map_err(|_| "Object lock poisoned")?.get_id();
 
         if let Some(controlling_player) = owner_read.get_controlling_player() {
             let mut player_guard = controlling_player
                 .write()
                 .map_err(|_| "Player lock poisoned")?;
+            player_guard.init_tunnel_tracker();
             if let Some(tunnel_system) = player_guard.get_tunnel_system_mut() {
                 tunnel_system.add_to_contain_list(obj.clone())?;
             }
         }
 
-        let _ = self.base.add_to_contain_list(obj);
+        if !self.contained_object_ids.contains(&obj_id) {
+            self.contained_object_ids.push(obj_id);
+        }
+
+        Ok(())
+    }
+
+    /// Add object to containment while keeping storage in the player tunnel tracker.
+    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        let was_selected = obj
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_drawable())
+            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            .unwrap_or(false);
+
+        {
+            let obj_guard = obj.read().map_err(|_| "Object lock poisoned")?;
+            if !ContainModuleInterface::is_valid_container_for(self, &*obj_guard, true) {
+                return Err("Object not valid for this tunnel container".into());
+            }
+            if obj_guard.get_contained_by().is_some() {
+                return Ok(());
+            }
+        }
+
+        self.add_to_contain_list(obj.clone())?;
+
+        let should_remove_from_world = obj
+            .read()
+            .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
+            .unwrap_or(false);
+        if should_remove_from_world {
+            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), false);
+        }
+
+        self.base.redeploy_occupants()?;
+        self.on_containing(obj, was_selected)?;
 
         Ok(())
     }
@@ -178,7 +224,8 @@ impl TunnelContain {
         }
 
         if let Ok(obj_read) = obj.read() {
-            self.base.remove_from_contain_list(obj_read.get_id());
+            self.contained_object_ids
+                .retain(|id| *id != obj_read.get_id());
         }
 
         Ok(())
@@ -197,21 +244,26 @@ impl TunnelContain {
             let player_read = controlling_player
                 .read()
                 .map_err(|_| "Player lock poisoned")?;
-            let objects: Vec<_> = if let Some(tunnel_system) = player_read.get_tunnel_system() {
-                tunnel_system
-                    .get_contained_items_list()
-                    .iter()
-                    .cloned()
-                    .collect()
-            } else {
-                Vec::new()
-            };
             drop(player_read);
             drop(owner_read);
 
             // Iterate from beginning after each loop to handle cascade deletions
             // (Matches C++ Patch 1.01 fix - November 6, 2003, lines 103-111)
-            while let Some(obj) = objects.first().cloned() {
+            loop {
+                let next_obj = {
+                    let owner = self.get_object()?;
+                    let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
+                    owner_read.get_controlling_player().and_then(|player| {
+                        player.read().ok().and_then(|player_read| {
+                            player_read.get_tunnel_system().and_then(|tunnel_system| {
+                                tunnel_system.get_contained_items_list().first().cloned()
+                            })
+                        })
+                    })
+                };
+                let Some(obj) = next_obj else {
+                    break;
+                };
                 self.remove_from_contain(obj.clone(), true)?;
                 let mut obj_write = obj.write().map_err(|_| "Object lock poisoned")?;
                 obj_write.attempt_damage(damage_info)?;
@@ -293,7 +345,13 @@ impl TunnelContain {
         // Object is no longer held
         obj_guard.clear_disabled(DISABLED_HELD);
 
-        // Partition registration would happen here when the manager is fully wired.
+        if let Err(err) = obj_guard.register_in_partition_manager() {
+            log::warn!(
+                "TunnelContain::on_removing failed to register object {} in partition manager: {}",
+                obj_guard.get_id(),
+                err
+            );
+        }
 
         // Place object at container position
         let owner = self.get_object()?;
@@ -339,7 +397,7 @@ impl TunnelContain {
                 if tunnel_system.get_tunnel_count() == 1 {
                     drop(player_read);
                     drop(owner_read);
-                    self.base.remove_all_contained(false)?;
+                    self.remove_all_contained(false)?;
                 }
             }
 
@@ -350,8 +408,101 @@ impl TunnelContain {
                     .write()
                     .map_err(|_| "Player lock poisoned")?;
                 if let Some(tunnel_system_mut) = player_write.get_tunnel_system_mut() {
-                    tunnel_system_mut.on_tunnel_destroyed(&*owner_read)?;
+                    tunnel_system_mut.on_tunnel_destroyed_id(owner_read.get_id())?;
                 }
+                self.is_currently_registered = false;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
+        loop {
+            let next_obj = {
+                let owner = self.get_object()?;
+                let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
+                owner_read.get_controlling_player().and_then(|player| {
+                    player.read().ok().and_then(|player_read| {
+                        player_read.get_tunnel_system().and_then(|tunnel_system| {
+                            tunnel_system.get_contained_items_list().first().cloned()
+                        })
+                    })
+                })
+            };
+            let Some(obj) = next_obj else {
+                break;
+            };
+            self.remove_from_contain(obj, expose_stealth_units)?;
+        }
+        Ok(())
+    }
+
+    pub fn on_owner_created(&mut self) -> GameResult<()> {
+        if !self.need_to_run_on_build_complete {
+            return Ok(());
+        }
+
+        self.need_to_run_on_build_complete = false;
+        let owner = self.get_object()?;
+        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
+
+        if let Some(controlling_player) = owner_read.get_controlling_player() {
+            let mut player_write = controlling_player
+                .write()
+                .map_err(|_| "Player lock poisoned")?;
+            player_write.init_tunnel_tracker();
+            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                tunnel_system.on_tunnel_created_id(owner_read.get_id())?;
+                self.is_currently_registered = true;
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
+        let Some(damage_info) = damage_info else {
+            return Ok(());
+        };
+        if !self.is_currently_registered {
+            return Ok(());
+        }
+
+        let owner = self.get_object()?;
+        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
+        if !self.base.is_die_applicable(&*owner_read, damage_info) {
+            return Ok(());
+        }
+
+        if let Some(controlling_player) = owner_read.get_controlling_player() {
+            let mut player_write = controlling_player
+                .write()
+                .map_err(|_| "Player lock poisoned")?;
+            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                tunnel_system.on_tunnel_destroyed_id(owner_read.get_id())?;
+                self.is_currently_registered = false;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle straight deletion of the tunnel entrance.
+    /// Matches C++ TunnelContain::onDelete (TunnelContain.cpp:347-362).
+    pub fn on_delete(&mut self) -> GameResult<()> {
+        if !self.is_currently_registered {
+            return Ok(());
+        }
+
+        let owner = self.get_object()?;
+        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
+        if let Some(controlling_player) = owner_read.get_controlling_player() {
+            let mut player_write = controlling_player
+                .write()
+                .map_err(|_| "Player lock poisoned")?;
+            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                tunnel_system.on_tunnel_destroyed_id(owner_read.get_id())?;
                 self.is_currently_registered = false;
             }
         }
@@ -378,7 +529,7 @@ impl TunnelContain {
                             owner.get_id()
                         );
                     }
-                    old_tunnel_tracker.on_tunnel_destroyed(owner)?;
+                    old_tunnel_tracker.on_tunnel_destroyed_id(owner.get_id())?;
                 }
             }
 
@@ -386,12 +537,54 @@ impl TunnelContain {
                 let mut new_owner_guard =
                     new_owner_arc.write().map_err(|_| "Player lock poisoned")?;
                 if let Some(new_tunnel_tracker) = new_owner_guard.get_tunnel_system_mut() {
-                    new_tunnel_tracker.on_tunnel_created(owner)?;
+                    new_tunnel_tracker.on_tunnel_created_id(owner.get_id())?;
                 }
             }
         }
 
         Ok(())
+    }
+
+    pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
+        self.base.update()?;
+
+        let owner = self.get_object()?;
+        let owner_read = owner.read().map_err(|_| "Owner lock poisoned")?;
+        if let Some(controlling_player) = owner_read.get_controlling_player() {
+            let mut player_write = controlling_player
+                .write()
+                .map_err(|_| "Player lock poisoned")?;
+            if let Some(tunnel_system) = player_write.get_tunnel_system_mut() {
+                tunnel_system.heal_objects(self.module_data.frames_for_full_heal)?;
+
+                if let Some(body) = owner_read.get_body_module() {
+                    if let Ok(body_guard) = body.lock() {
+                        if let Some(info) = body_guard.get_last_damage_info() {
+                            let frame = get_current_frame()?;
+                            if body_guard
+                                .get_last_damage_timestamp()
+                                .saturating_add(crate::common::LOGICFRAMES_PER_SECOND)
+                                > frame
+                            {
+                                if let Some(attacker) =
+                                    TheGameLogic::find_object_by_id(info.input.source_id)
+                                {
+                                    if let Ok(attacker_guard) = attacker.read() {
+                                        if owner_read.get_relationship_to(&*attacker_guard)
+                                            == ObjectRelationship::Enemy
+                                        {
+                                            tunnel_system.update_nemesis(Some(&*attacker_guard))?;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(UpdateSleepTime::None)
     }
 
     /// Scatter an exiting unit to a nearby random position.
@@ -436,6 +629,34 @@ impl TunnelContain {
     }
 }
 
+impl Snapshotable for TunnelContain {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(&self.base, xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+
+        Snapshotable::xfer(&mut self.base, xfer)?;
+        xfer.xfer_bool(&mut self.need_to_run_on_build_complete)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.is_currently_registered)
+            .map_err(|e| e.to_string())?;
+
+        if xfer.get_xfer_mode() == XferMode::Load && !self.is_currently_registered {
+            self.contained_object_ids.clear();
+        }
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(&mut self.base)
+    }
+}
+
 impl ContainModuleInterface for TunnelContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
@@ -449,7 +670,7 @@ impl ContainModuleInterface for TunnelContain {
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
         let obj = TheGameLogic::find_object_by_id(object_id)
             .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_to_contain_list(obj).map_err(|e| e.to_string())
+        self.add_to_contain(obj).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -462,11 +683,11 @@ impl ContainModuleInterface for TunnelContain {
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
-        ContainModuleInterface::get_contained_objects(&self.base)
+        &self.contained_object_ids
     }
 
     fn get_contained_count(&self) -> usize {
-        ContainModuleInterface::get_contained_count(&self.base)
+        self.get_usage().0 as usize
     }
 
     fn get_player_who_entered(&self) -> PlayerMaskType {
@@ -475,19 +696,33 @@ impl ContainModuleInterface for TunnelContain {
 
     fn get_max_capacity(&self) -> usize {
         let (_, max) = self.get_usage();
-        if max == 0 {
-            0
-        } else if max == u32::MAX {
+        if max == 0 || max == u32::MAX {
             usize::MAX
         } else {
             max as usize
         }
     }
 
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
+    }
+
     fn update(
         &mut self,
     ) -> Result<crate::modules::UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        self.base.update().map_err(|e| e.into())
+        TunnelContain::update(self).map_err(|e| e.into())
+    }
+
+    fn on_owner_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        TunnelContain::on_owner_created(self).map_err(|e| e.into())
     }
 
     fn on_damage(
@@ -501,7 +736,11 @@ impl ContainModuleInterface for TunnelContain {
         &mut self,
         damage_info: Option<&DamageInfo>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.on_die(damage_info).map_err(|e| e.into())
+        TunnelContain::on_die(self, damage_info).map_err(|e| e.into())
+    }
+
+    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        TunnelContain::on_delete(self).map_err(|e| e.into())
     }
 
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
@@ -549,6 +788,10 @@ impl ContainModuleInterface for TunnelContain {
         true
     }
 
+    fn is_bustable(&self) -> bool {
+        true
+    }
+
     fn on_capture(
         &mut self,
         owner: &Object,
@@ -577,6 +820,13 @@ impl ContainModuleInterface for TunnelContain {
         TunnelContain::kill_all_contained(self).map_err(|e| e.into())
     }
 
+    fn remove_all_contained(
+        &mut self,
+        expose_stealth: bool,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        TunnelContain::remove_all_contained(self, expose_stealth).map_err(|e| e.into())
+    }
+
     fn is_kick_out_on_capture(&self) -> bool {
         false
     }
@@ -602,7 +852,7 @@ impl ContainerInterface for TunnelContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.add_to_contain_list(obj)
+        self.add_to_contain(obj)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
@@ -640,12 +890,174 @@ fn get_current_frame() -> GameResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::player::{Player, ThePlayerList};
+    use crate::team::Team;
+
+    fn reset_players() {
+        let mut list = ThePlayerList().write().expect("player list write");
+        list.clear();
+        list.add_player(Arc::new(RwLock::new(Player::new(0))));
+        list.add_player(Arc::new(RwLock::new(Player::new(1))));
+    }
+
+    fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
+        let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), None).expect("test object")
+    }
+
+    fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("{name}Team").into(),
+            id + 10_000,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(player_index));
+        let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
+            .expect("owned test object")
+    }
+
+    fn tunnel_for(owner: &Arc<RwLock<Object>>) -> TunnelContain {
+        TunnelContain::new(Arc::downgrade(owner), &TunnelContainModuleData::default())
+            .expect("tunnel contain")
+    }
 
     #[test]
-    fn test_tunnel_contain_is_tunnel() {
-        // Would require mock object setup
-        // let module_data = TunnelContainModuleData::default();
-        // let tunnel = TunnelContain::new(Weak::new(), &module_data).unwrap();
-        // assert!(tunnel.is_tunnel_contain());
+    fn owner_created_registers_tunnel_with_player_tracker_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("TunnelOwner", 94001, 0);
+        let mut tunnel = tunnel_for(&owner);
+
+        ContainModuleInterface::on_owner_created(&mut tunnel).expect("owner created");
+        assert!(
+            ContainModuleInterface::is_bustable(&tunnel),
+            "TunnelContain is bunker-buster bustable in C++"
+        );
+        assert_eq!(
+            owner
+                .read()
+                .expect("owner read")
+                .get_controlling_player()
+                .expect("player")
+                .read()
+                .expect("player read")
+                .get_tunnel_system()
+                .expect("tracker")
+                .get_tunnel_count(),
+            1
+        );
+
+        OBJECT_REGISTRY.unregister_object(94001);
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn trait_queries_and_remove_all_use_shared_tracker_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("TunnelSharedOwner", 94002, 0);
+        let passenger_a = test_object("TunnelPassengerA", 94003);
+        let passenger_b = test_object("TunnelPassengerB", 94004);
+        let mut tunnel = tunnel_for(&owner);
+        ContainModuleInterface::on_owner_created(&mut tunnel).expect("owner created");
+
+        ContainModuleInterface::contain_object(&mut tunnel, 94003).expect("contain a");
+        ContainModuleInterface::contain_object(&mut tunnel, 94004).expect("contain b");
+
+        assert_eq!(ContainModuleInterface::get_contained_count(&tunnel), 2);
+        assert_eq!(
+            ContainModuleInterface::get_contained_objects(&tunnel),
+            &[94003, 94004]
+        );
+        assert_eq!(
+            tunnel.get_usage(),
+            (2, 0),
+            "C++ reports TheGlobalData->m_maxTunnelCapacity; default 0 means unlimited"
+        );
+        assert_eq!(
+            ContainModuleInterface::get_max_capacity(&tunnel),
+            usize::MAX
+        );
+
+        ContainModuleInterface::remove_all_contained(&mut tunnel, false).expect("remove all");
+        assert_eq!(ContainModuleInterface::get_contained_count(&tunnel), 0);
+        assert_eq!(
+            passenger_a
+                .read()
+                .expect("passenger a read")
+                .get_contained_by(),
+            None
+        );
+        assert_eq!(
+            passenger_b
+                .read()
+                .expect("passenger b read")
+                .get_contained_by(),
+            None
+        );
+
+        OBJECT_REGISTRY.unregister_object(94002);
+        OBJECT_REGISTRY.unregister_object(94003);
+        OBJECT_REGISTRY.unregister_object(94004);
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn on_die_unregisters_registered_tunnel_without_open_contain_super_call() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("TunnelDieOwner", 94005, 0);
+        let mut tunnel = tunnel_for(&owner);
+        ContainModuleInterface::on_owner_created(&mut tunnel).expect("owner created");
+
+        let damage = DamageInfo::with_simple(1.0, 0, DamageType::Explosion, DeathType::Exploded);
+        ContainModuleInterface::on_die(&mut tunnel, Some(&damage)).expect("die");
+        assert_eq!(
+            owner
+                .read()
+                .expect("owner read")
+                .get_controlling_player()
+                .expect("player")
+                .read()
+                .expect("player read")
+                .get_tunnel_system()
+                .expect("tracker")
+                .get_tunnel_count(),
+            0
+        );
+
+        OBJECT_REGISTRY.unregister_object(94005);
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn on_delete_unregisters_registered_tunnel_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("TunnelDeleteOwner", 94006, 0);
+        let mut tunnel = tunnel_for(&owner);
+        ContainModuleInterface::on_owner_created(&mut tunnel).expect("owner created");
+
+        ContainModuleInterface::on_delete(&mut tunnel).expect("delete");
+        assert_eq!(
+            owner
+                .read()
+                .expect("owner read")
+                .get_controlling_player()
+                .expect("player")
+                .read()
+                .expect("player read")
+                .get_tunnel_system()
+                .expect("tracker")
+                .get_tunnel_count(),
+            0
+        );
+
+        OBJECT_REGISTRY.unregister_object(94006);
+        ThePlayerList().write().expect("player list write").clear();
     }
 }

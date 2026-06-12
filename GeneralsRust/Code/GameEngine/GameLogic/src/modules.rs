@@ -433,6 +433,11 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
+    /// Containment reaction to owner deletion.
+    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        Ok(())
+    }
+
     /// Whether this container encloses (hides/masks) the given contained object.
     ///
     /// C++ reference: `ContainModuleInterface::isEnclosingContainerFor`.
