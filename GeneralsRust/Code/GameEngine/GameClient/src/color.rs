@@ -33,9 +33,37 @@ pub fn game_get_color_components_real(color: Color) -> (f32, f32, f32, f32) {
 
 /// Darken a color by a percentage.
 pub fn game_darken_color(color: Color, percent: i32) -> Color {
-    let percent = percent.clamp(0, 100) as u32;
+    if percent >= 90 || percent <= 0 {
+        return color;
+    }
+
+    let percent = percent as u32;
     let (r, g, b, a) = game_get_color_components(color);
-    let factor = (100 - percent) as f32 / 100.0;
-    let darken = |c: u8| (c as f32 * factor).round() as u8;
+    let darken = |c: u8| c - ((c as u32 * percent / 100) as u8);
     game_make_color(darken(r), darken(g), darken(b), a)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn game_darken_color_returns_original_outside_cpp_range() {
+        let color = game_make_color(100, 150, 200, 255);
+
+        assert_eq!(game_darken_color(color, 0), color);
+        assert_eq!(game_darken_color(color, -1), color);
+        assert_eq!(game_darken_color(color, 90), color);
+        assert_eq!(game_darken_color(color, 100), color);
+    }
+
+    #[test]
+    fn game_darken_color_uses_cpp_integer_truncation() {
+        let color = game_make_color(100, 150, 200, 255);
+
+        assert_eq!(
+            game_darken_color(color, 33),
+            game_make_color(67, 101, 134, 255)
+        );
+    }
 }
