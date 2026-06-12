@@ -264,6 +264,9 @@ use crate::object::collide::crate_collide::sabotage_superweapon_crate_collide::{
 use crate::object::collide::crate_collide::sabotage_supply_center_crate_collide::{
     SabotageSupplyCenterCrateCollide, SabotageSupplyCenterCrateCollideModuleData,
 };
+use crate::object::collide::crate_collide::sabotage_supply_dropzone_crate_collide::{
+    SabotageSupplyDropzoneCrateCollide, SabotageSupplyDropzoneCrateCollideModuleData,
+};
 use crate::object::collide::crate_collide::salvage_crate_collide::{
     SalvageCrateCollide, SalvageCrateCollideModuleData,
 };
@@ -2435,13 +2438,73 @@ legacy_object_crate_collide_factories!(
     SabotageSuperweaponCrateCollide,
     "SabotageSuperweaponCrateCollide"
 );
-legacy_object_crate_collide_factories!(
-    sabotage_supply_center_crate_collide_data_factory,
-    sabotage_supply_center_crate_collide_module_factory,
-    SabotageSupplyCenterCrateCollideModuleData,
-    SabotageSupplyCenterCrateCollide,
-    "SabotageSupplyCenterCrateCollide"
-);
+fn sabotage_supply_center_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SabotageSupplyCenterCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SabotageSupplyCenterCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn sabotage_supply_center_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<
+        CrateCollideDataAdapter<SabotageSupplyCenterCrateCollideModuleData>,
+    >("SabotageSupplyCenterCrateCollide", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .expect("SabotageSupplyCenterCrateCollide requires a valid object");
+    let collide = SabotageSupplyCenterCrateCollide::new(object, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "SabotageSupplyCenterCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
+
+fn sabotage_supply_dropzone_crate_collide_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
+    let mut data = SabotageSupplyDropzoneCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SabotageSupplyDropzoneCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn sabotage_supply_dropzone_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<
+        CrateCollideDataAdapter<SabotageSupplyDropzoneCrateCollideModuleData>,
+    >("SabotageSupplyDropzoneCrateCollide", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .expect("SabotageSupplyDropzoneCrateCollide requires a valid object");
+    let collide = SabotageSupplyDropzoneCrateCollide::new(object, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "SabotageSupplyDropzoneCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 fn money_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = MoneyCrateCollideModuleData::default();
     if let Some(ini) = ini {
@@ -5750,6 +5813,12 @@ fn install_contain_overrides() -> Result<(), String> {
         ModuleType::Behavior,
         sabotage_supply_center_crate_collide_module_factory,
         sabotage_supply_center_crate_collide_data_factory,
+    )?;
+    register_module_override(
+        "SabotageSupplyDropzoneCrateCollide",
+        ModuleType::Behavior,
+        sabotage_supply_dropzone_crate_collide_module_factory,
+        sabotage_supply_dropzone_crate_collide_data_factory,
     )?;
     register_module_override(
         "MoneyCrateCollide",
