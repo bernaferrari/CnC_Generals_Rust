@@ -6,13 +6,22 @@
 
 use crate::common::{GameResult, ObjectID};
 use crate::tunnel_tracker::TunnelTracker;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 /// Manages tunnel trackers keyed by "cave index".
 #[derive(Debug, Default)]
 pub struct CaveSystem {
     trackers: Vec<Option<Arc<RwLock<TunnelTracker>>>>,
 }
+
+static THE_CAVE_SYSTEM: OnceLock<Arc<Mutex<CaveSystem>>> = OnceLock::new();
+
+/// Global cave system accessor matching the legacy `TheCaveSystem` singleton.
+pub fn get_cave_system() -> Arc<Mutex<CaveSystem>> {
+    Arc::clone(THE_CAVE_SYSTEM.get_or_init(|| Arc::new(Mutex::new(CaveSystem::new()))))
+}
+
+pub use get_cave_system as TheCaveSystem;
 
 impl CaveSystem {
     /// Construct an empty cave system.

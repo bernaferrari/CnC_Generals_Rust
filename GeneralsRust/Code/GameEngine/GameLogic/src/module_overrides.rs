@@ -8715,13 +8715,18 @@ fn cave_contain_module_factory(
     let typed_data =
         expect_contain_data::<CaveContainModuleData>(module_data.as_ref(), "CaveContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain =
-        CaveContain::new(make_owner_weak(owner_id), typed_data, None).unwrap_or_else(|err| {
+    let cave_system = crate::system::cave_system::TheCaveSystem();
+    let contain = CaveContain::new(make_owner_weak(owner_id), typed_data, Some(cave_system.clone()))
+        .unwrap_or_else(|err| {
             warn!(
                 "Failed to create CaveContain for object {}: {}",
                 owner_id, err
             );
-            CaveContain::new(Weak::new(), &CaveContainModuleData::default(), None)
+            CaveContain::new(
+                Weak::new(),
+                &CaveContainModuleData::default(),
+                Some(cave_system),
+            )
                 .expect("CaveContain default construction failed")
         });
     let contain: Arc<Mutex<CaveContain>> = Arc::new(Mutex::new(contain));

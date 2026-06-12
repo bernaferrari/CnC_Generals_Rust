@@ -134,7 +134,11 @@ impl ContainerFactory {
             }
             "CaveContain" => {
                 let data = Self::load_config::<CaveContainModuleData>(config);
-                let container = CaveContain::new(weak_object.clone(), &data, None)?;
+                let container = CaveContain::new(
+                    weak_object.clone(),
+                    &data,
+                    Some(crate::system::cave_system::TheCaveSystem()),
+                )?;
                 Ok(Box::new(container))
             }
             "TunnelContain" => {

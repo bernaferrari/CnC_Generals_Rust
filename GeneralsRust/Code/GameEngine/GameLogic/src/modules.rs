@@ -42,7 +42,7 @@ pub use crate::object::body::body_module::BodyModuleInterface;
 use crate::object::Object;
 pub use game_engine::common::thing::module::UpgradeMuxData;
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 
 /// AI Attitude types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -452,6 +452,9 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn is_bustable(&self) -> bool {
         false
     }
+
+    /// Record the owning object's pre-capture team for distributed garrisons.
+    fn set_original_team(&mut self, _old_team: Option<Weak<RwLock<Team>>>) {}
 
     /// Check if this container is valid for the given object
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
