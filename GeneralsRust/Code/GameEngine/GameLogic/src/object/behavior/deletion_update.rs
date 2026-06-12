@@ -141,19 +141,13 @@ impl DeletionUpdate {
 
 impl UpdateModuleInterface for DeletionUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        // Get current frame from game logic - matches C++ DeletionUpdate.cpp
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
-
-        if current_frame >= self.delete_frame {
-            if let Some(object) = self.object.upgrade() {
-                if let Ok(guard) = object.read() {
-                    let _ = TheGameLogic::destroy_object(&guard);
-                }
+        // C++ destroys whenever the scheduled update is invoked; timing is owned by the scheduler.
+        if let Some(object) = self.object.upgrade() {
+            if let Ok(guard) = object.read() {
+                let _ = TheGameLogic::destroy_object(&guard);
             }
-            return UpdateSleepTime::Forever;
         }
-
-        UpdateSleepTime::from_u32(self.delete_frame - current_frame)
+        UpdateSleepTime::Forever
     }
 }
 
@@ -235,5 +229,19 @@ mod tests {
         deletion.set_lifetime_range(5, 5);
 
         assert_eq!(update.delete_frame, current_frame + 5);
+    }
+
+    #[test]
+    fn update_destroys_even_before_delete_frame_when_invoked_like_cpp() {
+        let object = Arc::new(RwLock::new(GameObject::new_test(9701, 100.0)));
+        let module_data: Arc<dyn ModuleData> = Arc::new(DeletionUpdateModuleData {
+            min_lifetime: 30,
+            max_lifetime: 30,
+            ..DeletionUpdateModuleData::default()
+        });
+        let mut update = DeletionUpdate::new(Arc::clone(&object), module_data).unwrap();
+
+        assert!(update.delete_frame > crate::helpers::TheGameLogic::get_frame());
+        assert_eq!(update.update_simple(), UpdateSleepTime::Forever);
     }
 }
