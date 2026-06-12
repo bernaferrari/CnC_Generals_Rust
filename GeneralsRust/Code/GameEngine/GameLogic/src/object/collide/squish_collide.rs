@@ -13,10 +13,16 @@ use crate::damage::{
     DamageInfo, DamageInfoInput, DamageInfoOutput, DamageType, DeathType, HUGE_DAMAGE_AMOUNT,
 };
 use crate::modules::PhysicsBehavior;
+use crate::object::behavior::behavior_module::xfer_behavior_module_base_versions;
+use crate::object::collide::collision_geometry::{
+    GeometryInfo as CollisionGeometryInfo, GeometryType as CollisionGeometryType,
+};
+use crate::object::collide::partition_manager::PARTITION_MANAGER;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{ModuleData, NameKeyType};
+use game_engine::system::geometry::GeometryType as EngineGeometryType;
 use log::trace;
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -80,10 +86,8 @@ impl Snapshotable for SquishCollideModuleData {
 }
 
 impl Snapshotable for SquishCollide {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("SquishCollide crc version: {e:?}"))?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ SquishCollide::crc only delegates to CollideModule::crc.
         Ok(())
     }
 
@@ -91,6 +95,10 @@ impl Snapshotable for SquishCollide {
         let mut version: u8 = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| format!("SquishCollide xfer version: {e:?}"))?;
+        let mut collide_version: u8 = 1;
+        xfer.xfer_version(&mut collide_version, 1)
+            .map_err(|e| format!("SquishCollide collide base xfer version: {e:?}"))?;
+        xfer_behavior_module_base_versions(xfer)?;
         Ok(())
     }
 
@@ -187,7 +195,7 @@ impl SquishCollide {
             return false;
         }
 
-        if !target.intersects(owner.position) {
+        if !target.intersects(owner) {
             return false;
         }
 
@@ -274,6 +282,8 @@ impl CollideModuleTrait for SquishCollide {
 struct OwnerSnapshot {
     id: ObjectId,
     position: Coord3D,
+    orientation: f32,
+    squish_geometry: CollisionGeometryInfo,
 }
 
 impl OwnerSnapshot {
@@ -284,10 +294,13 @@ impl OwnerSnapshot {
 
         let pos = guard.get_position();
         let position = Coord3D::new(pos.x, pos.y, pos.z);
+        let squish_geometry = squish_victim_geometry(guard.get_geometry_info());
 
         Ok(Self {
             id: guard.get_id(),
             position,
+            orientation: guard.get_orientation(),
+            squish_geometry,
         })
     }
 }
@@ -300,7 +313,8 @@ struct TargetSnapshot {
     relationship_with_owner: Relationship,
     crusher_level: u32,
     velocity_xy: Option<(f32, f32)>,
-    geometry_radius: f32,
+    geometry: CollisionGeometryInfo,
+    orientation: f32,
 }
 
 impl TargetSnapshot {
@@ -312,15 +326,14 @@ impl TargetSnapshot {
             relationship_with_owner,
             crusher_level: other.get_crusher_level(),
             velocity_xy: None,
-            geometry_radius: TARGET_COLLISION_RADIUS,
+            geometry: CollisionGeometryInfo::new_cylinder(TARGET_COLLISION_RADIUS, 1.0, true),
+            orientation: other.get_orientation(),
         };
 
         if let Some(handle) = OBJECT_REGISTRY.get_object(snapshot.id) {
             if let Ok(object) = handle.read() {
-                snapshot.geometry_radius = object.get_geometry_info().get_major_radius();
-                if snapshot.geometry_radius < TARGET_COLLISION_RADIUS {
-                    snapshot.geometry_radius = TARGET_COLLISION_RADIUS;
-                }
+                snapshot.geometry = collision_geometry_from_logic(object.get_geometry_info());
+                snapshot.orientation = object.get_orientation();
                 if let Some(physics) = object.get_physics() {
                     snapshot.velocity_xy = physics.lock().ok().map(|guard| {
                         let velocity = guard.get_velocity();
@@ -333,11 +346,20 @@ impl TargetSnapshot {
         snapshot
     }
 
-    fn intersects(&self, target_position: Coord3D) -> bool {
-        let dx = target_position.x - self.position.x;
-        let dy = target_position.y - self.position.y;
-        let radius_sum = self.geometry_radius + TARGET_COLLISION_RADIUS;
-        (dx * dx + dy * dy) <= radius_sum * radius_sum
+    fn intersects(&self, owner: &OwnerSnapshot) -> bool {
+        PARTITION_MANAGER
+            .read()
+            .map(|partition| {
+                partition.geom_collides_with_geom(
+                    &self.position,
+                    &self.geometry,
+                    self.orientation,
+                    &owner.position,
+                    &owner.squish_geometry,
+                    owner.orientation,
+                )
+            })
+            .unwrap_or(false)
     }
 
     fn is_moving_towards(&self, target_position: Coord3D) -> bool {
@@ -352,9 +374,111 @@ impl TargetSnapshot {
     }
 }
 
+fn collision_geometry_from_logic(info: &crate::common::GeometryInfo) -> CollisionGeometryInfo {
+    let dx = (info.bounds.max.x - info.bounds.min.x).abs().max(0.01);
+    let dy = (info.bounds.max.y - info.bounds.min.y).abs().max(0.01);
+    let dz = (info.bounds.max.z - info.bounds.min.z).abs().max(0.01);
+    let radius = (dx.max(dy) * 0.5).max(0.01);
+
+    match info.geometry_type {
+        EngineGeometryType::Sphere => CollisionGeometryInfo::new_sphere(radius, info.is_small),
+        EngineGeometryType::Cylinder => {
+            CollisionGeometryInfo::new_cylinder(radius, dz, info.is_small)
+        }
+        EngineGeometryType::Box => CollisionGeometryInfo::new_box(dx, dy, info.is_small),
+    }
+}
+
+fn squish_victim_geometry(info: &crate::common::GeometryInfo) -> CollisionGeometryInfo {
+    let mut geometry = collision_geometry_from_logic(info);
+    match geometry.get_geom_type() {
+        CollisionGeometryType::Sphere => {
+            CollisionGeometryInfo::new_sphere(TARGET_COLLISION_RADIUS, geometry.is_small())
+        }
+        CollisionGeometryType::Cylinder => CollisionGeometryInfo::new_cylinder(
+            TARGET_COLLISION_RADIUS,
+            geometry.get_height().max(0.01),
+            geometry.is_small(),
+        ),
+        CollisionGeometryType::Box => {
+            geometry.set_major_radius(TARGET_COLLISION_RADIUS);
+            geometry.set_minor_radius(TARGET_COLLISION_RADIUS);
+            geometry
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::{Snapshot, XferBlockSize, XferMode, XferStatus};
+
+    #[derive(Default)]
+    struct CountingXfer {
+        bytes: usize,
+    }
+
+    impl Xfer for CountingXfer {
+        fn get_xfer_mode(&self) -> XferMode {
+            XferMode::Save
+        }
+
+        fn get_identifier(&self) -> &str {
+            "squish-collide-test"
+        }
+
+        fn set_options(&mut self, _options: u32) {}
+
+        fn clear_options(&mut self, _options: u32) {}
+
+        fn get_options(&self) -> u32 {
+            0
+        }
+
+        fn open(&mut self, _identifier: &str) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+            Ok(0)
+        }
+
+        fn end_block(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn skip(&mut self, data_size: i32) -> Result<(), XferStatus> {
+            self.bytes += data_size.max(0) as usize;
+            Ok(())
+        }
+
+        fn xfer_snapshot(&mut self, _snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> std::io::Result<()> {
+            self.bytes += 1 + ascii_string_data.len();
+            Ok(())
+        }
+
+        fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> std::io::Result<()> {
+            self.bytes += 1 + unicode_string_data.len();
+            Ok(())
+        }
+
+        unsafe fn xfer_implementation(
+            &mut self,
+            _data: *mut u8,
+            data_size: usize,
+        ) -> std::io::Result<()> {
+            self.bytes += data_size;
+            Ok(())
+        }
+    }
 
     #[test]
     fn module_data_defaults() {
@@ -418,7 +542,7 @@ mod tests {
         assert_eq!(snapshot.id, 7);
         assert_eq!(snapshot.relationship_with_owner, Relationship::Enemies);
         assert_eq!(snapshot.crusher_level, 3);
-        assert!(snapshot.geometry_radius >= TARGET_COLLISION_RADIUS);
+        assert!(snapshot.geometry.get_major_radius() >= TARGET_COLLISION_RADIUS);
     }
 
     #[test]
@@ -429,6 +553,8 @@ mod tests {
         let owner = OwnerSnapshot {
             id: 1,
             position: Coord3D::new(0.0, 0.0, 0.0),
+            orientation: 0.0,
+            squish_geometry: CollisionGeometryInfo::new_cylinder(1.0, 2.0, true),
         };
         let target = TargetSnapshot {
             id: 2,
@@ -436,9 +562,52 @@ mod tests {
             relationship_with_owner: Relationship::Enemies,
             crusher_level: 5,
             velocity_xy: Some((1.0, 0.0)),
-            geometry_radius: TARGET_COLLISION_RADIUS,
+            geometry: CollisionGeometryInfo::new_cylinder(1.0, 2.0, false),
+            orientation: 0.0,
         };
 
         assert!(module.should_allow_squish(&owner, &target));
+    }
+
+    #[test]
+    fn crc_and_xfer_follow_cpp_base_chain() {
+        let _lock = crate::test_sync::lock();
+
+        let mut module = SquishCollide::new(1, Arc::new(SquishCollideModuleData::default()));
+        let mut crc_xfer = CountingXfer::default();
+        module.crc(&mut crc_xfer).expect("crc");
+        assert_eq!(crc_xfer.bytes, 0);
+
+        let mut save_xfer = CountingXfer::default();
+        module.xfer(&mut save_xfer).expect("xfer");
+        assert_eq!(save_xfer.bytes, 5);
+    }
+
+    #[test]
+    fn intersection_uses_partition_geometry_instead_of_bounding_radius() {
+        let _lock = crate::test_sync::lock();
+
+        let owner = OwnerSnapshot {
+            id: 1,
+            position: Coord3D::new(0.0, 2.1, 0.0),
+            orientation: 0.0,
+            squish_geometry: CollisionGeometryInfo::new_cylinder(1.0, 2.0, true),
+        };
+        let near_owner = OwnerSnapshot {
+            position: Coord3D::new(0.0, 1.9, 0.0),
+            ..owner.clone()
+        };
+        let target = TargetSnapshot {
+            id: 2,
+            position: Coord3D::new(0.0, 0.0, 0.0),
+            relationship_with_owner: Relationship::Enemies,
+            crusher_level: 5,
+            velocity_xy: Some((0.0, 1.0)),
+            geometry: CollisionGeometryInfo::new_box(10.0, 2.0, false),
+            orientation: 0.0,
+        };
+
+        assert!(!target.intersects(&owner));
+        assert!(target.intersects(&near_owner));
     }
 }
