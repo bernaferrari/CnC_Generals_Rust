@@ -15,6 +15,7 @@ use crate::object::{ArmorSetFlag, Object};
 use crate::player::Player;
 use crate::weapon::WeaponSetType;
 use crate::{GameLogicRandomValue, GameLogicRandomValueReal};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 use std::sync::{Arc, Mutex, RwLock};
 
 /// INI configuration for salvage crates.
@@ -48,6 +49,10 @@ impl Default for SalvageCrateCollideModuleData {
 }
 
 impl SalvageCrateCollideModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, SALVAGE_CRATE_COLLIDE_FIELDS)
+    }
+
     pub fn build_field_parse() -> Vec<FieldParse> {
         let mut fields = CrateCollideModuleData::build_field_parse();
         fields.extend([
@@ -59,6 +64,266 @@ impl SalvageCrateCollideModuleData {
         ]);
         fields
     }
+}
+
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+    if tokens.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+
+    let mut mask = 0u64;
+    for token in tokens
+        .iter()
+        .filter(|token| **token != "=")
+        .flat_map(|token| token.split('|'))
+    {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let Some(kind) = kindof_from_name(token) else {
+            return Err(INIError::InvalidData);
+        };
+        mask |= 1u64 << (kind as u32);
+    }
+    Ok(mask)
+}
+
+fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_required_kind_of(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.required_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbidden_kind_of(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.forbidden_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbid_owner_player(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_forbid_owner_player = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_building_pickup(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_building_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_human_only(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_human_only_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_pickup_science(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.pickup_science =
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(first_token(tokens)?)
+            as crate::common::science::ScienceType;
+    Ok(())
+}
+
+fn parse_execute_fx(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_fx = Some(first_token(tokens)?.to_string());
+    Ok(())
+}
+
+fn parse_execute_animation(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execution_animation_template = first_token(tokens)?.to_string();
+    Ok(())
+}
+
+fn parse_execute_animation_time(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_display_time_seconds = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_z_rise(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_z_rise_per_second = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_fades(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_fades = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_weapon_chance(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.weapon_chance = INI::parse_percent_to_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_level_chance(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.level_chance = INI::parse_percent_to_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_money_chance(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.money_chance = INI::parse_percent_to_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_min_money(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.minimum_money = INI::parse_int(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_max_money(
+    _ini: &mut INI,
+    data: &mut SalvageCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.maximum_money = INI::parse_int(first_token(tokens)?)?;
+    Ok(())
+}
+
+const SALVAGE_CRATE_COLLIDE_FIELDS: &[IniFieldParse<SalvageCrateCollideModuleData>] = &[
+    IniFieldParse {
+        token: "RequiredKindOf",
+        parse: parse_required_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbiddenKindOf",
+        parse: parse_forbidden_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbidOwnerPlayer",
+        parse: parse_forbid_owner_player,
+    },
+    IniFieldParse {
+        token: "BuildingPickup",
+        parse: parse_building_pickup,
+    },
+    IniFieldParse {
+        token: "HumanOnly",
+        parse: parse_human_only,
+    },
+    IniFieldParse {
+        token: "PickupScience",
+        parse: parse_pickup_science,
+    },
+    IniFieldParse {
+        token: "ExecuteFX",
+        parse: parse_execute_fx,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimation",
+        parse: parse_execute_animation,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationTime",
+        parse: parse_execute_animation_time,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationZRise",
+        parse: parse_execute_animation_z_rise,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationFades",
+        parse: parse_execute_animation_fades,
+    },
+    IniFieldParse {
+        token: "WeaponChance",
+        parse: parse_weapon_chance,
+    },
+    IniFieldParse {
+        token: "LevelChance",
+        parse: parse_level_chance,
+    },
+    IniFieldParse {
+        token: "MoneyChance",
+        parse: parse_money_chance,
+    },
+    IniFieldParse {
+        token: "MinMoney",
+        parse: parse_min_money,
+    },
+    IniFieldParse {
+        token: "MaxMoney",
+        parse: parse_max_money,
+    },
+];
+
+fn format_cash_template(template: &str, amount: u32, fallback_prefix: &str) -> String {
+    let amount = amount.to_string();
+    if template.contains("%d") || template.contains("%i") || template.contains("%u") {
+        template
+            .replace("%d", &amount)
+            .replace("%i", &amount)
+            .replace("%u", &amount)
+    } else {
+        format!("{fallback_prefix}${amount}")
+    }
+}
+
+fn format_add_cash(amount: u32) -> String {
+    format_cash_template(&TheGameText::fetch("GUI:AddCash"), amount, "+")
 }
 
 /// Concrete implementation of the Salvage crate behaviour.
@@ -147,7 +412,7 @@ impl SalvageCrateCollide {
             return Ok(false);
         }
 
-        Ok(tracker.can_gain_exp_for_level(1))
+        Ok(tracker.is_trainable())
     }
 
     fn test_weapon_chance(&self) -> bool {
@@ -248,7 +513,6 @@ impl SalvageCrateCollide {
         }
 
         self.display_money_floating_text(payout as u32, other, &player_arc)?;
-        self.play_money_sound(other)?;
         Ok(())
     }
 
@@ -268,11 +532,12 @@ impl SalvageCrateCollide {
             let player_guard = player
                 .read()
                 .map_err(|_| CollisionError::InvalidObject("player lock poisoned".into()))?;
-            let color = player_guard.get_player_color();
+            let mut color = player_guard.get_player_color();
+            color.a = 230;
             (pos, color)
         };
 
-        let caption = format!("{}: {}", TheGameText::fetch("GUI:AddCash"), amount);
+        let caption = format_add_cash(amount);
         TheInGameUI::add_floating_text(&caption, &position, color)
             .map_err(|err| CollisionError::InvalidObject(err.to_string()))
     }
@@ -344,6 +609,7 @@ impl CrateCollideBehavior for SalvageCrateCollide {
             }
             SalvageType::Money => {
                 self.do_money(&handle)?;
+                self.play_money_sound(&handle)?;
             }
         }
 
@@ -426,6 +692,62 @@ mod tests {
             ObjectStatusMaskType::none(),
             None,
         )))
+    }
+
+    #[test]
+    fn salvage_crate_parse_from_ini_preserves_cpp_fields() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = SalvageCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "WeaponChance = 35%\n\
+             LevelChance = 40%\n\
+             MoneyChance = 80%\n\
+             MinMoney = 123\n\
+             MaxMoney = 456\n\
+             RequiredKindOf = SALVAGER|VEHICLE\n\
+             ExecuteAnimationTime = 2.5\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("salvage crate ini parses");
+
+        assert!((data.weapon_chance - 0.35).abs() < f32::EPSILON);
+        assert!((data.level_chance - 0.40).abs() < f32::EPSILON);
+        assert!((data.money_chance - 0.80).abs() < f32::EPSILON);
+        assert_eq!(data.minimum_money, 123);
+        assert_eq!(data.maximum_money, 456);
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Salvager as u32)),
+            0
+        );
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            0
+        );
+        assert!((data.base.execute_animation_display_time_seconds - 2.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn salvage_crate_rejects_missing_cpp_field_value() {
+        let mut data = SalvageCrateCollideModuleData::default();
+        let mut ini = INI::new();
+
+        let err = ini
+            .with_inline_source("WeaponChance =\nEnd\n", |ini| data.parse_from_ini(ini))
+            .expect_err("missing chance value should fail");
+
+        assert!(matches!(err, INIError::InvalidData));
+        assert!((data.weapon_chance - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn salvage_money_label_formats_cpp_style_template() {
+        assert_eq!(format_cash_template("+$%d", 125, "+"), "+$125");
+        assert_eq!(format_cash_template("+$%i", 125, "+"), "+$125");
+        assert_eq!(format_cash_template("+$%u", 125, "+"), "+$125");
+        assert_eq!(format_cash_template("GUI:AddCash", 125, "+"), "+$125");
     }
 
     #[test]
