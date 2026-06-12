@@ -31,7 +31,7 @@ use crate::system::GameMessageResult;
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::ini_game_data::get_global_data;
 use game_engine::common::system::radar::get_radar_system;
-use gamelogic::action_manager::ActionManager;
+use gamelogic::action_manager::{ActionManager, CanEnterType};
 use gamelogic::attack::{AbleToAttackType, CanAttackResult};
 use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
@@ -53,18 +53,91 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 fn selection_can_enter_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if ActionManager::can_enter_object(
+            &sel_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+            CanEnterType::CheckCapacity,
+        ) {
+            return true;
+        }
+    }
+
     false
 }
 
 fn selection_can_repair_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+    let current_repairer = target_guard.get_sole_healing_benefactor();
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if ActionManager::can_repair_object(
+            &sel_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+        ) && (current_repairer == gamelogic::common::INVALID_ID || current_repairer == id)
+        {
+            return true;
+        }
+    }
+
     false
 }
 
@@ -3747,7 +3820,7 @@ mod tests {
         get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
     };
     use gamelogic::common::{AsciiString, GeometryInfo, Real};
-    use gamelogic::player::{player_list, Player};
+    use gamelogic::player::{player_list, Player, PlayerType};
     use gamelogic::system::game_logic::{
         get_game_logic, GAME_LAN, GAME_NONE, GAME_REPLAY, GAME_SINGLE_PLAYER,
     };
@@ -4076,6 +4149,63 @@ mod tests {
         drop(unarmed);
         OBJECT_REGISTRY.unregister_object(78_020);
         OBJECT_REGISTRY.unregister_object(78_021);
+    }
+
+    #[test]
+    fn command_context_enter_accepts_local_infantry_into_unmanned_vehicle_like_cpp() {
+        let _guard = test_state_lock();
+        let team = setup_local_player_team();
+        {
+            let player = player_list()
+                .read()
+                .unwrap()
+                .get_player(0)
+                .cloned()
+                .unwrap();
+            player
+                .write()
+                .unwrap()
+                .set_player_type(PlayerType::Computer, false);
+        }
+        let infantry = register_test_object(
+            78_030,
+            vec![KindOf::Selectable, KindOf::Infantry],
+            team.clone(),
+        );
+        let vehicle = register_test_object(78_031, vec![KindOf::Selectable, KindOf::Vehicle], team);
+        vehicle.write().unwrap().set_disabled_unmanned();
+
+        let selection = HashSet::from([78_030]);
+
+        assert!(selection_can_enter_target(Some(0), &selection, 78_031));
+        assert!(!selection_can_enter_target(Some(1), &selection, 78_031));
+
+        drop(vehicle);
+        drop(infantry);
+        OBJECT_REGISTRY.unregister_object(78_030);
+        OBJECT_REGISTRY.unregister_object(78_031);
+    }
+
+    #[test]
+    fn command_context_repair_rejects_unrepairable_targets_like_cpp() {
+        let _guard = test_state_lock();
+        let team = setup_local_player_team();
+        let dozer = register_test_object(78_040, vec![KindOf::Selectable, KindOf::Dozer], team);
+        let target = register_test_object(
+            78_041,
+            vec![KindOf::Selectable, KindOf::Structure],
+            Arc::new(RwLock::new(Team::new(AsciiString::from("teamNeutral"), 3))),
+        );
+
+        let selection = HashSet::from([78_040]);
+
+        assert!(!selection_can_repair_target(Some(0), &selection, 78_041));
+        assert!(!selection_can_repair_target(Some(1), &selection, 78_041));
+
+        drop(target);
+        drop(dozer);
+        OBJECT_REGISTRY.unregister_object(78_040);
+        OBJECT_REGISTRY.unregister_object(78_041);
     }
 
     #[test]
