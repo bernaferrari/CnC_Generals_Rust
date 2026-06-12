@@ -641,7 +641,7 @@ pub fn save_load_menu_input(
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
             state.button_back as WindowMsgData,
-            state.button_back as WindowMsgData,
+            0,
         );
     }
 
