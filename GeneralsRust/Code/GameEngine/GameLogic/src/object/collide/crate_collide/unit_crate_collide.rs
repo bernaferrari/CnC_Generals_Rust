@@ -5,10 +5,13 @@
 //! Desc: A crate that gives n units of type m to the picker-upper
 
 use super::*;
+use crate::common::kindof_from_name;
 use crate::helpers::{FindPositionOptions, TheAudio, ThePartitionManager, TheThingFactory};
 use crate::object::collide::crate_collide::crate_collide::CrateCollide as LegacyCrateCollide;
 use crate::object::collide::*;
 use crate::player::player_list;
+use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 
 /// Module data specific to unit crate collision
 #[derive(Debug, Clone)]
@@ -27,6 +30,12 @@ impl Default for UnitCrateCollideModuleData {
             unit_count: 0,
             unit_type: String::new(),
         }
+    }
+}
+
+impl UnitCrateCollideModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, UNIT_CRATE_COLLIDE_FIELDS)
     }
 }
 
@@ -148,14 +157,13 @@ impl UnitCrateCollide {
         // Create the specified number of units
         for _unit_index in 0..unit_count {
             let new_obj = {
-                let team_guard = team_arc
-                    .read()
-                    .map_err(|_| CollisionError::InvalidObject("Team lock poisoned".to_string()))?;
-                thing_factory
-                    .new_object(unit_template.clone(), &*team_guard)
-                    .map_err(|e| {
-                        CollisionError::InvalidObject(format!("Failed to create object: {}", e))
-                    })?
+                let Ok(team_guard) = team_arc.read() else {
+                    continue;
+                };
+                match thing_factory.new_object(unit_template.clone(), &*team_guard) {
+                    Ok(new_obj) => new_obj,
+                    Err(_) => continue,
+                }
             };
 
             // Set initial position and find a legal position around the crate
@@ -194,9 +202,206 @@ impl UnitCrateCollide {
     }
 }
 
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+    if tokens.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+
+    let mut mask = 0u64;
+    for token in tokens.iter().flat_map(|token| token.split('|')) {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let Some(kind) = kindof_from_name(token) else {
+            return Err(INIError::InvalidData);
+        };
+        mask |= 1u64 << (kind as u32);
+    }
+    Ok(mask)
+}
+
+fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens.first().copied().ok_or(INIError::InvalidData)
+}
+
+fn parse_required_kind_of(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.required_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbidden_kind_of(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.forbidden_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbid_owner_player(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_forbid_owner_player = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_building_pickup(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_building_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_human_only(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_human_only_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_pickup_science(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.pickup_science =
+        NameKeyGenerator::name_to_key(first_token(tokens)?) as crate::common::science::ScienceType;
+    Ok(())
+}
+
+fn parse_execute_fx(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_fx = Some(first_token(tokens)?.to_string());
+    Ok(())
+}
+
+fn parse_execute_animation(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execution_animation_template = first_token(tokens)?.to_string();
+    Ok(())
+}
+
+fn parse_execute_animation_time(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_display_time_seconds = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_z_rise(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_z_rise_per_second = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_fades(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_fades = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_unit_count(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.unit_count = INI::parse_unsigned_int(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_unit_name(
+    _ini: &mut INI,
+    data: &mut UnitCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.unit_type = INI::parse_ascii_string(first_token(tokens)?)?;
+    Ok(())
+}
+
+const UNIT_CRATE_COLLIDE_FIELDS: &[FieldParse<UnitCrateCollideModuleData>] = &[
+    FieldParse {
+        token: "RequiredKindOf",
+        parse: parse_required_kind_of,
+    },
+    FieldParse {
+        token: "ForbiddenKindOf",
+        parse: parse_forbidden_kind_of,
+    },
+    FieldParse {
+        token: "ForbidOwnerPlayer",
+        parse: parse_forbid_owner_player,
+    },
+    FieldParse {
+        token: "BuildingPickup",
+        parse: parse_building_pickup,
+    },
+    FieldParse {
+        token: "HumanOnly",
+        parse: parse_human_only,
+    },
+    FieldParse {
+        token: "PickupScience",
+        parse: parse_pickup_science,
+    },
+    FieldParse {
+        token: "ExecuteFX",
+        parse: parse_execute_fx,
+    },
+    FieldParse {
+        token: "ExecuteAnimation",
+        parse: parse_execute_animation,
+    },
+    FieldParse {
+        token: "ExecuteAnimationTime",
+        parse: parse_execute_animation_time,
+    },
+    FieldParse {
+        token: "ExecuteAnimationZRise",
+        parse: parse_execute_animation_z_rise,
+    },
+    FieldParse {
+        token: "ExecuteAnimationFades",
+        parse: parse_execute_animation_fades,
+    },
+    FieldParse {
+        token: "UnitCount",
+        parse: parse_unit_count,
+    },
+    FieldParse {
+        token: "UnitName",
+        parse: parse_unit_name,
+    },
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::KindOf;
     use crate::player::{Player, PlayerIndex};
     use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
     use std::sync::{Arc, RwLock};
@@ -300,6 +505,31 @@ mod tests {
             unit_crate.get_unit_crate_collide_module_data().unit_type,
             "Infantry"
         );
+    }
+
+    #[test]
+    fn unit_crate_parser_preserves_cpp_fields() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = UnitCrateCollideModuleData::default();
+        parse_unit_count(&mut INI::new(), &mut data, &["3"]).expect("unit count parses");
+        parse_unit_name(&mut INI::new(), &mut data, &["AmericaTank"]).expect("unit name parses");
+        parse_required_kind_of(&mut INI::new(), &mut data, &["VEHICLE|INFANTRY"])
+            .expect("required kindof parses");
+        parse_execute_animation_time(&mut INI::new(), &mut data, &["2.5"])
+            .expect("animation time parses");
+
+        assert_eq!(data.unit_count, 3);
+        assert_eq!(data.unit_type, "AmericaTank");
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            0
+        );
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Infantry as u32)),
+            0
+        );
+        assert_eq!(data.base.execute_animation_display_time_seconds, 2.5);
     }
 
     #[test]

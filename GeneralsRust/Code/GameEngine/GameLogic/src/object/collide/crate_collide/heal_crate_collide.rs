@@ -2,7 +2,7 @@
 //!
 //! A crate that heals every object owned by the player who collects it.
 
-use super::super::{CollisionError, Coord3D, GameObject};
+use super::super::{CollideModule, CollisionError, Coord3D, GameObject};
 use super::crate_collide::{CrateCollide, CrateCollideBehavior, CrateCollideModuleData};
 use crate::common::*;
 use crate::helpers::TheAudio;
@@ -89,6 +89,33 @@ impl CrateCollideBehavior for HealCrateCollide {
 
     fn is_valid_to_execute(&self, other: &dyn GameObject) -> bool {
         self.base_crate.is_valid_to_execute(other)
+    }
+}
+
+impl CollideModule for HealCrateCollide {
+    fn on_collide(
+        &mut self,
+        other: Option<&dyn GameObject>,
+        _loc: &Coord3D,
+        _normal: &Coord3D,
+    ) -> Result<(), CollisionError> {
+        let Some(other_obj) = other else {
+            return Ok(());
+        };
+
+        if !self.base_crate.is_valid_to_execute(other_obj) {
+            return Ok(());
+        }
+
+        let success = self.execute_crate_behavior(other_obj)?;
+        self.base_crate
+            .finish_execution_attempt(other_obj, success)?;
+
+        Ok(())
+    }
+
+    fn would_like_to_collide_with(&self, other: &dyn GameObject) -> bool {
+        CrateCollideBehavior::is_valid_to_execute(self, other)
     }
 }
 
