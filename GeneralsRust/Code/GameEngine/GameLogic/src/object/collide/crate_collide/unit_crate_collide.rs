@@ -76,9 +76,7 @@ impl CollideModule for UnitCrateCollide {
             if self.base.is_valid_to_execute(other_obj) {
                 // Execute the unit crate behavior
                 let success = self.execute_crate_behavior_internal(other_obj)?;
-                if success {
-                    self.base.finalize_collection(other_obj)?;
-                }
+                self.base.finish_execution_attempt(other_obj, success)?;
             }
         }
 

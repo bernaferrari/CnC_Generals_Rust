@@ -179,12 +179,7 @@ impl CollideModule for ShroudCrateCollide {
             if self.base.is_valid_to_execute(other_obj) {
                 // Execute the shroud crate behavior
                 let success = self.execute_crate_behavior_internal(other_obj)?;
-                if !success {
-                    return Err(CollisionError::InvalidObject(
-                        "Failed to execute shroud crate behavior".to_string(),
-                    ));
-                }
-                self.base.finalize_collection(other_obj)?;
+                self.base.finish_execution_attempt(other_obj, success)?;
             }
         }
 

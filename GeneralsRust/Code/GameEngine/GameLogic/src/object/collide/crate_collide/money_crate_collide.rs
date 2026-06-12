@@ -385,9 +385,9 @@ impl CollideModule for MoneyCrateCollide {
             return Ok(());
         }
 
-        if self.execute_crate_behavior(other_obj)? {
-            self.base_crate.finalize_collection(other_obj)?;
-        }
+        let success = self.execute_crate_behavior(other_obj)?;
+        self.base_crate
+            .finish_execution_attempt(other_obj, success)?;
 
         Ok(())
     }
