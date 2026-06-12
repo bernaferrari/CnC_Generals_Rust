@@ -13,7 +13,7 @@ use crate::gui::header_template::get_header_template_manager;
 use crate::gui::shell::main_menu::{get_main_menu, DisplaySettings};
 use crate::gui::{
     get_shell, with_window_manager, write_input_focus_response, AnimationType, GameWindow,
-    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget, GLM_DOUBLE_CLICKED,
 };
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
 use crate::message_stream::{get_message_stream, GameMessageType};
@@ -1656,7 +1656,7 @@ impl MenuCallbacks for MapSelectMenu {
                 }
                 WindowMsgHandled::Ignored
             }
-            WindowMessage::User(0x8000) => {
+            WindowMessage::User(code) if code == GLM_DOUBLE_CLICKED => {
                 if self.button_pushed {
                     return WindowMsgHandled::Handled;
                 }
@@ -2113,7 +2113,7 @@ mod tests {
         let window = GameWindow::new();
 
         assert_eq!(
-            menu.system(&window, WindowMessage::User(0x8000), 42, 0),
+            menu.system(&window, WindowMessage::User(GLM_DOUBLE_CLICKED), 42, 0),
             WindowMsgHandled::Handled
         );
 
