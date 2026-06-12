@@ -333,6 +333,12 @@ impl GameClientLoadScreenHooks {
             active_kind: Mutex::new(None),
         }
     }
+
+    fn set_active_load_screen(&self, kind: LoadScreenKind) {
+        set_mouse_cursor_visibility(false);
+        let mut active_kind = self.active_kind.lock().unwrap_or_else(|e| e.into_inner());
+        *active_kind = Some(kind);
+    }
 }
 
 impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
@@ -369,8 +375,7 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
         };
 
         if init_load_screen(kind, &load_screen_init_context_from_globals()) {
-            let mut active_kind = self.active_kind.lock().unwrap_or_else(|e| e.into_inner());
-            *active_kind = Some(kind);
+            self.set_active_load_screen(kind);
         }
     }
 
@@ -388,8 +393,51 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
             .unwrap_or_else(|e| e.into_inner())
             .take();
         if let Some(kind) = kind {
+            set_mouse_cursor_visibility(true);
             reset_load_screen(kind);
         }
+    }
+}
+
+#[cfg(test)]
+mod load_screen_hook_tests {
+    use super::*;
+    use gamelogic::helpers::LoadScreenHooks;
+    use std::sync::OnceLock;
+
+    static TEST_MOUSE_VISIBILITY_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn lock_test_mouse_visibility() -> std::sync::MutexGuard<'static, ()> {
+        TEST_MOUSE_VISIBILITY_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[test]
+    fn active_load_screen_hides_cursor_like_cpp_start_new_game() {
+        let _guard = lock_test_mouse_visibility();
+        set_mouse_cursor_visibility(true);
+
+        let hooks = GameClientLoadScreenHooks::new();
+        hooks.set_active_load_screen(LoadScreenKind::ShellGame);
+
+        assert!(!is_mouse_cursor_visible());
+        set_mouse_cursor_visibility(true);
+    }
+
+    #[test]
+    fn ending_active_load_screen_shows_cursor_like_cpp_start_new_game() {
+        let _guard = lock_test_mouse_visibility();
+        set_mouse_cursor_visibility(false);
+
+        let hooks = GameClientLoadScreenHooks::new();
+        *hooks.active_kind.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some(LoadScreenKind::ShellGame);
+
+        hooks.end_load_screen();
+
+        assert!(is_mouse_cursor_visible());
     }
 }
 
