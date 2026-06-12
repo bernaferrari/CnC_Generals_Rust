@@ -72,6 +72,22 @@ use log::warn;
 use serde_json::Value;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+pub(crate) fn should_cancel_containment_after_booby_trap(
+    owner: Option<&Arc<RwLock<Object>>>,
+    obj: &Arc<RwLock<Object>>,
+) -> bool {
+    let Some(owner) = owner else {
+        return false;
+    };
+
+    let (Ok(owner_guard), Ok(obj_guard)) = (owner.read(), obj.read()) else {
+        return false;
+    };
+
+    owner_guard.check_and_detonate_booby_trap(Some(&*obj_guard))
+        && (owner_guard.is_effectively_dead() || obj_guard.is_effectively_dead())
+}
+
 /// Trait for common container functionality
 pub trait ContainerInterface {
     /// Check if this container can contain the given object

@@ -970,6 +970,11 @@ impl TransportContain {
 
     /// Add object to containment
     pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        let owner = self.get_object();
+        if super::should_cancel_containment_after_booby_trap(owner.as_ref(), &obj) {
+            return Ok(());
+        }
+
         let was_selected = obj
             .read()
             .ok()
