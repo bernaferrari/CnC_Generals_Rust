@@ -11,7 +11,6 @@ use crate::object::collide::crate_collide::crate_collide::CrateCollide as Legacy
 use crate::object::collide::*;
 use crate::player::player_list;
 use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
 
 /// Module data specific to unit crate collision
 #[derive(Debug, Clone)]
@@ -279,15 +278,7 @@ fn parse_pickup_science(
     data: &mut UnitCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    let science_name = first_token(tokens)?;
-    let science = get_science_store()
-        .map(|store| store.get_science_from_internal_name(science_name))
-        .unwrap_or(SCIENCE_INVALID);
-    if science == SCIENCE_INVALID {
-        return Err(INIError::InvalidData);
-    }
-    data.base.pickup_science = science as crate::common::science::ScienceType;
-    Ok(())
+    super::parse_crate_pickup_science(&mut data.base, first_token(tokens)?)
 }
 
 fn parse_execute_fx(
@@ -414,7 +405,7 @@ mod tests {
     use crate::common::KindOf;
     use crate::player::{Player, PlayerIndex};
     use game_engine::common::rts::science::{
-        get_science_store, get_science_store_mut, init_science_store, ScienceInfo,
+        get_science_store, get_science_store_mut, init_science_store, ScienceInfo, SCIENCE_INVALID,
     };
     use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
     use std::sync::{Arc, RwLock};

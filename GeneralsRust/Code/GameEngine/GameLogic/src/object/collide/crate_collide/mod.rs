@@ -38,6 +38,8 @@ pub use self::crate_collide::*;
 
 use super::*;
 pub use super::{CollisionError, Coord3D, GameObject};
+use game_engine::common::ini::INIError;
+use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
 use std::sync::{Arc, RwLock};
 
 /// Marker trait for crate collide modules (mirrors C++ interface hierarchy).
@@ -73,6 +75,20 @@ impl AudioEvent {
             sound_type: sound_type.to_string(),
         }
     }
+}
+
+pub(crate) fn parse_crate_pickup_science(
+    data: &mut CrateCollideModuleData,
+    science_name: &str,
+) -> Result<(), INIError> {
+    let science = get_science_store()
+        .map(|store| store.get_science_from_internal_name(science_name))
+        .unwrap_or(SCIENCE_INVALID);
+    if science == SCIENCE_INVALID {
+        return Err(INIError::InvalidData);
+    }
+    data.pickup_science = science as crate::common::science::ScienceType;
+    Ok(())
 }
 
 /// Sabotage victim types for feedback effects.
