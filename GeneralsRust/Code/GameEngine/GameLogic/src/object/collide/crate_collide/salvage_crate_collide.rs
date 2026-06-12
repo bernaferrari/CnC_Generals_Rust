@@ -395,13 +395,14 @@ impl SalvageCrateCollide {
     }
 
     fn eligible_for_level(&self, other: &Arc<RwLock<Object>>) -> Result<bool, CollisionError> {
-        let guard = other
-            .read()
-            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
-
-        let tracker = match guard.get_experience_tracker() {
-            Some(tracker) => tracker,
-            None => return Ok(false),
+        let tracker = {
+            let guard = other
+                .read()
+                .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
+            match guard.get_experience_tracker() {
+                Some(tracker) => tracker,
+                None => return Ok(false),
+            }
         };
 
         let tracker = tracker.lock().map_err(|_| {
@@ -416,14 +417,14 @@ impl SalvageCrateCollide {
     }
 
     fn test_weapon_chance(&self) -> bool {
-        if self.module_data.weapon_chance >= 1.0 {
+        if self.module_data.weapon_chance == 1.0 {
             return true;
         }
         GameLogicRandomValueReal(0.0, 1.0) < self.module_data.weapon_chance
     }
 
     fn test_level_chance(&self) -> bool {
-        if self.module_data.level_chance >= 1.0 {
+        if self.module_data.level_chance == 1.0 {
             return true;
         }
         GameLogicRandomValueReal(0.0, 1.0) < self.module_data.level_chance
@@ -461,19 +462,30 @@ impl SalvageCrateCollide {
     }
 
     fn do_level_gain(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
-        let guard = other
-            .read()
-            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
-        let tracker = match guard.get_experience_tracker() {
-            Some(tracker) => tracker,
-            None => return Ok(()),
+        let tracker = {
+            let guard = other
+                .read()
+                .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
+            match guard.get_experience_tracker() {
+                Some(tracker) => tracker,
+                None => return Ok(()),
+            }
         };
-        drop(guard);
 
         let mut tracker = tracker.lock().map_err(|_| {
             CollisionError::InvalidObject("experience tracker lock poisoned".into())
         })?;
-        tracker.gain_exp_for_level(1, false, &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED);
+        let old_level = tracker.get_veterancy_level();
+        if tracker.gain_exp_for_level(1, false, &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED) {
+            let new_level = tracker.get_veterancy_level();
+            drop(tracker);
+            if old_level != new_level {
+                other
+                    .write()
+                    .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
+                    .on_veterancy_level_changed(old_level, new_level, true);
+            }
+        }
         Ok(())
     }
 
@@ -523,23 +535,34 @@ impl SalvageCrateCollide {
         player: &Arc<RwLock<Player>>,
     ) -> Result<(), CollisionError> {
         let (position, color) = {
-            let obj = object
-                .read()
-                .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
-            let mut pos = *obj.get_position();
-            pos.z += 10.0;
-
+            let position = self.money_floating_text_position(object)?;
             let player_guard = player
                 .read()
                 .map_err(|_| CollisionError::InvalidObject("player lock poisoned".into()))?;
             let mut color = player_guard.get_player_color();
             color.a = 230;
-            (pos, color)
+            (position, color)
         };
 
         let caption = format_add_cash(amount);
         TheInGameUI::add_floating_text(&caption, &position, color)
             .map_err(|err| CollisionError::InvalidObject(err.to_string()))
+    }
+
+    fn money_floating_text_position(
+        &self,
+        collector: &Arc<RwLock<Object>>,
+    ) -> Result<Coord3D, CollisionError> {
+        let source = self
+            .base
+            .get_object()
+            .unwrap_or_else(|_| Arc::clone(collector));
+        let mut position = *source
+            .read()
+            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
+            .get_position();
+        position.z += 10.0;
+        Ok(position)
     }
 
     fn play_salvage_sound(&self, other: &Arc<RwLock<Object>>) -> Result<(), CollisionError> {
@@ -676,10 +699,25 @@ enum SalvageType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::registry::OBJECT_REGISTRY;
     use crate::object::ObjectStatusMaskType;
     use crate::player::{player_list, Player};
     use crate::team::Team;
     use std::collections::HashMap;
+
+    struct AudioEventsGuard(bool);
+
+    impl AudioEventsGuard {
+        fn disabled() -> Self {
+            Self(crate::helpers::set_audio_events_enabled_for_tests(false))
+        }
+    }
+
+    impl Drop for AudioEventsGuard {
+        fn drop(&mut self) {
+            crate::helpers::set_audio_events_enabled_for_tests(self.0);
+        }
+    }
 
     fn object_with_kind_of(id: ObjectId, kind_of: &str) -> Arc<RwLock<Object>> {
         let mut template = DefaultThingTemplate::new(format!("TestKindOf{id}"));
@@ -751,8 +789,42 @@ mod tests {
     }
 
     #[test]
+    fn salvage_money_floating_text_uses_crate_position_like_cpp() {
+        let _lock = crate::test_sync::lock();
+
+        OBJECT_REGISTRY.clear();
+
+        let crate_obj = Arc::new(RwLock::new(Object::new_test(1003, 100.0)));
+        crate_obj
+            .write()
+            .expect("crate write")
+            .set_position(&Coord3D::new(11.0, 22.0, 3.0))
+            .expect("crate position");
+        OBJECT_REGISTRY.register_object(1003, &crate_obj);
+
+        let collector = Arc::new(RwLock::new(Object::new_test(1004, 100.0)));
+        collector
+            .write()
+            .expect("collector write")
+            .set_position(&Coord3D::new(200.0, 300.0, 4.0))
+            .expect("collector position");
+
+        let module = SalvageCrateCollide::new(1003, SalvageCrateCollideModuleData::default());
+        let position = module
+            .money_floating_text_position(&collector)
+            .expect("money text position");
+
+        assert!((position.x - 11.0).abs() < f32::EPSILON);
+        assert!((position.y - 22.0).abs() < f32::EPSILON);
+        assert!((position.z - 13.0).abs() < f32::EPSILON);
+
+        OBJECT_REGISTRY.clear();
+    }
+
+    #[test]
     fn successful_salvage_records_academy_stat_like_cpp() {
         let _lock = crate::test_sync::lock();
+        let _audio_guard = AudioEventsGuard::disabled();
 
         player_list().write().expect("player list write").clear();
 
@@ -775,6 +847,8 @@ mod tests {
             .expect("collector team set");
 
         let data = SalvageCrateCollideModuleData {
+            weapon_chance: 0.0,
+            level_chance: 0.0,
             minimum_money: 0,
             maximum_money: 0,
             ..Default::default()

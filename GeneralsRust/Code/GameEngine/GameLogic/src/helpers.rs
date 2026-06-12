@@ -5023,6 +5023,15 @@ impl Default for MiscAudioEvents {
 
 pub struct TheAudio;
 
+#[cfg(test)]
+static AUDIO_EVENTS_ENABLED_FOR_TESTS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(true);
+
+#[cfg(test)]
+pub fn set_audio_events_enabled_for_tests(enabled: bool) -> bool {
+    AUDIO_EVENTS_ENABLED_FOR_TESTS.swap(enabled, std::sync::atomic::Ordering::SeqCst)
+}
+
 struct GameLogicAudioEventOwnerResolver;
 
 impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
@@ -5336,6 +5345,11 @@ impl TheAudio {
     }
 
     pub fn add_audio_event(&self, event: &AudioEventRts) -> u32 {
+        #[cfg(test)]
+        if !AUDIO_EVENTS_ENABLED_FOR_TESTS.load(std::sync::atomic::Ordering::SeqCst) {
+            return 0;
+        }
+
         let mut engine_event = if let Some((x, y, z)) = event.position {
             let pos = EngineCoord3D { x, y, z };
             EngineAudioEventRts::with_position(event.get_event_name(), &pos)

@@ -319,12 +319,12 @@ impl ConvertToHijackedVehicleCrateCollide {
 
         drop(hijacker_lock);
 
-        // Radar event + EVA feedback.
-        TheRadar::try_infiltration_event(other.clone())?;
+        // C++ feedback calls are void side effects; hijack still completes if they fail.
+        let _ = TheRadar::try_infiltration_event(other.clone());
         {
             let other_lock = other.read().map_err(|_| GameError::LockError)?;
             if other_lock.is_locally_controlled() {
-                TheEva::set_should_play(EvaEvent::VehicleStolen)?;
+                let _ = TheEva::set_should_play(EvaEvent::VehicleStolen);
             }
         }
 
@@ -609,6 +609,17 @@ mod tests {
         assert!(!fields
             .iter()
             .any(|field| field.token == "RangeOfEffect" || field.token == "EffectRange"));
+    }
+
+    #[test]
+    fn hijacked_vehicle_crate_collide_identifies_like_cpp() {
+        let object = Arc::new(RwLock::new(Object::new_test(77_200, 100.0)));
+        let module = ConvertToHijackedVehicleCrateCollide::new(
+            object,
+            ConvertToHijackedVehicleCrateCollideModuleData::default(),
+        );
+
+        assert!(crate::object::collide::CollideModule::is_hijacked_vehicle_crate_collide(&module));
     }
 }
 
