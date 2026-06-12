@@ -2646,6 +2646,7 @@ pub struct UnitAIUpdate {
     locomotor_goal_data: Coord3D,
     is_blocked: Bool,
     blocked_and_stuck: Bool,
+    retry_path: Bool,
     blocked_frames: u32,
     cur_max_blocked_speed: Real,
     bump_speed_limit: Real,
@@ -2781,6 +2782,7 @@ impl UnitAIUpdate {
             locomotor_goal_data: Coord3D::ZERO,
             is_blocked: false,
             blocked_and_stuck: false,
+            retry_path: false,
             blocked_frames: 0,
             cur_max_blocked_speed: FAST_AS_POSSIBLE,
             bump_speed_limit: FAST_AS_POSSIBLE,
@@ -2883,6 +2885,65 @@ impl UnitAIUpdate {
             Some(self.ignore_obstacle_id)
         };
         pf_guard.is_line_passable_for_surfaces(&position, destination, surfaces, ignore)
+    }
+
+    fn has_current_path(&self) -> bool {
+        if self.current_path_snapshot.is_some() {
+            return true;
+        }
+        self.unit
+            .upgrade()
+            .and_then(|unit| unit.read().ok().map(|guard| guard.current_path.is_some()))
+            .unwrap_or(false)
+    }
+
+    fn try_install_closest_path_for_invalid_destination(
+        &mut self,
+        destination: &Coord3D,
+    ) -> Result<bool, String> {
+        let request = self.build_classic_path_request(*destination, false)?;
+        let locomotor_set = self
+            .unit
+            .upgrade()
+            .and_then(|unit| unit.read().ok().map(|guard| guard.locomotor_set.clone()))
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let Some(ai) = THE_AI.read().ok() else {
+            return Ok(false);
+        };
+        let Some(pathfinder) = ai.pathfinder() else {
+            return Ok(false);
+        };
+        let Ok(pf_guard) = pathfinder.read() else {
+            return Ok(false);
+        };
+
+        if pf_guard.valid_movement_position(
+            &locomotor_set,
+            request.is_crusher,
+            destination,
+            request.ignore_obstacle_id,
+        ) {
+            return Ok(false);
+        }
+
+        if self.has_current_path() {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.blocked_and_stuck = false;
+            return Ok(true);
+        }
+
+        self.retry_path = true;
+        let result = pf_guard.find_closest_path_result(request);
+        if result.success && !result.waypoints.is_empty() {
+            self.set_path_from_coords(&result.waypoints)?;
+        } else {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.blocked_and_stuck = false;
+        }
+
+        Ok(true)
     }
 
     fn install_direct_path_from_current_position(&mut self, destination: &Coord3D) -> bool {
@@ -2989,7 +3050,11 @@ impl UnitAIUpdate {
         let _ = self.choose_locomotor_set(LocomotorSetType::Normal);
     }
 
-    fn queue_path_request_now(&self, destination: Coord3D) -> Result<(), String> {
+    fn build_classic_path_request(
+        &self,
+        destination: Coord3D,
+        allow_partial: bool,
+    ) -> Result<crate::ai::pathfind_complete::PathRequest, String> {
         let unit = self
             .unit
             .upgrade()
@@ -3002,21 +3067,25 @@ impl UnitAIUpdate {
         let surfaces = guard
             .get_locomotor_surface_mask()
             .unwrap_or(crate::locomotor::SURFACE_GROUND);
-        let request = crate::ai::pathfind_complete::PathRequest {
+        Ok(crate::ai::pathfind_complete::PathRequest {
             object_id: obj_guard.get_id(),
             from: *obj_guard.get_position(),
             to: destination,
             surfaces,
             is_crusher: obj_guard.get_crusher_level() > 0,
             unit_radius: obj_guard.get_geometry_info().get_major_radius(),
-            allow_partial: false,
+            allow_partial,
             move_allies: self.can_path_through_units,
             ignore_obstacle_id: if self.ignore_obstacle_id == INVALID_ID {
                 None
             } else {
                 Some(self.ignore_obstacle_id)
             },
-        };
+        })
+    }
+
+    fn queue_path_request_now(&self, destination: Coord3D) -> Result<(), String> {
+        let request = self.build_classic_path_request(destination, false)?;
 
         if let Some(ai) = THE_AI.read().ok() {
             if let Some(pathfinder) = ai.pathfinder() {
@@ -7205,6 +7274,7 @@ impl AIUpdateInterface for UnitAIUpdate {
             self.compute_quick_path(destination);
             return Ok(());
         }
+        self.retry_path = false;
         if self.should_force_direct_path_for_off_map_start(destination)
             && self.install_direct_path_from_current_position(destination)
         {
@@ -7221,6 +7291,9 @@ impl AIUpdateInterface for UnitAIUpdate {
         if self.should_use_direct_path_for_line_passable_non_final_goal(destination)
             && self.install_direct_path_from_current_position(destination)
         {
+            return Ok(());
+        }
+        if self.try_install_closest_path_for_invalid_destination(destination)? {
             return Ok(());
         }
         let now = TheGameLogic::get_frame();
@@ -8598,8 +8671,10 @@ mod tests {
         );
 
         let destination = Coord3D::new(16.0, 0.0, 3.0);
+        ai.retry_path = true;
         ai.request_path(&destination, false).unwrap();
 
+        assert!(!ai.retry_path);
         assert_eq!(ai.queue_for_path_frame, 0);
         let unit_guard = unit.read().unwrap();
         assert_eq!(
@@ -8648,6 +8723,52 @@ mod tests {
 
         ai.is_final_goal = false;
         assert!(ai.should_use_direct_path_for_line_passable_non_final_goal(&destination));
+    }
+
+    #[test]
+    fn invalid_destination_falls_back_to_closest_path_and_marks_retry_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(48, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(10.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert!(ai
+            .try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
+            .unwrap());
+
+        assert!(ai.retry_path);
+        assert_eq!(ai.queue_for_path_frame, 0);
+        let unit_guard = unit.read().unwrap();
+        let path = unit_guard.current_path.as_ref().unwrap();
+        assert_eq!(path.first(), Some(&Coord2D::new(10.0, 0.0)));
+        assert_ne!(
+            unit_guard.target_position,
+            Some(Coord3D::new(-5.0, 0.0, 3.0))
+        );
     }
 
     fn save_unit_ai_update(ai: &mut UnitAIUpdate) -> Vec<u8> {
