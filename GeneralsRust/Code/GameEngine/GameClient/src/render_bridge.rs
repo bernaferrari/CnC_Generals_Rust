@@ -20,9 +20,11 @@
 //!   - `DrawableManager::render()`
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::drawable::drawable_draw_pipeline::{with_drawable_pipeline, MeshVertex};
+use ww3d_assets::prototypes::MeshPrototype;
 use ww3d_assets::AssetManager;
 use ww3d_core::animation::{AnimationController, AnimationMode, Hierarchy, Pivot};
 use ww3d_core::lighting::{Light, LightEnvironment, LightType};
@@ -673,7 +675,14 @@ impl RenderBridge {
         for search_path in &self.asset_search_paths {
             let candidate = search_path.join(format!("{name}.w3d"));
             if candidate.exists() {
+                let known_meshes = mesh_prototype_names(&self.asset_manager);
                 if self.asset_manager.load_3d_assets(&candidate).is_ok() {
+                    register_newly_loaded_meshes_for_drawable_pipeline(
+                        &self.asset_manager,
+                        name,
+                        &candidate,
+                        &known_meshes,
+                    );
                     if let Some(obj) = self.asset_manager.create_render_obj(name) {
                         return Some((
                             Arc::from(Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>),
@@ -849,6 +858,149 @@ impl RenderBridge {
             .map(|(id, entry)| (*id, entry))
             .collect()
     }
+}
+
+fn mesh_prototype_names(asset_manager: &AssetManager) -> HashSet<String> {
+    asset_manager
+        .prototypes()
+        .filter_map(|(name, prototype)| {
+            prototype
+                .as_any()
+                .downcast_ref::<MeshPrototype>()
+                .map(|_| name.to_ascii_lowercase())
+        })
+        .collect()
+}
+
+fn register_newly_loaded_meshes_for_drawable_pipeline(
+    asset_manager: &AssetManager,
+    requested_name: &str,
+    path: &Path,
+    known_meshes: &HashSet<String>,
+) {
+    let mesh_entries = asset_manager
+        .prototypes()
+        .filter_map(|(key, prototype)| {
+            let key_lower = key.to_ascii_lowercase();
+            if known_meshes.contains(&key_lower) {
+                return None;
+            }
+            prototype
+                .as_any()
+                .downcast_ref::<MeshPrototype>()
+                .map(|mesh| (key.as_str(), mesh))
+        })
+        .collect::<Vec<_>>();
+    if mesh_entries.is_empty() {
+        return;
+    }
+
+    let Some((vertices, indices, texture_name)) = drawable_mesh_data_from_prototypes(&mesh_entries)
+    else {
+        return;
+    };
+    let keys = drawable_mesh_keys(requested_name, path, &mesh_entries);
+
+    with_drawable_pipeline(|pipeline| {
+        if let Ok(mut guard) = pipeline.lock() {
+            for key in keys {
+                guard.insert_mesh_with_texture(
+                    &key,
+                    vertices.clone(),
+                    indices.clone(),
+                    texture_name.clone(),
+                );
+            }
+        }
+    });
+}
+
+fn drawable_mesh_keys(
+    requested_name: &str,
+    path: &Path,
+    mesh_entries: &[(&str, &MeshPrototype)],
+) -> Vec<String> {
+    let mut keys = Vec::new();
+    push_drawable_mesh_key(&mut keys, requested_name);
+    if let Some(file_name) = path.file_name().and_then(|name| name.to_str()) {
+        push_drawable_mesh_key(&mut keys, file_name);
+    }
+    if let Some(file_stem) = path.file_stem().and_then(|name| name.to_str()) {
+        push_drawable_mesh_key(&mut keys, file_stem);
+    }
+    for (prototype_key, mesh) in mesh_entries {
+        push_drawable_mesh_key(&mut keys, prototype_key);
+        push_drawable_mesh_key(&mut keys, &mesh.name);
+    }
+    keys
+}
+
+fn push_drawable_mesh_key(keys: &mut Vec<String>, key: &str) {
+    let key = key.trim();
+    if key.is_empty() {
+        return;
+    }
+    let key = key.to_ascii_lowercase();
+    if !keys.iter().any(|existing| existing == &key) {
+        keys.push(key);
+    }
+}
+
+fn drawable_mesh_data_from_prototypes(
+    mesh_entries: &[(&str, &MeshPrototype)],
+) -> Option<(Vec<MeshVertex>, Vec<u32>, Option<String>)> {
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let mut texture_name = None;
+
+    for (_, mesh) in mesh_entries {
+        let base_vertex = u32::try_from(vertices.len()).ok()?;
+        vertices.extend(mesh.vertices.iter().enumerate().map(|(index, position)| {
+            let normal = mesh.normals.get(index).copied().unwrap_or_default();
+            let uv = mesh
+                .stage_texcoords
+                .first()
+                .and_then(|coords| coords.get(index))
+                .copied()
+                .unwrap_or_default();
+            MeshVertex {
+                position: [position.x, position.y, position.z],
+                normal: [normal.x, normal.y, normal.z],
+                uv: [uv.u, uv.v],
+                color: [1.0, 1.0, 1.0, 1.0],
+            }
+        }));
+
+        for triangle in &mesh.triangles {
+            for index in triangle.vindex {
+                indices.push(base_vertex.checked_add(index)?);
+            }
+        }
+
+        if texture_name.is_none() {
+            texture_name = first_mesh_texture_name(mesh);
+        }
+    }
+
+    if vertices.is_empty() || indices.is_empty() {
+        return None;
+    }
+    Some((vertices, indices, texture_name))
+}
+
+fn first_mesh_texture_name(mesh: &MeshPrototype) -> Option<String> {
+    mesh.textures.iter().find_map(|texture| {
+        let end = texture
+            .name
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(texture.name.len());
+        std::str::from_utf8(&texture.name[..end])
+            .ok()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_string)
+    })
 }
 
 impl RenderObjectStateSummary {
@@ -1616,6 +1768,119 @@ mod tests {
             drained_after_clear[0].model_resolution,
             Some(ModelResolution::Asset)
         );
+    }
+
+    #[test]
+    fn drawable_mesh_keys_cover_requested_file_and_loaded_prototype_names() {
+        let mut mesh = ww3d_assets::prototypes::MeshPrototype::new("TankBody".to_string());
+        let entries = vec![("GUTank_Body", &mesh)];
+        let keys = drawable_mesh_keys("GUTank", std::path::Path::new("Art/GUTank.w3d"), &entries);
+
+        assert_eq!(
+            keys,
+            vec![
+                "gutank".to_string(),
+                "gutank.w3d".to_string(),
+                "gutank_body".to_string(),
+                "tankbody".to_string(),
+            ]
+        );
+
+        mesh.name = "GUTank".to_string();
+        let entries = vec![("GUTank", &mesh)];
+        let deduped = drawable_mesh_keys("GUTank", std::path::Path::new("GUTank.w3d"), &entries);
+        assert_eq!(
+            deduped,
+            vec!["gutank".to_string(), "gutank.w3d".to_string()]
+        );
+    }
+
+    #[test]
+    fn drawable_mesh_data_from_prototypes_concatenates_real_w3d_geometry() {
+        use ww3d_core::{W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruct};
+
+        let mut body = ww3d_assets::prototypes::MeshPrototype::new("Body".to_string());
+        body.vertices = vec![
+            W3dVectorStruct {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            W3dVectorStruct {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            W3dVectorStruct {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        ];
+        body.normals = vec![
+            W3dVectorStruct {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0
+            };
+            3
+        ];
+        body.stage_texcoords = vec![vec![
+            W3dTexCoordStruct { u: 0.0, v: 0.0 },
+            W3dTexCoordStruct { u: 1.0, v: 0.0 },
+            W3dTexCoordStruct { u: 0.0, v: 1.0 },
+        ]];
+        body.triangles = vec![W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            distance: 0.0,
+        }];
+
+        let mut turret = ww3d_assets::prototypes::MeshPrototype::new("Turret".to_string());
+        turret.vertices = vec![
+            W3dVectorStruct {
+                x: 2.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            W3dVectorStruct {
+                x: 3.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            W3dVectorStruct {
+                x: 2.0,
+                y: 1.0,
+                z: 0.0,
+            },
+        ];
+        turret.triangles = vec![W3dTriangleStruct {
+            vindex: [0, 1, 2],
+            attributes: 0,
+            normal: W3dVectorStruct {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            distance: 0.0,
+        }];
+
+        let entries = vec![("Body", &body), ("Turret", &turret)];
+        let (vertices, indices, texture_name) =
+            drawable_mesh_data_from_prototypes(&entries).expect("mesh data should convert");
+
+        assert_eq!(vertices.len(), 6);
+        assert_eq!(indices, vec![0, 1, 2, 3, 4, 5]);
+        assert_eq!(vertices[1].position, [1.0, 0.0, 0.0]);
+        assert_eq!(vertices[1].normal, [0.0, 0.0, 1.0]);
+        assert_eq!(vertices[1].uv, [1.0, 0.0]);
+        assert_eq!(vertices[4].position, [3.0, 0.0, 0.0]);
+        assert_eq!(texture_name, None);
     }
 
     #[test]
