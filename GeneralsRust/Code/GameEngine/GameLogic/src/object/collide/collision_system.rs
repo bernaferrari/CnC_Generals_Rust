@@ -402,40 +402,6 @@ impl CollisionSystem {
             return;
         }
 
-        if a_info.moving && b_info.is_infantry && !a_info.is_infantry {
-            let already_moving_away = b_info
-                .ai
-                .lock()
-                .ok()
-                .map(|guard| guard.is_moving_away_from(a_info.id))
-                .unwrap_or(false);
-            if !b_info.using_ability
-                && !b_info.busy
-                && !b_info.waiting_for_path
-                && !already_moving_away
-            {
-                b_info
-                    .ai
-                    .ai_move_away_from_unit(a_info.id, CommandSourceType::FromAi);
-            }
-        } else if b_info.moving && a_info.is_infantry && !b_info.is_infantry {
-            let already_moving_away = a_info
-                .ai
-                .lock()
-                .ok()
-                .map(|guard| guard.is_moving_away_from(b_info.id))
-                .unwrap_or(false);
-            if !a_info.using_ability
-                && !a_info.busy
-                && !a_info.waiting_for_path
-                && !already_moving_away
-            {
-                a_info
-                    .ai
-                    .ai_move_away_from_unit(b_info.id, CommandSourceType::FromAi);
-            }
-        }
-
         Self::process_ai_blocked_collision(&a_info, &b_info);
         Self::process_ai_blocked_collision(&b_info, &a_info);
 
@@ -503,7 +469,14 @@ impl CollisionSystem {
             return;
         }
 
-        let mut should_move_away = false;
+        let other_moving_away_from_mover = other
+            .ai
+            .lock()
+            .ok()
+            .map(|guard| guard.is_moving_away_from(mover.id))
+            .unwrap_or(false);
+        let mut should_move_mover_away = false;
+        let mut should_move_other_infantry_away = false;
         {
             let Ok(mut guard) = mover.ai.lock() else {
                 return;
@@ -521,7 +494,12 @@ impl CollisionSystem {
             {
                 guard.set_cur_max_blocked_speed(max_speed);
             }
-            if !guard.need_to_rotate() && !other.moving {
+            if !other_moving_away_from_mover && other.is_infantry && !mover.is_infantry {
+                if other.using_ability || other.busy {
+                    return;
+                }
+                should_move_other_infantry_away = true;
+            } else if !guard.need_to_rotate() && !other.moving {
                 guard.set_blocked_and_stuck(true);
             } else if other.moving {
                 let other_blocked = Self::blocked_by(other, mover);
@@ -531,13 +509,17 @@ impl CollisionSystem {
                     .ok()
                     .map(|other_guard| other_guard.need_to_rotate())
                     .unwrap_or(true);
-                should_move_away = other_blocked
+                should_move_mover_away = other_blocked
                     && !other_needs_rotation
                     && !Self::has_higher_path_priority(mover, other);
             }
         }
 
-        if should_move_away {
+        if should_move_other_infantry_away {
+            other
+                .ai
+                .ai_move_away_from_unit(mover.id, CommandSourceType::FromAi);
+        } else if should_move_mover_away {
             mover
                 .ai
                 .ai_move_away_from_unit(other.id, CommandSourceType::FromAi);
@@ -831,12 +813,172 @@ where
 mod tests {
     use super::super::collision_geometry::GeometryInfo;
     use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Debug)]
+    struct RecordingCollisionAi {
+        move_away_commands: Arc<Mutex<Vec<ObjectId>>>,
+        moving_away_from: Option<ObjectId>,
+        cur_max_blocked_speed: Real,
+        need_to_rotate: bool,
+        blocked: bool,
+        blocked_and_stuck: bool,
+    }
+
+    impl RecordingCollisionAi {
+        fn new(move_away_commands: Arc<Mutex<Vec<ObjectId>>>) -> Self {
+            Self {
+                move_away_commands,
+                moving_away_from: None,
+                cur_max_blocked_speed: 1.0,
+                need_to_rotate: false,
+                blocked: false,
+                blocked_and_stuck: false,
+            }
+        }
+    }
+
+    impl crate::modules::AIUpdateInterface for RecordingCollisionAi {
+        fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            Ok(())
+        }
+
+        fn is_moving(&self) -> bool {
+            false
+        }
+
+        fn is_idle(&self) -> bool {
+            true
+        }
+
+        fn set_movement_target(&mut self, _target: &GameCoord3D) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn is_moving_away_from(&self, obj_id: ObjectId) -> bool {
+            self.moving_away_from == Some(obj_id)
+        }
+
+        fn set_is_blocked(&mut self, blocked: bool) {
+            self.blocked = blocked;
+            if !blocked {
+                self.blocked_and_stuck = false;
+            }
+        }
+
+        fn set_blocked_and_stuck(&mut self, blocked: bool) {
+            self.blocked_and_stuck = blocked;
+        }
+
+        fn need_to_rotate(&self) -> bool {
+            self.need_to_rotate
+        }
+
+        fn get_cur_max_blocked_speed(&self) -> Real {
+            self.cur_max_blocked_speed
+        }
+
+        fn set_cur_max_blocked_speed(&mut self, speed: Real) {
+            self.cur_max_blocked_speed = speed;
+        }
+
+        fn execute_command(
+            &mut self,
+            command: &crate::ai::AiCommandParams,
+        ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+            if command.cmd == crate::ai::AiCommandType::MoveAwayFromUnit {
+                if let Some(obj_id) = command.obj {
+                    self.move_away_commands.lock().unwrap().push(obj_id);
+                }
+            }
+            Ok(())
+        }
+    }
+
+    fn recording_ai(
+        move_away_commands: Arc<Mutex<Vec<ObjectId>>>,
+    ) -> Arc<Mutex<dyn crate::modules::AIUpdateInterface>> {
+        Arc::new(Mutex::new(RecordingCollisionAi::new(move_away_commands)))
+    }
+
+    fn ai_collision_info(
+        id: ObjectId,
+        ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>>,
+    ) -> AiCollisionInfo {
+        AiCollisionInfo {
+            id,
+            position: GameCoord3D::new(0.0, 0.0, 0.0),
+            direction: (1.0, 0.0),
+            is_infantry: false,
+            is_vehicle: false,
+            is_dozer: false,
+            using_ability: false,
+            moving: false,
+            ground: true,
+            busy: false,
+            can_path_through_units: false,
+            waiting_for_path: false,
+            dead: false,
+            path_destination: None,
+            frames_blocked: 0,
+            moving_backwards: false,
+            velocity: Vec3D::ZERO,
+            formation_id: FormationID::NONE,
+            move_priority: LocomotorPriority::Middle,
+            group_id: None,
+            ai,
+        }
+    }
 
     #[test]
     fn test_collision_system_creation() {
         let system = CollisionSystem::new();
         assert_eq!(system.collision_count, 0);
         assert_eq!(system.frame_number, 0);
+    }
+
+    #[test]
+    fn vehicle_tells_blocking_infantry_to_move_away_after_blocked_by_accepts() {
+        let vehicle_commands = Arc::new(Mutex::new(Vec::new()));
+        let infantry_commands = Arc::new(Mutex::new(Vec::new()));
+        let mut vehicle = ai_collision_info(1, recording_ai(Arc::clone(&vehicle_commands)));
+        vehicle.position = GameCoord3D::new(0.0, 0.0, 0.0);
+        vehicle.direction = (1.0, 0.0);
+        vehicle.is_vehicle = true;
+        vehicle.moving = true;
+        vehicle.path_destination = Some(GameCoord3D::new(PATHFIND_CELL_SIZE_F * 4.0, 0.0, 0.0));
+
+        let mut infantry = ai_collision_info(2, recording_ai(Arc::clone(&infantry_commands)));
+        infantry.position = GameCoord3D::new(PATHFIND_CELL_SIZE_F * 0.5, 0.0, 0.0);
+        infantry.direction = (1.0, 0.0);
+        infantry.is_infantry = true;
+
+        CollisionSystem::process_ai_blocked_collision(&vehicle, &infantry);
+
+        assert!(vehicle_commands.lock().unwrap().is_empty());
+        assert_eq!(*infantry_commands.lock().unwrap(), vec![vehicle.id]);
+    }
+
+    #[test]
+    fn vehicle_does_not_move_infantry_when_blocked_by_goal_exemption_rejects() {
+        let vehicle_commands = Arc::new(Mutex::new(Vec::new()));
+        let infantry_commands = Arc::new(Mutex::new(Vec::new()));
+        let mut vehicle = ai_collision_info(1, recording_ai(Arc::clone(&vehicle_commands)));
+        vehicle.position = GameCoord3D::new(0.0, 0.0, 0.0);
+        vehicle.direction = (1.0, 0.0);
+        vehicle.is_vehicle = true;
+        vehicle.moving = true;
+        vehicle.path_destination = Some(GameCoord3D::new(PATHFIND_CELL_SIZE_F * 0.5, 0.0, 0.0));
+
+        let mut infantry = ai_collision_info(2, recording_ai(Arc::clone(&infantry_commands)));
+        infantry.position = GameCoord3D::new(PATHFIND_CELL_SIZE_F * 0.25, 0.0, 0.0);
+        infantry.direction = (1.0, 0.0);
+        infantry.is_infantry = true;
+
+        CollisionSystem::process_ai_blocked_collision(&vehicle, &infantry);
+
+        assert!(vehicle_commands.lock().unwrap().is_empty());
+        assert!(infantry_commands.lock().unwrap().is_empty());
     }
 
     #[test]
