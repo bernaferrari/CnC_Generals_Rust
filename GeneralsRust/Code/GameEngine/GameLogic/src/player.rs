@@ -541,6 +541,7 @@ pub struct AcademyStats {
     researched_radar: Bool,
     upgrades_purchased: Int,
     cleared_garrisoned_buildings: Int,
+    salvage_collected: Int,
     special_powers_used: Int,
     /// Total money earned (for scoreboard / academy stats).
     total_income: Int,
@@ -558,6 +559,7 @@ impl AcademyStats {
             researched_radar: false,
             upgrades_purchased: 0,
             cleared_garrisoned_buildings: 0,
+            salvage_collected: 0,
             special_powers_used: 0,
             total_income: 0,
         }
@@ -631,6 +633,15 @@ impl AcademyStats {
     /// Record clearing a garrisoned building (matches C++ AcademyStats::recordClearedGarrisonedBuilding).
     pub fn record_cleared_garrisoned_building(&mut self) {
         self.cleared_garrisoned_buildings += 1;
+    }
+
+    /// Record collecting a salvage crate (matches C++ AcademyStats::recordSalvageCollected).
+    pub fn record_salvage_collected(&mut self) {
+        self.salvage_collected += 1;
+    }
+
+    pub fn get_salvage_collected(&self) -> Int {
+        self.salvage_collected
     }
 
     /// Record special power use (matches C++ AcademyStats::recordSpecialPowerUsed).
