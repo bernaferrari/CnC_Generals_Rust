@@ -3028,6 +3028,10 @@ impl UnitAIUpdate {
         self.retry_path = false;
         let destination = self.requested_destination;
 
+        if self.is_safe_path {
+            return self.do_queued_safe_pathfind_now();
+        }
+
         if self.try_install_closest_path_for_invalid_destination(&destination)? {
             return Ok(true);
         }
@@ -3085,6 +3089,77 @@ impl UnitAIUpdate {
         self.path_timestamp = TheGameLogic::get_frame();
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
+        Ok(false)
+    }
+
+    fn do_queued_safe_pathfind_now(&mut self) -> Result<bool, String> {
+        self.destroy_path();
+
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
+        let obj_guard = guard
+            .base_object
+            .read()
+            .map_err(|_| "unit base object lock poisoned".to_string())?;
+        let owner_pos = *obj_guard.get_position();
+        let owner_vision_range = obj_guard.get_vision_range();
+        drop(obj_guard);
+        drop(guard);
+
+        let repulsor_pos1 = get_legacy_object(self.repulsor1)
+            .and_then(|repulsor| {
+                repulsor
+                    .read()
+                    .ok()
+                    .map(|repulsor_guard| *repulsor_guard.get_position())
+            })
+            .unwrap_or_else(|| Coord3D::new(-1000.0, -1000.0, 0.0));
+        let repulsor_pos2 = get_legacy_object(self.repulsor2)
+            .and_then(|repulsor| {
+                repulsor
+                    .read()
+                    .ok()
+                    .map(|repulsor_guard| *repulsor_guard.get_position())
+            })
+            .unwrap_or(repulsor_pos1);
+        let repulsed_distance = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| {
+                ai.get_ai_data()
+                    .read()
+                    .ok()
+                    .map(|data| data.repulsed_distance)
+            })
+            .unwrap_or(0.0);
+        let safe_radius = owner_vision_range + repulsed_distance;
+        let request = self.build_classic_path_request(owner_pos, false)?;
+        let safe_result =
+            THE_AI
+                .read()
+                .ok()
+                .and_then(|ai| ai.pathfinder())
+                .and_then(|pathfinder| {
+                    pathfinder.read().ok().map(|pf| {
+                        pf.find_safe_path_result(
+                            request,
+                            &repulsor_pos1,
+                            &repulsor_pos2,
+                            safe_radius,
+                        )
+                    })
+                });
+
+        if let Some(result) = safe_result {
+            if result.success && !result.waypoints.is_empty() {
+                self.set_path_from_coords(&result.waypoints)?;
+                return Ok(true);
+            }
+        }
+
         Ok(false)
     }
 
@@ -6478,87 +6553,9 @@ impl AIUpdateInterface for UnitAIUpdate {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND * 2);
             return Ok(false);
         }
-        let unit = self
-            .unit
-            .upgrade()
-            .ok_or_else(|| "unit no longer available".to_string())?;
-        let guard = unit.read().map_err(|_| "unit lock poisoned".to_string())?;
-        let obj_guard = guard
-            .base_object
-            .read()
-            .map_err(|_| "unit base object lock poisoned".to_string())?;
-        let owner_pos = *obj_guard.get_position();
-        let owner_id = obj_guard.get_id();
-        let owner_vision_range = obj_guard.get_vision_range();
-
-        let repulsor_pos = get_legacy_object(repulsor_id)
-            .and_then(|repulsor| {
-                repulsor
-                    .read()
-                    .ok()
-                    .map(|repulsor_guard| *repulsor_guard.get_position())
-            })
-            .unwrap_or_else(|| Coord3D::new(-1000.0, -1000.0, 0.0));
-        let locomotor_set = guard.locomotor_set.clone();
-
-        drop(obj_guard);
-        drop(guard);
-
-        let mut repulsor_pos2 = repulsor_pos;
-        if self.repulsor2 != INVALID_ID {
-            if let Some(repulsor2) = get_legacy_object(self.repulsor2) {
-                if let Ok(repulsor2_guard) = repulsor2.read() {
-                    repulsor_pos2 = *repulsor2_guard.get_position();
-                }
-            }
-        }
-
-        let mut away = Coord3D::new(
-            owner_pos.x - repulsor_pos.x + owner_pos.x - repulsor_pos2.x,
-            owner_pos.y - repulsor_pos.y + owner_pos.y - repulsor_pos2.y,
-            0.0,
-        );
-        if away.x * away.x + away.y * away.y < f32::EPSILON {
-            away = Coord3D::new(1.0, 0.0, 0.0);
-        }
-        let away_length = (away.x * away.x + away.y * away.y).sqrt().max(0.001);
-        let repulsed_distance = THE_AI
-            .read()
-            .ok()
-            .and_then(|ai| {
-                ai.get_ai_data()
-                    .read()
-                    .ok()
-                    .map(|data| data.repulsed_distance)
-            })
-            .unwrap_or(0.0);
-        let safe_distance = Self::safe_path_search_distance(owner_vision_range, repulsed_distance);
-        let safe_destination = Coord3D::new(
-            owner_pos.x + (away.x / away_length) * safe_distance,
-            owner_pos.y + (away.y / away_length) * safe_distance,
-            owner_pos.z,
-        );
-        self.requested_destination = safe_destination;
-
-        let mut safe_path_coords: Option<Vec<Coord3D>> = None;
-        if let Ok(ai_lock) = THE_AI.read() {
-            if let Some(pathfinder) = ai_lock.pathfinder() {
-                if let Ok(pathfinder_guard) = pathfinder.read() {
-                    safe_path_coords = pathfinder_guard.find_path_for_locomotor(
-                        owner_id,
-                        &locomotor_set,
-                        &owner_pos,
-                        &safe_destination,
-                    );
-                }
-            }
-        }
-
-        self.pending_safe_path = safe_path_coords;
-        if self.pending_safe_path.is_some() {
-            self.path_timestamp = TheGameLogic::get_frame();
-        }
-        Ok(self.pending_safe_path.is_some())
+        self.set_queue_for_path_time(0);
+        self.path_timestamp = now;
+        Ok(true)
     }
 
     fn is_doing_ground_movement(&self) -> bool {
@@ -9141,6 +9138,71 @@ mod tests {
             ai.queue_for_path_frame,
             now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
         );
+    }
+
+    #[test]
+    fn request_safe_path_defers_safe_pathfind_until_queued_update_like_cpp() {
+        let owner_id = 55;
+        let repulsor_id = 155;
+        let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(100.0, 100.0, 1.0));
+            object.set_vision_range(30.0);
+        }
+        let repulsor = Arc::new(RwLock::new(Object::new_test(repulsor_id, 100.0)));
+        {
+            let mut object = repulsor.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(100.0, 100.0, 0.0));
+        }
+        crate::object::registry::OBJECT_REGISTRY.register_object(owner_id, &base_object);
+        crate::object::registry::OBJECT_REGISTRY.register_object(repulsor_id, &repulsor);
+
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert!(ai.request_safe_path(repulsor_id).unwrap());
+
+        assert!(ai.waiting_for_path);
+        assert!(ai.pending_safe_path.is_none());
+        {
+            let unit_guard = unit.read().unwrap();
+            assert!(unit_guard.current_path.is_none());
+            assert!(unit_guard.target_position.is_none());
+        }
+
+        ai.update().unwrap();
+
+        assert!(!ai.waiting_for_path);
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.current_path.is_some());
+        assert!(unit_guard.target_position.is_some());
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(repulsor_id);
     }
 
     #[test]
