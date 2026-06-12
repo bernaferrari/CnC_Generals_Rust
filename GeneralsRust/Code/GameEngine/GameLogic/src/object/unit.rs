@@ -33,7 +33,7 @@ use crate::locomotor::{
 };
 use crate::modules::{
     AIAttitudeType, AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt,
-    PhysicsBehaviorExt, FAST_AS_POSSIBLE,
+    PhysicsBehaviorExt, FAST_AS_POSSIBLE, UPDATE_SLEEP_NONE,
 };
 use crate::object::draw::TerrainDecalType;
 use crate::object::object_factory::{get_object_factory, GameObjectInstance};
@@ -2802,6 +2802,20 @@ impl UnitAIUpdate {
     fn clear_guard_target_type(&mut self) {
         self.guard_target_type[1] = self.guard_target_type[0];
         self.guard_target_type[0] = GuardTargetType::None_;
+    }
+
+    fn owner_object_id(&self) -> Option<ObjectID> {
+        self.unit.upgrade().and_then(|unit| {
+            unit.read()
+                .ok()
+                .and_then(|guard| guard.base_object.read().ok().map(|object| object.get_id()))
+        })
+    }
+
+    fn wake_up_now(&self) {
+        if let Some(owner_id) = self.owner_object_id() {
+            TheGameLogic::set_wake_frame(owner_id, UPDATE_SLEEP_NONE);
+        }
     }
 
     fn set_current_path_snapshot_from_coords(&mut self, path: &[Coord3D]) {
@@ -7435,6 +7449,7 @@ impl AIUpdateInterface for UnitAIUpdate {
                 }
             }
         }
+        self.wake_up_now();
     }
 
     fn set_is_recruitable(&mut self, recruitable: Bool) {

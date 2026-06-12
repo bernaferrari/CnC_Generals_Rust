@@ -783,6 +783,9 @@ pub struct AIUpdateInterface {
     fix_loco_in_post_process: bool,
     allowed_to_chase: bool,
 
+    // Rust adapter state: C++ reaches the owner through getObject().
+    owner_object_id: ObjectID,
+
     // Module data reference
     module_data: Arc<AIUpdateModuleData>,
 }
@@ -807,6 +810,10 @@ impl std::fmt::Debug for AIUpdateInterface {
 
 impl AIUpdateInterface {
     pub fn new(module_data: Arc<AIUpdateModuleData>) -> Self {
+        Self::new_for_object(module_data, INVALID_ID)
+    }
+
+    pub fn new_for_object(module_data: Arc<AIUpdateModuleData>, owner_object_id: ObjectID) -> Self {
         Self {
             prior_waypoint_id: 0xfacade,
             current_waypoint_id: 0xfacade,
@@ -876,6 +883,7 @@ impl AIUpdateInterface {
             is_in_update: false,
             fix_loco_in_post_process: false,
             allowed_to_chase: true,
+            owner_object_id,
             module_data,
         }
     }
@@ -1654,8 +1662,10 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::wakeUpNow – wake the AI update immediately.
     /// Ported from AIUpdate.cpp:956.
     pub fn wake_up_now(&mut self) {
-        // PARITY_TODO: setWakeFrame(getObject(), UPDATE_SLEEP_NONE) once
-        // the wake-frame system is wired through
+        if self.is_in_update || self.owner_object_id == INVALID_ID {
+            return;
+        }
+        TheGameLogic::set_wake_frame(self.owner_object_id, crate::modules::UPDATE_SLEEP_NONE);
     }
 
     // -----------------------------------------------------------------------
@@ -1922,6 +1932,23 @@ mod tests {
         let mut data = AIUpdateModuleData::default();
         data.add_locomotor_set_entry(LocomotorSetType::Supersonic, "Thrust".into());
         AIUpdateInterface::new(Arc::new(data))
+    }
+
+    #[test]
+    fn new_for_object_records_owner_for_wake_up_now_like_cpp() {
+        let ai = AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), 42);
+
+        assert_eq!(ai.owner_object_id, 42);
+    }
+
+    #[test]
+    fn wake_up_now_noops_while_in_update_like_cpp() {
+        let mut ai = AIUpdateInterface::new_for_object(Arc::new(AIUpdateModuleData::default()), 42);
+        ai.is_in_update = true;
+
+        ai.wake_up_now();
+
+        assert_eq!(ai.owner_object_id, 42);
     }
 
     #[derive(Debug)]
