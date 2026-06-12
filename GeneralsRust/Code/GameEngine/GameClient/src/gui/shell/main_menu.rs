@@ -562,6 +562,7 @@ impl MainMenu {
             global.write().break_the_movie = false;
         }
 
+        get_shell().show_shell_map(true);
         set_main_menu_cursor_visibility(true);
 
         // Reset state - matches C++ lines 431-442
@@ -2414,8 +2415,22 @@ mod tests {
         if let Some(global) = get_global_data() {
             let mut global = global.write();
             global.initial_file.clear();
-            global.shell_map_on = false;
+            global.pending_file.clear();
+            global.shell_map_name = "ShellMapMD".to_string();
+            global.shell_map_on = true;
         }
+        if let Ok(mut logic) = gamelogic::system::game_logic::get_game_logic().lock() {
+            logic.set_game_mode(gamelogic::system::game_logic::GAME_NONE);
+        }
+        {
+            let message_stream = get_message_stream();
+            message_stream
+                .write()
+                .unwrap_or_else(|e| e.into_inner())
+                .clear_messages();
+        }
+        get_shell().show_shell_map(false);
+        assert!(!get_shell().is_shell_map_on());
 
         let previous_first_time =
             FIRST_TIME_RUNNING_GAME.swap(false, std::sync::atomic::Ordering::SeqCst);
@@ -2455,6 +2470,21 @@ mod tests {
         assert_eq!(after_get_update, Some(false));
         assert_eq!(after_motd, before_motd);
         assert_eq!(after_map_pack, Some(false));
+        assert!(get_shell().is_shell_map_on());
+        assert_eq!(
+            get_global_data()
+                .expect("global data initialized")
+                .read()
+                .pending_file,
+            "ShellMapMD"
+        );
+
+        if let Some(global) = get_global_data() {
+            let mut global = global.write();
+            global.pending_file.clear();
+            global.shell_map_on = false;
+        }
+        get_shell().show_shell_map(false);
 
         FIRST_TIME_RUNNING_GAME.store(previous_first_time, std::sync::atomic::Ordering::SeqCst);
     }
