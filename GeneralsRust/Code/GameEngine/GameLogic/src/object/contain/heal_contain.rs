@@ -7,12 +7,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, OpenContain};
-use crate::common::{Coord3D, GameResult, ObjectID, PlayerMaskType};
+use crate::common::{GameResult, ObjectID, PlayerMaskType};
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::TheGameLogic;
 use crate::modules::{ContainModuleInterface, ContainWant, ExitDoorType, UpdateSleepTime};
 use crate::object::Object;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Configuration data for HealContain module
 #[derive(Debug, Clone)]
@@ -121,7 +122,7 @@ impl HealContain {
                     {
                         if exit_door != ExitDoorType::NoneAvailable {
                             drop(object); // Release lock before calling exit
-                            self.exit_object_via_door(obj_clone, exit_door)?;
+                            self.base.exit_object_via_door(&obj_clone, exit_door)?;
                         }
                     }
                 }
@@ -173,8 +174,10 @@ impl HealContain {
                 if let Ok(body_module) = body.lock() {
                     let max_health = body_module.get_max_health();
 
-                    // Check if we've been contained long enough for full healing
-                    if current_frame >= contained_by_frame + frames_for_full_heal {
+                    // C++ compares elapsed logic frames:
+                    // TheGameLogic->getFrame() - obj->getContainedByFrame()
+                    let frames_contained = current_frame.saturating_sub(contained_by_frame);
+                    if frames_contained >= frames_for_full_heal {
                         // Set amount to max health to ensure full healing
                         heal_info.input.amount = max_health;
                         heal_info.sync_from_input();
@@ -209,81 +212,6 @@ impl HealContain {
     /// Get current frame from game logic singleton (C++ parity path).
     fn get_current_frame(&self) -> u32 {
         TheGameLogic::get_frame()
-    }
-
-    /// Exit object via specified door
-    fn exit_object_via_door(
-        &mut self,
-        obj: Arc<RwLock<Object>>,
-        door: ExitDoorType,
-    ) -> GameResult<()> {
-        // Remove object from container
-        self.base.remove_from_contain(obj.clone(), false)?;
-
-        // Position object at exit door location
-        if let Some(owner_obj) = self.get_object() {
-            if let (Ok(owner), Ok(mut exiting_obj)) = (owner_obj.read(), obj.write()) {
-                // Calculate exit position based on door type
-                let exit_pos = self.calculate_exit_position(&owner, door)?;
-                if let Err(err) = exiting_obj.set_position(&exit_pos) {
-                    log::warn!(
-                        "HealContain::exit_object_via_door failed to place object {}: {}",
-                        exiting_obj.get_id(),
-                        err
-                    );
-                }
-
-                // Register in partition manager
-                exiting_obj.register_in_partition_manager()?;
-                exiting_obj.set_layer(owner.get_layer());
-
-                // Show the object if it was hidden
-                if let Some(drawable) = exiting_obj.get_drawable() {
-                    if let Ok(mut draw) = drawable.write() {
-                        draw.set_drawable_hidden(false)?;
-                    }
-                }
-            }
-        }
-
-        self.base.unreserve_door_for_exit(door)?;
-
-        Ok(())
-    }
-
-    /// Calculate exit position based on door type
-    fn calculate_exit_position(&self, owner: &Object, door: ExitDoorType) -> GameResult<Coord3D> {
-        let mut pos = *owner.get_position();
-        let (forward_x, forward_y) = owner.get_unit_direction_vector_2d();
-        let right_x = -forward_y;
-        let right_y = forward_x;
-
-        let owner_radius = owner
-            .get_geometry_info()
-            .get_bounding_circle_radius()
-            .max(6.0);
-        let step = owner_radius + 8.0;
-
-        match door {
-            ExitDoorType::Primary => {
-                pos.x += forward_x * step;
-                pos.y += forward_y * step;
-            }
-            ExitDoorType::Secondary => {
-                pos.x -= forward_x * step;
-                pos.y -= forward_y * step;
-            }
-            ExitDoorType::Emergency => {
-                pos.x += right_x * step;
-                pos.y += right_y * step;
-            }
-            _ => {
-                pos.x += forward_x * owner_radius;
-                pos.y += forward_y * owner_radius;
-            }
-        }
-
-        Ok(pos)
     }
 
     /// Serialize state for save/load
@@ -335,6 +263,24 @@ impl HealContain {
     }
 }
 
+impl Snapshotable for HealContain {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(&self.base, xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+
+        Snapshotable::xfer(&mut self.base, xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(&mut self.base)
+    }
+}
+
 impl ContainModuleInterface for HealContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
@@ -380,6 +326,18 @@ impl ContainModuleInterface for HealContain {
         } else {
             max as usize
         }
+    }
+
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
     }
 
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
@@ -482,6 +440,109 @@ impl ContainerInterface for HealContain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
+    use game_engine::common::system::{XferBlockSize, XferMode, XferStatus};
+    use std::io;
+    use std::sync::Mutex;
+
+    struct RecordingXfer {
+        bytes: Vec<u8>,
+    }
+
+    impl RecordingXfer {
+        fn new() -> Self {
+            Self { bytes: Vec::new() }
+        }
+    }
+
+    impl Xfer for RecordingXfer {
+        fn get_xfer_mode(&self) -> XferMode {
+            XferMode::Save
+        }
+
+        fn get_identifier(&self) -> &str {
+            "heal-contain-test"
+        }
+
+        fn set_options(&mut self, _options: u32) {}
+
+        fn clear_options(&mut self, _options: u32) {}
+
+        fn get_options(&self) -> u32 {
+            0
+        }
+
+        fn open(&mut self, _identifier: &str) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+            Ok(0)
+        }
+
+        fn end_block(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn skip(&mut self, _data_size: i32) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_snapshot(
+            &mut self,
+            _snapshot: &mut game_engine::system::Snapshot,
+        ) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_ascii_string(&mut self, _ascii_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn xfer_unicode_string(&mut self, _unicode_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        unsafe fn xfer_implementation(
+            &mut self,
+            data: *mut u8,
+            data_size: usize,
+        ) -> io::Result<()> {
+            let bytes = unsafe { std::slice::from_raw_parts(data, data_size) };
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
+
+    fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
+        Object::new_with_id(
+            Arc::new(DefaultThingTemplate::new(name.to_string())),
+            id,
+            ObjectStatusMaskType::none(),
+            None,
+        )
+        .expect("test object")
+    }
+
+    fn attach_active_body(obj: &Arc<RwLock<Object>>, max_health: f32, initial_health: f32) {
+        let id = obj.read().expect("object read").get_id();
+        let body = ActiveBody::new_with_owner(
+            ActiveBodyModuleData {
+                max_health,
+                initial_health,
+                ..Default::default()
+            },
+            id,
+        );
+        obj.write()
+            .expect("object write")
+            .set_body_module(Some(Arc::new(Mutex::new(body))));
+    }
 
     #[test]
     fn test_heal_contain_creation() {
@@ -513,5 +574,67 @@ mod tests {
         let heal_per_frame = max_health / frames_for_full_heal as f32;
 
         assert_eq!(heal_per_frame, 2.0);
+    }
+
+    #[test]
+    fn trait_snapshot_xfer_writes_heal_version_and_open_contain_state_like_cpp() {
+        let mut contain =
+            HealContain::new(Weak::new(), &HealContainModuleData::default()).expect("heal contain");
+
+        let mut xfer = RecordingXfer::new();
+        ContainModuleInterface::snapshot_xfer(&mut contain, &mut xfer).expect("heal snapshot xfer");
+
+        assert_eq!(xfer.bytes[0], 1, "HealContain xfer version");
+        assert_eq!(xfer.bytes[1], 2, "delegated OpenContain xfer version");
+        assert!(
+            xfer.bytes.len() > 1,
+            "trait snapshot hook must not fall back to no-op"
+        );
+    }
+
+    #[test]
+    fn zero_frame_full_heal_matches_cpp_default_path() {
+        let owner = test_object("HealOwner", 10_100);
+        let patient = test_object("HealPatient", 10_101);
+        attach_active_body(&patient, 100.0, 25.0);
+
+        let mut contain =
+            HealContain::new(Arc::downgrade(&owner), &HealContainModuleData::default())
+                .expect("heal contain");
+
+        assert!(
+            contain.do_heal(patient.clone(), 0).expect("heal succeeds"),
+            "TimeForFullHeal=0 should immediately finish healing"
+        );
+
+        let body = patient
+            .read()
+            .expect("patient read")
+            .get_body_module()
+            .expect("body module");
+        assert_eq!(body.lock().expect("body lock").get_health(), 100.0);
+    }
+
+    #[test]
+    fn incremental_heal_uses_max_health_divided_by_full_heal_frames() {
+        let owner = test_object("HealOwner", 10_200);
+        let patient = test_object("HealPatient", 10_201);
+        attach_active_body(&patient, 100.0, 25.0);
+
+        let mut contain =
+            HealContain::new(Arc::downgrade(&owner), &HealContainModuleData::default())
+                .expect("heal contain");
+
+        assert!(
+            !contain.do_heal(patient.clone(), 50).expect("heal succeeds"),
+            "patient should remain contained until the full-heal frame"
+        );
+
+        let body = patient
+            .read()
+            .expect("patient read")
+            .get_body_module()
+            .expect("body module");
+        assert_eq!(body.lock().expect("body lock").get_health(), 27.0);
     }
 }
