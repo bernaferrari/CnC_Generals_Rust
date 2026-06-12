@@ -109,6 +109,10 @@ pub trait InGameUiHooks: Send + Sync {
     fn get_move_rmb_scroll_anchor(&self) -> bool {
         false
     }
+    fn set_max_select_count(&self, _max_select_count: i32) {}
+    fn get_max_select_count(&self) -> i32 {
+        -1
+    }
 
     fn play_movie(&self, _movie_name: &str) -> bool {
         // Optional backend-specific playback (e.g., radar/in-game movie windows).
@@ -804,6 +808,7 @@ struct InGameUIStatusState {
     prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
     draw_rmb_scroll_anchor: bool,
     move_rmb_scroll_anchor: bool,
+    max_select_count: i32,
 }
 
 impl Default for InGameUIStatusState {
@@ -825,6 +830,7 @@ impl Default for InGameUIStatusState {
             prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: false,
             draw_rmb_scroll_anchor: false,
             move_rmb_scroll_anchor: false,
+            max_select_count: -1,
         }
     }
 }
@@ -1163,6 +1169,26 @@ impl TheInGameUI {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         guard.move_rmb_scroll_anchor
+    }
+
+    pub fn set_max_select_count(max_select_count: i32) {
+        if with_backend(|backend| backend.set_max_select_count(max_select_count)) {
+            return;
+        }
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.max_select_count = max_select_count;
+    }
+
+    pub fn get_max_select_count() -> i32 {
+        if let Some(value) = with_backend_result(|backend| backend.get_max_select_count()) {
+            return value;
+        }
+        let guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.max_select_count
     }
 
     pub fn set_cursor_arrow() {

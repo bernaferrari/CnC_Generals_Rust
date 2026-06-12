@@ -4360,6 +4360,7 @@ impl InGameUI {
     // C++: InGameUI::init() loads Data\INI\InGameUI.ini via TheINIParser
 
     pub fn init_from_settings(&mut self, settings: &InGameUIIniSettings) {
+        TheInGameUI::set_max_select_count(settings.max_selection_size);
         if settings.max_selection_size > 0 {
             self.selection_state = SelectionState::new(settings.max_selection_size as usize);
         }

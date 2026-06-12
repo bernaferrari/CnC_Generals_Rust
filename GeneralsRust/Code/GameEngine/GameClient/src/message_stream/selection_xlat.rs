@@ -21,10 +21,6 @@ use gamelogic::common::types::{KindOf, ObjectShroudStatus, ObjectStatusMaskType}
 use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::player::{player_list, PLAYER_INDEX_INVALID};
 
-/// Maximum number of units that can be selected at once
-/// Matches C++ InGameUI maxSelectCount configuration
-pub const MAX_SELECTION_COUNT: usize = 40;
-
 /// Drag tolerance in pixels before starting area selection
 /// Matches C++ Mouse.cpp m_dragTolerance
 pub const DRAG_TOLERANCE: i32 = 5;
@@ -255,6 +251,24 @@ impl SelectionTranslator {
     /// Register a drawable for selection
     pub fn register_drawable(&mut self, drawable: SelectableDrawable) {
         self.drawable_registry.insert(drawable.id, drawable);
+    }
+
+    fn max_select_count() -> i32 {
+        TheInGameUI::get_max_select_count()
+    }
+
+    fn selection_limit_reached(&self) -> bool {
+        let max = Self::max_select_count();
+        max > 0 && self.current_selection.len() >= max as usize
+    }
+
+    fn warn_selection_limit_once(&mut self) {
+        if self.displayed_max_warning {
+            return;
+        }
+        let max = Self::max_select_count();
+        warn!("Maximum selection count ({}) reached", max);
+        self.displayed_max_warning = true;
     }
 
     /// Collect selectable drawables from the registry if present, otherwise build from GameLogic objects.
@@ -627,17 +641,13 @@ impl SelectionTranslator {
             self.deselect_all();
         }
 
-        if self.current_selection.len() < MAX_SELECTION_COUNT
-            && self.current_selection.insert(clicked.object_id)
-        {
+        if !self.selection_limit_reached() && self.current_selection.insert(clicked.object_id) {
             messages.push(GameMessageType::CreateSelectedGroup(
                 !add_to_group,
                 vec![clicked.object_id],
             ));
-        } else if self.current_selection.len() >= MAX_SELECTION_COUNT && !self.displayed_max_warning
-        {
-            warn!("Maximum selection count ({}) reached", MAX_SELECTION_COUNT);
-            self.displayed_max_warning = true;
+        } else if self.selection_limit_reached() {
+            self.warn_selection_limit_once();
         }
 
         messages
@@ -770,11 +780,8 @@ impl SelectionTranslator {
 
             let mut added = Vec::new();
             for id in matching {
-                if self.current_selection.len() >= MAX_SELECTION_COUNT {
-                    if !self.displayed_max_warning {
-                        warn!("Maximum selection count ({}) reached", MAX_SELECTION_COUNT);
-                        self.displayed_max_warning = true;
-                    }
+                if self.selection_limit_reached() {
+                    self.warn_selection_limit_once();
                     break;
                 }
                 if self.current_selection.insert(id) {
@@ -849,12 +856,14 @@ impl SelectionTranslator {
 
                 // Select all objects in the group
                 let mut selected_ids = Vec::new();
-                for object_id in &self.control_groups[group as usize] {
-                    if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                let group_ids = self.control_groups[group as usize].clone();
+                for object_id in group_ids {
+                    if self.selection_limit_reached() {
+                        self.warn_selection_limit_once();
                         break;
                     }
-                    if self.current_selection.insert(*object_id) {
-                        selected_ids.push(*object_id);
+                    if self.current_selection.insert(object_id) {
+                        selected_ids.push(object_id);
                     }
                 }
 
@@ -906,12 +915,14 @@ impl SelectionTranslator {
         }
 
         let mut added = Vec::new();
-        for object_id in &self.control_groups[group as usize] {
-            if self.current_selection.len() >= MAX_SELECTION_COUNT {
+        let group_ids = self.control_groups[group as usize].clone();
+        for object_id in group_ids {
+            if self.selection_limit_reached() {
+                self.warn_selection_limit_once();
                 break;
             }
-            if self.current_selection.insert(*object_id) {
-                added.push(*object_id);
+            if self.current_selection.insert(object_id) {
+                added.push(object_id);
             }
         }
 
@@ -1546,6 +1557,7 @@ mod tests {
     fn test_add_control_group_double_tap_does_not_append_again() {
         let _guard = test_state_lock();
         let mut translator = SelectionTranslator::new();
+        TheInGameUI::set_max_select_count(-1);
         translator.control_groups[1] = vec![10, 11];
         translator.current_selection.insert(99);
 
@@ -1562,6 +1574,47 @@ mod tests {
         let second = translator.handle_add_control_group(1);
         assert!(second.is_empty());
         assert_eq!(translator.current_selection.len(), 3);
+        TheInGameUI::set_max_select_count(-1);
+    }
+
+    #[test]
+    fn selection_limit_disabled_allows_more_than_forty_like_cpp() {
+        let _guard = test_state_lock();
+        let original_max = TheInGameUI::get_max_select_count();
+        TheInGameUI::set_max_select_count(0);
+
+        let mut translator = SelectionTranslator::new();
+        translator.control_groups[1] = (1..=45).collect();
+        let messages = translator.handle_select_control_group(1);
+
+        assert_eq!(translator.current_selection.len(), 45);
+        assert!(!translator.displayed_max_warning);
+        assert!(messages.iter().any(|message| matches!(
+            message,
+            GameMessageType::CreateSelectedGroup(true, ids) if ids.len() == 45
+        )));
+
+        TheInGameUI::set_max_select_count(original_max);
+    }
+
+    #[test]
+    fn selection_limit_positive_caps_control_group_like_cpp() {
+        let _guard = test_state_lock();
+        let original_max = TheInGameUI::get_max_select_count();
+        TheInGameUI::set_max_select_count(40);
+
+        let mut translator = SelectionTranslator::new();
+        translator.control_groups[1] = (1..=45).collect();
+        let messages = translator.handle_select_control_group(1);
+
+        assert_eq!(translator.current_selection.len(), 40);
+        assert!(translator.displayed_max_warning);
+        assert!(messages.iter().any(|message| matches!(
+            message,
+            GameMessageType::CreateSelectedGroup(true, ids) if ids.len() == 40
+        )));
+
+        TheInGameUI::set_max_select_count(original_max);
     }
 
     #[test]
