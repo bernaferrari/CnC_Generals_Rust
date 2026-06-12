@@ -8,14 +8,16 @@ use crate::common::{
 use crate::helpers::{
     game_client_random_value_real, game_logic_random_value, TheGameLogic, ThePartitionManager,
 };
-use crate::modules::StealthUpdate as StealthUpdateTrait;
+use crate::modules::{StealthUpdate as StealthUpdateTrait, UPDATE_SLEEP_NONE};
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object, ObjectScriptStatusBit};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::xfer::XferMode;
 use game_engine::common::system::{Snapshotable, Xfer};
-use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing};
+use game_engine::common::thing::module::{
+    Module, ModuleData, NameKeyType, StealthDisguiseControlInterface, Thing,
+};
 use log::{trace, warn};
 use std::f32::consts::PI;
 
@@ -370,6 +372,37 @@ impl StealthController {
 
     pub fn is_temporary_grant(&self) -> bool {
         self.frames_granted > 0
+    }
+
+    pub fn disguise_as_template(
+        &mut self,
+        template_name: Option<String>,
+        _current_frame: UnsignedInt,
+    ) {
+        if let Some(template_name) = template_name {
+            self.disguise_as_template_name = Some(template_name);
+            self.disguise_as_player_index = OBJECT_REGISTRY
+                .get_object(self.object_id)
+                .and_then(|object| {
+                    object
+                        .read()
+                        .ok()
+                        .and_then(|guard| guard.get_controlling_player_id())
+                })
+                .map(|player_id| player_id as Int)
+                .unwrap_or(0);
+            self.enabled = true;
+            self.transitioning_to_disguise = true;
+            self.disguise_transition_frames = self.data.disguise_transition_frames;
+            self.disguise_halfpoint_reached = false;
+            TheGameLogic::set_wake_frame(self.object_id, UPDATE_SLEEP_NONE);
+        } else if self.disguised {
+            self.disguise_as_template_name = None;
+            self.disguise_as_player_index = 0;
+            self.disguise_transition_frames = self.data.disguise_reveal_transition_frames;
+            self.transitioning_to_disguise = false;
+            self.disguise_halfpoint_reached = false;
+        }
     }
 
     /// Get the stealth level mask (StealthForbiddenConditions bitmask)
@@ -794,6 +827,20 @@ impl Module for StealthUpdateModule {
             if let Ok(guard) = self.controller.lock() {
                 let _ = guard.set_status_flag(ObjectStatusMaskType::CAN_STEALTH, true);
             }
+        }
+    }
+
+    fn get_stealth_disguise_control_interface(
+        &mut self,
+    ) -> Option<&mut dyn StealthDisguiseControlInterface> {
+        Some(self)
+    }
+}
+
+impl StealthDisguiseControlInterface for StealthUpdateModule {
+    fn disguise_as_template(&mut self, template_name: Option<String>, current_frame: u32) {
+        if let Ok(mut controller) = self.controller.lock() {
+            controller.disguise_as_template(template_name, current_frame);
         }
     }
 }
@@ -1526,5 +1573,49 @@ mod tests {
         assert!(controller.disguised);
         assert_eq!(controller.frames_granted, 44);
         assert!(controller.xfer_restore_disguise);
+    }
+
+    #[test]
+    fn stealth_update_module_exposes_disguise_control_interface() {
+        let mut data = StealthUpdateModuleData::default();
+        data.disguise_transition_frames = 12;
+        data.disguise_reveal_transition_frames = 7;
+        let data = Arc::new(data);
+        let mut module = StealthUpdateModule::new(9, data, 4245);
+
+        module
+            .get_stealth_disguise_control_interface()
+            .expect("disguise interface")
+            .disguise_as_template(Some("GLAVehicleBombTruck".to_string()), 100);
+
+        {
+            let controller = module.controller.lock().unwrap();
+            assert_eq!(
+                controller.disguise_as_template_name.as_deref(),
+                Some("GLAVehicleBombTruck")
+            );
+            assert_eq!(controller.disguise_as_player_index, 0);
+            assert!(controller.enabled);
+            assert!(controller.transitioning_to_disguise);
+            assert_eq!(controller.disguise_transition_frames, 12);
+            assert!(!controller.disguise_halfpoint_reached);
+        }
+
+        {
+            let mut controller = module.controller.lock().unwrap();
+            controller.disguised = true;
+        }
+
+        module
+            .get_stealth_disguise_control_interface()
+            .expect("disguise interface")
+            .disguise_as_template(None, 110);
+
+        let controller = module.controller.lock().unwrap();
+        assert_eq!(controller.disguise_as_template_name, None);
+        assert_eq!(controller.disguise_as_player_index, 0);
+        assert!(!controller.transitioning_to_disguise);
+        assert_eq!(controller.disguise_transition_frames, 7);
+        assert!(!controller.disguise_halfpoint_reached);
     }
 }
