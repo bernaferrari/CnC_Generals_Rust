@@ -2275,13 +2275,38 @@ macro_rules! object_id_crate_collide_factories {
     };
 }
 
-legacy_object_crate_collide_factories!(
-    convert_to_car_bomb_crate_collide_data_factory,
-    convert_to_car_bomb_crate_collide_module_factory,
-    ConvertToCarBombCrateCollideModuleData,
-    ConvertToCarBombCrateCollide,
-    "ConvertToCarBombCrateCollide"
-);
+fn convert_to_car_bomb_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = ConvertToCarBombCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse ConvertToCarBombCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn convert_to_car_bomb_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<
+        CrateCollideDataAdapter<ConvertToCarBombCrateCollideModuleData>,
+    >("ConvertToCarBombCrateCollide", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .expect("ConvertToCarBombCrateCollide requires a valid object");
+    let collide = ConvertToCarBombCrateCollide::new(object, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "ConvertToCarBombCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 legacy_object_crate_collide_factories!(
     convert_to_hijacked_vehicle_crate_collide_data_factory,
     convert_to_hijacked_vehicle_crate_collide_module_factory,
