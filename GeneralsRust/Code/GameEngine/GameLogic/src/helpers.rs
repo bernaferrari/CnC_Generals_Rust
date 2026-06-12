@@ -1944,6 +1944,16 @@ pub struct MeshUvOverrideState {
     pub v_offset: Real,
 }
 
+/// Per-frame sub-object visibility override.
+///
+/// Mirrors W3DModelDraw's C++ `HideShowSubObjInfo` list after normalization.
+/// `hidden == true` corresponds to C++ `showSubObject(name, FALSE)`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SubObjectVisibilityState {
+    pub sub_object_name: String,
+    pub hidden: bool,
+}
+
 /// Per-frame model draw data written by W3DModelDraw::do_draw_module().
 /// Read by the GameClient device layer to produce `render_bridge::DrawSubmission`.
 #[derive(Clone, Debug)]
@@ -1959,6 +1969,7 @@ pub struct ModelDrawState {
     /// Matches AnimMode discriminant (0=Manual … 5=OnceBackwards).
     pub animation_mode: i32,
     pub mesh_uv_overrides: Vec<MeshUvOverrideState>,
+    pub sub_object_visibility: Vec<SubObjectVisibilityState>,
 }
 
 #[derive(Clone, Debug)]
