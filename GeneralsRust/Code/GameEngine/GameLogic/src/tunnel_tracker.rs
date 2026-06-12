@@ -207,8 +207,12 @@ impl TunnelTracker {
     /// Register that a tunnel object has been created.
     /// Matches C++ TunnelTracker::onTunnelCreated (TunnelTracker.cpp:180-184)
     pub fn on_tunnel_created(&mut self, new_tunnel: &Object) -> GameResult<()> {
+        self.on_tunnel_created_id(new_tunnel.get_id())
+    }
+
+    /// Register that a tunnel object ID has been created.
+    pub fn on_tunnel_created_id(&mut self, tunnel_id: ObjectID) -> GameResult<()> {
         self.tunnel_count += 1;
-        let tunnel_id = new_tunnel.get_id();
         if !self.tunnel_ids.contains(&tunnel_id) {
             self.tunnel_ids.push(tunnel_id);
         }
@@ -219,8 +223,12 @@ impl TunnelTracker {
     /// Handles critical tunnel network destruction logic.
     /// Matches C++ TunnelTracker::onTunnelDestroyed (TunnelTracker.cpp:187-212)
     pub fn on_tunnel_destroyed(&mut self, dead_tunnel: &Object) -> GameResult<()> {
+        self.on_tunnel_destroyed_id(dead_tunnel.get_id())
+    }
+
+    /// Register that a tunnel object ID has been destroyed.
+    pub fn on_tunnel_destroyed_id(&mut self, dead_tunnel_id: ObjectID) -> GameResult<()> {
         self.tunnel_count = self.tunnel_count.saturating_sub(1);
-        let dead_tunnel_id = dead_tunnel.get_id();
         self.tunnel_ids.retain(|&id| id != dead_tunnel_id);
 
         if self.tunnel_count == 0 {
