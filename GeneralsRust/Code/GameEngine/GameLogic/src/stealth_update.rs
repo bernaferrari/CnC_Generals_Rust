@@ -2,17 +2,22 @@ use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use crate::common::{
-    Bool, CommandSourceType, KindOf, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, Real,
+    Bool, CommandSourceType, Int, KindOf, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, Real,
     UnsignedInt, FROM_CENTER_2D,
 };
-use crate::helpers::{game_logic_random_value, TheGameLogic, ThePartitionManager};
+use crate::helpers::{
+    game_client_random_value_real, game_logic_random_value, TheGameLogic, ThePartitionManager,
+};
 use crate::modules::StealthUpdate as StealthUpdateTrait;
+use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::{Object, ObjectScriptStatusBit};
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::xfer::XferMode;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, Thing};
 use log::{trace, warn};
+use std::f32::consts::PI;
 
 /// Handle type exposed to gameplay systems for interacting with stealth state.
 pub type StealthUpdateHandle = Arc<Mutex<StealthController>>;
@@ -183,6 +188,15 @@ pub struct StealthController {
     next_black_market_check_frame: UnsignedInt,
     frames_granted: UnsignedInt,
     enabled: Bool,
+    pulse_phase_rate: Real,
+    pulse_phase: Real,
+    disguise_as_player_index: Int,
+    disguise_as_template_name: Option<String>,
+    disguise_transition_frames: UnsignedInt,
+    disguise_halfpoint_reached: Bool,
+    transitioning_to_disguise: Bool,
+    disguised: Bool,
+    xfer_restore_disguise: Bool,
 }
 
 impl std::fmt::Debug for StealthController {
@@ -194,6 +208,21 @@ impl std::fmt::Debug for StealthController {
             .field("detection_expires_frame", &self.detection_expires_frame)
             .field("frames_granted", &self.frames_granted)
             .field("enabled", &self.enabled)
+            .field("pulse_phase_rate", &self.pulse_phase_rate)
+            .field("pulse_phase", &self.pulse_phase)
+            .field("disguise_as_player_index", &self.disguise_as_player_index)
+            .field("disguise_as_template_name", &self.disguise_as_template_name)
+            .field(
+                "disguise_transition_frames",
+                &self.disguise_transition_frames,
+            )
+            .field(
+                "disguise_halfpoint_reached",
+                &self.disguise_halfpoint_reached,
+            )
+            .field("transitioning_to_disguise", &self.transitioning_to_disguise)
+            .field("disguised", &self.disguised)
+            .field("xfer_restore_disguise", &self.xfer_restore_disguise)
             .finish()
     }
 }
@@ -212,6 +241,15 @@ impl StealthController {
             next_black_market_check_frame: 0,
             frames_granted: 0,
             enabled: starts_enabled,
+            pulse_phase_rate: 0.2,
+            pulse_phase: game_client_random_value_real(0.0, PI),
+            disguise_as_player_index: -1,
+            disguise_as_template_name: None,
+            disguise_transition_frames: 0,
+            disguise_halfpoint_reached: false,
+            transitioning_to_disguise: false,
+            disguised: false,
+            xfer_restore_disguise: false,
         }
     }
 
@@ -709,6 +747,7 @@ pub struct StealthUpdateModule {
     data: Arc<StealthUpdateModuleData>,
     controller: StealthUpdateHandle,
     object_id: ObjectID,
+    next_call_frame_and_phase: UnsignedInt,
 }
 
 impl StealthUpdateModule {
@@ -723,6 +762,7 @@ impl StealthUpdateModule {
             data,
             controller,
             object_id,
+            next_call_frame_and_phase: 0,
         }
     }
 
@@ -760,43 +800,122 @@ impl Module for StealthUpdateModule {
 
 impl Snapshotable for StealthUpdateModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
+        let mut version: u8 = 2;
+        xfer.xfer_version(&mut version, 2)
             .map_err(|e| e.to_string())?;
+        let mut next_call_frame_and_phase = self.next_call_frame_and_phase;
+        xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
+
+        let controller = self
+            .controller
+            .lock()
+            .map_err(|_| "StealthUpdateModule: controller lock poisoned".to_string())?;
+
+        let mut stealth_allowed_frame = controller.stealth_allowed_frame;
+        xfer.xfer_unsigned_int(&mut stealth_allowed_frame)
+            .map_err(|e| e.to_string())?;
+        let mut detection_expires_frame = controller.detection_expires_frame;
+        xfer.xfer_unsigned_int(&mut detection_expires_frame)
+            .map_err(|e| e.to_string())?;
+        let mut enabled = controller.enabled;
+        xfer.xfer_bool(&mut enabled).map_err(|e| e.to_string())?;
+        let mut pulse_phase_rate = controller.pulse_phase_rate;
+        xfer.xfer_real(&mut pulse_phase_rate)
+            .map_err(|e| e.to_string())?;
+        let mut pulse_phase = controller.pulse_phase;
+        xfer.xfer_real(&mut pulse_phase)
+            .map_err(|e| e.to_string())?;
+        let mut disguise_as_player_index = controller.disguise_as_player_index;
+        xfer.xfer_int(&mut disguise_as_player_index)
+            .map_err(|e| e.to_string())?;
+        let mut disguise_as_template_name = controller
+            .disguise_as_template_name
+            .clone()
+            .unwrap_or_default();
+        xfer.xfer_ascii_string(&mut disguise_as_template_name)
+            .map_err(|e| e.to_string())?;
+        let mut disguise_transition_frames = controller.disguise_transition_frames;
+        xfer.xfer_unsigned_int(&mut disguise_transition_frames)
+            .map_err(|e| e.to_string())?;
+        let mut disguise_halfpoint_reached = controller.disguise_halfpoint_reached;
+        xfer.xfer_bool(&mut disguise_halfpoint_reached)
+            .map_err(|e| e.to_string())?;
+        let mut transitioning_to_disguise = controller.transitioning_to_disguise;
+        xfer.xfer_bool(&mut transitioning_to_disguise)
+            .map_err(|e| e.to_string())?;
+        let mut disguised = controller.disguised;
+        xfer.xfer_bool(&mut disguised).map_err(|e| e.to_string())?;
+        if version >= 2 {
+            let mut frames_granted = controller.frames_granted;
+            xfer.xfer_unsigned_int(&mut frames_granted)
+                .map_err(|e| e.to_string())?;
+        }
+
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
+        let current_version: u8 = 2;
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
 
-        xfer.xfer_object_id(&mut self.object_id)
-            .map_err(|e| e.to_string())?;
+        xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
         let mut controller = self
             .controller
             .lock()
             .map_err(|_| "StealthUpdateModule: controller lock poisoned".to_string())?;
 
-        xfer.xfer_bool(&mut controller.is_stealthed)
-            .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut controller.stealth_allowed_frame)
             .map_err(|e| e.to_string())?;
         xfer.xfer_unsigned_int(&mut controller.detection_expires_frame)
             .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut controller.next_black_market_check_frame)
-            .map_err(|e| e.to_string())?;
-        xfer.xfer_unsigned_int(&mut controller.frames_granted)
-            .map_err(|e| e.to_string())?;
         xfer.xfer_bool(&mut controller.enabled)
             .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut controller.pulse_phase_rate)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut controller.pulse_phase)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut controller.disguise_as_player_index)
+            .map_err(|e| e.to_string())?;
+        let mut disguise_as_template_name = controller
+            .disguise_as_template_name
+            .clone()
+            .unwrap_or_default();
+        xfer.xfer_ascii_string(&mut disguise_as_template_name)
+            .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            controller.disguise_as_template_name = if disguise_as_template_name.is_empty() {
+                None
+            } else {
+                Some(disguise_as_template_name)
+            };
+        }
+        xfer.xfer_unsigned_int(&mut controller.disguise_transition_frames)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut controller.disguise_halfpoint_reached)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut controller.transitioning_to_disguise)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut controller.disguised)
+            .map_err(|e| e.to_string())?;
+        if version >= 2 {
+            xfer.xfer_unsigned_int(&mut controller.frames_granted)
+                .map_err(|e| e.to_string())?;
+        }
 
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
+        let mut controller = self
+            .controller
+            .lock()
+            .map_err(|_| "StealthUpdateModule: controller lock poisoned".to_string())?;
+        if controller.disguised {
+            controller.xfer_restore_disguise = true;
+        }
         Ok(())
     }
 }
@@ -1090,6 +1209,8 @@ const STEALTH_UPDATE_FIELDS: &[FieldParse<StealthUpdateModuleData>] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::system::snapshot::Snapshot;
+    use game_engine::common::system::xfer::{XferBlockSize, XferStatus};
     use std::sync::RwLock;
 
     fn parse_field(data: &mut StealthUpdateModuleData, token: &str, values: &[&str]) {
@@ -1099,6 +1220,148 @@ mod tests {
             .expect("field exists");
         let mut ini = INI::new();
         (field.parse)(&mut ini, data, values).expect("field parses");
+    }
+
+    struct MemoryXfer {
+        mode: XferMode,
+        buffer: Vec<u8>,
+        position: usize,
+        identifier: String,
+    }
+
+    impl MemoryXfer {
+        fn save() -> Self {
+            Self {
+                mode: XferMode::Save,
+                buffer: Vec::new(),
+                position: 0,
+                identifier: String::new(),
+            }
+        }
+
+        fn load(buffer: Vec<u8>) -> Self {
+            Self {
+                mode: XferMode::Load,
+                buffer,
+                position: 0,
+                identifier: String::new(),
+            }
+        }
+    }
+
+    impl Xfer for MemoryXfer {
+        fn get_xfer_mode(&self) -> XferMode {
+            self.mode
+        }
+
+        fn get_identifier(&self) -> &str {
+            &self.identifier
+        }
+
+        fn set_options(&mut self, _options: u32) {}
+
+        fn clear_options(&mut self, _options: u32) {}
+
+        fn get_options(&self) -> u32 {
+            0
+        }
+
+        fn open(&mut self, identifier: &str) -> Result<(), XferStatus> {
+            self.identifier = identifier.to_string();
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+            Ok(0)
+        }
+
+        fn end_block(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn skip(&mut self, data_size: i32) -> Result<(), XferStatus> {
+            self.position = self.position.saturating_add(data_size.max(0) as usize);
+            Ok(())
+        }
+
+        fn xfer_snapshot(&mut self, _snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> std::io::Result<()> {
+            match self.mode {
+                XferMode::Save | XferMode::Crc => {
+                    let bytes = ascii_string_data.as_bytes();
+                    if bytes.len() > u8::MAX as usize {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "ASCII string too long",
+                        ));
+                    }
+                    let mut len = bytes.len() as u8;
+                    self.xfer_unsigned_byte(&mut len)?;
+                    self.buffer.extend_from_slice(bytes);
+                    Ok(())
+                }
+                XferMode::Load => {
+                    let mut len = 0u8;
+                    self.xfer_unsigned_byte(&mut len)?;
+                    let end = self.position.saturating_add(len as usize);
+                    if end > self.buffer.len() {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "ASCII string beyond buffer",
+                        ));
+                    }
+                    let bytes = &self.buffer[self.position..end];
+                    *ascii_string_data = String::from_utf8(bytes.to_vec()).map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, "invalid UTF-8")
+                    })?;
+                    self.position = end;
+                    Ok(())
+                }
+                _ => Ok(()),
+            }
+        }
+
+        fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> std::io::Result<()> {
+            self.xfer_ascii_string(unicode_string_data)
+        }
+
+        unsafe fn xfer_implementation(
+            &mut self,
+            data: *mut u8,
+            data_size: usize,
+        ) -> std::io::Result<()> {
+            match self.mode {
+                XferMode::Save | XferMode::Crc => {
+                    let bytes = std::slice::from_raw_parts(data, data_size);
+                    self.buffer.extend_from_slice(bytes);
+                    Ok(())
+                }
+                XferMode::Load => {
+                    let end = self.position.saturating_add(data_size);
+                    if end > self.buffer.len() {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "xfer beyond buffer",
+                        ));
+                    }
+                    std::ptr::copy_nonoverlapping(
+                        self.buffer[self.position..end].as_ptr(),
+                        data,
+                        data_size,
+                    );
+                    self.position = end;
+                    Ok(())
+                }
+                _ => Ok(()),
+            }
+        }
     }
 
     #[test]
@@ -1209,5 +1472,59 @@ mod tests {
         assert_eq!(controller.detection_expires_frame, now.saturating_add(3));
 
         OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
+    fn stealth_update_module_xfer_round_trips_disguise_state() {
+        let data = Arc::new(StealthUpdateModuleData::default());
+        let mut saved = StealthUpdateModule::new(7, data.clone(), 4244);
+        saved.next_call_frame_and_phase = 0x5511;
+
+        {
+            let mut controller = saved.controller.lock().unwrap();
+            controller.stealth_allowed_frame = 101;
+            controller.detection_expires_frame = 202;
+            controller.next_black_market_check_frame = 303;
+            controller.enabled = false;
+            controller.pulse_phase_rate = 0.37;
+            controller.pulse_phase = 1.25;
+            controller.disguise_as_player_index = 3;
+            controller.disguise_as_template_name = Some("ChinaVehicleTroopCrawler".to_string());
+            controller.disguise_transition_frames = 17;
+            controller.disguise_halfpoint_reached = true;
+            controller.transitioning_to_disguise = true;
+            controller.disguised = true;
+            controller.frames_granted = 44;
+        }
+
+        let mut save_xfer = MemoryXfer::save();
+        saved.xfer(&mut save_xfer).expect("save xfer");
+
+        let mut loaded = StealthUpdateModule::new(8, data, 5252);
+        let mut load_xfer = MemoryXfer::load(save_xfer.buffer);
+        loaded.xfer(&mut load_xfer).expect("load xfer");
+        loaded.load_post_process().expect("load post process");
+
+        assert_eq!(loaded.object_id, 5252);
+        assert_eq!(loaded.next_call_frame_and_phase, 0x5511);
+
+        let controller = loaded.controller.lock().unwrap();
+        assert_eq!(controller.stealth_allowed_frame, 101);
+        assert_eq!(controller.detection_expires_frame, 202);
+        assert_eq!(controller.next_black_market_check_frame, 0);
+        assert!(!controller.enabled);
+        assert_eq!(controller.pulse_phase_rate, 0.37);
+        assert_eq!(controller.pulse_phase, 1.25);
+        assert_eq!(controller.disguise_as_player_index, 3);
+        assert_eq!(
+            controller.disguise_as_template_name.as_deref(),
+            Some("ChinaVehicleTroopCrawler")
+        );
+        assert_eq!(controller.disguise_transition_frames, 17);
+        assert!(controller.disguise_halfpoint_reached);
+        assert!(controller.transitioning_to_disguise);
+        assert!(controller.disguised);
+        assert_eq!(controller.frames_granted, 44);
+        assert!(controller.xfer_restore_disguise);
     }
 }
