@@ -2695,10 +2695,21 @@ impl GameWindow {
                     return WindowMsgHandled::Handled;
                 }
 
-                if msg == WindowMessage::GadgetValueChanged
+                if (msg == WindowMessage::GadgetValueChanged
+                    || msg == WindowMessage::User(GSM_SLIDER_TRACK))
                     && data1 == links.slider as WindowMsgData
                 {
-                    let slider_value = if let Some(slider) = self.find_child_by_id(links.slider) {
+                    let max_offset = self
+                        .list_box_mut()
+                        .map(|listbox| {
+                            let item_height = listbox.item_height().max(1) as usize;
+                            let visible = (listbox.bounds().height as usize / item_height).max(1);
+                            listbox.items().len().saturating_sub(visible)
+                        })
+                        .unwrap_or(0);
+                    let slider_value = if msg == WindowMessage::User(GSM_SLIDER_TRACK) {
+                        data2 as i32
+                    } else if let Some(slider) = self.find_child_by_id(links.slider) {
                         match slider.borrow().widget() {
                             Some(WindowWidget::VerticalSlider(slider)) => slider.value(),
                             Some(WindowWidget::HorizontalSlider(slider)) => slider.value(),
@@ -2707,8 +2718,9 @@ impl GameWindow {
                     } else {
                         0
                     };
+                    let slider_value = slider_value.clamp(0, max_offset as i32) as usize;
                     if let Some(WindowWidget::ListBox(listbox)) = self.widget.as_mut() {
-                        listbox.set_scroll_offset(slider_value.max(0) as usize);
+                        listbox.set_scroll_offset(max_offset.saturating_sub(slider_value));
                     }
                     self.update_listbox_scrollbar();
                     return WindowMsgHandled::Handled;
@@ -2986,12 +2998,12 @@ impl GameWindow {
         if let Some(slider) = self.find_child_by_id(links.slider) {
             if let Some(WindowWidget::VerticalSlider(slider)) = slider.borrow_mut().widget_mut() {
                 slider.set_range(0, max_offset as i32);
-                slider.set_value(scroll_offset as i32);
+                slider.set_value(max_offset.saturating_sub(scroll_offset) as i32);
             } else if let Some(WindowWidget::HorizontalSlider(slider)) =
                 slider.borrow_mut().widget_mut()
             {
                 slider.set_range(0, max_offset as i32);
-                slider.set_value(scroll_offset as i32);
+                slider.set_value(max_offset.saturating_sub(scroll_offset) as i32);
             }
         }
 
@@ -3063,7 +3075,7 @@ impl GameWindow {
                 let (min_val, max_val) = slider.range();
                 let range = (max_val - min_val).max(1);
                 let track = (height - thumb_h).max(0);
-                let ratio = (slider.value() - min_val) as f32 / range as f32;
+                let ratio = (max_val - slider.value()) as f32 / range as f32;
                 let y = (ratio * track as f32).round() as i32;
                 let _ = thumb.borrow_mut().set_position(0, y);
             }
@@ -4495,6 +4507,34 @@ mod tests {
     }
 
     #[test]
+    fn vertical_slider_system_messages_use_cpp_inverted_axis() {
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::VerticalSlider(
+            VerticalSlider::new(7, 0, 0, 20, 120).with_range(0, 100),
+        ));
+        let thumb = Rc::new(RefCell::new(GameWindow::new()));
+        thumb.borrow_mut().set_id(77);
+        thumb.borrow_mut().set_size(20, 20).unwrap();
+        window.add_child(thumb.clone());
+        window.set_slider_thumb(77);
+        window.set_size(20, 120).unwrap();
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GSM_SET_SLIDER), 100, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.vertical_slider_mut().unwrap().value(), 100);
+        assert_eq!(thumb.borrow().get_position(), (0, 0));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GSM_SET_SLIDER), 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.vertical_slider_mut().unwrap().value(), 0);
+        assert_eq!(thumb.borrow().get_position(), (0, 104));
+    }
+
+    #[test]
     fn radio_set_selection_system_message_matches_cpp_notify_rules() {
         let owner_seen = Rc::new(RefCell::new(Vec::new()));
         let owner = Rc::new(RefCell::new(GameWindow::new()));
@@ -4953,6 +4993,75 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 0);
+    }
+
+    #[test]
+    fn listbox_linked_slider_tracks_cpp_inverted_position() {
+        let mut window = GameWindow::new();
+        let mut listbox = ListBox::new(42, 0, 0, 100, 40);
+        listbox.add_item("alpha");
+        listbox.add_item("bravo");
+        listbox.add_item("charlie");
+        listbox.add_item("delta");
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        let slider_window = Rc::new(RefCell::new(GameWindow::new()));
+        slider_window.borrow_mut().set_id(99);
+        slider_window
+            .borrow_mut()
+            .set_widget(WindowWidget::VerticalSlider(
+                VerticalSlider::new(99, 0, 0, 20, 40).with_range(0, 1),
+            ));
+        window.add_child(slider_window.clone());
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GLM_SET_SLIDER), 99, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            slider_window
+                .borrow_mut()
+                .vertical_slider_mut()
+                .unwrap()
+                .range(),
+            (0, 2)
+        );
+        assert_eq!(
+            slider_window
+                .borrow_mut()
+                .vertical_slider_mut()
+                .unwrap()
+                .value(),
+            2
+        );
+
+        window.list_box_mut().unwrap().set_scroll_offset(1);
+        window.update_listbox_scrollbar();
+        assert_eq!(
+            slider_window
+                .borrow_mut()
+                .vertical_slider_mut()
+                .unwrap()
+                .value(),
+            1
+        );
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GSM_SLIDER_TRACK), 99, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 2);
+
+        slider_window
+            .borrow_mut()
+            .vertical_slider_mut()
+            .unwrap()
+            .set_value(1);
+        assert_eq!(
+            window.send_system_message(WindowMessage::GadgetValueChanged, 99, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.list_box_mut().unwrap().scroll_offset(), 1);
     }
 
     #[test]
