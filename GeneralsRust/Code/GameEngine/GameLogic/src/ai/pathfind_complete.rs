@@ -1323,50 +1323,46 @@ impl PathfindingSystem {
     }
 
     /// Classify a single map cell based on terrain data.
-    /// Matches C++ Pathfinder::classifyMapCell() at AIPathfind.cpp ~3600-3900.
+    /// Matches C++ Pathfinder::classifyMapCell() at AIPathfind.cpp:4485.
     ///
-    /// Sets cell type to Clear/Cliff/Water/Impassable based on terrain properties.
+    /// Sets cell type to Clear/Cliff/Water while preserving existing obstacles.
     pub fn classify_map_cell(&self, x: i32, y: i32) {
         if x < 0 || y < 0 {
             return;
         }
-        let _ux = x as usize;
-        let _uy = y as usize;
+        let coord = GridCoord::new(x, y);
+        let top_left_x = x as f32 * PATHFIND_CELL_SIZE_F;
+        let top_left_y = y as f32 * PATHFIND_CELL_SIZE_F;
+        let bottom_right_x = top_left_x + PATHFIND_CELL_SIZE_F;
+        let bottom_right_y = top_left_y + PATHFIND_CELL_SIZE_F;
 
-        // Try to get terrain info at this cell center
-        let cell_world = GridCoord::new(x, y).to_world(PathfindLayerEnum::Ground);
+        let has_obstacle = self
+            .pathfinder
+            .lock()
+            .ok()
+            .and_then(|pathfinder| pathfinder.get_cell_type(coord))
+            == Some(PathfindCellType::Obstacle);
 
-        let cell_type = if let Some(terrain) = TheTerrainLogic::get() {
-            // Classify based on terrain properties
-            // PARITY_TODO: Match exact C++ classification from classifyMapCell
-            // which uses getGroundHeight slope deltas and water flags
-            if terrain.is_underwater(cell_world.x, cell_world.y, None, None) {
-                PathfindCellType::Water
-            } else {
-                // Check slope for cliff classification
-                let half_cell = PATHFIND_CELL_SIZE_F * 0.5;
-                let h_center = terrain.get_ground_height(cell_world.x, cell_world.y, None);
-                let h_right =
-                    terrain.get_ground_height(cell_world.x + half_cell, cell_world.y, None);
-                let h_up = terrain.get_ground_height(cell_world.x, cell_world.y + half_cell, None);
-
-                let slope_x = (h_right - h_center).abs();
-                let slope_y = (h_up - h_center).abs();
-                let max_slope = slope_x.max(slope_y);
-
-                // C++ uses PATHFIND_CELL_SIZE_F as the cliff threshold
-                if max_slope > PATHFIND_CELL_SIZE_F * 0.7 {
-                    PathfindCellType::Cliff
-                } else {
-                    PathfindCellType::Clear
-                }
+        let mut cell_type = PathfindCellType::Clear;
+        if let Some(terrain) = TheTerrainLogic::get() {
+            if terrain.is_cliff_cell(top_left_x, top_left_y) {
+                cell_type = PathfindCellType::Cliff;
             }
-        } else {
-            PathfindCellType::Clear
-        };
+
+            if terrain.is_underwater(top_left_x, top_left_y, None, None)
+                || terrain.is_underwater(top_left_x, bottom_right_y, None, None)
+                || terrain.is_underwater(bottom_right_x, bottom_right_y, None, None)
+                || terrain.is_underwater(bottom_right_x, top_left_y, None, None)
+            {
+                cell_type = PathfindCellType::Water;
+            }
+        }
+        if has_obstacle {
+            cell_type = PathfindCellType::Obstacle;
+        }
 
         if let Ok(mut pathfinder) = self.pathfinder.lock() {
-            pathfinder.set_cell_type(GridCoord::new(x, y), cell_type);
+            pathfinder.set_cell_type(coord, cell_type);
         }
     }
 
@@ -2312,5 +2308,23 @@ mod tests {
 
         assert_eq!(bridge_id, 2); // First bridge gets ID 2
         assert_eq!(system.bridges.len(), 1);
+    }
+
+    #[test]
+    fn classify_map_cell_preserves_existing_obstacle_like_cpp() {
+        let system = PathfindingSystem::new(8, 8);
+        let coord = GridCoord::new(2, 3);
+        {
+            let mut pathfinder = system.pathfinder.lock().unwrap();
+            pathfinder.set_cell_type(coord, PathfindCellType::Obstacle);
+        }
+
+        system.classify_map_cell(coord.x, coord.y);
+
+        let pathfinder = system.pathfinder.lock().unwrap();
+        assert_eq!(
+            pathfinder.get_cell_type(coord),
+            Some(PathfindCellType::Obstacle)
+        );
     }
 }
