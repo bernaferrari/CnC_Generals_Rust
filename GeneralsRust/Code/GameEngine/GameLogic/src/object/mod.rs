@@ -1762,6 +1762,9 @@ impl ModuleUpdateProxy {
         ) {
             return Some(module.behavior_mut().update_simple());
         }
+        update_via_behavior!(crate::contain_module_overrides::ActiveBehaviorModule<
+            crate::object::behavior::deletion_update::DeletionUpdate,
+        >);
 
         update_via_behavior!(crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule);
         update_via_behavior!(
@@ -2047,6 +2050,14 @@ fn initial_update_wake_frame(entry: &ModuleEntry) -> UnsignedInt {
             .as_any()
             .downcast_ref::<crate::object::behavior::lifetime_update::LifetimeUpdateModule>()
             .map(|module| module.initial_wake_frame())
+            .or_else(|| {
+                module
+                    .as_any()
+                    .downcast_ref::<crate::contain_module_overrides::ActiveBehaviorModule<
+                        crate::object::behavior::deletion_update::DeletionUpdate,
+                    >>()
+                    .map(|module| module.behavior().initial_wake_frame())
+            })
             .unwrap_or(0)
     })
 }
@@ -13122,6 +13133,44 @@ mod tests {
             ModuleUpdateProxy::dispatch_update(&mut module),
             Some(UpdateSleepTime::Forever)
         ));
+    }
+
+    #[test]
+    fn deletion_update_active_wrapper_reports_initial_wake_and_dispatches() {
+        let data = Arc::new(
+            crate::object::behavior::deletion_update::DeletionUpdateModuleData {
+                min_lifetime: 7,
+                max_lifetime: 7,
+                ..Default::default()
+            },
+        );
+        let object = Arc::new(RwLock::new(Object::new_test(9101, 100.0)));
+        let legacy_data: Arc<dyn crate::common::ModuleData> = data.clone();
+        let engine_data: Arc<dyn game_engine::common::thing::module::ModuleData> = data.clone();
+        let expected_wake_frame = crate::helpers::TheGameLogic::get_frame() + 7;
+        let behavior =
+            crate::object::behavior::deletion_update::DeletionUpdate::new(object, legacy_data)
+                .expect("deletion update");
+        let module = crate::contain_module_overrides::ActiveBehaviorModule::new(
+            "DeletionUpdate",
+            engine_data.clone(),
+            behavior,
+        );
+        let entry = ModuleEntry::new(
+            AsciiString::from("DeletionUpdate"),
+            AsciiString::new(),
+            ModuleInterfaceType::UPDATE,
+            engine_data,
+            Box::new(module),
+        );
+
+        assert_eq!(initial_update_wake_frame(&entry), expected_wake_frame);
+
+        let mut sleep = None;
+        entry.with_module(|module| {
+            sleep = ModuleUpdateProxy::dispatch_update(module);
+        });
+        assert_eq!(sleep, Some(UpdateSleepTime::Frames(7)));
     }
 
     #[derive(Debug)]

@@ -101,15 +101,28 @@ impl DeletionUpdate {
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: current_frame + lifetime,
             delete_frame: current_frame + lifetime,
         })
     }
 
     pub fn set_lifetime_range(&mut self, min_lifetime: UnsignedInt, max_lifetime: UnsignedInt) {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        self.delete_frame =
-            current_frame + Self::calc_sleep_delay_static(min_lifetime, max_lifetime);
+        let delay = Self::calc_sleep_delay_static(min_lifetime, max_lifetime);
+        self.delete_frame = current_frame + delay;
+        self.next_call_frame_and_phase = self.delete_frame;
+        if let Some(object) = self.object.upgrade() {
+            if let Ok(object) = object.read() {
+                crate::helpers::TheGameLogic::set_wake_frame(
+                    object.get_id(),
+                    UpdateSleepTime::from_u32(delay),
+                );
+            }
+        }
+    }
+
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.next_call_frame_and_phase
     }
 
     /// Calculate random sleep delay between min and max frames.
