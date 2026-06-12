@@ -19,8 +19,8 @@ use crate::gui::load_screen::{
     LoadScreenKind, LoadScreenRequest,
 };
 use crate::gui::{
-    get_shell, with_window_manager, HintData, HintType, MouseCursor, MouseMode, WindowLayout,
-    WindowStatus,
+    get_shell, hide_control_bar, with_window_manager, HintData, HintType, MouseCursor, MouseMode,
+    WindowLayout, WindowStatus,
 };
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
@@ -324,7 +324,14 @@ pub fn register_load_screen_hooks() {
 struct GameClientObserverAudioLocalityHooks;
 
 struct GameClientLoadScreenHooks {
-    active_kind: Mutex<Option<LoadScreenKind>>,
+    active_load_screen: Mutex<Option<ActiveLoadScreen>>,
+    pending_game_mode: Mutex<Option<i32>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ActiveLoadScreen {
+    kind: LoadScreenKind,
+    game_mode: i32,
 }
 
 const LOAD_SCREEN_COMPLETION_TRANSITION_GROUP: &str = "FadeWholeScreen";
@@ -333,14 +340,35 @@ const LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES: usize = 180;
 impl GameClientLoadScreenHooks {
     fn new() -> Self {
         Self {
-            active_kind: Mutex::new(None),
+            active_load_screen: Mutex::new(None),
+            pending_game_mode: Mutex::new(None),
         }
     }
 
-    fn set_active_load_screen(&self, kind: LoadScreenKind) {
+    fn set_active_load_screen(&self, kind: LoadScreenKind, game_mode: i32) {
         set_mouse_cursor_visibility(false);
-        let mut active_kind = self.active_kind.lock().unwrap_or_else(|e| e.into_inner());
-        *active_kind = Some(kind);
+        let mut active_load_screen = self
+            .active_load_screen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        *active_load_screen = Some(ActiveLoadScreen { kind, game_mode });
+    }
+
+    fn reveal_shell_main_menu_after_start(&self, game_mode: i32) {
+        if game_mode != gamelogic::system::game_logic::GAME_SHELL {
+            return;
+        }
+
+        {
+            let mut shell = get_shell();
+            if let Err(err) = shell.show_main_menu_after_shell_game_start() {
+                log::warn!("Failed to activate shell main menu after shell-map load: {err}");
+            }
+        }
+
+        if let Err(err) = hide_control_bar(true) {
+            log::warn!("Failed to hide control bar after shell-map load: {err}");
+        }
     }
 }
 
@@ -365,27 +393,34 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
         };
 
         let old_kind = self
-            .active_kind
+            .active_load_screen
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .take();
-        if let Some(kind) = old_kind {
-            reset_load_screen(kind);
+        if let Some(active) = old_kind {
+            reset_load_screen(active.kind);
         }
+        *self
+            .pending_game_mode
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(game_mode);
 
         let Some(kind) = select_load_screen(request) else {
             return;
         };
 
         if init_load_screen(kind, &load_screen_init_context_from_globals()) {
-            self.set_active_load_screen(kind);
+            self.set_active_load_screen(kind, game_mode);
         }
     }
 
     fn update_load_screen(&self, progress: i32) {
-        let kind = *self.active_kind.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(kind) = kind {
-            update_game_load_screen(kind, progress as f32);
+        let active = *self
+            .active_load_screen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(active) = active {
+            update_game_load_screen(active.kind, progress as f32);
         }
     }
 
@@ -409,14 +444,25 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
     }
 
     fn end_load_screen(&self) {
-        let kind = self
-            .active_kind
+        let active = self
+            .active_load_screen
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .take();
-        if let Some(kind) = kind {
+        let pending_game_mode = self
+            .pending_game_mode
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        let game_mode = active.map(|active| active.game_mode).or(pending_game_mode);
+
+        if let Some(active) = active {
             set_mouse_cursor_visibility(true);
-            reset_load_screen(kind);
+            reset_load_screen(active.kind);
+        }
+
+        if let Some(game_mode) = game_mode {
+            self.reveal_shell_main_menu_after_start(game_mode);
         }
     }
 }
@@ -447,7 +493,10 @@ mod load_screen_hook_tests {
         set_mouse_cursor_visibility(true);
 
         let hooks = GameClientLoadScreenHooks::new();
-        hooks.set_active_load_screen(LoadScreenKind::ShellGame);
+        hooks.set_active_load_screen(
+            LoadScreenKind::ShellGame,
+            gamelogic::system::game_logic::GAME_SHELL,
+        );
 
         assert!(!is_mouse_cursor_visible());
         set_mouse_cursor_visibility(true);
@@ -459,8 +508,13 @@ mod load_screen_hook_tests {
         set_mouse_cursor_visibility(false);
 
         let hooks = GameClientLoadScreenHooks::new();
-        *hooks.active_kind.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(LoadScreenKind::ShellGame);
+        *hooks
+            .active_load_screen
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(ActiveLoadScreen {
+            kind: LoadScreenKind::ShellGame,
+            game_mode: gamelogic::system::game_logic::GAME_NONE,
+        });
 
         hooks.end_load_screen();
 

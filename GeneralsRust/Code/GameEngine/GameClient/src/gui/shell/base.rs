@@ -2562,6 +2562,20 @@ impl Shell {
         Ok(())
     }
 
+    /// C++ GameLogic::startNewGame shell completion branch:
+    /// push MainMenu when the shell stack is empty, otherwise reveal the top screen.
+    pub fn show_main_menu_after_shell_game_start(&mut self) -> Result<(), ShellError> {
+        if self.screen_stack.is_empty() {
+            self.push("Menus/MainMenu.wnd", false)
+        } else {
+            if let Some(top) = self.top() {
+                top.hide(false);
+                top.bring_forward();
+            }
+            Ok(())
+        }
+    }
+
     /// Hide the shell (shutdown top screen without popping)
     pub fn hide_shell(&mut self) -> Result<(), ShellError> {
         log::debug!("Shell::hide_shell()");
@@ -3499,6 +3513,43 @@ End
         shell.show_shell_map(true);
         shell.show_shell(false).unwrap();
         assert_eq!(shell.get_screen_count(), 0);
+    }
+
+    #[test]
+    fn shell_game_start_pushes_main_menu_when_stack_is_empty_like_cpp() {
+        let mut shell = Shell::new();
+        shell.init().unwrap();
+
+        shell.show_main_menu_after_shell_game_start().unwrap();
+
+        assert_eq!(shell.get_screen_count(), 1);
+        assert_eq!(
+            shell.top().map(|layout| layout.get_filename().to_string()),
+            Some("Menus/MainMenu.wnd".to_string())
+        );
+    }
+
+    #[test]
+    fn shell_game_start_reveals_existing_top_screen_like_cpp() {
+        let mut shell = Shell::new();
+        shell.init().unwrap();
+        let events = StdRc::new(StdRefCell::new(Vec::new()));
+        shell.screen_stack.push(Box::new(TestLayout::new(
+            "existing.wnd",
+            true,
+            events.clone(),
+        )));
+
+        shell.show_main_menu_after_shell_game_start().unwrap();
+
+        assert_eq!(shell.get_screen_count(), 1);
+        assert_eq!(
+            events.borrow().as_slice(),
+            &[
+                "hide:existing.wnd:false".to_string(),
+                "bring_forward:existing.wnd".to_string(),
+            ]
+        );
     }
 
     #[test]
