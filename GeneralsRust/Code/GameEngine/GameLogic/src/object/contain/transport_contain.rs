@@ -454,10 +454,9 @@ impl TransportContain {
         Ok(())
     }
 
-    /// Handle deletion event — C++ TransportContain has no onDelete, so this
-    /// delegates to base class only.
+    /// Handle deletion event through inherited OpenContain cleanup.
     pub fn on_delete(&mut self) -> GameResult<()> {
-        Ok(())
+        self.base.on_delete()
     }
 
     /// Called when this object starts containing another object
@@ -1176,6 +1175,16 @@ impl ContainModuleInterface for TransportContain {
         obj: &Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.contain_object(obj.get_id()).map_err(|e| e.into())
+    }
+
+    fn add_to_contain_list(
+        &mut self,
+        obj: &Object,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let object_id = obj.get_id();
+        let obj = TheGameLogic::find_object_by_id(object_id)
+            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
+        TransportContain::add_to_contain_list(self, obj).map_err(|e| e.into())
     }
 
     fn enable_load_sounds(

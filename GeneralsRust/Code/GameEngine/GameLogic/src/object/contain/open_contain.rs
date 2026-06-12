@@ -1057,6 +1057,17 @@ impl OpenContain {
         Ok(())
     }
 
+    /// Last possible cleanup before owner deletion.
+    pub fn on_delete(&mut self) -> GameResult<()> {
+        let riders = self.get_contained_items_list()?;
+        for rider in riders {
+            if let Ok(rider_guard) = rider.read() {
+                TheGameLogic::destroy_object(&*rider_guard)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Iterate contained objects with callback
     pub fn iterate_contained<F>(&self, mut func: F, reverse: bool) -> GameResult<()>
     where
@@ -1704,6 +1715,10 @@ impl ContainModuleInterface for OpenContain {
         OpenContain::on_die(self, damage_info).map_err(|e| e.into())
     }
 
+    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        OpenContain::on_delete(self).map_err(|e| e.into())
+    }
+
     fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         OpenContain::is_valid_container_for(self, obj, check_capacity)
     }
@@ -1713,6 +1728,16 @@ impl ContainModuleInterface for OpenContain {
         obj: &Object,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.contain_object(obj.get_id()).map_err(|e| e.into())
+    }
+
+    fn add_to_contain_list(
+        &mut self,
+        obj: &Object,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let object_id = obj.get_id();
+        let obj = TheGameLogic::find_object_by_id(object_id)
+            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
+        OpenContain::add_to_contain_list(self, obj).map_err(|e| e.into())
     }
 
     fn enable_load_sounds(
