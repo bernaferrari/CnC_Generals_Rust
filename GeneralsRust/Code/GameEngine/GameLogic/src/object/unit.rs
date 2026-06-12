@@ -3032,6 +3032,13 @@ impl UnitAIUpdate {
             return self.do_queued_safe_pathfind_now();
         }
 
+        if self.is_approach_path && !self.is_doing_ground_movement() {
+            self.is_approach_path = false;
+        }
+        if self.is_approach_path {
+            return self.do_queued_approach_pathfind_now(destination);
+        }
+
         if self.try_install_closest_path_for_invalid_destination(&destination)? {
             return Ok(true);
         }
@@ -3089,6 +3096,32 @@ impl UnitAIUpdate {
         self.path_timestamp = TheGameLogic::get_frame();
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
+        Ok(false)
+    }
+
+    fn do_queued_approach_pathfind_now(&mut self, destination: Coord3D) -> Result<bool, String> {
+        self.destroy_path();
+
+        let request = self.build_classic_path_request(destination, false)?;
+        let closest_result =
+            THE_AI
+                .read()
+                .ok()
+                .and_then(|ai| ai.pathfinder())
+                .and_then(|pathfinder| {
+                    pathfinder
+                        .read()
+                        .ok()
+                        .map(|pf| pf.find_closest_path_result(request))
+                });
+
+        if let Some(result) = closest_result {
+            if result.success && !result.waypoints.is_empty() {
+                self.set_path_from_coords(&result.waypoints)?;
+                return Ok(true);
+            }
+        }
+
         Ok(false)
     }
 
@@ -9113,6 +9146,61 @@ mod tests {
             ai.queue_for_path_frame,
             now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
         );
+    }
+
+    #[test]
+    fn request_approach_path_defers_closest_path_until_queued_update_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(56, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let old_destination = Coord3D::new(10.0, 0.0, 0.0);
+        ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 1.0), old_destination])
+            .unwrap();
+        ai.path_timestamp = 0;
+        let approach_destination = Coord3D::new(24.0, 0.0, 0.0);
+
+        ai.request_approach_path(&approach_destination).unwrap();
+
+        assert!(ai.waiting_for_path);
+        {
+            let unit_guard = unit.read().unwrap();
+            assert_eq!(unit_guard.target_position, Some(old_destination));
+            assert!(unit_guard.current_path.is_some());
+        }
+
+        ai.update().unwrap();
+
+        assert!(!ai.waiting_for_path);
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.current_path.is_some());
+        assert_eq!(unit_guard.target_position, Some(approach_destination));
     }
 
     #[test]
