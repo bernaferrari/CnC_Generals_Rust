@@ -2694,6 +2694,13 @@ impl GameClient {
             }
         }
 
+        if let Some(draw_group_info) =
+            game_engine::common::ini::ini_draw_group_info::get_draw_group_info()
+        {
+            let draw_group_info = draw_group_info.read();
+            crate::draw_group_info::sync_from_common_draw_group_info(&draw_group_info);
+        }
+
         Ok(())
     }
 
