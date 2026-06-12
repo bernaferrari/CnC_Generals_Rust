@@ -8,6 +8,7 @@ use std::cmp;
 use std::sync::{Arc, Mutex, RwLock};
 
 // Import types that would be defined in other modules
+use super::format_cash_template;
 use crate::ai::*;
 use crate::common::*;
 use crate::object::collide::crate_collide::crate_collide::{
@@ -245,26 +246,6 @@ const SABOTAGE_SUPPLY_DROPZONE_CRATE_COLLIDE_FIELDS: &[IniFieldParse<
     },
 ];
 
-fn format_cash_template(template: &str, amount: u32, fallback_prefix: &str) -> String {
-    let amount = amount.to_string();
-    if template.contains("%d") || template.contains("%i") || template.contains("%u") {
-        template
-            .replace("%d", &amount)
-            .replace("%i", &amount)
-            .replace("%u", &amount)
-    } else {
-        format!("{fallback_prefix}${amount}")
-    }
-}
-
-fn format_add_cash(amount: u32) -> String {
-    format_cash_template(&TheGameText::fetch("GUI:AddCash"), amount, "+")
-}
-
-fn format_lose_cash(amount: u32) -> String {
-    format_cash_template(&TheGameText::fetch("GUI:LoseCash"), amount, "-")
-}
-
 /// Sabotage Supply Dropzone Crate Collide module
 #[derive(Debug)]
 pub struct SabotageSupplyDropzoneCrateCollide {
@@ -379,8 +360,7 @@ impl SabotageSupplyDropzoneCrateCollide {
     fn reset_dropzone_timer(&self, other: Arc<RwLock<Object>>) -> Result<(), GameError> {
         let other_lock = other.read().map_err(|_| GameError::LockError)?;
 
-        let ocl_module_name = AsciiString::from("OCLUpdate");
-        if let Some(module) = other_lock.module_by_name(&ocl_module_name) {
+        if let Some(module) = other_lock.find_update_module("OCLUpdate") {
             let mut did_reset = false;
             module.with_module(|module| {
                 if let Some(ocl_update) = module.get_ocl_update_control_interface() {
@@ -402,12 +382,12 @@ impl SabotageSupplyDropzoneCrateCollide {
         let object_lock = object.read().map_err(|_| GameError::LockError)?;
         let other_lock = other.read().map_err(|_| GameError::LockError)?;
 
-        let target_player = other_lock
-            .get_controlling_player()
-            .ok_or(GameError::InvalidOperation)?;
-        let attacker_player = object_lock
-            .get_controlling_player()
-            .ok_or(GameError::InvalidOperation)?;
+        let (Some(target_player), Some(attacker_player)) = (
+            other_lock.get_controlling_player(),
+            object_lock.get_controlling_player(),
+        ) else {
+            return Ok(0);
+        };
 
         drop(object_lock);
         drop(other_lock);
@@ -450,14 +430,14 @@ impl SabotageSupplyDropzoneCrateCollide {
         let other_lock = other.read().map_err(|_| GameError::LockError)?;
 
         // Display cash income floating over the saboteur
-        let money_string = format_add_cash(cash_amount);
+        let money_string = super::format_add_cash(cash_amount);
         let mut pos = *object_lock.get_position();
         pos.z += 20.0; // Add a little z to make it show up above the unit
         let green_color = Color::new(0, 255, 0, 255);
         TheInGameUI::add_floating_text(&money_string, &pos, green_color)?;
 
         // Display cash lost floating over the target
-        let loss_string = format_lose_cash(cash_amount);
+        let loss_string = super::format_lose_cash(cash_amount);
         let mut target_pos = *other_lock.get_position();
         target_pos.z += 30.0; // Add a little z to make it show up above the unit
         let red_color = Color::new(255, 0, 0, 255);
@@ -577,6 +557,27 @@ mod tests {
     fn cash_labels_format_cpp_style_templates() {
         assert_eq!(format_cash_template("+$%d", 125, "+"), "+$125");
         assert_eq!(format_cash_template("-$%u", 125, "-"), "-$125");
+        assert_eq!(format_cash_template("-$%-6u", 125, "-"), "-$125");
         assert_eq!(format_cash_template("GUI:AddCash", 125, "+"), "+$125");
+    }
+
+    #[test]
+    fn steal_cash_without_player_handles_is_best_effort_like_cpp() {
+        let _lock = crate::test_sync::lock();
+
+        let saboteur = Arc::new(RwLock::new(Object::new_test(58_201, 100.0)));
+        let target = Arc::new(RwLock::new(Object::new_test(58_202, 100.0)));
+        let module_data = SabotageSupplyDropzoneCrateCollideModuleData {
+            steal_cash_amount: 500,
+            ..Default::default()
+        };
+        let module = SabotageSupplyDropzoneCrateCollide::new(saboteur, module_data);
+
+        assert_eq!(
+            module
+                .steal_cash(target)
+                .expect("cash steal is best effort"),
+            0
+        );
     }
 }
