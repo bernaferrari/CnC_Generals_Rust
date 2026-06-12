@@ -1682,6 +1682,7 @@ impl BodyModuleInterface for ActiveBody {
     }
 
     fn set_damage_state(&mut self, new_state: BodyDamageType) -> BodyResult<()> {
+        let old_state = self.get_damage_state();
         let (damaged_thresh, really_damaged_thresh) = match global_data::read_safe() {
             Ok(global) => (
                 global.unit_damaged_thresh,
@@ -1705,6 +1706,11 @@ impl BodyModuleInterface for ActiveBody {
 
         self.internal_change_health(delta)?;
         self.set_correct_damage_state()?;
+        let actual_state = self.get_damage_state();
+        if actual_state != old_state {
+            let mut damage_info = DamageInfo::default();
+            self.notify_damage_modules_on_state_change(&mut damage_info, old_state, actual_state);
+        }
 
         Ok(())
     }

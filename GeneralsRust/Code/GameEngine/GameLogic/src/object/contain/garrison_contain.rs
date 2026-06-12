@@ -29,6 +29,7 @@ use crate::player::{Player, ThePlayerList};
 use crate::team::Team;
 use crate::weapon::{DamageType as WeaponDamageType, Weapon};
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Maximum number of garrison points
 const MAX_GARRISON_POINTS: usize = 40;
@@ -1896,10 +1897,9 @@ impl GarrisonContain {
                         match body_mod.get_damage_state() {
                             BodyDamageType::Pristine => GarrisonPointCondition::Pristine as usize,
                             BodyDamageType::Damaged => GarrisonPointCondition::Damaged as usize,
-                            BodyDamageType::ReallyDamaged => {
+                            BodyDamageType::ReallyDamaged | BodyDamageType::Rubble => {
                                 GarrisonPointCondition::ReallyDamaged as usize
                             }
-                            _ => GarrisonPointCondition::Pristine as usize,
                         }
                     } else {
                         GarrisonPointCondition::Pristine as usize
@@ -2333,6 +2333,130 @@ impl GarrisonContain {
     }
 }
 
+impl Snapshotable for GarrisonContain {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(&self.base, xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+
+        Snapshotable::xfer(&mut self.base, xfer)?;
+
+        let mut original_team_id = self
+            .original_team
+            .as_ref()
+            .and_then(|team| team.upgrade())
+            .and_then(|team| team.read().ok().map(|guard| guard.get_id()))
+            .unwrap_or(crate::team::TEAM_ID_INVALID);
+        xfer.xfer_unsigned_int(&mut original_team_id)
+            .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.original_team = if original_team_id != crate::team::TEAM_ID_INVALID {
+                crate::team::TheTeamFactory()
+                    .lock()
+                    .ok()
+                    .and_then(|factory| factory.find_team_by_id(original_team_id))
+                    .map(|team| Arc::downgrade(&team))
+            } else {
+                None
+            };
+        }
+
+        xfer.xfer_bool(&mut self.hide_garrisoned_state_from_non_allies)
+            .map_err(|e| e.to_string())?;
+
+        let mut point_data_count = MAX_GARRISON_POINTS as u16;
+        xfer.xfer_unsigned_short(&mut point_data_count)
+            .map_err(|e| e.to_string())?;
+        for index in 0..usize::from(point_data_count).min(MAX_GARRISON_POINTS) {
+            let point = &mut self.garrison_point_data[index];
+            let mut object_id = point
+                .object_id
+                .or_else(|| {
+                    point
+                        .object
+                        .as_ref()
+                        .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
+                })
+                .unwrap_or(INVALID_ID);
+            xfer.xfer_object_id(&mut object_id)
+                .map_err(|e| e.to_string())?;
+
+            let mut target_id = point.target_id.unwrap_or(INVALID_ID);
+            xfer.xfer_object_id(&mut target_id)
+                .map_err(|e| e.to_string())?;
+
+            xfer.xfer_unsigned_int(&mut point.place_frame)
+                .map_err(|e| e.to_string())?;
+            xfer.xfer_unsigned_int(&mut point.last_effect_frame)
+                .map_err(|e| e.to_string())?;
+
+            let mut effect_id = point.effect_id.unwrap_or(0);
+            xfer.xfer_drawable_id(&mut effect_id)
+                .map_err(|e| e.to_string())?;
+
+            if xfer.get_xfer_mode() == XferMode::Load {
+                point.object_id = if object_id == INVALID_ID {
+                    None
+                } else {
+                    Some(object_id)
+                };
+                point.target_id = if target_id == INVALID_ID {
+                    None
+                } else {
+                    Some(target_id)
+                };
+                point.effect_id = if effect_id == 0 {
+                    None
+                } else {
+                    Some(effect_id)
+                };
+                point.object = None;
+                point.effect = None;
+            }
+        }
+
+        let mut garrison_points_in_use = self.garrison_points_in_use as i32;
+        xfer.xfer_int(&mut garrison_points_in_use)
+            .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.garrison_points_in_use = garrison_points_in_use.max(0) as usize;
+        }
+
+        for condition in &mut self.garrison_points {
+            for point in condition {
+                xfer.xfer_real(&mut point.x).map_err(|e| e.to_string())?;
+                xfer.xfer_real(&mut point.y).map_err(|e| e.to_string())?;
+                xfer.xfer_real(&mut point.z).map_err(|e| e.to_string())?;
+            }
+        }
+
+        xfer.xfer_bool(&mut self.garrison_points_initialized)
+            .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == XferMode::Load {
+            self.station_garrison_points_initialized = false;
+            self.station_point_list.clear();
+        }
+
+        xfer.xfer_bool(&mut self.rally_valid)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.exit_rally_point.x)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.exit_rally_point.y)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.exit_rally_point.z)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        GarrisonContain::load_post_process(self).map_err(|e| e.to_string())
+    }
+}
+
 impl ContainModuleInterface for GarrisonContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
@@ -2377,6 +2501,18 @@ impl ContainModuleInterface for GarrisonContain {
         } else {
             max as usize
         }
+    }
+
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
     }
 
     fn set_evac_disposition(&mut self, disposition: crate::common::UnsignedInt) {
@@ -2602,6 +2738,81 @@ mod tests {
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType, WeaponBonusConditionFlags};
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::player::{Player, ThePlayerList};
+    use game_engine::common::system::{XferBlockSize, XferStatus};
+    use std::io;
+
+    struct RecordingXfer {
+        bytes: Vec<u8>,
+    }
+
+    impl RecordingXfer {
+        fn new() -> Self {
+            Self { bytes: Vec::new() }
+        }
+    }
+
+    impl Xfer for RecordingXfer {
+        fn get_xfer_mode(&self) -> XferMode {
+            XferMode::Save
+        }
+
+        fn get_identifier(&self) -> &str {
+            "garrison-contain-test"
+        }
+
+        fn set_options(&mut self, _options: u32) {}
+
+        fn clear_options(&mut self, _options: u32) {}
+
+        fn get_options(&self) -> u32 {
+            0
+        }
+
+        fn open(&mut self, _identifier: &str) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+            Ok(0)
+        }
+
+        fn end_block(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn skip(&mut self, _data_size: i32) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_snapshot(
+            &mut self,
+            _snapshot: &mut game_engine::system::Snapshot,
+        ) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_ascii_string(&mut self, _ascii_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn xfer_unicode_string(&mut self, _unicode_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        unsafe fn xfer_implementation(
+            &mut self,
+            data: *mut u8,
+            data_size: usize,
+        ) -> io::Result<()> {
+            let bytes = unsafe { std::slice::from_raw_parts(data, data_size) };
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
 
     #[test]
     fn test_garrison_module_data_defaults() {
@@ -2655,6 +2866,27 @@ mod tests {
         let roster = InitialRoster::default();
         assert_eq!(roster.template_name, "");
         assert_eq!(roster.count, 0);
+    }
+
+    #[test]
+    fn trait_snapshot_xfer_writes_garrison_version_and_open_contain_state_like_cpp() {
+        let mut contain = GarrisonContain::new(Weak::new(), &GarrisonContainModuleData::default())
+            .expect("garrison contain");
+        contain.hide_garrisoned_state_from_non_allies = true;
+        contain.garrison_points_in_use = 2;
+        contain.rally_valid = true;
+        contain.exit_rally_point = Coord3D::new(11.0, 22.0, 3.0);
+
+        let mut xfer = RecordingXfer::new();
+        ContainModuleInterface::snapshot_xfer(&mut contain, &mut xfer)
+            .expect("garrison snapshot xfer");
+
+        assert_eq!(xfer.bytes[0], 1, "GarrisonContain xfer version");
+        assert_eq!(xfer.bytes[1], 2, "delegated OpenContain xfer version");
+        assert!(
+            xfer.bytes.len() > 1,
+            "trait snapshot hook must not fall back to no-op"
+        );
     }
 
     #[test]
