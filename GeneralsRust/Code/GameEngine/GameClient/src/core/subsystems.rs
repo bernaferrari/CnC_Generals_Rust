@@ -869,6 +869,7 @@ pub struct InGameUISubsystem {
     prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
     draw_rmb_scroll_anchor: bool,
     move_rmb_scroll_anchor: bool,
+    max_select_count: i32,
     pending_special_power: Option<PendingSpecialPower>,
     pending_command: Option<PendingCommand>,
 }
@@ -1273,6 +1274,14 @@ impl InGameUISubsystem {
         self.move_rmb_scroll_anchor
     }
 
+    fn set_max_select_count(&mut self, max_select_count: i32) {
+        self.max_select_count = max_select_count;
+    }
+
+    fn get_max_select_count(&self) -> i32 {
+        self.max_select_count
+    }
+
     fn clear_runtime_state(&mut self) {
         self.beacon_markers.clear();
         self.pending_beacon_events.clear();
@@ -1302,6 +1311,7 @@ impl InGameUISubsystem {
         self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = false;
         self.draw_rmb_scroll_anchor = false;
         self.move_rmb_scroll_anchor = false;
+        self.max_select_count = -1;
         self.pending_special_power = None;
         self.pending_command = None;
     }
@@ -1822,6 +1832,19 @@ impl InGameUiHooks for InGameUiHandle {
             .lock()
             .map(|ui| ui.get_move_rmb_scroll_anchor())
             .unwrap_or(false)
+    }
+
+    fn set_max_select_count(&self, max_select_count: i32) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_max_select_count(max_select_count);
+        }
+    }
+
+    fn get_max_select_count(&self) -> i32 {
+        self.inner
+            .lock()
+            .map(|ui| ui.get_max_select_count())
+            .unwrap_or(-1)
     }
 
     fn play_movie(&self, movie_name: &str) -> bool {
