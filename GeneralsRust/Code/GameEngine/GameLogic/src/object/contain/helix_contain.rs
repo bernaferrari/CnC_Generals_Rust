@@ -747,6 +747,10 @@ impl ContainModuleInterface for HelixContain {
         }
     }
 
+    fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
+        self.get_container_pips_to_show(&self.module_data)
+    }
+
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::crc(self, xfer)
     }
@@ -1071,6 +1075,10 @@ mod tests {
 
         assert_eq!(
             contain.get_container_pips_to_show(&module_data),
+            (0, 0, false)
+        );
+        assert_eq!(
+            ContainModuleInterface::get_container_pips_to_show(&contain),
             (0, 0, false)
         );
     }

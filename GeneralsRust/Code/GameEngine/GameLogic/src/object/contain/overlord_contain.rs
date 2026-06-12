@@ -834,6 +834,10 @@ impl ContainModuleInterface for OverlordContain {
         }
     }
 
+    fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
+        self.get_container_pips_to_show()
+    }
+
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::crc(self, xfer)
     }
