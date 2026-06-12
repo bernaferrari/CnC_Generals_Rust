@@ -4981,12 +4981,14 @@ impl AIUpdateInterface for UnitAIUpdate {
     fn destroy_path(&mut self) {
         self.current_path_snapshot = None;
         self.waiting_for_path = false;
+        self.is_attack_path = false;
         if let Some(unit) = self.unit.upgrade() {
             if let Ok(mut guard) = unit.write() {
                 guard.current_path = None;
                 guard.path_following_state = None;
             }
         }
+        self.set_locomotor_goal_none();
     }
 
     fn clear_move_out_of_way(&mut self) {
@@ -9290,6 +9292,55 @@ mod tests {
             ai.planning_waypoint_queue[AI_UPDATE_MAX_WAYPOINTS - 1],
             Coord3D::new((AI_UPDATE_MAX_WAYPOINTS - 1) as Real, 0.0, 0.0)
         );
+    }
+
+    #[test]
+    fn destroy_path_clears_attack_and_locomotor_goal_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(62, 100.0)));
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        unit.current_path = Some(vec![Coord2D::new(0.0, 0.0), Coord2D::new(8.0, 0.0)]);
+        unit.target_position = Some(Coord3D::new(8.0, 0.0, 0.0));
+        unit.movement_state = MovementState::Moving;
+        let unit = Arc::new(RwLock::new(unit));
+
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        ai.is_attack_path = true;
+        ai.waiting_for_path = true;
+        ai.locomotor_goal_type = 2;
+        ai.locomotor_goal_data = Coord3D::new(8.0, 0.0, 0.0);
+        ai.set_current_path_snapshot_from_coords(&[
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(8.0, 0.0, 0.0),
+        ]);
+
+        ai.destroy_path();
+
+        assert!(ai.current_path_snapshot.is_none());
+        assert!(!ai.waiting_for_path);
+        assert!(!ai.is_attack_path);
+        assert_eq!(ai.locomotor_goal_type, 0);
+        assert_eq!(ai.locomotor_goal_data, Coord3D::ZERO);
+
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.current_path.is_none());
+        assert_eq!(unit_guard.movement_state, MovementState::Idle);
     }
 
     #[test]
