@@ -262,8 +262,7 @@ impl HealCrateCollide {
 
     fn play_heal_audio(&self, position: &Coord3D) {
         if let Some(audio) = TheAudio::get() {
-            let event = TheAudio::get_misc_audio().crate_heal.clone();
-            let mut audio_event = crate::common::audio::AudioEventRts::new(event.sound_type);
+            let mut audio_event = TheAudio::get_misc_audio().crate_heal.clone();
             audio_event.set_position(&(position.x, position.y, position.z));
             audio.add_audio_event(&audio_event);
         }
