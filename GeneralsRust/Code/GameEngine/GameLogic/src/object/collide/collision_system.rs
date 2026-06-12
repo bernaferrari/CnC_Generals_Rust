@@ -436,44 +436,8 @@ impl CollisionSystem {
             }
         }
 
-        if a_info.moving {
-            let blocked = Self::blocked_by(&a_info, &b_info);
-            if blocked {
-                if let Ok(mut guard) = a_info.ai.lock() {
-                    if guard.get_current_state_id() == Some(AIStateType::Panic as u32)
-                        && a_info.is_infantry
-                    {
-                        return;
-                    }
-                    guard.set_is_blocked(true);
-                    if b_info.moving && b_info.waiting_for_path {
-                        return;
-                    }
-                    if let Some(max_speed) = Self::calculate_max_blocked_speed(
-                        &a_info,
-                        &b_info,
-                        guard.get_cur_max_blocked_speed(),
-                    ) {
-                        guard.set_cur_max_blocked_speed(max_speed);
-                    }
-                    if !guard.need_to_rotate() && !b_info.moving {
-                        guard.set_blocked_and_stuck(true);
-                    } else if b_info.moving {
-                        if let Ok(other_guard) = b_info.ai.lock() {
-                            let other_blocked = Self::blocked_by(&b_info, &a_info);
-                            if other_blocked && !other_guard.need_to_rotate() {
-                                if !Self::has_higher_path_priority(&a_info, &b_info) {
-                                    a_info.ai.ai_move_away_from_unit(
-                                        b_info.id,
-                                        CommandSourceType::FromAi,
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        Self::process_ai_blocked_collision(&a_info, &b_info);
+        Self::process_ai_blocked_collision(&b_info, &a_info);
 
         let dx = a_info.position.x - b_info.position.x;
         let dy = a_info.position.y - b_info.position.y;
@@ -532,6 +496,52 @@ impl CollisionSystem {
         let facing_angle = facing.1.atan2(facing.0);
         let target_angle = to_target.1.atan2(to_target.0);
         Self::normalize_angle(target_angle - facing_angle)
+    }
+
+    fn process_ai_blocked_collision(mover: &AiCollisionInfo, other: &AiCollisionInfo) {
+        if !mover.moving || !Self::blocked_by(mover, other) {
+            return;
+        }
+
+        let mut should_move_away = false;
+        {
+            let Ok(mut guard) = mover.ai.lock() else {
+                return;
+            };
+            if guard.get_current_state_id() == Some(AIStateType::Panic as u32) && mover.is_infantry
+            {
+                return;
+            }
+            guard.set_is_blocked(true);
+            if other.moving && other.waiting_for_path {
+                return;
+            }
+            if let Some(max_speed) =
+                Self::calculate_max_blocked_speed(mover, other, guard.get_cur_max_blocked_speed())
+            {
+                guard.set_cur_max_blocked_speed(max_speed);
+            }
+            if !guard.need_to_rotate() && !other.moving {
+                guard.set_blocked_and_stuck(true);
+            } else if other.moving {
+                let other_blocked = Self::blocked_by(other, mover);
+                let other_needs_rotation = other
+                    .ai
+                    .lock()
+                    .ok()
+                    .map(|other_guard| other_guard.need_to_rotate())
+                    .unwrap_or(true);
+                should_move_away = other_blocked
+                    && !other_needs_rotation
+                    && !Self::has_higher_path_priority(mover, other);
+            }
+        }
+
+        if should_move_away {
+            mover
+                .ai
+                .ai_move_away_from_unit(other.id, CommandSourceType::FromAi);
+        }
     }
 
     fn has_higher_path_priority(a: &AiCollisionInfo, b: &AiCollisionInfo) -> bool {
