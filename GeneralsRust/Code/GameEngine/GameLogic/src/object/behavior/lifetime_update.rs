@@ -87,6 +87,10 @@ const LIFETIME_UPDATE_FIELDS: &[FieldParse<LifetimeUpdateModuleData>] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::Object;
+    use std::sync::Mutex;
+
+    static FRAME_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     fn parse_field(data: &mut LifetimeUpdateModuleData, token: &str, values: &[&str]) {
         let field = LIFETIME_UPDATE_FIELDS
@@ -149,6 +153,68 @@ mod tests {
 
         assert_eq!(control.die_frame(), 123);
     }
+
+    #[test]
+    fn lifetime_update_constructor_schedules_initial_wake_for_die_frame() {
+        let _guard = FRAME_TEST_LOCK.lock().unwrap();
+        let original_frame = {
+            let mut logic = crate::system::game_logic::get_game_logic()
+                .lock()
+                .expect("game logic lock");
+            let original = logic.get_frame();
+            logic.set_current_frame(100);
+            original
+        };
+
+        let object = Arc::new(RwLock::new(Object::new_test(4242, 100.0)));
+        let module_data: Arc<dyn ModuleData> = Arc::new(LifetimeUpdateModuleData {
+            min_frames: 30,
+            max_frames: 30,
+            ..LifetimeUpdateModuleData::default()
+        });
+
+        let behavior = LifetimeUpdate::new(object, module_data).expect("LifetimeUpdate creates");
+
+        assert_eq!(behavior.get_die_frame(), 130);
+        assert_eq!(behavior.initial_wake_frame(), 130);
+
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .expect("game logic lock")
+            .set_current_frame(original_frame as u64);
+    }
+
+    #[test]
+    fn set_lifetime_range_reschedules_initial_wake_like_cpp() {
+        let _guard = FRAME_TEST_LOCK.lock().unwrap();
+        let original_frame = {
+            let mut logic = crate::system::game_logic::get_game_logic()
+                .lock()
+                .expect("game logic lock");
+            let original = logic.get_frame();
+            logic.set_current_frame(100);
+            original
+        };
+
+        let object = Arc::new(RwLock::new(Object::new_test(4243, 100.0)));
+        let module_data: Arc<dyn ModuleData> = Arc::new(LifetimeUpdateModuleData {
+            min_frames: 30,
+            max_frames: 30,
+            ..LifetimeUpdateModuleData::default()
+        });
+        let mut behavior =
+            LifetimeUpdate::new(Arc::clone(&object), module_data).expect("LifetimeUpdate creates");
+
+        behavior.set_lifetime_range(45, 45);
+
+        assert_eq!(behavior.get_die_frame(), 145);
+        assert_eq!(behavior.initial_wake_frame(), 145);
+
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .expect("game logic lock")
+            .set_current_frame(original_frame as u64);
+    }
 }
 
 pub struct LifetimeUpdate {
@@ -179,12 +245,13 @@ impl LifetimeUpdate {
             specific_data.min_frames,
             specific_data.max_frames,
         );
-        let die_frame = current_frame + Self::calc_sleep_delay_static(min_frames, max_frames);
+        let delay = Self::calc_sleep_delay_static(min_frames, max_frames);
+        let die_frame = current_frame + delay;
 
         Ok(Self {
             object: Arc::downgrade(&object),
             module_data: Arc::new(specific_data.clone()),
-            next_call_frame_and_phase: 0,
+            next_call_frame_and_phase: die_frame,
             die_frame,
         })
     }
@@ -192,11 +259,27 @@ impl LifetimeUpdate {
     pub fn set_lifetime_range(&mut self, min_frames: UnsignedInt, max_frames: UnsignedInt) {
         // Get current frame from game logic - matches C++ LifetimeUpdate.cpp
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        self.die_frame = current_frame + Self::calc_sleep_delay_static(min_frames, max_frames);
+        let delay = Self::calc_sleep_delay_static(min_frames, max_frames);
+        self.die_frame = current_frame + delay;
+        self.next_call_frame_and_phase = self.die_frame;
+        if let Some(object) = self.object.upgrade() {
+            if let Ok(guard) = object.read() {
+                let object_id = guard.get_id();
+                drop(guard);
+                crate::helpers::TheGameLogic::set_wake_frame(
+                    object_id,
+                    UpdateSleepTime::from_u32(delay),
+                );
+            }
+        }
     }
 
     pub fn get_die_frame(&self) -> UnsignedInt {
         self.die_frame
+    }
+
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.next_call_frame_and_phase
     }
 
     /// Calculate random sleep delay between min and max frames
@@ -316,6 +399,10 @@ impl LifetimeUpdateModule {
 
     pub fn behavior_mut(&mut self) -> &mut LifetimeUpdate {
         &mut self.behavior
+    }
+
+    pub fn initial_wake_frame(&self) -> UnsignedInt {
+        self.behavior.initial_wake_frame()
     }
 }
 
