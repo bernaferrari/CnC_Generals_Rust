@@ -443,7 +443,7 @@ impl CollisionSystem {
         let dy = a_info.position.y - b_info.position.y;
         let dist_sqr = dx * dx + dy * dy;
         let overlap_threshold = PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F * 0.25;
-        if dist_sqr < overlap_threshold {
+        if !a_info.moving && !b_info.moving && dist_sqr < overlap_threshold {
             if !a_info.using_ability && !a_info.busy {
                 let should_move = a_info
                     .ai
