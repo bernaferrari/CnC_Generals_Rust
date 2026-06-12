@@ -254,7 +254,11 @@ fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
     }
 
     let mut mask = 0u64;
-    for token in tokens.iter().flat_map(|token| token.split('|')) {
+    for token in tokens
+        .iter()
+        .filter(|token| **token != "=")
+        .flat_map(|token| token.split('|'))
+    {
         let token = token.trim();
         if token.is_empty() {
             continue;
@@ -368,7 +372,11 @@ fn parse_execute_animation_fades(
 }
 
 fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
-    tokens.first().copied().ok_or(INIError::InvalidData)
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 const SHROUD_CRATE_COLLIDE_FIELDS: &[FieldParse<ShroudCrateCollideModuleData>] = &[
@@ -466,10 +474,37 @@ mod tests {
 
     #[test]
     fn shroud_crate_kindof_parser_accepts_pipe_and_space_tokens() {
-        let mask = parse_kind_of_mask(&["VEHICLE|INFANTRY", "STRUCTURE"]).expect("kind mask");
+        let mask = parse_kind_of_mask(&["=", "VEHICLE|INFANTRY", "STRUCTURE"]).expect("kind mask");
 
         assert_ne!(mask & (1u64 << (KindOf::Vehicle as u32)), 0);
         assert_ne!(mask & (1u64 << (KindOf::Infantry as u32)), 0);
         assert_ne!(mask & (1u64 << (KindOf::Structure as u32)), 0);
+    }
+
+    #[test]
+    fn shroud_crate_parse_from_ini_preserves_cpp_base_fields() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = ShroudCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "RequiredKindOf = VEHICLE\n\
+             HumanOnly = Yes\n\
+             ExecuteAnimationFades = No\n\
+             ExecuteAnimationTime = 2.0\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("shroud crate ini parses");
+
+        assert_ne!(
+            data.crate_data.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            0
+        );
+        assert!(data.crate_data.is_human_only_pickup);
+        assert!(!data.crate_data.execute_animation_fades);
+        assert!(
+            (data.crate_data.execute_animation_display_time_seconds - 2.0).abs() < f32::EPSILON
+        );
     }
 }
