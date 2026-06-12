@@ -12,6 +12,12 @@
 
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, Point3};
 use crate::game_text::GameText;
+use crate::gui::campaign_manager::get_campaign_manager;
+use crate::gui::load_screen::{
+    init_load_screen, reset_load_screen, select_load_screen,
+    update_load_screen as update_game_load_screen, LoadScreenGameMode, LoadScreenInitContext,
+    LoadScreenKind, LoadScreenRequest,
+};
 use crate::gui::{
     get_shell, with_window_manager, HintData, HintType, MouseCursor, MouseMode, WindowLayout,
     WindowStatus,
@@ -19,7 +25,8 @@ use crate::gui::{
 use crate::input::Mouse;
 use crate::message_stream::game_message::{Coord3D, ICoord2D};
 use gamelogic::helpers::{
-    register_game_pause_hooks, GamePauseHooks, TheGameLogic, TheScriptEngine,
+    register_game_pause_hooks, register_load_screen_hooks as register_logic_load_screen_hooks,
+    GamePauseHooks, TheGameLogic, TheScriptEngine,
 };
 use log::info;
 use std::cell::RefCell;
@@ -310,7 +317,102 @@ pub fn register_prepare_new_game_hooks() {
     let _ = register_game_pause_hooks(Arc::new(GameClientPauseHooks));
 }
 
+pub fn register_load_screen_hooks() {
+    let _ = register_logic_load_screen_hooks(Arc::new(GameClientLoadScreenHooks::new()));
+}
+
 struct GameClientObserverAudioLocalityHooks;
+
+struct GameClientLoadScreenHooks {
+    active_kind: Mutex<Option<LoadScreenKind>>,
+}
+
+impl GameClientLoadScreenHooks {
+    fn new() -> Self {
+        Self {
+            active_kind: Mutex::new(None),
+        }
+    }
+}
+
+impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
+    fn begin_load_screen(&self, game_mode: i32, loading_save_game: bool) {
+        let (has_current_campaign, current_campaign_is_challenge) = {
+            let campaign_manager = get_campaign_manager();
+            let campaign = campaign_manager.get_current_campaign();
+            (
+                campaign.is_some(),
+                campaign
+                    .map(|campaign| campaign.is_challenge_campaign())
+                    .unwrap_or(false),
+            )
+        };
+
+        let request = LoadScreenRequest {
+            mode: load_screen_game_mode_from_logic(game_mode),
+            loading_save_game,
+            has_current_campaign,
+            current_campaign_is_challenge,
+        };
+
+        let old_kind = self
+            .active_kind
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(kind) = old_kind {
+            reset_load_screen(kind);
+        }
+
+        let Some(kind) = select_load_screen(request) else {
+            return;
+        };
+
+        if init_load_screen(kind, &load_screen_init_context_from_globals()) {
+            let mut active_kind = self.active_kind.lock().unwrap_or_else(|e| e.into_inner());
+            *active_kind = Some(kind);
+        }
+    }
+
+    fn update_load_screen(&self, progress: i32) {
+        let kind = *self.active_kind.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(kind) = kind {
+            update_game_load_screen(kind, progress as f32);
+        }
+    }
+
+    fn end_load_screen(&self) {
+        let kind = self
+            .active_kind
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
+        if let Some(kind) = kind {
+            reset_load_screen(kind);
+        }
+    }
+}
+
+fn load_screen_game_mode_from_logic(game_mode: i32) -> LoadScreenGameMode {
+    match game_mode {
+        gamelogic::system::game_logic::GAME_SINGLE_PLAYER => LoadScreenGameMode::SinglePlayer,
+        gamelogic::system::game_logic::GAME_SKIRMISH => LoadScreenGameMode::Skirmish,
+        gamelogic::system::game_logic::GAME_LAN => LoadScreenGameMode::Lan,
+        gamelogic::system::game_logic::GAME_INTERNET => LoadScreenGameMode::Internet,
+        gamelogic::system::game_logic::GAME_REPLAY => LoadScreenGameMode::Replay,
+        gamelogic::system::game_logic::GAME_SHELL => LoadScreenGameMode::Shell,
+        gamelogic::system::game_logic::GAME_NONE => LoadScreenGameMode::None,
+        _ => LoadScreenGameMode::None,
+    }
+}
+
+fn load_screen_init_context_from_globals() -> LoadScreenInitContext {
+    let mut context = LoadScreenInitContext::default();
+    context.map_name = game_engine::common::ini::get_global_data()
+        .map(|data| data.read().map_name.clone())
+        .filter(|map_name| !map_name.is_empty());
+    context
+}
 
 impl gamelogic::helpers::ObserverAudioLocalityHooks for GameClientObserverAudioLocalityHooks {
     fn get_observer_look_at_player_index(&self) -> Option<i32> {

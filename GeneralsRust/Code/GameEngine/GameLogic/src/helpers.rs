@@ -995,6 +995,18 @@ impl TheGameLogic {
             .unwrap_or(crate::system::game_logic::GAME_NONE)
     }
 
+    pub fn begin_load_screen(game_mode: Int, loading_save_game: Bool) -> Bool {
+        with_load_screen_hooks(|hooks| hooks.begin_load_screen(game_mode, loading_save_game))
+    }
+
+    pub fn update_load_progress(progress: Int) -> Bool {
+        with_load_screen_hooks(|hooks| hooks.update_load_screen(progress))
+    }
+
+    pub fn end_load_screen() -> Bool {
+        with_load_screen_hooks(|hooks| hooks.end_load_screen())
+    }
+
     /// Prepare for a new game (matches C++ GameLogic::prepareNewGame).
     pub fn prepare_new_game(game_mode: Int, difficulty: Int, rank_points: Int) {
         TheScriptEngine::set_global_difficulty(difficulty);
@@ -1067,11 +1079,17 @@ impl TheGameLogic {
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
             logic.set_loading_map(true);
         }
+        Self::begin_load_screen(Self::get_game_mode(), is_load_game);
+        Self::update_load_progress(0);
 
         let init_result =
             crate::system::game_initialization::GameInitializer::initialize_game(params)
                 .map(|_| ())
                 .map_err(|err| format!("Game initialization failed: {}", err));
+        if init_result.is_ok() {
+            Self::update_load_progress(100);
+        }
+        Self::end_load_screen();
 
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
             logic.set_loading_map(false);
@@ -2969,6 +2987,19 @@ pub trait GamePauseHooks: Send + Sync {
 
 static GAME_PAUSE_HOOKS: OnceLock<Arc<dyn GamePauseHooks>> = OnceLock::new();
 
+/// Hooks provided by GameClient so GameLogic can drive the visible C++
+/// LoadScreen lifecycle while the map initialization path is running.
+pub trait LoadScreenHooks: Send + Sync {
+    fn begin_load_screen(&self, game_mode: Int, loading_save_game: Bool);
+    fn update_load_screen(&self, progress: Int);
+    fn end_load_screen(&self);
+}
+
+fn load_screen_hooks_slot() -> &'static Mutex<Option<Arc<dyn LoadScreenHooks>>> {
+    static LOAD_SCREEN_HOOKS: OnceLock<Mutex<Option<Arc<dyn LoadScreenHooks>>>> = OnceLock::new();
+    LOAD_SCREEN_HOOKS.get_or_init(|| Mutex::new(None))
+}
+
 /// Hooks provided by GameClient so gameplay-side audio locality can query
 /// observer camera focus when the local player is dead/spectating.
 pub trait ObserverAudioLocalityHooks: Send + Sync {
@@ -3001,6 +3032,40 @@ pub fn register_game_pause_hooks(hooks: Arc<dyn GamePauseHooks>) -> bool {
 
 fn game_pause_hooks() -> Option<&'static Arc<dyn GamePauseHooks>> {
     GAME_PAUSE_HOOKS.get()
+}
+
+pub fn register_load_screen_hooks(hooks: Arc<dyn LoadScreenHooks>) -> bool {
+    let mut slot = load_screen_hooks_slot()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *slot = Some(hooks);
+    true
+}
+
+#[cfg(test)]
+pub fn clear_load_screen_hooks() {
+    let mut slot = load_screen_hooks_slot()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    *slot = None;
+}
+
+fn with_load_screen_hooks<F>(f: F) -> bool
+where
+    F: FnOnce(&dyn LoadScreenHooks),
+{
+    let hooks = {
+        let slot = load_screen_hooks_slot()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        slot.clone()
+    };
+    if let Some(hooks) = hooks {
+        f(hooks.as_ref());
+        true
+    } else {
+        false
+    }
 }
 
 pub fn register_observer_audio_locality_hooks(hooks: Arc<dyn ObserverAudioLocalityHooks>) -> bool {
