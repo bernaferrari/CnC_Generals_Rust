@@ -15,6 +15,7 @@ use crate::object::collide::crate_collide::*;
 use crate::object::collide::Coord3D as CollideCoord3D;
 use crate::object::collide::LegacyCollideAdapter;
 use crate::object::*;
+use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 
 /// Module data for sabotage fake building crate collide behavior
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,11 +33,196 @@ impl Default for SabotageFakeBuildingCrateCollideModuleData {
 }
 
 impl SabotageFakeBuildingCrateCollideModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, SABOTAGE_FAKE_BUILDING_CRATE_COLLIDE_FIELDS)
+    }
+
     /// Build field parser for INI configuration
     pub fn build_field_parse() -> Vec<FieldParse> {
         LegacyCrateCollideModuleData::build_field_parse()
     }
 }
+
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+    if tokens.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+
+    let mut mask = 0u64;
+    for token in tokens
+        .iter()
+        .filter(|token| **token != "=")
+        .flat_map(|token| token.split('|'))
+    {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let Some(kind) = kindof_from_name(token) else {
+            return Err(INIError::InvalidData);
+        };
+        mask |= 1u64 << (kind as u32);
+    }
+    Ok(mask)
+}
+
+fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_required_kind_of(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.required_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbidden_kind_of(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.forbidden_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbid_owner_player(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_forbid_owner_player = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_building_pickup(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_building_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_human_only(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_human_only_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_pickup_science(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.pickup_science =
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(first_token(tokens)?)
+            as crate::common::science::ScienceType;
+    Ok(())
+}
+
+fn parse_execute_fx(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_fx = Some(first_token(tokens)?.to_string());
+    Ok(())
+}
+
+fn parse_execute_animation(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execution_animation_template = first_token(tokens)?.to_string();
+    Ok(())
+}
+
+fn parse_execute_animation_time(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_display_time_seconds = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_z_rise(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_z_rise_per_second = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_fades(
+    _ini: &mut INI,
+    data: &mut SabotageFakeBuildingCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_fades = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+const SABOTAGE_FAKE_BUILDING_CRATE_COLLIDE_FIELDS: &[IniFieldParse<
+    SabotageFakeBuildingCrateCollideModuleData,
+>] = &[
+    IniFieldParse {
+        token: "RequiredKindOf",
+        parse: parse_required_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbiddenKindOf",
+        parse: parse_forbidden_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbidOwnerPlayer",
+        parse: parse_forbid_owner_player,
+    },
+    IniFieldParse {
+        token: "BuildingPickup",
+        parse: parse_building_pickup,
+    },
+    IniFieldParse {
+        token: "HumanOnly",
+        parse: parse_human_only,
+    },
+    IniFieldParse {
+        token: "PickupScience",
+        parse: parse_pickup_science,
+    },
+    IniFieldParse {
+        token: "ExecuteFX",
+        parse: parse_execute_fx,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimation",
+        parse: parse_execute_animation,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationTime",
+        parse: parse_execute_animation_time,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationZRise",
+        parse: parse_execute_animation_z_rise,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationFades",
+        parse: parse_execute_animation_fades,
+    },
+];
 
 /// Sabotage Fake Building Crate Collide module
 #[derive(Debug)]
@@ -204,6 +390,47 @@ impl CrateCollideModule for SabotageFakeBuildingCrateCollide {
 
     fn is_sabotage_building_crate_collide(&self) -> bool {
         SabotageFakeBuildingCrateCollide::is_sabotage_building_crate_collide(self)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fake_building_sabotage_parse_from_ini_preserves_cpp_base_fields() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = SabotageFakeBuildingCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "RequiredKindOf = FS_FAKE\n\
+             BuildingPickup = yes\n\
+             ExecuteAnimationZRise = 3.25\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("fake building sabotage ini parses");
+
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::FSFake as u32)),
+            0
+        );
+        assert!(data.base.is_building_pickup);
+        assert!((data.base.execute_animation_z_rise_per_second - 3.25).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn fake_building_sabotage_rejects_missing_cpp_base_field_value() {
+        let mut data = SabotageFakeBuildingCrateCollideModuleData::default();
+        let mut ini = INI::new();
+
+        let err = ini
+            .with_inline_source("BuildingPickup =\nEnd\n", |ini| data.parse_from_ini(ini))
+            .expect_err("missing bool value should fail");
+
+        assert!(matches!(err, INIError::InvalidData));
+        assert!(!data.base.is_building_pickup);
     }
 }
 
