@@ -867,6 +867,8 @@ pub struct InGameUISubsystem {
     camera_zooming_out: bool,
     camera_tracking_drawable: bool,
     prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
+    draw_rmb_scroll_anchor: bool,
+    move_rmb_scroll_anchor: bool,
     pending_special_power: Option<PendingSpecialPower>,
     pending_command: Option<PendingCommand>,
 }
@@ -1255,6 +1257,22 @@ impl InGameUISubsystem {
         self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click
     }
 
+    fn set_draw_rmb_scroll_anchor(&mut self, enabled: bool) {
+        self.draw_rmb_scroll_anchor = enabled;
+    }
+
+    fn get_draw_rmb_scroll_anchor(&self) -> bool {
+        self.draw_rmb_scroll_anchor
+    }
+
+    fn set_move_rmb_scroll_anchor(&mut self, enabled: bool) {
+        self.move_rmb_scroll_anchor = enabled;
+    }
+
+    fn get_move_rmb_scroll_anchor(&self) -> bool {
+        self.move_rmb_scroll_anchor
+    }
+
     fn clear_runtime_state(&mut self) {
         self.beacon_markers.clear();
         self.pending_beacon_events.clear();
@@ -1282,6 +1300,8 @@ impl InGameUISubsystem {
         self.camera_zooming_out = false;
         self.camera_tracking_drawable = false;
         self.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = false;
+        self.draw_rmb_scroll_anchor = false;
+        self.move_rmb_scroll_anchor = false;
         self.pending_special_power = None;
         self.pending_command = None;
     }
@@ -1775,6 +1795,32 @@ impl InGameUiHooks for InGameUiHandle {
         self.inner
             .lock()
             .map(|ui| ui.get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click())
+            .unwrap_or(false)
+    }
+
+    fn set_draw_rmb_scroll_anchor(&self, enabled: bool) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_draw_rmb_scroll_anchor(enabled);
+        }
+    }
+
+    fn set_move_rmb_scroll_anchor(&self, enabled: bool) {
+        if let Ok(mut ui) = self.inner.lock() {
+            ui.set_move_rmb_scroll_anchor(enabled);
+        }
+    }
+
+    fn get_draw_rmb_scroll_anchor(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.get_draw_rmb_scroll_anchor())
+            .unwrap_or(false)
+    }
+
+    fn get_move_rmb_scroll_anchor(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|ui| ui.get_move_rmb_scroll_anchor())
             .unwrap_or(false)
     }
 
