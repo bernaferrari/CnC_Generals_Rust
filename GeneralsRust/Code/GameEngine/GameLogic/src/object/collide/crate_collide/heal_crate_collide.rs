@@ -121,10 +121,7 @@ fn parse_pickup_science(
     data: &mut HealCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.base.pickup_science =
-        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(first_token(tokens)?)
-            as crate::common::science::ScienceType;
-    Ok(())
+    super::parse_crate_pickup_science(&mut data.base, first_token(tokens)?)
 }
 
 fn parse_execute_fx(
@@ -343,11 +340,27 @@ impl game_engine::common::system::Snapshotable for HealCrateCollide {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use game_engine::common::rts::science::{
+        get_science_store, get_science_store_mut, init_science_store, ScienceInfo, SCIENCE_INVALID,
+    };
+
+    fn install_test_science(name: &str) -> crate::common::science::ScienceType {
+        init_science_store();
+        {
+            let mut store = get_science_store_mut().expect("science store mut");
+            store.init();
+            store.add_science(ScienceInfo::new(SCIENCE_INVALID, name));
+        }
+        get_science_store()
+            .expect("science store")
+            .get_science_from_internal_name(name) as crate::common::science::ScienceType
+    }
 
     #[test]
     fn heal_crate_parse_from_ini_preserves_cpp_base_fields() {
         let _lock = crate::test_sync::lock();
 
+        let expected_science = install_test_science("SCIENCE_HEAL_CRATE_TEST");
         let mut data = HealCrateCollideModuleData::default();
         let mut ini = INI::new();
         ini.with_inline_source(
@@ -356,6 +369,7 @@ mod tests {
              ForbidOwnerPlayer = true\n\
              BuildingPickup = false\n\
              HumanOnly = true\n\
+             PickupScience = SCIENCE_HEAL_CRATE_TEST\n\
              ExecuteFX = FX_CratePickup\n\
              ExecuteAnimation = HealCrateAnim\n\
              ExecuteAnimationTime = 1.75\n\
@@ -381,6 +395,7 @@ mod tests {
         assert!(data.base.is_forbid_owner_player);
         assert!(!data.base.is_building_pickup);
         assert!(data.base.is_human_only_pickup);
+        assert_eq!(data.base.pickup_science, expected_science);
         assert_eq!(data.base.execute_fx.as_deref(), Some("FX_CratePickup"));
         assert_eq!(data.base.execution_animation_template, "HealCrateAnim");
         assert!((data.base.execute_animation_display_time_seconds - 1.75).abs() < f32::EPSILON);
@@ -399,5 +414,25 @@ mod tests {
 
         assert!(matches!(err, INIError::InvalidData));
         assert_eq!(data.base.required_kind_of, 0);
+    }
+
+    #[test]
+    fn heal_crate_rejects_unknown_pickup_science_like_cpp() {
+        let _lock = crate::test_sync::lock();
+
+        install_test_science("SCIENCE_KNOWN_HEAL_CRATE_TEST");
+
+        let mut data = HealCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        let err = ini
+            .with_inline_source(
+                "PickupScience = SCIENCE_DOES_NOT_EXIST\n\
+                 End\n",
+                |ini| data.parse_from_ini(ini),
+            )
+            .expect_err("unknown PickupScience should fail");
+
+        assert!(matches!(err, INIError::InvalidData));
+        assert_eq!(data.base.pickup_science, SCIENCE_INVALID);
     }
 }
