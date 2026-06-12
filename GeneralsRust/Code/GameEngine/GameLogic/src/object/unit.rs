@@ -6391,27 +6391,49 @@ impl AIUpdateInterface for UnitAIUpdate {
             .unit
             .upgrade()
             .ok_or_else(|| "unit no longer available".to_string())?;
+        let start_pos = unit
+            .read()
+            .map_err(|_| "unit lock poisoned".to_string())?
+            .get_position();
 
         let terrain = crate::terrain::get_terrain_logic()
             .read()
             .map_err(|_| "terrain lock poisoned".to_string())?;
 
+        self.destroy_path();
+
         // Build a chain following link 0 to match the classic path order.
         let mut visited = std::collections::HashSet::new();
         let mut waypoints = Vec::new();
+        let mut path_coords = vec![start_pos];
         let mut current = waypoint.clone();
         for _ in 0..=WAYPOINT_PATH_LIMIT {
             if !visited.insert(current.id) {
                 break;
             }
+            let next_id = current.get_link(0);
             let mut adjusted = current.clone();
             adjusted.position.x += group_offset.x;
             adjusted.position.y += group_offset.y;
             adjusted.position.z =
                 terrain.get_ground_height(adjusted.position.x, adjusted.position.y, None);
+            if next_id.is_none() {
+                adjusted.position = THE_AI
+                    .read()
+                    .ok()
+                    .and_then(|ai| ai.pathfinder())
+                    .and_then(|pathfinder| {
+                        pathfinder
+                            .read()
+                            .ok()
+                            .map(|pf| pf.snap_position(&adjusted.position))
+                    })
+                    .unwrap_or(adjusted.position);
+            }
+            path_coords.push(adjusted.position);
             waypoints.push(adjusted);
 
-            let Some(next_id) = current.get_link(0) else {
+            let Some(next_id) = next_id else {
                 break;
             };
             let Some(next) = terrain.get_waypoint_by_id(next_id) else {
@@ -6435,9 +6457,9 @@ impl AIUpdateInterface for UnitAIUpdate {
             guard.path_index = 0;
             guard.path_following_state = None;
             guard.current_path = Some(
-                waypoints
+                path_coords
                     .iter()
-                    .map(|waypoint| Coord2D::new(waypoint.position.x, waypoint.position.y))
+                    .map(|pos| Coord2D::new(pos.x, pos.y))
                     .collect(),
             );
             guard.waypoint_queue.clear();
@@ -6447,12 +6469,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.waiting_for_path = false;
         self.queue_for_path_frame = 0;
         self.path_timestamp = TheGameLogic::get_frame();
-        self.set_current_path_snapshot_from_coords(
-            &waypoints
-                .iter()
-                .map(|waypoint| waypoint.position)
-                .collect::<Vec<_>>(),
-        );
+        self.set_current_path_snapshot_from_coords(&path_coords);
 
         Ok(())
     }
@@ -9031,6 +9048,78 @@ mod tests {
             unit_guard.target_position,
             Some(Coord3D::new(20.0, 0.0, 0.0))
         );
+    }
+
+    #[test]
+    fn set_path_from_waypoint_prepends_current_position_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(57, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(3.0, 4.0, 2.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
+        unit.current_path = Some(vec![Coord2D::new(99.0, 99.0)]);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        ai.set_current_path_snapshot_from_coords(&[Coord3D::new(99.0, 99.0, 0.0)]);
+
+        let waypoint = crate::waypoint::Waypoint::new(
+            5700,
+            Coord3D::new(31.3, 42.7, 17.0),
+            "Terminal".to_string(),
+        );
+        let raw_terminal = Coord3D::new(33.8, 39.2, 0.0);
+        let expected_terminal = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .and_then(|pathfinder| {
+                pathfinder
+                    .read()
+                    .ok()
+                    .map(|pf| pf.snap_position(&raw_terminal))
+            })
+            .unwrap_or(raw_terminal);
+
+        ai.set_path_from_waypoint(&waypoint, &Coord2D::new(2.5, -3.5))
+            .unwrap();
+
+        let unit_guard = unit.read().unwrap();
+        let path = unit_guard.current_path.as_ref().unwrap();
+        assert_eq!(path.len(), 2);
+        assert_eq!(path[0], Coord2D::new(3.0, 4.0));
+        assert_eq!(
+            path[1],
+            Coord2D::new(expected_terminal.x, expected_terminal.y)
+        );
+        assert_eq!(unit_guard.target_position, Some(expected_terminal));
+        assert_eq!(unit_guard.movement_state, MovementState::Moving);
+
+        let snapshot = ai.current_path_snapshot.as_ref().unwrap();
+        assert_eq!(
+            snapshot.get_first_node().unwrap().get_position(),
+            &Coord3D::new(3.0, 4.0, 2.0)
+        );
+        assert!(!ai.waiting_for_path);
     }
 
     #[test]
