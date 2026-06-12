@@ -73,6 +73,9 @@ use crate::game_text::GameText;
 use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::gadgets::register_button_audio_hook;
 use crate::gui::ime_manager::get_ime_manager;
+use crate::gui::load_screen::{
+    clear_load_screen_presentation_pump, register_load_screen_presentation_pump,
+};
 use crate::gui::{
     get_shell, get_skirmish_setup, set_ui_renderer, with_window_manager, UIRenderer, WindowStatus,
 };
@@ -2801,9 +2804,13 @@ impl GameClient {
             display.init()?;
             let display = Arc::new(Mutex::new(display));
             register_script_display_bridge(Some(Arc::clone(&display)));
+            Self::install_load_screen_presentation_pump(Arc::clone(&display));
             self.subsystem_manager.display = Some(display);
         } else if let Some(display) = self.subsystem_manager.display.as_ref() {
             register_script_display_bridge(Some(Arc::clone(display)));
+            Self::install_load_screen_presentation_pump(Arc::clone(display));
+        } else {
+            clear_load_screen_presentation_pump();
         }
         // If neither PlatformContext nor display exists, we skip GraphicsDisplay
         // creation — the engine's own wgpu pipeline handles rendering.  All logical
@@ -3442,6 +3449,19 @@ impl GameClient {
         Ok(())
     }
 
+    fn install_load_screen_presentation_pump(display: Arc<Mutex<GraphicsDisplay>>) {
+        register_load_screen_presentation_pump(move || {
+            let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
+            if let Err(err) = display.update() {
+                log::warn!("Load-screen display update failed: {err}");
+                return;
+            }
+            if let Err(err) = display.draw() {
+                log::warn!("Load-screen display draw failed: {err}");
+            }
+        });
+    }
+
     fn update_startup_movie_display(&mut self) -> GameClientResult<()> {
         if let Some(ref display) = self.subsystem_manager.display {
             let mut display = display.lock().unwrap_or_else(|e| e.into_inner());
@@ -4060,6 +4080,7 @@ impl Drop for GameClient {
         GameClient::reset_global_video_player_streams();
         reset_script_action_runtime_state();
         register_script_display_bridge(None);
+        clear_load_screen_presentation_pump();
         shutdown_video_player();
 
         // Clear all drawables (they'll be dropped automatically)

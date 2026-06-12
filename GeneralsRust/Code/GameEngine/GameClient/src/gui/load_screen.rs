@@ -188,10 +188,16 @@ static SINGLE_PLAYER_MOVIE_PLAYING_HOOK: OnceLock<Mutex<Option<SinglePlayerMovie
 
 type MapTransferLiteupdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
+type LoadScreenPresentationPump = Rc<dyn Fn() + 'static>;
 #[cfg(test)]
 type LoadScreenFinishUpdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 #[cfg(test)]
 type SinglePlayerMoviePlayHook = Arc<dyn Fn(&str) -> bool + Send + Sync + 'static>;
+
+thread_local! {
+    static LOAD_SCREEN_PRESENTATION_PUMP: RefCell<Option<LoadScreenPresentationPump>> =
+        const { RefCell::new(None) };
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ChallengePersonaText {
@@ -544,13 +550,29 @@ fn clear_load_screen_cursor_tooltip() {
 
 fn finish_load_screen_update() {
     // C++ LoadScreen::update does this last: pump windows/display and restore FP mode.
-    // Display drawing is owned by the runtime display bridge; the GUI-level parity step
-    // we can safely perform here is the WindowManager update.
     with_window_manager(|wm| wm.update());
+    pump_load_screen_presentation();
     gamelogic::system::game_logic::set_fp_mode();
 
     #[cfg(test)]
     if let Some(hook) = load_screen_finish_update_hook() {
+        hook();
+    }
+}
+
+pub fn register_load_screen_presentation_pump(
+    hook: impl Fn() + 'static,
+) -> Option<LoadScreenPresentationPump> {
+    LOAD_SCREEN_PRESENTATION_PUMP.with(|state| state.borrow_mut().replace(Rc::new(hook)))
+}
+
+pub fn clear_load_screen_presentation_pump() -> Option<LoadScreenPresentationPump> {
+    LOAD_SCREEN_PRESENTATION_PUMP.with(|state| state.borrow_mut().take())
+}
+
+fn pump_load_screen_presentation() {
+    let hook = LOAD_SCREEN_PRESENTATION_PUMP.with(|state| state.borrow().clone());
+    if let Some(hook) = hook {
         hook();
     }
 }
@@ -806,12 +828,14 @@ fn run_shell_game_legal_hold(wm: &mut WindowManager) {
     let hold_duration = shell_game_legal_hold_duration();
     if hold_duration.is_zero() {
         wm.update();
+        pump_load_screen_presentation();
         return;
     }
 
     let show_start = Instant::now();
     while show_start.elapsed() < hold_duration {
         wm.update();
+        pump_load_screen_presentation();
         std::thread::sleep(SHELL_GAME_LEGAL_UPDATE_INTERVAL);
     }
 }
@@ -3555,6 +3579,7 @@ mod tests {
         clear_map_transfer_liteupdate_hook();
         clear_multiplayer_load_progress_hook();
         clear_load_screen_finish_update_hook();
+        clear_load_screen_presentation_pump();
 
         let finish_calls = Arc::new(AtomicUsize::new(0));
         let hook_finish_calls = Arc::clone(&finish_calls);
@@ -3564,6 +3589,12 @@ mod tests {
                 assert_eq!(mouse.cursor_tooltip_state().tooltip_text, "");
                 assert!(mouse.cursor_tooltip_state().is_tooltip_empty);
             });
+        });
+
+        let presentation_calls = Arc::new(AtomicUsize::new(0));
+        let hook_presentation_calls = Arc::clone(&presentation_calls);
+        register_load_screen_presentation_pump(move || {
+            hook_presentation_calls.fetch_add(1, Ordering::SeqCst);
         });
 
         register_map_transfer_liteupdate_hook(|| {
@@ -3578,8 +3609,10 @@ mod tests {
         update_load_screen(LoadScreenKind::Multiplayer, 75.0);
 
         assert_eq!(finish_calls.load(Ordering::SeqCst), 4);
+        assert_eq!(presentation_calls.load(Ordering::SeqCst), 4);
         clear_map_transfer_liteupdate_hook();
         clear_load_screen_finish_update_hook();
+        clear_load_screen_presentation_pump();
     }
 
     #[test]
@@ -4185,6 +4218,13 @@ mod tests {
     #[test]
     fn shell_game_first_load_matches_cpp_title_and_legal_state() {
         reset_shell_game_first_load_for_tests(true);
+        clear_load_screen_presentation_pump();
+        let presentation_calls = Arc::new(AtomicUsize::new(0));
+        let hook_presentation_calls = Arc::clone(&presentation_calls);
+        register_load_screen_presentation_pump(move || {
+            hook_presentation_calls.fetch_add(1, Ordering::SeqCst);
+        });
+
         let mut wm = WindowManager::new();
         let root = wm.create_window(None, 0, 0, 800, 600).expect("root");
         root.borrow_mut()
@@ -4212,6 +4252,7 @@ mod tests {
             .find_window_by_name("ShellGameLoadScreen.wnd:ProgressLoad")
             .expect("progress");
         assert!(!progress.borrow().is_hidden());
+        assert_eq!(presentation_calls.load(Ordering::SeqCst), 1);
 
         let mut second_wm = WindowManager::new();
         let second_root = second_wm.create_window(None, 0, 0, 800, 600).expect("root");
@@ -4227,6 +4268,7 @@ mod tests {
             .expect("legal");
         assert!(second_legal.borrow().is_hidden());
         reset_shell_game_first_load_for_tests(true);
+        clear_load_screen_presentation_pump();
     }
 
     #[test]
