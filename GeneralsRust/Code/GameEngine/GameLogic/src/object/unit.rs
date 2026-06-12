@@ -7165,6 +7165,14 @@ impl AIUpdateInterface for UnitAIUpdate {
         {
             return Ok(());
         }
+        if (self.get_current_state_id() == Some(u32::from(AIStateType::FollowExitProductionPath))
+            || self.current_command == Some(crate::ai::AiCommandType::FollowExitProductionPath))
+            && self.can_path_through_units
+            && self.install_direct_path_from_current_position(destination)
+        {
+            let _ = self.set_can_path_through_units(false);
+            return Ok(());
+        }
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
@@ -8459,6 +8467,51 @@ mod tests {
         );
         assert_eq!(unit_guard.target_position, Some(destination));
         assert_eq!(ai.queue_for_path_frame, 0);
+    }
+
+    #[test]
+    fn request_path_for_exit_production_uses_direct_path_and_clears_unit_phasing_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(45, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 2.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        ai.set_can_path_through_units(true).unwrap();
+        ai.current_command = Some(crate::ai::AiCommandType::FollowExitProductionPath);
+
+        let destination = Coord3D::new(0.0, 0.0, 6.0);
+        ai.request_path(&destination, true).unwrap();
+
+        assert!(!ai.can_path_through_units);
+        assert_eq!(ai.queue_for_path_frame, 0);
+        let unit_guard = unit.read().unwrap();
+        assert_eq!(
+            unit_guard.current_path.as_ref().unwrap(),
+            &vec![Coord2D::new(0.0, 0.0), Coord2D::new(0.0, 0.0)]
+        );
+        assert_eq!(unit_guard.target_position, Some(destination));
     }
 
     fn save_unit_ai_update(ai: &mut UnitAIUpdate) -> Vec<u8> {
