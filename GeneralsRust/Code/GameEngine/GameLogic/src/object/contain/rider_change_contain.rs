@@ -934,13 +934,6 @@ impl RiderChangeContain {
         false
     }
 
-    /// Transform riders to new type
-    pub fn change_riders(&mut self, new_template: &str) -> GameResult<()> {
-        // Implementation would transform contained units
-        let _ = new_template;
-        Ok(())
-    }
-
     pub fn is_valid_container_for(&self, rider: &Object, check_capacity: bool) -> bool {
         let _ = check_capacity;
         if !self.base.is_valid_container_for(rider, false) {
