@@ -369,6 +369,25 @@ impl StealthController {
     pub fn mark_as_detected(&mut self) {
         let now = TheGameLogic::get_frame();
         self.detection_expires_frame = now.saturating_add(self.data.stealth_delay_frames);
+        self.set_detected_status();
+    }
+
+    pub fn mark_as_detected_for(&mut self, num_frames: UnsignedInt) {
+        if num_frames == 0 {
+            self.mark_as_detected();
+            return;
+        }
+
+        let now = TheGameLogic::get_frame();
+        let detection_expires_frame = now.saturating_add(num_frames);
+        if self.detection_expires_frame < detection_expires_frame {
+            self.detection_expires_frame = detection_expires_frame;
+        }
+
+        self.set_detected_status();
+    }
+
+    fn set_detected_status(&mut self) {
         if let Err(err) = self.set_status_flag(ObjectStatusMaskType::DETECTED, true) {
             warn!(
                 "Failed to mark object {} as detected: {}",
@@ -1164,6 +1183,30 @@ mod tests {
                 .get_status_bits()
                 .contains(ObjectStatusMaskType::STEALTHED));
         }
+
+        OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
+    fn mark_as_detected_for_extends_detection_without_shortening() {
+        let object_id: ObjectID = 4243;
+        let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
+        OBJECT_REGISTRY.register_object(object_id, &object);
+
+        let mut data = StealthUpdateModuleData::default();
+        data.stealth_delay_frames = 3;
+        let data = Arc::new(data);
+        let mut controller = StealthController::new(data, object_id);
+        let now = TheGameLogic::get_frame();
+
+        controller.mark_as_detected_for(11);
+        assert_eq!(controller.detection_expires_frame, now.saturating_add(11));
+
+        controller.mark_as_detected_for(5);
+        assert_eq!(controller.detection_expires_frame, now.saturating_add(11));
+
+        controller.mark_as_detected_for(0);
+        assert_eq!(controller.detection_expires_frame, now.saturating_add(3));
 
         OBJECT_REGISTRY.unregister_object(object_id);
     }
