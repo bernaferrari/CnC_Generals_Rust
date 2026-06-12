@@ -563,7 +563,9 @@ impl StealthDetectorUpdate {
                                 if let Some(stealth_module) = target.get_stealth_module() {
                                     drop(target);
                                     if let Ok(mut stealth_guard) = stealth_module.lock() {
-                                        stealth_guard.mark_as_detected();
+                                        stealth_guard.mark_as_detected_for(
+                                            self.module_data.update_rate.saturating_add(1),
+                                        );
                                     }
                                 } else {
                                     drop(target);
@@ -621,7 +623,11 @@ impl StealthDetectorUpdate {
                                                         if let Ok(mut stealth_guard) =
                                                             stealth_module.lock()
                                                         {
-                                                            stealth_guard.mark_as_detected();
+                                                            stealth_guard.mark_as_detected_for(
+                                                                self.module_data
+                                                                    .update_rate
+                                                                    .saturating_add(2),
+                                                            );
                                                         }
                                                     }
                                                 }

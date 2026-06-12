@@ -437,9 +437,7 @@ impl StealthDetectorController {
                 if let Some(stealth_module) = obj_guard.get_stealth_module() {
                     drop(obj_guard); // Release guard before acquiring stealth lock
                     if let Ok(mut stealth_guard) = stealth_module.lock() {
-                        // The mark_as_detected method takes no arguments
-                        // Detection duration is managed internally by the stealth controller
-                        stealth_guard.mark_as_detected();
+                        stealth_guard.mark_as_detected_for(self.data.update_rate.saturating_add(1));
                     }
                 } else {
                     drop(obj_guard);
@@ -505,7 +503,9 @@ impl StealthDetectorController {
                                             drop(rider_guard);
                                             if let Ok(mut stealth_guard) = stealth_module.lock() {
                                                 // Mark garrisoned stealth unit as detected
-                                                stealth_guard.mark_as_detected();
+                                                stealth_guard.mark_as_detected_for(
+                                                    self.data.update_rate.saturating_add(2),
+                                                );
                                             }
                                         }
                                     }
