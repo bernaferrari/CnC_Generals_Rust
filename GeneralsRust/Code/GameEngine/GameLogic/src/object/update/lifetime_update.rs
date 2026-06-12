@@ -58,12 +58,7 @@ impl LifetimeUpdate {
     }
 
     pub fn update(&mut self, ctx: &mut UpdateContext<'_>) -> UpdateSleepTime {
-        let now = ctx.game_logic.get_frame();
-        if now < self.die_frame {
-            return UpdateSleepTime::Frames(self.die_frame - now);
-        }
-
-        // Kill (NOT destroy) if time is up
+        // C++ kills whenever the scheduled update is invoked; timing is owned by the scheduler.
         if let Some(object) = ctx.game_logic.find_object_mut(self.thing) {
             object.kill(None, None);
         }
