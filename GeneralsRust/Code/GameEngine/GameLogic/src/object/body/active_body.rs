@@ -991,6 +991,24 @@ impl ActiveBody {
         }
     }
 
+    fn with_contain_module_mut(
+        &self,
+        mut f: impl FnMut(&mut dyn crate::modules::ContainModuleInterface),
+    ) {
+        let Some(owner) = self.get_owner() else {
+            return;
+        };
+        let contain = match owner.try_read() {
+            Ok(owner_guard) => owner_guard.get_contain(),
+            Err(_) => return,
+        };
+        if let Some(contain) = contain {
+            if let Ok(mut contain_guard) = contain.lock() {
+                f(&mut *contain_guard);
+            }
+        }
+    }
+
     fn notify_damage_modules_on_damage(&self, damage_info: &mut DamageInfo) {
         self.for_each_damage_module_mut(|damage_module| {
             if let Err(err) = damage_module.on_damage(damage_info) {
@@ -1018,6 +1036,13 @@ impl ActiveBody {
                 damage_module.on_body_damage_state_change(damage_info, old_state, new_state)
             {
                 log::trace!("ActiveBody body state callback failed: {err}");
+            }
+        });
+        self.with_contain_module_mut(|contain_module| {
+            if let Err(err) =
+                contain_module.on_body_damage_state_change(damage_info, old_state, new_state)
+            {
+                log::trace!("ActiveBody contain body state callback failed: {err}");
             }
         });
     }
