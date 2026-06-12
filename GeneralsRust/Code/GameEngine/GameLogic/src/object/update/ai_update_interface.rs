@@ -22,7 +22,7 @@ use crate::common::{
     WhichTurretType, INVALID_ID, LOGICFRAMES_PER_SECOND, WEAPONSLOT_COUNT,
 };
 use crate::helpers::TheGameLogic;
-use crate::locomotor::{LOCOMOTOR_STORE, SURFACE_AIR};
+use crate::locomotor::{LOCOMOTOR_STORE, SURFACE_AIR, SURFACE_GROUND};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::weapon::WeaponSlotType;
 
@@ -743,6 +743,7 @@ pub struct AIUpdateInterface {
     // Locomotor
     locomotor_set_tag: UnsignedInt,
     cur_locomotor_tag: UnsignedInt,
+    cur_locomotor_template: AsciiString,
     cur_locomotor_surfaces: u32,
     cur_locomotor_set: LocomotorSetType,
     locomotor_goal_type: LocoGoalType,
@@ -844,6 +845,7 @@ impl AIUpdateInterface {
             move_out_of_way2: INVALID_ID,
             locomotor_set_tag: 0,
             cur_locomotor_tag: 0,
+            cur_locomotor_template: AsciiString::new(),
             cur_locomotor_surfaces: 0,
             cur_locomotor_set: LocomotorSetType::Invalid,
             locomotor_goal_type: LocoGoalType::None,
@@ -1127,9 +1129,29 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::canComputeQuickPath – airborne units can skip
     /// queued pathfinding and build a direct path immediately.
     pub fn can_compute_quick_path(&self) -> bool {
-        self.cur_locomotor_tag != 0
-            && (self.cur_locomotor_surfaces & SURFACE_AIR) != 0
-            && !self.is_doing_ground_movement()
+        let set_surfaces = self.current_locomotor_set_surfaces();
+        set_surfaces != 0 && (set_surfaces & SURFACE_AIR) != 0 && !self.is_doing_ground_movement()
+    }
+
+    fn current_locomotor_set_surfaces(&self) -> u32 {
+        let Some(entries) = self
+            .module_data
+            .locomotor_sets()
+            .get(&self.cur_locomotor_set)
+        else {
+            return self.cur_locomotor_surfaces;
+        };
+
+        let surfaces = entries
+            .iter()
+            .filter_map(|entry| LOCOMOTOR_STORE.get_template(entry.as_str()))
+            .fold(0, |surfaces, template| surfaces | template.surfaces);
+
+        if surfaces != 0 {
+            surfaces
+        } else {
+            self.cur_locomotor_surfaces
+        }
     }
 
     /// C++ AIUpdateInterface::computeQuickPath – build a direct two-node path
@@ -1175,6 +1197,8 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::doLocomotor – execute locomotor movement along path.
     /// Returns UpdateSleepTime hint.  Ported from AIUpdate.cpp (approx line 2000+).
     pub fn do_locomotor(&mut self) -> UnsignedInt {
+        self.choose_locomotor_from_current_set();
+
         if self.is_blocked {
             self.blocked_frames = self.blocked_frames.saturating_add(1);
         } else {
@@ -1240,11 +1264,14 @@ impl AIUpdateInterface {
     /// C++ AIUpdateInterface::getCurLocomotorSpeed – current speed for AI decisions.
     /// Ported from AIUpdate.cpp:774.
     pub fn get_cur_locomotor_speed(&self) -> Real {
-        // PARITY_TODO: query cur_locomotor->getMaxSpeedForCondition(damageState)
-        if self.cur_locomotor_tag != 0 {
-            return AI_FAST_AS_POSSIBLE;
+        if self.cur_locomotor_tag == 0 {
+            return 0.0;
         }
-        0.0
+
+        LOCOMOTOR_STORE
+            .get_template(self.cur_locomotor_template.as_str())
+            .map(|template| template.max_speed)
+            .unwrap_or(0.0)
     }
 
     /// C++ AIUpdateInterface::chooseGoodLocomotorFromCurrentSet – selects the
@@ -1258,11 +1285,13 @@ impl AIUpdateInterface {
         // available, keep the previous locomotor like C++ does when physics has
         // slid the object into an invalid cell.
         let previous_locomotor_tag = self.cur_locomotor_tag;
+        let previous_locomotor_template = self.cur_locomotor_template.clone();
+        let previous_locomotor_surfaces = self.cur_locomotor_surfaces;
         let selected_entry = self
             .module_data
             .locomotor_sets()
             .get(&self.cur_locomotor_set)
-            .and_then(|entries| entries.first());
+            .and_then(|entries| entries.first().cloned());
         self.cur_locomotor_tag = if selected_entry.is_some() {
             1
         } else if previous_locomotor_tag != 0 {
@@ -1271,20 +1300,29 @@ impl AIUpdateInterface {
             0
         };
         if let Some(entry) = selected_entry {
+            self.cur_locomotor_template = entry.clone();
             self.cur_locomotor_surfaces = LOCOMOTOR_STORE
                 .get_template(entry.as_str())
                 .map(|template| template.surfaces)
                 .unwrap_or(0);
+        } else if self.cur_locomotor_tag != 0 {
+            self.cur_locomotor_template = previous_locomotor_template;
+            self.cur_locomotor_surfaces = previous_locomotor_surfaces;
         } else if self.cur_locomotor_tag == 0 {
+            self.cur_locomotor_template.clear();
             self.cur_locomotor_surfaces = 0;
         }
     }
 
     /// C++ AIUpdateInterface::isDoingGroundMovement – true if moving along ground.
     pub fn is_doing_ground_movement(&self) -> bool {
-        // PARITY_TODO: check cur_locomotor surface type
-        self.cur_locomotor_set != LocomotorSetType::Freefall
-            && self.cur_locomotor_set != LocomotorSetType::Supersonic
+        if self.cur_locomotor_tag == 0 {
+            return false;
+        }
+        if (self.cur_locomotor_surfaces & SURFACE_AIR) != 0 {
+            return false;
+        }
+        (self.cur_locomotor_surfaces & SURFACE_GROUND) != 0
     }
 
     // -----------------------------------------------------------------------
@@ -1704,6 +1742,8 @@ impl AIUpdateInterface {
 
         self.locomotor_set_tag = entries.len() as UnsignedInt;
         self.cur_locomotor_tag = 0;
+        self.cur_locomotor_template.clear();
+        self.cur_locomotor_surfaces = 0;
         self.cur_locomotor_set = wst;
         true
     }
@@ -1794,8 +1834,14 @@ mod tests {
 
     fn ai_update_with_locomotors() -> AIUpdateInterface {
         let mut data = AIUpdateModuleData::default();
-        data.add_locomotor_set_entry(LocomotorSetType::Normal, "BasicLoco".into());
-        data.add_locomotor_set_entry(LocomotorSetType::NormalUpgraded, "UpgradeLoco".into());
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, "Wheeled".into());
+        data.add_locomotor_set_entry(LocomotorSetType::NormalUpgraded, "Tracked".into());
+        AIUpdateInterface::new(Arc::new(data))
+    }
+
+    fn ai_update_with_air_locomotor() -> AIUpdateInterface {
+        let mut data = AIUpdateModuleData::default();
+        data.add_locomotor_set_entry(LocomotorSetType::Supersonic, "Thrust".into());
         AIUpdateInterface::new(Arc::new(data))
     }
 
@@ -2022,6 +2068,35 @@ mod tests {
     }
 
     #[test]
+    fn quick_path_uses_locomotor_set_surfaces_like_cpp() {
+        let mut ground_ai = ai_update_with_locomotors();
+        assert!(ground_ai.choose_locomotor_set(LocomotorSetType::Normal));
+        ground_ai.cur_locomotor_surfaces = SURFACE_AIR;
+        assert!(!ground_ai.can_compute_quick_path());
+
+        let mut air_ai = ai_update_with_air_locomotor();
+        assert!(air_ai.choose_locomotor_set(LocomotorSetType::Supersonic));
+        assert!(air_ai.can_compute_quick_path());
+    }
+
+    #[test]
+    fn is_doing_ground_movement_uses_current_locomotor_surfaces_like_cpp() {
+        let mut ai = ai_update();
+
+        ai.cur_locomotor_surfaces = SURFACE_GROUND;
+        assert!(!ai.is_doing_ground_movement());
+
+        ai.cur_locomotor_tag = 1;
+        assert!(ai.is_doing_ground_movement());
+
+        ai.cur_locomotor_surfaces = SURFACE_AIR;
+        assert!(!ai.is_doing_ground_movement());
+
+        ai.cur_locomotor_surfaces = SURFACE_GROUND | SURFACE_AIR;
+        assert!(!ai.is_doing_ground_movement());
+    }
+
+    #[test]
     fn is_path_available_checks_requested_destination_not_any_path() {
         let mut ai = ai_update();
         ai.path = Some(vec![
@@ -2038,7 +2113,8 @@ mod tests {
 
     #[test]
     fn do_pathfind_approach_builds_current_bridge_path() {
-        let mut ai = ai_update();
+        let mut ai = ai_update_with_locomotors();
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.set_final_position(Coord3D::new(3.0, 4.0, 0.0));
 
         ai.request_approach_path(Coord3D::new(12.0, 16.0, 0.0));
@@ -2152,7 +2228,9 @@ mod tests {
         assert_eq!(ai.get_cur_locomotor_set(), LocomotorSetType::Normal);
         assert_eq!(ai.locomotor_set_tag, 1);
         assert_ne!(ai.cur_locomotor_tag, 0);
-        assert_eq!(ai.get_cur_locomotor_speed(), AI_FAST_AS_POSSIBLE);
+        assert_eq!(ai.cur_locomotor_template.as_str(), "Wheeled");
+        assert_eq!(ai.cur_locomotor_surfaces, SURFACE_GROUND);
+        assert_eq!(ai.get_cur_locomotor_speed(), 15.0);
     }
 
     #[test]
@@ -2160,11 +2238,28 @@ mod tests {
         let mut ai = ai_update();
         ai.cur_locomotor_set = LocomotorSetType::Wander;
         ai.cur_locomotor_tag = 77;
+        ai.cur_locomotor_template = "Wheeled".into();
+        ai.cur_locomotor_surfaces = SURFACE_GROUND;
 
         ai.choose_locomotor_from_current_set();
 
         assert_eq!(ai.cur_locomotor_tag, 77);
-        assert_eq!(ai.get_cur_locomotor_speed(), AI_FAST_AS_POSSIBLE);
+        assert_eq!(ai.cur_locomotor_template.as_str(), "Wheeled");
+        assert_eq!(ai.cur_locomotor_surfaces, SURFACE_GROUND);
+        assert_eq!(ai.get_cur_locomotor_speed(), 15.0);
+    }
+
+    #[test]
+    fn do_locomotor_reselects_current_locomotor_like_cpp() {
+        let mut ai = ai_update_with_locomotors();
+        assert!(ai.choose_locomotor_set_explicit(LocomotorSetType::Normal));
+        assert_eq!(ai.cur_locomotor_tag, 0);
+
+        ai.do_locomotor();
+
+        assert_ne!(ai.cur_locomotor_tag, 0);
+        assert_eq!(ai.cur_locomotor_template.as_str(), "Wheeled");
+        assert_eq!(ai.cur_locomotor_surfaces, SURFACE_GROUND);
     }
 
     #[test]
