@@ -2630,6 +2630,7 @@ pub struct UnitAIUpdate {
     repulsor2: ObjectID,
     ignore_obstacle_id: ObjectID,
     ignore_collisions_until: UnsignedInt,
+    waiting_for_path: Bool,
     queue_for_path_frame: UnsignedInt,
     path_timestamp: UnsignedInt,
     ai_dead: Bool,
@@ -2766,6 +2767,7 @@ impl UnitAIUpdate {
             repulsor2: INVALID_ID,
             ignore_obstacle_id: INVALID_ID,
             ignore_collisions_until: 0,
+            waiting_for_path: false,
             queue_for_path_frame: 0,
             path_timestamp: 0,
             ai_dead: false,
@@ -3016,6 +3018,76 @@ impl UnitAIUpdate {
         Ok(())
     }
 
+    fn do_queued_pathfind_now(&mut self) -> Result<bool, String> {
+        if !self.waiting_for_path {
+            return Ok(false);
+        }
+
+        self.waiting_for_path = false;
+        self.set_queue_for_path_time(0);
+        self.retry_path = false;
+        let destination = self.requested_destination;
+
+        if self.try_install_closest_path_for_invalid_destination(&destination)? {
+            return Ok(true);
+        }
+
+        let request = self.build_classic_path_request(destination, false)?;
+        let path_result =
+            THE_AI
+                .read()
+                .ok()
+                .and_then(|ai| ai.pathfinder())
+                .and_then(|pathfinder| {
+                    pathfinder
+                        .read()
+                        .ok()
+                        .map(|pf| pf.find_path_result(request.clone()))
+                });
+
+        if let Some(result) = path_result {
+            if result.success && !result.waypoints.is_empty() {
+                self.set_path_from_coords(&result.waypoints)?;
+                return Ok(true);
+            }
+        }
+
+        if self.has_current_path() {
+            if self.blocked_and_stuck {
+                self.stop_stuck_old_path_after_failed_path()?;
+            } else {
+                self.path_timestamp = TheGameLogic::get_frame();
+                self.blocked_frames = 0;
+                self.blocked_and_stuck = false;
+            }
+            return Ok(true);
+        }
+
+        self.retry_path = true;
+        let closest_result =
+            THE_AI
+                .read()
+                .ok()
+                .and_then(|ai| ai.pathfinder())
+                .and_then(|pathfinder| {
+                    pathfinder
+                        .read()
+                        .ok()
+                        .map(|pf| pf.find_closest_path_result(request))
+                });
+        if let Some(result) = closest_result {
+            if result.success && !result.waypoints.is_empty() {
+                self.set_path_from_coords(&result.waypoints)?;
+                return Ok(true);
+            }
+        }
+
+        self.path_timestamp = TheGameLogic::get_frame();
+        self.blocked_frames = 0;
+        self.blocked_and_stuck = false;
+        Ok(false)
+    }
+
     fn install_direct_path_from_current_position(&mut self, destination: &Coord3D) -> bool {
         let Some(unit) = self.unit.upgrade() else {
             return false;
@@ -3037,6 +3109,7 @@ impl UnitAIUpdate {
         guard.current_speed = 0.0;
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
+        self.waiting_for_path = false;
         self.path_timestamp = TheGameLogic::get_frame();
         self.movement_complete = false;
         self.locomotor_goal_type = 1;
@@ -3858,10 +3931,9 @@ impl AIUpdateInterface for UnitAIUpdate {
                 .then_some(completed_waypoint_id);
         }
 
-        let mut waiting_for_path = self.queue_for_path_frame != 0;
-        xfer.xfer_bool(&mut waiting_for_path)
+        xfer.xfer_bool(&mut self.waiting_for_path)
             .map_err(|e| e.to_string())?;
-        if is_loading && !waiting_for_path {
+        if is_loading && !self.waiting_for_path {
             self.queue_for_path_frame = 0;
         }
 
@@ -4080,21 +4152,13 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
 
         let now = TheGameLogic::get_frame();
-        if self.queue_for_path_frame != 0 && now >= self.queue_for_path_frame {
+        if self.waiting_for_path
+            && (self.queue_for_path_frame == 0 || now >= self.queue_for_path_frame)
+        {
+            let _ = self.do_queued_pathfind_now();
+        } else if self.queue_for_path_frame != 0 && now >= self.queue_for_path_frame {
             self.queue_for_path_frame = 0;
-            let target = self.unit.upgrade().and_then(|unit| {
-                unit.read().ok().and_then(|guard| {
-                    guard.target_position.or_else(|| {
-                        guard
-                            .path_following_state
-                            .as_ref()
-                            .map(|state| state.goal_position)
-                    })
-                })
-            });
-            if let Some(destination) = target {
-                let _ = self.queue_path_request_now(destination);
-            }
+            let _ = self.queue_path_request_now(self.requested_destination);
         }
 
         let update_turrets = self
@@ -4761,6 +4825,7 @@ impl AIUpdateInterface for UnitAIUpdate {
 
     fn destroy_path(&mut self) {
         self.current_path_snapshot = None;
+        self.waiting_for_path = false;
         if let Some(unit) = self.unit.upgrade() {
             if let Ok(mut guard) = unit.write() {
                 guard.current_path = None;
@@ -6247,6 +6312,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
         self.blocked_frames = 0;
         self.blocked_and_stuck = false;
+        self.waiting_for_path = false;
         self.queue_for_path_frame = 0;
         self.path_timestamp = TheGameLogic::get_frame();
         self.set_current_path_snapshot_from_coords(
@@ -6269,6 +6335,9 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn is_waiting_for_path(&self) -> bool {
+        if self.waiting_for_path {
+            return true;
+        }
         if self.queue_for_path_frame > TheGameLogic::get_frame() {
             return true;
         }
@@ -7367,9 +7436,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         {
             return Ok(());
         }
-        if self.try_install_closest_path_for_invalid_destination(destination)? {
-            return Ok(());
-        }
+        self.waiting_for_path = true;
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
@@ -7383,7 +7450,6 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
         self.set_queue_for_path_time(0);
         let _ = self.queue_path_request_now(*destination);
-        let _ = self.set_movement_target(destination);
         self.path_timestamp = now;
         Ok(())
     }
@@ -8910,6 +8976,59 @@ mod tests {
             unit_guard.target_position,
             Some(Coord3D::new(20.0, 0.0, 0.0))
         );
+    }
+
+    #[test]
+    fn request_path_waits_until_queued_pathfind_installs_path_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(50, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let destination = Coord3D::new(0.0, 0.0, 0.0);
+
+        ai.request_path(&destination, true).unwrap();
+
+        assert!(ai.waiting_for_path);
+        assert!(ai.is_waiting_for_path());
+        {
+            let unit_guard = unit.read().unwrap();
+            assert!(unit_guard.target_position.is_none());
+            assert!(unit_guard.current_path.is_none());
+        }
+
+        ai.update().unwrap();
+
+        assert!(!ai.waiting_for_path);
+        assert!(!ai.is_waiting_for_path());
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.target_position.is_some());
+        assert!(unit_guard.current_path.is_some());
     }
 
     #[test]
