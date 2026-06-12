@@ -346,32 +346,58 @@ impl CrateCollide {
             return Ok(false);
         }
 
-        if behavior.execute_crate_behavior(other)? {
-            self.finalize_collection(other)?;
-            Ok(true)
+        let succeeded = behavior.execute_crate_behavior(other)?;
+        self.finish_execution_attempt(other, succeeded)?;
+        Ok(succeeded)
+    }
+
+    /// Runs the common C++ post-attempt sequence after a valid crate collide.
+    ///
+    /// C++ plays configured execution animation for every valid execution attempt,
+    /// even if the derived behavior returns false. FX and destruction only happen
+    /// on successful behavior execution.
+    pub fn finish_execution_attempt(
+        &self,
+        other: &dyn GameObject,
+        succeeded: bool,
+    ) -> Result<(), CollisionError> {
+        if succeeded {
+            self.finalize_collection(other)
         } else {
-            Ok(false)
+            self.play_execution_animation()
         }
     }
 
     /// Runs the common C++ post-collection sequence after a derived crate behavior succeeds.
     pub fn finalize_collection(&self, other: &dyn GameObject) -> Result<(), CollisionError> {
+        let crate_position = self.get_object_position()?;
+
         if let Some(ref fx_name) = self.module_data.execute_fx {
             self.play_fx_at_object(fx_name, other)?;
         }
 
+        self.set_collected(true)?;
+        self.destroy_crate_object()?;
+        self.play_execution_animation_at(&crate_position)?;
+        Ok(())
+    }
+
+    pub fn play_execution_animation(&self) -> Result<(), CollisionError> {
+        let crate_position = self.get_object_position()?;
+        self.play_execution_animation_at(&crate_position)
+    }
+
+    fn play_execution_animation_at(&self, position: &Coord3D) -> Result<(), CollisionError> {
         if !self.module_data.execution_animation_template.is_empty() {
             self.play_world_animation(
                 &self.module_data.execution_animation_template,
-                &self.get_object_position()?,
+                position,
                 self.module_data.execute_animation_display_time_seconds,
                 self.module_data.execute_animation_z_rise_per_second,
                 self.module_data.execute_animation_fades,
             )?;
         }
 
-        self.set_collected(true)?;
-        self.destroy_crate_object()?;
         Ok(())
     }
 

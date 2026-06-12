@@ -115,8 +115,8 @@ impl SabotageFakeBuildingCrateCollide {
         let source_id = object_lock.get_id();
         drop(object_lock);
 
-        // Try infiltration event
-        TheRadar::try_infiltration_event(other.clone())?;
+        // C++ feedback calls do not abort sabotage damage.
+        let _ = TheRadar::try_infiltration_event(other.clone());
 
         // Do sabotage feedback FX
         self.base
@@ -126,7 +126,7 @@ impl SabotageFakeBuildingCrateCollide {
         {
             let other_lock = other.read().map_err(|_| GameError::LockError)?;
             if other_lock.is_locally_controlled() {
-                TheEva::set_should_play(EvaEvent::BuildingSabotaged)?;
+                let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
             }
         }
 
@@ -139,7 +139,9 @@ impl SabotageFakeBuildingCrateCollide {
                 let body_guard = body.lock().map_err(|_| GameError::LockError)?;
                 (true, body_guard.get_max_health())
             } else {
-                (false, 0.0)
+                return Err(GameError::ModuleError(
+                    "fake building sabotage target has no body module".to_string(),
+                ));
             }
         };
 
@@ -172,11 +174,11 @@ impl LegacyCollideAdapter for SabotageFakeBuildingCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if SabotageFakeBuildingCrateCollide::is_valid_to_execute(self, other.clone())?
-            && SabotageFakeBuildingCrateCollide::execute_crate_behavior(self, other.clone())?
-        {
+        if SabotageFakeBuildingCrateCollide::is_valid_to_execute(self, other.clone())? {
+            let success =
+                SabotageFakeBuildingCrateCollide::execute_crate_behavior(self, other.clone())?;
             self.base
-                .finalize_collection(&other)
+                .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
         }
 

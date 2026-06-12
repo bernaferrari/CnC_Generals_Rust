@@ -175,11 +175,11 @@ impl LegacyCollideAdapter for SabotageMilitaryFactoryCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if SabotageMilitaryFactoryCrateCollide::is_valid_to_execute(self, other.clone())?
-            && SabotageMilitaryFactoryCrateCollide::execute_crate_behavior(self, other.clone())?
-        {
+        if SabotageMilitaryFactoryCrateCollide::is_valid_to_execute(self, other.clone())? {
+            let success =
+                SabotageMilitaryFactoryCrateCollide::execute_crate_behavior(self, other.clone())?;
             self.base
-                .finalize_collection(&other)
+                .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
         }
 

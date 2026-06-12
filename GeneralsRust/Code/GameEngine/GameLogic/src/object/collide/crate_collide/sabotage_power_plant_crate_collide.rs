@@ -184,11 +184,11 @@ impl LegacyCollideAdapter for SabotagePowerPlantCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if SabotagePowerPlantCrateCollide::is_valid_to_execute(self, other.clone())?
-            && SabotagePowerPlantCrateCollide::execute_crate_behavior(self, other.clone())?
-        {
+        if SabotagePowerPlantCrateCollide::is_valid_to_execute(self, other.clone())? {
+            let success =
+                SabotagePowerPlantCrateCollide::execute_crate_behavior(self, other.clone())?;
             self.base
-                .finalize_collection(&other)
+                .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
         }
 

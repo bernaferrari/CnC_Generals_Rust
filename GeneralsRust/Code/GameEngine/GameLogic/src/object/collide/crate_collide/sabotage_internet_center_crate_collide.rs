@@ -203,11 +203,11 @@ impl LegacyCollideAdapter for SabotageInternetCenterCrateCollide {
     ) -> Result<(), GameError> {
         let _ = (loc, normal);
 
-        if SabotageInternetCenterCrateCollide::is_valid_to_execute(self, other.clone())?
-            && SabotageInternetCenterCrateCollide::execute_crate_behavior(self, other.clone())?
-        {
+        if SabotageInternetCenterCrateCollide::is_valid_to_execute(self, other.clone())? {
+            let success =
+                SabotageInternetCenterCrateCollide::execute_crate_behavior(self, other.clone())?;
             self.base
-                .finalize_collection(&other)
+                .finish_execution_attempt(&other, success)
                 .map_err(GameError::from)?;
         }
 
