@@ -3597,6 +3597,19 @@ impl Drawable for BasicDrawable {
                     .collect()
             })
             .unwrap_or_default();
+        let sub_object_visibility = model_draw
+            .as_ref()
+            .map(|state| {
+                state
+                    .sub_object_visibility
+                    .iter()
+                    .map(|visibility| crate::render_bridge::SubObjectVisibility {
+                        sub_object_name: visibility.sub_object_name.clone(),
+                        hidden: visibility.hidden,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         let animation_name = model_draw
             .as_ref()
             .and_then(|state| state.animation_name.clone());
@@ -3617,6 +3630,7 @@ impl Drawable for BasicDrawable {
             render_state: render_state.clone(),
             bone_overrides,
             mesh_uv_overrides,
+            sub_object_visibility,
             animation_name,
             animation_mode,
             animation_time,

@@ -73,12 +73,14 @@ impl DrawModuleData for W3DPropDrawModuleData {
 impl Snapshotable for W3DPropDrawModuleData {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -137,6 +139,7 @@ impl DrawModule for W3DPropDraw {
                     animation_time: 0.0,
                     animation_mode: 0,
                     mesh_uv_overrides: Vec::new(),
+                    sub_object_visibility: Vec::new(),
                 },
             );
         }
