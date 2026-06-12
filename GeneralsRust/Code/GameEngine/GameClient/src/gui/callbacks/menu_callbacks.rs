@@ -559,6 +559,17 @@ impl OptionsMenu {
         }
     }
 
+    fn default_resolution_index(&self) -> usize {
+        self.resolution_modes
+            .iter()
+            .position(|mode| *mode == (800, 600))
+            .unwrap_or(0)
+    }
+
+    fn should_reset_resolution_on_defaults() -> bool {
+        !TheGameLogic::is_in_game() || TheGameLogic::get_game_mode() == GAME_SHELL
+    }
+
     fn set_window_hidden(id: i32, hidden: bool) {
         if let Some(window) = Self::find_window(id) {
             let _ = window.borrow_mut().hide(hidden);
@@ -887,6 +898,9 @@ impl OptionsMenu {
         Self::set_checkbox(self.check_building_occlusion_id, true);
         Self::set_checkbox(self.check_props_id, true);
         Self::set_combo_selected(self.combo_detail_id, self.initial_detail_index);
+        if Self::should_reset_resolution_on_defaults() {
+            Self::set_combo_selected(self.combo_resolution_id, self.default_resolution_index());
+        }
         Self::set_window_hidden(self.advanced_window_id, true);
     }
 
@@ -2081,6 +2095,16 @@ mod tests {
         assert_split(0.0, 80, 80);
         assert_split(0.25, 80, 60);
         assert_split(2.0, 80, 0);
+    }
+
+    #[test]
+    fn options_defaults_resolution_index_prefers_800x600_like_cpp() {
+        let mut menu = OptionsMenu::new();
+        menu.resolution_modes = vec![(1024, 768), (800, 600), (1920, 1080)];
+        assert_eq!(menu.default_resolution_index(), 1);
+
+        menu.resolution_modes = vec![(1024, 768), (1280, 720)];
+        assert_eq!(menu.default_resolution_index(), 0);
     }
 
     #[test]
