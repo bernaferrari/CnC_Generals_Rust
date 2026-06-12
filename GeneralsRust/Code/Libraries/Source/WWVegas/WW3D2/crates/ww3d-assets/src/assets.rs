@@ -32,20 +32,22 @@ impl<'a> Iterator for PrototypeNameIter<'a> {
 
 impl PrototypeClassRegistry {
     fn register(&mut self, name: &str, class_id: RenderObjClassId) {
+        let key = prototype_key(name);
         // Remove any prior association for the name so we don't accumulate stale entries.
-        self.unregister(name);
+        self.unregister(&key);
 
-        self.name_to_id.insert(name.to_string(), class_id);
+        self.name_to_id.insert(key.clone(), class_id);
         self.id_to_names
             .entry(class_id)
             .or_insert_with(BTreeSet::new)
-            .insert(name.to_string());
+            .insert(key);
     }
 
     fn unregister(&mut self, name: &str) {
-        if let Some(previous) = self.name_to_id.remove(name) {
+        let key = prototype_key(name);
+        if let Some(previous) = self.name_to_id.remove(&key) {
             if let Some(names) = self.id_to_names.get_mut(&previous) {
-                names.remove(name);
+                names.remove(&key);
                 if names.is_empty() {
                     self.id_to_names.remove(&previous);
                 }
@@ -54,7 +56,7 @@ impl PrototypeClassRegistry {
     }
 
     fn class_id_for(&self, name: &str) -> Option<RenderObjClassId> {
-        self.name_to_id.get(name).copied()
+        self.name_to_id.get(&prototype_key(name)).copied()
     }
 
     fn names_iter(&self, class_id: RenderObjClassId) -> Option<PrototypeNameIter<'_>> {
@@ -62,6 +64,10 @@ impl PrototypeClassRegistry {
             .get(&class_id)
             .map(|set| PrototypeNameIter { inner: set.iter() })
     }
+}
+
+fn prototype_key(name: &str) -> String {
+    name.to_ascii_lowercase()
 }
 
 /// Main asset manager for loading and managing W3D assets
@@ -145,19 +151,19 @@ impl AssetManager {
     /// Create a render object from a loaded asset
     pub fn create_render_obj(&self, name: &str) -> Option<Box<dyn RenderObj>> {
         self.prototypes
-            .get(name)
+            .get(&prototype_key(name))
             .and_then(|proto| proto.create_instance(self))
     }
 
     /// Get a prototype by name
     pub fn get_prototype(&self, name: &str) -> Option<&Box<dyn Prototype>> {
-        self.prototypes.get(name)
+        self.prototypes.get(&prototype_key(name))
     }
 
     /// Downcast a stored prototype to its concrete type.
     pub fn get_prototype_as<T: 'static>(&self, name: &str) -> Option<&T> {
         self.prototypes
-            .get(name)
+            .get(&prototype_key(name))
             .and_then(|proto| proto.as_any().downcast_ref::<T>())
     }
 
@@ -250,7 +256,7 @@ impl AssetManager {
 
     /// Check if an asset is loaded
     pub fn is_asset_loaded(&self, name: &str) -> bool {
-        self.prototypes.contains_key(name)
+        self.prototypes.contains_key(&prototype_key(name))
     }
 
     /// Get the number of loaded assets
@@ -266,14 +272,15 @@ impl AssetManager {
 
     /// Add a prototype to the asset manager
     pub fn add_prototype(&mut self, name: String, prototype: Box<dyn Prototype>) {
+        let key = prototype_key(&name);
         let class_id = prototype.class_id();
 
-        if self.prototypes.insert(name.clone(), prototype).is_some() {
-            self.class_registry.unregister(&name);
+        if self.prototypes.insert(key.clone(), prototype).is_some() {
+            self.class_registry.unregister(&key);
         }
 
         if let Some(class_id) = class_id {
-            self.class_registry.register(&name, class_id);
+            self.class_registry.register(&key, class_id);
         }
     }
 
@@ -323,7 +330,7 @@ impl AssetManager {
 
     /// Create an instance of an asset by name
     pub fn create_instance(&self, name: &str) -> Option<Box<dyn RenderObj>> {
-        if let Some(prototype) = self.prototypes.get(name) {
+        if let Some(prototype) = self.prototypes.get(&prototype_key(name)) {
             prototype.create_instance(self)
         } else {
             None
@@ -1319,11 +1326,11 @@ mod tests {
 
         let mut mesh_assets = manager.assets_with_class_id(RenderObjClassId::Mesh);
         mesh_assets.sort();
-        assert_eq!(mesh_assets, vec![mesh_name]);
+        assert_eq!(mesh_assets, vec![mesh_name.to_ascii_lowercase()]);
 
         let mut null_assets = manager.assets_with_class_id(RenderObjClassId::Null);
         null_assets.sort();
-        assert_eq!(null_assets, vec![null_name]);
+        assert_eq!(null_assets, vec![null_name.to_ascii_lowercase()]);
 
         let (found_name, _proto) = manager
             .find_prototype_by_class_id(RenderObjClassId::Mesh)
@@ -1342,6 +1349,24 @@ mod tests {
         ];
         expected.sort_by(|a, b| a.0.cmp(&b.0));
         assert_eq!(iterated, expected);
+    }
+
+    #[test]
+    fn prototype_lookup_is_case_insensitive_like_cpp_asset_manager() {
+        use crate::prototypes::MeshPrototype;
+
+        let mut manager = AssetManager::new();
+        let mesh = MeshPrototype::new("CaseMesh".to_string());
+        manager.add_prototype("CaseMesh".to_string(), Box::new(mesh));
+
+        assert!(manager.is_asset_loaded("casemesh"));
+        assert!(manager.is_asset_loaded("CASEMESH"));
+        assert!(manager.get_prototype("caseMESH").is_some());
+        assert!(manager.create_render_obj("CASEMESH").is_some());
+        assert_eq!(
+            manager.class_id_for_asset("caseMESH"),
+            Some(RenderObjClassId::Mesh)
+        );
     }
 }
 
@@ -1391,8 +1416,12 @@ pub trait RenderObj: std::fmt::Debug + Send + Sync {
     fn set_name(&mut self, _name: &str) {}
     fn set_transform(&mut self, transform: Mat4);
     fn get_transform(&self) -> &Mat4;
-    fn get_obj_space_bounding_box(&self) -> Option<(glam::Vec3, glam::Vec3)> { None }
-    fn get_obj_space_bounding_sphere(&self) -> Option<(glam::Vec3, f32)> { None }
+    fn get_obj_space_bounding_box(&self) -> Option<(glam::Vec3, glam::Vec3)> {
+        None
+    }
+    fn get_obj_space_bounding_sphere(&self) -> Option<(glam::Vec3, f32)> {
+        None
+    }
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
 
