@@ -608,9 +608,9 @@ pub fn populate_map_listbox_no_reset(
         listbox.set_selected_indices(&[selection_index as usize]);
         let top = listbox.get_top_visible_entry();
         let bottom = listbox.get_bottom_visible_entry();
-        if selection_index as usize >= bottom {
-            let rows = bottom.saturating_sub(top.max(0) as usize).max(1);
-            let new_top = selection_index.saturating_sub(rows as i32 / 2).max(0);
+        if selection_index >= bottom {
+            let rows = bottom.saturating_sub(top).max(1);
+            let new_top = selection_index.saturating_sub(rows / 2).max(0);
             listbox.set_top_visible_entry(new_top);
         }
     }
