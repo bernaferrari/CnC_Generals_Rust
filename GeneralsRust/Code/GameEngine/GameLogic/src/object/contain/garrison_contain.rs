@@ -75,10 +75,6 @@ pub struct GarrisonContainModuleData {
     pub is_enclosing_container: bool,
     /// Initial roster of units
     pub initial_roster: InitialRoster,
-    /// Bonus damage multiplier for garrisoned units
-    pub garrison_damage_bonus: f32,
-    /// Infantry-only restriction flag
-    pub infantry_only: bool,
 }
 
 impl Default for GarrisonContainModuleData {
@@ -94,8 +90,6 @@ impl Default for GarrisonContainModuleData {
             immune_to_clear_building_attacks: false,
             is_enclosing_container: true, // Sensible default for garrison containers
             initial_roster: Default::default(),
-            garrison_damage_bonus: 1.25, // Default 25% bonus damage from garrison
-            infantry_only: true,         // Most garrisonable buildings restrict to infantry only
         }
     }
 }
@@ -218,24 +212,6 @@ pub enum GarrisonPointCondition {
     ReallyDamaged = 2,
 }
 
-/// Fire port angle restriction data (matches C++ GarrisonContain)
-#[derive(Debug, Clone)]
-pub struct FirePortAngle {
-    /// Minimum angle in radians
-    pub min_angle: f32,
-    /// Maximum angle in radians
-    pub max_angle: f32,
-}
-
-impl Default for FirePortAngle {
-    fn default() -> Self {
-        Self {
-            min_angle: 0.0,
-            max_angle: std::f32::consts::TAU, // 2*PI = full circle
-        }
-    }
-}
-
 /// Garrison point data for tracking occupants
 #[derive(Debug)]
 pub struct GarrisonPointData {
@@ -253,10 +229,6 @@ pub struct GarrisonPointData {
     pub effect: Option<Arc<RwLock<Drawable>>>,
     /// Drawable ID for save/load post-process
     pub effect_id: Option<u32>,
-    /// Fire port angle restriction for this garrison point
-    pub fire_port_angle: FirePortAngle,
-    /// Bonus damage multiplier for this garrison point (default 1.0)
-    pub damage_bonus: f32,
 }
 
 impl Default for GarrisonPointData {
@@ -269,8 +241,6 @@ impl Default for GarrisonPointData {
             last_effect_frame: 0,
             effect: None,
             effect_id: None,
-            fire_port_angle: FirePortAngle::default(),
-            damage_bonus: 1.0,
         }
     }
 }
@@ -343,7 +313,7 @@ impl GarrisonContain {
             garrison_points_initialized: false,
             hide_garrisoned_state_from_non_allies: false,
             rally_valid: false,
-            evac_disposition: EvacDisposition::Invalid,
+            evac_disposition: EvacDisposition::BurstFromCenter,
             object,
         })
     }
@@ -404,13 +374,6 @@ impl GarrisonContain {
                                 return false;
                             }
                         }
-                    }
-                }
-
-                // Check infantry-only restriction (matches C++ GarrisonContain validation)
-                if let Ok(module_data) = owner.get_garrison_contain_module_data() {
-                    if module_data.infantry_only && !obj.is_kind_of(KindOf::Infantry) {
-                        return false;
                     }
                 }
             }
@@ -931,65 +894,7 @@ impl GarrisonContain {
     }
 
     /// Handle damage event
-    pub fn on_damage(&mut self, info: &mut DamageInfo) -> GameResult<()> {
-        // Process damage to contained units
-        self.process_damage_to_contained(info)?;
-        Ok(())
-    }
-
-    /// Process damage to contained units (matches C++ processDamageToContained)
-    fn process_damage_to_contained(&mut self, damage_info: &DamageInfo) -> GameResult<()> {
-        // Check if this is a clear-building attack (toxin/fire) that clears garrisons
-        let is_clear_building_attack = matches!(
-            damage_info.input.damage_type,
-            DamageType::Poison | DamageType::Flame
-        );
-
-        // If immune to clear building attacks, skip garrison clearing
-        if is_clear_building_attack && self.is_immune_to_clear_building_attacks() {
-            return Ok(());
-        }
-
-        let contained_objects = self.base.get_contained_items_list()?;
-
-        // For clear building attacks, kill all garrison occupants unless immune
-        if is_clear_building_attack {
-            for obj in &contained_objects {
-                if let Ok(mut contained) = obj.write() {
-                    // Kill the garrisoned unit (matches C++ behavior for toxin/fire)
-                    let _ = contained.kill_with_type(None, None);
-                }
-            }
-            // Remove all from garrison after killing
-            self.base.remove_all_contained(true)?;
-            return Ok(());
-        }
-
-        // Calculate damage percentage to apply to contained units (normal damage)
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner) = owner_obj.read() {
-                if let Ok(module_data) = owner.get_garrison_contain_module_data() {
-                    let damage_percent = module_data.base.damage_percentage_to_units;
-
-                    if damage_percent > 0.0 {
-                        let damage_to_units = damage_info.input.amount * damage_percent;
-
-                        // Apply damage to each contained unit
-                        for obj in contained_objects {
-                            if let Ok(mut contained) = obj.write() {
-                                let mut unit_damage = damage_info.clone();
-                                unit_damage.input.amount = damage_to_units;
-                                unit_damage.sync_from_input();
-
-                                // Apply damage
-                                contained.attempt_damage(&mut unit_damage)?;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
+    pub fn on_damage(&mut self, _info: &mut DamageInfo) -> GameResult<()> {
         Ok(())
     }
 
@@ -1159,7 +1064,7 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard));
         if let Some(idx) = current_index {
-            if self.is_target_within_fire_port_angle(idx, &target_pos) {
+            if idx < MAX_GARRISON_POINTS {
                 return weapon.is_within_attack_range(
                     source
                         .read()
@@ -1216,7 +1121,7 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard));
         if let Some(idx) = current_index {
-            if self.is_target_within_fire_port_angle(idx, target_pos) {
+            if idx < MAX_GARRISON_POINTS {
                 return weapon.is_within_attack_range(
                     source
                         .read()
@@ -1391,16 +1296,6 @@ impl GarrisonContain {
 
         let _ =
             owner.clear_and_set_model_condition_flags(ModelConditionFlags::all(), original_flags);
-
-        for i in 0..MAX_GARRISON_POINTS {
-            let pos = self.garrison_points[GARRISON_POINT_PRISTINE][i];
-            let angle = (pos.y - base_pos.y).atan2(pos.x - base_pos.x);
-            let arc = std::f32::consts::PI / 2.0;
-            self.garrison_point_data[i].fire_port_angle = FirePortAngle {
-                min_angle: angle - arc * 0.5,
-                max_angle: angle + arc * 0.5,
-            };
-        }
 
         self.garrison_points_initialized = true;
         Ok(())
@@ -1940,81 +1835,16 @@ impl GarrisonContain {
         dx * dx + dy * dy + dz * dz
     }
 
-    /// Check if target angle is within fire port angle restrictions
-    /// Matches C++ GarrisonContain::isTargetWithinFirePortAngle
-    fn is_target_within_fire_port_angle(
-        &self,
-        garrison_point_index: usize,
-        target_pos: &Coord3D,
-    ) -> bool {
-        if garrison_point_index >= MAX_GARRISON_POINTS {
-            return false;
-        }
-
-        // Get garrison point position
-        let condition_index = self.find_condition_index();
-        let point_pos = &self.garrison_points[condition_index][garrison_point_index];
-
-        // Calculate angle to target
-        let dx = target_pos.x - point_pos.x;
-        let dy = target_pos.y - point_pos.y;
-        let mut angle = dy.atan2(dx);
-
-        // Normalize angle to [0, 2*PI)
-        if angle < 0.0 {
-            angle += std::f32::consts::TAU;
-        }
-
-        // Get fire port angle restrictions
-        let fire_port = &self.garrison_point_data[garrison_point_index].fire_port_angle;
-
-        // Check if angle is within allowed range
-        if fire_port.min_angle <= fire_port.max_angle {
-            // Normal case: min <= angle <= max
-            angle >= fire_port.min_angle && angle <= fire_port.max_angle
-        } else {
-            // Wrapped case: angle >= min OR angle <= max
-            angle >= fire_port.min_angle || angle <= fire_port.max_angle
-        }
-    }
-
-    /// Apply garrison damage bonus to weapon damage
-    /// Matches C++ GarrisonContain::applyGarrisonDamageBonus
-    pub fn apply_garrison_damage_bonus(
-        &self,
-        garrison_point_index: usize,
-        base_damage: f32,
-    ) -> f32 {
-        if garrison_point_index >= MAX_GARRISON_POINTS {
-            return base_damage;
-        }
-
-        let point_bonus = self.garrison_point_data[garrison_point_index].damage_bonus;
-
-        // Apply global garrison bonus from module data
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner) = owner_obj.read() {
-                if let Ok(module_data) = owner.get_garrison_contain_module_data() {
-                    return base_damage * point_bonus * module_data.garrison_damage_bonus;
-                }
-            }
-        }
-
-        base_damage * point_bonus
-    }
-
     /// Get garrison point index for object (public accessor for other modules)
     pub fn get_garrison_point_index_for_object(&self, obj: &Object) -> Option<usize> {
         self.get_object_garrison_point_index(obj)
     }
 
     /// Check if unit can fire from current garrison point at target
-    /// Matches C++ GarrisonContain::canFireAtTargetFromGarrison
-    pub fn can_fire_at_target_from_garrison(&self, obj: &Object, target_pos: &Coord3D) -> bool {
-        if let Some(garrison_index) = self.get_object_garrison_point_index(obj) {
-            return self.is_target_within_fire_port_angle(garrison_index, target_pos);
-        }
-        false
+    pub fn can_fire_at_target_from_garrison(&self, obj: &Object, _target_pos: &Coord3D) -> bool {
+        self.get_object_garrison_point_index(obj)
+            .map(|garrison_index| garrison_index < MAX_GARRISON_POINTS)
+            .unwrap_or(false)
     }
 
     /// Heal all contained objects
@@ -2213,15 +2043,6 @@ impl GarrisonContain {
                 0
             }],
         );
-        state.insert(
-            "station_garrison_points_initialized".to_string(),
-            vec![if self.station_garrison_points_initialized {
-                1
-            } else {
-                0
-            }],
-        );
-
         // Save rally info
         state.insert(
             "rally_valid".to_string(),
@@ -2232,17 +2053,6 @@ impl GarrisonContain {
         push_f32(&mut rally_bytes, self.exit_rally_point.y);
         push_f32(&mut rally_bytes, self.exit_rally_point.z);
         state.insert("exit_rally_point".to_string(), rally_bytes);
-
-        // Save station points
-        let mut station_bytes = Vec::with_capacity(self.station_point_list.len() * 16);
-        for station in &self.station_point_list {
-            push_f32(&mut station_bytes, station.position.x);
-            push_f32(&mut station_bytes, station.position.y);
-            push_f32(&mut station_bytes, station.position.z);
-            let occupant_id = station.occupant_id.unwrap_or(INVALID_ID);
-            push_u32(&mut station_bytes, occupant_id as u32);
-        }
-        state.insert("station_points".to_string(), station_bytes);
 
         Ok(state)
     }
@@ -2343,9 +2153,8 @@ impl GarrisonContain {
         if let Some(data) = state.get("garrison_points_initialized") {
             self.garrison_points_initialized = data.first().copied().unwrap_or(0) != 0;
         }
-        if let Some(data) = state.get("station_garrison_points_initialized") {
-            self.station_garrison_points_initialized = data.first().copied().unwrap_or(0) != 0;
-        }
+        self.station_garrison_points_initialized = false;
+        self.station_point_list.clear();
 
         if let Some(data) = state.get("rally_valid") {
             self.rally_valid = data.first().copied().unwrap_or(0) != 0;
@@ -2358,25 +2167,6 @@ impl GarrisonContain {
                 read_f32(data, &mut offset),
             ) {
                 self.exit_rally_point = Coord3D::new(x, y, z);
-            }
-        }
-
-        if let Some(data) = state.get("station_points") {
-            let mut offset = 0usize;
-            self.station_point_list.clear();
-            while offset + 16 <= data.len() {
-                let x = read_f32(data, &mut offset).unwrap_or(0.0);
-                let y = read_f32(data, &mut offset).unwrap_or(0.0);
-                let z = read_f32(data, &mut offset).unwrap_or(0.0);
-                let occupant_id = read_u32(data, &mut offset).unwrap_or(INVALID_ID as u32);
-                self.station_point_list.push(StationPointData {
-                    position: Coord3D::new(x, y, z),
-                    occupant_id: if occupant_id == INVALID_ID as u32 {
-                        None
-                    } else {
-                        Some(occupant_id as ObjectId)
-                    },
-                });
             }
         }
 
@@ -2691,15 +2481,31 @@ mod tests {
         assert!(!data.mobile_garrison);
         assert!(!data.immune_to_clear_building_attacks);
         assert!(data.is_enclosing_container);
-        assert_eq!(data.garrison_damage_bonus, 1.25); // 25% bonus
-        assert!(data.infantry_only);
     }
 
     #[test]
-    fn test_fire_port_angle_default() {
-        let angle = FirePortAngle::default();
-        assert_eq!(angle.min_angle, 0.0);
-        assert_eq!(angle.max_angle, std::f32::consts::TAU);
+    fn garrison_parse_from_config_preserves_cpp_fields() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = GarrisonContainModuleData::default();
+        data.parse_from_config(
+            "MobileGarrison = Yes\n\
+             HealObjects = Yes\n\
+             TimeForFullHeal = 2s\n\
+             InitialRoster = GLAInfantryRebel 3\n\
+             ImmuneToClearBuildingAttacks = Yes\n\
+             IsEnclosingContainer = No\n\
+             End\n",
+        )
+        .expect("garrison config parses");
+
+        assert!(data.mobile_garrison);
+        assert!(data.do_heal_objects);
+        assert!((data.frames_for_full_heal - 60.0).abs() < 0.001);
+        assert_eq!(data.initial_roster.template_name, "GLAInfantryRebel");
+        assert_eq!(data.initial_roster.count, 3);
+        assert!(data.immune_to_clear_building_attacks);
+        assert!(!data.is_enclosing_container);
     }
 
     #[test]
@@ -2712,7 +2518,6 @@ mod tests {
         assert_eq!(point.last_effect_frame, 0);
         assert!(point.effect.is_none());
         assert!(point.effect_id.is_none());
-        assert_eq!(point.damage_bonus, 1.0);
     }
 
     #[test]
@@ -2756,69 +2561,24 @@ mod tests {
     }
 
     #[test]
-    fn test_garrison_damage_bonus_calculation() {
-        // Test that damage bonus stacks correctly
-        let base_damage = 100.0;
-        let point_bonus = 1.2; // 20% point bonus
-        let module_bonus = 1.25; // 25% garrison bonus
-        let expected = base_damage * point_bonus * module_bonus;
-        assert_eq!(expected, 150.0); // Total 50% bonus
+    fn garrison_defaults_to_cpp_burst_evac_disposition() {
+        let data = GarrisonContainModuleData::default();
+        let contain = GarrisonContain::new(Weak::new(), &data).expect("garrison constructs");
+
+        assert!(matches!(
+            contain.evac_disposition,
+            EvacDisposition::BurstFromCenter
+        ));
     }
 
     #[test]
-    fn test_fire_port_angle_normal_range() {
-        // Test normal angle range (min < max)
-        let mut angle = FirePortAngle::default();
-        angle.min_angle = std::f32::consts::FRAC_PI_4; // 45 degrees
-        angle.max_angle = std::f32::consts::FRAC_PI_2; // 90 degrees
+    fn garrison_save_state_omits_station_garrison_state_like_cpp() {
+        let data = GarrisonContainModuleData::default();
+        let contain = GarrisonContain::new(Weak::new(), &data).expect("garrison constructs");
+        let state = contain.save_state().expect("garrison saves");
 
-        // Should be within range
-        let test_angle = std::f32::consts::FRAC_PI_3; // 60 degrees
-        let in_range = test_angle >= angle.min_angle && test_angle <= angle.max_angle;
-        assert!(in_range);
-
-        // Should be outside range
-        let test_angle = std::f32::consts::PI; // 180 degrees
-        let in_range = test_angle >= angle.min_angle && test_angle <= angle.max_angle;
-        assert!(!in_range);
-    }
-
-    #[test]
-    fn test_fire_port_angle_wrapped_range() {
-        // Test wrapped angle range (min > max, wraps around)
-        let mut angle = FirePortAngle::default();
-        angle.min_angle = std::f32::consts::FRAC_PI_2 * 3.0; // 270 degrees
-        angle.max_angle = std::f32::consts::FRAC_PI_4; // 45 degrees
-
-        // Angle at 315 degrees should be in range (between 270 and 360)
-        let test_angle = std::f32::consts::FRAC_PI_2 * 3.5;
-        let in_range = test_angle >= angle.min_angle || test_angle <= angle.max_angle;
-        assert!(in_range);
-
-        // Angle at 0 degrees should be in range (between 0 and 45)
-        let test_angle = 0.0;
-        let in_range = test_angle >= angle.min_angle || test_angle <= angle.max_angle;
-        assert!(in_range);
-
-        // Angle at 90 degrees should be out of range
-        let test_angle = std::f32::consts::FRAC_PI_2;
-        let in_range = test_angle >= angle.min_angle || test_angle <= angle.max_angle;
-        assert!(!in_range);
-    }
-
-    #[test]
-    fn test_infantry_only_restriction_flag() {
-        let data = GarrisonContainModuleData {
-            infantry_only: true,
-            ..Default::default()
-        };
-        assert!(data.infantry_only);
-
-        let data = GarrisonContainModuleData {
-            infantry_only: false,
-            ..Default::default()
-        };
-        assert!(!data.infantry_only);
+        assert!(!state.contains_key("station_garrison_points_initialized"));
+        assert!(!state.contains_key("station_points"));
     }
 
     #[test]
