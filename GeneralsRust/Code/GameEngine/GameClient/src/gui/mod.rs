@@ -104,11 +104,12 @@ pub use game_window::{
     gadget_list_box_get_num_columns, gadget_list_box_get_selected,
     gadget_list_box_get_top_visible_entry, gadget_list_box_is_full,
     gadget_list_box_set_audio_feedback, gadget_list_box_set_bottom_visible_entry,
-    gadget_list_box_set_top_visible_entry, write_input_focus_response, GameWindow, WindowCallbacks,
-    WindowDrawData, WindowError, WindowId, WindowInputReturnCode, WindowInstanceData,
-    WindowMessage, WindowMsgData, WindowMsgHandled, WindowRegion, WindowResult, WindowState,
-    WindowStatus, WindowTextColors, WindowWidget, GLM_DOUBLE_CLICKED, GLM_RIGHT_CLICKED,
-    GLM_SELECTED, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW, WIN_COLOR_UNDEFINED,
+    gadget_list_box_set_colors, gadget_list_box_set_top_visible_entry, write_input_focus_response,
+    GameWindow, WindowCallbacks, WindowDrawData, WindowError, WindowId, WindowInputReturnCode,
+    WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled, WindowRegion, WindowResult,
+    WindowState, WindowStatus, WindowTextColors, WindowWidget, GLM_DOUBLE_CLICKED,
+    GLM_RIGHT_CLICKED, GLM_SELECTED, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW,
+    WIN_COLOR_UNDEFINED,
 };
 pub use game_window_transitions::GameWindowTransitionsHandler;
 
