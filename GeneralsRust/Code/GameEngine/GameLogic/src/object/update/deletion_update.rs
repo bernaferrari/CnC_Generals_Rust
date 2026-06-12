@@ -57,12 +57,7 @@ impl DeletionUpdate {
     }
 
     pub fn update(&mut self, ctx: &mut UpdateContext<'_>) -> UpdateSleepTime {
-        let current_frame = ctx.game_logic.get_frame();
-        if current_frame < self.die_frame {
-            return UpdateSleepTime::Frames(self.die_frame - current_frame);
-        }
-
-        // Destroy (NOT kill) if time is up
+        // C++ destroys whenever the scheduled update is invoked; timing is owned by the scheduler.
         if let Some(object) = ctx.game_logic.find_object(self.thing) {
             ctx.game_logic.destroy_object(object.id());
         }
