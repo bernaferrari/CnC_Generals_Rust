@@ -11,8 +11,7 @@ use crate::common::{
 };
 use crate::helpers::ThePartitionManager;
 use crate::modules::{
-    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_FOREVER,
-    UPDATE_SLEEP_NONE,
+    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime, UPDATE_SLEEP_NONE,
 };
 use crate::object::behavior::behavior_module::{xfer_update_module_base_state, BehaviorModuleData};
 use crate::object::contain::open_contain::ObjectRelationship;
@@ -291,18 +290,18 @@ impl DemoTrapUpdate {
 impl UpdateModuleInterface for DemoTrapUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         if self.detonated {
-            return UPDATE_SLEEP_FOREVER;
+            return UPDATE_SLEEP_NONE;
         }
 
         let Some(me_arc) = self.object.upgrade() else {
-            return UPDATE_SLEEP_FOREVER;
+            return UPDATE_SLEEP_NONE;
         };
         let me = me_arc.read().unwrap();
 
         if me.test_status(ObjectStatusTypes::UnderConstruction)
             || me.test_status(ObjectStatusTypes::Sold)
         {
-            return UPDATE_SLEEP_FOREVER;
+            return UPDATE_SLEEP_NONE;
         }
 
         if me.is_effectively_dead() {
@@ -310,7 +309,7 @@ impl UpdateModuleInterface for DemoTrapUpdate {
                 drop(me);
                 let _ = self.detonate();
             }
-            return UPDATE_SLEEP_FOREVER;
+            return UPDATE_SLEEP_NONE;
         }
 
         // Get the current weapon slot -- this determines what mode we're in.
@@ -324,18 +323,18 @@ impl UpdateModuleInterface for DemoTrapUpdate {
             // We've been externally triggered by the press of a command button.
             drop(me);
             let _ = self.detonate();
-            return UPDATE_SLEEP_FOREVER;
+            return UPDATE_SLEEP_NONE;
         }
 
         // Don't scan every frame for performance reasons.
         if self.next_scan_frames > 0 {
             self.next_scan_frames -= 1;
-            return UPDATE_SLEEP_FOREVER;
+            return UPDATE_SLEEP_NONE;
         }
 
         if weapon_slot == self.module_data.manual_mode_weapon_slot {
             // Don't scan!
-            return UPDATE_SLEEP_FOREVER;
+            return UPDATE_SLEEP_NONE;
         }
 
         // Reset timer here -- because if we are in manual mode, and switch, we want instant
@@ -380,7 +379,7 @@ impl UpdateModuleInterface for DemoTrapUpdate {
                 if me.get_relationship_to(&other) != ObjectRelationship::Enemy {
                     if !self.module_data.friendly_detonation {
                         // Not allowed to proximity detonate with friends nearby
-                        return UPDATE_SLEEP_FOREVER;
+                        return UPDATE_SLEEP_NONE;
                     }
                     // Don't shoot our friends!
                     continue;
@@ -411,7 +410,7 @@ impl UpdateModuleInterface for DemoTrapUpdate {
             let _ = self.detonate();
         }
 
-        UPDATE_SLEEP_FOREVER
+        UPDATE_SLEEP_NONE
     }
 }
 
@@ -587,4 +586,50 @@ pub fn demo_trap_update_module_factory(
         &module_name,
         module_data_arc,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::ObjectStatusMaskType;
+
+    fn module_data() -> Arc<dyn ModuleData> {
+        Arc::new(DemoTrapUpdateModuleData {
+            detonation_weapon_slot: WeaponSlotType::Secondary,
+            manual_mode_weapon_slot: WeaponSlotType::Primary,
+            proximity_mode_weapon_slot: WeaponSlotType::Tertiary,
+            ..DemoTrapUpdateModuleData::default()
+        })
+    }
+
+    #[test]
+    fn detonated_demo_trap_update_returns_none_like_cpp() {
+        let object = Arc::new(RwLock::new(GameObject::new_test(9401, 100.0)));
+        let mut update = DemoTrapUpdate::new(Arc::clone(&object), module_data()).unwrap();
+        update.detonated = true;
+
+        assert!(matches!(update.update_simple(), UpdateSleepTime::None));
+    }
+
+    #[test]
+    fn under_construction_demo_trap_update_returns_none_like_cpp() {
+        let object = Arc::new(RwLock::new(GameObject::new_test(9402, 100.0)));
+        object
+            .write()
+            .unwrap()
+            .set_status(ObjectStatusMaskType::UNDER_CONSTRUCTION, true);
+        let mut update = DemoTrapUpdate::new(Arc::clone(&object), module_data()).unwrap();
+
+        assert!(matches!(update.update_simple(), UpdateSleepTime::None));
+    }
+
+    #[test]
+    fn scan_delay_demo_trap_decrements_and_returns_none_like_cpp() {
+        let object = Arc::new(RwLock::new(GameObject::new_test(9403, 100.0)));
+        let mut update = DemoTrapUpdate::new(Arc::clone(&object), module_data()).unwrap();
+        update.next_scan_frames = 2;
+
+        assert!(matches!(update.update_simple(), UpdateSleepTime::None));
+        assert_eq!(update.next_scan_frames, 1);
+    }
 }
