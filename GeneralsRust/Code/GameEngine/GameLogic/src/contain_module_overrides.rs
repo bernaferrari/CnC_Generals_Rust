@@ -2228,32 +2228,6 @@ where
     }
 }
 
-macro_rules! legacy_object_crate_collide_factories {
-    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
-        fn $data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
-            Box::new(CrateCollideDataAdapter::new(<$data_ty>::default()))
-        }
-
-        fn $module_factory(
-            thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
-        ) -> Box<dyn Module> {
-            let data_arc =
-                cloned_module_data::<CrateCollideDataAdapter<$data_ty>>($module_name, &module_data);
-            let object_id = resolve_owner_id(&thing);
-            let object = TheGameLogic::find_object_by_id(object_id)
-                .unwrap_or_else(|| panic!("{} requires a valid object", $module_name));
-            let collide = <$module_ty>::new(object, data_arc.data.clone());
-            Box::new(LegacyCrateCollideModule::new(
-                $module_name,
-                data_arc,
-                collide,
-                object_id,
-            ))
-        }
-    };
-}
-
 fn convert_to_car_bomb_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = ConvertToCarBombCrateCollideModuleData::default();
     if let Some(ini) = ini {
@@ -2486,13 +2460,38 @@ fn sabotage_power_plant_crate_collide_module_factory(
         object_id,
     ))
 }
-legacy_object_crate_collide_factories!(
-    sabotage_superweapon_crate_collide_data_factory,
-    sabotage_superweapon_crate_collide_module_factory,
-    SabotageSuperweaponCrateCollideModuleData,
-    SabotageSuperweaponCrateCollide,
-    "SabotageSuperweaponCrateCollide"
-);
+fn sabotage_superweapon_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = SabotageSuperweaponCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SabotageSuperweaponCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn sabotage_superweapon_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<
+        CrateCollideDataAdapter<SabotageSuperweaponCrateCollideModuleData>,
+    >("SabotageSuperweaponCrateCollide", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .unwrap_or_else(|| panic!("SabotageSuperweaponCrateCollide requires a valid object"));
+    let collide = SabotageSuperweaponCrateCollide::new(object, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "SabotageSuperweaponCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 fn sabotage_supply_center_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = SabotageSupplyCenterCrateCollideModuleData::default();
     if let Some(ini) = ini {
