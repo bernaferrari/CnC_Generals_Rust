@@ -11,7 +11,7 @@ use crate::object::collide::crate_collide::crate_collide::CrateCollide as Legacy
 use crate::object::collide::*;
 use crate::player::player_list;
 use game_engine::common::ini::{FieldParse, INIError, INI};
-use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::rts::science::{get_science_store, SCIENCE_INVALID};
 
 /// Module data specific to unit crate collision
 #[derive(Debug, Clone)]
@@ -205,7 +205,11 @@ fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
     }
 
     let mut mask = 0u64;
-    for token in tokens.iter().flat_map(|token| token.split('|')) {
+    for token in tokens
+        .iter()
+        .filter(|token| **token != "=")
+        .flat_map(|token| token.split('|'))
+    {
         let token = token.trim();
         if token.is_empty() {
             continue;
@@ -219,7 +223,11 @@ fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
 }
 
 fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
-    tokens.first().copied().ok_or(INIError::InvalidData)
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
 }
 
 fn parse_required_kind_of(
@@ -272,8 +280,14 @@ fn parse_pickup_science(
     data: &mut UnitCrateCollideModuleData,
     tokens: &[&str],
 ) -> Result<(), INIError> {
-    data.base.pickup_science =
-        NameKeyGenerator::name_to_key(first_token(tokens)?) as crate::common::science::ScienceType;
+    let science_name = first_token(tokens)?;
+    let science = get_science_store()
+        .map(|store| store.get_science_from_internal_name(science_name))
+        .unwrap_or(SCIENCE_INVALID);
+    if science == SCIENCE_INVALID {
+        return Err(INIError::InvalidData);
+    }
+    data.base.pickup_science = science as crate::common::science::ScienceType;
     Ok(())
 }
 
@@ -400,8 +414,37 @@ mod tests {
     use super::*;
     use crate::common::KindOf;
     use crate::player::{Player, PlayerIndex};
+    use game_engine::common::rts::science::{
+        get_science_store, get_science_store_mut, init_science_store, ScienceInfo,
+    };
     use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
     use std::sync::{Arc, RwLock};
+
+    struct AudioEventsGuard(bool);
+
+    impl AudioEventsGuard {
+        fn disabled() -> Self {
+            Self(crate::helpers::set_audio_events_enabled_for_tests(false))
+        }
+    }
+
+    impl Drop for AudioEventsGuard {
+        fn drop(&mut self) {
+            crate::helpers::set_audio_events_enabled_for_tests(self.0);
+        }
+    }
+
+    fn install_test_science(name: &str) -> crate::common::science::ScienceType {
+        init_science_store();
+        {
+            let mut store = get_science_store_mut().expect("science store mut");
+            store.init();
+            store.add_science(ScienceInfo::new(SCIENCE_INVALID, name));
+        }
+        get_science_store()
+            .expect("science store")
+            .get_science_from_internal_name(name) as crate::common::science::ScienceType
+    }
 
     fn create_object_for_player(
         template_name: &str,
@@ -530,6 +573,57 @@ mod tests {
     }
 
     #[test]
+    fn unit_crate_pickup_science_resolves_through_science_store_like_cpp() {
+        let _lock = crate::test_sync::lock();
+
+        let expected_science = install_test_science("SCIENCE_UNIT_CRATE_TEST");
+
+        let mut data = UnitCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "PickupScience = SCIENCE_UNIT_CRATE_TEST\n\
+             UnitCount = 2\n\
+             UnitName = Infantry\n\
+             RequiredKindOf = VEHICLE|INFANTRY\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("unit crate ini parses");
+
+        assert_eq!(data.base.pickup_science, expected_science);
+        assert_eq!(data.unit_count, 2);
+        assert_eq!(data.unit_type, "Infantry");
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            0
+        );
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Infantry as u32)),
+            0
+        );
+    }
+
+    #[test]
+    fn unit_crate_rejects_unknown_pickup_science_like_cpp() {
+        let _lock = crate::test_sync::lock();
+
+        install_test_science("SCIENCE_KNOWN_UNIT_CRATE_TEST");
+
+        let mut data = UnitCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        let err = ini
+            .with_inline_source(
+                "PickupScience = SCIENCE_DOES_NOT_EXIST\n\
+                 End\n",
+                |ini| data.parse_from_ini(ini),
+            )
+            .expect_err("unknown PickupScience should fail");
+
+        assert!(matches!(err, INIError::InvalidData));
+        assert_eq!(data.base.pickup_science, SCIENCE_INVALID);
+    }
+
+    #[test]
     fn unit_crate_creation_preserves_unregistered_default_team() {
         let _lock = crate::test_sync::lock();
 
@@ -551,6 +645,7 @@ mod tests {
     #[test]
     fn test_unit_crate_execute_behavior() {
         let _lock = crate::test_sync::lock();
+        let _audio_guard = AudioEventsGuard::disabled();
 
         ensure_template_exists("Infantry");
         setup_player_with_team(0, "Player1Team");
