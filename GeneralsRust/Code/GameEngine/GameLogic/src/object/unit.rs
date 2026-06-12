@@ -7194,6 +7194,8 @@ impl AIUpdateInterface for UnitAIUpdate {
             return false;
         };
         let surfaces = loc_guard.get_legal_surfaces();
+        drop(loc_guard);
+        drop(guard);
         let land_bound = (surfaces & SURFACE_AIR) == 0;
         if land_bound {
             return false;
@@ -7227,7 +7229,12 @@ impl AIUpdateInterface for UnitAIUpdate {
             }
         }
 
-        guard.current_path = Some(vec![Coord2D::new(destination.x, destination.y)]);
+        let mut start = guard.get_position();
+        start.z = destination.z;
+        guard.current_path = Some(vec![
+            Coord2D::new(start.x, start.y),
+            Coord2D::new(destination.x, destination.y),
+        ]);
         guard.path_following_state = None;
         guard.path_index = 0;
         guard.target_position = Some(*destination);
@@ -7240,7 +7247,7 @@ impl AIUpdateInterface for UnitAIUpdate {
         self.locomotor_goal_type = 1;
         self.locomotor_goal_data = Coord3D::ZERO;
         drop(guard);
-        self.set_current_path_snapshot_from_coords(&[*destination]);
+        self.set_current_path_snapshot_from_coords(&[start, *destination]);
         true
     }
 
@@ -8270,6 +8277,7 @@ impl Drop for UnitAIUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::locomotor::LocomotorTemplate;
     use game_engine::common::system::xfer_load::XferLoad;
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
@@ -8327,6 +8335,49 @@ mod tests {
 
         assert!(ai.is_ai_in_dead_state());
         assert!(base_object.read().unwrap().is_effectively_dead());
+    }
+
+    #[test]
+    fn compute_quick_path_preserves_cpp_start_and_destination_nodes() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(43, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(3.0, 4.0, 2.0));
+        }
+        let template = DefaultThingTemplate::new("AirUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_thrust("AirLoco".to_string()));
+        unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let destination = Coord3D::new(30.0, 40.0, 12.0);
+        assert!(ai.compute_quick_path(&destination));
+
+        {
+            let unit_guard = unit.read().unwrap();
+            let path = unit_guard.current_path.as_ref().unwrap();
+            assert_eq!(
+                path,
+                &vec![Coord2D::new(3.0, 4.0), Coord2D::new(30.0, 40.0)]
+            );
+        }
     }
 
     fn save_unit_ai_update(ai: &mut UnitAIUpdate) -> Vec<u8> {
