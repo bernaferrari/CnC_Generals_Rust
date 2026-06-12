@@ -222,10 +222,45 @@ fn selection_can_salvage_target(
 }
 
 fn selection_can_resume_construction_target(
-    _local_player: Option<u32>,
-    _selection: &HashSet<ObjectID>,
-    _target_id: ObjectID,
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    target_id: ObjectID,
 ) -> bool {
+    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+        return false;
+    };
+    let Ok(target_guard) = target.read() else {
+        return false;
+    };
+
+    for &id in selection {
+        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
+            continue;
+        };
+        let Ok(sel_guard) = sel.read() else {
+            continue;
+        };
+
+        let is_mine = local_player
+            .and_then(|pid| {
+                sel_guard
+                    .get_controlling_player_id()
+                    .map(|owner| owner == pid)
+            })
+            .unwrap_or(false);
+        if !is_mine {
+            continue;
+        }
+
+        if ActionManager::can_resume_construction_of(
+            &sel_guard,
+            &target_guard,
+            CommandSourceType::FromPlayer,
+        ) {
+            return true;
+        }
+    }
+
     false
 }
 
@@ -3819,7 +3854,7 @@ mod tests {
     use game_engine::common::system::radar::{
         get_radar_system, Coord3D as RadarCoord3D, RadarEventType,
     };
-    use gamelogic::common::{AsciiString, GeometryInfo, Real};
+    use gamelogic::common::{AsciiString, GeometryInfo, ObjectStatusTypes, Real};
     use gamelogic::player::{player_list, Player, PlayerType};
     use gamelogic::system::game_logic::{
         get_game_logic, GAME_LAN, GAME_NONE, GAME_REPLAY, GAME_SINGLE_PLAYER,
@@ -4206,6 +4241,54 @@ mod tests {
         drop(dozer);
         OBJECT_REGISTRY.unregister_object(78_040);
         OBJECT_REGISTRY.unregister_object(78_041);
+    }
+
+    #[test]
+    fn command_context_resume_construction_accepts_local_dozer_like_cpp() {
+        let _guard = test_state_lock();
+        let team = setup_local_player_team();
+        {
+            let player = player_list()
+                .read()
+                .unwrap()
+                .get_player(0)
+                .cloned()
+                .unwrap();
+            player
+                .write()
+                .unwrap()
+                .set_player_type(PlayerType::Computer, false);
+        }
+
+        let dozer = register_test_object(
+            78_050,
+            vec![KindOf::Selectable, KindOf::Dozer],
+            team.clone(),
+        );
+        let target =
+            register_test_object(78_051, vec![KindOf::Selectable, KindOf::Structure], team);
+        target.write().unwrap().set_status(
+            LogicObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction),
+            true,
+        );
+
+        let selection = HashSet::from([78_050]);
+
+        assert!(selection_can_resume_construction_target(
+            Some(0),
+            &selection,
+            78_051
+        ));
+        assert!(!selection_can_resume_construction_target(
+            Some(1),
+            &selection,
+            78_051
+        ));
+
+        drop(target);
+        drop(dozer);
+        OBJECT_REGISTRY.unregister_object(78_050);
+        OBJECT_REGISTRY.unregister_object(78_051);
     }
 
     #[test]
