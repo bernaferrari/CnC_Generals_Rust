@@ -131,12 +131,14 @@ impl AssetManager {
 
     /// Load a W3D file using the chunk-based parser
     fn load_w3d_file<P: AsRef<Path>>(&mut self, filename: P) -> W3DResult<()> {
+        let filename = filename.as_ref();
         let mut file = std::fs::File::open(filename)?;
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 
         let mut reader = Cursor::new(buffer);
-        loaders::parse_w3d_file(&mut reader, self)?;
+        let asset_name = filename.file_stem().and_then(|stem| stem.to_str());
+        loaders::parse_w3d_file_with_asset_name(&mut reader, self, asset_name)?;
 
         Ok(())
     }
