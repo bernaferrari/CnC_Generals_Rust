@@ -2228,6 +2228,10 @@ impl Pathfinder {
             .valid_movement_position(surfaces, is_crusher, pos, ignore_obstacle_id)
     }
 
+    pub fn snap_position(&self, pos: &Coord3D) -> Coord3D {
+        self.inner.snap_position(pos)
+    }
+
     pub fn set_goal_cells(
         &mut self,
         unit_id: ObjectID,
