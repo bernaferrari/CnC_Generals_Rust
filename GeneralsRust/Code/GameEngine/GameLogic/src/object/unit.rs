@@ -7041,14 +7041,14 @@ impl AIUpdateInterface for UnitAIUpdate {
             return Ok(());
         }
 
-        self.current_locomotor_set = target_set;
-
         let Some(unit) = self.unit.upgrade() else {
             return Ok(());
         };
         let Some(locomotors) = self.locomotor_sets.get(&target_set) else {
             return Ok(());
         };
+
+        self.current_locomotor_set = target_set;
 
         let mut new_set = LocomotorSet::new();
         for locomotor_name in locomotors {
@@ -8143,19 +8143,18 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn check_for_crate_to_pickup(&self) -> Option<Arc<RwLock<Object>>> {
-        let crate_id = {
+        {
             let Ok(mut guard) = self.crate_created.lock() else {
                 return None;
             };
             if *guard == crate::common::INVALID_ID {
                 return None;
             }
-            let id = *guard;
+            // C++ clears m_crateCreated before the lookup, so the processed marker
+            // does not yield a crate object from this path.
             *guard = crate::common::INVALID_ID;
-            id
-        };
-
-        get_legacy_object(crate_id)
+        }
+        get_legacy_object(crate::common::INVALID_ID)
     }
 
     fn get_next_mood_target(
@@ -9120,6 +9119,63 @@ mod tests {
             &Coord3D::new(3.0, 4.0, 2.0)
         );
         assert!(!ai.waiting_for_path);
+    }
+
+    #[test]
+    fn check_for_crate_to_pickup_consumes_marker_before_lookup_like_cpp() {
+        let crate_id = 58;
+        let crate_object = Arc::new(RwLock::new(Object::new_test(crate_id, 100.0)));
+        crate::ai::object_registry::register_legacy_object(&crate_object);
+
+        let mut ai = unit_ai_update_without_unit();
+        ai.notify_crate(crate_id);
+
+        assert!(ai.check_for_crate_to_pickup().is_none());
+        assert_eq!(ai.get_crate_id(), INVALID_ID);
+
+        crate::ai::object_registry::unregister_legacy_object(crate_id);
+    }
+
+    #[test]
+    fn unit_choose_locomotor_set_preserves_current_when_set_missing_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(59, 100.0)));
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(Arc::clone(&locomotor));
+        let unit = Arc::new(RwLock::new(unit));
+
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        ai.current_locomotor_set = LocomotorSetType::Normal;
+        ai.locomotor_sets.clear();
+
+        ai.choose_locomotor_set(LocomotorSetType::Wander).unwrap();
+
+        assert_eq!(ai.current_locomotor_set, LocomotorSetType::Normal);
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard
+            .current_locomotor
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &locomotor)));
     }
 
     #[test]
