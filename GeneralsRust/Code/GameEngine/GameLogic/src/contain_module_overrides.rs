@@ -5,8 +5,8 @@ use game_engine::common::ini::INI;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{
-    BaseModuleData, CreateInterface, Drawable as ModuleDrawableTrait, Module, ModuleData,
-    ModuleType, NameKeyType, Object as ModuleObjectTrait, Thing as ModuleThing,
+    BaseModuleData, CreateInterface, DeletionLifetimeInterface, Drawable as ModuleDrawableTrait,
+    Module, ModuleData, ModuleType, NameKeyType, Object as ModuleObjectTrait, Thing as ModuleThing,
 };
 use game_engine::common::thing::module_factory::{
     apply_module_overrides_to_existing_templates, register_module_override,
@@ -419,19 +419,27 @@ fn attach_body_to_object(object_id: ObjectID, body: Arc<Mutex<dyn BodyModuleInte
 }
 
 #[derive(Debug)]
-struct ActiveBehaviorModule<T: BehaviorModuleInterface + Snapshotable + 'static> {
+pub(crate) struct ActiveBehaviorModule<T: BehaviorModuleInterface + Snapshotable + 'static> {
     module_name_key: NameKeyType,
     data: Arc<dyn ModuleData>,
     behavior: T,
 }
 
 impl<T: BehaviorModuleInterface + Snapshotable + 'static> ActiveBehaviorModule<T> {
-    fn new(module_name: &str, data: Arc<dyn ModuleData>, behavior: T) -> Self {
+    pub(crate) fn new(module_name: &str, data: Arc<dyn ModuleData>, behavior: T) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
             data,
             behavior,
         }
+    }
+
+    pub(crate) fn behavior(&self) -> &T {
+        &self.behavior
+    }
+
+    pub(crate) fn behavior_mut(&mut self) -> &mut T {
+        &mut self.behavior
     }
 }
 
@@ -442,6 +450,10 @@ impl<T: BehaviorModuleInterface + Snapshotable + 'static> Module for ActiveBehav
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.data.get_module_tag_name_key()
+    }
+
+    fn get_deletion_lifetime_interface(&mut self) -> Option<&mut dyn DeletionLifetimeInterface> {
+        self.behavior.get_deletion_lifetime_interface()
     }
 }
 
