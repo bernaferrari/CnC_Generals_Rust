@@ -74,7 +74,7 @@ impl TunnelTracker {
         if check_capacity {
             let contain_max = self.get_contain_max()?;
             let contain_count = self.get_contain_count()?;
-            Ok((contain_count as i32) < contain_max)
+            Ok(contain_max <= 0 || (contain_count as i32) < contain_max)
         } else {
             Ok(true)
         }

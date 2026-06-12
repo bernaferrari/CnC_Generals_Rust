@@ -1400,12 +1400,16 @@ impl OpenContain {
 
     /// Redeploy occupants (can be overridden)
     pub fn redeploy_occupants(&mut self) -> GameResult<()> {
+        let contained = self.contained_objects.clone();
+        self.redeploy_objects(&contained)
+    }
+
+    pub(crate) fn redeploy_objects(&mut self, contained: &[Arc<RwLock<Object>>]) -> GameResult<()> {
         self.no_fire_points_in_art = false;
         self.fire_point_start = -1;
         self.fire_point_next = 0;
         self.fire_point_size = 0;
 
-        let contained = self.contained_objects.clone();
         for obj in contained.iter().rev() {
             self.put_obj_at_next_fire_point(obj)?;
         }
@@ -1483,7 +1487,7 @@ impl OpenContain {
         Ok(())
     }
 
-    fn add_or_remove_obj_from_world(
+    pub(crate) fn add_or_remove_obj_from_world(
         &mut self,
         obj: Arc<RwLock<Object>>,
         add: bool,

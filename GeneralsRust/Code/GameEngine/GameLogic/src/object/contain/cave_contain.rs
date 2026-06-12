@@ -83,6 +83,8 @@ pub struct CaveContain {
     cave_index: i32,
     /// Original team before garrison
     original_team: Option<Weak<RwLock<Team>>>,
+    /// Cached tracker object IDs for trait APIs that return borrowed slices.
+    contained_object_ids: Vec<ObjectID>,
     /// Reference to the owning object
     object: Weak<RwLock<Object>>,
     /// Reference to cave system
@@ -103,6 +105,7 @@ impl CaveContain {
             need_to_run_on_build_complete: true,
             cave_index: 0,
             original_team: None,
+            contained_object_ids: Vec::new(),
             object,
             cave_system,
         })
@@ -221,6 +224,7 @@ impl CaveContain {
 
     /// Add object to contain list
     pub fn add_to_contain_list(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        let obj_id = obj.read().map_err(|_| GameError::LockError)?.get_id();
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
@@ -231,7 +235,44 @@ impl CaveContain {
         if let Ok(mut tunnel) = tracker.write() {
             tunnel.add_to_contain_list(obj.clone())?;
         }
-        let _ = self.base.add_to_contain_list(obj);
+        if !self.contained_object_ids.contains(&obj_id) {
+            self.contained_object_ids.push(obj_id);
+        }
+        Ok(())
+    }
+
+    /// Add object to containment using CaveContain's tracker-backed storage.
+    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        let was_selected = obj
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_drawable())
+            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            .unwrap_or(false);
+
+        {
+            let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
+            if !self.is_valid_container_for(&obj_guard, true)? {
+                return Err("Object not valid for this cave container".into());
+            }
+            if obj_guard.get_contained_by().is_some() {
+                return Ok(());
+            }
+        }
+
+        self.add_to_contain_list(obj.clone())?;
+
+        let is_enclosing = obj
+            .read()
+            .map(|obj_guard| self.base.is_enclosing_container_for(&obj_guard))
+            .unwrap_or(false);
+        if is_enclosing {
+            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), false);
+        }
+
+        let contained = self.get_contained_items_list()?;
+        self.base.redeploy_objects(&contained)?;
+        self.on_containing(obj, was_selected)?;
         Ok(())
     }
 
@@ -255,23 +296,11 @@ impl CaveContain {
 
             tunnel.remove_from_contain(obj.clone(), expose_stealth_units)?;
         }
-
-        // Trigger events
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner) = owner_obj.read() {
-                if let Some(_contain) = owner.get_contain() {
-                    // Note: This would need the actual contain interface
-                    // contain.on_removing(obj.clone())?;
-                }
-            }
+        if let Ok(guard) = obj.read() {
+            self.contained_object_ids.retain(|id| *id != guard.get_id());
         }
 
-        if let Ok(mut contained) = obj.write() {
-            if let Some(owner_obj) = self.get_object() {
-                contained.on_removed_from(owner_obj)?;
-            }
-            self.base.remove_from_contain_list(contained.get_id());
-        }
+        self.on_removing(obj.clone())?;
 
         Ok(())
     }
@@ -637,7 +666,7 @@ impl ContainModuleInterface for CaveContain {
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
         let obj = TheGameLogic::find_object_by_id(object_id)
             .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.add_to_contain_list(obj).map_err(|e| e.to_string())
+        self.add_to_contain(obj).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -650,12 +679,11 @@ impl ContainModuleInterface for CaveContain {
     }
 
     fn get_contained_objects(&self) -> &[ObjectID] {
-        ContainModuleInterface::get_contained_objects(&self.base)
+        &self.contained_object_ids
     }
 
     fn get_contained_count(&self) -> usize {
-        let (current, _) = self.get_usage();
-        current as usize
+        CaveContain::get_contain_count(self).unwrap_or(0) as usize
     }
 
     fn get_player_who_entered(&self) -> PlayerMaskType {
@@ -663,8 +691,8 @@ impl ContainModuleInterface for CaveContain {
     }
 
     fn get_max_capacity(&self) -> usize {
-        let (_, max) = self.get_usage();
-        if max == u32::MAX {
+        let max = CaveContain::get_contain_max(self).unwrap_or(self.base.get_contain_max());
+        if max <= 0 {
             usize::MAX
         } else {
             max as usize
@@ -734,6 +762,10 @@ impl ContainModuleInterface for CaveContain {
         CaveContain::is_heal_contain(self)
     }
 
+    fn is_bustable(&self) -> bool {
+        CaveContain::is_bustable(self)
+    }
+
     fn is_passenger_allowed_to_fire(&self, id: Option<ObjectID>) -> bool {
         self.base.is_passenger_allowed_to_fire(id)
     }
@@ -777,25 +809,116 @@ impl ContainerInterface for CaveContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.add_to_contain(obj.clone())?;
-        self.on_containing(obj, false)
+        self.add_to_contain(obj)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.on_removing(obj.clone())?;
-        self.base.remove_from_contain(obj, true)
+        self.remove_from_contain(obj, true)
     }
 
     fn get_usage(&self) -> (u32, u32) {
-        let current = self.base.get_contain_count();
+        let current = self.get_contain_count().unwrap_or(0);
         let max_raw = self
             .get_contain_max()
             .unwrap_or_else(|_| self.base.get_contain_max());
         let max = match max_raw {
             super::CONTAIN_MAX_UNKNOWN => u32::MAX,
-            value if value < 0 => u32::MAX,
+            value if value <= 0 => u32::MAX,
             value => value as u32,
         };
         (current, max)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::object::registry::OBJECT_REGISTRY;
+
+    fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
+        let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), None).expect("test object")
+    }
+
+    fn cave_with_registered_tracker(
+        owner: &Arc<RwLock<Object>>,
+        cave_index: i32,
+    ) -> (CaveContain, Arc<Mutex<CaveSystem>>) {
+        let cave_system = Arc::new(Mutex::new(CaveSystem::new()));
+        cave_system
+            .lock()
+            .expect("cave system lock")
+            .register_new_cave(cave_index)
+            .expect("register cave");
+
+        let mut data = CaveContainModuleData::default();
+        data.cave_index_data = cave_index;
+        data.base.allow_neutral_inside = true;
+
+        let mut cave =
+            CaveContain::new(Arc::downgrade(owner), &data, Some(Arc::clone(&cave_system)))
+                .expect("cave contain");
+        cave.on_create(&data).expect("on create");
+        (cave, cave_system)
+    }
+
+    #[test]
+    fn trait_add_uses_tracker_not_base_list_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let owner = test_object("CaveContainOwner", 93001);
+        let passenger = test_object("CaveContainPassenger", 93002);
+        let (mut cave, cave_system) = cave_with_registered_tracker(&owner, 0);
+
+        ContainModuleInterface::contain_object(&mut cave, 93002).expect("contain object");
+
+        let tracker = cave_system
+            .lock()
+            .expect("cave system lock")
+            .get_tunnel_tracker_for_cave_index(0)
+            .expect("tracker");
+        assert_eq!(
+            tracker
+                .read()
+                .expect("tracker read")
+                .get_contain_count()
+                .expect("tracker count"),
+            1
+        );
+        assert_eq!(cave.base.get_contain_count(), 0);
+        assert_eq!(ContainModuleInterface::get_contained_count(&cave), 1);
+        assert_eq!(
+            ContainModuleInterface::get_contained_objects(&cave),
+            &[93002]
+        );
+        assert_eq!(
+            passenger.read().expect("passenger read").get_contained_by(),
+            Some(93001)
+        );
+        assert!(ContainModuleInterface::is_bustable(&cave));
+
+        OBJECT_REGISTRY.unregister_object(93001);
+        OBJECT_REGISTRY.unregister_object(93002);
+    }
+
+    #[test]
+    fn container_interface_usage_reports_tracker_state_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let owner = test_object("CaveUsageOwner", 93003);
+        let passenger = test_object("CaveUsagePassenger", 93004);
+        let (mut cave, _cave_system) = cave_with_registered_tracker(&owner, 0);
+
+        ContainerInterface::add_object(&mut cave, passenger.clone()).expect("add object");
+
+        assert_eq!(ContainerInterface::get_usage(&cave), (1, u32::MAX));
+        ContainerInterface::remove_object(&mut cave, passenger.clone()).expect("remove object");
+        assert_eq!(ContainerInterface::get_usage(&cave), (0, u32::MAX));
+        assert_eq!(
+            passenger.read().expect("passenger read").get_contained_by(),
+            None
+        );
+
+        OBJECT_REGISTRY.unregister_object(93003);
+        OBJECT_REGISTRY.unregister_object(93004);
     }
 }
