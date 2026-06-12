@@ -520,8 +520,10 @@ pub fn update_load_screen(kind: LoadScreenKind, raw_percent: f32) {
     }
     if descriptor.slot_count > 0 {
         let local_player_id = with_multiplayer_load_screen_state(|state| state.local_player_id);
-        report_multiplayer_load_progress(local_player_id, percent);
-        let _ = process_load_screen_progress(kind, local_player_id, percent);
+        if raw_percent <= 100.0 {
+            report_multiplayer_load_progress(local_player_id, percent);
+            let _ = process_load_screen_progress(kind, local_player_id, percent);
+        }
         finish_load_screen_update();
         return;
     }
@@ -2943,6 +2945,53 @@ mod tests {
         assert_eq!(
             progress_value("MultiplayerLoadScreen.wnd:ProgressLoad1"),
             Some(0.41)
+        );
+        clear_multiplayer_load_progress_hook();
+    }
+
+    #[test]
+    fn multiplayer_update_above_complete_only_pumps_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
+        reset_multiplayer_load_screen_state();
+        clear_multiplayer_load_progress_hook();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let hook_calls = Arc::clone(&calls);
+        register_multiplayer_load_progress_hook(move |player_id, percent| {
+            hook_calls.lock().unwrap().push((player_id, percent));
+        });
+
+        let mut wm = WindowManager::new();
+        create_multiplayer_slot_windows(&mut wm, "MultiplayerLoadScreen.wnd", 1);
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralPortrait");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralFeatures");
+        named_test_window(&mut wm, "MultiplayerLoadScreen.wnd:LocalGeneralName");
+
+        let context = LoadScreenInitContext {
+            local_player_name: "Alice".to_string(),
+            local_side_name: "USA".to_string(),
+            local_template_name: "FactionAmerica".to_string(),
+            local_general_name: "USA".to_string(),
+            local_general_features: "USA".to_string(),
+            local_general_portrait: None,
+            local_load_screen_music: String::new(),
+            local_team_number: 0,
+            shell_game_did_mem_pass: true,
+            map_name: None,
+            start_positions: Vec::new(),
+            slots: vec![load_screen_slot("Alice", "USA", 0, false, true)],
+        };
+
+        initialize_multiplayer_windows(&mut wm, "MultiplayerLoadScreen.wnd", &context);
+        with_window_manager(|global_wm| {
+            *global_wm = wm;
+        });
+
+        update_load_screen(LoadScreenKind::Multiplayer, 101.0);
+
+        assert!(calls.lock().unwrap().is_empty());
+        assert_eq!(
+            progress_value("MultiplayerLoadScreen.wnd:ProgressLoad0"),
+            Some(0.0)
         );
         clear_multiplayer_load_progress_hook();
     }
