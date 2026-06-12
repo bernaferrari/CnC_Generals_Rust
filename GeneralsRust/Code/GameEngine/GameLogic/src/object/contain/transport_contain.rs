@@ -671,6 +671,14 @@ impl TransportContain {
         self.extra_slots_in_use
     }
 
+    pub fn is_payload_created(&self) -> bool {
+        self.payload_created
+    }
+
+    pub fn set_payload_created(&mut self, payload_created: bool) {
+        self.payload_created = payload_created;
+    }
+
     /// Check if exit is currently busy
     pub fn is_exit_busy(&self) -> bool {
         if self.module_data.is_delay_exit_in_air {
