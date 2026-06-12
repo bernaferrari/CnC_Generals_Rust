@@ -340,18 +340,19 @@ mod tests {
     fn save_load_menu_system_handles_glm_double_clicked_like_cpp() {
         let listbox_id = 101;
         let listbox_window = Rc::new(RefCell::new(GameWindow::new()));
+        let mut list_box = crate::gui::gadgets::ListBox::new(listbox_id as u32, 0, 0, 200, 80);
+        list_box.add_item_with_data(0, "Existing save", Some(ListBoxItemData::Integer(0)));
+        assert!(list_box.select_index(0, KeyModifiers::none()));
         listbox_window
             .borrow_mut()
-            .set_widget(crate::gui::WindowWidget::ListBox(
-                crate::gui::gadgets::ListBox::new(listbox_id as u32, 0, 0, 200, 80),
-            ));
+            .set_widget(crate::gui::WindowWidget::ListBox(list_box));
 
         {
             let state_handle = save_load_menu_state();
             let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
             *state = SaveLoadMenuState::default();
             state.listbox_games = listbox_id;
-            state.listbox_games_window = Some(listbox_window);
+            state.listbox_games_window = Some(listbox_window.clone());
         }
 
         let window = GameWindow::new();
@@ -363,6 +364,16 @@ mod tests {
                 (-1isize) as WindowMsgData,
             ),
             WindowMsgHandled::Handled
+        );
+
+        let selected = listbox_window
+            .borrow_mut()
+            .list_box_mut()
+            .map(|list_box| list_box.selected_indices().to_vec())
+            .unwrap_or_default();
+        assert!(
+            selected.is_empty(),
+            "C++ GadgetListBoxSetSelected(-1) clears stale selection"
         );
     }
 }
@@ -379,6 +390,14 @@ fn selected_game_info(state: &SaveLoadMenuState) -> Option<AvailableGameInfo> {
     };
     let game_state = get_game_state();
     game_state.available_games().get(index as usize).cloned()
+}
+
+fn set_listbox_selection_from_cpp_row(list_box: &mut crate::gui::gadgets::ListBox, row: i32) {
+    if row < 0 {
+        list_box.set_selected_indices(&[]);
+    } else {
+        let _ = list_box.select_index(row as usize, KeyModifiers::none());
+    }
 }
 
 fn update_menu_actions(state: &SaveLoadMenuState) {
@@ -663,12 +682,9 @@ pub fn save_load_menu_system(
         WindowMessage::User(code) if code == GLM_DOUBLE_CLICKED => {
             if data1 as i32 == state.listbox_games {
                 let row_selected = data2 as i32;
-                if row_selected >= 0 {
-                    if let Some(listbox) = state.listbox_games_window.as_ref() {
-                        if let Some(widget) = listbox.borrow_mut().list_box_mut() {
-                            let _ =
-                                widget.select_index(row_selected as usize, KeyModifiers::none());
-                        }
+                if let Some(listbox) = state.listbox_games_window.as_ref() {
+                    if let Some(widget) = listbox.borrow_mut().list_box_mut() {
+                        set_listbox_selection_from_cpp_row(widget, row_selected);
                     }
                 }
                 process_load_button_press(&mut state, window);
