@@ -1433,6 +1433,25 @@ impl CommandTranslator {
         }
     }
 
+    fn max_select_count() -> i32 {
+        TheInGameUI::get_max_select_count()
+    }
+
+    fn selection_limit_reached(&self) -> bool {
+        Self::selection_count_limit_reached_for(
+            Self::max_select_count(),
+            self.current_selection.len(),
+        )
+    }
+
+    fn selection_count_limit_reached(count: usize) -> bool {
+        Self::selection_count_limit_reached_for(Self::max_select_count(), count)
+    }
+
+    fn selection_count_limit_reached_for(max: i32, count: usize) -> bool {
+        max > 0 && count >= max as usize
+    }
+
     /// Evaluate a context-sensitive command against the current selection state.
     ///
     /// This keeps the command translator itself as the source of truth for context evaluation,
@@ -2382,7 +2401,6 @@ impl CommandTranslator {
         region: &IRegion2D,
         modifiers: KeyModifiers,
     ) -> Vec<GameMessageType> {
-        const MAX_SELECTION_COUNT: usize = 40;
         const PICK_RADIUS_WORLD: f32 = 10.0;
 
         let is_point = region.width == 0 && region.height == 0;
@@ -2521,7 +2539,7 @@ impl CommandTranslator {
                 if self.current_selection.remove(&object_id) {
                     return vec![GameMessageType::RemoveFromSelectedGroup(vec![object_id])];
                 }
-                if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                if self.selection_limit_reached() {
                     return Vec::new();
                 }
                 self.current_selection.insert(object_id);
@@ -2533,7 +2551,7 @@ impl CommandTranslator {
                     self.current_selection.remove(&object_id);
                     return vec![GameMessageType::RemoveFromSelectedGroup(vec![object_id])];
                 }
-                if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                if self.selection_limit_reached() {
                     return Vec::new();
                 }
                 self.current_selection.insert(object_id);
@@ -2552,7 +2570,7 @@ impl CommandTranslator {
         let mut selected_ids = Vec::new();
         let mut building_ids = Vec::new();
         for (id, _) in mine.into_iter() {
-            if selected_ids.len() >= MAX_SELECTION_COUNT {
+            if Self::selection_count_limit_reached(selected_ids.len()) {
                 break;
             }
 
@@ -2582,7 +2600,7 @@ impl CommandTranslator {
         if allow_add {
             let mut new_ids = Vec::new();
             for id in selected_ids {
-                if self.current_selection.len() >= MAX_SELECTION_COUNT {
+                if self.selection_limit_reached() {
                     break;
                 }
                 if self.current_selection.insert(id) {
@@ -3757,6 +3775,26 @@ mod tests {
         let key_msg = GameMessage::new(GameMessageType::RawKeyDown(0x53)); // 'S' key
         let result = translator.translate_game_message(&key_msg);
         assert_eq!(result, GameMessageDisposition::KeepMessage);
+    }
+
+    #[test]
+    fn command_translator_selection_limit_disabled_like_cpp() {
+        let _guard = test_state_lock();
+
+        assert!(!CommandTranslator::selection_count_limit_reached_for(0, 45));
+        assert!(!CommandTranslator::selection_count_limit_reached_for(
+            -1, 45
+        ));
+    }
+
+    #[test]
+    fn command_translator_selection_limit_positive_like_cpp() {
+        let _guard = test_state_lock();
+
+        assert!(!CommandTranslator::selection_count_limit_reached_for(
+            40, 39
+        ));
+        assert!(CommandTranslator::selection_count_limit_reached_for(40, 40));
     }
 
     #[test]
