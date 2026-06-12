@@ -380,7 +380,7 @@ impl CollideModule for SalvageCrateCollide {
             return Ok(());
         };
 
-        if !self.base.is_valid_to_execute(other_obj) {
+        if !CrateCollideBehavior::is_valid_to_execute(self, other_obj) {
             return Ok(());
         }
 
@@ -410,8 +410,23 @@ enum SalvageType {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::ObjectStatusMaskType;
     use crate::player::{player_list, Player};
     use crate::team::Team;
+    use std::collections::HashMap;
+
+    fn object_with_kind_of(id: ObjectId, kind_of: &str) -> Arc<RwLock<Object>> {
+        let mut template = DefaultThingTemplate::new(format!("TestKindOf{id}"));
+        let mut properties = HashMap::new();
+        properties.insert("KindOf".to_string(), kind_of.to_string());
+        template.parse_object_fields_from_ini(&properties);
+        Arc::new(RwLock::new(Object::new_raw(
+            Arc::new(template),
+            id,
+            ObjectStatusMaskType::none(),
+            None,
+        )))
+    }
 
     #[test]
     fn successful_salvage_records_academy_stat_like_cpp() {
@@ -456,6 +471,61 @@ mod tests {
                 .get_salvage_collected(),
             1
         );
+
+        player_list().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn on_collide_rejects_non_salvager_after_base_building_pickup_allows_it() {
+        let _lock = crate::test_sync::lock();
+
+        player_list().write().expect("player list write").clear();
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        player
+            .write()
+            .expect("player write")
+            .get_money_mut()
+            .set_money(100);
+        player_list()
+            .write()
+            .expect("player list write")
+            .add_player(Arc::clone(&player));
+
+        let team = Arc::new(RwLock::new(Team::new(
+            "NonSalvagerBuildingTeam".into(),
+            992,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(0));
+
+        let collector = object_with_kind_of(992, "STRUCTURE");
+        collector
+            .write()
+            .expect("collector write")
+            .set_team(Some(team))
+            .expect("collector team set");
+
+        let data = SalvageCrateCollideModuleData {
+            base: CrateCollideModuleData {
+                is_building_pickup: true,
+                ..CrateCollideModuleData::default()
+            },
+            minimum_money: 50,
+            maximum_money: 50,
+            ..Default::default()
+        };
+        let mut module = SalvageCrateCollide::new(1002, data);
+        let origin = CollisionCoord3D::new(0.0, 0.0, 0.0);
+
+        module
+            .on_collide(Some(&collector), &origin, &origin)
+            .expect("collide returns ok");
+
+        let player = player.read().expect("player read");
+        assert_eq!(player.get_money().get_money(), 100);
+        assert_eq!(player.get_academy_stats().get_salvage_collected(), 0);
 
         player_list().write().expect("player list write").clear();
     }

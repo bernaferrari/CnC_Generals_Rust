@@ -6,8 +6,9 @@
 
 use std::sync::{Arc, Mutex, RwLock};
 
-use crate::common::{FieldParse, KindOf, ObjectStatusMaskType, ObjectStatusTypes};
+use crate::common::{FieldParse, FieldType, KindOf, ObjectStatusMaskType, ObjectStatusTypes};
 use crate::effects::FXList;
+use crate::helpers::TheFXListStore;
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as LegacyCrateCollide, CrateCollideModuleData as LegacyCrateCollideModuleData,
 };
@@ -17,6 +18,7 @@ use crate::object::collide::LegacyCollideAdapter;
 use crate::object::Object;
 use crate::scripting::engine::transfer_object_name;
 use crate::weapon::{WeaponSetFlags, WeaponSetType};
+use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 
 /// Module data for convert to car bomb crate collide behavior
 #[derive(Debug, Clone)]
@@ -40,11 +42,188 @@ impl Default for ConvertToCarBombCrateCollideModuleData {
 }
 
 impl ConvertToCarBombCrateCollideModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, CONVERT_TO_CAR_BOMB_CRATE_COLLIDE_FIELDS)
+    }
+
     /// Build field parser for INI configuration
     pub fn build_field_parse() -> Vec<FieldParse> {
-        LegacyCrateCollideModuleData::build_field_parse()
+        let mut fields = LegacyCrateCollideModuleData::build_field_parse();
+        fields.push(FieldParse::new("FXList", FieldType::String, "fx_list"));
+        fields
     }
 }
+
+fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_required_kind_of(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.required_kind_of = INI::parse_unsigned_int(first_token(tokens)?)? as u64;
+    Ok(())
+}
+
+fn parse_forbidden_kind_of(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.forbidden_kind_of = INI::parse_unsigned_int(first_token(tokens)?)? as u64;
+    Ok(())
+}
+
+fn parse_forbid_owner_player(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_forbid_owner_player = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_building_pickup(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_building_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_human_only(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_human_only_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_pickup_science(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.pickup_science =
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(first_token(tokens)?)
+            as crate::common::science::ScienceType;
+    Ok(())
+}
+
+fn parse_execute_fx(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_fx = Some(first_token(tokens)?.to_string());
+    Ok(())
+}
+
+fn parse_execute_animation(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execution_animation_template = first_token(tokens)?.to_string();
+    Ok(())
+}
+
+fn parse_execute_animation_time(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_display_time_seconds = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_z_rise(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_z_rise_per_second = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_fades(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_fades = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_conversion_fx_list(
+    _ini: &mut INI,
+    data: &mut ConvertToCarBombCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.fx_list = TheFXListStore::find_fx_list(first_token(tokens)?);
+    Ok(())
+}
+
+const CONVERT_TO_CAR_BOMB_CRATE_COLLIDE_FIELDS: &[IniFieldParse<
+    ConvertToCarBombCrateCollideModuleData,
+>] = &[
+    IniFieldParse {
+        token: "RequiredKindOf",
+        parse: parse_required_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbiddenKindOf",
+        parse: parse_forbidden_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbidOwnerPlayer",
+        parse: parse_forbid_owner_player,
+    },
+    IniFieldParse {
+        token: "BuildingPickup",
+        parse: parse_building_pickup,
+    },
+    IniFieldParse {
+        token: "HumanOnly",
+        parse: parse_human_only,
+    },
+    IniFieldParse {
+        token: "PickupScience",
+        parse: parse_pickup_science,
+    },
+    IniFieldParse {
+        token: "ExecuteFX",
+        parse: parse_execute_fx,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimation",
+        parse: parse_execute_animation,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationTime",
+        parse: parse_execute_animation_time,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationZRise",
+        parse: parse_execute_animation_z_rise,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationFades",
+        parse: parse_execute_animation_fades,
+    },
+    IniFieldParse {
+        token: "FXList",
+        parse: parse_conversion_fx_list,
+    },
+];
 
 /// Convert to Car Bomb crate collide module.
 #[derive(Debug)]
@@ -270,5 +449,39 @@ impl game_engine::common::system::Snapshotable for ConvertToCarBombCrateCollide 
 
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn car_bomb_crate_parse_from_ini_preserves_cpp_fx_list_field() {
+        let _lock = crate::test_sync::lock();
+
+        TheFXListStore::ensure_fx_list("FX_CarBombConvertParity");
+
+        let mut data = ConvertToCarBombCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "FXList = FX_CarBombConvertParity\n\
+             ExecuteAnimationTime = 2.5\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("car bomb crate ini parses");
+
+        let fx = data.fx_list.expect("FXList should resolve");
+        assert_eq!(fx.name(), "FX_CarBombConvertParity");
+        assert!((data.base.execute_animation_display_time_seconds - 2.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn car_bomb_crate_build_field_parse_exposes_cpp_fx_list_token() {
+        let fields = ConvertToCarBombCrateCollideModuleData::build_field_parse();
+        assert!(fields
+            .iter()
+            .any(|field| field.token == "FXList" && field.target == "fx_list"));
     }
 }
