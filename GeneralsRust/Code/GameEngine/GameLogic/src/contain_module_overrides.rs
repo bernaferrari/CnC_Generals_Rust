@@ -2254,30 +2254,6 @@ macro_rules! legacy_object_crate_collide_factories {
     };
 }
 
-macro_rules! object_id_crate_collide_factories {
-    ($data_factory:ident, $module_factory:ident, $data_ty:ty, $module_ty:ty, $module_name:literal) => {
-        fn $data_factory(_ini: Option<&mut INI>) -> Box<dyn ModuleData> {
-            Box::new(CrateCollideDataAdapter::new(<$data_ty>::default()))
-        }
-
-        fn $module_factory(
-            thing: Arc<dyn ModuleThing>,
-            module_data: Arc<dyn ModuleData>,
-        ) -> Box<dyn Module> {
-            let data_arc =
-                cloned_module_data::<CrateCollideDataAdapter<$data_ty>>($module_name, &module_data);
-            let object_id = resolve_owner_id(&thing);
-            let collide = <$module_ty>::new(object_id, data_arc.data.clone());
-            Box::new(LegacyCrateCollideModule::new(
-                $module_name,
-                data_arc,
-                collide,
-                object_id,
-            ))
-        }
-    };
-}
-
 fn convert_to_car_bomb_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = ConvertToCarBombCrateCollideModuleData::default();
     if let Some(ini) = ini {
@@ -2598,13 +2574,37 @@ fn unit_crate_collide_module_factory(
         object_id,
     ))
 }
-object_id_crate_collide_factories!(
-    veterancy_crate_collide_data_factory,
-    veterancy_crate_collide_module_factory,
-    VeterancyCrateCollideModuleData,
-    VeterancyCrateCollide,
-    "VeterancyCrateCollide"
-);
+fn veterancy_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = VeterancyCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse VeterancyCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn veterancy_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<CrateCollideDataAdapter<VeterancyCrateCollideModuleData>>(
+        "VeterancyCrateCollide",
+        &module_data,
+    );
+    let object_id = resolve_owner_id(&thing);
+    let collide = VeterancyCrateCollide::new(object_id, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "VeterancyCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 
 struct FireWeaponCollideModule {
     module_name_key: NameKeyType,

@@ -5,11 +5,13 @@
 //! Desc: A crate that gives a level of experience to all within n distance
 
 use super::*;
+use crate::common::{kindof_from_name, FieldParse, FieldType, KindOf};
 use crate::experience::ExperienceRequirements;
 use crate::helpers::{TheGameLogic, ThePartitionManager};
 use crate::object::collide::crate_collide::crate_collide::CrateCollide as LegacyCrateCollide;
 use crate::object::collide::*;
 use crate::scripting::engine::transfer_object_name;
+use game_engine::common::ini::{FieldParse as IniFieldParse, INIError, INI};
 use std::sync::{Arc, Mutex};
 
 /// Module data specific to veterancy crate collision
@@ -34,6 +36,240 @@ impl Default for VeterancyCrateCollideModuleData {
         }
     }
 }
+
+impl VeterancyCrateCollideModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, VETERANCY_CRATE_COLLIDE_FIELDS)
+    }
+
+    pub fn build_field_parse() -> Vec<FieldParse> {
+        let mut fields = CrateCollideModuleData::build_field_parse();
+        fields.extend([
+            FieldParse::new("EffectRange", FieldType::UnsignedInt, "range_of_effect"),
+            FieldParse::new("AddsOwnerVeterancy", FieldType::Int, "adds_owner_veterancy"),
+            FieldParse::new("IsPilot", FieldType::Int, "is_pilot"),
+        ]);
+        fields
+    }
+}
+
+fn parse_kind_of_mask(tokens: &[&str]) -> Result<u64, INIError> {
+    if tokens.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+
+    let mut mask = 0u64;
+    for token in tokens
+        .iter()
+        .filter(|token| **token != "=")
+        .flat_map(|token| token.split('|'))
+    {
+        let token = token.trim();
+        if token.is_empty() {
+            continue;
+        }
+        let Some(kind) = kindof_from_name(token) else {
+            return Err(INIError::InvalidData);
+        };
+        mask |= 1u64 << (kind as u32);
+    }
+    Ok(mask)
+}
+
+fn first_token<'a>(tokens: &'a [&'a str]) -> Result<&'a str, INIError> {
+    tokens
+        .iter()
+        .copied()
+        .find(|token| *token != "=")
+        .ok_or(INIError::InvalidData)
+}
+
+fn parse_required_kind_of(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.required_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbidden_kind_of(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.forbidden_kind_of = parse_kind_of_mask(tokens)?;
+    Ok(())
+}
+
+fn parse_forbid_owner_player(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_forbid_owner_player = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_building_pickup(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_building_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_human_only(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.is_human_only_pickup = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_pickup_science(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.pickup_science =
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(first_token(tokens)?)
+            as crate::common::science::ScienceType;
+    Ok(())
+}
+
+fn parse_execute_fx(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_fx = Some(first_token(tokens)?.to_string());
+    Ok(())
+}
+
+fn parse_execute_animation(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execution_animation_template = first_token(tokens)?.to_string();
+    Ok(())
+}
+
+fn parse_execute_animation_time(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_display_time_seconds = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_z_rise(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_z_rise_per_second = INI::parse_real(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_execute_animation_fades(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.base.execute_animation_fades = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_effect_range(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.range_of_effect = INI::parse_unsigned_int(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_adds_owner_veterancy(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.adds_owner_veterancy = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+fn parse_is_pilot(
+    _ini: &mut INI,
+    data: &mut VeterancyCrateCollideModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.is_pilot = INI::parse_bool(first_token(tokens)?)?;
+    Ok(())
+}
+
+const VETERANCY_CRATE_COLLIDE_FIELDS: &[IniFieldParse<VeterancyCrateCollideModuleData>] = &[
+    IniFieldParse {
+        token: "RequiredKindOf",
+        parse: parse_required_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbiddenKindOf",
+        parse: parse_forbidden_kind_of,
+    },
+    IniFieldParse {
+        token: "ForbidOwnerPlayer",
+        parse: parse_forbid_owner_player,
+    },
+    IniFieldParse {
+        token: "BuildingPickup",
+        parse: parse_building_pickup,
+    },
+    IniFieldParse {
+        token: "HumanOnly",
+        parse: parse_human_only,
+    },
+    IniFieldParse {
+        token: "PickupScience",
+        parse: parse_pickup_science,
+    },
+    IniFieldParse {
+        token: "ExecuteFX",
+        parse: parse_execute_fx,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimation",
+        parse: parse_execute_animation,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationTime",
+        parse: parse_execute_animation_time,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationZRise",
+        parse: parse_execute_animation_z_rise,
+    },
+    IniFieldParse {
+        token: "ExecuteAnimationFades",
+        parse: parse_execute_animation_fades,
+    },
+    IniFieldParse {
+        token: "EffectRange",
+        parse: parse_effect_range,
+    },
+    IniFieldParse {
+        token: "AddsOwnerVeterancy",
+        parse: parse_adds_owner_veterancy,
+    },
+    IniFieldParse {
+        token: "IsPilot",
+        parse: parse_is_pilot,
+    },
+];
 
 /// Veterancy Crate Collide Module
 ///
@@ -364,6 +600,65 @@ mod tests {
         }
 
         obj
+    }
+
+    #[test]
+    fn veterancy_crate_parse_from_ini_preserves_cpp_fields() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = VeterancyCrateCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "EffectRange = 225\n\
+             AddsOwnerVeterancy = Yes\n\
+             IsPilot = true\n\
+             RequiredKindOf = INFANTRY|VEHICLE\n\
+             ExecuteAnimationTime = 1.75\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("veterancy crate ini parses");
+
+        assert_eq!(data.range_of_effect, 225);
+        assert!(data.adds_owner_veterancy);
+        assert!(data.is_pilot);
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Infantry as u32)),
+            0
+        );
+        assert_ne!(
+            data.base.required_kind_of & (1u64 << (KindOf::Vehicle as u32)),
+            0
+        );
+        assert!((data.base.execute_animation_display_time_seconds - 1.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn veterancy_crate_rejects_missing_cpp_field_value() {
+        let mut data = VeterancyCrateCollideModuleData::default();
+        let mut ini = INI::new();
+
+        let err = ini
+            .with_inline_source("EffectRange =\nEnd\n", |ini| data.parse_from_ini(ini))
+            .expect_err("missing effect range should fail");
+
+        assert!(matches!(err, INIError::InvalidData));
+        assert_eq!(data.range_of_effect, 0);
+    }
+
+    #[test]
+    fn veterancy_crate_build_field_parse_exposes_cpp_tokens() {
+        let fields = VeterancyCrateCollideModuleData::build_field_parse();
+        assert!(fields
+            .iter()
+            .any(|field| field.token == "EffectRange" && field.target == "range_of_effect"));
+        assert!(fields
+            .iter()
+            .any(|field| field.token == "AddsOwnerVeterancy"
+                && field.target == "adds_owner_veterancy"));
+        assert!(fields
+            .iter()
+            .any(|field| field.token == "IsPilot" && field.target == "is_pilot"));
     }
 
     #[test]
