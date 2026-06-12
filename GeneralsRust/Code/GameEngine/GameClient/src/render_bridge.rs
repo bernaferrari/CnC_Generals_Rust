@@ -422,6 +422,19 @@ pub struct RenderFrameStateSummary {
     pub fingerprint: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ModelResolution {
+    Asset,
+    Fallback,
+}
+
+#[derive(Debug, Clone)]
+pub struct DrainedDrawSubmission {
+    pub submission: DrawSubmission,
+    pub is_transparent: bool,
+    pub model_resolution: Option<ModelResolution>,
+}
+
 pub struct RenderBridge {
     scene: Scene,
     pending: Vec<DrawSubmission>,
@@ -430,6 +443,7 @@ pub struct RenderBridge {
         HashMap<game_engine::common::system::scene_submission::SceneLineId, SceneLineEntry>,
     camera: Option<Camera>,
     model_cache: HashMap<String, Arc<dyn RenderObject>>,
+    model_resolution: HashMap<String, ModelResolution>,
     asset_manager: AssetManager,
     asset_search_paths: Vec<PathBuf>,
     stats: RenderBridgeStats,
@@ -461,6 +475,7 @@ impl RenderBridge {
             scene_lines: HashMap::new(),
             camera: None,
             model_cache: HashMap::new(),
+            model_resolution: HashMap::new(),
             asset_manager: AssetManager::new(),
             asset_search_paths: Vec::new(),
             stats: RenderBridgeStats::default(),
@@ -520,8 +535,9 @@ impl RenderBridge {
         // Phase 2.5: Ensure models are loaded in the cache.
         for name in &model_names {
             if !self.model_cache.contains_key(name) {
-                if let Some(render_obj) = self.resolve_model(name) {
+                if let Some((render_obj, resolution)) = self.resolve_model(name) {
                     self.model_cache.insert(name.clone(), render_obj);
+                    self.model_resolution.insert(name.clone(), resolution);
                 }
             }
         }
@@ -646,10 +662,11 @@ impl RenderBridge {
         self.last_frame_objects = last_frame_objects;
     }
 
-    fn resolve_model(&mut self, name: &str) -> Option<Arc<dyn RenderObject>> {
+    fn resolve_model(&mut self, name: &str) -> Option<(Arc<dyn RenderObject>, ModelResolution)> {
         if let Some(obj) = self.asset_manager.create_render_obj(name) {
-            return Some(Arc::from(
-                Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>
+            return Some((
+                Arc::from(Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>),
+                ModelResolution::Asset,
             ));
         }
 
@@ -658,8 +675,9 @@ impl RenderBridge {
             if candidate.exists() {
                 if self.asset_manager.load_3d_assets(&candidate).is_ok() {
                     if let Some(obj) = self.asset_manager.create_render_obj(name) {
-                        return Some(Arc::from(
-                            Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>
+                        return Some((
+                            Arc::from(Box::new(WrapRenderObj(obj)) as Box<dyn RenderObject>),
+                            ModelResolution::Asset,
                         ));
                     }
                 }
@@ -667,7 +685,7 @@ impl RenderBridge {
         }
 
         let fallback = ww3d_core::create_cube_mesh(name.to_string(), 1.0);
-        Some(Arc::new(fallback))
+        Some((Arc::new(fallback), ModelResolution::Fallback))
     }
 
     /// Drain all processed submissions from the scene layers after `flush()`.
@@ -677,7 +695,7 @@ impl RenderBridge {
     ///
     /// This is the bridge point where the GameClient drawable pipeline hands
     /// off its culled/sorted submissions to the main `RenderPipeline`.
-    pub fn drain_scene_submissions(&mut self) -> Vec<(DrawSubmission, bool)> {
+    pub fn drain_scene_submissions(&mut self) -> Vec<DrainedDrawSubmission> {
         let mut result = Vec::new();
 
         for i in 0..self.scene.layer_count() {
@@ -690,7 +708,12 @@ impl RenderBridge {
             if let Some(layer) = self.scene.get_layer(i) {
                 for obj in layer.objects_slice() {
                     if let Some(bridge_obj) = obj.as_any().downcast_ref::<BridgeRenderObject>() {
-                        result.push((bridge_obj.submission.clone(), is_transparent));
+                        let key = bridge_obj.submission.model_name.to_lowercase();
+                        result.push(DrainedDrawSubmission {
+                            submission: bridge_obj.submission.clone(),
+                            is_transparent,
+                            model_resolution: self.model_resolution.get(&key).copied(),
+                        });
                     }
                 }
             }
@@ -768,8 +791,9 @@ impl RenderBridge {
         if self.model_cache.contains_key(&key) {
             return;
         }
-        if let Some(render_obj) = self.resolve_model(&key) {
-            self.model_cache.insert(key, render_obj);
+        if let Some((render_obj, resolution)) = self.resolve_model(&key) {
+            self.model_cache.insert(key.clone(), render_obj);
+            self.model_resolution.insert(key, resolution);
         }
     }
 
@@ -787,8 +811,9 @@ impl RenderBridge {
             let key = model_name.to_lowercase();
             if seen.insert(key.clone()) {
                 if !self.model_cache.contains_key(&key) {
-                    if let Some(render_obj) = self.resolve_model(&key) {
-                        self.model_cache.insert(key, render_obj);
+                    if let Some((render_obj, resolution)) = self.resolve_model(&key) {
+                        self.model_cache.insert(key.clone(), render_obj);
+                        self.model_resolution.insert(key, resolution);
                     }
                 }
             }
@@ -805,6 +830,7 @@ impl RenderBridge {
 
     pub fn clear_model_cache(&mut self) {
         self.model_cache.clear();
+        self.model_resolution.clear();
     }
 
     /// Get a snapshot of all visible scene lines for rendering.
@@ -1509,6 +1535,87 @@ mod tests {
         assert!(bridge.is_model_loaded("testmodel"));
         bridge.clear_model_cache();
         assert!(!bridge.is_model_loaded("TestModel"));
+    }
+
+    #[test]
+    fn drained_submissions_identify_fallback_model_resolution() {
+        let mut bridge = RenderBridge::new();
+        let mut camera = Camera::perspective(
+            "fallback_scene".to_string(),
+            60.0_f32.to_radians(),
+            16.0 / 9.0,
+            0.1,
+            1000.0,
+        );
+        camera.set_position(WwVec3::new(0.0, 50.0, -100.0));
+        camera.look_at(WwVec3::ZERO, WwVec3::Y);
+
+        bridge.begin_frame(&camera, 0.016);
+        bridge.submit(DrawSubmission {
+            drawable_id: DrawableId(1),
+            model_name: "MissingModel".to_string(),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 10.0),
+            opaque: true,
+            ..Default::default()
+        });
+        bridge.flush();
+
+        let drained = bridge.drain_scene_submissions();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].model_resolution, Some(ModelResolution::Fallback));
+        assert!(!drained[0].is_transparent);
+    }
+
+    #[test]
+    fn drained_submissions_identify_asset_model_resolution_like_cpp() {
+        let mut bridge = RenderBridge::new();
+        bridge.asset_manager_mut().add_prototype(
+            "realmodel".to_string(),
+            Box::new(ww3d_assets::prototypes::MeshPrototype::new(
+                "RealModel".to_string(),
+            )),
+        );
+
+        let mut camera = Camera::perspective(
+            "asset_scene".to_string(),
+            60.0_f32.to_radians(),
+            16.0 / 9.0,
+            0.1,
+            1000.0,
+        );
+        camera.set_position(WwVec3::new(0.0, 50.0, -100.0));
+        camera.look_at(WwVec3::ZERO, WwVec3::Y);
+
+        bridge.begin_frame(&camera, 0.016);
+        bridge.submit(DrawSubmission {
+            drawable_id: DrawableId(1),
+            model_name: "RealModel".to_string(),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 10.0),
+            opaque: true,
+            ..Default::default()
+        });
+        bridge.flush();
+
+        let drained = bridge.drain_scene_submissions();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].model_resolution, Some(ModelResolution::Asset));
+
+        bridge.clear_model_cache();
+        assert!(!bridge.is_model_loaded("RealModel"));
+        bridge.begin_frame(&camera, 0.016);
+        bridge.submit(DrawSubmission {
+            drawable_id: DrawableId(2),
+            model_name: "RealModel".to_string(),
+            bounding_sphere: BoundingSphere::new(WwVec3::ZERO, 10.0),
+            opaque: true,
+            ..Default::default()
+        });
+        bridge.flush();
+        let drained_after_clear = bridge.drain_scene_submissions();
+        assert_eq!(
+            drained_after_clear[0].model_resolution,
+            Some(ModelResolution::Asset)
+        );
     }
 
     #[test]
