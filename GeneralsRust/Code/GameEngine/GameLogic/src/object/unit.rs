@@ -7459,14 +7459,15 @@ impl AIUpdateInterface for UnitAIUpdate {
         victim_id: ObjectID,
         victim_pos: &Coord3D,
     ) -> Result<(), String> {
+        if !self.has_valid_locomotor_surfaces() {
+            return Err("Attempting to path immobile unit".to_string());
+        }
         self.requested_destination = *victim_pos;
         self.requested_victim_id = victim_id;
         self.is_attack_path = true;
         self.is_approach_path = false;
         self.is_safe_path = false;
-        if !self.has_valid_locomotor_surfaces() {
-            return Err("Attempting to path immobile unit".to_string());
-        }
+        self.waiting_for_path = true;
         let victim = get_legacy_object(victim_id);
         let _ = self.set_goal_object(victim.as_ref());
         let _ = self.ignore_obstacle(victim.as_ref());
@@ -7478,7 +7479,6 @@ impl AIUpdateInterface for UnitAIUpdate {
         }
         self.set_queue_for_path_time(0);
         let _ = self.queue_path_request_now(*victim_pos);
-        let _ = self.set_movement_target(victim_pos);
         self.path_timestamp = now;
         Ok(())
     }
@@ -9029,6 +9029,49 @@ mod tests {
         let unit_guard = unit.read().unwrap();
         assert!(unit_guard.target_position.is_some());
         assert!(unit_guard.current_path.is_some());
+    }
+
+    #[test]
+    fn request_attack_path_enters_wait_state_before_repath_delay_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(53, 100.0)));
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let now = TheGameLogic::get_frame();
+        ai.path_timestamp = now.saturating_add(1);
+        let destination = Coord3D::new(12.0, 4.0, 0.0);
+
+        ai.request_attack_path(INVALID_ID, &destination).unwrap();
+
+        assert!(ai.is_attack_path);
+        assert!(ai.waiting_for_path);
+        assert!(ai.is_waiting_for_path());
+        assert_eq!(
+            ai.queue_for_path_frame,
+            now.saturating_add(LOGICFRAMES_PER_SECOND * 2)
+        );
     }
 
     #[test]
