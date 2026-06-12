@@ -2036,6 +2036,16 @@ impl ModuleUpdateProxy {
     }
 }
 
+fn initial_update_wake_frame(entry: &ModuleEntry) -> UnsignedInt {
+    entry.with_module(|module| {
+        module
+            .as_any()
+            .downcast_ref::<crate::object::behavior::lifetime_update::LifetimeUpdateModule>()
+            .map(|module| module.initial_wake_frame())
+            .unwrap_or(0)
+    })
+}
+
 impl UpdateModuleInterface for ModuleUpdateProxy {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         let mut sleep = None;
@@ -6507,10 +6517,11 @@ impl Object {
                     Arc::clone(entry),
                     object_id,
                 )));
+                let wake_frame = initial_update_wake_frame(entry.as_ref());
                 if let Err(err) = crate::helpers::TheGameLogic::register_update_module(
                     object_id,
                     proxy.clone(),
-                    0,
+                    wake_frame,
                 ) {
                     warn!(
                         "Failed to register update module '{}' for object {}: {}",
