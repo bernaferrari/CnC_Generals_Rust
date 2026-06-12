@@ -572,7 +572,7 @@ pub fn clear_load_screen_presentation_pump() -> Option<LoadScreenPresentationPum
     LOAD_SCREEN_PRESENTATION_PUMP.with(|state| state.borrow_mut().take())
 }
 
-fn pump_load_screen_presentation() {
+pub(crate) fn pump_load_screen_presentation() {
     let hook = LOAD_SCREEN_PRESENTATION_PUMP.with(|state| state.borrow().clone());
     if let Some(hook) = hook {
         hook();

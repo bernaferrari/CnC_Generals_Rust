@@ -1003,6 +1003,12 @@ impl TheGameLogic {
         with_load_screen_hooks(|hooks| hooks.update_load_screen(progress))
     }
 
+    pub fn run_load_screen_completion_transition(loading_save_game: Bool) -> Bool {
+        with_load_screen_hooks(|hooks| {
+            hooks.run_load_screen_completion_transition(loading_save_game)
+        })
+    }
+
     pub fn end_load_screen() -> Bool {
         with_load_screen_hooks(|hooks| hooks.end_load_screen())
     }
@@ -1088,6 +1094,7 @@ impl TheGameLogic {
                 .map_err(|err| format!("Game initialization failed: {}", err));
         if init_result.is_ok() {
             Self::update_load_progress(crate::system::game_initialization::LOAD_PROGRESS_END);
+            Self::run_load_screen_completion_transition(is_load_game);
         }
         Self::end_load_screen();
 
@@ -2992,6 +2999,7 @@ static GAME_PAUSE_HOOKS: OnceLock<Arc<dyn GamePauseHooks>> = OnceLock::new();
 pub trait LoadScreenHooks: Send + Sync {
     fn begin_load_screen(&self, game_mode: Int, loading_save_game: Bool);
     fn update_load_screen(&self, progress: Int);
+    fn run_load_screen_completion_transition(&self, _loading_save_game: Bool) {}
     fn end_load_screen(&self);
 }
 
