@@ -3543,107 +3543,39 @@ impl Player {
 /// Save/load support for Player.
 /// Matches C++ Player::xfer (Player.cpp:3975, version 8).
 impl Snapshotable for Player {
+    /// C++ Player::crc is intentionally much narrower than Player::xfer.
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: XferVersion = 8;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
+        let mut has_battle_plan_bonus = self.battle_plan_bonuses.is_some();
+        xfer.xfer_bool(&mut has_battle_plan_bonus)
             .map_err(|e| e.to_string())?;
+        if let Some(bonuses) = &self.battle_plan_bonuses {
+            let mut armor_scalar = bonuses.armor_scalar;
+            xfer.xfer_real(&mut armor_scalar)
+                .map_err(|e| e.to_string())?;
+            let mut sight_range_scalar = bonuses.sight_range_scalar;
+            xfer.xfer_real(&mut sight_range_scalar)
+                .map_err(|e| e.to_string())?;
+            let mut bombardment = bonuses.bombardment;
+            xfer.xfer_int(&mut bombardment).map_err(|e| e.to_string())?;
+            let mut hold_the_line = bonuses.hold_the_line;
+            xfer.xfer_int(&mut hold_the_line)
+                .map_err(|e| e.to_string())?;
+            let mut search_and_destroy = bonuses.search_and_destroy;
+            xfer.xfer_int(&mut search_and_destroy)
+                .map_err(|e| e.to_string())?;
+            let mut valid_kind_of = bonuses.valid_kind_of;
+            xfer.xfer_u64(&mut valid_kind_of)
+                .map_err(|e| e.to_string())?;
+            let mut invalid_kind_of = bonuses.invalid_kind_of;
+            xfer.xfer_u64(&mut invalid_kind_of)
+                .map_err(|e| e.to_string())?;
+        }
 
-        // Money
-        let mut money_amount = self.money.amount as u32;
-        xfer.xfer_u32(&mut money_amount)
-            .map_err(|e| e.to_string())?;
-
-        // Upgrade count
-        let mut upgrade_count = self.upgrade_list.len() as u16;
-        xfer.xfer_unsigned_short(&mut upgrade_count)
-            .map_err(|e| e.to_string())?;
-
-        // Radar info
-        let mut radar_count = self.radar_count;
-        xfer.xfer_int(&mut radar_count).map_err(|e| e.to_string())?;
-        let mut is_player_dead = self.is_player_dead;
-        xfer.xfer_bool(&mut is_player_dead)
-            .map_err(|e| e.to_string())?;
-        let mut disable_proof_radar_count = self.disable_proof_radar_count;
-        xfer.xfer_int(&mut disable_proof_radar_count)
-            .map_err(|e| e.to_string())?;
-        let mut radar_disabled = self.radar_disabled;
-        xfer.xfer_bool(&mut radar_disabled)
-            .map_err(|e| e.to_string())?;
-
-        // Energy (inline, matching C++ Energy::xfer v3)
-        let mut energy_version: XferVersion = 3;
-        xfer.xfer_version(&mut energy_version, 3)
-            .map_err(|e| e.to_string())?;
-        let mut owning_player_index = self.player_index;
-        xfer.xfer_int(&mut owning_player_index)
-            .map_err(|e| e.to_string())?;
-        let mut power_sabotaged_till_frame = self.energy.power_sabotaged_till_frame;
-        xfer.xfer_u32(&mut power_sabotaged_till_frame)
-            .map_err(|e| e.to_string())?;
-
-        // Sciences
-        let mut sciences = self.sciences.clone();
-        xfer.xfer_science_vec(&mut sciences)
-            .map_err(|e| e.to_string())?;
-
-        // Rank/skill
-        let mut rank_level = self.rank_level;
-        xfer.xfer_int(&mut rank_level).map_err(|e| e.to_string())?;
         let mut skill_points = self.skill_points;
         xfer.xfer_int(&mut skill_points)
             .map_err(|e| e.to_string())?;
         let mut science_purchase_points = self.science_purchase_points;
         xfer.xfer_int(&mut science_purchase_points)
-            .map_err(|e| e.to_string())?;
-        let mut level_up: Int = 0;
-        xfer.xfer_int(&mut level_up).map_err(|e| e.to_string())?;
-        let mut level_down: Int = 0;
-        xfer.xfer_int(&mut level_down).map_err(|e| e.to_string())?;
-        let mut general_name = self.general_name.clone();
-        xfer.xfer_unicode_string(&mut general_name)
-            .map_err(|e| e.to_string())?;
-
-        // Relations
-        let mut can_build_units = self.can_build_units;
-        xfer.xfer_bool(&mut can_build_units)
-            .map_err(|e| e.to_string())?;
-        let mut can_build_base = self.can_build_base;
-        xfer.xfer_bool(&mut can_build_base)
-            .map_err(|e| e.to_string())?;
-        let mut is_observer = self.is_observer;
-        xfer.xfer_bool(&mut is_observer)
-            .map_err(|e| e.to_string())?;
-        let mut skill_points_modifier = self.skill_points_modifier;
-        xfer.xfer_real(&mut skill_points_modifier)
-            .map_err(|e| e.to_string())?;
-        let mut list_in_score_screen = self.list_in_score_screen;
-        xfer.xfer_bool(&mut list_in_score_screen)
-            .map_err(|e| e.to_string())?;
-
-        // Attacked by
-        for i in 0..MAX_PLAYER_COUNT {
-            let mut val = self.attacked_by[i];
-            xfer.xfer_bool(&mut val).map_err(|e| e.to_string())?;
-        }
-
-        let mut cash_bounty_percent = self.cash_bounty_percent;
-        xfer.xfer_real(&mut cash_bounty_percent)
-            .map_err(|e| e.to_string())?;
-
-        // Battle plan counts
-        let mut bombard_battle_plans = self.bombard_battle_plans;
-        xfer.xfer_int(&mut bombard_battle_plans)
-            .map_err(|e| e.to_string())?;
-        let mut hold_the_line_battle_plans = self.hold_the_line_battle_plans;
-        xfer.xfer_int(&mut hold_the_line_battle_plans)
-            .map_err(|e| e.to_string())?;
-        let mut search_and_destroy_battle_plans = self.search_and_destroy_battle_plans;
-        xfer.xfer_int(&mut search_and_destroy_battle_plans)
-            .map_err(|e| e.to_string())?;
-        let mut units_should_hunt = self.units_should_hunt;
-        xfer.xfer_bool(&mut units_should_hunt)
             .map_err(|e| e.to_string())?;
 
         Ok(())
@@ -4460,6 +4392,63 @@ impl Default for Player {
 impl ScienceAccess for Player {
     fn has_science(&self, science: ScienceType) -> bool {
         science != SCIENCE_INVALID && self.sciences.contains(&science)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::system::xfer_crc::XferCRC;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    fn player_crc(player: &Player) -> u32 {
+        let sink = Cursor::new(Vec::<u8>::new());
+        let inner = XferSave::new(sink, 1);
+        let mut xfer = XferCRC::new(inner);
+        Snapshotable::crc(player, &mut xfer).unwrap();
+        xfer.get_crc()
+    }
+
+    #[test]
+    fn player_crc_matches_cpp_skill_and_science_surface() {
+        let mut base = Player::new(0);
+        base.skill_points = 10;
+        base.science_purchase_points = 3;
+        let base_crc = player_crc(&base);
+
+        let mut save_only_change = Player::new(0);
+        save_only_change.skill_points = 10;
+        save_only_change.science_purchase_points = 3;
+        save_only_change.money.set_money(50_000);
+        save_only_change.general_name = "General AΩ".to_string();
+        save_only_change.radar_count = 7;
+        save_only_change.bombard_battle_plans = 2;
+
+        assert_eq!(player_crc(&save_only_change), base_crc);
+
+        let mut skill_change = Player::new(0);
+        skill_change.skill_points = 11;
+        skill_change.science_purchase_points = 3;
+
+        assert_ne!(player_crc(&skill_change), base_crc);
+    }
+
+    #[test]
+    fn player_crc_includes_battle_plan_bonus_payload_like_cpp() {
+        let base = Player::new(0);
+        let mut with_bonus = Player::new(0);
+        with_bonus.battle_plan_bonuses = Some(BattlePlanBonuses {
+            armor_scalar: 1.25,
+            sight_range_scalar: 1.5,
+            bombardment: 1,
+            hold_the_line: 0,
+            search_and_destroy: 1,
+            valid_kind_of: 0x12,
+            invalid_kind_of: 0x40,
+        });
+
+        assert_ne!(player_crc(&with_bonus), player_crc(&base));
     }
 }
 
