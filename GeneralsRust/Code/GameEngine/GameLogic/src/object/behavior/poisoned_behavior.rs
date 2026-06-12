@@ -99,7 +99,7 @@ impl PoisonedBehavior {
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<PoisonedBehaviorModuleData>,
     ) -> Self {
-        Self {
+        let behavior = Self {
             object: Arc::downgrade(&object),
             module_data,
             next_call_frame_and_phase: 0,
@@ -107,7 +107,19 @@ impl PoisonedBehavior {
             poison_overall_stop_frame: 0,
             poison_damage_amount: 0.0,
             death_type: DeathType::Poisoned,
-        }
+        };
+        behavior.set_wake_frame(UpdateSleepTime::Forever);
+        behavior
+    }
+
+    fn set_wake_frame(&self, sleep_time: UpdateSleepTime) {
+        let Some(object) = self.object.upgrade() else {
+            return;
+        };
+        let Ok(object) = object.read() else {
+            return;
+        };
+        TheGameLogic::set_wake_frame(object.get_id(), sleep_time);
     }
 
     fn set_poison_tint(&self, enabled: bool) {
@@ -144,6 +156,7 @@ impl PoisonedBehavior {
 
         self.death_type = damage_info.input.death_type;
         self.set_poison_tint(true);
+        self.set_wake_frame(self.calc_sleep_time(now));
     }
 
     fn stop_poisoned_effects(&mut self) {
@@ -247,6 +260,7 @@ impl DamageModuleInterface for PoisonedBehavior {
         _damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.stop_poisoned_effects();
+        self.set_wake_frame(UpdateSleepTime::Forever);
         Ok(())
     }
 
@@ -389,6 +403,16 @@ impl BehaviorModuleInterface for PoisonedBehaviorModule {
 mod tests {
     use super::*;
 
+    fn test_behavior() -> PoisonedBehavior {
+        let object = Arc::new(RwLock::new(GameObject::new_test(9501, 100.0)));
+        let data = Arc::new(PoisonedBehaviorModuleData {
+            poison_damage_interval: 5,
+            poison_duration: 20,
+            ..PoisonedBehaviorModuleData::default()
+        });
+        PoisonedBehavior::new(object, data)
+    }
+
     #[test]
     fn defaults_match_cpp_constructor() {
         let data = PoisonedBehaviorModuleData::default();
@@ -425,5 +449,52 @@ mod tests {
 
         assert!(matches!(interval_err, INIError::InvalidData));
         assert!(matches!(duration_err, INIError::InvalidData));
+    }
+
+    #[test]
+    fn calc_sleep_time_uses_earliest_poison_or_expiry_frame() {
+        let mut behavior = test_behavior();
+
+        behavior.poison_damage_frame = 110;
+        behavior.poison_overall_stop_frame = 140;
+        assert_eq!(behavior.calc_sleep_time(100), UpdateSleepTime::Frames(10));
+
+        behavior.poison_damage_frame = 0;
+        assert_eq!(behavior.calc_sleep_time(100), UpdateSleepTime::Frames(40));
+
+        behavior.poison_overall_stop_frame = 100;
+        assert_eq!(behavior.calc_sleep_time(100), UpdateSleepTime::Forever);
+
+        behavior.poison_overall_stop_frame = 0;
+        assert_eq!(behavior.calc_sleep_time(100), UpdateSleepTime::Forever);
+    }
+
+    #[test]
+    fn poison_damage_starts_periodic_poison_state() {
+        let mut behavior = test_behavior();
+        let now = TheGameLogic::get_frame();
+        let mut damage = DamageInfo::with_simple(10.0, 77, DamageType::Poison, DeathType::Poisoned);
+        damage.output.actual_damage_dealt = 7.5;
+
+        behavior.on_damage(&mut damage).unwrap();
+
+        assert_eq!(behavior.poison_damage_amount, 7.5);
+        assert_eq!(behavior.poison_damage_frame, now + 5);
+        assert_eq!(behavior.poison_overall_stop_frame, now + 20);
+        assert_eq!(behavior.death_type, DeathType::Poisoned);
+    }
+
+    #[test]
+    fn healing_clears_poison_state() {
+        let mut behavior = test_behavior();
+        let mut damage = DamageInfo::with_simple(10.0, 77, DamageType::Poison, DeathType::Poisoned);
+        damage.output.actual_damage_dealt = 7.5;
+        behavior.on_damage(&mut damage).unwrap();
+
+        behavior.on_healing(&mut damage).unwrap();
+
+        assert_eq!(behavior.poison_damage_frame, 0);
+        assert_eq!(behavior.poison_overall_stop_frame, 0);
+        assert_eq!(behavior.poison_damage_amount, 0.0);
     }
 }
