@@ -179,10 +179,9 @@ impl PlayerMoney {
 
         if play_sound {
             if let Some(audio) = crate::helpers::TheAudio::get() {
-                let event = crate::helpers::TheAudio::get_misc_audio()
+                let mut audio_event = crate::helpers::TheAudio::get_misc_audio()
                     .money_withdraw
                     .clone();
-                let mut audio_event = crate::common::audio::AudioEventRts::new(event.sound_type);
                 audio_event.set_player_index(self.player_index as u32);
                 audio.add_audio_event(&audio_event);
             }
@@ -206,10 +205,9 @@ impl PlayerMoney {
 
         if play_sound {
             if let Some(audio) = crate::helpers::TheAudio::get() {
-                let event = crate::helpers::TheAudio::get_misc_audio()
+                let mut audio_event = crate::helpers::TheAudio::get_misc_audio()
                     .money_deposit
                     .clone();
-                let mut audio_event = crate::common::audio::AudioEventRts::new(event.sound_type);
                 audio_event.set_player_index(self.player_index as u32);
                 audio.add_audio_event(&audio_event);
             }

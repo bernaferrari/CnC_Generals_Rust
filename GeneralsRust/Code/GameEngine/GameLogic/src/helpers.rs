@@ -4,7 +4,7 @@
 //! matching the C++ helper architecture.
 
 use crate::ai::object_registry::{register_legacy_object, unregister_legacy_object};
-use crate::common::audio::TimeOfDay;
+use crate::common::audio::{AudioEventRts, TimeOfDay};
 use crate::common::types::{
     EmissionVolumeType, FXListManagerInterface, ParticleSystemManagerInterface,
 };
@@ -18,12 +18,10 @@ use crate::common::{
 use crate::effects::{FXList, ObjectCreationList};
 use crate::error::GameLogicError as GameError;
 use crate::modules::UpdateModulePtr;
-use crate::object::collide::crate_collide::AudioEvent;
 use crate::object::draw::w3d_laser_draw::W3DLaserDrawModuleData;
 use crate::object::draw::w3d_tree_draw::W3DTreeDrawModuleData;
 use crate::object::drawable::{Drawable, DrawableArcExt, DrawableThingHandle, DrawableType};
 use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::special_power_template::AudioEventRts;
 use crate::object::special_power_template::SpecialPowerTemplate;
 use crate::object::Object;
 use crate::weapon::WeaponBonusSet;
@@ -4558,10 +4556,21 @@ struct FloatingTextEntry {
     created_frame: UnsignedInt,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorldAnimationEntry {
+    pub animation_name: String,
+    pub position: Coord3D,
+    pub fade_on_expire: bool,
+    pub duration_seconds: Real,
+    pub z_rise_per_second: Real,
+    pub created_frame: UnsignedInt,
+}
+
 #[derive(Debug, Default)]
 struct InGameUIState {
     displayed_max_warning: bool,
     floating_texts: Vec<FloatingTextEntry>,
+    world_animations: Vec<WorldAnimationEntry>,
     messages: Vec<String>,
     idle_worker_additions: Vec<(ObjectID, Int)>,
     idle_worker_removals: Vec<(ObjectID, Int)>,
@@ -4669,6 +4678,32 @@ impl TheInGameUI {
             });
         }
         Ok(())
+    }
+
+    pub fn add_world_animation(
+        animation_name: &str,
+        position: &Coord3D,
+        fade_on_expire: bool,
+        duration_seconds: Real,
+        z_rise_per_second: Real,
+    ) {
+        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+            state.world_animations.push(WorldAnimationEntry {
+                animation_name: animation_name.to_string(),
+                position: *position,
+                fade_on_expire,
+                duration_seconds,
+                z_rise_per_second,
+                created_frame: TheGameLogic::get_frame(),
+            });
+        }
+    }
+
+    pub fn take_world_animations() -> Vec<WorldAnimationEntry> {
+        if let Ok(mut state) = IN_GAME_UI_STATE.write() {
+            return std::mem::take(&mut state.world_animations);
+        }
+        Vec::new()
     }
 
     /// Display a message to the player.
@@ -4992,31 +5027,31 @@ impl TheGameText {
 /// Minimal misc-audio descriptor providing stable handles for crate events.
 #[derive(Clone)]
 pub struct MiscAudioEvents {
-    pub crate_heal: AudioEvent,
-    pub crate_shroud: AudioEvent,
-    pub crate_salvage: AudioEvent,
-    pub crate_free_unit: AudioEvent,
-    pub crate_money: AudioEvent,
-    pub battle_cry_sound: AudioEvent,
-    pub money_deposit: AudioEvent,
-    pub money_withdraw: AudioEvent,
-    pub sabotage_shut_down_building: AudioEvent,
-    pub sabotage_reset_timer_building: AudioEvent,
+    pub crate_heal: AudioEventRts,
+    pub crate_shroud: AudioEventRts,
+    pub crate_salvage: AudioEventRts,
+    pub crate_free_unit: AudioEventRts,
+    pub crate_money: AudioEventRts,
+    pub battle_cry_sound: AudioEventRts,
+    pub money_deposit: AudioEventRts,
+    pub money_withdraw: AudioEventRts,
+    pub sabotage_shut_down_building: AudioEventRts,
+    pub sabotage_reset_timer_building: AudioEventRts,
 }
 
 impl Default for MiscAudioEvents {
     fn default() -> Self {
         Self {
-            crate_heal: AudioEvent::new(0, "crate_heal"),
-            crate_shroud: AudioEvent::new(0, "crate_shroud"),
-            crate_salvage: AudioEvent::new(0, "crate_salvage"),
-            crate_free_unit: AudioEvent::new(0, "crate_free_unit"),
-            crate_money: AudioEvent::new(0, "crate_money"),
-            battle_cry_sound: AudioEvent::new(0, "battle_cry_sound"),
-            money_deposit: AudioEvent::new(0, "money_deposit"),
-            money_withdraw: AudioEvent::new(0, "money_withdraw"),
-            sabotage_shut_down_building: AudioEvent::new(0, "sabotage_shut_down_building"),
-            sabotage_reset_timer_building: AudioEvent::new(0, "sabotage_reset_timer_building"),
+            crate_heal: AudioEventRts::new("crate_heal"),
+            crate_shroud: AudioEventRts::new("crate_shroud"),
+            crate_salvage: AudioEventRts::new("crate_salvage"),
+            crate_free_unit: AudioEventRts::new("crate_free_unit"),
+            crate_money: AudioEventRts::new("crate_money"),
+            battle_cry_sound: AudioEventRts::new("battle_cry_sound"),
+            money_deposit: AudioEventRts::new("money_deposit"),
+            money_withdraw: AudioEventRts::new("money_withdraw"),
+            sabotage_shut_down_building: AudioEventRts::new("sabotage_shut_down_building"),
+            sabotage_reset_timer_building: AudioEventRts::new("sabotage_reset_timer_building"),
         }
     }
 }
@@ -5308,26 +5343,22 @@ impl TheAudio {
             };
 
             let misc_audio = misc_audio.read();
-            let crate_heal = AudioEvent::new(0, misc_audio.crate_heal.sound_file.as_str());
-            let crate_shroud = AudioEvent::new(0, misc_audio.crate_shroud.sound_file.as_str());
-            let crate_salvage = AudioEvent::new(0, misc_audio.crate_salvage.sound_file.as_str());
+            let crate_heal = AudioEventRts::new(misc_audio.crate_heal.sound_file.as_str());
+            let crate_shroud = AudioEventRts::new(misc_audio.crate_shroud.sound_file.as_str());
+            let crate_salvage = AudioEventRts::new(misc_audio.crate_salvage.sound_file.as_str());
             let crate_free_unit =
-                AudioEvent::new(0, misc_audio.crate_free_unit.sound_file.as_str());
-            let crate_money = AudioEvent::new(0, misc_audio.crate_money.sound_file.as_str());
+                AudioEventRts::new(misc_audio.crate_free_unit.sound_file.as_str());
+            let crate_money = AudioEventRts::new(misc_audio.crate_money.sound_file.as_str());
             let battle_cry_sound =
-                AudioEvent::new(0, misc_audio.battle_cry_sound.sound_file.as_str());
+                AudioEventRts::new(misc_audio.battle_cry_sound.sound_file.as_str());
             let money_deposit =
-                AudioEvent::new(0, misc_audio.money_deposit_sound.sound_file.as_str());
+                AudioEventRts::new(misc_audio.money_deposit_sound.sound_file.as_str());
             let money_withdraw =
-                AudioEvent::new(0, misc_audio.money_withdraw_sound.sound_file.as_str());
-            let sabotage_shut_down_building = AudioEvent::new(
-                0,
-                misc_audio.sabotage_shut_down_building.sound_file.as_str(),
-            );
-            let sabotage_reset_timer_building = AudioEvent::new(
-                0,
-                misc_audio.sabotage_reset_timer_building.sound_file.as_str(),
-            );
+                AudioEventRts::new(misc_audio.money_withdraw_sound.sound_file.as_str());
+            let sabotage_shut_down_building =
+                AudioEventRts::new(misc_audio.sabotage_shut_down_building.sound_file.as_str());
+            let sabotage_reset_timer_building =
+                AudioEventRts::new(misc_audio.sabotage_reset_timer_building.sound_file.as_str());
 
             MiscAudioEvents {
                 crate_heal,
@@ -5392,10 +5423,8 @@ impl TheAudio {
         manager.add_audio_event(&engine_event)
     }
 
-    pub fn add_misc_audio_event(&self, event: &AudioEvent) -> u32 {
-        let mut mapped = AudioEventRts::new(event.sound_type.as_str());
-        mapped.object_id = event.object_id;
-        self.add_audio_event(&mapped)
+    pub fn add_misc_audio_event(&self, event: &AudioEventRts) -> u32 {
+        self.add_audio_event(event)
     }
 
     pub fn remove_audio_event(&self, handle: u32) {

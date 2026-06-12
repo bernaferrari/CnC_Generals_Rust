@@ -6,15 +6,15 @@
 
 use super::super::collide_module::{CollideModule, CollideModuleData, CollideModuleInterface};
 use super::super::{CollisionError, Coord3D, GameError, GameObject, ObjectStatusMask};
-use crate::common::audio::AudioEventRts;
 use crate::common::science::{ScienceType, SCIENCE_INVALID};
-use crate::common::LOGICFRAMES_PER_SECOND;
 use crate::common::*;
-use crate::helpers::{TheAudio, TheFXListStore, TheGameClient, TheGameLogic, TheThingFactory};
+use crate::helpers::{TheAudio, TheFXListStore, TheGameLogic, TheInGameUI};
 use crate::object::collide::{crate_collide::*, LegacyCollideAdapter};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::player::{player_list, PlayerIndex, PlayerType};
+use game_engine::common::ascii_string::AsciiString;
+use game_engine::common::ini::get_anim2d_collection;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fmt;
@@ -309,7 +309,7 @@ impl CrateCollide {
         // 2. Apply visual feedback (flashing, etc.)
         // 3. Handle special cases like fake buildings
 
-        let sound_name = match victim_type {
+        let mut sound_to_play = match victim_type {
             SabotageVictimType::FakeBuilding => {
                 // No additional feedback needed
                 return Ok(());
@@ -317,18 +317,20 @@ impl CrateCollide {
             SabotageVictimType::CommandCenter | SabotageVictimType::Superweapon => {
                 TheAudio::get_misc_audio()
                     .sabotage_reset_timer_building
-                    .sound_type
                     .clone()
             }
             SabotageVictimType::DropZone | SabotageVictimType::SupplyCenter => {
-                TheAudio::get_misc_audio().money_withdraw.sound_type.clone()
+                TheAudio::get_misc_audio().money_withdraw.clone()
             }
             _ => TheAudio::get_misc_audio()
                 .sabotage_shut_down_building
-                .sound_type
                 .clone(),
         };
-        self.play_audio_at_position(sound_name.as_str(), &other.get_position())?;
+        let position = other.get_position();
+        sound_to_play.set_position(&(position.x, position.y, position.z));
+        if let Some(audio) = TheAudio::get() {
+            audio.add_audio_event(&sound_to_play);
+        }
 
         // Flash the object as selected
         self.flash_object_as_selected(other)?;
@@ -489,20 +491,6 @@ impl CrateCollide {
         guard.has_science(_science)
     }
 
-    fn play_audio_at_position(
-        &self,
-        _sound_name: &str,
-        _position: &Coord3D,
-    ) -> Result<(), CollisionError> {
-        let Some(audio) = TheAudio::get() else {
-            return Ok(());
-        };
-        let mut event = AudioEventRts::new(_sound_name);
-        event.set_position(&(_position.x, _position.y, _position.z));
-        audio.add_audio_event(&event);
-        Ok(())
-    }
-
     fn flash_object_as_selected(&self, _other: &dyn GameObject) -> Result<(), CollisionError> {
         let Some(handle) = _other.as_object_handle() else {
             return Ok(());
@@ -544,18 +532,22 @@ impl CrateCollide {
         _z_rise: f32,
         _fades: bool,
     ) -> Result<(), CollisionError> {
-        let Some(template) = TheThingFactory::find_template(_template) else {
+        if !TheGameLogic::get_draw_icon_ui() || _duration <= 0.0 {
             return Ok(());
         };
-        let Some(client) = TheGameClient::get() else {
+        let Some(collection) = get_anim2d_collection() else {
             return Ok(());
         };
-        let drawable_id = client.create_drawable(&*template);
+        let collection_guard = collection.read();
+        if collection_guard
+            .find_template(&AsciiString::from(_template))
+            .is_none()
+        {
+            return Ok(());
+        }
+
         let world_pos = crate::common::Coord3D::new(_position.x, _position.y, _position.z);
-        client.set_drawable_position(drawable_id, &world_pos);
-        let expire =
-            TheGameLogic::get_frame() + (_duration * LOGICFRAMES_PER_SECOND as f32).max(0.0) as u32;
-        client.set_drawable_expiration_date(drawable_id, expire);
+        TheInGameUI::add_world_animation(_template, &world_pos, _fades, _duration, _z_rise);
         Ok(())
     }
 
@@ -626,7 +618,9 @@ impl LegacyCollideAdapter for CrateCollide {
 mod tests {
     use super::*;
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::helpers::TheInGameUI;
     use crate::system::game_logic::get_game_logic;
+    use game_engine::common::ini::ini_animation::ensure_anim2d_collection;
     use std::sync::OnceLock;
 
     static CRATE_COLLIDE_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -650,7 +644,14 @@ mod tests {
     impl Drop for LogicFrameReset {
         fn drop(&mut self) {
             set_logic_frame(0);
+            TheGameLogic::set_draw_icon_ui(true);
+            let _ = TheInGameUI::take_world_animations();
         }
+    }
+
+    fn register_anim2d_template(name: &str) {
+        let collection = ensure_anim2d_collection();
+        collection.write().new_template(AsciiString::from(name));
     }
 
     #[test]
@@ -677,6 +678,75 @@ mod tests {
 
         assert_eq!(collide.get_creation_time().expect("creation time"), 654);
         OBJECT_REGISTRY.unregister_object(8);
+    }
+
+    #[test]
+    fn crate_collide_execution_animation_queues_ingame_ui_world_animation_like_cpp() {
+        let _guard = crate_collide_test_guard();
+        set_logic_frame(777);
+        let _frame_reset = LogicFrameReset;
+        TheGameLogic::set_draw_icon_ui(true);
+        let _ = TheInGameUI::take_world_animations();
+        register_anim2d_template("CratePickupAnimTest");
+
+        let template = Arc::new(DefaultThingTemplate::new("CrateAnimObjectTest".to_string()));
+        let object = Object::new_with_id(template, 9008, ObjectStatusMaskType::none(), None)
+            .expect("crate object");
+        {
+            let mut guard = object.write().expect("object lock");
+            guard
+                .set_position(&crate::common::Coord3D::new(10.0, 20.0, 3.0))
+                .expect("set position");
+        }
+        let mut data = CrateCollideModuleData::default();
+        data.execution_animation_template = "CratePickupAnimTest".to_string();
+        data.execute_animation_display_time_seconds = 2.5;
+        data.execute_animation_z_rise_per_second = 4.0;
+        data.execute_animation_fades = true;
+        let collide = CrateCollide::from_object_handle(object, data);
+
+        collide
+            .play_execution_animation()
+            .expect("execution animation");
+
+        let animations = TheInGameUI::take_world_animations();
+        assert_eq!(animations.len(), 1);
+        assert_eq!(animations[0].animation_name, "CratePickupAnimTest");
+        assert_eq!(
+            animations[0].position,
+            crate::common::Coord3D::new(10.0, 20.0, 3.0)
+        );
+        assert!(animations[0].fade_on_expire);
+        assert_eq!(animations[0].duration_seconds, 2.5);
+        assert_eq!(animations[0].z_rise_per_second, 4.0);
+        assert_eq!(animations[0].created_frame, 777);
+        OBJECT_REGISTRY.unregister_object(9008);
+    }
+
+    #[test]
+    fn crate_collide_execution_animation_respects_draw_icon_ui_gate_like_cpp() {
+        let _guard = crate_collide_test_guard();
+        let _frame_reset = LogicFrameReset;
+        TheGameLogic::set_draw_icon_ui(false);
+        let _ = TheInGameUI::take_world_animations();
+        register_anim2d_template("CratePickupDrawIconDisabledTest");
+
+        let template = Arc::new(DefaultThingTemplate::new(
+            "CrateDrawIconDisabledObjectTest".to_string(),
+        ));
+        let object = Object::new_with_id(template, 9009, ObjectStatusMaskType::none(), None)
+            .expect("crate object");
+        let mut data = CrateCollideModuleData::default();
+        data.execution_animation_template = "CratePickupDrawIconDisabledTest".to_string();
+        data.execute_animation_display_time_seconds = 1.0;
+        let collide = CrateCollide::from_object_handle(object, data);
+
+        collide
+            .play_execution_animation()
+            .expect("execution animation");
+
+        assert!(TheInGameUI::take_world_animations().is_empty());
+        OBJECT_REGISTRY.unregister_object(9009);
     }
 }
 

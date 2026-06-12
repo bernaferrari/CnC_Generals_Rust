@@ -1,6 +1,5 @@
-//! Salvage crate behaviour – awards weapon/armor upgrades, veterancy, or money.
+//! Salvage crate behaviour - awards weapon/armor upgrades, veterancy, or money.
 
-use crate::common::audio::AudioEventRts;
 use crate::common::ModelConditionFlags;
 use crate::common::*;
 use crate::experience::ExperienceTracker;
@@ -310,16 +309,45 @@ const SALVAGE_CRATE_COLLIDE_FIELDS: &[IniFieldParse<SalvageCrateCollideModuleDat
     },
 ];
 
-fn format_cash_template(template: &str, amount: u32, fallback_prefix: &str) -> String {
+fn format_cpp_integer_template(template: &str, amount: u32) -> Option<String> {
     let amount = amount.to_string();
-    if template.contains("%d") || template.contains("%i") || template.contains("%u") {
-        template
-            .replace("%d", &amount)
-            .replace("%i", &amount)
-            .replace("%u", &amount)
-    } else {
-        format!("{fallback_prefix}${amount}")
+    let mut output = String::with_capacity(template.len() + amount.len());
+    let mut chars = template.chars().peekable();
+    let mut replaced = false;
+
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            output.push(ch);
+            continue;
+        }
+
+        if matches!(chars.peek(), Some('%')) {
+            chars.next();
+            output.push('%');
+            continue;
+        }
+
+        let mut specifier = String::from("%");
+        while let Some(next) = chars.next() {
+            specifier.push(next);
+            if matches!(next, 'd' | 'i' | 'u') {
+                output.push_str(&amount);
+                replaced = true;
+                break;
+            }
+            if !matches!(next, '-' | '+' | ' ' | '#' | '0' | '1'..='9' | '.') {
+                output.push_str(&specifier);
+                break;
+            }
+        }
     }
+
+    replaced.then_some(output)
+}
+
+fn format_cash_template(template: &str, amount: u32, fallback_prefix: &str) -> String {
+    format_cpp_integer_template(template, amount)
+        .unwrap_or_else(|| format!("{fallback_prefix}${amount}"))
 }
 
 fn format_add_cash(amount: u32) -> String {
@@ -452,8 +480,12 @@ impl SalvageCrateCollide {
         if guard.test_armor_set_flag(ArmorSetFlag::CrateUpgradeOne) {
             guard.clear_armor_set_flag(ArmorSetFlag::CrateUpgradeOne);
             guard.set_armor_set_flag(ArmorSetFlag::CrateUpgradeTwo);
-            guard.clear_model_condition_state(ModelConditionFlags::ArmorsetCrateUpgradeOne);
-            guard.set_model_condition_state(ModelConditionFlags::ArmorsetCrateUpgradeTwo);
+            guard
+                .clear_and_set_model_condition_flags(
+                    ModelConditionFlags::ArmorsetCrateUpgradeOne,
+                    ModelConditionFlags::ArmorsetCrateUpgradeTwo,
+                )
+                .map_err(CollisionError::InvalidObject)?;
         } else {
             guard.set_armor_set_flag(ArmorSetFlag::CrateUpgradeOne);
             guard.set_model_condition_state(ModelConditionFlags::ArmorsetCrateUpgradeOne);
@@ -476,7 +508,7 @@ impl SalvageCrateCollide {
             CollisionError::InvalidObject("experience tracker lock poisoned".into())
         })?;
         let old_level = tracker.get_veterancy_level();
-        if tracker.gain_exp_for_level(1, false, &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED) {
+        if tracker.gain_exp_for_level(1, true, &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED) {
             let new_level = tracker.get_veterancy_level();
             drop(tracker);
             if old_level != new_level {
@@ -571,8 +603,7 @@ impl SalvageCrateCollide {
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
             .get_id();
         if let Some(audio) = TheAudio::get() {
-            let event = TheAudio::get_misc_audio().crate_salvage.clone();
-            let mut audio_event = AudioEventRts::new(event.sound_type);
+            let mut audio_event = TheAudio::get_misc_audio().crate_salvage.clone();
             audio_event.set_object_id(id);
             audio.add_audio_event(&audio_event);
         }
@@ -585,8 +616,7 @@ impl SalvageCrateCollide {
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
             .get_id();
         if let Some(audio) = TheAudio::get() {
-            let event = TheAudio::get_misc_audio().crate_money.clone();
-            let mut audio_event = AudioEventRts::new(event.sound_type);
+            let mut audio_event = TheAudio::get_misc_audio().crate_money.clone();
             audio_event.set_object_id(id);
             audio.add_audio_event(&audio_event);
         }
@@ -785,6 +815,9 @@ mod tests {
         assert_eq!(format_cash_template("+$%d", 125, "+"), "+$125");
         assert_eq!(format_cash_template("+$%i", 125, "+"), "+$125");
         assert_eq!(format_cash_template("+$%u", 125, "+"), "+$125");
+        assert_eq!(format_cash_template("+$%04d", 125, "+"), "+$125");
+        assert_eq!(format_cash_template("+$%-6u", 125, "+"), "+$125");
+        assert_eq!(format_cash_template("%% +$%d", 125, "+"), "% +$125");
         assert_eq!(format_cash_template("GUI:AddCash", 125, "+"), "+$125");
     }
 
