@@ -101,6 +101,14 @@ pub trait InGameUiHooks: Send + Sync {
     fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(&self) -> bool {
         false
     }
+    fn set_draw_rmb_scroll_anchor(&self, _enabled: bool) {}
+    fn set_move_rmb_scroll_anchor(&self, _enabled: bool) {}
+    fn get_draw_rmb_scroll_anchor(&self) -> bool {
+        false
+    }
+    fn get_move_rmb_scroll_anchor(&self) -> bool {
+        false
+    }
 
     fn play_movie(&self, _movie_name: &str) -> bool {
         // Optional backend-specific playback (e.g., radar/in-game movie windows).
@@ -794,6 +802,8 @@ struct InGameUIStatusState {
     mouse_mode_cursor: MouseCursor,
     moused_over_drawable_id: u32,
     prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: bool,
+    draw_rmb_scroll_anchor: bool,
+    move_rmb_scroll_anchor: bool,
 }
 
 impl Default for InGameUIStatusState {
@@ -813,6 +823,8 @@ impl Default for InGameUIStatusState {
             mouse_mode_cursor: MouseCursor::Arrow,
             moused_over_drawable_id: 0,
             prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: false,
+            draw_rmb_scroll_anchor: false,
+            move_rmb_scroll_anchor: false,
         }
     }
 }
@@ -1111,6 +1123,46 @@ impl TheInGameUI {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click
+    }
+
+    pub fn set_draw_rmb_scroll_anchor(enabled: bool) {
+        if with_backend(|backend| backend.set_draw_rmb_scroll_anchor(enabled)) {
+            return;
+        }
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.draw_rmb_scroll_anchor = enabled;
+    }
+
+    pub fn get_draw_rmb_scroll_anchor() -> bool {
+        if let Some(value) = with_backend_result(|backend| backend.get_draw_rmb_scroll_anchor()) {
+            return value;
+        }
+        let guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.draw_rmb_scroll_anchor
+    }
+
+    pub fn set_move_rmb_scroll_anchor(enabled: bool) {
+        if with_backend(|backend| backend.set_move_rmb_scroll_anchor(enabled)) {
+            return;
+        }
+        let mut guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.move_rmb_scroll_anchor = enabled;
+    }
+
+    pub fn get_move_rmb_scroll_anchor() -> bool {
+        if let Some(value) = with_backend_result(|backend| backend.get_move_rmb_scroll_anchor()) {
+            return value;
+        }
+        let guard = in_game_ui_status_state()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        guard.move_rmb_scroll_anchor
     }
 
     pub fn set_cursor_arrow() {
