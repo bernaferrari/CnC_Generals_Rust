@@ -11,8 +11,10 @@
 //! - GPU culling and instanced rendering
 //! - Multi-threaded command buffer generation
 
-use super::{Camera, Light, Material, Mesh, PrimitiveTopology as W3DPrimitiveTopology, Result,
-            VertexFormat as W3DVertexFormat};
+use super::{
+    Camera, Light, Material, Mesh, PrimitiveTopology as W3DPrimitiveTopology, Result,
+    VertexFormat as W3DVertexFormat,
+};
 use bytemuck::{Pod, Zeroable};
 use glam::Mat4;
 use std::collections::{HashMap, VecDeque};
@@ -59,12 +61,6 @@ struct PipelineCacheKey {
     double_sided: bool,
     depth_write_enabled: bool,
     depth_test_enabled: bool,
-}
-
-/// Key for the no-mesh fallback path pipeline cache.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct FallbackPipelineCacheKey {
-    blend_enabled: bool,
 }
 
 /// Advanced render batch for efficient GPU rendering
@@ -228,13 +224,10 @@ pub struct W3DRenderer {
     /// GPU pipeline caches — avoid recompiling shaders/pipelines per frame.
     pipeline_cache: HashMap<PipelineCacheKey, RenderPipeline>,
     shader_cache: HashMap<W3DVertexFormat, ShaderModule>,
-    fallback_pipeline_cache: HashMap<FallbackPipelineCacheKey, RenderPipeline>,
-    fallback_shader: Option<ShaderModule>,
 
     /// Shared bind group layouts — created once, reused across all pipelines.
     frame_bind_group_layout: BindGroupLayout,
     material_bind_group_layout: BindGroupLayout,
-    fallback_bind_group_layout: BindGroupLayout,
 
     /// Bind group layout for skeletal animation bone matrix palette.
     bone_bind_group_layout: BindGroupLayout,
@@ -299,20 +292,19 @@ impl W3DRenderer {
         });
 
         // Create shared bind group layouts (reused across all pipelines for cache compatibility)
-        let frame_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("W3D Frame Bind Group Layout"),
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let frame_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("W3D Frame Bind Group Layout"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
         let material_bind_group_layout =
             device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                 label: Some("W3D Material Bind Group Layout"),
@@ -327,35 +319,19 @@ impl W3DRenderer {
                     count: None,
                 }],
             });
-        let fallback_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("W3D Fallback Bind Group Layout"),
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::FRAGMENT,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let bone_bind_group_layout =
-            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-                label: Some("W3D Bone Bind Group Layout"),
-                entries: &[BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::VERTEX,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
+        let bone_bind_group_layout = device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: Some("W3D Bone Bind Group Layout"),
+            entries: &[BindGroupLayoutEntry {
+                binding: 0,
+                visibility: ShaderStages::VERTEX,
+                ty: BindingType::Buffer {
+                    ty: BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
 
         let identity_matrix: [[f32; 4]; 4] = [
             [1.0, 0.0, 0.0, 0.0],
@@ -400,11 +376,8 @@ impl W3DRenderer {
             tonemap_pipeline: None,
             pipeline_cache: HashMap::new(),
             shader_cache: HashMap::new(),
-            fallback_pipeline_cache: HashMap::new(),
-            fallback_shader: None,
             frame_bind_group_layout,
             material_bind_group_layout,
-            fallback_bind_group_layout,
             bone_bind_group_layout,
             bone_buffer,
             stats: RendererStats::default(),
@@ -791,312 +764,90 @@ impl W3DRenderer {
         batch: &RenderBatch,
         kind: RenderSubmissionKind,
     ) -> Result<()> {
-        if let Some(mesh) = batch.mesh.as_ref() {
-            if let Some(mesh_layout) = mesh_vertex_buffer_layout(mesh.vertex_format) {
-                let blend_enabled = matches!(
-                    kind,
-                    RenderSubmissionKind::Transparent | RenderSubmissionKind::Ui
-                );
-                let double_sided = batch
-                    .material
-                    .as_ref()
-                    .is_some_and(|material| material.properties.double_sided);
-                let depth_write_enabled = matches!(kind, RenderSubmissionKind::Opaque);
-                let depth_test_enabled = !matches!(kind, RenderSubmissionKind::Ui);
-                let topology = mesh_primitive_topology(mesh.topology);
-                let cull_mode = if double_sided { None } else { Some(Face::Back) };
-                let blend_state = if blend_enabled {
-                    Some(BlendState::ALPHA_BLENDING)
-                } else {
-                    None
-                };
-                let cache_key = PipelineCacheKey {
-                    vertex_format: mesh.vertex_format,
-                    topology,
-                    blend_enabled,
-                    double_sided,
-                    depth_write_enabled,
-                    depth_test_enabled,
-                };
+        let Some(mesh) = batch.mesh.as_ref() else {
+            tracing::trace!(
+                "Skipping W3D render batch '{}' because no mesh data is available",
+                batch.mesh_id
+            );
+            return Ok(());
+        };
 
-                if !self.shader_cache.contains_key(&mesh.vertex_format) {
-                    let shader_source = batch_shader_source(mesh.vertex_format);
-                    let shader = self.device.create_shader_module(ShaderModuleDescriptor {
-                        label: Some("W3D Batch Submission Shader"),
-                        source: ShaderSource::Wgsl(shader_source.into()),
-                    });
-                    self.shader_cache.insert(mesh.vertex_format, shader);
-                }
-                let shader = self.shader_cache.get(&mesh.vertex_format).unwrap();
-
-                if !self.pipeline_cache.contains_key(&cache_key) {
-                    let is_skinned = matches!(mesh.vertex_format, W3DVertexFormat::Skinned);
-                    let bind_group_layouts: Vec<&BindGroupLayout> = if is_skinned {
-                        vec![
-                            &self.frame_bind_group_layout,
-                            &self.material_bind_group_layout,
-                            &self.bone_bind_group_layout,
-                        ]
-                    } else {
-                        vec![
-                            &self.frame_bind_group_layout,
-                            &self.material_bind_group_layout,
-                        ]
-                    };
-                    let pipeline_layout =
-                        self.device
-                            .create_pipeline_layout(&PipelineLayoutDescriptor {
-                                label: Some("W3D Batch Submission Layout"),
-                                bind_group_layouts: &bind_group_layouts,
-                                push_constant_ranges: &[],
-                            });
-                    let pipeline = self
-                        .device
-                        .create_render_pipeline(&RenderPipelineDescriptor {
-                            label: Some("W3D Batch Submission Pipeline"),
-                            layout: Some(&pipeline_layout),
-                            vertex: VertexState {
-                                module: shader,
-                                entry_point: Some("vs_main"),
-                                compilation_options: Default::default(),
-                                buffers: &[mesh_layout.clone(), instance_vertex_layout()],
-                            },
-                            fragment: Some(FragmentState {
-                                module: shader,
-                                entry_point: Some("fs_main"),
-                                compilation_options: Default::default(),
-                                targets: &[Some(ColorTargetState {
-                                    format: self.surface_format,
-                                    blend: blend_state,
-                                    write_mask: ColorWrites::ALL,
-                                })],
-                            }),
-                            primitive: PrimitiveState {
-                                topology,
-                                strip_index_format: if matches!(
-                                    topology,
-                                    PrimitiveTopology::TriangleStrip | PrimitiveTopology::LineStrip
-                                ) {
-                                    Some(IndexFormat::Uint32)
-                                } else {
-                                    None
-                                },
-                                front_face: FrontFace::Ccw,
-                                cull_mode,
-                                unclipped_depth: false,
-                                polygon_mode: PolygonMode::Fill,
-                                conservative: false,
-                            },
-                            depth_stencil: if depth_test_enabled {
-                                Some(DepthStencilState {
-                                    format: FRAME_DEPTH_STENCIL_FORMAT,
-                                    depth_write_enabled,
-                                    depth_compare: CompareFunction::LessEqual,
-                                    stencil: StencilState::default(),
-                                    bias: DepthBiasState::default(),
-                                })
-                            } else {
-                                None
-                            },
-                            multisample: MultisampleState::default(),
-                            multiview: None,
-                            cache: None,
-                        });
-                    self.pipeline_cache.insert(cache_key.clone(), pipeline);
-                }
-                let pipeline = self.pipeline_cache.get(&cache_key).unwrap();
-
-                let frame_uniform = batch_frame_uniform(self.current_camera.as_ref());
-                let frame_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("W3D Batch Frame Uniform Buffer"),
-                    contents: bytemuck::bytes_of(&frame_uniform),
-                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                });
-                let frame_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
-                    label: Some("W3D Batch Frame Bind Group"),
-                    layout: &self.frame_bind_group_layout,
-                    entries: &[BindGroupEntry {
-                        binding: 0,
-                        resource: frame_buffer.as_entire_binding(),
-                    }],
-                });
-
-                let material_uniform = batch_material_uniform(batch, kind);
-                let material_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("W3D Batch Material Uniform Buffer"),
-                    contents: bytemuck::bytes_of(&material_uniform),
-                    usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-                });
-                let material_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
-                    label: Some("W3D Batch Material Bind Group"),
-                    layout: &self.material_bind_group_layout,
-                    entries: &[BindGroupEntry {
-                        binding: 0,
-                        resource: material_buffer.as_entire_binding(),
-                    }],
-                });
-
-                let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("W3D Batch Vertex Buffer"),
-                    contents: &mesh.vertices,
-                    usage: BufferUsages::VERTEX,
-                });
-
-                let index_data = batch_index_data(mesh);
-                let index_buffer = if index_data.is_empty() {
-                    None
-                } else {
-                    Some(self.device.create_buffer_init(&BufferInitDescriptor {
-                        label: Some("W3D Batch Index Buffer"),
-                        contents: bytemuck::cast_slice(index_data.as_slice()),
-                        usage: BufferUsages::INDEX,
-                    }))
-                };
-
-                let instances = if batch.instances.is_empty() {
-                    vec![InstanceData {
-                        model_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
-                        normal_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
-                        material_index: 0,
-                        lod_level: 0,
-                        animation_frame: 0.0,
-                        custom_data: 0.0,
-                        color: [1.0, 1.0, 1.0, 1.0],
-                        material_params: [1.0, 1.0, 1.0, 1.0],
-                    }]
-                } else {
-                    batch.instances.clone()
-                };
-                let instance_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-                    label: Some("W3D Batch Instance Buffer"),
-                    contents: bytemuck::cast_slice(instances.as_slice()),
-                    usage: BufferUsages::VERTEX,
-                });
-                let instance_count = instances.len() as u32;
-                let draw_range = if index_data.is_empty() {
-                    mesh_vertex_count(mesh).unwrap_or(3)
-                } else {
-                    index_data.len() as u32
-                };
-
-                let depth_attachment = if matches!(kind, RenderSubmissionKind::Ui) {
-                    None
-                } else {
-                    self.depth_texture_view
-                        .as_ref()
-                        .map(|view| RenderPassDepthStencilAttachment {
-                            view,
-                            depth_ops: Some(Operations {
-                                load: LoadOp::Load,
-                                store: StoreOp::Store,
-                            }),
-                            stencil_ops: if self.supports_stencil() {
-                                Some(Operations {
-                                    load: LoadOp::Load,
-                                    store: StoreOp::Store,
-                                })
-                            } else {
-                                None
-                            },
-                        })
-                };
-
-                let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                    label: Some("W3D Batch Submission Pass"),
-                    color_attachments: &[Some(RenderPassColorAttachment {
-                        view: color_view,
-                        depth_slice: None,
-                        resolve_target: None,
-                        ops: Operations {
-                            load: LoadOp::Load,
-                            store: StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: depth_attachment,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-
-                render_pass.set_pipeline(&pipeline);
-                render_pass.set_bind_group(0, &frame_bind_group, &[]);
-                render_pass.set_bind_group(1, &material_bind_group, &[]);
-                if matches!(mesh.vertex_format, W3DVertexFormat::Skinned) {
-                    let bone_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
-                        label: Some("W3D Bone Bind Group"),
-                        layout: &self.bone_bind_group_layout,
-                        entries: &[BindGroupEntry {
-                            binding: 0,
-                            resource: self.bone_buffer.as_entire_binding(),
-                        }],
-                    });
-                    render_pass.set_bind_group(2, &bone_bind_group, &[]);
-                }
-                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
-
-                let triangle_count = batch_triangle_count(mesh, &index_data);
-                if let Some(index_buffer) = index_buffer.as_ref() {
-                    render_pass.set_index_buffer(index_buffer.slice(..), IndexFormat::Uint32);
-                    if draw_range > 0 {
-                        render_pass.draw_indexed(0..draw_range, 0, 0..instance_count);
-                    }
-                } else if draw_range > 0 {
-                    render_pass.draw(0..draw_range, 0..instance_count);
-                }
-
-                self.stats.draw_calls += 1;
-                self.stats.instances += instance_count;
-                self.stats.triangles += triangle_count;
-                self.stats.vertices += mesh_vertex_count(mesh).unwrap_or(0) * instance_count;
-                if matches!(
-                    kind,
-                    RenderSubmissionKind::Transparent | RenderSubmissionKind::Ui
-                ) {
-                    self.stats.pipeline_switches += 1;
-                }
-                return Ok(());
-            }
-        }
+        let Some(mesh_layout) = mesh_vertex_buffer_layout(mesh.vertex_format) else {
+            tracing::trace!(
+                "Skipping W3D render batch '{}' because vertex format {:?} has no GPU layout",
+                batch.mesh_id,
+                mesh.vertex_format
+            );
+            return Ok(());
+        };
 
         let blend_enabled = matches!(
             kind,
             RenderSubmissionKind::Transparent | RenderSubmissionKind::Ui
         );
+        let double_sided = batch
+            .material
+            .as_ref()
+            .is_some_and(|material| material.properties.double_sided);
+        let depth_write_enabled = matches!(kind, RenderSubmissionKind::Opaque);
+        let depth_test_enabled = !matches!(kind, RenderSubmissionKind::Ui);
+        let topology = mesh_primitive_topology(mesh.topology);
+        let cull_mode = if double_sided { None } else { Some(Face::Back) };
         let blend_state = if blend_enabled {
             Some(BlendState::ALPHA_BLENDING)
         } else {
             None
         };
+        let cache_key = PipelineCacheKey {
+            vertex_format: mesh.vertex_format,
+            topology,
+            blend_enabled,
+            double_sided,
+            depth_write_enabled,
+            depth_test_enabled,
+        };
 
-        if self.fallback_shader.is_none() {
-            let shader_source = fallback_shader_source();
+        if !self.shader_cache.contains_key(&mesh.vertex_format) {
+            let shader_source = batch_shader_source(mesh.vertex_format);
             let shader = self.device.create_shader_module(ShaderModuleDescriptor {
-                label: Some("W3D Fallback Submission Shader"),
+                label: Some("W3D Batch Submission Shader"),
                 source: ShaderSource::Wgsl(shader_source.into()),
             });
-            self.fallback_shader = Some(shader);
+            self.shader_cache.insert(mesh.vertex_format, shader);
         }
-        let shader = self.fallback_shader.as_ref().unwrap();
+        let shader = self.shader_cache.get(&mesh.vertex_format).unwrap();
 
-        let fb_key = FallbackPipelineCacheKey { blend_enabled };
-        if !self.fallback_pipeline_cache.contains_key(&fb_key) {
-            let pipeline_layout =
-                self.device
-                    .create_pipeline_layout(&PipelineLayoutDescriptor {
-                        label: Some("W3D Fallback Submission Layout"),
-                        bind_group_layouts: &[&self.fallback_bind_group_layout],
-                        push_constant_ranges: &[],
-                    });
+        if !self.pipeline_cache.contains_key(&cache_key) {
+            let is_skinned = matches!(mesh.vertex_format, W3DVertexFormat::Skinned);
+            let bind_group_layouts: Vec<&BindGroupLayout> = if is_skinned {
+                vec![
+                    &self.frame_bind_group_layout,
+                    &self.material_bind_group_layout,
+                    &self.bone_bind_group_layout,
+                ]
+            } else {
+                vec![
+                    &self.frame_bind_group_layout,
+                    &self.material_bind_group_layout,
+                ]
+            };
+            let pipeline_layout = self
+                .device
+                .create_pipeline_layout(&PipelineLayoutDescriptor {
+                    label: Some("W3D Batch Submission Layout"),
+                    bind_group_layouts: &bind_group_layouts,
+                    push_constant_ranges: &[],
+                });
             let pipeline = self
                 .device
                 .create_render_pipeline(&RenderPipelineDescriptor {
-                    label: Some("W3D Fallback Submission Pipeline"),
+                    label: Some("W3D Batch Submission Pipeline"),
                     layout: Some(&pipeline_layout),
                     vertex: VertexState {
                         module: shader,
                         entry_point: Some("vs_main"),
                         compilation_options: Default::default(),
-                        buffers: &[],
+                        buffers: &[mesh_layout.clone(), instance_vertex_layout()],
                     },
                     fragment: Some(FragmentState {
                         module: shader,
@@ -1109,38 +860,134 @@ impl W3DRenderer {
                         })],
                     }),
                     primitive: PrimitiveState {
-                        topology: PrimitiveTopology::TriangleList,
-                        strip_index_format: None,
+                        topology,
+                        strip_index_format: if matches!(
+                            topology,
+                            PrimitiveTopology::TriangleStrip | PrimitiveTopology::LineStrip
+                        ) {
+                            Some(IndexFormat::Uint32)
+                        } else {
+                            None
+                        },
                         front_face: FrontFace::Ccw,
-                        cull_mode: None,
+                        cull_mode,
                         unclipped_depth: false,
                         polygon_mode: PolygonMode::Fill,
                         conservative: false,
                     },
-                    depth_stencil: None,
+                    depth_stencil: if depth_test_enabled {
+                        Some(DepthStencilState {
+                            format: FRAME_DEPTH_STENCIL_FORMAT,
+                            depth_write_enabled,
+                            depth_compare: CompareFunction::LessEqual,
+                            stencil: StencilState::default(),
+                            bias: DepthBiasState::default(),
+                        })
+                    } else {
+                        None
+                    },
                     multisample: MultisampleState::default(),
                     multiview: None,
                     cache: None,
                 });
-            self.fallback_pipeline_cache.insert(fb_key, pipeline);
+            self.pipeline_cache.insert(cache_key.clone(), pipeline);
         }
-        let pipeline = self.fallback_pipeline_cache.get(&fb_key).unwrap();
+        let pipeline = self.pipeline_cache.get(&cache_key).unwrap();
 
-        let output_color = submission_color(kind, batch);
-        let color_uniform = [output_color.r as f32, output_color.g as f32, output_color.b as f32, output_color.a as f32];
-        let color_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("W3D Fallback Color Uniform Buffer"),
-            contents: bytemuck::cast_slice(&color_uniform),
+        let frame_uniform = batch_frame_uniform(self.current_camera.as_ref());
+        let frame_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("W3D Batch Frame Uniform Buffer"),
+            contents: bytemuck::bytes_of(&frame_uniform),
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
         });
-        let color_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
-            label: Some("W3D Fallback Color Bind Group"),
-            layout: &self.fallback_bind_group_layout,
+        let frame_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("W3D Batch Frame Bind Group"),
+            layout: &self.frame_bind_group_layout,
             entries: &[BindGroupEntry {
                 binding: 0,
-                resource: color_buffer.as_entire_binding(),
+                resource: frame_buffer.as_entire_binding(),
             }],
         });
+
+        let material_uniform = batch_material_uniform(batch, kind);
+        let material_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("W3D Batch Material Uniform Buffer"),
+            contents: bytemuck::bytes_of(&material_uniform),
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+        });
+        let material_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+            label: Some("W3D Batch Material Bind Group"),
+            layout: &self.material_bind_group_layout,
+            entries: &[BindGroupEntry {
+                binding: 0,
+                resource: material_buffer.as_entire_binding(),
+            }],
+        });
+
+        let vertex_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("W3D Batch Vertex Buffer"),
+            contents: &mesh.vertices,
+            usage: BufferUsages::VERTEX,
+        });
+
+        let index_data = batch_index_data(mesh);
+        let index_buffer = if index_data.is_empty() {
+            None
+        } else {
+            Some(self.device.create_buffer_init(&BufferInitDescriptor {
+                label: Some("W3D Batch Index Buffer"),
+                contents: bytemuck::cast_slice(index_data.as_slice()),
+                usage: BufferUsages::INDEX,
+            }))
+        };
+
+        let instances = if batch.instances.is_empty() {
+            vec![InstanceData {
+                model_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
+                normal_matrix: [[1.0, 0.0, 0.0, 0.0]; 4],
+                material_index: 0,
+                lod_level: 0,
+                animation_frame: 0.0,
+                custom_data: 0.0,
+                color: [1.0, 1.0, 1.0, 1.0],
+                material_params: [1.0, 1.0, 1.0, 1.0],
+            }]
+        } else {
+            batch.instances.clone()
+        };
+        let instance_buffer = self.device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("W3D Batch Instance Buffer"),
+            contents: bytemuck::cast_slice(instances.as_slice()),
+            usage: BufferUsages::VERTEX,
+        });
+        let instance_count = instances.len() as u32;
+        let draw_range = if index_data.is_empty() {
+            mesh_vertex_count(mesh).unwrap_or(3)
+        } else {
+            index_data.len() as u32
+        };
+
+        let depth_attachment = if matches!(kind, RenderSubmissionKind::Ui) {
+            None
+        } else {
+            self.depth_texture_view
+                .as_ref()
+                .map(|view| RenderPassDepthStencilAttachment {
+                    view,
+                    depth_ops: Some(Operations {
+                        load: LoadOp::Load,
+                        store: StoreOp::Store,
+                    }),
+                    stencil_ops: if self.supports_stencil() {
+                        Some(Operations {
+                            load: LoadOp::Load,
+                            store: StoreOp::Store,
+                        })
+                    } else {
+                        None
+                    },
+                })
+        };
 
         let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
             label: Some("W3D Batch Submission Pass"),
@@ -1153,20 +1000,42 @@ impl W3DRenderer {
                     store: StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: depth_attachment,
             timestamp_writes: None,
             occlusion_query_set: None,
         });
 
         render_pass.set_pipeline(pipeline);
-        render_pass.set_bind_group(0, &color_bind_group, &[]);
-        let instance_count = batch.instances.len().max(1) as u32;
-        render_pass.draw(0..3, 0..instance_count);
+        render_pass.set_bind_group(0, &frame_bind_group, &[]);
+        render_pass.set_bind_group(1, &material_bind_group, &[]);
+        if matches!(mesh.vertex_format, W3DVertexFormat::Skinned) {
+            let bone_bind_group = self.device.create_bind_group(&BindGroupDescriptor {
+                label: Some("W3D Bone Bind Group"),
+                layout: &self.bone_bind_group_layout,
+                entries: &[BindGroupEntry {
+                    binding: 0,
+                    resource: self.bone_buffer.as_entire_binding(),
+                }],
+            });
+            render_pass.set_bind_group(2, &bone_bind_group, &[]);
+        }
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
+
+        let triangle_count = batch_triangle_count(mesh, &index_data);
+        if let Some(index_buffer) = index_buffer.as_ref() {
+            render_pass.set_index_buffer(index_buffer.slice(..), IndexFormat::Uint32);
+            if draw_range > 0 {
+                render_pass.draw_indexed(0..draw_range, 0, 0..instance_count);
+            }
+        } else if draw_range > 0 {
+            render_pass.draw(0..draw_range, 0..instance_count);
+        }
 
         self.stats.draw_calls += 1;
-        self.stats.instances += batch.instances.len() as u32;
-        self.stats.triangles += 1;
-        self.stats.vertices += 3;
+        self.stats.instances += instance_count;
+        self.stats.triangles += triangle_count;
+        self.stats.vertices += mesh_vertex_count(mesh).unwrap_or(0) * instance_count;
         if matches!(
             kind,
             RenderSubmissionKind::Transparent | RenderSubmissionKind::Ui
@@ -1202,33 +1071,6 @@ fn submission_color(kind: RenderSubmissionKind, batch: &RenderBatch) -> Color {
             a: 0.9,
         },
     }
-}
-
-fn fallback_shader_source() -> String {
-    r#"
-struct ColorUniform {
-    color: vec4<f32>,
-}
-
-@group(0) @binding(0) var<uniform> u_color: ColorUniform;
-
-@vertex
-fn vs_main(@builtin(vertex_index) vertex_index: u32) -> @builtin(position) vec4<f32> {
-    var positions = array<vec2<f32>, 3>(
-        vec2<f32>(-1.0, -3.0),
-        vec2<f32>( 3.0,  1.0),
-        vec2<f32>(-1.0,  1.0)
-    );
-    let p = positions[vertex_index];
-    return vec4<f32>(p, 0.0, 1.0);
-}
-
-@fragment
-fn fs_main() -> @location(0) vec4<f32> {
-    return u_color.color;
-}
-"#
-    .to_string()
 }
 
 #[repr(C)]
@@ -1311,6 +1153,14 @@ fn batch_triangle_count(mesh: &Mesh, index_data: &[u32]) -> u32 {
         super::PrimitiveTopology::LineList | super::PrimitiveTopology::LineStrip => 0,
         super::PrimitiveTopology::PointList => 0,
     }
+}
+
+#[cfg(test)]
+fn batch_has_submittable_geometry(batch: &RenderBatch) -> bool {
+    batch
+        .mesh
+        .as_ref()
+        .is_some_and(|mesh| mesh_vertex_buffer_layout(mesh.vertex_format).is_some())
 }
 
 fn mesh_vertex_stride(format: super::VertexFormat) -> Option<u64> {
@@ -1893,6 +1743,29 @@ mod tests {
         sort_transparent_batches(&mut batches);
         assert_eq!(batches[0].mesh_id, "far");
         assert_eq!(batches[1].mesh_id, "near");
+    }
+
+    #[test]
+    fn no_mesh_batch_is_not_submittable_geometry() {
+        let batch = sample_batch("missing_mesh", None, 0.0);
+        assert!(!batch_has_submittable_geometry(&batch));
+    }
+
+    #[test]
+    fn real_mesh_batch_is_submittable_geometry() {
+        let mut batch = sample_batch("real_mesh", None, 0.0);
+        batch.mesh = Some(Mesh {
+            id: "real_mesh".to_string(),
+            name: "real_mesh".to_string(),
+            vertex_format: super::super::VertexFormat::Position,
+            vertices: vec![0; 36],
+            indices: vec![0, 1, 2],
+            topology: super::super::PrimitiveTopology::TriangleList,
+            material_id: None,
+            bounding_box: super::super::BoundingBox::new([0.0; 3], [1.0; 3]),
+        });
+
+        assert!(batch_has_submittable_geometry(&batch));
     }
 
     #[test]
