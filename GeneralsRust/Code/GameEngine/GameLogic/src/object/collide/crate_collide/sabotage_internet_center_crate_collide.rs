@@ -330,18 +330,18 @@ impl SabotageInternetCenterCrateCollide {
         }
         drop(object_lock);
 
-        // Try infiltration event
-        TheRadar::try_infiltration_event(other.clone())?;
+        // C++ feedback calls are void side effects; sabotage still completes if they fail.
+        let _ = TheRadar::try_infiltration_event(other.clone());
 
-        // Do sabotage feedback FX
-        self.base
-            .do_sabotage_feedback_fx(&other, SabotageVictimType::InternetCenter)?;
+        let _ = self
+            .base
+            .do_sabotage_feedback_fx(&other, SabotageVictimType::InternetCenter);
 
         // Play eva sound if locally controlled
         {
             let other_lock = other.read().map_err(|_| GameError::LockError)?;
             if other_lock.is_locally_controlled() {
-                TheEva::set_should_play(EvaEvent::BuildingSabotaged)?;
+                let _ = TheEva::set_should_play(EvaEvent::BuildingSabotaged);
             }
         }
 
@@ -418,6 +418,10 @@ impl LegacyCollideAdapter for SabotageInternetCenterCrateCollide {
         other: Arc<RwLock<Object>>,
     ) -> Result<bool, GameError> {
         SabotageInternetCenterCrateCollide::is_valid_to_execute(self, other)
+    }
+
+    fn legacy_is_sabotage_building_crate_collide(&self) -> bool {
+        true
     }
 }
 
