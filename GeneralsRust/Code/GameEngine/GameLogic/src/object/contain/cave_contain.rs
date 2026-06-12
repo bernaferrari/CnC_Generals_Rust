@@ -10,11 +10,11 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface, OpenContain};
 use crate::common::{GameError, GameResult, ObjectID, PlayerMaskType};
 use crate::damage::DamageInfo;
-use crate::helpers::TheGameLogic;
+use crate::helpers::{TheGameLogic, TheGlobalData};
 use crate::modules::{ContainModuleInterface, ContainWant, UpdateSleepTime};
 use crate::object::drawable::Drawable;
 use crate::object::{Object, ObjectId};
-use crate::player::Player;
+use crate::player::{Player, ThePlayerList};
 use crate::system::cave_system::CaveSystem;
 use crate::system::game_logic::GameLogic;
 use crate::team::{Team, TeamID, TheTeamFactory, TEAM_ID_INVALID};
@@ -244,6 +244,11 @@ impl CaveContain {
 
     /// Add object to containment using CaveContain's tracker-backed storage.
     pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        let owner = self.get_object();
+        if super::should_cancel_containment_after_booby_trap(owner.as_ref(), &obj) {
+            return Ok(());
+        }
+
         let was_selected = obj
             .read()
             .ok()
@@ -427,6 +432,9 @@ impl CaveContain {
                 }
             }
         }
+        if self.get_contain_count()? == 0 {
+            self.contained_object_ids.clear();
+        }
 
         Ok(())
     }
@@ -548,6 +556,19 @@ impl CaveContain {
         Ok(())
     }
 
+    /// Get apparent controlling player.
+    ///
+    /// CaveContain does not hide garrison ownership from observers, so this matches
+    /// the default C++ apparent-controller behavior by returning the cave owner's
+    /// current controlling player.
+    pub fn get_apparent_controlling_player(
+        &self,
+        _observing_player: Option<&Player>,
+    ) -> Option<Arc<RwLock<Player>>> {
+        self.get_object()
+            .and_then(|owner| owner.read().ok()?.get_controlling_player())
+    }
+
     /// Recalculate apparent controlling player
     pub fn recalc_apparent_controlling_player(&mut self) -> GameResult<()> {
         // Record original team first time through
@@ -589,9 +610,38 @@ impl CaveContain {
             self.change_team_on_all_connected_caves(self.original_team.clone(), false)?;
         }
 
-        // Handle team color rendering
-        // Note: This would need access to global data and player list
-        // Implementation would depend on how these are managed in Rust version
+        // Handle the team color that is rendered.
+        let has_local_player = {
+            ThePlayerList()
+                .read()
+                .ok()
+                .and_then(|list| list.get_local_player().cloned())
+                .is_some()
+        };
+        if has_local_player {
+            if let Some(controller) = self.get_apparent_controlling_player(None) {
+                if let Ok(controller_guard) = controller.read() {
+                    let time_of_day = TheGlobalData::get()
+                        .map(|global| global.get_time_of_day())
+                        .unwrap_or(crate::common::audio::TimeOfDay::Day);
+                    let color = match time_of_day {
+                        crate::common::audio::TimeOfDay::Night => {
+                            controller_guard.get_player_night_color()
+                        }
+                        _ => controller_guard.get_player_color(),
+                    };
+                    if let Some(owner_obj) = self.get_object() {
+                        if let Ok(owner) = owner_obj.read() {
+                            if let Some(drawable) = owner.get_drawable() {
+                                if let Ok(mut draw_guard) = drawable.write() {
+                                    draw_guard.set_indicator_color(color);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         Ok(())
     }
@@ -941,11 +991,13 @@ impl ContainerInterface for CaveContain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::common::{Color, DefaultThingTemplate, ObjectStatusMaskType};
     use crate::damage::{
         set_death_type_flag, DamageInfo, DamageType, DeathType, DEATH_TYPE_FLAGS_NONE,
     };
+    use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::object::registry::OBJECT_REGISTRY;
+    use crate::player::Player;
 
     #[derive(Debug)]
     struct RecordingContain {
@@ -988,6 +1040,34 @@ mod tests {
     fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
         let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
         Object::new_with_id(template, id, ObjectStatusMaskType::none(), None).expect("test object")
+    }
+
+    fn test_object_with_team(
+        name: &str,
+        id: ObjectID,
+        team: Arc<RwLock<Team>>,
+    ) -> Arc<RwLock<Object>> {
+        let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
+            .expect("test object")
+    }
+
+    fn attach_drawable(obj: &Arc<RwLock<Object>>, drawable_id: ObjectID) -> Arc<RwLock<Drawable>> {
+        let object_id = obj.read().expect("object read").get_id();
+        let drawable = Arc::new(RwLock::new(Drawable::new(
+            drawable_id,
+            object_id,
+            format!("Drawable{object_id}"),
+            DrawableType::Animated,
+        )));
+        obj.write()
+            .expect("object write")
+            .set_drawable(Some(drawable.clone()));
+        drawable
+    }
+
+    fn reset_players() {
+        ThePlayerList().write().expect("player list write").clear();
     }
 
     fn cave_with_registered_tracker(
@@ -1146,6 +1226,7 @@ mod tests {
     fn on_die_respects_die_mux_before_destroying_tunnel_like_cpp() {
         let _lock = crate::test_sync::lock();
         let owner = test_object("CaveDieMuxOwner", 93007);
+        let passenger = test_object("CaveDieMuxPassenger", 93010);
         let mut data = CaveContainModuleData::default();
         data.base.die_mux_data.death_types =
             set_death_type_flag(DEATH_TYPE_FLAGS_NONE, DeathType::Exploded);
@@ -1161,6 +1242,12 @@ mod tests {
             .expect("tracker write")
             .on_tunnel_created(&*owner.read().expect("owner read"))
             .expect("register owner tunnel");
+        cave.add_to_contain_list(passenger.clone())
+            .expect("add passenger to tracker");
+        assert_eq!(
+            ContainModuleInterface::get_contained_objects(&cave),
+            &[93010]
+        );
 
         let rejected = DamageInfo::with_simple(1.0, 0, DamageType::Explosion, DeathType::Crushed);
         cave.on_die(Some(&rejected)).expect("rejected death");
@@ -1181,7 +1268,66 @@ mod tests {
             .get_container_list()
             .expect("container list")
             .is_empty());
+        assert_eq!(
+            tracker
+                .read()
+                .expect("tracker read")
+                .get_contain_count()
+                .expect("tracker count"),
+            0
+        );
+        assert!(
+            ContainModuleInterface::get_contained_objects(&cave).is_empty(),
+            "C++ CaveContain exposes tracker contents, so the trait ID cache must clear when the tracker clears"
+        );
 
         OBJECT_REGISTRY.unregister_object(93007);
+        OBJECT_REGISTRY.unregister_object(93010);
+    }
+
+    #[test]
+    fn recalc_updates_cave_indicator_color_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+
+        let player_color = Color::rgb(12, 34, 56);
+        let night_color = Color::rgb(65, 43, 21);
+        let team = Arc::new(RwLock::new(Team::new("CaveColorTeam".into(), 9300)));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(0));
+        let owner = test_object_with_team("CaveColorOwner", 93008, Arc::clone(&team));
+        let owner_drawable = attach_drawable(&owner, 930080);
+        let data = CaveContainModuleData::default();
+        let mut cave = CaveContain::new(Arc::downgrade(&owner), &data, None).expect("cave contain");
+        cave.on_create(&data).expect("on create");
+
+        let player = Arc::new(RwLock::new(Player::new(0)));
+        {
+            let mut player_guard = player.write().expect("player write");
+            player_guard.set_default_team(Some(Arc::clone(&team)));
+            player_guard.set_colors(player_color, night_color);
+        }
+        {
+            let mut list = ThePlayerList().write().expect("player list write");
+            list.clear();
+            list.add_player(Arc::clone(&player));
+            list.set_local_player_index(0);
+        }
+
+        cave.recalc_apparent_controlling_player()
+            .expect("recalc apparent controller");
+
+        assert_eq!(
+            owner_drawable
+                .read()
+                .expect("drawable read")
+                .get_indicator_color(),
+            player_color,
+            "C++ CaveContain applies the apparent controller color to the cave drawable"
+        );
+
+        reset_players();
+        OBJECT_REGISTRY.unregister_object(93008);
     }
 }
