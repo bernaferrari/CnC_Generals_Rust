@@ -15,6 +15,7 @@ use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{ContainModuleInterface, ContainWant, UpdateSleepTime};
 use crate::object::contain::TransportContain;
 use crate::object::{Object, ObjectId};
+use crate::upgrade::modules::model_condition::parse_model_condition_flag as parse_model_condition_name;
 use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INIError, INI};
 
@@ -266,46 +267,67 @@ fn parse_weapon_set_type(token: &str) -> Result<WeaponSetType, INIError> {
         "VEHICLE_HIJACK" => Ok(WeaponSetType::VehicleHijack),
         "CARBOMB" | "CAR_BOMB" => Ok(WeaponSetType::CarBomb),
         "MINE_CLEARING_DETAIL" => Ok(WeaponSetType::MineClearingDetail),
-        "RIDER1" => Ok(WeaponSetType::WeaponRider1),
-        "RIDER2" => Ok(WeaponSetType::WeaponRider2),
-        "RIDER3" => Ok(WeaponSetType::WeaponRider3),
-        "RIDER4" => Ok(WeaponSetType::WeaponRider4),
-        "RIDER5" => Ok(WeaponSetType::WeaponRider5),
-        "RIDER6" => Ok(WeaponSetType::WeaponRider6),
-        "RIDER7" => Ok(WeaponSetType::WeaponRider7),
-        "RIDER8" => Ok(WeaponSetType::WeaponRider8),
+        "RIDER1" | "WEAPON_RIDER1" => Ok(WeaponSetType::WeaponRider1),
+        "RIDER2" | "WEAPON_RIDER2" => Ok(WeaponSetType::WeaponRider2),
+        "RIDER3" | "WEAPON_RIDER3" => Ok(WeaponSetType::WeaponRider3),
+        "RIDER4" | "WEAPON_RIDER4" => Ok(WeaponSetType::WeaponRider4),
+        "RIDER5" | "WEAPON_RIDER5" => Ok(WeaponSetType::WeaponRider5),
+        "RIDER6" | "WEAPON_RIDER6" => Ok(WeaponSetType::WeaponRider6),
+        "RIDER7" | "WEAPON_RIDER7" => Ok(WeaponSetType::WeaponRider7),
+        "RIDER8" | "WEAPON_RIDER8" => Ok(WeaponSetType::WeaponRider8),
         _ => Err(INIError::InvalidData),
     }
 }
 
 fn parse_object_status(token: &str) -> Result<ObjectStatusMaskType, INIError> {
-    let mut name = token.trim();
-    if let Some(stripped) = name.strip_prefix("OBJECT_STATUS_") {
-        name = stripped;
-    } else if let Some(stripped) = name.strip_prefix("STATUS_") {
-        name = stripped;
-    }
-
-    ObjectStatusMaskType::from_case_insensitive_name(name).ok_or(INIError::InvalidData)
+    let name = token.trim();
+    ObjectStatusMaskType::from_case_insensitive_name(name)
+        .or_else(|| {
+            name.strip_prefix("OBJECT_STATUS_")
+                .and_then(ObjectStatusMaskType::from_case_insensitive_name)
+        })
+        .ok_or(INIError::InvalidData)
 }
 
 fn parse_model_condition_flag(token: &str) -> Result<ModelConditionFlags, INIError> {
-    let mut name = token.trim().to_ascii_uppercase();
-    if let Some(stripped) = name.strip_prefix("MODELCONDITION_") {
-        name = stripped.to_string();
+    parse_model_condition_name(token).ok_or(INIError::InvalidData)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rider_change_parse_accepts_cpp_canonical_rider_tokens() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = RiderChangeContainModuleData::default();
+        data.parse_from_config(
+            "Rider1 GLAInfantryRebel RIDER1 WEAPON_RIDER1 STATUS_RIDER1 CommandSetName SET_NORMAL\n\
+             ScuttleStatus RUBBLE\n\
+             End\n",
+        )
+        .expect("rider change config parses");
+
+        let rider = &data.riders[0];
+        assert_eq!(rider.template_name, "GLAInfantryRebel");
+        assert_eq!(rider.model_condition_flag, ModelConditionFlags::RIDER1);
+        assert_eq!(rider.weapon_set_flag, WeaponSetType::WeaponRider1);
+        assert_eq!(rider.object_status, ObjectStatusMaskType::RIDER1);
+        assert_eq!(rider.command_set.as_str(), "CommandSetName");
+        assert_eq!(rider.locomotor_set, LocomotorSetType::Normal);
+        assert_eq!(data.scuttle_state, ModelConditionFlags::RUBBLE);
     }
 
-    match name.as_str() {
-        "TOPPLED" => Ok(ModelConditionFlags::TOPPLED),
-        "RIDER1" => Ok(ModelConditionFlags::RIDER1),
-        "RIDER2" => Ok(ModelConditionFlags::RIDER2),
-        "RIDER3" => Ok(ModelConditionFlags::RIDER3),
-        "RIDER4" => Ok(ModelConditionFlags::RIDER4),
-        "RIDER5" => Ok(ModelConditionFlags::RIDER5),
-        "RIDER6" => Ok(ModelConditionFlags::RIDER6),
-        "RIDER7" => Ok(ModelConditionFlags::RIDER7),
-        "RIDER8" => Ok(ModelConditionFlags::RIDER8),
-        _ => Err(INIError::InvalidData),
+    #[test]
+    fn rider_change_scuttle_status_accepts_full_model_condition_names() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = RiderChangeContainModuleData::default();
+        data.parse_from_config("ScuttleStatus DYING\nEnd\n")
+            .expect("scuttle status parses");
+
+        assert_eq!(data.scuttle_state, ModelConditionFlags::DYING);
     }
 }
 
