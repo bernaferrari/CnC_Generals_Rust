@@ -15,6 +15,7 @@ use crate::gui::{
     get_shell, with_window_manager, write_input_focus_response, AnimationType, GameWindow,
     WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget, GLM_DOUBLE_CLICKED,
 };
+use crate::helpers::TheInGameUI;
 use crate::map_util::{get_map_cache_manager, populate_map_listbox};
 use crate::message_stream::{get_message_stream, GameMessageType};
 use game_engine::common::audio::game_audio::{
@@ -643,6 +644,26 @@ impl OptionsMenu {
         pref.set_string(key, if value { "Yes" } else { "No" }.to_string());
     }
 
+    fn apply_immediate_checkbox_effect(&self, control_id: i32, checked: bool) -> bool {
+        if control_id == self.check_draw_anchor_id {
+            TheInGameUI::set_draw_rmb_scroll_anchor(checked);
+            return true;
+        }
+        if control_id == self.check_move_anchor_id {
+            TheInGameUI::set_move_rmb_scroll_anchor(checked);
+            return true;
+        }
+        if control_id == self.check_save_camera_id {
+            runtime_global_data::write().save_camera_in_replay = checked;
+            return true;
+        }
+        if control_id == self.check_use_camera_id {
+            runtime_global_data::write().use_camera_in_replay = checked;
+            return true;
+        }
+        false
+    }
+
     fn current_relative_2d_volume() -> f32 {
         let manager = get_global_audio_manager().unwrap_or_else(initialize_global_audio_manager);
         let Ok(guard) = manager.lock() else {
@@ -1253,6 +1274,11 @@ impl MenuCallbacks for OptionsMenu {
                     && Self::combo_selected_index(self.combo_detail_id) == Some(3)
                 {
                     Self::set_window_hidden(self.advanced_window_id, false);
+                } else {
+                    self.apply_immediate_checkbox_effect(
+                        control_id,
+                        Self::checkbox_value(control_id),
+                    );
                 }
                 WindowMsgHandled::Handled
             }
@@ -2105,6 +2131,42 @@ mod tests {
 
         menu.resolution_modes = vec![(1024, 768), (1280, 720)];
         assert_eq!(menu.default_resolution_index(), 0);
+    }
+
+    #[test]
+    fn options_checkbox_immediate_effects_match_cpp() {
+        let original_draw_anchor = TheInGameUI::get_draw_rmb_scroll_anchor();
+        let original_move_anchor = TheInGameUI::get_move_rmb_scroll_anchor();
+        let (original_save_camera, original_use_camera) = {
+            let global = runtime_global_data::read();
+            (global.save_camera_in_replay, global.use_camera_in_replay)
+        };
+
+        let mut menu = OptionsMenu::new();
+        menu.check_draw_anchor_id = 11;
+        menu.check_move_anchor_id = 12;
+        menu.check_save_camera_id = 13;
+        menu.check_use_camera_id = 14;
+
+        assert!(menu.apply_immediate_checkbox_effect(menu.check_draw_anchor_id, true));
+        assert!(TheInGameUI::get_draw_rmb_scroll_anchor());
+
+        assert!(menu.apply_immediate_checkbox_effect(menu.check_move_anchor_id, true));
+        assert!(TheInGameUI::get_move_rmb_scroll_anchor());
+
+        assert!(menu.apply_immediate_checkbox_effect(menu.check_save_camera_id, false));
+        assert!(!runtime_global_data::read().save_camera_in_replay);
+
+        assert!(menu.apply_immediate_checkbox_effect(menu.check_use_camera_id, false));
+        assert!(!runtime_global_data::read().use_camera_in_replay);
+
+        assert!(!menu.apply_immediate_checkbox_effect(99, true));
+
+        TheInGameUI::set_draw_rmb_scroll_anchor(original_draw_anchor);
+        TheInGameUI::set_move_rmb_scroll_anchor(original_move_anchor);
+        let mut global = runtime_global_data::write();
+        global.save_camera_in_replay = original_save_camera;
+        global.use_camera_in_replay = original_use_camera;
     }
 
     #[test]
