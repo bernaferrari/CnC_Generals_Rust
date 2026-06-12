@@ -2840,6 +2840,51 @@ impl UnitAIUpdate {
             && position.y <= region.hi.y
     }
 
+    fn should_use_direct_path_for_line_passable_non_final_goal(
+        &self,
+        destination: &Coord3D,
+    ) -> bool {
+        if self.is_final_goal {
+            return false;
+        }
+
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let surfaces = {
+            let set_surfaces = guard.locomotor_set.get_valid_surfaces();
+            if set_surfaces != 0 {
+                set_surfaces
+            } else {
+                guard.get_locomotor_surface_mask().unwrap_or(0)
+            }
+        };
+        if surfaces == 0 {
+            return false;
+        }
+        let position = guard.get_position();
+        drop(guard);
+
+        let Some(ai) = THE_AI.read().ok() else {
+            return false;
+        };
+        let Some(pathfinder) = ai.pathfinder() else {
+            return false;
+        };
+        let Ok(pf_guard) = pathfinder.read() else {
+            return false;
+        };
+        let ignore = if self.ignore_obstacle_id == INVALID_ID {
+            None
+        } else {
+            Some(self.ignore_obstacle_id)
+        };
+        pf_guard.is_line_passable_for_surfaces(&position, destination, surfaces, ignore)
+    }
+
     fn install_direct_path_from_current_position(&mut self, destination: &Coord3D) -> bool {
         let Some(unit) = self.unit.upgrade() else {
             return false;
@@ -7173,6 +7218,11 @@ impl AIUpdateInterface for UnitAIUpdate {
             let _ = self.set_can_path_through_units(false);
             return Ok(());
         }
+        if self.should_use_direct_path_for_line_passable_non_final_goal(destination)
+            && self.install_direct_path_from_current_position(destination)
+        {
+            return Ok(());
+        }
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
@@ -8512,6 +8562,92 @@ mod tests {
             &vec![Coord2D::new(0.0, 0.0), Coord2D::new(0.0, 0.0)]
         );
         assert_eq!(unit_guard.target_position, Some(destination));
+    }
+
+    #[test]
+    fn request_path_for_non_final_line_passable_ground_move_uses_direct_path_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(46, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let destination = Coord3D::new(16.0, 0.0, 3.0);
+        ai.request_path(&destination, false).unwrap();
+
+        assert_eq!(ai.queue_for_path_frame, 0);
+        let unit_guard = unit.read().unwrap();
+        assert_eq!(
+            unit_guard.current_path.as_ref().unwrap(),
+            &vec![Coord2D::new(0.0, 0.0), Coord2D::new(16.0, 0.0)]
+        );
+        assert_eq!(unit_guard.target_position, Some(destination));
+    }
+
+    #[test]
+    fn line_passable_direct_path_requires_non_final_goal_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(47, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        let locomotor = Arc::new(Mutex::new(Locomotor::new(loco_template)));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Arc::clone(&locomotor));
+        unit.current_locomotor = Some(locomotor);
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let destination = Coord3D::new(16.0, 0.0, 3.0);
+
+        ai.is_final_goal = true;
+        assert!(!ai.should_use_direct_path_for_line_passable_non_final_goal(&destination));
+
+        ai.is_final_goal = false;
+        assert!(ai.should_use_direct_path_for_line_passable_non_final_goal(&destination));
     }
 
     fn save_unit_ai_update(ai: &mut UnitAIUpdate) -> Vec<u8> {
