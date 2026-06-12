@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface, ObjectTemplate, OpenContain};
 use crate::common::{
     CommandSourceType, DisabledType, GameResult, KindOf, ModelConditionState, ObjectID,
-    PlayerMaskType, WeaponSlotType,
+    PlayerMaskType, WeaponSlotType, SECONDS_PER_LOGICFRAME_REAL,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
@@ -19,6 +19,7 @@ use crate::object::{Object, ObjectArcExt};
 use crate::player::Player;
 use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 #[allow(dead_code)]
 type ObjectId = ObjectID;
@@ -326,6 +327,8 @@ const TRANSPORT_CONTAIN_FIELDS: &[FieldParse<TransportContainModuleData>] = &[
 pub struct TransportContain {
     /// Base functionality from OpenContain
     pub base: OpenContain,
+    /// Transport configuration retained for C++ behavior hooks.
+    module_data: TransportContainModuleData,
     /// Reference to the owning object
     object: Weak<RwLock<Object>>,
     /// Whether payload has been created
@@ -346,6 +349,7 @@ impl TransportContain {
 
         Ok(Self {
             base,
+            module_data: module_data.clone(),
             object,
             payload_created: false,
             extra_slots_in_use: 0,
@@ -445,7 +449,7 @@ impl TransportContain {
 
     /// Handle death event
     pub fn on_die(&mut self, damage_info: Option<&DamageInfo>) -> GameResult<()> {
-        // Delegate to base implementation
+        self.kill_riders_who_are_not_free_to_exit()?;
         self.base.on_die(damage_info)?;
         Ok(())
     }
@@ -470,6 +474,10 @@ impl TransportContain {
 
             // Track extra slots (units can take more than 1 slot)
             let transport_slot_count = rider.get_transport_slot_count();
+            debug_assert!(
+                transport_slot_count > 0,
+                "TransportContain contained a non-transportable rider"
+            );
             self.extra_slots_in_use += (transport_slot_count - 1) as i32;
 
             // Verify slot count is valid
@@ -537,7 +545,29 @@ impl TransportContain {
 
             // Reclaim extra slots
             let transport_slot_count = rider.get_transport_slot_count();
+            debug_assert!(
+                transport_slot_count > 0,
+                "TransportContain removed a non-transportable rider"
+            );
             self.extra_slots_in_use -= (transport_slot_count - 1) as i32;
+
+            if !self.module_data.exit_bone.is_empty() {
+                if let Some(owner_obj) = self.get_object() {
+                    if let Ok(owner) = owner_obj.read() {
+                        let (_, bone_pos, _) =
+                            owner.get_single_logical_bone_position(&self.module_data.exit_bone);
+                        let _ = rider.set_position(&bone_pos);
+                    }
+                }
+            }
+
+            if self.module_data.orient_like_container_on_exit {
+                if let Some(owner_obj) = self.get_object() {
+                    if let Ok(owner) = owner_obj.read() {
+                        let _ = rider.set_orientation(owner.get_orientation());
+                    }
+                }
+            }
         }
 
         // Clear model condition LOADED when last unit exits
@@ -564,15 +594,8 @@ impl TransportContain {
         // Let riders upgrade weapon set if configured
         self.let_riders_upgrade_weapon_set()?;
 
-        // Space out exits according to ExitDelay (matches C++ TransportContain::onRemoving).
-        if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner_guard) = owner_obj.read() {
-                if let Ok(module_data) = owner_guard.get_transport_contain_module_data() {
-                    self.frame_exit_not_busy =
-                        TheGameLogic::get_frame().saturating_add(module_data.exit_delay);
-                }
-            }
-        }
+        self.frame_exit_not_busy =
+            TheGameLogic::get_frame().saturating_add(self.module_data.exit_delay);
 
         Ok(())
     }
@@ -584,8 +607,46 @@ impl TransportContain {
             self.create_payload()?;
         }
 
-        // Kill riders who are not free to exit (if configured)
-        self.kill_riders_who_are_not_free_to_exit()?;
+        if self.module_data.health_regen != 0.0 {
+            let owner = self.get_object();
+            let contained = self.base.get_contained_items_list()?;
+            for object in contained {
+                let needs_healing = object
+                    .read()
+                    .ok()
+                    .and_then(|guard| guard.get_body_module())
+                    .and_then(|body| {
+                        body.lock().ok().map(|body_guard| {
+                            body_guard.get_health() < body_guard.get_max_health()
+                                && body_guard.get_max_health() > 0.0
+                        })
+                    })
+                    .unwrap_or(false);
+                if !needs_healing {
+                    continue;
+                }
+
+                let Some(max_health) = object
+                    .read()
+                    .ok()
+                    .and_then(|guard| guard.get_body_module())
+                    .and_then(|body| {
+                        body.lock()
+                            .ok()
+                            .map(|body_guard| body_guard.get_max_health())
+                    })
+                else {
+                    continue;
+                };
+                let regen = max_health * self.module_data.health_regen / 100.0
+                    * SECONDS_PER_LOGICFRAME_REAL;
+                if let Ok(mut object_guard) = object.write() {
+                    let source_guard = owner.as_ref().and_then(|owner| owner.read().ok());
+                    let source_ref = source_guard.as_deref();
+                    let _ = object_guard.attempt_healing(regen, source_ref);
+                }
+            }
+        }
 
         self.base.update()
     }
@@ -602,9 +663,7 @@ impl TransportContain {
 
     /// Get maximum containment capacity
     pub fn get_contain_max(&self) -> i32 {
-        // Get from module data
-        // For now, use base implementation
-        self.base.get_contain_max()
+        self.module_data.slot_capacity
     }
 
     /// Get extra slots in use
@@ -614,17 +673,17 @@ impl TransportContain {
 
     /// Check if exit is currently busy
     pub fn is_exit_busy(&self) -> bool {
-        let Some(owner) = self.get_object() else {
-            return false;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return false;
-        };
-        let Ok(module_data) = owner_guard.get_transport_contain_module_data() else {
-            return false;
-        };
-        if module_data.is_delay_exit_in_air && owner_guard.is_above_terrain() {
-            return true;
+        if self.module_data.is_delay_exit_in_air {
+            let Some(owner) = self.get_object() else {
+                return false;
+            };
+            if owner
+                .read()
+                .map(|owner_guard| owner_guard.is_above_terrain())
+                .unwrap_or(false)
+            {
+                return true;
+            }
         }
         TheGameLogic::get_frame() < self.frame_exit_not_busy
     }
@@ -655,19 +714,6 @@ impl TransportContain {
 
     /// Kill riders who are not free to exit
     fn kill_riders_who_are_not_free_to_exit(&mut self) -> GameResult<()> {
-        let Some(owner) = self.get_object() else {
-            return Ok(());
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return Ok(());
-        };
-        let Ok(module_data) = owner_guard.get_transport_contain_module_data() else {
-            return Ok(());
-        };
-        if !module_data.destroy_riders_who_are_not_free_to_exit {
-            return Ok(());
-        }
-
         let contained = self.get_contained_objects().to_vec();
         for obj_id in contained {
             let Some(obj) = TheGameLogic::find_object_by_id(obj_id) else {
@@ -677,7 +723,12 @@ impl TransportContain {
                 continue;
             };
             if !self.is_specific_rider_free_to_exit(&*obj_guard) {
-                let _ = TheGameLogic::destroy_object_by_id(obj_id);
+                drop(obj_guard);
+                if self.module_data.destroy_riders_who_are_not_free_to_exit {
+                    let _ = TheGameLogic::destroy_object_by_id(obj_id);
+                } else if let Ok(mut obj_write) = obj.write() {
+                    obj_write.kill(None, None);
+                }
             }
         }
         Ok(())
@@ -716,17 +767,13 @@ impl TransportContain {
         let (payload_name, payload_count, owner_team) = match self.get_object() {
             Some(owner) => {
                 if let Ok(owner_guard) = owner.read() {
-                    if let Ok(module_data) = owner_guard.get_transport_contain_module_data() {
-                        (
-                            module_data.initial_payload.name.clone(),
-                            module_data.initial_payload.count.max(0),
-                            owner_guard.get_controlling_player().and_then(|player| {
-                                player.read().ok().and_then(|p| p.get_default_team())
-                            }),
-                        )
-                    } else {
-                        (String::new(), 0, None)
-                    }
+                    (
+                        self.module_data.initial_payload.name.clone(),
+                        self.module_data.initial_payload.count.max(0),
+                        owner_guard.get_controlling_player().and_then(|player| {
+                            player.read().ok().and_then(|p| p.get_default_team())
+                        }),
+                    )
                 } else {
                     (String::new(), 0, None)
                 }
@@ -776,7 +823,7 @@ impl TransportContain {
                 .map(|guard| self.is_valid_container_for(&*guard, true))
                 .unwrap_or(false);
             if can_add {
-                self.base.add_to_contain(payload_obj)?;
+                self.add_to_contain(payload_obj)?;
             } else {
                 log::warn!(
                     "TransportContain payload '{}' could not be inserted (container full/invalid)",
@@ -793,54 +840,49 @@ impl TransportContain {
     /// Let riders upgrade weapon set (matches C++ letRidersUpgradeWeaponSet)
     fn let_riders_upgrade_weapon_set(&mut self) -> GameResult<()> {
         // Check if this feature is enabled
+        if !self.module_data.armed_riders_upgrade_weapon_set {
+            return Ok(());
+        }
+
         if let Some(owner_obj) = self.get_object() {
-            if let Ok(owner) = owner_obj.read() {
-                if let Ok(module_data) = owner.get_transport_contain_module_data() {
-                    if !module_data.armed_riders_upgrade_weapon_set {
-                        return Ok(());
+            let mut any_rider_has_viable_weapon = false;
+
+            // Check all riders for viable weapons
+            let rider_list = self.base.get_contained_items_list()?;
+            for rider_obj in rider_list {
+                if let Ok(rider) = rider_obj.read() {
+                    // Only infantry can have viable weapons for this purpose
+                    if !rider.is_kind_of(KindOf::Infantry) {
+                        continue;
                     }
 
-                    let mut any_rider_has_viable_weapon = false;
-
-                    // Check all riders for viable weapons
-                    let rider_list = self.base.get_contained_items_list()?;
-                    for rider_obj in rider_list {
-                        if let Ok(rider) = rider_obj.read() {
-                            // Only infantry can have viable weapons for this purpose
-                            if !rider.is_kind_of(KindOf::Infantry) {
-                                continue;
-                            }
-
-                            // Check all weapon slots
-                            for weapon_slot in [
-                                crate::weapon::WeaponSlotType::Primary,
-                                crate::weapon::WeaponSlotType::Secondary,
-                                crate::weapon::WeaponSlotType::Tertiary,
-                            ] {
-                                if let Some(weapon) = rider.get_weapon_in_slot(weapon_slot) {
-                                    // Weapon must be non-contact and damage-dealing
-                                    if !weapon.is_contact_weapon() && weapon.is_damage_weapon() {
-                                        any_rider_has_viable_weapon = true;
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if any_rider_has_viable_weapon {
+                    // Check all weapon slots
+                    for weapon_slot in [
+                        crate::weapon::WeaponSlotType::Primary,
+                        crate::weapon::WeaponSlotType::Secondary,
+                        crate::weapon::WeaponSlotType::Tertiary,
+                    ] {
+                        if let Some(weapon) = rider.get_weapon_in_slot(weapon_slot) {
+                            // Weapon must be non-contact and damage-dealing
+                            if !weapon.is_contact_weapon() && weapon.is_damage_weapon() {
+                                any_rider_has_viable_weapon = true;
                                 break;
                             }
                         }
                     }
 
-                    // Update weapon set flag on transport
-                    drop(owner);
-                    if let Ok(mut owner_mut) = owner_obj.write() {
-                        if any_rider_has_viable_weapon {
-                            owner_mut.set_weapon_set_flag(WeaponSetType::PlayerUpgrade);
-                        } else {
-                            owner_mut.clear_weapon_set_flag(WeaponSetType::PlayerUpgrade);
-                        }
+                    if any_rider_has_viable_weapon {
+                        break;
                     }
+                }
+            }
+
+            // Update weapon set flag on transport
+            if let Ok(mut owner_mut) = owner_obj.write() {
+                if any_rider_has_viable_weapon {
+                    owner_mut.set_weapon_set_flag(WeaponSetType::PlayerUpgrade);
+                } else {
+                    owner_mut.clear_weapon_set_flag(WeaponSetType::PlayerUpgrade);
                 }
             }
         }
@@ -921,15 +963,33 @@ impl TransportContain {
 
     /// Add object to containment
     pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        // Validate before adding
-        if let Ok(obj_ref) = obj.read() {
+        let was_selected = obj
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_drawable())
+            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            .unwrap_or(false);
+
+        {
+            let obj_ref = obj.read().map_err(|_| "Object lock poisoned")?;
             if !self.is_valid_container_for(&*obj_ref, true) {
                 return Err("Object not valid for this transport container".into());
+            }
+            if obj_ref.get_contained_by().is_some() {
+                return Ok(());
             }
         }
 
         self.add_to_contain_list(obj.clone())?;
-        self.on_containing(obj, false)?;
+        let should_remove_from_world = obj
+            .read()
+            .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
+            .unwrap_or(false);
+        if should_remove_from_world {
+            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), false);
+        }
+        self.base.redeploy_occupants()?;
+        self.on_containing(obj, was_selected)?;
         Ok(())
     }
 
@@ -954,7 +1014,21 @@ impl TransportContain {
         {
             let _ = pos;
             self.base.remove_from_contain_list(obj_id);
-            self.on_removing(obj)?;
+            let should_add_to_world = obj
+                .read()
+                .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
+                .unwrap_or(false);
+            if should_add_to_world {
+                let _ = self.base.add_or_remove_obj_from_world(obj.clone(), true);
+                if let Some(owner) = self.get_object() {
+                    if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
+                        let _ = obj_guard.set_position(owner_guard.get_position());
+                        obj_guard.set_layer(owner_guard.get_layer());
+                    }
+                }
+            }
+            self.base.do_unload_sound();
+            self.on_removing(obj.clone())?;
         }
 
         let _ = expose_stealth_units;
@@ -977,9 +1051,35 @@ impl TransportContain {
     /// Get container pips info for UI display
     pub fn get_container_pips_info(&self) -> (i32, i32) {
         // For transport containers, we need to account for extra slots
-        let (total, _) = self.base.get_container_pips_info();
+        let total = self.get_contain_max();
         let full = self.base.get_contain_count() as i32 + self.extra_slots_in_use;
         (total, full)
+    }
+}
+
+impl Snapshotable for TransportContain {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(&self.base, xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+
+        Snapshotable::xfer(&mut self.base, xfer)?;
+        xfer.xfer_bool(&mut self.payload_created)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.extra_slots_in_use)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.frame_exit_not_busy)
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(&mut self.base)
     }
 }
 
@@ -996,7 +1096,7 @@ impl ContainModuleInterface for TransportContain {
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
         let obj = TheGameLogic::find_object_by_id(object_id)
             .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.base.add_to_contain(obj).map_err(|e| e.to_string())
+        self.add_to_contain(obj).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -1004,8 +1104,7 @@ impl ContainModuleInterface for TransportContain {
             Some(obj) => obj,
             None => return Ok(()),
         };
-        self.base
-            .remove_from_contain(obj, false)
+        self.remove_from_contain(obj, false)
             .map_err(|e| e.to_string())
     }
 
@@ -1028,6 +1127,18 @@ impl ContainModuleInterface for TransportContain {
         } else {
             max as usize
         }
+    }
+
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
     }
 
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
@@ -1128,22 +1239,36 @@ impl ContainModuleInterface for TransportContain {
         &mut self,
         expose_stealth: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base
-            .remove_all_contained(expose_stealth)
-            .map_err(|e| e.into())
+        let objects = self.base.get_contained_items_list()?;
+        for obj in objects {
+            self.remove_from_contain(obj, expose_stealth)?;
+        }
+        Ok(())
     }
 
     fn harm_and_force_exit_all_contained(
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base
-            .harm_and_force_exit_all_contained(damage_info)
-            .map_err(|e| e.into())
+        let objects = self.base.get_contained_items_list()?;
+        for obj in objects {
+            self.remove_from_contain(obj.clone(), true)?;
+            if let Ok(mut guard) = obj.write() {
+                let _ = guard.attempt_damage(damage_info);
+            }
+        }
+        Ok(())
     }
 
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.base.kill_all_contained().map_err(|e| e.into())
+        let objects = self.base.get_contained_items_list()?;
+        for obj in objects {
+            self.remove_from_contain(obj.clone(), true)?;
+            if let Ok(mut guard) = obj.write() {
+                guard.kill(None, None);
+            }
+        }
+        Ok(())
     }
 
     fn is_displayed_on_control_bar(&self) -> bool {
@@ -1157,13 +1282,11 @@ impl ContainerInterface for TransportContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.add_to_contain(obj.clone())?;
-        self.on_containing(obj, false)
+        self.add_to_contain(obj)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.on_removing(obj.clone())?;
-        self.base.remove_from_contain(obj, false)
+        self.remove_from_contain(obj, false)
     }
 
     fn get_usage(&self) -> (u32, u32) {
@@ -1180,6 +1303,10 @@ impl ContainerInterface for TransportContain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::player::{Player, ThePlayerList};
+    use crate::team::Team;
 
     #[test]
     fn test_transport_contain_creation() {
@@ -1204,5 +1331,110 @@ mod tests {
 
         assert_eq!(payload.name, "Infantry");
         assert_eq!(payload.count, 5);
+    }
+
+    fn reset_players() {
+        let mut list = ThePlayerList().write().expect("player list write");
+        list.clear();
+        list.add_player(Arc::new(RwLock::new(Player::new(0))));
+    }
+
+    fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("{name}Team").into(),
+            id + 10_000,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(player_index));
+        let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
+            .expect("owned test object")
+    }
+
+    fn slotted_passenger(name: &str, id: ObjectID, slots: i32) -> Arc<RwLock<Object>> {
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("{name}Team").into(),
+            id + 10_000,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(0));
+        let mut template = DefaultThingTemplate::new(name.to_string());
+        let mut fields = HashMap::new();
+        fields.insert("KindOf".to_string(), "INFANTRY".to_string());
+        template.parse_object_fields_from_ini(&fields);
+        let obj = Object::new_with_id(
+            Arc::new(template),
+            id,
+            ObjectStatusMaskType::none(),
+            Some(team),
+        )
+        .expect("slotted passenger");
+        let data = super::super::OpenContainModuleData {
+            contain_max: slots,
+            ..Default::default()
+        };
+        let contain = OpenContain::new(Arc::downgrade(&obj), &data).expect("slot contain");
+        obj.write()
+            .expect("passenger write")
+            .set_contain(Some(Arc::new(Mutex::new(contain))));
+        obj
+    }
+
+    fn transport_for(owner: &Arc<RwLock<Object>>, slots: i32) -> TransportContain {
+        let data = TransportContainModuleData {
+            slot_capacity: slots,
+            ..Default::default()
+        };
+        TransportContain::new(Arc::downgrade(owner), &data).expect("transport contain")
+    }
+
+    #[test]
+    fn trait_containment_uses_transport_slots_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("TransportOwner", 95001, 0);
+        let passenger = slotted_passenger("TwoSlotPassenger", 95002, 2);
+        let mut contain = transport_for(&owner, 3);
+
+        assert_eq!(contain.get_contain_max(), 3);
+        assert!(contain.is_valid_container_for(&passenger.read().expect("passenger read"), true));
+        ContainModuleInterface::contain_object(&mut contain, 95002).expect("contain passenger");
+
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
+        assert_eq!(contain.get_extra_slots_in_use(), 1);
+        assert_eq!(contain.get_container_pips_info(), (3, 2));
+        assert_eq!(
+            passenger.read().expect("passenger read").get_contained_by(),
+            Some(95001)
+        );
+
+        OBJECT_REGISTRY.unregister_object(95001);
+        OBJECT_REGISTRY.unregister_object(95002);
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn trait_release_uses_transport_removal_hook_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("TransportReleaseOwner", 95003, 0);
+        let passenger = slotted_passenger("TransportReleasePassenger", 95004, 2);
+        let mut contain = transport_for(&owner, 3);
+
+        ContainModuleInterface::contain_object(&mut contain, 95004).expect("contain passenger");
+        ContainModuleInterface::release_object(&mut contain, 95004).expect("release passenger");
+
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 0);
+        assert_eq!(contain.get_extra_slots_in_use(), 0);
+        assert_eq!(
+            passenger.read().expect("passenger read").get_contained_by(),
+            None
+        );
+
+        OBJECT_REGISTRY.unregister_object(95003);
+        OBJECT_REGISTRY.unregister_object(95004);
+        ThePlayerList().write().expect("player list write").clear();
     }
 }
