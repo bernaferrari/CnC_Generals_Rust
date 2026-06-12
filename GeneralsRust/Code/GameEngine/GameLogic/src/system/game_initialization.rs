@@ -43,6 +43,18 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
+pub(crate) const LOAD_PROGRESS_START: i32 = 0;
+const LOAD_PROGRESS_POST_PARTICLE_INI_LOAD: i32 = LOAD_PROGRESS_START + 1;
+const LOAD_PROGRESS_POST_LOAD_MAP: i32 = LOAD_PROGRESS_POST_PARTICLE_INI_LOAD + 1;
+const LOAD_PROGRESS_SIDE_POPULATION: i32 = LOAD_PROGRESS_POST_LOAD_MAP + 1;
+const LOAD_PROGRESS_POST_SIDE_LIST_INIT: i32 =
+    LOAD_PROGRESS_SIDE_POPULATION + 1 + super::map_loader::MAX_SLOTS as i32;
+const LOAD_PROGRESS_POST_PLAYER_LIST_RESET: i32 = LOAD_PROGRESS_POST_SIDE_LIST_INIT + 1;
+const LOAD_PROGRESS_POST_SCRIPT_ENGINE_NEW_MAP: i32 = LOAD_PROGRESS_POST_PLAYER_LIST_RESET + 1;
+const LOAD_PROGRESS_POST_STARTING_CAMERA: i32 = 92;
+const LOAD_PROGRESS_POST_STARTING_CAMERA_2: i32 = LOAD_PROGRESS_POST_STARTING_CAMERA + 1;
+pub(crate) const LOAD_PROGRESS_END: i32 = 100;
+
 #[cfg(test)]
 thread_local! {
     static START_NEW_GAME_REQUEST_AT_INIT_ENTRY: std::cell::Cell<bool> =
@@ -194,19 +206,25 @@ impl GameInitializer {
         // =====================================================================
         // Load the map file, parse heightmap, objects, waypoints
         // Matches C++ map loading from MapUtil.cpp
+        crate::helpers::TheGameLogic::update_load_progress(LOAD_PROGRESS_POST_PARTICLE_INI_LOAD);
         Self::load_map(&mut game_state, &params.map_path)?;
+        crate::helpers::TheGameLogic::update_load_progress(LOAD_PROGRESS_POST_LOAD_MAP);
 
         // PHASE 2: PLAYER INITIALIZATION
         // =====================================================================
         // Create players from map data, assign colors, resources, alliances
         // Matches C++ player initialization from GameLogic.cpp
         Self::initialize_players(&mut game_state, &params)?;
+        crate::helpers::TheGameLogic::update_load_progress(
+            LOAD_PROGRESS_POST_SCRIPT_ENGINE_NEW_MAP,
+        );
 
         // PHASE 3: GAME START SEQUENCE
         // =====================================================================
         // Run scripts, position camera, init fog of war, generate minimap, start AI
         // Matches C++ startup sequence from GameLogic.cpp and GameClient.cpp
         Self::execute_start_sequence(&mut game_state, &params)?;
+        crate::helpers::TheGameLogic::update_load_progress(LOAD_PROGRESS_POST_STARTING_CAMERA_2);
 
         // PHASE 4: VICTORY CONDITIONS
         // =====================================================================

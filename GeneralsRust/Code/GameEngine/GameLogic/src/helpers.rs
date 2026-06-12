@@ -1080,14 +1080,14 @@ impl TheGameLogic {
             logic.set_loading_map(true);
         }
         Self::begin_load_screen(Self::get_game_mode(), is_load_game);
-        Self::update_load_progress(0);
+        Self::update_load_progress(crate::system::game_initialization::LOAD_PROGRESS_START);
 
         let init_result =
             crate::system::game_initialization::GameInitializer::initialize_game(params)
                 .map(|_| ())
                 .map_err(|err| format!("Game initialization failed: {}", err));
         if init_result.is_ok() {
-            Self::update_load_progress(100);
+            Self::update_load_progress(crate::system::game_initialization::LOAD_PROGRESS_END);
         }
         Self::end_load_screen();
 
