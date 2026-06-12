@@ -914,11 +914,7 @@ impl AIUpdateInterface {
             self.is_approach_path = false;
         }
         if self.is_approach_path {
-            self.destroy_path();
-            // PARITY_TODO: call pathfinder->findClosestPath() once pathfinder bridge is ported.
-            // Until then, use the same path bridge as regular movement so approach
-            // requests do not complete pathless.
-            self.compute_path(self.requested_destination);
+            self.compute_approach_path(self.requested_destination);
             self.is_approach_path = true;
             return;
         }
@@ -1032,6 +1028,68 @@ impl AIUpdateInterface {
         self.blocked_frames = 0;
         self.is_blocked_and_stuck = false;
         self.path.is_some()
+    }
+
+    fn compute_approach_path(&mut self, destination: Coord3D) -> bool {
+        self.destroy_path();
+
+        let start = self.final_position;
+        if start == Coord3D::ZERO {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.is_blocked_and_stuck = false;
+            return false;
+        }
+        let surfaces = self.current_locomotor_set_surfaces();
+        if surfaces == 0 {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.is_blocked_and_stuck = false;
+            return false;
+        }
+
+        let Some(pathfinder) = crate::ai::THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.is_blocked_and_stuck = false;
+            return false;
+        };
+        let Ok(pathfinder) = pathfinder.read() else {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.is_blocked_and_stuck = false;
+            return false;
+        };
+        let ignore_obstacle_id = if self.ignore_obstacle_id == INVALID_ID {
+            None
+        } else {
+            Some(self.ignore_obstacle_id)
+        };
+        let request = crate::ai::pathfind_complete::PathRequest {
+            object_id: INVALID_ID,
+            from: start,
+            to: destination,
+            surfaces,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: false,
+            ignore_obstacle_id,
+        };
+        let path_result = pathfinder.find_closest_path_result(request);
+        drop(pathfinder);
+
+        if path_result.success {
+            self.path = Some(path_result.waypoints);
+            self.queue_for_path_frame = 0;
+            self.set_locomotor_goal_position_on_path();
+            self.is_blocked = false;
+        }
+
+        self.path_timestamp = TheGameLogic::get_frame();
+        self.blocked_frames = 0;
+        self.is_blocked_and_stuck = false;
+        path_result.success
     }
 
     fn compute_safe_path(&mut self) -> bool {
