@@ -2954,9 +2954,13 @@ impl UnitAIUpdate {
         }
 
         if self.has_current_path() {
-            self.path_timestamp = TheGameLogic::get_frame();
-            self.blocked_frames = 0;
-            self.blocked_and_stuck = false;
+            if self.blocked_and_stuck {
+                self.stop_stuck_old_path_after_failed_path()?;
+            } else {
+                self.path_timestamp = TheGameLogic::get_frame();
+                self.blocked_frames = 0;
+                self.blocked_and_stuck = false;
+            }
             return Ok(true);
         }
 
@@ -2971,6 +2975,45 @@ impl UnitAIUpdate {
         }
 
         Ok(true)
+    }
+
+    fn stop_stuck_old_path_after_failed_path(&mut self) -> Result<(), String> {
+        let unit = self
+            .unit
+            .upgrade()
+            .ok_or_else(|| "unit no longer available".to_string())?;
+        let current_pos = unit
+            .read()
+            .map_err(|_| "unit lock poisoned".to_string())?
+            .get_position();
+
+        let snapped = THE_AI
+            .read()
+            .ok()
+            .and_then(|ai| ai.pathfinder())
+            .and_then(|pathfinder| {
+                pathfinder
+                    .read()
+                    .ok()
+                    .map(|pf| pf.snap_position(&current_pos))
+            })
+            .unwrap_or(current_pos);
+
+        self.destroy_path();
+        self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+        {
+            let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
+            guard.target_position = Some(snapped);
+            guard.path_index = 0;
+            guard.current_speed = 0.0;
+            guard.movement_state = MovementState::Idle;
+        }
+        self.set_locomotor_goal_none();
+        self.path_timestamp = TheGameLogic::get_frame();
+        self.blocked_frames = 0;
+        self.is_blocked = false;
+        self.blocked_and_stuck = false;
+        Ok(())
     }
 
     fn install_direct_path_from_current_position(&mut self, destination: &Coord3D) -> bool {
@@ -4717,6 +4760,7 @@ impl AIUpdateInterface for UnitAIUpdate {
     }
 
     fn destroy_path(&mut self) {
+        self.current_path_snapshot = None;
         if let Some(unit) = self.unit.upgrade() {
             if let Ok(mut guard) = unit.write() {
                 guard.current_path = None;
@@ -8802,8 +8846,75 @@ mod tests {
     }
 
     #[test]
-    fn installed_path_uses_exact_requested_destination_for_ultra_accurate_loco_like_cpp() {
+    fn stuck_old_path_failure_stops_and_waits_like_cpp() {
         let base_object = Arc::new(RwLock::new(Object::new_test(49, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(10.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
+        unit.current_path = Some(vec![Coord2D::new(10.0, 0.0), Coord2D::new(20.0, 0.0)]);
+        unit.path_index = 1;
+        unit.target_position = Some(Coord3D::new(20.0, 0.0, 0.0));
+        unit.movement_state = MovementState::Moving;
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        ai.set_current_path_snapshot_from_coords(&[
+            Coord3D::new(10.0, 0.0, 1.0),
+            Coord3D::new(20.0, 0.0, 0.0),
+        ]);
+        ai.is_blocked = true;
+        ai.blocked_and_stuck = true;
+        ai.blocked_frames = 12;
+        ai.locomotor_goal_type = 1;
+        ai.locomotor_goal_data = Coord3D::new(20.0, 0.0, 0.0);
+
+        assert!(ai
+            .try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
+            .unwrap());
+
+        assert_eq!(
+            ai.queue_for_path_frame,
+            TheGameLogic::get_frame().saturating_add(LOGICFRAMES_PER_SECOND)
+        );
+        assert_eq!(ai.blocked_frames, 0);
+        assert!(!ai.is_blocked);
+        assert!(!ai.blocked_and_stuck);
+        assert_eq!(ai.locomotor_goal_type, 0);
+        assert_eq!(ai.locomotor_goal_data, Coord3D::ZERO);
+        assert!(ai.current_path_snapshot.is_none());
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.current_path.is_none());
+        assert_eq!(unit_guard.path_index, 0);
+        assert_eq!(unit_guard.movement_state, MovementState::Idle);
+        assert_ne!(
+            unit_guard.target_position,
+            Some(Coord3D::new(20.0, 0.0, 0.0))
+        );
+    }
+
+    #[test]
+    fn installed_path_uses_exact_requested_destination_for_ultra_accurate_loco_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(51, 100.0)));
         let template = DefaultThingTemplate::new("GroundUnit".to_string());
         let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
         let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
@@ -8844,7 +8955,7 @@ mod tests {
 
     #[test]
     fn final_ground_path_install_updates_goal_layer_like_cpp_do_pathfind() {
-        let base_object = Arc::new(RwLock::new(Object::new_test(50, 100.0)));
+        let base_object = Arc::new(RwLock::new(Object::new_test(52, 100.0)));
         {
             let mut object = base_object.write().unwrap();
             object.set_destination_layer(crate::common::PathfindLayerEnum::Top);
