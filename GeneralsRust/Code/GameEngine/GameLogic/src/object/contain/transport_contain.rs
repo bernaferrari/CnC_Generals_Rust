@@ -1136,6 +1136,11 @@ impl ContainModuleInterface for TransportContain {
         }
     }
 
+    fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
+        let (total, full) = self.get_container_pips_info();
+        (total, full, true)
+    }
+
     fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
         Snapshotable::crc(self, xfer)
     }
@@ -1422,6 +1427,10 @@ mod tests {
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
         assert_eq!(contain.get_extra_slots_in_use(), 1);
         assert_eq!(contain.get_container_pips_info(), (3, 2));
+        assert_eq!(
+            ContainModuleInterface::get_container_pips_to_show(&contain),
+            (3, 2, true)
+        );
         assert_eq!(
             passenger.read().expect("passenger read").get_contained_by(),
             Some(95001)

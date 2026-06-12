@@ -797,6 +797,18 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         }
     }
 
+    /// Return container pip display data for selected-object UI.
+    ///
+    /// Matches C++ `ContainModuleInterface::getContainerPipsToShow`, including the ability for
+    /// specialized containers to suppress pip drawing.
+    fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
+        (
+            self.get_contain_max(),
+            self.get_contained_count() as i32,
+            true,
+        )
+    }
+
     /// Return the player mask for the last player who entered this container.
     fn get_player_who_entered(&self) -> PlayerMaskType {
         PlayerMaskType::none()
