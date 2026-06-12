@@ -427,7 +427,6 @@ pub struct RenderFrameStateSummary {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelResolution {
     Asset,
-    Fallback,
 }
 
 #[derive(Debug, Clone)]
@@ -581,11 +580,23 @@ impl RenderBridge {
             })
             .collect();
 
+        let resolved: Vec<DrawSubmission> = after_cull
+            .into_iter()
+            .filter(|s| {
+                if self.model_cache.contains_key(&s.model_name.to_lowercase()) {
+                    true
+                } else {
+                    stats.culled += 1;
+                    false
+                }
+            })
+            .collect();
+
         // Phase 3: Partition into opaque / transparent.
         let mut opaque: Vec<DrawSubmission> = Vec::new();
         let mut transparent: Vec<DrawSubmission> = Vec::new();
 
-        for s in after_cull {
+        for s in resolved {
             if s.transparent {
                 transparent.push(s);
             } else {
@@ -693,8 +704,7 @@ impl RenderBridge {
             }
         }
 
-        let fallback = ww3d_core::create_cube_mesh(name.to_string(), 1.0);
-        Some((Arc::new(fallback), ModelResolution::Fallback))
+        None
     }
 
     /// Drain all processed submissions from the scene layers after `flush()`.
@@ -1516,6 +1526,15 @@ mod tests {
     use glam::{Mat4 as GameMat4, Vec3 as GameVec3};
     use ww3d_core::glam::{Mat4 as WwMat4, Vec3 as WwVec3};
 
+    fn register_test_model(bridge: &mut RenderBridge, name: &str) {
+        bridge.asset_manager_mut().add_prototype(
+            name.to_string(),
+            Box::new(ww3d_assets::prototypes::MeshPrototype::new(
+                name.to_string(),
+            )),
+        );
+    }
+
     #[test]
     fn test_render_condition_flags_from_empty() {
         let flags = RenderConditionFlags::empty();
@@ -1582,6 +1601,7 @@ mod tests {
     #[test]
     fn test_bridge_submit_and_flush() {
         let mut bridge = RenderBridge::new();
+        register_test_model(&mut bridge, "AVComanche");
         let mut camera = Camera::perspective(
             "test".to_string(),
             60.0_f32.to_radians(),
@@ -1683,14 +1703,14 @@ mod tests {
         let mut bridge = RenderBridge::new();
         assert!(!bridge.is_model_loaded("TestModel"));
         bridge.mark_model_loaded("TestModel");
-        assert!(bridge.is_model_loaded("TestModel"));
-        assert!(bridge.is_model_loaded("testmodel"));
+        assert!(!bridge.is_model_loaded("TestModel"));
+        assert!(!bridge.is_model_loaded("testmodel"));
         bridge.clear_model_cache();
         assert!(!bridge.is_model_loaded("TestModel"));
     }
 
     #[test]
-    fn drained_submissions_identify_fallback_model_resolution() {
+    fn drained_submissions_skip_unresolved_models_like_cpp() {
         let mut bridge = RenderBridge::new();
         let mut camera = Camera::perspective(
             "fallback_scene".to_string(),
@@ -1713,9 +1733,8 @@ mod tests {
         bridge.flush();
 
         let drained = bridge.drain_scene_submissions();
-        assert_eq!(drained.len(), 1);
-        assert_eq!(drained[0].model_resolution, Some(ModelResolution::Fallback));
-        assert!(!drained[0].is_transparent);
+        assert!(drained.is_empty());
+        assert!(!bridge.is_model_loaded("MissingModel"));
     }
 
     #[test]
@@ -1886,6 +1905,8 @@ mod tests {
     #[test]
     fn test_render_state_summary_for_fixed_gameplay_scene() {
         let mut bridge = RenderBridge::new();
+        register_test_model(&mut bridge, "AVTank");
+        register_test_model(&mut bridge, "ABPowerPlant");
         let mut camera = Camera::perspective(
             "fixed_scene".to_string(),
             60.0_f32.to_radians(),
@@ -1976,6 +1997,7 @@ mod tests {
     #[test]
     fn test_render_state_summary_tracks_hidden_shroud_and_fx_streams() {
         let mut bridge = RenderBridge::new();
+        register_test_model(&mut bridge, "FXExplosion");
         let mut camera = Camera::perspective(
             "fx_scene".to_string(),
             60.0_f32.to_radians(),

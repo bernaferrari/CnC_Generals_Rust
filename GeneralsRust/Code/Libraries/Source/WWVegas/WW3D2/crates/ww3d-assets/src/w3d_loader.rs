@@ -38,7 +38,8 @@ use crate::loaders::animation_loader::W3DAnimation;
 use crate::loaders::hierarchy_loader::W3DHierarchy;
 use crate::loaders::mesh_loader::W3DMesh;
 use crate::loaders::{AnimationLoader, HierarchyLoader, HlodLoader, MeshLoader};
-use crate::prototypes::HlodPrototype;
+use crate::prototype_loader::{HModelLoader, PrototypeLoader};
+use crate::prototypes::{HModelPrototype, HlodPrototype};
 use std::io::Cursor;
 use std::path::Path;
 use ww3d_core::{W3DChunkType, W3DError, W3DResult};
@@ -79,6 +80,9 @@ pub struct W3DModel {
     /// All HLOD definitions in this model
     pub hlods: Vec<HlodPrototype>,
 
+    /// All HModel definitions in this model
+    pub hmodels: Vec<HModelPrototype>,
+
     /// Texture references from all meshes
     pub textures: Vec<String>,
 }
@@ -91,6 +95,7 @@ impl W3DModel {
             hierarchies: Vec::new(),
             animations: Vec::new(),
             hlods: Vec::new(),
+            hmodels: Vec::new(),
             textures: Vec::new(),
         }
     }
@@ -123,6 +128,11 @@ impl W3DModel {
     /// Find an HLOD definition by name
     pub fn find_hlod(&self, name: &str) -> Option<&HlodPrototype> {
         self.hlods.iter().find(|h| h.name == name)
+    }
+
+    /// Find an HModel definition by name
+    pub fn find_hmodel(&self, name: &str) -> Option<&HModelPrototype> {
+        self.hmodels.iter().find(|h| h.name == name)
     }
 
     /// Check if this model has skinning data
@@ -241,6 +251,20 @@ impl W3DLoader {
                 Some(W3DChunkType::Hlod) => {
                     let hlod = HlodLoader::load_hlod(&mut reader).map_err(chunk_error_to_w3d)?;
                     model.hlods.push(hlod);
+                }
+
+                // W3D_CHUNK_HMODEL (0x00000300) - C++ HModelLoaderClass
+                Some(W3DChunkType::Hmodel) => {
+                    let chunk_len = reader.current_chunk_length().map_err(chunk_error_to_w3d)?;
+                    let mut payload = vec![0; chunk_len as usize];
+                    reader.read(&mut payload).map_err(chunk_error_to_w3d)?;
+                    let loader = HModelLoader::new();
+                    let prototype = loader
+                        .load_w3d(&payload, chunk_type, "")
+                        .map_err(|err| W3DError::InvalidParameter(err.to_string()))?;
+                    if let Some(hmodel) = prototype.as_any().downcast_ref::<HModelPrototype>() {
+                        model.hmodels.push(hmodel.clone());
+                    }
                 }
 
                 // Unknown or unsupported chunk types are silently skipped
