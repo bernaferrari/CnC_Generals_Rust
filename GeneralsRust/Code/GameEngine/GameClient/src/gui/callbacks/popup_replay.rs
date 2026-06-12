@@ -317,7 +317,7 @@ pub fn popup_replay_input(
         let _ = parent.borrow_mut().send_system_message(
             WindowMessage::GadgetSelected,
             state.button_back as WindowMsgData,
-            state.button_back as WindowMsgData,
+            0,
         );
     }
     WindowMsgHandled::Handled
@@ -389,6 +389,20 @@ mod tests {
     use crate::gui::WindowWidget;
     use std::cell::RefCell;
     use std::rc::Rc;
+
+    #[test]
+    fn popup_replay_esc_char_is_consumed_before_key_up_like_cpp() {
+        let window = GameWindow::new();
+
+        assert_eq!(
+            popup_replay_input(&window, WindowMessage::Char, KEY_ESC as WindowMsgData, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            popup_replay_input(&window, WindowMessage::Char, b'A' as WindowMsgData, 0),
+            WindowMsgHandled::Ignored
+        );
+    }
 
     #[test]
     fn popup_replay_system_consumes_lifecycle_messages_like_cpp() {

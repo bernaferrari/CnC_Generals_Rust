@@ -440,7 +440,7 @@ pub fn replay_menu_input(
             let _ = parent.borrow_mut().send_system_message(
                 WindowMessage::GadgetSelected,
                 state.button_back_id as WindowMsgData,
-                state.button_back_id as WindowMsgData,
+                0,
             );
         }
     }
