@@ -21,6 +21,8 @@ use super::window_xlat::WindowTranslator;
 use crate::core::game_client::CommandEvaluateType as ClientCommandEvaluateType;
 use crate::display::view::{with_tactical_view, with_tactical_view_ref, IPoint2, Point3};
 use crate::drawable::Drawable;
+use crate::gui::game_window::WindowStatus;
+use crate::gui::window_manager::with_window_manager_ref;
 use crate::gui::{toggle_control_bar, toggle_diplomacy, toggle_quit_menu};
 use crate::helpers::{PendingCommand, TheInGameUI};
 use crate::input::KeyModifiers;
@@ -35,7 +37,8 @@ use gamelogic::commands::command::CommandType;
 use gamelogic::commands::get_selection_manager;
 use gamelogic::common::Coord3D as LogicCoord3D;
 use gamelogic::common::{
-    CommandSourceType, KindOf, ObjectStatusMaskType as LogicObjectStatusMaskType, Relationship,
+    CommandSourceType, KindOf, ObjectShroudStatus,
+    ObjectStatusMaskType as LogicObjectStatusMaskType, Relationship,
 };
 use gamelogic::damage::DamageType;
 use gamelogic::helpers::{TheGameLogic, TheTerrainLogic};
@@ -178,13 +181,135 @@ fn selection_can_attack_target(
 }
 
 fn collect_selectable_objects(
-    _region: &IRegion2D,
-    _is_point: bool,
-    _radius: f32,
+    region: &IRegion2D,
+    is_point: bool,
+    radius: f32,
     _local_player: Option<u32>,
-    _profile: ContextPickProfile,
+    profile: ContextPickProfile,
 ) -> (Vec<(ObjectID, f32)>, Vec<(ObjectID, f32)>) {
-    (Vec::new(), Vec::new())
+    let local_player_index = player_list()
+        .read()
+        .ok()
+        .map(|list| list.get_local_player_index())
+        .unwrap_or(-1);
+    let point_world = is_point
+        .then(|| screen_to_terrain(&ICoord2D::new(region.x, region.y)))
+        .flatten();
+    if is_point && point_world.is_none() {
+        return (Vec::new(), Vec::new());
+    }
+
+    let mut mine = Vec::new();
+    let mut other = Vec::new();
+    for obj_ref in OBJECT_REGISTRY.get_all_objects() {
+        let Ok(obj) = obj_ref.read() else {
+            continue;
+        };
+        if !object_matches_context_pick_profile(&obj, profile) {
+            continue;
+        }
+        if object_is_hidden_for_player(&obj, local_player_index) {
+            continue;
+        }
+        let pos = obj.get_position();
+        let pos = Coord3D::new(pos.x, pos.y, pos.z);
+        if world_position_is_under_opaque_window_for_command(&pos) {
+            continue;
+        }
+
+        let Some(distance) =
+            object_pick_distance(&pos, region, is_point, point_world.as_ref(), radius)
+        else {
+            continue;
+        };
+
+        if obj.is_locally_controlled() {
+            mine.push((obj.get_id(), distance));
+        } else {
+            other.push((obj.get_id(), distance));
+        }
+    }
+
+    (mine, other)
+}
+
+fn object_matches_context_pick_profile(
+    obj: &gamelogic::object::Object,
+    profile: ContextPickProfile,
+) -> bool {
+    if obj.is_destroyed() || obj.is_effectively_dead() {
+        return false;
+    }
+    let status = obj.get_status_bits();
+    if status.contains(LogicObjectStatusMaskType::UNSELECTABLE)
+        || status.contains(LogicObjectStatusMaskType::MASKED)
+    {
+        return false;
+    }
+
+    (profile.include_selectable && obj.is_selectable() && obj.is_kind_of(KindOf::Selectable))
+        || (profile.include_force_attackable && obj.is_kind_of(KindOf::ForceAttackable))
+        || (profile.include_mines && obj.is_kind_of(KindOf::Mine))
+        || (profile.include_shrubbery && obj.is_kind_of(KindOf::Shrubbery))
+}
+
+fn object_is_hidden_for_player(obj: &gamelogic::object::Object, local_player_index: i32) -> bool {
+    matches!(
+        obj.get_shrouded_status(local_player_index),
+        ObjectShroudStatus::Fogged
+            | ObjectShroudStatus::Shrouded
+            | ObjectShroudStatus::InvalidButPreviousValid
+    )
+}
+
+fn object_pick_distance(
+    pos: &Coord3D,
+    region: &IRegion2D,
+    is_point: bool,
+    point_world: Option<&Coord3D>,
+    radius: f32,
+) -> Option<f32> {
+    if is_point {
+        let world = point_world?;
+        let dx = pos.x - world.x;
+        let dy = pos.y - world.y;
+        let dist_sq = dx * dx + dy * dy;
+        return (dist_sq <= radius * radius).then_some(dist_sq);
+    }
+
+    let min_x = region.x.min(region.x + region.width);
+    let min_y = region.y.min(region.y + region.height);
+    let max_x = region.x.max(region.x + region.width);
+    let max_y = region.y.max(region.y + region.height);
+    let point = Point3::new(pos.x, pos.y, pos.z);
+    let screen = with_tactical_view_ref(|view| view.world_to_screen(&point))?;
+    let in_region =
+        screen.x >= min_x && screen.x <= max_x && screen.y >= min_y && screen.y <= max_y;
+    in_region.then(|| {
+        let center_x = (min_x + max_x) as f32 * 0.5;
+        let center_y = (min_y + max_y) as f32 * 0.5;
+        let dx = screen.x as f32 - center_x;
+        let dy = screen.y as f32 - center_y;
+        dx * dx + dy * dy
+    })
+}
+
+fn world_position_is_under_opaque_window_for_command(pos: &Coord3D) -> bool {
+    let point = Point3::new(pos.x, pos.y, pos.z);
+    let Some(screen) = with_tactical_view_ref(|view| view.world_to_screen(&point)) else {
+        return false;
+    };
+    with_window_manager_ref(|manager| {
+        let mut window = manager.get_window_under_cursor(screen.x, screen.y, false);
+        while let Some(current) = window {
+            let guard = current.borrow();
+            if !guard.get_status().contains(WindowStatus::SEE_THRU) {
+                return true;
+            }
+            window = guard.get_parent();
+        }
+        false
+    })
 }
 
 fn pick_closest(objects: &mut Vec<(ObjectID, f32)>) -> Option<ObjectID> {
@@ -3795,6 +3920,69 @@ mod tests {
             40, 39
         ));
         assert!(CommandTranslator::selection_count_limit_reached_for(40, 40));
+    }
+
+    #[test]
+    fn command_pick_profile_accepts_registered_selectable_objects_like_cpp() {
+        let _guard = test_state_lock();
+        let team = setup_local_player_team();
+        let object = register_test_object(78_001, vec![KindOf::Selectable, KindOf::Infantry], team);
+
+        let guard = object.read().unwrap();
+        assert!(object_matches_context_pick_profile(
+            &guard,
+            ContextPickProfile::default()
+        ));
+        drop(guard);
+
+        OBJECT_REGISTRY.unregister_object(78_001);
+    }
+
+    #[test]
+    fn command_pick_profile_respects_force_attackable_option_like_cpp() {
+        let _guard = test_state_lock();
+        let team = setup_local_player_team();
+        let object = register_test_object(78_002, vec![KindOf::ForceAttackable], team);
+
+        let guard = object.read().unwrap();
+        assert!(!object_matches_context_pick_profile(
+            &guard,
+            ContextPickProfile::default()
+        ));
+        assert!(object_matches_context_pick_profile(
+            &guard,
+            ContextPickProfile {
+                include_selectable: false,
+                include_force_attackable: true,
+                include_mines: false,
+                include_shrubbery: false,
+            }
+        ));
+        drop(guard);
+
+        OBJECT_REGISTRY.unregister_object(78_002);
+    }
+
+    #[test]
+    fn command_object_pick_distance_matches_point_radius_and_region_bounds() {
+        let _guard = test_state_lock();
+        let pos = Coord3D::new(10.0, 10.0, 0.0);
+        let point_region = IRegion2D {
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+        };
+        let point_world = Coord3D::new(13.0, 14.0, 0.0);
+
+        assert_eq!(
+            object_pick_distance(&pos, &point_region, true, Some(&point_world), 5.0),
+            Some(25.0)
+        );
+        assert_eq!(
+            object_pick_distance(&pos, &point_region, true, Some(&point_world), 4.0),
+            None
+        );
     }
 
     #[test]
