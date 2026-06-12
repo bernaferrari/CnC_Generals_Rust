@@ -215,6 +215,37 @@ mod tests {
             .expect("game logic lock")
             .set_current_frame(original_frame as u64);
     }
+
+    #[test]
+    fn update_kills_even_before_die_frame_when_invoked_like_cpp() {
+        let _guard = FRAME_TEST_LOCK.lock().unwrap();
+        let original_frame = {
+            let mut logic = crate::system::game_logic::get_game_logic()
+                .lock()
+                .expect("game logic lock");
+            let original = logic.get_frame();
+            logic.set_current_frame(100);
+            original
+        };
+
+        let object = Arc::new(RwLock::new(Object::new_test(4244, 100.0)));
+        let module_data: Arc<dyn ModuleData> = Arc::new(LifetimeUpdateModuleData {
+            min_frames: 30,
+            max_frames: 30,
+            ..LifetimeUpdateModuleData::default()
+        });
+        let mut behavior =
+            LifetimeUpdate::new(Arc::clone(&object), module_data).expect("LifetimeUpdate creates");
+
+        assert_eq!(behavior.get_die_frame(), 130);
+        assert_eq!(behavior.update_simple(), UPDATE_SLEEP_FOREVER);
+        assert!(object.read().unwrap().is_effectively_dead());
+
+        crate::system::game_logic::get_game_logic()
+            .lock()
+            .expect("game logic lock")
+            .set_current_frame(original_frame as u64);
+    }
 }
 
 pub struct LifetimeUpdate {
@@ -321,21 +352,13 @@ impl LifetimeUpdate {
 
 impl UpdateModuleInterface for LifetimeUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        // Get current frame from game logic - matches C++ LifetimeUpdate.cpp
-        let current_frame = crate::helpers::TheGameLogic::get_frame();
-
-        if current_frame >= self.die_frame {
-            // Destroy object through game logic
-            if let Some(object) = self.object.upgrade() {
-                if let Ok(mut guard) = object.write() {
-                    guard.kill(None, None);
-                }
+        // C++ kills whenever the scheduled update is invoked; timing is owned by the scheduler.
+        if let Some(object) = self.object.upgrade() {
+            if let Ok(mut guard) = object.write() {
+                guard.kill(None, None);
             }
-            return UPDATE_SLEEP_FOREVER;
         }
-
-        // Sleep until die frame
-        UpdateSleepTime::from_u32(self.die_frame - current_frame)
+        UPDATE_SLEEP_FOREVER
     }
 }
 
