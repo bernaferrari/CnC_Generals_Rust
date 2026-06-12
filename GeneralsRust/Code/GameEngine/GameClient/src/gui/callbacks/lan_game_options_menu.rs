@@ -8,7 +8,7 @@ use crate::game_text::GameText;
 use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
     get_lan_setup, get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowStatus,
+    WindowMsgData, WindowMsgHandled, WindowStatus, GLM_RIGHT_CLICKED,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
@@ -1133,7 +1133,7 @@ pub fn lan_game_options_menu_system(
                 return;
             }
         }
-        WindowMessage::GadgetRightClick => {
+        WindowMessage::GadgetRightClick | WindowMessage::User(GLM_RIGHT_CLICKED) => {
             let control_id = data1 as i32;
             if handle_start_position_right_click(state, control_id) {
                 lan_update_slot_list(state);
@@ -1215,5 +1215,21 @@ mod tests {
         );
 
         set_lan_button_pushed(false);
+    }
+
+    #[test]
+    fn glm_right_clicked_routes_start_position_like_cpp() {
+        let window = GameWindow::new();
+        with_state(|state| {
+            *state = LanGameOptionsState::default();
+            state.start_position_ids[0] = 77;
+        });
+
+        assert_eq!(
+            lan_game_options_menu_system(&window, WindowMessage::User(GLM_RIGHT_CLICKED), 77, 0),
+            WindowMsgHandled::Handled
+        );
+
+        with_state(|state| *state = LanGameOptionsState::default());
     }
 }

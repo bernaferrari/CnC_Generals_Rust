@@ -9,7 +9,7 @@ use crate::gui::game_window::Image as WindowImage;
 use crate::gui::{
     get_shell, get_skirmish_setup, message_box_ok, message_box_ok_cancel, with_window_manager,
     GameWindow, SkirmishPreferences, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
-    WindowStatus,
+    WindowStatus, GLM_RIGHT_CLICKED,
 };
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 use crate::message_stream::{get_message_stream, GameMessageType};
@@ -1586,7 +1586,7 @@ pub fn skirmish_game_options_menu_system(
                 return;
             }
         }
-        WindowMessage::GadgetRightClick => {
+        WindowMessage::GadgetRightClick | WindowMessage::User(GLM_RIGHT_CLICKED) => {
             let control_id = data1 as i32;
             if handle_start_position_right_click(state, control_id) {
                 skirmish_update_slot_list(state);
