@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, TransportContain};
-use crate::common::{BodyDamageType, GameResult, ObjectID, PlayerMaskType};
+use crate::common::{BodyDamageType, GameResult, ObjectID, PlayerMaskType, INVALID_ID};
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
@@ -269,6 +269,10 @@ impl HelixContain {
     /// Update method called once per frame
     /// Matches C++ HelixContain::update (HelixContain.cpp:98-109)
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
+        if !self.base.is_payload_created() {
+            self.create_payload()?;
+        }
+
         // Update portable structure position to follow Helix (matches C++ lines 101-105)
         if let Some(_portable_id) = self.portable_structure_id {
             if let Some(portable_obj) = self.get_portable_structure() {
@@ -562,7 +566,6 @@ impl HelixContain {
 
         let factory = TheThingFactory::get().map_err(|e| e.to_string())?;
         let payload_templates = self.module_data.payload_template_name_data.clone();
-        let mut first_error: Option<String> = None;
 
         self.base.base.enable_load_sounds(false);
 
@@ -578,12 +581,10 @@ impl HelixContain {
             };
 
             let Ok(payload) = payload else {
-                if first_error.is_none() {
-                    first_error = Some(format!(
-                        "HelixContain::createPayload: failed to create payload {}",
-                        template_name
-                    ));
-                }
+                log::warn!(
+                    "HelixContain::createPayload: failed to create payload {}",
+                    template_name
+                );
                 continue;
             };
 
@@ -594,26 +595,26 @@ impl HelixContain {
                 .unwrap_or(false);
             if can_add {
                 if let Err(err) = self.add_to_contain(payload) {
-                    if first_error.is_none() {
-                        first_error = Some(err.to_string());
-                    }
+                    log::warn!(
+                        "HelixContain::createPayload: failed to add payload {} to {}: {}",
+                        template_name,
+                        owner_name,
+                        err
+                    );
                 }
-            } else if first_error.is_none() {
-                first_error = Some(format!(
+            } else {
+                log::warn!(
                     "HelixContain::createPayload: {} is full or not valid for payload {}",
-                    owner_name, template_name
-                ));
+                    owner_name,
+                    template_name
+                );
             }
         }
 
         self.base.base.enable_load_sounds(true);
 
         self.base.set_payload_created(true);
-        if let Some(error) = first_error {
-            Err(error.into())
-        } else {
-            Ok(())
-        }
+        Ok(())
     }
 
     // Removed duplicate get_portable_structure() (see private helper above)
@@ -634,12 +635,11 @@ impl HelixContain {
         }
 
         // Save portable structure ID
-        if let Some(id) = self.portable_structure_id {
-            state.insert(
-                "portable_structure_id".to_string(),
-                id.to_le_bytes().to_vec(),
-            );
-        }
+        let portable_id = self.portable_structure_id.unwrap_or(INVALID_ID);
+        state.insert(
+            "portable_structure_id".to_string(),
+            portable_id.to_le_bytes().to_vec(),
+        );
 
         Ok(state)
     }
@@ -658,15 +658,15 @@ impl HelixContain {
         self.base.load_state(&base_state)?;
 
         // Load portable structure ID
-        if let Some(data) = state.get("portable_structure_id") {
-            if data.len() >= std::mem::size_of::<ObjectID>() {
-                let bytes: [u8; std::mem::size_of::<ObjectID>()] = data
-                    [0..std::mem::size_of::<ObjectID>()]
-                    .try_into()
-                    .map_err(|_| "Invalid portable_structure_id data")?;
-                self.portable_structure_id = Some(u32::from_le_bytes(bytes));
+        self.portable_structure_id = state.get("portable_structure_id").and_then(|data| {
+            if data.len() < std::mem::size_of::<ObjectID>() {
+                return None;
             }
-        }
+            let bytes: [u8; std::mem::size_of::<ObjectID>()] =
+                data[0..std::mem::size_of::<ObjectID>()].try_into().ok()?;
+            let id = ObjectID::from_le_bytes(bytes);
+            (id != INVALID_ID).then_some(id)
+        });
 
         Ok(())
     }
@@ -1107,6 +1107,67 @@ mod tests {
             !state.contains_key("payload_created"),
             "C++ stores Helix payload creation in the inherited TransportContain state"
         );
+    }
+
+    #[test]
+    fn update_creates_helix_payload_flag_even_when_template_is_missing_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let owner = object_with_kind("HelixPayloadOwner", 98005, "VEHICLE");
+        let data = HelixContainModuleData {
+            payload_template_name_data: vec!["MissingHelixPayloadTemplate".to_string()],
+            ..Default::default()
+        };
+        let mut contain =
+            HelixContain::new(Arc::downgrade(&owner), &data).expect("helix contain constructs");
+
+        contain
+            .update()
+            .expect("missing payload template is nonfatal");
+
+        assert!(
+            contain.base.is_payload_created(),
+            "C++ HelixContain::createPayload sets m_payloadCreated after debug-only payload failures"
+        );
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 0);
+
+        OBJECT_REGISTRY.unregister_object(98005);
+    }
+
+    #[test]
+    fn save_load_state_round_trips_invalid_portable_structure_id_like_cpp() {
+        let contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+            .expect("helix contain constructs");
+
+        let state = contain.save_state().expect("helix saves state");
+
+        assert_eq!(
+            state.get("portable_structure_id"),
+            Some(&INVALID_ID.to_le_bytes().to_vec()),
+            "C++ xfers m_portableStructureID even when it is INVALID_ID"
+        );
+
+        let mut loaded = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+            .expect("helix contain constructs");
+        loaded.set_portable_structure_id(Some(1234));
+        loaded.load_state(&state).expect("helix loads state");
+        assert_eq!(loaded.portable_structure_id, None);
+
+        let mut missing_key = HashMap::new();
+        loaded.set_portable_structure_id(Some(5678));
+        loaded
+            .load_state(&missing_key)
+            .expect("missing portable id clears to invalid");
+        assert_eq!(loaded.portable_structure_id, None);
+
+        missing_key.insert(
+            "portable_structure_id".to_string(),
+            INVALID_ID.to_le_bytes().to_vec(),
+        );
+        loaded.set_portable_structure_id(Some(9012));
+        loaded
+            .load_state(&missing_key)
+            .expect("zero portable id clears to invalid");
+        assert_eq!(loaded.portable_structure_id, None);
     }
 
     #[test]
