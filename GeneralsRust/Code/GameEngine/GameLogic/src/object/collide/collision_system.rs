@@ -47,6 +47,7 @@ use crate::helpers::TheGameLogic;
 use crate::locomotor::LocomotorPriority;
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::CrushSquishTestType;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use std::collections::HashMap;
 use std::f32::consts::PI;
@@ -83,7 +84,6 @@ struct AiCollisionInfo {
     path_destination: Option<GameCoord3D>,
     frames_blocked: u32,
     moving_backwards: bool,
-    crusher_level: u32,
     velocity: Vec3D,
     formation_id: FormationID,
     move_priority: LocomotorPriority,
@@ -303,7 +303,6 @@ impl CollisionSystem {
                 is_dozer,
                 using_ability,
                 ai,
-                crusher_level,
                 velocity,
                 formation_id,
                 _move_priority,
@@ -324,7 +323,6 @@ impl CollisionSystem {
                     guard.is_kind_of(KindOf::Dozer),
                     guard.test_status(ObjectStatusTypes::IsUsingAbility),
                     ai,
-                    guard.get_crusher_level(),
                     velocity,
                     guard.get_formation_id(),
                     LocomotorPriority::Middle,
@@ -382,7 +380,6 @@ impl CollisionSystem {
                 path_destination,
                 frames_blocked,
                 moving_backwards,
-                crusher_level,
                 velocity,
                 formation_id,
                 move_priority,
@@ -585,7 +582,7 @@ impl CollisionSystem {
             }
         }
 
-        if a.crusher_level > 0 {
+        if Self::can_crush_or_squish(a.id, b.id) {
             return false;
         }
 
@@ -696,6 +693,22 @@ impl CollisionSystem {
             max_speed = cur_max;
         }
         Some(max_speed)
+    }
+
+    fn can_crush_or_squish(a_id: ObjectId, b_id: ObjectId) -> bool {
+        let Some(a_obj) = OBJECT_REGISTRY.get_object(a_id) else {
+            return false;
+        };
+        let Some(b_obj) = OBJECT_REGISTRY.get_object(b_id) else {
+            return false;
+        };
+        let Ok(a_guard) = a_obj.read() else {
+            return false;
+        };
+        let Ok(b_guard) = b_obj.read() else {
+            return false;
+        };
+        a_guard.can_crush_or_squish(&b_guard, CrushSquishTestType::TestCrushOrSquish)
     }
 
     /// Find all objects within a radius of a position
