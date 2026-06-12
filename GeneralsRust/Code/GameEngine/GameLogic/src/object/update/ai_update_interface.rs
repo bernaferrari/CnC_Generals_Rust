@@ -943,8 +943,6 @@ impl AIUpdateInterface {
 
         self.retry_path = false;
 
-        // PARITY_TODO: delegate to pathfinder->findPath() once pathfinder bridge is ported.
-        // For now, create a simple two-point path as placeholder.
         let start = self.final_position;
         if start == Coord3D::ZERO {
             self.path_timestamp = TheGameLogic::get_frame();
@@ -952,15 +950,80 @@ impl AIUpdateInterface {
             self.is_blocked_and_stuck = false;
             return false;
         }
-        self.destroy_path();
-        self.path = Some(vec![start, destination]);
+        let surfaces = self.current_locomotor_set_surfaces();
+        if surfaces == 0 {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.is_blocked_and_stuck = false;
+            return false;
+        }
+
+        let Some(pathfinder) = crate::ai::THE_AI.read().ok().and_then(|ai| ai.pathfinder()) else {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.is_blocked_and_stuck = false;
+            return false;
+        };
+        let Ok(pathfinder) = pathfinder.read() else {
+            self.path_timestamp = TheGameLogic::get_frame();
+            self.blocked_frames = 0;
+            self.is_blocked_and_stuck = false;
+            return false;
+        };
+        let ignore_obstacle_id = if self.ignore_obstacle_id == INVALID_ID {
+            None
+        } else {
+            Some(self.ignore_obstacle_id)
+        };
+
+        if !self.is_final_goal
+            && pathfinder.is_line_passable_for_surfaces(
+                &start,
+                &destination,
+                surfaces,
+                ignore_obstacle_id,
+            )
+        {
+            drop(pathfinder);
+            return self.compute_quick_path(destination);
+        }
+
+        let request = crate::ai::pathfind_complete::PathRequest {
+            object_id: INVALID_ID,
+            from: start,
+            to: destination,
+            surfaces,
+            is_crusher: false,
+            unit_radius: 0.0,
+            allow_partial: false,
+            move_allies: self.can_path_through_units,
+            ignore_obstacle_id,
+        };
+        let mut path_result = pathfinder.find_path_result(request.clone());
+        if !path_result.success && self.path.is_none() {
+            path_result = pathfinder.find_closest_path_result(request);
+            self.retry_path = true;
+        }
+        drop(pathfinder);
+
+        if path_result.success {
+            self.destroy_path();
+            self.path = Some(path_result.waypoints);
+            self.queue_for_path_frame = 0;
+            self.set_locomotor_goal_position_on_path();
+            self.is_blocked = false;
+        } else if self.path.is_some() && self.is_blocked_and_stuck {
+            self.destroy_path();
+            self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
+            self.final_position = start;
+            self.set_locomotor_goal_none();
+            self.is_blocked = false;
+        }
+
         self.path_timestamp = TheGameLogic::get_frame();
         self.blocked_frames = 0;
-        self.is_blocked = false;
         self.is_blocked_and_stuck = false;
-        self.queue_for_path_frame = 0;
-        self.set_locomotor_goal_position_on_path();
-        true
+        self.path.is_some()
     }
 
     fn compute_safe_path(&mut self) -> bool {
@@ -1981,7 +2044,8 @@ mod tests {
 
     #[test]
     fn compute_and_destroy_path_update_cpp_state() {
-        let mut ai = ai_update();
+        let mut ai = ai_update_with_locomotors();
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
         ai.is_blocked = true;
         ai.is_blocked_and_stuck = true;
@@ -2161,15 +2225,15 @@ mod tests {
         assert!(!ai.is_waiting_for_path());
         assert!(ai.is_approach_path);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
-        assert_eq!(
-            ai.get_path().as_ref().unwrap().as_slice(),
-            &[Coord3D::new(3.0, 4.0, 0.0), Coord3D::new(12.0, 16.0, 0.0)]
-        );
+        let path = ai.get_path().as_ref().unwrap();
+        assert_eq!(path.first().copied(), Some(Coord3D::new(3.0, 4.0, 0.0)));
+        assert_eq!(path.last().copied(), Some(Coord3D::new(12.0, 16.0, 0.0)));
     }
 
     #[test]
     fn do_pathfind_attack_fallback_clears_attack_flag_like_cpp() {
-        let mut ai = ai_update();
+        let mut ai = ai_update_with_locomotors();
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.set_final_position(Coord3D::new(6.0, 7.0, 0.0));
 
         ai.request_attack_path(123, Coord3D::new(18.0, 21.0, 0.0));
@@ -2178,10 +2242,9 @@ mod tests {
         assert!(!ai.is_waiting_for_path());
         assert!(!ai.is_attack_path);
         assert_eq!(ai.get_locomotor_goal_type(), LocoGoalType::PositionOnPath);
-        assert_eq!(
-            ai.get_path().as_ref().unwrap().as_slice(),
-            &[Coord3D::new(6.0, 7.0, 0.0), Coord3D::new(18.0, 21.0, 0.0)]
-        );
+        let path = ai.get_path().as_ref().unwrap();
+        assert_eq!(path.first().copied(), Some(Coord3D::new(6.0, 7.0, 0.0)));
+        assert_eq!(path.last().copied(), Some(Coord3D::new(18.0, 21.0, 0.0)));
     }
 
     #[test]
