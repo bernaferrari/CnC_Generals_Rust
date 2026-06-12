@@ -1,9 +1,10 @@
 //! Salvage crate behaviour - awards weapon/armor upgrades, veterancy, or money.
 
+use super::{format_add_cash, format_cash_template};
 use crate::common::ModelConditionFlags;
 use crate::common::*;
 use crate::experience::ExperienceTracker;
-use crate::helpers::{TheAudio, TheGameText, TheInGameUI};
+use crate::helpers::{TheAudio, TheInGameUI};
 use crate::object::collide::crate_collide::crate_collide::{
     CrateCollide as BaseCrateCollide, CrateCollideBehavior, CrateCollideModuleData,
 };
@@ -305,51 +306,6 @@ const SALVAGE_CRATE_COLLIDE_FIELDS: &[IniFieldParse<SalvageCrateCollideModuleDat
         parse: parse_max_money,
     },
 ];
-
-fn format_cpp_integer_template(template: &str, amount: u32) -> Option<String> {
-    let amount = amount.to_string();
-    let mut output = String::with_capacity(template.len() + amount.len());
-    let mut chars = template.chars().peekable();
-    let mut replaced = false;
-
-    while let Some(ch) = chars.next() {
-        if ch != '%' {
-            output.push(ch);
-            continue;
-        }
-
-        if matches!(chars.peek(), Some('%')) {
-            chars.next();
-            output.push('%');
-            continue;
-        }
-
-        let mut specifier = String::from("%");
-        while let Some(next) = chars.next() {
-            specifier.push(next);
-            if matches!(next, 'd' | 'i' | 'u') {
-                output.push_str(&amount);
-                replaced = true;
-                break;
-            }
-            if !matches!(next, '-' | '+' | ' ' | '#' | '0' | '1'..='9' | '.') {
-                output.push_str(&specifier);
-                break;
-            }
-        }
-    }
-
-    replaced.then_some(output)
-}
-
-fn format_cash_template(template: &str, amount: u32, fallback_prefix: &str) -> String {
-    format_cpp_integer_template(template, amount)
-        .unwrap_or_else(|| format!("{fallback_prefix}${amount}"))
-}
-
-fn format_add_cash(amount: u32) -> String {
-    format_cash_template(&TheGameText::fetch("GUI:AddCash"), amount, "+")
-}
 
 /// Concrete implementation of the Salvage crate behaviour.
 pub struct SalvageCrateCollide {
