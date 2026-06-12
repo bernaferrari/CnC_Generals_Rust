@@ -100,7 +100,8 @@ pub mod window_video_manager;
 
 // Re-export main types for convenience
 pub use game_window::{
-    gadget_list_box_get_bottom_visible_entry, gadget_list_box_get_selected,
+    gadget_list_box_get_bottom_visible_entry, gadget_list_box_get_column_width,
+    gadget_list_box_get_num_columns, gadget_list_box_get_selected,
     gadget_list_box_get_top_visible_entry, gadget_list_box_is_full,
     gadget_list_box_set_audio_feedback, gadget_list_box_set_bottom_visible_entry,
     gadget_list_box_set_top_visible_entry, write_input_focus_response, GameWindow, WindowCallbacks,

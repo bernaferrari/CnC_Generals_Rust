@@ -215,6 +215,16 @@ impl ListBox {
         self.columns
     }
 
+    pub fn column_width(&self, column: i32) -> u32 {
+        if column < 0 || column >= self.columns as i32 {
+            return 0;
+        }
+        self.column_widths()
+            .get(column as usize)
+            .copied()
+            .unwrap_or(0)
+    }
+
     pub fn set_column_width_percentages(&mut self, widths: Vec<u32>) {
         self.column_width_percentages = widths;
     }
@@ -1653,6 +1663,28 @@ mod tests {
         listbox.set_bottom_visible_entry(1);
         assert_eq!(listbox.get_top_visible_entry(), 0);
         assert_eq!(listbox.get_bottom_visible_entry(), 2);
+    }
+
+    #[test]
+    fn column_count_and_width_getters_match_cpp_invalid_rules() {
+        let mut listbox = ListBox::new(1, 0, 0, 120, 30);
+        assert_eq!(listbox.columns(), 1);
+        assert_eq!(listbox.column_width(0), 120);
+        assert_eq!(listbox.column_width(-1), 0);
+        assert_eq!(listbox.column_width(1), 0);
+
+        listbox.set_columns(3);
+        listbox.set_column_width_percentages(vec![50, 25, 25]);
+        assert_eq!(listbox.columns(), 3);
+        assert_eq!(listbox.column_width(0), 60);
+        assert_eq!(listbox.column_width(1), 30);
+        assert_eq!(listbox.column_width(2), 30);
+        assert_eq!(listbox.column_width(3), 0);
+
+        listbox.set_content_width(100);
+        assert_eq!(listbox.column_width(0), 50);
+        assert_eq!(listbox.column_width(1), 25);
+        assert_eq!(listbox.column_width(2), 25);
     }
 
     #[test]

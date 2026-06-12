@@ -176,6 +176,20 @@ pub fn gadget_list_box_set_audio_feedback(listbox: &mut GameWindow, enable: bool
     }
 }
 
+pub fn gadget_list_box_get_num_columns(listbox: &GameWindow) -> i32 {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.columns() as i32,
+        _ => 0,
+    }
+}
+
+pub fn gadget_list_box_get_column_width(listbox: &GameWindow, column: i32) -> i32 {
+    match listbox.widget.as_ref() {
+        Some(WindowWidget::ListBox(listbox)) => listbox.column_width(column) as i32,
+        _ => 0,
+    }
+}
+
 bitflags! {
     /// Window status flags
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -5076,6 +5090,26 @@ mod tests {
         assert_eq!(gadget_list_box_get_top_visible_entry(&non_listbox), 0);
         assert_eq!(gadget_list_box_get_bottom_visible_entry(&non_listbox), 0);
         assert!(!gadget_list_box_is_full(&non_listbox));
+    }
+
+    #[test]
+    fn listbox_column_helpers_match_cpp_public_api() {
+        let mut window = GameWindow::new();
+        let mut listbox = ListBox::new(42, 0, 0, 120, 30);
+        listbox.set_columns(3);
+        listbox.set_column_width_percentages(vec![50, 25, 25]);
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        assert_eq!(gadget_list_box_get_num_columns(&window), 3);
+        assert_eq!(gadget_list_box_get_column_width(&window, 0), 60);
+        assert_eq!(gadget_list_box_get_column_width(&window, 1), 30);
+        assert_eq!(gadget_list_box_get_column_width(&window, 2), 30);
+        assert_eq!(gadget_list_box_get_column_width(&window, -1), 0);
+        assert_eq!(gadget_list_box_get_column_width(&window, 3), 0);
+
+        let non_listbox = GameWindow::new();
+        assert_eq!(gadget_list_box_get_num_columns(&non_listbox), 0);
+        assert_eq!(gadget_list_box_get_column_width(&non_listbox, 0), 0);
     }
 
     #[test]
