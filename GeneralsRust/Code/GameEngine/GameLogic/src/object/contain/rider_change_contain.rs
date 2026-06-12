@@ -730,13 +730,41 @@ impl RiderChangeContain {
         rider: Arc<RwLock<Object>>,
         was_selected: bool,
     ) -> GameResult<()> {
-        let rider_guard = rider.read().map_err(|_| "Rider lock poisoned")?;
-        if !self.is_valid_container_for(&*rider_guard, true) {
-            return Err("Object not valid for this rider change container".into());
+        let owner = self.object.upgrade();
+        if super::should_cancel_containment_after_booby_trap(owner.as_ref(), &rider) {
+            return Ok(());
         }
-        drop(rider_guard);
+
+        let was_selected = was_selected
+            || rider
+                .read()
+                .ok()
+                .and_then(|guard| guard.get_drawable())
+                .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+                .unwrap_or(false);
+
+        {
+            let rider_guard = rider.read().map_err(|_| "Rider lock poisoned")?;
+            if !self.is_valid_container_for(&*rider_guard, true) {
+                return Err("Object not valid for this rider change container".into());
+            }
+            if rider_guard.get_contained_by().is_some() {
+                return Ok(());
+            }
+        }
 
         self.base.add_to_contain_list(rider.clone())?;
+        let should_remove_from_world = rider
+            .read()
+            .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
+            .unwrap_or(false);
+        if should_remove_from_world {
+            let _ = self
+                .base
+                .base
+                .add_or_remove_obj_from_world(rider.clone(), false);
+        }
+        self.base.redeploy_occupants()?;
         self.on_containing(rider, was_selected)?;
         Ok(())
     }
