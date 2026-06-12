@@ -638,6 +638,11 @@ impl AStarPathfinder {
         }
     }
 
+    /// Get whether a cell is pinched.
+    pub fn is_pinched(&self, coord: GridCoord) -> Option<bool> {
+        self.get_cell(coord).map(|cell| cell.is_pinched())
+    }
+
     pub fn refresh_pinched_cells_in_bounds(&mut self, lo: GridCoord, hi: GridCoord) {
         let min_x = lo.x.max(0);
         let min_y = lo.y.max(0);

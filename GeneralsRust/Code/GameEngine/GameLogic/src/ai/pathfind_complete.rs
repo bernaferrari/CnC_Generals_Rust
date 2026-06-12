@@ -1299,11 +1299,7 @@ impl PathfindingSystem {
 
     /// Classify the entire pathfind map based on terrain data.
     /// Matches C++ Pathfinder::classifyMap() which iterates all cells and sets
-    /// cell types based on terrain height/slope/water flags.
-    ///
-    /// PARITY_TODO: Full terrain classification requires TerrainLogic integration
-    /// to read actual slope/water/cliff data per cell. Currently sets all cells
-    /// to Clear as a safe default.
+    /// terrain cell types, expands cliff cells, and recalculates zones.
     pub fn classify_map(&mut self) {
         let pathfinder = self.pathfinder.lock().unwrap();
         let w = pathfinder.width();
@@ -1315,10 +1311,68 @@ impl PathfindingSystem {
                 self.classify_map_cell(x as i32, y as i32);
             }
         }
+        self.expand_cliff_cells_like_cpp();
 
         // Recalculate zones after full classification
         if let Ok(mut zones) = self.zones.lock() {
             zones.calculate_zones();
+        }
+    }
+
+    fn expand_cliff_cells_like_cpp(&self) {
+        let Ok(mut pathfinder) = self.pathfinder.lock() else {
+            return;
+        };
+        let w = pathfinder.width() as i32;
+        let h = pathfinder.height() as i32;
+
+        let mut first_ring = Vec::new();
+        for x in 0..w {
+            for y in 0..h {
+                let coord = GridCoord::new(x, y);
+                if pathfinder.get_cell_type(coord) != Some(PathfindCellType::Cliff) {
+                    continue;
+                }
+                for nx in (x - 1).max(0)..=(x + 1).min(w - 1) {
+                    for ny in (y - 1).max(0)..=(y + 1).min(h - 1) {
+                        let neighbor = GridCoord::new(nx, ny);
+                        if pathfinder.get_cell_type(neighbor) == Some(PathfindCellType::Clear) {
+                            first_ring.push(neighbor);
+                        }
+                    }
+                }
+            }
+        }
+
+        for coord in &first_ring {
+            pathfinder.set_pinched(*coord, true);
+        }
+        for coord in first_ring {
+            if pathfinder.get_cell_type(coord) == Some(PathfindCellType::Clear) {
+                pathfinder.set_cell_type(coord, PathfindCellType::Cliff);
+            }
+        }
+
+        let mut second_ring = Vec::new();
+        for x in 0..w {
+            for y in 0..h {
+                let coord = GridCoord::new(x, y);
+                if pathfinder.get_cell_type(coord) != Some(PathfindCellType::Cliff) {
+                    continue;
+                }
+                for nx in (x - 1).max(0)..=(x + 1).min(w - 1) {
+                    for ny in (y - 1).max(0)..=(y + 1).min(h - 1) {
+                        let neighbor = GridCoord::new(nx, ny);
+                        if pathfinder.get_cell_type(neighbor) == Some(PathfindCellType::Clear) {
+                            second_ring.push(neighbor);
+                        }
+                    }
+                }
+            }
+        }
+
+        for coord in second_ring {
+            pathfinder.set_pinched(coord, true);
         }
     }
 
@@ -2326,5 +2380,32 @@ mod tests {
             pathfinder.get_cell_type(coord),
             Some(PathfindCellType::Obstacle)
         );
+    }
+
+    #[test]
+    fn classify_map_expands_cliff_cells_like_cpp() {
+        let system = PathfindingSystem::new(7, 7);
+        {
+            let mut pathfinder = system.pathfinder.lock().unwrap();
+            pathfinder.set_cell_type(GridCoord::new(3, 3), PathfindCellType::Cliff);
+        }
+
+        system.expand_cliff_cells_like_cpp();
+
+        let pathfinder = system.pathfinder.lock().unwrap();
+        assert_eq!(
+            pathfinder.get_cell_type(GridCoord::new(2, 2)),
+            Some(PathfindCellType::Cliff)
+        );
+        assert_eq!(
+            pathfinder.get_cell_type(GridCoord::new(4, 4)),
+            Some(PathfindCellType::Cliff)
+        );
+        assert_eq!(
+            pathfinder.get_cell_type(GridCoord::new(1, 1)),
+            Some(PathfindCellType::Clear)
+        );
+        assert_eq!(pathfinder.is_pinched(GridCoord::new(1, 1)), Some(true));
+        assert_eq!(pathfinder.is_pinched(GridCoord::new(5, 5)), Some(true));
     }
 }
