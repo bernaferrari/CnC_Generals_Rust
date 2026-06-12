@@ -95,6 +95,7 @@ impl GameMessage {
 // Message constants
 pub const MSG_CREATE_SELECTED_GROUP: u32 = CommandType::CreateSelectedGroup as u32;
 pub const MSG_CREATE_SELECTED_GROUP_NO_SOUND: u32 = CommandType::CreateSelectedGroupNoSound as u32;
+pub const MSG_REMOVE_FROM_SELECTED_GROUP: u32 = CommandType::RemoveFromSelectedGroup as u32;
 pub const MSG_AREA_SELECTION: u32 = CommandType::AreaSelection as u32;
 pub const MSG_DO_MOVETO: u32 = CommandType::DoMoveTo as u32;
 pub const MSG_DO_FORCE_ATTACK_GROUND: u32 = CommandType::DoForceAttackGround as u32;
