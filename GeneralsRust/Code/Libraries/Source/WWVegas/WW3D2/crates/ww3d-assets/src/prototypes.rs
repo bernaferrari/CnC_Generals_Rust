@@ -1261,7 +1261,7 @@ pub struct HModelNodeLink {
     pub pivot_idx: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct HModelPrototype {
     pub name: String,
     pub hierarchy_name: String,
