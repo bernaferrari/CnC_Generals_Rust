@@ -12,7 +12,8 @@ use crate::common::{
     ObjectStatusTypes, PlayerMaskType,
 };
 use crate::damage::{DamageInfo, DamageType, DeathType};
-use crate::helpers::{TheGameLogic, TheThingFactory};
+use crate::helpers::{TheGameLogic, TheInGameUI, TheMessageStream, TheThingFactory};
+use crate::messages::{MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP};
 use crate::modules::{ContainModuleInterface, ContainWant, UpdateSleepTime};
 use crate::object::contain::TransportContain;
 use crate::object::{Object, ObjectId};
@@ -347,6 +348,10 @@ fn transfer_veterancy(
 mod tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
+    use crate::messages::{
+        drain_messages, MessageArgument, MSG_CREATE_SELECTED_GROUP, MSG_REMOVE_FROM_SELECTED_GROUP,
+    };
+    use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::player::{Player, ThePlayerList};
     use crate::team::Team;
@@ -463,6 +468,7 @@ mod tests {
         let mut list = ThePlayerList().write().expect("player list write");
         list.clear();
         list.add_player(Arc::new(RwLock::new(Player::new(0))));
+        list.set_local_player_index(0);
     }
 
     fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
@@ -498,14 +504,54 @@ mod tests {
         obj
     }
 
+    fn attach_drawable(obj: &Arc<RwLock<Object>>, drawable_id: ObjectID) -> Arc<RwLock<Drawable>> {
+        let object_id = obj.read().expect("object read").get_id();
+        let drawable = Arc::new(RwLock::new(Drawable::new(
+            drawable_id,
+            object_id,
+            format!("Drawable{object_id}"),
+            DrawableType::Animated,
+        )));
+        obj.write()
+            .expect("object write")
+            .set_drawable(Some(drawable.clone()));
+        drawable
+    }
+
+    fn is_create_selected_message(
+        message: &crate::messages::GameMessage,
+        object_id: ObjectID,
+    ) -> bool {
+        message.id == MSG_CREATE_SELECTED_GROUP
+            && matches!(
+                message.arguments.as_slice(),
+                [MessageArgument::Boolean(false), MessageArgument::ObjectId(id)] if *id == object_id
+            )
+    }
+
+    fn is_remove_selected_message(
+        message: &crate::messages::GameMessage,
+        object_id: ObjectID,
+    ) -> bool {
+        message.id == MSG_REMOVE_FROM_SELECTED_GROUP
+            && matches!(
+                message.arguments.as_slice(),
+                [MessageArgument::ObjectId(id)] if *id == object_id
+            )
+    }
+
     fn cleanup_objects(ids: &[ObjectID]) {
         for id in ids {
             OBJECT_REGISTRY.unregister_object(*id);
         }
+        let _ = drain_messages();
         ThePlayerList().write().expect("player list write").clear();
     }
 
-    fn rider_change_for(owner: &Arc<RwLock<Object>>) -> RiderChangeContain {
+    fn rider_change_for_with_config(
+        owner: &Arc<RwLock<Object>>,
+        configure: impl FnOnce(&mut RiderChangeContainModuleData),
+    ) -> RiderChangeContain {
         let mut data = RiderChangeContainModuleData {
             base: super::super::TransportContainModuleData {
                 slot_capacity: 1,
@@ -529,7 +575,12 @@ mod tests {
             command_set: AsciiString::from("RiderTwoCommandSet"),
             locomotor_set: LocomotorSetType::Normal,
         };
+        configure(&mut data);
         RiderChangeContain::new(Arc::downgrade(owner), &data).expect("rider change contain")
+    }
+
+    fn rider_change_for(owner: &Arc<RwLock<Object>>) -> RiderChangeContain {
+        rider_change_for_with_config(owner, |_| {})
     }
 
     #[test]
@@ -634,6 +685,153 @@ mod tests {
         );
 
         cleanup_objects(&[97009, 97010, 97011]);
+    }
+
+    #[test]
+    fn selected_rider_selects_bike_on_entry_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("CombatBikeSelectionEnter", 97012, 0);
+        let rider = rider("BikeRiderOne", 97013, 0);
+        let owner_drawable = attach_drawable(&owner, 970120);
+        let rider_drawable = attach_drawable(&rider, 970130);
+        rider_drawable
+            .write()
+            .expect("rider drawable write")
+            .set_selected(true);
+        let mut contain = rider_change_for(&owner);
+        let _ = drain_messages();
+
+        contain
+            .add_to_contain(rider.clone(), false)
+            .expect("selected rider enters");
+
+        assert!(
+            owner_drawable
+                .read()
+                .expect("owner drawable read")
+                .is_selected(),
+            "C++ selects the bike when the entering rider was selected"
+        );
+        let messages = drain_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|message| is_create_selected_message(message, 97012)),
+            "C++ sends MSG_CREATE_SELECTED_GROUP for the bike"
+        );
+
+        cleanup_objects(&[97012, 97013]);
+    }
+
+    #[test]
+    fn selected_bike_selects_rider_and_deselects_bike_on_exit_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("CombatBikeSelectionExit", 97014, 0);
+        let rider = rider("BikeRiderOne", 97015, 0);
+        let owner_drawable = attach_drawable(&owner, 970140);
+        let rider_drawable = attach_drawable(&rider, 970150);
+        let mut contain = rider_change_for(&owner);
+
+        contain
+            .add_to_contain(rider.clone(), false)
+            .expect("rider enters");
+        let _ = drain_messages();
+        owner_drawable
+            .write()
+            .expect("owner drawable write")
+            .set_selected(true);
+
+        contain
+            .remove_from_contain(rider.clone(), false)
+            .expect("rider exits");
+
+        assert!(
+            rider_drawable
+                .read()
+                .expect("rider drawable read")
+                .is_selected(),
+            "C++ selects the exiting rider when the bike was selected"
+        );
+        assert!(
+            !owner_drawable
+                .read()
+                .expect("owner drawable read")
+                .is_selected(),
+            "C++ removes the bike from the selected group"
+        );
+        let messages = drain_messages();
+        assert!(
+            messages
+                .iter()
+                .any(|message| is_create_selected_message(message, 97015)),
+            "C++ sends MSG_CREATE_SELECTED_GROUP for the exiting rider"
+        );
+        assert!(
+            messages
+                .iter()
+                .any(|message| is_remove_selected_message(message, 97014)),
+            "C++ sends MSG_REMOVE_FROM_SELECTED_GROUP for the bike"
+        );
+
+        cleanup_objects(&[97014, 97015]);
+    }
+
+    #[test]
+    fn rider_exit_without_drawables_does_not_scuttle_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("CombatBikeNoDrawableExit", 97016, 0);
+        let rider = rider("BikeRiderOne", 97017, 0);
+        let mut contain = rider_change_for(&owner);
+
+        contain
+            .add_to_contain(rider.clone(), false)
+            .expect("rider enters");
+        contain
+            .remove_from_contain(rider.clone(), false)
+            .expect("rider exits");
+
+        let owner_guard = owner.read().expect("owner read");
+        assert!(
+            !owner_guard.test_status(ObjectStatusTypes::Unselectable),
+            "C++ skips bike scuttle when either drawable is missing"
+        );
+        drop(owner_guard);
+        assert_eq!(
+            contain.scuttled_on_frame, 0,
+            "C++ leaves m_scuttledOnFrame untouched without drawables"
+        );
+
+        cleanup_objects(&[97016, 97017]);
+    }
+
+    #[test]
+    fn non_payload_rider_exit_does_not_run_transport_on_removing_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("CombatBikeNoTransportExit", 97018, 0);
+        let rider = rider("BikeRiderOne", 97019, 0);
+        attach_drawable(&owner, 970180);
+        attach_drawable(&rider, 970190);
+        let mut contain = rider_change_for_with_config(&owner, |data| {
+            data.base.exit_delay = 30;
+        });
+
+        contain
+            .add_to_contain(rider.clone(), false)
+            .expect("rider enters");
+        contain
+            .remove_from_contain(rider.clone(), false)
+            .expect("rider exits");
+
+        assert!(
+            !contain.base.is_exit_busy(),
+            "C++ only calls TransportContain::onRemoving when m_payloadCreated is true"
+        );
+
+        cleanup_objects(&[97018, 97019]);
     }
 
     #[test]
@@ -874,6 +1072,8 @@ impl RiderChangeContain {
             let _ = self.remove_from_contain(existing, true);
         }
 
+        self.transfer_selection_to_owner_on_entry(was_selected);
+
         let rider_template = rider
             .read()
             .map_err(|_| "Rider lock poisoned")?
@@ -943,6 +1143,116 @@ impl RiderChangeContain {
         }
     }
 
+    fn transfer_selection_to_owner_on_entry(&self, was_selected: bool) {
+        if !was_selected {
+            return;
+        }
+
+        let Some(owner) = self.object.upgrade() else {
+            return;
+        };
+
+        let (owner_id, owner_drawable) = {
+            let Ok(owner_guard) = owner.read() else {
+                return;
+            };
+            let Some(drawable) = owner_guard.get_drawable() else {
+                return;
+            };
+            let already_selected = drawable
+                .read()
+                .ok()
+                .map(|drawable_guard| drawable_guard.is_selected())
+                .unwrap_or(false);
+            if already_selected {
+                return;
+            }
+            (owner_guard.get_id(), drawable)
+        };
+
+        let mut team_msg = TheMessageStream::append_message(MSG_CREATE_SELECTED_GROUP);
+        team_msg.append_boolean_argument(false);
+        team_msg.append_object_id_argument(owner_id);
+        drop(team_msg);
+
+        TheInGameUI::select_drawable(&owner_drawable);
+        TheInGameUI::set_displayed_max_warning(false);
+    }
+
+    fn transfer_selection_to_rider_on_exit(&self, rider: &Arc<RwLock<Object>>) {
+        let Some(owner) = self.object.upgrade() else {
+            return;
+        };
+
+        let local_player_index = crate::player::ThePlayerList()
+            .read()
+            .ok()
+            .map(|list| list.get_local_player_index())
+            .unwrap_or(crate::player::PLAYER_INDEX_INVALID);
+        if local_player_index == crate::player::PLAYER_INDEX_INVALID {
+            return;
+        }
+
+        let (owner_id, owner_drawable) = {
+            let Ok(owner_guard) = owner.read() else {
+                return;
+            };
+            if owner_guard.get_controlling_player_id() != Some(local_player_index as u32) {
+                return;
+            }
+            let Some(drawable) = owner_guard.get_drawable() else {
+                return;
+            };
+            let selected = drawable
+                .read()
+                .ok()
+                .map(|drawable_guard| drawable_guard.is_selected())
+                .unwrap_or(false);
+            if !selected {
+                return;
+            }
+            (owner_guard.get_id(), drawable)
+        };
+
+        let (rider_id, rider_drawable) = {
+            let Ok(rider_guard) = rider.read() else {
+                return;
+            };
+            let Some(drawable) = rider_guard.get_drawable() else {
+                return;
+            };
+            (rider_guard.get_id(), drawable)
+        };
+
+        let mut team_msg = TheMessageStream::append_message(MSG_CREATE_SELECTED_GROUP);
+        team_msg.append_boolean_argument(false);
+        team_msg.append_object_id_argument(rider_id);
+        drop(team_msg);
+
+        TheInGameUI::select_drawable(&rider_drawable);
+        TheInGameUI::set_displayed_max_warning(false);
+
+        let mut remove_msg = TheMessageStream::append_message(MSG_REMOVE_FROM_SELECTED_GROUP);
+        remove_msg.append_object_id_argument(owner_id);
+        drop(remove_msg);
+
+        TheInGameUI::deselect_drawable(&owner_drawable);
+    }
+
+    fn has_exit_scuttle_drawables(&self, rider: &Arc<RwLock<Object>>) -> bool {
+        let owner_has_drawable = self
+            .object
+            .upgrade()
+            .and_then(|owner| owner.read().ok()?.get_drawable())
+            .is_some();
+        let rider_has_drawable = rider
+            .read()
+            .ok()
+            .and_then(|rider_guard| rider_guard.get_drawable())
+            .is_some();
+        owner_has_drawable && rider_has_drawable
+    }
+
     pub fn on_removing(&mut self, rider: Arc<RwLock<Object>>) -> GameResult<()> {
         if let Some(owner) = self.object.upgrade() {
             if let Ok(owner_guard) = owner.read() {
@@ -954,7 +1264,11 @@ impl RiderChangeContain {
             }
         }
 
-        self.base.on_removing(rider.clone())?;
+        if self.base.is_payload_created() {
+            self.base.on_removing(rider.clone())?;
+        } else {
+            self.base.base.on_removing(rider.clone())?;
+        }
 
         let rider_template = rider
             .read()
@@ -984,8 +1298,13 @@ impl RiderChangeContain {
                         break;
                     }
                 }
+            }
+        }
 
-                if !self.containing {
+        if !self.containing && self.has_exit_scuttle_drawables(&rider) {
+            self.transfer_selection_to_rider_on_exit(&rider);
+            if let Some(owner) = self.object.upgrade() {
+                if let Ok(mut owner_guard) = owner.write() {
                     self.scuttled_on_frame = TheGameLogic::get_frame();
                     owner_guard.set_status(
                         ObjectStatusMaskType::from_status(ObjectStatusTypes::Unselectable),
