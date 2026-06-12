@@ -2362,13 +2362,40 @@ fn sabotage_internet_center_crate_collide_module_factory(
         object_id,
     ))
 }
-legacy_object_crate_collide_factories!(
-    sabotage_military_factory_crate_collide_data_factory,
-    sabotage_military_factory_crate_collide_module_factory,
-    SabotageMilitaryFactoryCrateCollideModuleData,
-    SabotageMilitaryFactoryCrateCollide,
-    "SabotageMilitaryFactoryCrateCollide"
-);
+fn sabotage_military_factory_crate_collide_data_factory(
+    ini: Option<&mut INI>,
+) -> Box<dyn ModuleData> {
+    let mut data = SabotageMilitaryFactoryCrateCollideModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse SabotageMilitaryFactoryCrateCollide module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(CrateCollideDataAdapter::new(data))
+}
+
+fn sabotage_military_factory_crate_collide_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data_arc = cloned_module_data::<
+        CrateCollideDataAdapter<SabotageMilitaryFactoryCrateCollideModuleData>,
+    >("SabotageMilitaryFactoryCrateCollide", &module_data);
+    let object_id = resolve_owner_id(&thing);
+    let object = TheGameLogic::find_object_by_id(object_id)
+        .expect("SabotageMilitaryFactoryCrateCollide requires a valid object");
+    let collide = SabotageMilitaryFactoryCrateCollide::new(object, data_arc.data.clone());
+    Box::new(LegacyCrateCollideModule::new(
+        "SabotageMilitaryFactoryCrateCollide",
+        data_arc,
+        collide,
+        object_id,
+    ))
+}
 fn sabotage_power_plant_crate_collide_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
     let mut data = SabotagePowerPlantCrateCollideModuleData::default();
     if let Some(ini) = ini {
