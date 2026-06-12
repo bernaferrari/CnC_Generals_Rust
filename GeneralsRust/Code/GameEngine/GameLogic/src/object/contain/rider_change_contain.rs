@@ -349,6 +349,81 @@ mod tests {
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::player::{Player, ThePlayerList};
     use crate::team::Team;
+    use game_engine::common::system::{XferBlockSize, XferMode, XferStatus};
+    use std::io;
+
+    struct RecordingXfer {
+        bytes: Vec<u8>,
+    }
+
+    impl RecordingXfer {
+        fn new() -> Self {
+            Self { bytes: Vec::new() }
+        }
+    }
+
+    impl Xfer for RecordingXfer {
+        fn get_xfer_mode(&self) -> XferMode {
+            XferMode::Save
+        }
+
+        fn get_identifier(&self) -> &str {
+            "rider-change-contain-test"
+        }
+
+        fn set_options(&mut self, _options: u32) {}
+
+        fn clear_options(&mut self, _options: u32) {}
+
+        fn get_options(&self) -> u32 {
+            0
+        }
+
+        fn open(&mut self, _identifier: &str) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+            Ok(0)
+        }
+
+        fn end_block(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn skip(&mut self, _data_size: i32) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_snapshot(
+            &mut self,
+            _snapshot: &mut game_engine::system::Snapshot,
+        ) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_ascii_string(&mut self, _ascii_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        fn xfer_unicode_string(&mut self, _unicode_string_data: &mut String) -> io::Result<()> {
+            Ok(())
+        }
+
+        unsafe fn xfer_implementation(
+            &mut self,
+            data: *mut u8,
+            data_size: usize,
+        ) -> io::Result<()> {
+            let bytes = unsafe { std::slice::from_raw_parts(data, data_size) };
+            self.bytes.extend_from_slice(bytes);
+            Ok(())
+        }
+    }
 
     #[test]
     fn rider_change_parse_accepts_cpp_canonical_rider_tokens() {
@@ -522,6 +597,50 @@ mod tests {
 
         cleanup_objects(&[97004, 97005, 97006]);
     }
+
+    #[test]
+    fn trait_snapshot_xfer_appends_rider_change_shadow_fields_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("CombatBikeXfer", 97007, 0);
+        let mut contain = rider_change_for(&owner);
+        contain.base.set_payload_created(true);
+        contain.extra_slots_in_use = 7;
+        contain.frame_exit_not_busy = 1234;
+
+        let mut xfer = RecordingXfer::new();
+        ContainModuleInterface::snapshot_xfer(&mut contain, &mut xfer)
+            .expect("rider change snapshot xfer");
+
+        assert_eq!(xfer.bytes[0], 1, "RiderChangeContain xfer version");
+        assert_eq!(xfer.bytes[1], 1, "delegated TransportContain xfer version");
+        assert_eq!(xfer.bytes[2], 2, "delegated OpenContain xfer version");
+
+        let tail = &xfer.bytes[xfer.bytes.len() - 12..];
+        assert_eq!(
+            &tail[0..4],
+            &1_u32.to_le_bytes(),
+            "duplicated m_payloadCreated"
+        );
+        assert_eq!(&tail[4..8], &7_i32.to_le_bytes());
+        assert_eq!(&tail[8..12], &1234_u32.to_le_bytes());
+
+        cleanup_objects(&[97007]);
+    }
+
+    #[test]
+    fn trait_update_returns_base_transport_sleep_time_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("CombatBikeUpdate", 97008, 0);
+        let mut contain = rider_change_for(&owner);
+
+        let sleep = ContainModuleInterface::update(&mut contain).expect("update succeeds");
+
+        assert_eq!(sleep, UpdateSleepTime::None);
+
+        cleanup_objects(&[97008]);
+    }
 }
 
 /// Rider change contain module - can transform contained units
@@ -535,6 +654,10 @@ pub struct RiderChangeContain {
     module_data: RiderChangeContainModuleData,
     /// Frame when scuttling started
     scuttled_on_frame: u32,
+    /// RiderChange shadows TransportContain's extra-slot field in C++ and xfers it separately.
+    extra_slots_in_use: i32,
+    /// RiderChange shadows TransportContain's exit-busy frame in C++ and xfers it separately.
+    frame_exit_not_busy: u32,
     /// Whether we are currently replacing a rider
     containing: bool,
 }
@@ -552,6 +675,8 @@ impl RiderChangeContain {
             object,
             module_data: module_data.clone(),
             scuttled_on_frame: 0,
+            extra_slots_in_use: 0,
+            frame_exit_not_busy: 0,
             containing: false,
         })
     }
@@ -793,14 +918,19 @@ impl RiderChangeContain {
             }
         }
 
-        if transfer_to_rider {
+        let rider_has_controlling_player = rider
+            .read()
+            .map(|rider_guard| rider_guard.get_controlling_player().is_some())
+            .unwrap_or(false);
+
+        if transfer_to_rider && rider_has_controlling_player {
             transfer_veterancy(owner_tracker, rider_tracker);
         }
 
         Ok(())
     }
 
-    pub fn update(&mut self) -> GameResult<()> {
+    pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
         if self.scuttled_on_frame != 0 {
             let now = TheGameLogic::get_frame();
             if self.scuttled_on_frame + self.module_data.scuttle_frames <= now {
@@ -812,8 +942,7 @@ impl RiderChangeContain {
             }
         }
 
-        let _ = self.base.update();
-        Ok(())
+        self.base.update()
     }
 
     /// Handle capture event (inherits TransportContain capture behavior).
@@ -847,7 +976,19 @@ impl Snapshotable for RiderChangeContain {
         let mut version: XferVersion = 1;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| e.to_string())?;
-        Snapshotable::xfer(&mut self.base, xfer)
+        Snapshotable::xfer(&mut self.base, xfer)?;
+
+        let mut payload_created = self.base.is_payload_created();
+        xfer.xfer_bool(&mut payload_created)
+            .map_err(|e| e.to_string())?;
+        self.base.set_payload_created(payload_created);
+
+        xfer.xfer_int(&mut self.extra_slots_in_use)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.frame_exit_not_busy)
+            .map_err(|e| e.to_string())?;
+
+        Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -905,9 +1046,20 @@ impl ContainModuleInterface for RiderChangeContain {
         (0, 0, false)
     }
 
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
+    }
+
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        RiderChangeContain::update(self)?;
-        Ok(UpdateSleepTime::Frames(1))
+        RiderChangeContain::update(self).map_err(|e| e.into())
     }
 
     fn on_damage(
