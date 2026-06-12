@@ -2815,6 +2815,61 @@ impl UnitAIUpdate {
         }
     }
 
+    fn should_force_direct_path_for_off_map_start(&self, destination: &Coord3D) -> bool {
+        let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+            return false;
+        };
+        let extent = terrain.get_maximum_pathfind_extent();
+        if Self::is_in_region_no_z(&extent, destination) {
+            return false;
+        }
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(guard) = unit.read() else {
+            return false;
+        };
+        let position = guard.get_position();
+        !Self::is_in_region_no_z(&extent, &position)
+    }
+
+    fn is_in_region_no_z(region: &Region3D, position: &Coord3D) -> bool {
+        position.x >= region.lo.x
+            && position.x <= region.hi.x
+            && position.y >= region.lo.y
+            && position.y <= region.hi.y
+    }
+
+    fn install_direct_path_from_current_position(&mut self, destination: &Coord3D) -> bool {
+        let Some(unit) = self.unit.upgrade() else {
+            return false;
+        };
+        let Ok(mut guard) = unit.write() else {
+            return false;
+        };
+
+        let mut start = guard.get_position();
+        start.z = destination.z;
+        guard.current_path = Some(vec![
+            Coord2D::new(start.x, start.y),
+            Coord2D::new(destination.x, destination.y),
+        ]);
+        guard.path_following_state = None;
+        guard.path_index = 0;
+        guard.target_position = Some(*destination);
+        guard.movement_state = MovementState::Moving;
+        guard.current_speed = 0.0;
+        self.blocked_frames = 0;
+        self.blocked_and_stuck = false;
+        self.path_timestamp = TheGameLogic::get_frame();
+        self.movement_complete = false;
+        self.locomotor_goal_type = 1;
+        self.locomotor_goal_data = Coord3D::ZERO;
+        drop(guard);
+        self.set_current_path_snapshot_from_coords(&[start, *destination]);
+        true
+    }
+
     fn xfer_locomotor_set_state(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         if let Some(unit) = self.unit.upgrade() {
             let mut guard = unit
@@ -7105,6 +7160,11 @@ impl AIUpdateInterface for UnitAIUpdate {
             self.compute_quick_path(destination);
             return Ok(());
         }
+        if self.should_force_direct_path_for_off_map_start(destination)
+            && self.install_direct_path_from_current_position(destination)
+        {
+            return Ok(());
+        }
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {
             self.set_queue_for_path_time(LOGICFRAMES_PER_SECOND);
@@ -7207,48 +7267,26 @@ impl AIUpdateInterface for UnitAIUpdate {
         if !self.can_compute_quick_path() {
             return false;
         }
-        let Some(unit) = self.unit.upgrade() else {
-            return false;
-        };
-        let Ok(mut guard) = unit.write() else {
-            return false;
-        };
-
-        if let Some(path) = guard.current_path.as_ref() {
-            if let Some(last) = path.last() {
-                let dx = destination.x - last.x;
-                let dy = destination.y - last.y;
-                let path_goal_z = guard
-                    .target_position
-                    .unwrap_or_else(|| guard.get_position())
-                    .z;
-                let dz = destination.z - path_goal_z;
-                if dx * dx + dy * dy + dz * dz < 0.25 {
-                    return true;
+        if let Some(unit) = self.unit.upgrade() {
+            if let Ok(guard) = unit.read() {
+                if let Some(path) = guard.current_path.as_ref() {
+                    if let Some(last) = path.last() {
+                        let dx = destination.x - last.x;
+                        let dy = destination.y - last.y;
+                        let path_goal_z = guard
+                            .target_position
+                            .unwrap_or_else(|| guard.get_position())
+                            .z;
+                        let dz = destination.z - path_goal_z;
+                        if dx * dx + dy * dy + dz * dz < 0.25 {
+                            return true;
+                        }
+                    }
                 }
             }
         }
 
-        let mut start = guard.get_position();
-        start.z = destination.z;
-        guard.current_path = Some(vec![
-            Coord2D::new(start.x, start.y),
-            Coord2D::new(destination.x, destination.y),
-        ]);
-        guard.path_following_state = None;
-        guard.path_index = 0;
-        guard.target_position = Some(*destination);
-        guard.movement_state = MovementState::Moving;
-        guard.current_speed = 0.0;
-        self.blocked_frames = 0;
-        self.blocked_and_stuck = false;
-        self.path_timestamp = TheGameLogic::get_frame();
-        self.movement_complete = false;
-        self.locomotor_goal_type = 1;
-        self.locomotor_goal_data = Coord3D::ZERO;
-        drop(guard);
-        self.set_current_path_snapshot_from_coords(&[start, *destination]);
-        true
+        self.install_direct_path_from_current_position(destination)
     }
 
     fn is_quick_path_available(&self, destination: &Coord3D) -> bool {
@@ -8378,6 +8416,49 @@ mod tests {
                 &vec![Coord2D::new(3.0, 4.0), Coord2D::new(30.0, 40.0)]
             );
         }
+    }
+
+    #[test]
+    fn request_path_for_off_map_start_uses_direct_path_like_cpp() {
+        let base_object = Arc::new(RwLock::new(Object::new_test(44, 100.0)));
+        {
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(-100.0, -100.0, 5.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.current_locomotor = Some(Arc::new(Mutex::new(Locomotor::new(loco_template))));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            Arc::downgrade(&unit),
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let destination = Coord3D::new(-50.0, -25.0, 9.0);
+        ai.request_path(&destination, true).unwrap();
+
+        let unit_guard = unit.read().unwrap();
+        let path = unit_guard.current_path.as_ref().unwrap();
+        assert_eq!(
+            path,
+            &vec![Coord2D::new(-100.0, -100.0), Coord2D::new(-50.0, -25.0)]
+        );
+        assert_eq!(unit_guard.target_position, Some(destination));
+        assert_eq!(ai.queue_for_path_frame, 0);
     }
 
     fn save_unit_ai_update(ai: &mut UnitAIUpdate) -> Vec<u8> {
