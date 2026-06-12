@@ -326,6 +326,27 @@ impl GarrisonContain {
     /// Update method called once per frame
     /// C++ reference: GarrisonContain::update() lines 180-220
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
+        self.base.update()?;
+
+        let contained_objects = self.base.get_contained_items_list()?;
+        for obj in contained_objects {
+            let is_dead = obj
+                .read()
+                .map(|guard| guard.is_effectively_dead())
+                .unwrap_or(false);
+            if is_dead {
+                self.remove_from_contain(obj.clone(), true)?;
+                if let Ok(mut contained) = obj.write() {
+                    contained.set_safe_occlusion_frame(
+                        TheGameLogic::get_frame() + crate::common::LOGICFRAMES_PER_SECOND * 1000,
+                    );
+                }
+            }
+        }
+
+        // Match objects to garrison points (includes effects/targets)
+        self.match_objects_to_garrison_points()?;
+
         // C++ line 185-195: Heal objects if configured to do so
         if let Some(owner_obj) = self.get_object() {
             if let Ok(owner) = owner_obj.read() {
@@ -342,19 +363,13 @@ impl GarrisonContain {
         if let Some(owner_obj) = self.get_object() {
             if let Ok(owner) = owner_obj.read() {
                 if let Ok(module_data) = owner.get_garrison_contain_module_data() {
-                    if module_data.mobile_garrison {
+                    if module_data.mobile_garrison && owner.is_mobile() {
                         drop(owner);
                         self.move_objects_with_me()?;
                     }
                 }
             }
         }
-
-        // Validate rally point
-        self.validate_rally_point()?;
-
-        // Match objects to garrison points (includes effects/targets)
-        self.match_objects_to_garrison_points()?;
 
         Ok(UpdateSleepTime::None)
     }
@@ -458,12 +473,119 @@ impl GarrisonContain {
         false
     }
 
+    /// Add object to containment using garrison virtual callbacks.
+    pub fn add_to_contain(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
+        if let Some(owner) = self.get_object() {
+            if let (Ok(owner_guard), Ok(obj_guard)) = (owner.read(), obj.read()) {
+                if owner_guard.check_and_detonate_booby_trap(Some(&*obj_guard))
+                    && (owner_guard.is_effectively_dead() || obj_guard.is_effectively_dead())
+                {
+                    return Ok(());
+                }
+            }
+        }
+
+        let was_selected = obj
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_drawable())
+            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+            .unwrap_or(false);
+
+        let obj_guard = obj.read().map_err(|_| GameError::LockError)?;
+        if !self.is_valid_container_for(&obj_guard, true) {
+            return Err("Object not valid for this container".into());
+        }
+        if obj_guard.get_contained_by().is_some() {
+            return Ok(());
+        }
+        drop(obj_guard);
+
+        self.base.add_to_contain_list(obj.clone())?;
+
+        if obj
+            .read()
+            .map(|guard| self.is_enclosing_container_for_internal(Some(&guard)))
+            .unwrap_or(false)
+        {
+            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), false);
+        }
+
+        self.base.redeploy_occupants()?;
+        self.on_containing(obj, was_selected)?;
+        Ok(())
+    }
+
+    /// Remove object from containment using garrison virtual callbacks.
+    pub fn remove_from_contain(
+        &mut self,
+        obj: Arc<RwLock<Object>>,
+        expose_stealth_units: bool,
+    ) -> GameResult<()> {
+        if let Some(owner) = self.get_object() {
+            let owner_id = owner.read().ok().map(|guard| guard.get_id());
+            if let (Some(owner_id), Ok(obj_guard)) = (owner_id, obj.read()) {
+                if obj_guard.get_contained_by() != Some(owner_id) {
+                    return Ok(());
+                }
+            }
+        }
+
+        let object_id = obj.read().map_err(|_| GameError::LockError)?.get_id();
+        self.base.remove_from_contain_list(object_id);
+
+        if expose_stealth_units {
+            if let Ok(obj_guard) = obj.read() {
+                if let Some(stealth) = obj_guard.get_stealth() {
+                    if let Ok(mut stealth_guard) = stealth.lock() {
+                        stealth_guard.mark_as_detected();
+                    }
+                }
+            }
+        }
+
+        self.base.do_unload_sound();
+        self.on_removing(obj.clone())?;
+
+        if obj
+            .read()
+            .map(|guard| self.is_enclosing_container_for_internal(Some(&guard)))
+            .unwrap_or(false)
+        {
+            let _ = self.base.add_or_remove_obj_from_world(obj.clone(), true);
+            if let Some(owner) = self.get_object() {
+                if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
+                    if let Err(err) = obj_guard.set_position(owner_guard.get_position()) {
+                        log::warn!(
+                            "GarrisonContain::remove_from_contain failed to place object {}: {}",
+                            obj_guard.get_id(),
+                            err
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some(owner) = self.get_object() {
+            if let Ok(owner_guard) = owner.read() {
+                if let Ok(mut obj_guard) = obj.write() {
+                    obj_guard.set_layer(owner_guard.get_layer());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Remove all contained objects
     pub fn remove_all_contained(&mut self, expose_stealth_units: bool) -> GameResult<()> {
         if self.base.get_contain_count() > 0 {
             self.validate_rally_point()?;
         }
-        self.base.remove_all_contained(expose_stealth_units)?;
+        let objects = self.base.get_contained_items_list()?;
+        for obj in objects {
+            self.remove_from_contain(obj, expose_stealth_units)?;
+        }
         self.recalc_apparent_controlling_player()?;
         Ok(())
     }
@@ -475,7 +597,7 @@ impl GarrisonContain {
         exit_door: ExitDoorType,
     ) -> GameResult<()> {
         let _ = exit_door;
-        self.base.remove_from_contain(exit_obj.clone(), true)?;
+        self.remove_from_contain(exit_obj.clone(), true)?;
 
         if let Some(owner_obj) = self.get_object() {
             if let Ok(owner) = owner_obj.read() {
@@ -1064,24 +1186,6 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard));
         if let Some(idx) = current_index {
-            if idx < MAX_GARRISON_POINTS {
-                return weapon.is_within_attack_range(
-                    source
-                        .read()
-                        .map(|guard| guard.get_id())
-                        .unwrap_or(INVALID_ID),
-                    Some(
-                        victim
-                            .read()
-                            .map(|guard| guard.get_id())
-                            .unwrap_or(INVALID_ID),
-                    ),
-                    None,
-                );
-            }
-        }
-
-        if let Some(idx) = current_index {
             let _ = self.remove_object_from_garrison_point(source.clone(), Some(idx));
         }
 
@@ -1091,7 +1195,7 @@ impl GarrisonContain {
             Some(&target_pos),
         );
 
-        weapon.is_within_attack_range(
+        let in_range = weapon.is_within_attack_range(
             source
                 .read()
                 .map(|guard| guard.get_id())
@@ -1103,7 +1207,19 @@ impl GarrisonContain {
                     .unwrap_or(INVALID_ID),
             ),
             None,
-        )
+        );
+        if in_range {
+            return true;
+        }
+
+        if let Some(idx) = source
+            .read()
+            .ok()
+            .and_then(|guard| self.get_object_garrison_point_index(&guard))
+        {
+            let _ = self.remove_object_from_garrison_point(source, Some(idx));
+        }
+        false
     }
 
     /// Attempt best fire point position for object with weapon against position
@@ -1121,31 +1237,30 @@ impl GarrisonContain {
             .ok()
             .and_then(|guard| self.get_object_garrison_point_index(&guard));
         if let Some(idx) = current_index {
-            if idx < MAX_GARRISON_POINTS {
-                return weapon.is_within_attack_range(
-                    source
-                        .read()
-                        .map(|guard| guard.get_id())
-                        .unwrap_or(INVALID_ID),
-                    None,
-                    Some(target_pos),
-                );
-            }
-        }
-
-        if let Some(idx) = current_index {
             let _ = self.remove_object_from_garrison_point(source.clone(), Some(idx));
         }
 
         let _ = self.put_object_at_best_garrison_point(source.clone(), None, Some(target_pos));
-        weapon.is_within_attack_range(
+        let in_range = weapon.is_within_attack_range(
             source
                 .read()
                 .map(|guard| guard.get_id())
                 .unwrap_or(INVALID_ID),
             None,
             Some(target_pos),
-        )
+        );
+        if in_range {
+            return true;
+        }
+
+        if let Some(idx) = source
+            .read()
+            .ok()
+            .and_then(|guard| self.get_object_garrison_point_index(&guard))
+        {
+            let _ = self.remove_object_from_garrison_point(source, Some(idx));
+        }
+        false
     }
 
     /// Update effects (muzzle flashes, etc.)
@@ -1211,17 +1326,17 @@ impl GarrisonContain {
             return Ok(());
         }
 
+        if !self.is_enclosing_container_for_any() {
+            self.garrison_points_initialized = true;
+            return Ok(());
+        }
+
         let Some(owner_obj) = self.get_object() else {
             return Ok(());
         };
         let Ok(mut owner) = owner_obj.write() else {
             return Ok(());
         };
-
-        if !self.is_enclosing_container_for_any() {
-            self.garrison_points_initialized = true;
-            return Ok(());
-        }
 
         let base_pos = *owner.get_position();
 
@@ -1396,11 +1511,24 @@ impl GarrisonContain {
                     }
                 }
             }
-            found_index.ok_or("Object not found in garrison points")?
+            match found_index {
+                Some(found_index) => found_index,
+                None => return Ok(()),
+            }
         };
 
         if point_index >= MAX_GARRISON_POINTS {
             return Err("Invalid garrison point index".into());
+        }
+
+        if let Some(owner) = self.get_object() {
+            if let (Ok(owner_guard), Ok(mut obj_guard)) = (owner.read(), obj.write()) {
+                if let Err(err) = obj_guard.set_position(owner_guard.get_position()) {
+                    log::debug!(
+                        "GarrisonContain::remove_object_from_garrison_point set_position failed: {err}"
+                    );
+                }
+            }
         }
 
         // Clear garrison point data
@@ -1915,16 +2043,12 @@ impl GarrisonContain {
         if let Some(owner_obj) = self.get_object() {
             if let Ok(owner) = owner_obj.read() {
                 let pos = owner.get_position();
-                // Update all garrison point positions and contained object positions
-                for i in 0..MAX_GARRISON_POINTS {
-                    if let Some(ref obj) = self.garrison_point_data[i].object {
-                        if let Ok(mut contained) = obj.write() {
-                            // Update position relative to container
-                            if let Err(err) = contained.set_position(pos) {
-                                log::debug!(
-                                    "GarrisonContain::move_objects_with_me set_position failed: {err}"
-                                );
-                            }
+                for obj in self.base.get_contained_items_list()? {
+                    if let Ok(mut contained) = obj.write() {
+                        if let Err(err) = contained.set_position(pos) {
+                            log::debug!(
+                                "GarrisonContain::move_objects_with_me set_position failed: {err}"
+                            );
                         }
                     }
                 }
@@ -2222,10 +2346,7 @@ impl ContainModuleInterface for GarrisonContain {
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
         let obj = TheGameLogic::find_object_by_id(object_id)
             .ok_or_else(|| format!("Contain object {} not found", object_id))?;
-        self.base
-            .add_to_contain(obj.clone())
-            .map_err(|e| e.to_string())?;
-        self.on_containing(obj, false).map_err(|e| e.to_string())
+        self.add_to_contain(obj).map_err(|e| e.to_string())
     }
 
     fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -2233,9 +2354,7 @@ impl ContainModuleInterface for GarrisonContain {
             Some(obj) => obj,
             None => return Ok(()),
         };
-        self.on_removing(obj.clone()).map_err(|e| e.to_string())?;
-        self.base
-            .remove_from_contain(obj, true)
+        self.remove_from_contain(obj, true)
             .map_err(|e| e.to_string())
     }
 
@@ -2449,13 +2568,11 @@ impl ContainerInterface for GarrisonContain {
     }
 
     fn add_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.base.add_to_contain(obj.clone())?;
-        self.on_containing(obj, false)
+        self.add_to_contain(obj)
     }
 
     fn remove_object(&mut self, obj: Arc<RwLock<Object>>) -> GameResult<()> {
-        self.on_removing(obj.clone())?;
-        self.base.remove_from_contain(obj, true)
+        self.remove_from_contain(obj, true)
     }
 
     fn get_usage(&self) -> (u32, u32) {
@@ -2472,6 +2589,9 @@ impl ContainerInterface for GarrisonContain {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::{DefaultThingTemplate, ObjectStatusMaskType, WeaponBonusConditionFlags};
+    use crate::object::registry::OBJECT_REGISTRY;
+    use crate::player::{Player, ThePlayerList};
 
     #[test]
     fn test_garrison_module_data_defaults() {
@@ -2594,5 +2714,155 @@ mod tests {
             ..Default::default()
         };
         assert!(!data.immune_to_clear_building_attacks);
+    }
+
+    fn reset_players() {
+        let mut list = ThePlayerList().write().expect("player list write");
+        list.clear();
+        list.add_player(Arc::new(RwLock::new(Player::new(0))));
+    }
+
+    fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("{name}Team").into(),
+            id + 10_000,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(player_index));
+        let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
+        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
+            .expect("owned test object")
+    }
+
+    fn infantry(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+        let team = Arc::new(RwLock::new(Team::new(
+            format!("{name}Team").into(),
+            id + 10_000,
+        )));
+        team.write()
+            .expect("team write")
+            .set_controlling_player_id(Some(player_index));
+        let mut template = DefaultThingTemplate::new(name.to_string());
+        let mut fields = HashMap::new();
+        fields.insert("KindOf".to_string(), "INFANTRY".to_string());
+        template.parse_object_fields_from_ini(&fields);
+        Object::new_with_id(
+            Arc::new(template),
+            id,
+            ObjectStatusMaskType::none(),
+            Some(team),
+        )
+        .expect("infantry test object")
+    }
+
+    fn cleanup_objects(ids: &[ObjectID]) {
+        for id in ids {
+            OBJECT_REGISTRY.unregister_object(*id);
+        }
+        ThePlayerList().write().expect("player list write").clear();
+    }
+
+    #[test]
+    fn trait_containment_uses_garrison_lifecycle_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("GarrisonOwner", 96001, 0);
+        let passenger = infantry("GarrisonPassenger", 96002, 0);
+        let mut contain = GarrisonContain::new(
+            Arc::downgrade(&owner),
+            &GarrisonContainModuleData::default(),
+        )
+        .expect("garrison contain");
+
+        ContainModuleInterface::contain_object(&mut contain, 96002).expect("contain passenger");
+
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
+        assert_eq!(
+            passenger.read().expect("passenger read").get_contained_by(),
+            Some(96001)
+        );
+        assert!(passenger
+            .read()
+            .expect("passenger read")
+            .is_disabled_by_type(DisabledType::Held));
+        assert!(passenger
+            .read()
+            .expect("passenger read")
+            .get_weapon_bonus_condition()
+            .contains(WeaponBonusConditionFlags::GARRISONED));
+        assert!(owner
+            .read()
+            .expect("owner read")
+            .test_status(ObjectStatusTypes::CanAttack));
+
+        cleanup_objects(&[96001, 96002]);
+    }
+
+    #[test]
+    fn trait_release_clears_last_garrison_occupant_state_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("GarrisonReleaseOwner", 96003, 0);
+        let passenger = infantry("GarrisonReleasePassenger", 96004, 0);
+        let mut contain = GarrisonContain::new(
+            Arc::downgrade(&owner),
+            &GarrisonContainModuleData::default(),
+        )
+        .expect("garrison contain");
+
+        ContainModuleInterface::contain_object(&mut contain, 96004).expect("contain passenger");
+        ContainModuleInterface::release_object(&mut contain, 96004).expect("release passenger");
+
+        assert_eq!(ContainModuleInterface::get_contained_count(&contain), 0);
+        assert_eq!(
+            passenger.read().expect("passenger read").get_contained_by(),
+            None
+        );
+        assert!(!passenger
+            .read()
+            .expect("passenger read")
+            .is_disabled_by_type(DisabledType::Held));
+        assert!(!passenger
+            .read()
+            .expect("passenger read")
+            .get_weapon_bonus_condition()
+            .contains(WeaponBonusConditionFlags::GARRISONED));
+        assert!(!owner
+            .read()
+            .expect("owner read")
+            .test_status(ObjectStatusTypes::CanAttack));
+
+        cleanup_objects(&[96003, 96004]);
+    }
+
+    #[test]
+    fn mobile_garrison_moves_every_contained_object_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        reset_players();
+        let owner = owned_object("MobileGarrisonOwner", 96005, 0);
+        let passenger = infantry("MobileGarrisonPassenger", 96006, 0);
+        let data = GarrisonContainModuleData {
+            mobile_garrison: true,
+            ..Default::default()
+        };
+        let mut contain =
+            GarrisonContain::new(Arc::downgrade(&owner), &data).expect("mobile garrison contain");
+
+        ContainModuleInterface::contain_object(&mut contain, 96006).expect("contain passenger");
+        let new_pos = Coord3D::new(123.0, 456.0, 7.0);
+        owner
+            .write()
+            .expect("owner write")
+            .set_position(&new_pos)
+            .expect("set owner position");
+        contain.move_objects_with_me().expect("move occupants");
+
+        assert_eq!(
+            *passenger.read().expect("passenger read").get_position(),
+            new_pos
+        );
+
+        cleanup_objects(&[96005, 96006]);
     }
 }
