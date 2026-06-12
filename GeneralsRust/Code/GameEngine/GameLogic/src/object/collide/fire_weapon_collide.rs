@@ -267,19 +267,9 @@ impl FireWeaponCollide {
 }
 
 impl Snapshotable for FireWeaponCollide {
-    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-
-        let mut collide_weapon_present = true;
-        xfer.xfer_bool(&mut collide_weapon_present)
-            .map_err(|e| e.to_string())?;
-        self.collide_weapon.crc(xfer)?;
-
-        let mut ever_fired = self.ever_fired;
-        xfer.xfer_bool(&mut ever_fired).map_err(|e| e.to_string())?;
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ FireWeaponCollide::crc only delegates to CollideModule::crc.
+        // There is no Rust base collide state to serialize here; weapon state is xfer-only.
         Ok(())
     }
 
@@ -449,3 +439,126 @@ impl CollideModule for FireWeaponCollide {
 }
 
 // Mock-based tests removed to avoid mocks in fidelity-critical code.
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::system::{Snapshot, XferBlockSize, XferMode, XferStatus};
+
+    #[derive(Default)]
+    struct CountingCrcXfer {
+        bytes: usize,
+    }
+
+    impl Xfer for CountingCrcXfer {
+        fn get_xfer_mode(&self) -> XferMode {
+            XferMode::Crc
+        }
+
+        fn get_identifier(&self) -> &str {
+            "fire-weapon-crc-test"
+        }
+
+        fn set_options(&mut self, _options: u32) {}
+
+        fn clear_options(&mut self, _options: u32) {}
+
+        fn get_options(&self) -> u32 {
+            0
+        }
+
+        fn open(&mut self, _identifier: &str) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn close(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn begin_block(&mut self) -> Result<XferBlockSize, XferStatus> {
+            Ok(0)
+        }
+
+        fn end_block(&mut self) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn skip(&mut self, data_size: i32) -> Result<(), XferStatus> {
+            self.bytes += data_size.max(0) as usize;
+            Ok(())
+        }
+
+        fn xfer_snapshot(&mut self, _snapshot: &mut Snapshot) -> Result<(), XferStatus> {
+            Ok(())
+        }
+
+        fn xfer_ascii_string(&mut self, ascii_string_data: &mut String) -> std::io::Result<()> {
+            self.bytes += 1 + ascii_string_data.len();
+            Ok(())
+        }
+
+        fn xfer_unicode_string(&mut self, unicode_string_data: &mut String) -> std::io::Result<()> {
+            self.bytes += 1 + unicode_string_data.len();
+            Ok(())
+        }
+
+        unsafe fn xfer_implementation(
+            &mut self,
+            _data: *mut u8,
+            data_size: usize,
+        ) -> std::io::Result<()> {
+            self.bytes += data_size;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn parser_preserves_cpp_fields() {
+        let _lock = crate::test_sync::lock();
+
+        let mut data = FireWeaponCollideModuleData::default();
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "CollideWeapon = TestCollisionWeapon\n\
+             FireOnce = yes\n\
+             RequiredStatus = UNDER_CONSTRUCTION\n\
+             ForbiddenStatus = DESTROYED\n\
+             End\n",
+            |ini| data.parse_from_ini(ini),
+        )
+        .expect("fire weapon collide ini parses");
+
+        assert_eq!(
+            data.collide_weapon_template_name.as_deref(),
+            Some("TestCollisionWeapon")
+        );
+        assert!(data.fire_once);
+        let required = ObjectStatusMask::from_mask(
+            ObjectStatusMaskType::parse_tokens(["UNDER_CONSTRUCTION"].iter().copied())
+                .expect("required status"),
+        );
+        let forbidden = ObjectStatusMask::from_mask(
+            ObjectStatusMaskType::parse_tokens(["DESTROYED"].iter().copied())
+                .expect("forbidden status"),
+        );
+        assert!(data.required_status.test_for_all(required));
+        assert!(data.forbidden_status.test_for_any(forbidden));
+    }
+
+    #[test]
+    fn crc_does_not_include_weapon_or_ever_fired_like_cpp() {
+        let _lock = crate::test_sync::lock();
+
+        crate::weapon::initialize_weapon_store().expect("weapon store init");
+        let template = Arc::new(WeaponTemplate::new("FireWeaponCollideCrcTest".to_string()));
+        let mut data = FireWeaponCollideModuleData::default();
+        data.set_weapon_template(template);
+        let module =
+            FireWeaponCollide::new(42, Arc::new(data)).expect("fire weapon collide module");
+
+        let mut xfer = CountingCrcXfer::default();
+        module.crc(&mut xfer).expect("crc");
+
+        assert_eq!(xfer.bytes, 0);
+    }
+}
