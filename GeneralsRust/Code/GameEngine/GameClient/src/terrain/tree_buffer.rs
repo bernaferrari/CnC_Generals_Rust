@@ -644,6 +644,7 @@ impl W3DTreeBuffer {
         if self.trees[index].topple_state == W3DToppleState::Fogged {
             self.trees[index].angular_velocity = 0.0;
             self.trees[index].topple_state = W3DToppleState::Down;
+            pre_rotate_topple_matrix(&mut self.trees[index], ANGULAR_LIMIT);
             self.trees[index].angular_accumulation = ANGULAR_LIMIT;
             if data.kill_when_toppled {
                 self.trees[index].sink_frames_left = 0;
@@ -656,6 +657,7 @@ impl W3DTreeBuffer {
         if self.trees[index].angular_accumulation + cur_vel_to_use > ANGULAR_LIMIT {
             cur_vel_to_use = ANGULAR_LIMIT - self.trees[index].angular_accumulation;
         }
+        pre_rotate_topple_matrix(&mut self.trees[index], cur_vel_to_use);
         self.trees[index].angular_accumulation += cur_vel_to_use;
         if self.trees[index].angular_accumulation >= ANGULAR_LIMIT
             && self.trees[index].angular_velocity > 0.0
@@ -696,11 +698,12 @@ impl W3DTreeBuffer {
                         if self.trees[index].sink_frames_left == 0 {
                             self.trees[index].tree_type = DELETED_TREE_TYPE;
                             self.anything_changed = true;
-                        } else {
-                            self.trees[index].sink_frames_left -= 1;
-                            self.trees[index].location.z -=
-                                data.sink_distance / data.sink_frames.max(1) as f32;
                         }
+                        self.trees[index].sink_frames_left =
+                            self.trees[index].sink_frames_left.wrapping_sub(1);
+                        self.trees[index].location.z -=
+                            data.sink_distance / data.sink_frames.max(1) as f32;
+                        set_matrix_translation(&mut self.trees[index]);
                     }
                 }
                 _ if self.trees[index].push_aside_delta != 0.0 => {
@@ -848,6 +851,15 @@ impl W3DTreeBuffer {
                 .ceil() as i32,
         )
     }
+}
+
+fn pre_rotate_topple_matrix(tree: &mut TreeEntry, angle: f32) {
+    tree.matrix = Mat4::from_rotation_x(-angle * tree.topple_direction.y) * tree.matrix;
+    tree.matrix = Mat4::from_rotation_y(angle * tree.topple_direction.x) * tree.matrix;
+}
+
+fn set_matrix_translation(tree: &mut TreeEntry) {
+    tree.matrix.w_axis = tree.location.extend(1.0);
 }
 
 pub trait TreeRandom {
