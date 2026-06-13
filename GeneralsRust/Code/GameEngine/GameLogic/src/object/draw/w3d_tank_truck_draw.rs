@@ -1,8 +1,9 @@
 use super::draw_module::*;
 use super::w3d_truck_draw::*;
 use crate::common::*;
-use crate::helpers::{MeshUvOverrideState, TheGameClient, TheGameLogic, TheParticleSystemManager};
+use crate::helpers::{TheGameLogic, TheParticleSystemManager};
 use game_engine::common::ini::{INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
@@ -217,7 +218,6 @@ pub struct W3DTankTruckDraw {
     data: W3DTankTruckDrawModuleData,
     base: W3DTruckDraw,
     tread_uv_offsets: Vec<Real>,
-    tread_uv_offset: Real,
     last_direction: Coord3D,
     tread_debris_left: Option<u32>,
     tread_debris_right: Option<u32>,
@@ -232,7 +232,6 @@ impl W3DTankTruckDraw {
             base: W3DTruckDraw::new(data.base.clone()),
             data,
             tread_uv_offsets: Vec::new(),
-            tread_uv_offset: 0.0,
             last_direction: Coord3D::new(1.0, 0.0, 0.0),
             tread_debris_left: None,
             tread_debris_right: None,
@@ -243,6 +242,30 @@ impl W3DTankTruckDraw {
     }
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.base.bind_owner_id(owner_id);
+    }
+
+    pub fn owner_id(&self) -> Option<ObjectID> {
+        self.base.owner_id()
+    }
+
+    pub fn set_animation_loop_duration(&mut self, num_frames: u32) {
+        self.base.set_animation_loop_duration(num_frames);
+    }
+
+    pub fn set_animation_completion_time(&mut self, num_frames: u32) {
+        self.base.set_animation_completion_time(num_frames);
+    }
+
+    pub fn set_animation_frame(&mut self, frame: i32) {
+        self.base.set_animation_frame(frame);
+    }
+
+    pub fn show_sub_object(&mut self, name: &str, show: bool) {
+        self.base.show_sub_object(name, show);
+    }
+
+    pub fn update_sub_objects(&mut self) {
+        self.base.update_sub_objects();
     }
 
     fn update_tread_objects(&mut self) {
@@ -270,11 +293,15 @@ impl W3DTankTruckDraw {
             0.0
         };
 
+        if self.tread_uv_offsets.is_empty() {
+            self.last_direction = *direction;
+            return;
+        }
+
         // C++ W3DTankTruckDraw deliberately disables pivot differential scrolling:
         // wheel+tread vehicles only scroll treads while driving above the threshold.
         if is_motive && speed_fraction >= self.data.tread_drive_speed_fraction {
             let tread_scroll_speed = self.data.tread_animation_rate;
-            self.tread_uv_offset = wrap_uv_offset(self.tread_uv_offset - tread_scroll_speed);
             for uv_offset in &mut self.tread_uv_offsets {
                 let offset = *uv_offset - tread_scroll_speed;
                 *uv_offset = wrap_uv_offset(offset);
@@ -285,56 +312,13 @@ impl W3DTankTruckDraw {
     }
 
     fn publish_tread_uv_overrides(&self) {
-        let Some(owner_id) = self.base.owner_id() else {
-            return;
-        };
-        let Some(client) = TheGameClient::get() else {
-            return;
-        };
-        let Some(mut state) = client.get_drawable_model_draw(owner_id) else {
-            return;
-        };
-
-        state.mesh_uv_overrides.push(MeshUvOverrideState {
-            mesh_name_prefix: "TREADS".to_string(),
-            u_offset: self.tread_uv_offset,
-            v_offset: 0.0,
-        });
-        client.set_drawable_model_draw(owner_id, state);
+        // C++ only mutates material overrides on real discovered TREADS* sub-objects.
+        // The render bridge does not expose those sub-objects yet, so there is nothing
+        // to publish without fabricating tread state.
     }
 
     fn create_tread_emitters(&mut self) {
-        if !self.base.is_visible() {
-            return;
-        }
-        let Some(ps_manager) = TheParticleSystemManager::get() else {
-            return;
-        };
-        let owner_id = self.base.owner_id();
-
-        if self.tread_debris_left.is_none() && !self.data.tread_debris_name_left.is_empty() {
-            if let Some(id) =
-                ps_manager.create_particle_system(Some(self.data.tread_debris_name_left.as_str()))
-            {
-                if let Some(owner_id) = owner_id {
-                    ps_manager.attach_particle_system_to_drawable(id, owner_id);
-                }
-                ps_manager.stop_particle_system(id);
-                self.tread_debris_left = Some(id);
-            }
-        }
-
-        if self.tread_debris_right.is_none() && !self.data.tread_debris_name_right.is_empty() {
-            if let Some(id) =
-                ps_manager.create_particle_system(Some(self.data.tread_debris_name_right.as_str()))
-            {
-                if let Some(owner_id) = owner_id {
-                    ps_manager.attach_particle_system_to_drawable(id, owner_id);
-                }
-                ps_manager.stop_particle_system(id);
-                self.tread_debris_right = Some(id);
-            }
-        }
+        // C++ tank-truck tread debris is compiled out unless SHOW_TANK_DEBRIS is enabled.
     }
 
     fn toss_tread_emitters(&mut self) {
@@ -352,58 +336,15 @@ impl W3DTankTruckDraw {
     }
 
     fn start_move_debris(&mut self) {
-        if self.tread_debris_active || !self.base.is_visible() {
-            return;
-        }
-        self.tread_debris_active = true;
-        if let Some(ps_manager) = TheParticleSystemManager::get() {
-            if let Some(id) = self.tread_debris_left {
-                ps_manager.start_particle_system(id);
-            }
-            if let Some(id) = self.tread_debris_right {
-                ps_manager.start_particle_system(id);
-            }
-        }
+        // SHOW_TANK_DEBRIS is disabled in the shipped C++ source.
     }
 
     fn stop_move_debris(&mut self) {
-        if !self.tread_debris_active {
-            return;
-        }
         self.tread_debris_active = false;
-        if let Some(ps_manager) = TheParticleSystemManager::get() {
-            if let Some(id) = self.tread_debris_left {
-                ps_manager.stop_particle_system(id);
-            }
-            if let Some(id) = self.tread_debris_right {
-                ps_manager.stop_particle_system(id);
-            }
-        }
     }
 
     fn update_tread_debris(&mut self) {
-        const DEBRIS_THRESHOLD: Real = 0.00001;
-        let velocity_mag_sq = self.current_velocity * self.current_velocity;
-        if velocity_mag_sq > DEBRIS_THRESHOLD && self.base.is_visible() {
-            self.start_move_debris();
-        } else {
-            self.stop_move_debris();
-        }
-
-        let Some(ps_manager) = TheParticleSystemManager::get() else {
-            return;
-        };
-        let vel_mag = self.current_velocity;
-        let x = (0.5 * vel_mag + 0.1).min(1.0);
-        let z = (vel_mag + 0.1).min(1.0);
-        let vel_mult = Coord3D::new(x, x, z);
-        for id in [self.tread_debris_left, self.tread_debris_right]
-            .into_iter()
-            .flatten()
-        {
-            ps_manager.set_particle_system_velocity_multiplier(id, &vel_mult);
-            ps_manager.set_particle_system_burst_count_multiplier(id, z);
-        }
+        // SHOW_TANK_DEBRIS is disabled in the shipped C++ source.
     }
 }
 
@@ -424,7 +365,7 @@ impl Module for W3DTankTruckDraw {
         self.base.on_delete();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self.base.get_module_name_key()
+        NameKeyGenerator::name_to_key("W3DTankTruckDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
@@ -488,10 +429,12 @@ impl DrawModule for W3DTankTruckDraw {
         self.base.allocate_shadows();
     }
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
-        if fully_obscured {
-            self.stop_move_debris();
-        } else {
-            self.create_tread_emitters();
+        if self.base.fully_obscured_by_shroud() != fully_obscured {
+            if fully_obscured {
+                self.stop_move_debris();
+            } else {
+                self.create_tread_emitters();
+            }
         }
         self.base.set_fully_obscured_by_shroud(fully_obscured);
     }
@@ -517,8 +460,7 @@ impl DrawModule for W3DTankTruckDraw {
             .react_to_transform_change(old_mtx, old_pos, old_angle);
     }
     fn react_to_geometry_change(&mut self) {
-        self.base.react_to_geometry_change();
-        self.update_tread_objects();
+        // C++ W3DTankTruckDraw overrides this as a no-op.
     }
     fn get_object_draw_interface(&self) -> Option<&dyn ObjectDrawInterface> {
         self.base.get_object_draw_interface()
@@ -537,7 +479,7 @@ impl Snapshotable for W3DTankTruckDraw {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
-        self.base.xfer(xfer)
+        self.base.xfer_model_draw(xfer)
     }
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()?;
@@ -608,5 +550,21 @@ mod tests {
         draw.stop_move_debris();
 
         assert!(!draw.tread_debris_active);
+    }
+
+    #[test]
+    fn module_name_key_is_tank_truck_draw() {
+        let draw = W3DTankTruckDraw::new(W3DTankTruckDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DTankTruckDraw")
+        );
+    }
+
+    #[test]
+    fn bind_owner_id_forwards_to_truck_base() {
+        let mut draw = W3DTankTruckDraw::new(W3DTankTruckDrawModuleData::new());
+        draw.bind_owner_id(144);
+        assert_eq!(draw.owner_id(), Some(144));
     }
 }
