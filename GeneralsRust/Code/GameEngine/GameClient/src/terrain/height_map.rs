@@ -11,7 +11,7 @@ use gamelogic::common::types::MAP_HEIGHT_SCALE;
 use glam::Vec3;
 use image::{DynamicImage, ImageBuffer, Luma};
 
-use super::utils::{bilinear_interpolate, calculate_normal};
+use super::utils::calculate_normal;
 use super::{TerrainError, TerrainResult};
 
 pub const K_MIN_HEIGHT: u8 = 0;
@@ -280,7 +280,7 @@ impl HeightMap {
         })
     }
 
-    /// Get height at world coordinates with bilinear interpolation
+    /// Get height at world coordinates using the C++ height-map triangle split.
     pub fn get_height_at(&self, world_x: f32, world_y: f32) -> f32 {
         if self.width == 0 || self.height == 0 || self.scale.abs() <= f32::EPSILON {
             return 0.0;
@@ -314,9 +314,19 @@ impl HeightMap {
         let h01 = self.get_height_at_index(x0, y1);
         let h11 = self.get_height_at_index(x1, y1);
 
-        // Bilinear interpolation in legacy world height units.
-        let heights = [h00, h10, h01, h11];
-        self.min_height + bilinear_interpolate(&heights, fx, fy) * self.height_range
+        // C++ samples the actual triangle plane in the cell, split from p0 to p2:
+        //
+        //  p3 ----- p2
+        //   |    /  |
+        //   |  /    |
+        //  p0 ----- p1
+        let normalized_height = if fy > fx {
+            h01 + (1.0 - fy) * (h00 - h01) + fx * (h11 - h01)
+        } else {
+            h10 + fy * (h11 - h10) + (1.0 - fx) * (h00 - h10)
+        };
+
+        self.min_height + normalized_height * self.height_range
     }
 
     /// Get height at heightmap index
@@ -786,6 +796,20 @@ mod tests {
         let expected = (0.5 + 1.0 + 0.25 + 0.75) / 4.0 * 100.0; // Average * max_height
 
         assert!((height - expected).abs() < 0.001);
+    }
+
+    #[test]
+    fn heightmap_sampling_uses_cpp_triangle_split_not_bilinear() {
+        let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
+
+        heightmap.set_height_at_index(1, 1, 0.0);
+        heightmap.set_height_at_index(2, 1, 0.0);
+        heightmap.set_height_at_index(1, 2, 1.0);
+        heightmap.set_height_at_index(2, 2, 0.0);
+
+        let height = heightmap.get_height_at(1.25, 1.75);
+
+        assert!((height - 50.0).abs() < 0.001);
     }
 
     #[test]
