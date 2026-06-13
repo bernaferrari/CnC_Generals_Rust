@@ -235,6 +235,8 @@ fn object_field_starts_subblock(field: &str) -> bool {
             | "replacemodule"
             | "inheritablemodule"
             | "overrideablebylikekind"
+            | "unitspecificsounds"
+            | "unitspecificfx"
     )
 }
 
@@ -258,6 +260,10 @@ fn object_prefixed_subblock_key(
         let key = format!("ArmorSet{}", *armor_set_counter);
         *armor_set_counter += 1;
         Some(key)
+    } else if block_name.eq_ignore_ascii_case("UnitSpecificSounds") {
+        Some("UnitSpecificSounds".to_string())
+    } else if block_name.eq_ignore_ascii_case("UnitSpecificFX") {
+        Some("UnitSpecificFX".to_string())
     } else {
         None
     }
@@ -1344,6 +1350,52 @@ mod tests {
             Some("None")
         );
         assert!(!properties.contains_key("ArmorSet1.Conditions"));
+    }
+
+    #[test]
+    fn parse_object_block_properties_collects_unit_specific_sound_and_fx_blocks() {
+        let contents = r#"
+            Object TestObject
+              UnitSpecificSounds
+                TurretMoveStart = RangerTurretMoveStart
+                TurretMoveLoop = RangerTurretMoveLoop
+              End
+              UnitSpecificFX
+                DeathFX = FX_RangerDie
+                VeteranFX = None
+              End
+            End
+        "#;
+        let lines: Vec<&str> = contents.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("Object TestObject"))
+            .expect("object declaration")
+            + 1;
+
+        let (properties, _) = parse_object_block_properties(&lines, start);
+        assert_eq!(
+            properties
+                .get("UnitSpecificSounds.TurretMoveStart")
+                .map(String::as_str),
+            Some("RangerTurretMoveStart")
+        );
+        assert_eq!(
+            properties
+                .get("UnitSpecificSounds.TurretMoveLoop")
+                .map(String::as_str),
+            Some("RangerTurretMoveLoop")
+        );
+        assert_eq!(
+            properties.get("UnitSpecificFX.DeathFX").map(String::as_str),
+            Some("FX_RangerDie")
+        );
+        assert_eq!(
+            properties
+                .get("UnitSpecificFX.VeteranFX")
+                .map(String::as_str),
+            Some("None")
+        );
     }
 
     #[test]
