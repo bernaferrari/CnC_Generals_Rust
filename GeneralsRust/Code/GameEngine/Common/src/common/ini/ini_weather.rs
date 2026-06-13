@@ -313,14 +313,24 @@ fn parse_use_point_sprites(
     args: &[&str],
 ) -> INIResult<()> {
     let value = args.first().ok_or(INIError::InvalidData)?;
-    target.use_point_sprites = INI::parse_bool(value)?;
+    target.use_point_sprites = parse_cpp_bool(value)?;
     Ok(())
 }
 
 fn parse_snow_enabled(_ini: &mut INI, target: &mut WeatherSetting, args: &[&str]) -> INIResult<()> {
     let value = args.first().ok_or(INIError::InvalidData)?;
-    target.snow_enabled = INI::parse_bool(value)?;
+    target.snow_enabled = parse_cpp_bool(value)?;
     Ok(())
+}
+
+fn parse_cpp_bool(value: &str) -> INIResult<bool> {
+    if value.eq_ignore_ascii_case("yes") {
+        Ok(true)
+    } else if value.eq_ignore_ascii_case("no") {
+        Ok(false)
+    } else {
+        Err(INIError::InvalidData)
+    }
 }
 
 // Global weather setting singleton storage with override support
@@ -390,9 +400,7 @@ pub fn parse_weather_definition(ini: &mut INI) -> INIResult<()> {
         new_setting.next_override = None; // Clear any existing override chain
         new_setting
     } else {
-        // In C++, this throws INI_INVALID_DATA, but we'll allow overwriting
-        // for flexibility and to match other parsers in this codebase
-        WeatherSetting::new()
+        return Err(INIError::InvalidData);
     };
 
     // Parse the fields using the field parse table
@@ -441,6 +449,11 @@ pub fn get_snow_texture() -> String {
 mod tests {
     use super::*;
 
+    fn reset_weather_setting_for_test() {
+        let lock = get_weather_setting_mut();
+        *lock.write().expect("weather setting lock") = None;
+    }
+
     #[test]
     fn test_weather_setting_defaults() {
         let setting = WeatherSetting::new();
@@ -483,6 +496,65 @@ mod tests {
         // Test get_final_override
         let final_override = base.get_final_override();
         assert!(final_override.is_override());
+    }
+
+    #[test]
+    fn test_weather_bool_fields_use_cpp_yes_no_tokens() {
+        let mut ini = INI::new();
+        let mut setting = WeatherSetting::new();
+
+        parse_snow_enabled(&mut ini, &mut setting, &["Yes"]).expect("Yes is valid C++ bool");
+        assert!(setting.snow_enabled);
+        parse_snow_enabled(&mut ini, &mut setting, &["No"]).expect("No is valid C++ bool");
+        assert!(!setting.snow_enabled);
+
+        assert!(parse_snow_enabled(&mut ini, &mut setting, &["true"]).is_err());
+        assert!(parse_use_point_sprites(&mut ini, &mut setting, &["1"]).is_err());
+    }
+
+    #[test]
+    fn test_weather_block_rejects_invalid_cpp_bool() {
+        reset_weather_setting_for_test();
+
+        let mut ini = INI::new();
+        let result = ini.with_inline_source(
+            "\
+Weather
+    SnowEnabled = true
+End
+",
+            |ini| ini.parse_current_file(),
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_weather_block_rejects_duplicate_without_override_load() {
+        reset_weather_setting_for_test();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "\
+Weather
+    SnowEnabled = Yes
+End
+",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("first weather block creates singleton");
+
+        let mut ini = INI::new();
+        let result = ini.with_inline_source(
+            "\
+Weather
+    SnowEnabled = No
+End
+",
+            |ini| ini.parse_current_file(),
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]
