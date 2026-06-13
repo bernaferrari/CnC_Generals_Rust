@@ -488,6 +488,7 @@ pub struct TerrainRoadType {
     pub texture_name: AsciiString,
     pub model_name: AsciiString,
     pub width: f32,
+    pub road_width_in_texture: f32,
     pub height: f32,
     pub length: f32,
     pub max_span: f32,
@@ -541,6 +542,7 @@ impl TerrainRoadType {
             texture_name: AsciiString::from(""),
             model_name: AsciiString::from(""),
             width: 10.0,
+            road_width_in_texture: 0.0,
             height: 5.0,
             length: 50.0,
             max_span: 100.0,
@@ -594,6 +596,7 @@ impl TerrainRoadType {
             texture_name: AsciiString::from(""),
             model_name: AsciiString::from(""),
             width: 8.0,
+            road_width_in_texture: 0.0,
             height: 0.5,
             length: 0.0, // Roads are continuous
             max_span: 0.0,
@@ -1259,7 +1262,19 @@ impl TerrainRoads {
 
     /// Create a new road
     pub fn new_road(&mut self, name: AsciiString) -> &mut TerrainRoadType {
-        let road = TerrainRoadType::new_road(name.clone());
+        let default_template = {
+            let default_name = AsciiString::from("DefaultRoad");
+            self.find_road(&default_name).cloned()
+        };
+
+        let mut road = TerrainRoadType::new_road(name.clone());
+
+        if let Some(default_road) = default_template {
+            road.texture_name = default_road.texture_name.clone();
+            road.width = default_road.width;
+            road.road_width_in_texture = default_road.road_width_in_texture;
+        }
+
         self.road_types.insert(name.as_str().to_string(), road);
         self.road_types.get_mut(name.as_str()).unwrap()
     }
@@ -1509,6 +1524,21 @@ mod tests {
         assert_eq!(manager.get_road_count(), 2);
         assert_eq!(manager.get_bridges().len(), 1);
         assert_eq!(manager.get_roads().len(), 1);
+    }
+
+    #[test]
+    fn new_road_inherits_default_road_fields_like_cpp() {
+        let mut manager = TerrainRoads::new();
+        let default = manager.new_road(AsciiString::from("DefaultRoad"));
+        default.texture_name = AsciiString::from("DefaultRoadTexture.tga");
+        default.width = 22.0;
+        default.road_width_in_texture = 96.0;
+
+        let road = manager.new_road(AsciiString::from("DerivedRoad"));
+
+        assert_eq!(road.texture_name.as_str(), "DefaultRoadTexture.tga");
+        assert_eq!(road.width, 22.0);
+        assert_eq!(road.road_width_in_texture, 96.0);
     }
 
     #[test]
