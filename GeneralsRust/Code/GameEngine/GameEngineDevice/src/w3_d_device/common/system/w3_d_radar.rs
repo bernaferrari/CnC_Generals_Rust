@@ -59,9 +59,9 @@ pub struct W3DRadarTextureFormats {
 impl Default for W3DRadarTextureFormats {
     fn default() -> Self {
         Self {
-            terrain: W3DRadarTextureFormat::R8G8B8,
-            overlay: W3DRadarTextureFormat::A8R8G8B8,
-            shroud: W3DRadarTextureFormat::A8R8G8B8,
+            terrain: W3DRadarTextureFormat::Unknown,
+            overlay: W3DRadarTextureFormat::Unknown,
+            shroud: W3DRadarTextureFormat::Unknown,
         }
     }
 }
@@ -134,7 +134,6 @@ impl W3DRadar {
         terrain_heights: &[(f32, f32, bool)],
     ) {
         self.radar.new_map(map_min, map_max, terrain_heights);
-        self.resources_allocated = true;
         self.reconstruct_view_box = true;
     }
 
@@ -182,7 +181,6 @@ impl W3DRadar {
     /// Mark terrain as dirty and rebuild the software terrain texture.
     pub fn refresh_terrain(&mut self) {
         self.radar.refresh_terrain();
-        self.resources_allocated = true;
     }
 
     /// Clear all shroud cells.
@@ -266,6 +264,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constructor_leaves_texture_formats_unknown_until_init() {
+        let radar = W3DRadar::new();
+
+        assert_eq!(
+            radar.texture_formats(),
+            W3DRadarTextureFormats {
+                terrain: W3DRadarTextureFormat::Unknown,
+                overlay: W3DRadarTextureFormat::Unknown,
+                shroud: W3DRadarTextureFormat::Unknown,
+            }
+        );
+    }
+
+    #[test]
     fn texture_format_selection_uses_cpp_preference_order() {
         let mut radar = W3DRadar::new();
         radar.initialize_texture_formats_with_supported(&[
@@ -313,6 +325,27 @@ mod tests {
             .all(|byte| *byte == 0));
 
         radar.delete_resources();
+        assert!(!radar.resources_allocated());
+    }
+
+    #[test]
+    fn map_and_terrain_refresh_do_not_allocate_w3d_resources() {
+        let mut radar = W3DRadar::new();
+        assert!(!radar.resources_allocated());
+
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 10.0),
+            &[],
+        );
+        assert!(!radar.resources_allocated());
+
+        radar.init();
+        assert!(radar.resources_allocated());
+        radar.delete_resources();
+        assert!(!radar.resources_allocated());
+
+        radar.refresh_terrain();
         assert!(!radar.resources_allocated());
     }
 
