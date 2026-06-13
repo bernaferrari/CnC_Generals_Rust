@@ -22,7 +22,10 @@ use crate::{
         beacon_display::{BeaconMarker, BEACON_MATCH_THRESHOLD},
         BeaconNotification, Coord3D, SubsystemInterface,
     },
-    terrain::{TerrainError, TerrainVisual},
+    terrain::{
+        TerrainError, TerrainVisual, TreeModuleData, TreeSaveRecord, TreeSphere, W3DToppleState,
+        W3DTreeBuffer, TREE_RADIUS_APPROX,
+    },
     video_player::{
         get_video_player, init_video_player, VideoPlayerInterface as GlobalVideoPlayerInterface,
     },
@@ -196,11 +199,265 @@ fn xfer_terrain_tree_registration(
     Ok(())
 }
 
+fn tree_module_data_from_w3d(data: &W3DTreeDrawModuleData) -> TreeModuleData {
+    TreeModuleData {
+        model_name: data.model_name.to_string(),
+        texture_name: data.texture_name.to_string(),
+        frames_to_move_outward: data.frames_to_move_outward,
+        frames_to_move_inward: data.frames_to_move_inward,
+        max_outward_movement: data.max_outward_movement,
+        darkening: data.darkening,
+        initial_velocity_percent: data.initial_velocity_percent,
+        initial_accel_percent: data.initial_accel_percent,
+        bounce_velocity_percent: data.bounce_velocity_percent,
+        minimum_topple_speed: data.minimum_topple_speed,
+        kill_when_toppled: data.kill_when_toppled,
+        do_topple: data.do_topple,
+        sink_frames: data.sink_frames,
+        sink_distance: data.sink_distance,
+        do_shadow: data.do_shadow,
+    }
+}
+
+fn default_tree_bounds() -> TreeSphere {
+    TreeSphere {
+        center: Vec3::ZERO,
+        radius: TREE_RADIUS_APPROX,
+    }
+}
+
+fn registration_to_tree_save_record(tree: &TerrainTreeRegistration) -> TreeSaveRecord {
+    TreeSaveRecord {
+        model_name: tree.module_data.model_name.to_string(),
+        model_texture: tree.module_data.texture_name.to_string(),
+        location: tree.location,
+        scale: tree.scale,
+        sin: tree.angle.sin(),
+        cos: tree.angle.cos(),
+        drawable_id: tree.drawable_id,
+        angular_velocity: 0.0,
+        angular_acceleration: 0.0,
+        topple_direction: Vec3::ZERO,
+        topple_state: W3DToppleState::Upright,
+        angular_accumulation: 0.0,
+        options: 0,
+        matrix: Mat4::from_translation(tree.location),
+        sink_frames_left: 0,
+    }
+}
+
+fn registration_from_tree_save_record(record: &TreeSaveRecord) -> TerrainTreeRegistration {
+    let mut module_data = W3DTreeDrawModuleData::new();
+    module_data.model_name = AsciiString::from(record.model_name.as_str());
+    module_data.texture_name = AsciiString::from(record.model_texture.as_str());
+    TerrainTreeRegistration {
+        drawable_id: record.drawable_id,
+        location: record.location,
+        scale: record.scale,
+        angle: record.sin.atan2(record.cos),
+        random_scale_amount: 0.0,
+        module_data,
+    }
+}
+
+fn xfer_vec3_value(xfer: &mut dyn Xfer, value: &mut Vec3) -> Result<(), XferStatus> {
+    xfer.xfer_real(&mut value.x)?;
+    xfer.xfer_real(&mut value.y)?;
+    xfer.xfer_real(&mut value.z)?;
+    Ok(())
+}
+
+fn xfer_mat4_value(xfer: &mut dyn Xfer, value: &mut Mat4) -> Result<(), XferStatus> {
+    let mut raw = value.to_cols_array();
+    for component in &mut raw {
+        xfer.xfer_real(component)?;
+    }
+    if xfer.get_xfer_mode() == XferMode::Load {
+        *value = Mat4::from_cols_array(&raw);
+    }
+    Ok(())
+}
+
+fn xfer_tree_save_record(
+    xfer: &mut dyn Xfer,
+    record: &mut TreeSaveRecord,
+) -> Result<(), XferStatus> {
+    xfer.xfer_ascii_string(&mut record.model_name)?;
+    xfer.xfer_ascii_string(&mut record.model_texture)?;
+    xfer_vec3_value(xfer, &mut record.location)?;
+    xfer.xfer_real(&mut record.scale)?;
+    xfer.xfer_real(&mut record.sin)?;
+    xfer.xfer_real(&mut record.cos)?;
+    xfer.xfer_unsigned_int(&mut record.drawable_id)?;
+    xfer.xfer_real(&mut record.angular_velocity)?;
+    xfer.xfer_real(&mut record.angular_acceleration)?;
+    xfer_vec3_value(xfer, &mut record.topple_direction)?;
+    let mut topple_state = record.topple_state as i32;
+    xfer.xfer_int(&mut topple_state)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        record.topple_state = match topple_state {
+            0 => W3DToppleState::Upright,
+            1 => W3DToppleState::Falling,
+            2 => W3DToppleState::Fogged,
+            3 => W3DToppleState::Shrouded,
+            4 => W3DToppleState::Down,
+            _ => return Err(XferStatus::InvalidData),
+        };
+    }
+    xfer.xfer_real(&mut record.angular_accumulation)?;
+    xfer.xfer_unsigned_int(&mut record.options)?;
+    xfer_mat4_value(xfer, &mut record.matrix)?;
+    xfer.xfer_unsigned_int(&mut record.sink_frames_left)?;
+    Ok(())
+}
+
+fn xfer_terrain_tree_registrations_v3(
+    terrain: &mut TerrainVisualStub,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
+    let mut entries = if xfer.get_xfer_mode() == XferMode::Save {
+        let mut trees = terrain.tree_registrations();
+        trees.sort_by_key(|entry| entry.drawable_id);
+        trees
+    } else {
+        Vec::new()
+    };
+
+    let mut tree_count = entries.len() as u32;
+    xfer.xfer_unsigned_int(&mut tree_count)?;
+
+    if xfer.get_xfer_mode() == XferMode::Load {
+        entries.clear();
+        entries.reserve(tree_count as usize);
+        for _ in 0..tree_count {
+            let mut tree = TerrainTreeRegistration {
+                drawable_id: 0,
+                location: Vec3::ZERO,
+                scale: 1.0,
+                angle: 0.0,
+                random_scale_amount: 0.0,
+                module_data: W3DTreeDrawModuleData::new(),
+            };
+            xfer_terrain_tree_registration(xfer, &mut tree)?;
+            entries.push(tree);
+        }
+        terrain.clear_tree_state();
+        for tree in entries {
+            terrain.add_tree_registration(tree);
+        }
+    } else {
+        for tree in &mut entries {
+            xfer_terrain_tree_registration(xfer, tree)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn xfer_terrain_tree_buffer_v4(
+    terrain: &mut TerrainVisualStub,
+    xfer: &mut dyn Xfer,
+) -> Result<(), XferStatus> {
+    let mut records = if xfer.get_xfer_mode() == XferMode::Save {
+        terrain.tree_save_records()
+    } else {
+        Vec::new()
+    };
+    let mut record_count = records.len() as u32;
+    xfer.xfer_unsigned_int(&mut record_count)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        records = Vec::with_capacity(record_count as usize);
+        for _ in 0..record_count {
+            let mut record = registration_to_tree_save_record(&TerrainTreeRegistration {
+                drawable_id: 0,
+                location: Vec3::ZERO,
+                scale: 1.0,
+                angle: 0.0,
+                random_scale_amount: 0.0,
+                module_data: W3DTreeDrawModuleData::new(),
+            });
+            xfer_tree_save_record(xfer, &mut record)?;
+            records.push(record);
+        }
+    } else {
+        for record in &mut records {
+            xfer_tree_save_record(xfer, record)?;
+        }
+    }
+
+    let mut registrations = if xfer.get_xfer_mode() == XferMode::Save {
+        let mut trees = terrain.tree_registrations();
+        trees.sort_by_key(|entry| entry.drawable_id);
+        trees
+    } else {
+        Vec::new()
+    };
+    let mut registration_count = registrations.len() as u32;
+    xfer.xfer_unsigned_int(&mut registration_count)?;
+    if xfer.get_xfer_mode() == XferMode::Load {
+        registrations = Vec::with_capacity(registration_count as usize);
+        for _ in 0..registration_count {
+            let mut tree = TerrainTreeRegistration {
+                drawable_id: 0,
+                location: Vec3::ZERO,
+                scale: 1.0,
+                angle: 0.0,
+                random_scale_amount: 0.0,
+                module_data: W3DTreeDrawModuleData::new(),
+            };
+            xfer_terrain_tree_registration(xfer, &mut tree)?;
+            registrations.push(tree);
+        }
+        terrain.clear_tree_state();
+        for tree in registrations {
+            terrain.add_tree_registration(tree);
+        }
+        for record in &records {
+            if record.model_name.is_empty() {
+                continue;
+            }
+            if !terrain.tree_buffer.tree_types().iter().any(|tree_type| {
+                tree_type
+                    .data
+                    .model_name
+                    .eq_ignore_ascii_case(&record.model_name)
+                    && tree_type
+                        .data
+                        .texture_name
+                        .eq_ignore_ascii_case(&record.model_texture)
+            }) {
+                let mut data = TreeModuleData::default();
+                data.model_name = record.model_name.clone();
+                data.texture_name = record.model_texture.clone();
+                terrain
+                    .tree_buffer
+                    .add_tree_type(data, default_tree_bounds());
+            }
+        }
+        terrain.tree_buffer.load_records(&records);
+        terrain.registered_trees.clear();
+        for record in records {
+            if !record.model_name.is_empty() {
+                let registration = registration_from_tree_save_record(&record);
+                terrain
+                    .registered_trees
+                    .insert(registration.drawable_id, registration);
+            }
+        }
+    } else {
+        for tree in &mut registrations {
+            xfer_terrain_tree_registration(xfer, tree)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn xfer_terrain_visual_state(
     terrain: &mut TerrainVisualStub,
     xfer: &mut dyn Xfer,
 ) -> Result<(), XferStatus> {
-    let current_version: XferVersion = 3;
+    let current_version: XferVersion = 4;
     let mut version = current_version;
     xfer.xfer_version(&mut version, current_version)?;
 
@@ -234,44 +491,10 @@ fn xfer_terrain_visual_state(
         }
     }
 
-    if version < 3 {
-        return Ok(());
-    }
-
-    let mut entries = if xfer.get_xfer_mode() == XferMode::Save {
-        let mut trees = terrain.tree_registrations();
-        trees.sort_by_key(|entry| entry.drawable_id);
-        trees
-    } else {
-        Vec::new()
-    };
-
-    let mut tree_count = entries.len() as u32;
-    xfer.xfer_unsigned_int(&mut tree_count)?;
-
-    if xfer.get_xfer_mode() == XferMode::Load {
-        entries.clear();
-        entries.reserve(tree_count as usize);
-        for _ in 0..tree_count {
-            let mut tree = TerrainTreeRegistration {
-                drawable_id: 0,
-                location: Vec3::ZERO,
-                scale: 1.0,
-                angle: 0.0,
-                random_scale_amount: 0.0,
-                module_data: W3DTreeDrawModuleData::new(),
-            };
-            xfer_terrain_tree_registration(xfer, &mut tree)?;
-            entries.push(tree);
-        }
-        terrain.registered_trees.clear();
-        for tree in entries {
-            terrain.registered_trees.insert(tree.drawable_id, tree);
-        }
-    } else {
-        for tree in &mut entries {
-            xfer_terrain_tree_registration(xfer, tree)?;
-        }
+    match version {
+        0..=2 => {}
+        3 => xfer_terrain_tree_registrations_v3(terrain, xfer)?,
+        _ => xfer_terrain_tree_buffer_v4(terrain, xfer)?,
     }
 
     Ok(())
@@ -2012,19 +2235,58 @@ fn translate_audio_event(event: &str) -> &str {
 #[derive(Default)]
 pub struct TerrainVisualStub {
     registered_trees: HashMap<u32, TerrainTreeRegistration>,
+    tree_buffer: W3DTreeBuffer,
 }
 
 impl TerrainVisualStub {
     pub fn add_tree_registration(&mut self, tree: TerrainTreeRegistration) {
+        let data = tree_module_data_from_w3d(&tree.module_data);
+        if !self
+            .tree_buffer
+            .update_tree_position(tree.drawable_id, tree.location, tree.angle)
+        {
+            self.tree_buffer.add_tree(
+                tree.drawable_id,
+                tree.location,
+                tree.scale,
+                tree.angle,
+                tree.random_scale_amount,
+                data,
+                default_tree_bounds(),
+            );
+        }
         self.registered_trees.insert(tree.drawable_id, tree);
     }
 
     pub fn remove_tree_registration(&mut self, drawable_id: u32) {
         self.registered_trees.remove(&drawable_id);
+        self.tree_buffer.remove_tree(drawable_id);
     }
 
     pub fn tree_registrations(&self) -> Vec<TerrainTreeRegistration> {
         self.registered_trees.values().cloned().collect()
+    }
+
+    pub fn tree_save_records(&self) -> Vec<TreeSaveRecord> {
+        let records = self.tree_buffer.save_records();
+        if !records.is_empty() || self.registered_trees.is_empty() {
+            return records;
+        }
+        let mut registrations = self.tree_registrations();
+        registrations.sort_by_key(|tree| tree.drawable_id);
+        registrations
+            .iter()
+            .map(registration_to_tree_save_record)
+            .collect()
+    }
+
+    pub fn tree_buffer_mut(&mut self) -> &mut W3DTreeBuffer {
+        &mut self.tree_buffer
+    }
+
+    fn clear_tree_state(&mut self) {
+        self.registered_trees.clear();
+        self.tree_buffer.clear_all_trees();
     }
 }
 
@@ -2042,7 +2304,7 @@ impl SubsystemInterface for TerrainVisualStub {
     }
 
     fn reset(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.registered_trees.clear();
+        self.clear_tree_state();
         if let Ok(mut terrain_guard) = crate::terrain::terrain_visual::get_terrain_visual() {
             if let Some(terrain) = terrain_guard.as_mut() {
                 terrain.reset()?;
@@ -2210,11 +2472,12 @@ mod tests {
         assert_eq!(
             bytes,
             vec![
-                3, // W3DTerrainVisual xfer version
+                4, // W3DTerrainVisual xfer version
                 1, // base TerrainVisual xfer version
                 0, // water grid disabled
                 0, 0, 0, 0, // height-map byte count
-                0, 0, 0, 0, // client tree/render-object count
+                0, 0, 0, 0, // W3DTreeBuffer tree record count
+                0, 0, 0, 0, // tree registration/type catalog count
             ]
         );
     }
@@ -2256,6 +2519,72 @@ mod tests {
         let _ = std::fs::remove_file(&path);
 
         assert_eq!(terrain.tree_registrations().len(), 1);
+    }
+
+    #[test]
+    fn terrain_visual_xfer_round_trips_live_tree_buffer_topple_state() {
+        let mut module_data = W3DTreeDrawModuleData::new();
+        module_data.model_name = AsciiString::from("Oak");
+        module_data.texture_name = AsciiString::from("OakLeaves");
+        module_data.do_topple = true;
+
+        let mut terrain = TerrainVisualStub::default();
+        terrain.add_tree_registration(TerrainTreeRegistration {
+            drawable_id: 77,
+            location: Vec3::new(10.0, 20.0, 3.0),
+            scale: 1.5,
+            angle: 0.25,
+            random_scale_amount: 0.0,
+            module_data,
+        });
+        {
+            let tree = terrain.tree_buffer_mut().tree_mut(0).unwrap();
+            tree.angular_velocity = 1.25;
+            tree.angular_acceleration = 0.5;
+            tree.topple_direction = Vec3::Y;
+            tree.topple_state = W3DToppleState::Falling;
+            tree.options = 2;
+            tree.matrix = Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0));
+            tree.sink_frames_left = 17;
+        }
+
+        let path = std::env::temp_dir().join(format!(
+            "terrain_visual_tree_buffer_xfer_{}_{}.bin",
+            std::process::id(),
+            TheGameLogic::get_frame()
+        ));
+        {
+            let mut save = game_engine::System::XferSave::new();
+            save.open(path.to_string_lossy().into_owned()).unwrap();
+            xfer_terrain_visual_state(&mut terrain, &mut save).unwrap();
+            save.close().unwrap();
+        }
+
+        let mut loaded = TerrainVisualStub::default();
+        {
+            let mut load = game_engine::System::XferLoad::new();
+            load.open(path.to_string_lossy().into_owned()).unwrap();
+            xfer_terrain_visual_state(&mut loaded, &mut load).unwrap();
+            load.close().unwrap();
+        }
+        let _ = std::fs::remove_file(&path);
+
+        let records = loaded.tree_save_records();
+        assert_eq!(records.len(), 1);
+        let record = &records[0];
+        assert_eq!(record.drawable_id, 77);
+        assert_eq!(record.model_name, "Oak");
+        assert_eq!(record.model_texture, "OakLeaves");
+        assert_eq!(record.topple_state, W3DToppleState::Falling);
+        assert_eq!(record.topple_direction, Vec3::Y);
+        assert_eq!(record.angular_velocity, 1.25);
+        assert_eq!(record.angular_acceleration, 0.5);
+        assert_eq!(record.options, 2);
+        assert_eq!(record.sink_frames_left, 17);
+        assert_eq!(
+            record.matrix,
+            Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0))
+        );
     }
 
     #[test]
