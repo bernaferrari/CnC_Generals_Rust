@@ -2,3 +2,4 @@
 
 pub mod common;
 pub mod game_client;
+pub mod game_logic;
