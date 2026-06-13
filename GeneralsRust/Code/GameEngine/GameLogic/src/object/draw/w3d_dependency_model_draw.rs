@@ -179,7 +179,9 @@ impl Module for W3DDependencyModelDraw {
         self.base.on_delete();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self.base.get_module_name_key()
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            "W3DDependencyModelDraw",
+        )
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
@@ -205,6 +207,13 @@ impl DrawModule for W3DDependencyModelDraw {
                 if let Some(container) = owner_guard.get_contained_by() {
                     if let Some(container_arc) = TheGameLogic::find_object_by_id(container) {
                         if let Ok(container_guard) = container_arc.read() {
+                            if let Some(contain) = container_guard.get_contain() {
+                                if let Ok(contain_guard) = contain.lock() {
+                                    if contain_guard.is_enclosing_container_for(&owner_guard) {
+                                        return;
+                                    }
+                                }
+                            }
                             if let Some(container_drawable) = container_guard.get_drawable() {
                                 if let (Some(my_drawable), Ok(container_drawable_guard)) =
                                     (owner_guard.get_drawable(), container_drawable.read())
@@ -257,6 +266,34 @@ impl DrawModule for W3DDependencyModelDraw {
     }
     fn get_object_draw_interface_mut(&mut self) -> Option<&mut dyn ObjectDrawInterface> {
         Some(&mut self.base)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    #[test]
+    fn constructor_starts_with_dependency_uncleared() {
+        let draw = W3DDependencyModelDraw::new(W3DDependencyModelDrawModuleData::new());
+        assert!(!draw.dependency_cleared);
+    }
+
+    #[test]
+    fn notify_draw_module_dependency_cleared_latches_until_draw() {
+        let mut draw = W3DDependencyModelDraw::new(W3DDependencyModelDrawModuleData::new());
+        draw.notify_draw_module_dependency_cleared();
+        assert!(draw.dependency_cleared);
+    }
+
+    #[test]
+    fn module_name_key_is_dependency_model_draw_not_base_model_draw() {
+        let draw = W3DDependencyModelDraw::new(W3DDependencyModelDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DDependencyModelDraw")
+        );
     }
 }
 impl ObjectDrawInterface for W3DDependencyModelDraw {
