@@ -2260,6 +2260,30 @@ impl RenderPipeline {
                         .map_err(|e| {
                             anyhow::anyhow!("Terrain runtime heightmap load failed: {}", e)
                         })?;
+                    let source_tile_classes: Vec<
+                        game_client::terrain::terrain_visual::TerrainSourceTileClass,
+                    > = game_logic
+                        .terrain_texture_classes_snapshot()
+                        .into_iter()
+                        .map(|class| {
+                            game_client::terrain::terrain_visual::TerrainSourceTileClass {
+                                first_tile: class.first_tile,
+                                num_tiles: class.num_tiles,
+                                width: class.width,
+                                name: class.name,
+                            }
+                        })
+                        .collect();
+                    if !source_tile_classes.is_empty() {
+                        match visual.load_source_tiles_from_texture_classes(&source_tile_classes) {
+                            Ok(loaded) => debug!(
+                                "Loaded {} terrain source tiles from {} texture classes",
+                                loaded,
+                                source_tile_classes.len()
+                            ),
+                            Err(err) => warn!("Terrain source tile load failed: {}", err),
+                        }
+                    }
                     self.heightmap_world_size = Some(visual.world_size());
                     self.pending_heightmap_hint_load = false;
 
