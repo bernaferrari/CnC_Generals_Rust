@@ -80,7 +80,7 @@ pub use terrain_background::{
     TEX_1X, TEX_2X, TEX_4X,
 };
 pub use terrain_tracks::{
-    TerrainTrackHeightProvider, TerrainTrackLayer, TerrainTracksConfig,
+    compute_track_spacing, TerrainTrackHeightProvider, TerrainTrackLayer, TerrainTracksConfig,
     TerrainTracksRenderObjClassSystem, BRIDGE_OFFSET_FACTOR,
 };
 pub use textures::{BlendMode, TerrainTextures, TextureLayer};
