@@ -3,16 +3,6 @@
 //! Port of C++ W3DTracerDraw.h
 //! Reference: /GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DTracerDraw.h
 //!
-//! ## Rendering Gap
-//!
-//! Active implementation in the draw pipeline (instantiated by `module_overrides.rs`,
-//! dispatched by `GameLogic Drawable::draw()`). However, `do_draw_module()` only
-//! updates `current_pos`/`line_end` in memory — it never creates `SegmentedLine`
-//! objects in `W3DDisplay::global_scene()` because GameLogic cannot depend on
-//! GameEngineDevice.
-//!
-//! Reference rendering: `GameEngineDevice/.../Drawable/Draw/wthree_d_tracer_draw.rs`
-
 use super::draw_module::*;
 use crate::common::*;
 use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
@@ -101,10 +91,10 @@ impl W3DTracerDraw {
     pub fn new(data: W3DTracerDrawModuleData) -> Self {
         Self {
             _data: data,
-            length: 10.0,
+            length: 20.0,
             width: 0.5,
-            color: RGBColor::white(),
-            speed_in_dist_per_frame: 100.0,
+            color: RGBColor::new(229, 204, 178),
+            speed_in_dist_per_frame: 1.0,
             opacity: 1.0,
             current_pos: Coord3D::origin(),
             direction: Coord3D::new(1.0, 0.0, 0.0),
@@ -113,8 +103,36 @@ impl W3DTracerDraw {
             scene_line_id: None,
             hidden: false,
             fully_obscured_by_shroud: false,
-            shadows_enabled: false,
+            shadows_enabled: true,
         }
+    }
+
+    pub fn length(&self) -> Real {
+        self.length
+    }
+
+    pub fn width(&self) -> Real {
+        self.width
+    }
+
+    pub fn color(&self) -> RGBColor {
+        self.color
+    }
+
+    pub fn speed_in_dist_per_frame(&self) -> Real {
+        self.speed_in_dist_per_frame
+    }
+
+    pub fn opacity(&self) -> Real {
+        self.opacity
+    }
+
+    pub fn line_start(&self) -> Coord3D {
+        self.line_start
+    }
+
+    pub fn line_end(&self) -> Coord3D {
+        self.line_end
     }
 
     fn sync_scene_visibility(&mut self, visible: bool) {
@@ -154,7 +172,7 @@ impl Module for W3DTracerDraw {
         }
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self._data.module_tag_name_key
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DTracerDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self._data.module_tag_name_key
@@ -166,11 +184,6 @@ impl Module for W3DTracerDraw {
 
 impl DrawModule for W3DTracerDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        if self.hidden || self.fully_obscured_by_shroud {
-            self.sync_scene_visibility(false);
-            return;
-        }
-
         let translation = transform_mtx.w_axis;
         self.current_pos = Coord3D::new(translation.x, translation.y, translation.z);
 
@@ -202,7 +215,7 @@ impl DrawModule for W3DTracerDraw {
             opacity: self.opacity,
             texture_name: None,
             tile_factor: 0.0,
-            visible: true,
+            visible: !self.hidden && !self.fully_obscured_by_shroud,
         };
 
         match self.scene_line_id {
@@ -216,18 +229,16 @@ impl DrawModule for W3DTracerDraw {
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
-        self.shadows_enabled = enable;
+        let _ = enable;
     }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
     fn set_hidden(&mut self, hidden: bool) {
-        self.hidden = hidden;
-        self.sync_scene_visibility(!hidden && !self.fully_obscured_by_shroud);
+        let _ = hidden;
     }
 
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
-        self.fully_obscured_by_shroud = fully_obscured;
-        self.sync_scene_visibility(!fully_obscured && !self.hidden);
+        let _ = fully_obscured;
     }
 
     fn react_to_transform_change(
@@ -236,7 +247,6 @@ impl DrawModule for W3DTracerDraw {
         old_pos: &Coord3D,
         _old_angle: Real,
     ) {
-        // Update position
         self.current_pos = *old_pos;
     }
 
@@ -262,11 +272,14 @@ impl TracerDrawInterface for W3DTracerDraw {
         color: &RGBColor,
         initial_opacity: Real,
     ) {
-        self.speed_in_dist_per_frame = speed / LOGICFRAMES_PER_SECOND as Real;
+        self.speed_in_dist_per_frame = speed;
         self.length = length;
         self.width = width;
         self.color = *color;
         self.opacity = initial_opacity;
+        self.line_start = Coord3D::origin();
+        self.line_end = Coord3D::new(self.length, 0.0, 0.0);
+        self.sync_scene_visibility(true);
     }
 }
 
@@ -290,5 +303,53 @@ impl Snapshotable for W3DTracerDraw {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn constructor_matches_cpp_defaults() {
+        let draw = W3DTracerDraw::new(W3DTracerDrawModuleData::new());
+
+        assert_eq!(draw.length(), 20.0);
+        assert_eq!(draw.width(), 0.5);
+        assert_eq!(draw.speed_in_dist_per_frame(), 1.0);
+        assert_eq!(draw.opacity(), 1.0);
+        assert_eq!(draw.color().r, 229);
+        assert_eq!(draw.color().g, 204);
+        assert_eq!(draw.color().b, 178);
+    }
+
+    #[test]
+    fn set_tracer_parms_preserves_speed_as_dist_per_frame() {
+        let mut draw = W3DTracerDraw::new(W3DTracerDrawModuleData::new());
+        let color = RGBColor::new(10, 20, 30);
+
+        draw.set_tracer_parms(9.0, 40.0, 2.5, &color, 0.75);
+
+        assert_eq!(draw.speed_in_dist_per_frame(), 9.0);
+        assert_eq!(draw.length(), 40.0);
+        assert_eq!(draw.width(), 2.5);
+        assert_eq!(draw.opacity(), 0.75);
+        assert_eq!(draw.color().r, 10);
+        assert_eq!(draw.color().g, 20);
+        assert_eq!(draw.color().b, 30);
+        assert_eq!(draw.line_start(), Coord3D::origin());
+        assert_eq!(draw.line_end(), Coord3D::new(40.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn hidden_shadow_and_shroud_hooks_match_cpp_noops() {
+        let mut draw = W3DTracerDraw::new(W3DTracerDrawModuleData::new());
+
+        draw.set_hidden(true);
+        draw.set_fully_obscured_by_shroud(true);
+        draw.set_shadows_enabled(false);
+
+        assert_eq!(draw.length(), 20.0);
+        assert_eq!(draw.opacity(), 1.0);
     }
 }
