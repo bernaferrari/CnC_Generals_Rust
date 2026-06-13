@@ -42,6 +42,417 @@ pub const FOW_COLOR_VISIBLE: [f32; 4] = [0.0, 0.0, 0.0, 0.0]; // Transparent (no
 /// Matches C++ PartitionCell shroud grid dimensions
 /// Cell size is configurable, typically 50 world units per cell
 pub const DEFAULT_FOW_CELL_SIZE: f32 = 50.0;
+/// C++ `DEFAULT_SHROUD_CELL_SIZE` uses `MAP_XY_FACTOR`.
+pub const DEFAULT_SHROUD_CELL_SIZE: f32 = DEFAULT_FOW_CELL_SIZE;
+/// C++ fog interpolation reaches full brightness in one second.
+pub const FOG_INTERPOLATION_RATE: f32 = 255.0 / 1000.0;
+
+/// Height-map metrics needed by `W3DShroud::init` and `W3DShroud::render`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShroudMapMetrics {
+    pub x_extent: i32,
+    pub y_extent: i32,
+    pub border_size_inline: i32,
+    pub draw_width: i32,
+    pub draw_height: i32,
+    pub draw_origin_x: i32,
+    pub draw_origin_y: i32,
+    pub map_xy_factor: f32,
+}
+
+impl Default for ShroudMapMetrics {
+    fn default() -> Self {
+        Self {
+            x_extent: 0,
+            y_extent: 0,
+            border_size_inline: 0,
+            draw_width: 0,
+            draw_height: 0,
+            draw_origin_x: 0,
+            draw_origin_y: 0,
+            map_xy_factor: DEFAULT_FOW_CELL_SIZE,
+        }
+    }
+}
+
+/// Runtime globals read by the original `W3DShroud` code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct W3DShroudConfig {
+    pub shroud_alpha: u8,
+    pub shroud_color: u32,
+    pub fog_of_war_on: bool,
+}
+
+impl Default for W3DShroudConfig {
+    fn default() -> Self {
+        Self {
+            shroud_alpha: 0,
+            shroud_color: 0x00ff_ffff,
+            fog_of_war_on: false,
+        }
+    }
+}
+
+/// Texture-copy rectangle computed by `W3DShroud::render`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShroudCopyRect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+    pub dst_x: i32,
+    pub dst_y: i32,
+    pub cleared_border: bool,
+}
+
+/// CPU mirror of C++ `W3DShroud`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct W3DShroudState {
+    config: W3DShroudConfig,
+    num_cells_x: i32,
+    num_cells_y: i32,
+    num_max_visible_cells_x: i32,
+    num_max_visible_cells_y: i32,
+    cell_width: f32,
+    cell_height: f32,
+    src_texture_width: i32,
+    src_texture_height: i32,
+    src_texture_pitch: i32,
+    dst_texture_width: i32,
+    dst_texture_height: i32,
+    src_pixels: Vec<u16>,
+    dst_border_pixels: Vec<u16>,
+    final_fog_data: Vec<u8>,
+    current_fog_data: Vec<u8>,
+    clear_dst_texture: bool,
+    border_shroud_level: u8,
+    shroud_filter_enabled: bool,
+    draw_origin_x: f32,
+    draw_origin_y: f32,
+    draw_fog_of_war: bool,
+}
+
+impl Default for W3DShroudState {
+    fn default() -> Self {
+        Self::new(W3DShroudConfig::default())
+    }
+}
+
+impl W3DShroudState {
+    pub fn new(config: W3DShroudConfig) -> Self {
+        Self {
+            config,
+            num_cells_x: 0,
+            num_cells_y: 0,
+            num_max_visible_cells_x: 0,
+            num_max_visible_cells_y: 0,
+            cell_width: DEFAULT_SHROUD_CELL_SIZE,
+            cell_height: DEFAULT_SHROUD_CELL_SIZE,
+            src_texture_width: 0,
+            src_texture_height: 0,
+            src_texture_pitch: 0,
+            dst_texture_width: 0,
+            dst_texture_height: 0,
+            src_pixels: Vec::new(),
+            dst_border_pixels: Vec::new(),
+            final_fog_data: Vec::new(),
+            current_fog_data: Vec::new(),
+            clear_dst_texture: true,
+            border_shroud_level: config.shroud_alpha,
+            shroud_filter_enabled: true,
+            draw_origin_x: 0.0,
+            draw_origin_y: 0.0,
+            draw_fog_of_war: config.fog_of_war_on,
+        }
+    }
+
+    pub fn init(&mut self, map: ShroudMapMetrics, world_cell_size_x: f32, world_cell_size_y: f32) {
+        self.cell_width = world_cell_size_x;
+        self.cell_height = world_cell_size_y;
+
+        let usable_x = (map.x_extent - 1 - map.border_size_inline * 2).max(0) as f32;
+        let usable_y = (map.y_extent - 1 - map.border_size_inline * 2).max(0) as f32;
+        self.num_cells_x = (usable_x * map.map_xy_factor / self.cell_width).ceil() as i32;
+        self.num_cells_y = (usable_y * map.map_xy_factor / self.cell_height).ceil() as i32;
+
+        self.num_max_visible_cells_x = (((map.draw_width - 1).max(0) as f32 * map.map_xy_factor
+            / self.cell_width)
+            .floor() as i32)
+            + 1;
+        self.num_max_visible_cells_y = (((map.draw_height - 1).max(0) as f32 * map.map_xy_factor
+            / self.cell_height)
+            .floor() as i32)
+            + 1;
+
+        self.src_texture_width = self.num_cells_x;
+        self.src_texture_height = self.num_cells_y + 1;
+        self.src_texture_pitch = self.src_texture_width * 2;
+
+        self.dst_texture_width = validate_texture_size((self.num_cells_x + 2).max(0));
+        self.dst_texture_height = validate_texture_size((self.num_cells_y + 2).max(0));
+
+        let src_len = (self.src_texture_width * self.src_texture_height).max(0) as usize;
+        self.src_pixels = vec![0; src_len];
+        self.current_fog_data = vec![0; src_len];
+        self.final_fog_data = vec![0; self.current_fog_data.len()];
+        self.clear_dst_texture = true;
+        self.draw_fog_of_war = self.config.fog_of_war_on;
+
+        if self.config.fog_of_war_on {
+            self.fill_shroud_data(self.config.shroud_alpha);
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.src_pixels.clear();
+        self.current_fog_data.clear();
+        self.final_fog_data.clear();
+        self.src_texture_width = 0;
+        self.src_texture_height = 0;
+        self.src_texture_pitch = 0;
+        self.clear_dst_texture = true;
+    }
+
+    pub fn release_resources(&mut self) {
+        self.dst_border_pixels.clear();
+    }
+
+    pub fn reacquire_resources(&mut self) -> bool {
+        if self.dst_texture_width == 0 {
+            return true;
+        }
+        self.clear_dst_texture = true;
+        true
+    }
+
+    pub fn num_cells_x(&self) -> i32 {
+        self.num_cells_x
+    }
+
+    pub fn num_cells_y(&self) -> i32 {
+        self.num_cells_y
+    }
+
+    pub fn texture_width(&self) -> i32 {
+        self.dst_texture_width
+    }
+
+    pub fn texture_height(&self) -> i32 {
+        self.dst_texture_height
+    }
+
+    pub fn cell_width(&self) -> f32 {
+        self.cell_width
+    }
+
+    pub fn cell_height(&self) -> f32 {
+        self.cell_height
+    }
+
+    pub fn draw_origin_x(&self) -> f32 {
+        self.draw_origin_x
+    }
+
+    pub fn draw_origin_y(&self) -> f32 {
+        self.draw_origin_y
+    }
+
+    pub fn shroud_filter_enabled(&self) -> bool {
+        self.shroud_filter_enabled
+    }
+
+    pub fn clear_dst_texture(&self) -> bool {
+        self.clear_dst_texture
+    }
+
+    pub fn pixel_at(&self, x: i32, y: i32) -> Option<u16> {
+        self.texture_index(x, y)
+            .and_then(|index| self.src_pixels.get(index).copied())
+    }
+
+    pub fn get_shroud_level(&self, x: i32, y: i32) -> u8 {
+        let Some(index) = self.cell_index(x, y) else {
+            return 0;
+        };
+        let Some(pixel) = self.src_pixels.get(index).copied() else {
+            return 0;
+        };
+        if self.config.fog_of_war_on {
+            let alpha = (pixel >> 12) & 0x0f;
+            ((1.0 - alpha as f32 / 15.0) * 255.0) as u8
+        } else {
+            (((pixel >> 5) & 0x3f) as f32 / 63.0 * 255.0) as u8
+        }
+    }
+
+    pub fn set_shroud_level(&mut self, x: i32, y: i32, level: u8, texture_only: bool) -> bool {
+        let Some(index) = self.cell_index(x, y) else {
+            return false;
+        };
+        if index >= self.src_pixels.len() {
+            return false;
+        }
+        let level = level.max(self.config.shroud_alpha);
+        if !texture_only {
+            if let Some(final_level) = self.final_fog_data.get_mut(index) {
+                *final_level = level;
+            }
+        }
+        self.src_pixels[index] = self.encode_level(level);
+        true
+    }
+
+    pub fn fill_shroud_data(&mut self, level: u8) {
+        let level = level.max(self.config.shroud_alpha);
+        let pixel = self.encode_level(level);
+        for y in 0..self.num_cells_y {
+            for x in 0..self.num_cells_x {
+                if let Some(index) = self.cell_index(x, y) {
+                    self.src_pixels[index] = pixel;
+                    if let Some(final_level) = self.final_fog_data.get_mut(index) {
+                        *final_level = level;
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn set_border_shroud_level(&mut self, level: u8) {
+        self.border_shroud_level = level;
+        self.clear_dst_texture = true;
+    }
+
+    pub fn fill_border_shroud_data(&mut self, level: u8) {
+        let level = level.max(self.config.shroud_alpha);
+        let pixel = self.encode_level(level);
+        let bottom_row = self.num_cells_y;
+        for x in 0..self.num_cells_x {
+            if let Some(index) = self.texture_index(x, bottom_row) {
+                self.src_pixels[index] = pixel;
+            }
+        }
+        self.dst_border_pixels =
+            vec![pixel; (self.dst_texture_width * self.dst_texture_height).max(0) as usize];
+    }
+
+    pub fn render(&mut self, map: ShroudMapMetrics) -> Option<ShroudCopyRect> {
+        if self.src_pixels.is_empty() {
+            return None;
+        }
+        if self.config.fog_of_war_on != self.draw_fog_of_war {
+            self.reset();
+            self.init(map, self.cell_width, self.cell_height);
+        }
+
+        // Zero Hour intentionally updates the whole shroud texture.
+        let mut vis_start_x = 0;
+        let mut vis_start_y = 0;
+
+        let mut vis_end_x = self.num_cells_x;
+        let mut vis_end_y = self.num_cells_y;
+
+        if vis_end_x > self.num_cells_x {
+            vis_start_x = (vis_start_x - (vis_end_x - self.num_cells_x)).max(0);
+            vis_end_x = self.num_cells_x;
+        }
+        if vis_end_y > self.num_cells_y {
+            vis_start_y = (vis_start_y - (vis_end_y - self.num_cells_y)).max(0);
+            vis_end_y = self.num_cells_y;
+        }
+
+        self.draw_origin_x = vis_start_x as f32 * self.cell_width;
+        self.draw_origin_y = vis_start_y as f32 * self.cell_height;
+
+        let cleared_border = self.clear_dst_texture;
+        if self.clear_dst_texture {
+            self.clear_dst_texture = false;
+            self.fill_border_shroud_data(self.border_shroud_level);
+        }
+
+        Some(ShroudCopyRect {
+            left: vis_start_x,
+            top: vis_start_y,
+            right: vis_end_x,
+            bottom: vis_end_y,
+            dst_x: 1,
+            dst_y: 1,
+            cleared_border,
+        })
+    }
+
+    pub fn interpolate_fog_levels(&mut self, elapsed_ms: u32) {
+        if elapsed_ms == 0 {
+            return;
+        }
+        let level_delta = (FOG_INTERPOLATION_RATE * elapsed_ms as f32)
+            .min(255.0)
+            .max(0.0) as u8;
+        if level_delta == 0 {
+            return;
+        }
+        for y in 0..self.num_cells_y {
+            for x in 0..self.num_cells_x {
+                let data_index = (x + y * self.num_cells_x) as usize;
+                let current = self.current_fog_data[data_index];
+                let final_level = self.final_fog_data[data_index];
+                if current == final_level {
+                    continue;
+                }
+                let next = if final_level < current {
+                    current.saturating_sub(level_delta).max(final_level)
+                } else {
+                    current.saturating_add(level_delta).min(final_level)
+                };
+                self.current_fog_data[data_index] = next;
+                self.set_shroud_level(x, y, next, true);
+            }
+        }
+    }
+
+    pub fn set_shroud_filter(&mut self, enable: bool) {
+        self.shroud_filter_enabled = enable;
+    }
+
+    fn cell_index(&self, x: i32, y: i32) -> Option<usize> {
+        (x >= 0 && y >= 0 && x < self.num_cells_x && y < self.num_cells_y)
+            .then_some((x + y * self.src_texture_width) as usize)
+    }
+
+    fn texture_index(&self, x: i32, y: i32) -> Option<usize> {
+        (x >= 0 && y >= 0 && x < self.src_texture_width && y < self.src_texture_height)
+            .then_some((x + y * self.src_texture_width) as usize)
+    }
+
+    fn encode_level(&self, level: u8) -> u16 {
+        if self.config.fog_of_war_on {
+            let red = ((self.config.shroud_color >> 16) & 0xff) as u16;
+            let green = ((self.config.shroud_color >> 8) & 0xff) as u16;
+            let blue = (self.config.shroud_color & 0xff) as u16;
+            let alpha = 255u16.saturating_sub(level as u16);
+            ((blue >> 4) & 0x0f)
+                | (((green >> 4) & 0x0f) << 4)
+                | (((red >> 4) & 0x0f) << 8)
+                | (((alpha >> 4) & 0x0f) << 12)
+        } else {
+            let mut blue = level as u32 * (self.config.shroud_color & 0xff) / 255;
+            let mut green = level as u32 * ((self.config.shroud_color >> 8) & 0xff) / 255;
+            let mut red = level as u32 * ((self.config.shroud_color >> 16) & 0xff) / 255;
+            if level == 255 {
+                red = 255;
+                green = 255;
+                blue = 255;
+            }
+            (((blue & 0xf8) >> 3) | ((green & 0xfc) << 3) | ((red & 0xf8) << 8)) as u16
+        }
+    }
+}
+
+fn validate_texture_size(size: i32) -> i32 {
+    if size <= 1 {
+        return size.max(1);
+    }
+    (size as u32).next_power_of_two() as i32
+}
 
 /// GPU uniform buffer for FOW rendering parameters
 #[repr(C)]

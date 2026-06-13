@@ -3,6 +3,8 @@
 //! This module provides the Westwood 3D graphics system integration, converting the original
 //! C++ W3D device layer to modern Rust with enhanced performance and cross-platform support.
 
+#[cfg(feature = "w3d")]
+pub mod fow_terrain_overlay;
 pub mod graphics_context;
 pub mod material_system;
 pub mod model_loader;
