@@ -4088,20 +4088,9 @@ impl Snapshotable for Player {
 
         // --- 36. Score keeper xferSnapshot ---
         // C++ line 4326: xfer->xferSnapshot(&m_scoreKeeper)
-        // ScoreKeeper doesn't have Snapshotable yet; serialize inline
-        // C++ ScoreKeeper::xfer writes version + playerIndex + various score fields
-        {
-            const SCORE_KEEPER_VERSION: XferVersion = 1;
-            let mut sk_version = SCORE_KEEPER_VERSION;
-            xfer.xfer_version(&mut sk_version, SCORE_KEEPER_VERSION)
-                .map_err(|e| format!("score_keeper version failed: {}", e))?;
-            let mut player_idx = self.index;
-            xfer.xfer_int(&mut player_idx)
-                .map_err(|e| format!("score_keeper player_idx failed: {}", e))?;
-            if matches!(xfer.get_xfer_mode(), XferMode::Load) {
-                self.score_keeper.reset(player_idx);
-            }
-        }
+        self.score_keeper
+            .xfer(xfer)
+            .map_err(|e| format!("score_keeper xfer failed: {}", e))?;
 
         // --- 37. KindOf percent production change list ---
         // C++ lines 4328-4386: count + for each: kindOf.xfer, xferReal(percent), xferUnsignedInt(ref)

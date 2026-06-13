@@ -1,6 +1,10 @@
 use game_engine::common::rts::score_keeper::{
     KindOf, KindOfMaskType, ScoreKeeper, MAX_PLAYER_COUNT,
 };
+use game_engine::common::system::snapshot::Snapshotable;
+use game_engine::common::system::xfer_load::XferLoad;
+use game_engine::common::system::xfer_save::XferSave;
+use std::io::Cursor;
 
 fn scoring_unit_mask() -> KindOfMaskType {
     let mut mask = KindOfMaskType::new();
@@ -43,4 +47,44 @@ fn score_keeper_serializes_cpp_map_version_and_sixteen_player_slots() {
     let loaded = ScoreKeeper::deserialize(&serialized).expect("score keeper deserialize");
     assert_eq!(loaded.get_total_units_built(), 1);
     assert_eq!(loaded.get_total_units_destroyed(), 1);
+}
+
+#[test]
+fn score_keeper_snapshot_xfer_preserves_full_score_state() {
+    let mut source = ScoreKeeper::new();
+    let unit_mask = scoring_unit_mask();
+
+    source.reset(4);
+    source.add_money_earned(5000);
+    source.add_money_spent(1250);
+    source.add_object_built("Tank", &unit_mask, false);
+    source.add_object_destroyed("BossDozer", &unit_mask, 12, false);
+    source.add_object_lost("LostTank", &unit_mask, false);
+    source.calculate_score();
+
+    let mut bytes = Vec::new();
+    {
+        let cursor = Cursor::new(&mut bytes);
+        let mut xfer = XferSave::new(cursor, 1);
+        source.xfer(&mut xfer).expect("save score keeper");
+    }
+
+    let mut loaded = ScoreKeeper::new();
+    {
+        let cursor = Cursor::new(bytes);
+        let mut xfer = XferLoad::new(cursor, 1);
+        loaded.xfer(&mut xfer).expect("load score keeper");
+    }
+
+    assert_eq!(loaded.get_total_money_earned(), 5000);
+    assert_eq!(loaded.get_total_money_spent(), 1250);
+    assert_eq!(loaded.get_total_units_built(), 1);
+    assert_eq!(loaded.get_total_units_destroyed(), 1);
+    assert_eq!(loaded.get_total_units_lost(), 1);
+    assert_eq!(loaded.get_total_objects_built("Tank"), 1);
+    assert_eq!(
+        loaded.get_objects_destroyed_for_player(12).unwrap()["BossDozer"],
+        1
+    );
+    assert_eq!(loaded.get_objects_lost_map()["LostTank"], 1);
 }
