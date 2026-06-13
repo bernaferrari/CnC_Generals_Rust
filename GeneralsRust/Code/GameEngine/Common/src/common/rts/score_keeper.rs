@@ -9,6 +9,8 @@ use crate::common::thing::thing_factory::get_thing_factory;
 use std::collections::HashMap;
 
 pub use crate::common::game_common::MAX_PLAYER_COUNT;
+use crate::common::system::snapshot::Snapshotable;
+use crate::common::system::xfer::{Xfer, XferMode, XferVersion};
 
 /// Forward declarations
 pub struct Object;
@@ -789,6 +791,131 @@ impl ScoreKeeper {
 impl Default for ScoreKeeper {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl ScoreKeeper {
+    fn xfer_object_count_map(
+        xfer: &mut dyn Xfer,
+        map: &mut HashMap<String, i32>,
+    ) -> Result<(), String> {
+        let mut map_version: XferVersion = 1;
+        xfer.xfer_version(&mut map_version, 1)
+            .map_err(|e| format!("score object count map version failed: {}", e))?;
+
+        let mut map_size = map.len() as u16;
+        xfer.xfer_unsigned_short(&mut map_size)
+            .map_err(|e| format!("score object count map size failed: {}", e))?;
+
+        match xfer.get_xfer_mode() {
+            XferMode::Save => {
+                let mut entries: Vec<(String, i32)> = map
+                    .iter()
+                    .map(|(name, count)| (name.clone(), *count))
+                    .collect();
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                for (mut template_name, mut count) in entries {
+                    xfer.xfer_ascii_string(&mut template_name)
+                        .map_err(|e| format!("score object template name failed: {}", e))?;
+                    xfer.xfer_int(&mut count)
+                        .map_err(|e| format!("score object count failed: {}", e))?;
+                }
+            }
+            XferMode::Load => {
+                map.clear();
+                for _ in 0..map_size {
+                    let mut template_name = String::new();
+                    let mut count = 0;
+                    xfer.xfer_ascii_string(&mut template_name)
+                        .map_err(|e| format!("score object template name failed: {}", e))?;
+                    xfer.xfer_int(&mut count)
+                        .map_err(|e| format!("score object count failed: {}", e))?;
+                    map.insert(template_name, count);
+                }
+            }
+            XferMode::Crc => {
+                for _ in 0..map_size {
+                    let mut template_name = String::new();
+                    let mut count = 0;
+                    xfer.xfer_ascii_string(&mut template_name)
+                        .map_err(|e| format!("score object template name failed: {}", e))?;
+                    xfer.xfer_int(&mut count)
+                        .map_err(|e| format!("score object count failed: {}", e))?;
+                }
+            }
+            XferMode::Invalid => {
+                return Err("ScoreKeeper object count map xfer called in invalid mode".into());
+            }
+        }
+
+        Ok(())
+    }
+}
+
+impl Snapshotable for ScoreKeeper {
+    fn crc(&self, _xfer: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("score keeper version failed: {}", e))?;
+
+        xfer.xfer_int(&mut self.total_money_earned)
+            .map_err(|e| format!("score total_money_earned failed: {}", e))?;
+        xfer.xfer_int(&mut self.total_money_spent)
+            .map_err(|e| format!("score total_money_spent failed: {}", e))?;
+
+        for count in &mut self.total_units_destroyed {
+            xfer.xfer_int(count)
+                .map_err(|e| format!("score total_units_destroyed failed: {}", e))?;
+        }
+        xfer.xfer_int(&mut self.total_units_built)
+            .map_err(|e| format!("score total_units_built failed: {}", e))?;
+        xfer.xfer_int(&mut self.total_units_lost)
+            .map_err(|e| format!("score total_units_lost failed: {}", e))?;
+
+        for count in &mut self.total_buildings_destroyed {
+            xfer.xfer_int(count)
+                .map_err(|e| format!("score total_buildings_destroyed failed: {}", e))?;
+        }
+        xfer.xfer_int(&mut self.total_buildings_built)
+            .map_err(|e| format!("score total_buildings_built failed: {}", e))?;
+        xfer.xfer_int(&mut self.total_buildings_lost)
+            .map_err(|e| format!("score total_buildings_lost failed: {}", e))?;
+        xfer.xfer_int(&mut self.total_tech_buildings_captured)
+            .map_err(|e| format!("score total_tech_buildings_captured failed: {}", e))?;
+        xfer.xfer_int(&mut self.total_faction_buildings_captured)
+            .map_err(|e| format!("score total_faction_buildings_captured failed: {}", e))?;
+        xfer.xfer_int(&mut self.current_score)
+            .map_err(|e| format!("score current_score failed: {}", e))?;
+        xfer.xfer_int(&mut self.player_index)
+            .map_err(|e| format!("score player_index failed: {}", e))?;
+
+        Self::xfer_object_count_map(xfer, &mut self.objects_built)?;
+
+        let mut destroyed_array_size = MAX_PLAYER_COUNT as u16;
+        xfer.xfer_unsigned_short(&mut destroyed_array_size)
+            .map_err(|e| format!("score destroyed array size failed: {}", e))?;
+        if destroyed_array_size as usize != MAX_PLAYER_COUNT {
+            return Err(format!(
+                "ScoreKeeper::xfer destroyed array size mismatch: expected {}, got {}",
+                MAX_PLAYER_COUNT, destroyed_array_size
+            ));
+        }
+        for destroyed in &mut self.objects_destroyed {
+            Self::xfer_object_count_map(xfer, destroyed)?;
+        }
+
+        Self::xfer_object_count_map(xfer, &mut self.objects_lost)?;
+        Self::xfer_object_count_map(xfer, &mut self.objects_captured)?;
+
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }
 
