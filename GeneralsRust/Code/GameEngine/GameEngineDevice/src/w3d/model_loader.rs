@@ -114,6 +114,14 @@ pub enum W3DChunkType {
     TextureInfo,
     /// `W3D_CHUNK_MATERIAL_PASS` = 0x00000038
     MaterialPass,
+    /// `W3D_CHUNK_VERTEX_MATERIAL_IDS` = 0x00000039
+    VertexMaterialIds,
+    /// `W3D_CHUNK_SHADER_IDS` = 0x0000003A
+    ShaderIds,
+    /// `W3D_CHUNK_TEXTURE_STAGE` = 0x00000048
+    TextureStage,
+    /// `W3D_CHUNK_TEXTURE_IDS` = 0x00000049
+    TextureIds,
     /// `W3D_CHUNK_VERTEX_COLORS` = 0x0000000D  (per-vertex RGBA in DCG sub-chunk)
     VertexColors,
 
@@ -168,6 +176,10 @@ impl From<u32> for W3DChunkType {
             0x00000032 => Self::TextureName,
             0x00000033 => Self::TextureInfo,
             0x00000038 => Self::MaterialPass,
+            0x00000039 => Self::VertexMaterialIds,
+            0x0000003A => Self::ShaderIds,
+            0x00000048 => Self::TextureStage,
+            0x00000049 => Self::TextureIds,
             // hierarchy sub-chunks
             0x00000101 => Self::HierarchyHeader,
             0x00000102 => Self::Pivots,
@@ -945,8 +957,8 @@ impl W3DModelLoader {
                                     ))
                                 })?;
                         }
-                        if cursor.position() < vm_end {
-                            cursor.set_position(vm_end);
+                        if cursor.position() < vm_end_inner {
+                            cursor.set_position(vm_end_inner);
                         }
                     }
                 }
@@ -1021,31 +1033,33 @@ impl W3DModelLoader {
                     while cursor.position() < mp_end {
                         let mp_header = self.read_struct::<W3DChunkHeader>(cursor)?;
                         let mp_type = W3DChunkType::from(mp_header.chunk_type);
+                        let mp_child_end = cursor.position() + mp_header.chunk_size as u64;
 
                         match mp_type {
-                            W3DChunkType::VertexMaterialName => {
+                            W3DChunkType::VertexMaterialIds => {
                                 // Single u32 or per-vertex array
                                 let count = mp_header.chunk_size / 4;
                                 for _ in 0..count {
                                     vm_ids.push(self.read_u32(cursor)?);
                                 }
                             }
-                            W3DChunkType::Shaders => {
+                            W3DChunkType::ShaderIds => {
                                 // Single u32 or per-tri array
                                 let count = mp_header.chunk_size / 4;
                                 for _ in 0..count {
                                     shader_ids.push(self.read_u32(cursor)?);
                                 }
                             }
-                            W3DChunkType::Texture => {
+                            W3DChunkType::TextureStage => {
                                 // Wrapper for texture stage
-                                let ts_end =
-                                    cursor.position() + mp_header.chunk_size as u64;
+                                let ts_end = cursor.position() + mp_header.chunk_size as u64;
                                 while cursor.position() < ts_end {
                                     let ts_header = self.read_struct::<W3DChunkHeader>(cursor)?;
                                     let ts_type = W3DChunkType::from(ts_header.chunk_type);
+                                    let ts_child_end =
+                                        cursor.position() + ts_header.chunk_size as u64;
 
-                                    if ts_type == W3DChunkType::TextureName {
+                                    if ts_type == W3DChunkType::TextureIds {
                                         // W3D_CHUNK_TEXTURE_IDS: single or per-tri
                                         let count = ts_header.chunk_size / 4;
                                         for _ in 0..count {
@@ -1063,6 +1077,9 @@ impl W3DModelLoader {
                                                 ))
                                             })?;
                                     }
+                                    if cursor.position() < ts_child_end {
+                                        cursor.set_position(ts_child_end);
+                                    }
                                 }
                             }
                             _ => {
@@ -1076,10 +1093,14 @@ impl W3DModelLoader {
                                     })?;
                             }
                         }
+                        if cursor.position() < mp_child_end {
+                            cursor.set_position(mp_child_end);
+                        }
                     }
 
                     // Build W3DMaterial from the first pass's indices
                     let vm_idx = vm_ids.first().copied().unwrap_or(0) as usize;
+                    let shader_idx = shader_ids.first().copied().unwrap_or(0) as usize;
                     let tex_idx = tex_ids.first().copied().unwrap_or(0) as usize;
 
                     let vm_name = vert_material_names
@@ -1105,7 +1126,7 @@ impl W3DModelLoader {
                     );
 
                     let double_sided = shader_infos
-                        .first()
+                        .get(shader_idx)
                         .map(|s| s.alpha_test != 0)
                         .unwrap_or(false);
 
@@ -2246,5 +2267,110 @@ impl W3DGpuModel {
             bounding_box: model.bounding_box,
             lod_distances: model.lod_distances.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn push_u32(out: &mut Vec<u8>, value: u32) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn push_f32(out: &mut Vec<u8>, value: f32) {
+        out.extend_from_slice(&value.to_le_bytes());
+    }
+
+    fn chunk(chunk_type: u32, payload: Vec<u8>) -> Vec<u8> {
+        let mut out = Vec::with_capacity(8 + payload.len());
+        push_u32(&mut out, chunk_type);
+        push_u32(&mut out, payload.len() as u32);
+        out.extend_from_slice(&payload);
+        out
+    }
+
+    fn null_string(value: &str) -> Vec<u8> {
+        let mut out = value.as_bytes().to_vec();
+        out.push(0);
+        out
+    }
+
+    fn rgb(out: &mut Vec<u8>, r: u8, g: u8, b: u8) {
+        out.extend_from_slice(&[r, g, b, 0]);
+    }
+
+    fn vertex_material(name: &str, diffuse: (u8, u8, u8)) -> Vec<u8> {
+        let mut info = Vec::new();
+        push_u32(&mut info, 0);
+        rgb(&mut info, 0, 0, 0);
+        rgb(&mut info, diffuse.0, diffuse.1, diffuse.2);
+        rgb(&mut info, 0, 0, 0);
+        rgb(&mut info, 0, 0, 0);
+        push_f32(&mut info, 8.0);
+        push_f32(&mut info, 0.75);
+        push_f32(&mut info, 0.0);
+
+        let mut payload = Vec::new();
+        payload.extend(chunk(0x0000002C, null_string(name)));
+        payload.extend(chunk(0x0000002D, info));
+        chunk(0x0000002B, payload)
+    }
+
+    #[test]
+    fn material_pass_uses_cpp_id_chunks_for_material_and_texture_indices() {
+        let mut material_info_payload = Vec::new();
+        push_u32(&mut material_info_payload, 1); // pass count
+        push_u32(&mut material_info_payload, 2); // vertex material count
+        push_u32(&mut material_info_payload, 2); // shader count
+        push_u32(&mut material_info_payload, 2); // texture count
+
+        let mut shaders = vec![0u8; 32];
+        shaders[16 + 12] = 1; // selected shader alpha-test flag proves shader IDs are honored.
+        material_info_payload.extend(chunk(0x00000029, shaders));
+
+        let mut vertex_materials = Vec::new();
+        vertex_materials.extend(vertex_material("FirstMat", (16, 32, 48)));
+        vertex_materials.extend(vertex_material("SecondMat", (64, 128, 192)));
+        material_info_payload.extend(chunk(0x0000002A, vertex_materials));
+
+        let mut textures = Vec::new();
+        textures.extend(chunk(0x00000031, chunk(0x00000032, null_string("first.tga"))));
+        textures.extend(chunk(
+            0x00000031,
+            chunk(0x00000032, null_string("second.tga")),
+        ));
+        material_info_payload.extend(chunk(0x00000030, textures));
+
+        let mut texture_stage = Vec::new();
+        let mut texture_ids = Vec::new();
+        push_u32(&mut texture_ids, 1);
+        texture_stage.extend(chunk(0x00000049, texture_ids));
+
+        let mut material_pass = Vec::new();
+        let mut vertex_material_ids = Vec::new();
+        push_u32(&mut vertex_material_ids, 1);
+        material_pass.extend(chunk(0x00000039, vertex_material_ids));
+        let mut shader_ids = Vec::new();
+        push_u32(&mut shader_ids, 1);
+        material_pass.extend(chunk(0x0000003A, shader_ids));
+        material_pass.extend(chunk(0x00000048, texture_stage));
+        material_info_payload.extend(chunk(0x00000038, material_pass));
+
+        let mut loader = W3DModelLoader::new();
+        let mut cursor = Cursor::new(material_info_payload.as_slice());
+        let materials = loader
+            .parse_material_chunk(&mut cursor, material_info_payload.len() as u32)
+            .expect("material info should parse");
+
+        assert_eq!(materials.len(), 1);
+        let material = &materials[0];
+        assert_eq!(material.name, "SecondMat");
+        assert_eq!(material.diffuse_texture.as_deref(), Some("second.tga"));
+        assert_eq!(material.base_color.x, 64.0 / 255.0);
+        assert_eq!(material.base_color.y, 128.0 / 255.0);
+        assert_eq!(material.base_color.z, 192.0 / 255.0);
+        assert_eq!(material.base_color.w, 0.75);
+        assert!(material.double_sided);
     }
 }
