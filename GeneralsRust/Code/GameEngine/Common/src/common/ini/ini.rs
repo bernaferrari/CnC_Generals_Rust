@@ -476,12 +476,13 @@ fn parse_particle_system_block(ini: &mut INI) -> INIResult<()> {
 
 fn parse_special_power_block(ini: &mut INI) -> INIResult<()> {
     let (name, properties) = parse_named_property_block(ini)?;
-    super::ini_special_power::IniSpecialPower::register_definition(
-        AsciiString::from(name.as_str()),
-        properties,
-        ini.get_load_type(),
-    )
-    .map_err(|_| INIError::InvalidData)?;
+    crate::common::rts::special_power::get_special_power_store_mut()
+        .parse_special_power_definition_with_load_type(
+            name.as_str(),
+            &properties,
+            ini.get_load_type(),
+        )
+        .map_err(|_| INIError::InvalidData)?;
     Ok(())
 }
 
@@ -1940,6 +1941,9 @@ impl Default for INI {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::rts::special_power::{
+        get_special_power_store, reset_special_power_store, SpecialPowerType,
+    };
 
     #[test]
     fn field_line_uses_equals_as_separator() {
@@ -1954,6 +1958,63 @@ mod tests {
         assert_eq!(
             parse_field_line("  StartsEnabled = yes"),
             Some(("StartsEnabled", vec!["yes"]))
+        );
+    }
+
+    #[test]
+    fn special_power_block_populates_rts_store() {
+        reset_special_power_store();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "\
+SpecialPower TestClusterMines
+  Enum = SPECIAL_CLUSTER_MINES
+  ReloadTime = 5000
+  PublicTimer = Yes
+  ViewObjectRange = 225.5
+End
+",
+            |ini| ini.parse_current_file(),
+        )
+        .unwrap();
+
+        let store = get_special_power_store();
+        let template = store
+            .find_template("TestClusterMines")
+            .expect("SpecialPower block should register in RTS store");
+        assert_eq!(template.id, 1);
+        assert_eq!(template.power_type, SpecialPowerType::ClusterMines);
+        assert_eq!(template.reload_time, 150);
+        assert!(template.public_timer);
+        assert_eq!(template.view_object_range, 225.5);
+    }
+
+    #[test]
+    fn special_power_block_rejects_duplicate_without_override_load() {
+        reset_special_power_store();
+
+        let mut ini = INI::new();
+        let result = ini.with_inline_source(
+            "\
+SpecialPower DuplicatePower
+  Enum = SPECIAL_DAISY_CUTTER
+End
+
+SpecialPower DuplicatePower
+  Enum = SPECIAL_SCUD_STORM
+End
+",
+            |ini| ini.parse_current_file(),
+        );
+
+        assert_eq!(result, Err(INIError::InvalidData));
+
+        let store = get_special_power_store();
+        assert_eq!(store.get_num_special_powers(), 1);
+        assert_eq!(
+            store.find_template("DuplicatePower").unwrap().power_type,
+            SpecialPowerType::DaisyCutter
         );
     }
 }
