@@ -228,6 +228,10 @@ impl DamageFX {
         damage_amount: f32,
         source: Option<&dyn Object>,
     ) -> ConstFXListPtr {
+        if damage_amount == 0.0 {
+            return None;
+        }
+
         let type_index = self.damage_type_to_index(damage_type);
         if type_index >= DAMAGE_NUM_TYPES {
             return None;
@@ -710,6 +714,20 @@ mod tests {
         assert!(damage_fx.damage_type_to_index(DamageType::Poison) < DAMAGE_NUM_TYPES);
         assert!(damage_fx.damage_type_to_index(DamageType::Healing) < DAMAGE_NUM_TYPES);
         assert!(damage_fx.damage_type_to_index(DamageType::Unresistable) < DAMAGE_NUM_TYPES);
+    }
+
+    #[test]
+    fn zero_damage_returns_no_fx_like_cpp() {
+        let mut damage_fx = DamageFX::new();
+        let entry = &mut damage_fx.dfx[DamageType::Explosion as usize][0];
+        entry.amount_for_major_fx = 0.0;
+        entry.major_damage_fx_list = Some("MajorExplosionFX".to_string());
+        entry.minor_damage_fx_list = Some("MinorExplosionFX".to_string());
+
+        assert_eq!(
+            damage_fx.get_damage_fx_list(DamageType::Explosion, 0.0, None),
+            None
+        );
     }
 
     #[test]
