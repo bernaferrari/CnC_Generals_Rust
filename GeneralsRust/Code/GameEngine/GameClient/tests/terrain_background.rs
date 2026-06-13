@@ -75,7 +75,8 @@ fn nonflat_patch_recurses_to_required_subpatch_corners() {
         .do_tessellated_update(IRegion2D::new(0, 0, 4, 4), &map, false)
         .clone();
 
-    assert!(buffers.vertices.len() > 4);
+    assert_eq!(buffers.vertices.len(), 25);
+    assert_eq!(buffers.indices.len(), 96);
     assert!(background.get_flip_state(2, 2));
     assert_eq!(buffers.indices.len() % 3, 0);
 }

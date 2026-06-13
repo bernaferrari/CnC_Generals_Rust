@@ -215,7 +215,7 @@ impl W3DTerrainBackground {
         }
 
         let mut indices = Vec::new();
-        self.fill_vb_recursive(0, 0, self.width, &ndx, &mut indices);
+        self.fill_vb_recursive(map, 0, 0, self.width, &ndx, &mut indices);
 
         let mut bounds = TerrainBackgroundBounds::empty();
         for j in min_y..=max_y {
@@ -331,8 +331,9 @@ impl W3DTerrainBackground {
         );
     }
 
-    fn fill_vb_recursive(
+    fn fill_vb_recursive<M: TerrainBackgroundHeightMap>(
         &self,
+        map: &M,
         x_offset: i32,
         y_offset: i32,
         width: i32,
@@ -344,16 +345,26 @@ impl W3DTerrainBackground {
         }
         let bottom_left_ndx = ndx[self.local_index(x_offset, y_offset)];
         let top_right_ndx = ndx[self.local_index(x_offset + width, y_offset + width)];
-        let limit_x = self.width;
-        let limit_y = self.width;
-        let min_x = x_offset;
-        let min_y = y_offset;
+        let limit_x = map.x_extent() - 1;
+        let limit_y = map.y_extent() - 1;
+        let min_x = self.x_origin + x_offset;
+        let min_y = self.y_origin + y_offset;
+        let corner_height = map.height(min_x, min_y);
+        let mut matches = true;
 
-        let corner_set = self.get_flip_local(min_x, min_y)
-            && self.get_flip_local((min_x + width).min(limit_x), min_y)
-            && self.get_flip_local((min_x + width).min(limit_x), (min_y + width).min(limit_y))
-            && self.get_flip_local(min_x, (min_y + width).min(limit_y));
-        let matches = width == 1 || corner_set;
+        'outer: for i in 0..=width {
+            for j in 0..=width {
+                let k = (min_x + i).min(limit_x);
+                let l = (min_y + j).min(limit_y);
+                if corner_height != map.height(k, l) {
+                    matches = false;
+                    break 'outer;
+                }
+            }
+        }
+        if width == 1 {
+            matches = true;
+        }
 
         if matches {
             let mut left = ICoord2D {
@@ -396,10 +407,25 @@ impl W3DTerrainBackground {
         }
 
         let half_width = width / 2;
-        self.fill_vb_recursive(x_offset, y_offset, half_width, ndx, indices);
-        self.fill_vb_recursive(x_offset, y_offset + half_width, half_width, ndx, indices);
-        self.fill_vb_recursive(x_offset + half_width, y_offset, half_width, ndx, indices);
+        self.fill_vb_recursive(map, x_offset, y_offset, half_width, ndx, indices);
         self.fill_vb_recursive(
+            map,
+            x_offset,
+            y_offset + half_width,
+            half_width,
+            ndx,
+            indices,
+        );
+        self.fill_vb_recursive(
+            map,
+            x_offset + half_width,
+            y_offset,
+            half_width,
+            ndx,
+            indices,
+        );
+        self.fill_vb_recursive(
+            map,
             x_offset + half_width,
             y_offset + half_width,
             half_width,
@@ -555,7 +581,8 @@ mod tests {
             .do_tessellated_update(IRegion2D::new(0, 0, 4, 4), &map, false)
             .clone();
 
-        assert!(buffers.vertices.len() > 4);
+        assert_eq!(buffers.vertices.len(), 25);
+        assert_eq!(buffers.indices.len(), 96);
         assert!(background.get_flip_state(2, 2));
         assert_eq!(buffers.indices.len() % 3, 0);
     }
