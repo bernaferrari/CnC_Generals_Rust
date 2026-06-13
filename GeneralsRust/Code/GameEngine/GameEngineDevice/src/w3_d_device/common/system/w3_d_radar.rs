@@ -105,6 +105,7 @@ impl W3DRadar {
     pub fn init(&mut self) {
         self.initialize_texture_formats();
         self.reset();
+        self.resources_allocated = true;
     }
 
     /// Per-frame update, delegating event expiry and deferred refresh behavior.
@@ -115,7 +116,8 @@ impl W3DRadar {
     /// Reset radar and W3D-only cached state.
     pub fn reset(&mut self) {
         self.radar.reset();
-        self.delete_resources();
+        self.radar.clear_terrain_texture_rgba();
+        self.radar.clear_shroud();
         self.texture_width = RADAR_CELL_WIDTH as i32;
         self.texture_height = RADAR_CELL_HEIGHT as i32;
         self.reconstruct_view_box = true;
@@ -283,8 +285,11 @@ mod tests {
     }
 
     #[test]
-    fn new_map_allocates_and_reset_deletes_resources() {
+    fn reset_clears_surfaces_but_preserves_allocated_resources() {
         let mut radar = W3DRadar::new();
+        radar.init();
+        assert!(radar.resources_allocated());
+
         radar.new_map(
             Coord3D::new(0.0, 0.0, 0.0),
             Coord3D::new(128.0, 128.0, 10.0),
@@ -293,8 +298,21 @@ mod tests {
 
         assert!(radar.resources_allocated());
         assert!(radar.should_reconstruct_view_box());
+        assert!(radar
+            .radar()
+            .get_terrain_texture()
+            .chunks_exact(4)
+            .any(|pixel| pixel[3] != 0));
 
         radar.reset();
+        assert!(radar.resources_allocated());
+        assert!(radar
+            .radar()
+            .get_terrain_texture()
+            .iter()
+            .all(|byte| *byte == 0));
+
+        radar.delete_resources();
         assert!(!radar.resources_allocated());
     }
 

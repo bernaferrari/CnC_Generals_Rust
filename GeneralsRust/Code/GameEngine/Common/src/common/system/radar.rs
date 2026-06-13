@@ -1398,6 +1398,15 @@ impl RadarSystem {
         &self.terrain_texture
     }
 
+    /// Clear the cached W3D terrain texture surface.
+    ///
+    /// C++ `W3DRadar::reset` clears the terrain surface without releasing the texture
+    /// resource. Keep this separate from `reset` because the base `Radar` reset does not
+    /// own device surfaces.
+    pub fn clear_terrain_texture_rgba(&mut self) {
+        self.terrain_texture.fill(0);
+    }
+
     /// Check if terrain texture needs refresh
     pub fn is_terrain_dirty(&self) -> bool {
         self.terrain_dirty
