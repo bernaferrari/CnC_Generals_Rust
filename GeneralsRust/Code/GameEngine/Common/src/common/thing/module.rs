@@ -234,7 +234,8 @@ impl Snapshotable for BaseModuleData {
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -736,6 +737,11 @@ impl Snapshotable for BaseObjectModule {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ ObjectModule::xfer writes its own version before extending Module::xfer.
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("BaseObjectModule::xfer version failed: {}", e))?;
         self.base.xfer(xfer)
     }
 
@@ -794,6 +800,11 @@ impl Snapshotable for BaseDrawableModule {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        // C++ DrawableModule::xfer writes its own version before extending Module::xfer.
+        const CURRENT_VERSION: u8 = 1;
+        let mut version = CURRENT_VERSION;
+        xfer.xfer_version(&mut version, CURRENT_VERSION)
+            .map_err(|e| format!("BaseDrawableModule::xfer version failed: {}", e))?;
         self.base.xfer(xfer)
     }
 
@@ -906,22 +917,36 @@ impl UpgradeMuxData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    fn xfer_bytes<T: Snapshotable>(snapshot: &mut T) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut xfer = XferSave::new(cursor, 0);
+            snapshot.xfer(&mut xfer).unwrap();
+        }
+        bytes
+    }
 
     #[derive(Default)]
     struct DefaultAnyModule;
 
     impl Snapshotable for DefaultAnyModule {
         fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
-        Ok(())
-    }
+            let mut version: u8 = 0;
+            xfer.xfer_version(&mut version, 1)
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        }
 
         fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1).map_err(|e| e.to_string())?;
-        Ok(())
-    }
+            let mut version: u8 = 0;
+            xfer.xfer_version(&mut version, 1)
+                .map_err(|e| e.to_string())?;
+            Ok(())
+        }
 
         fn load_post_process(&mut self) -> Result<(), String> {
             Ok(())
@@ -939,5 +964,21 @@ mod tests {
             .as_any_mut()
             .downcast_mut::<DefaultAnyModule>()
             .is_some());
+    }
+
+    #[test]
+    fn base_object_module_xfer_writes_object_and_module_versions() {
+        let module_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+        let mut module = BaseObjectModule::new(module_data, 0, None);
+
+        assert_eq!(xfer_bytes(&mut module), vec![1, 1]);
+    }
+
+    #[test]
+    fn base_drawable_module_xfer_writes_drawable_and_module_versions() {
+        let module_data: Arc<dyn ModuleData> = Arc::new(BaseModuleData::new());
+        let mut module = BaseDrawableModule::new(module_data, 0, None);
+
+        assert_eq!(xfer_bytes(&mut module), vec![1, 1]);
     }
 }
