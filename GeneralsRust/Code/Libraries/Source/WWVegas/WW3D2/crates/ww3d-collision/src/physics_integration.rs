@@ -1086,6 +1086,9 @@ impl RigidBody {
             CollisionShape::Box { half_extents } => {
                 self.box_ray_cast(origin, direction, max_distance, *half_extents)
             }
+            CollisionShape::Mesh { vertices, indices } => {
+                self.mesh_ray_cast(origin, direction, max_distance, vertices, indices)
+            }
             _ => None, // Other shapes not implemented yet
         }
     }
@@ -1197,6 +1200,93 @@ impl RigidBody {
             distance: tmin,
         })
     }
+
+    fn mesh_ray_cast(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f32,
+        vertices: &[Vec3],
+        indices: &[u32],
+    ) -> Option<RayCastInfo> {
+        let rot_mat = Mat3::from_quat(self.rotation);
+        let inv_basis = rot_mat.transpose();
+        let local_origin = inv_basis * (origin - self.position);
+        let local_direction = inv_basis * direction;
+
+        let mut closest: Option<RayCastInfo> = None;
+        let mut closest_distance = max_distance;
+
+        for tri in indices.chunks_exact(3) {
+            let Some(v0) = vertices.get(tri[0] as usize).copied() else {
+                continue;
+            };
+            let Some(v1) = vertices.get(tri[1] as usize).copied() else {
+                continue;
+            };
+            let Some(v2) = vertices.get(tri[2] as usize).copied() else {
+                continue;
+            };
+
+            if let Some((distance, local_normal)) =
+                ray_triangle_intersection(local_origin, local_direction, v0, v1, v2)
+            {
+                if distance < closest_distance {
+                    closest_distance = distance;
+                    let point = origin + direction * distance;
+                    let normal = (rot_mat * local_normal).normalize();
+                    closest = Some(RayCastInfo {
+                        point,
+                        normal,
+                        distance,
+                    });
+                }
+            }
+        }
+
+        closest
+    }
+}
+
+fn ray_triangle_intersection(
+    origin: Vec3,
+    direction: Vec3,
+    v0: Vec3,
+    v1: Vec3,
+    v2: Vec3,
+) -> Option<(f32, Vec3)> {
+    let edge1 = v1 - v0;
+    let edge2 = v2 - v0;
+    let normal = edge1.cross(edge2).normalize_or_zero();
+    if normal == Vec3::ZERO {
+        return None;
+    }
+
+    let pvec = direction.cross(edge2);
+    let det = edge1.dot(pvec);
+    if det.abs() < 0.000001 {
+        return None;
+    }
+
+    let inv_det = 1.0 / det;
+    let tvec = origin - v0;
+    let u = tvec.dot(pvec) * inv_det;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+
+    let qvec = tvec.cross(edge1);
+    let v = direction.dot(qvec) * inv_det;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+
+    let distance = edge2.dot(qvec) * inv_det;
+    if distance < 0.0 {
+        return None;
+    }
+
+    Some((distance, normal))
 }
 
 /// Collision information
@@ -1689,6 +1779,65 @@ mod tests {
 
         let expected_normal = rotation * Vec3::new(0.0, 0.0, -1.0);
         assert!(hit.normal.dot(expected_normal) > 0.999);
+    }
+
+    #[test]
+    fn test_ray_cast_hits_mesh_triangle() {
+        let mut world = PhysicsWorld::new();
+
+        let body_id = world.create_body(RigidBodyDesc {
+            position: Vec3::ZERO,
+            shape: CollisionShape::Mesh {
+                vertices: vec![
+                    Vec3::new(-1.0, -1.0, 0.0),
+                    Vec3::new(1.0, -1.0, 0.0),
+                    Vec3::new(0.0, 1.0, 0.0),
+                ],
+                indices: vec![0, 1, 2],
+            },
+            ..Default::default()
+        });
+
+        let hit = world
+            .ray_cast(Vec3::new(0.0, 0.0, -2.0), Vec3::new(0.0, 0.0, 1.0), 10.0)
+            .expect("ray should hit mesh triangle");
+
+        assert_eq!(hit.body, body_id);
+        assert!((hit.distance - 2.0).abs() < 0.0001);
+        assert!(hit.point.length() < 0.0001);
+        assert!(hit.normal.dot(Vec3::Z) > 0.999);
+    }
+
+    #[test]
+    fn test_ray_cast_mesh_uses_body_transform_and_closest_triangle() {
+        let mut world = PhysicsWorld::new();
+        let rotation = Quat::from_axis_angle(Vec3::Y, std::f32::consts::FRAC_PI_2);
+
+        let body_id = world.create_body(RigidBodyDesc {
+            position: Vec3::new(2.0, 0.0, 0.0),
+            rotation,
+            shape: CollisionShape::Mesh {
+                vertices: vec![
+                    Vec3::new(-1.0, -1.0, 0.0),
+                    Vec3::new(1.0, -1.0, 0.0),
+                    Vec3::new(0.0, 1.0, 0.0),
+                    Vec3::new(-1.0, -1.0, 1.0),
+                    Vec3::new(1.0, -1.0, 1.0),
+                    Vec3::new(0.0, 1.0, 1.0),
+                ],
+                indices: vec![3, 4, 5, 0, 1, 2],
+            },
+            ..Default::default()
+        });
+
+        let hit = world
+            .ray_cast(Vec3::new(4.0, 0.0, 0.0), Vec3::new(-1.0, 0.0, 0.0), 10.0)
+            .expect("ray should hit transformed mesh");
+
+        assert_eq!(hit.body, body_id);
+        assert!((hit.distance - 1.0).abs() < 0.0001);
+        assert!((hit.point - Vec3::new(3.0, 0.0, 0.0)).length() < 0.0001);
+        assert!(hit.normal.dot(rotation * Vec3::Z) > 0.999);
     }
 
     #[test]
