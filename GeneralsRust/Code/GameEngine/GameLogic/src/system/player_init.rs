@@ -14,7 +14,7 @@ use game_engine::common::rts::NameKeyType;
 use std::collections::HashMap;
 
 /// Maximum number of player slots
-pub const MAX_PLAYER_COUNT: usize = 8;
+pub const MAX_PLAYER_COUNT: usize = game_engine::common::game_common::MAX_PLAYER_COUNT;
 
 /// Default starting money amounts (from C++ PlayerTemplate.ini)
 pub const DEFAULT_STARTING_MONEY: u32 = 10000;

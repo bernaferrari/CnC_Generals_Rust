@@ -30,6 +30,9 @@ use game_engine::common::ini::ensure_player_templates_loaded;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::player_template::get_player_template_store;
 use game_engine::common::rts::science::get_science_store;
+use game_engine::common::rts::score_keeper::{
+    KindOf as ScoreKindOf, KindOfMaskType as ScoreKindOfMaskType,
+};
 use game_engine::common::rts::{Money, ScienceAccess, ScienceType, SCIENCE_INVALID};
 use game_engine::common::system::snapshot::Snapshotable;
 use game_engine::common::system::xfer::{Xfer, XferMode, XferVersion};
@@ -662,6 +665,10 @@ pub struct ScoreKeeper {
     buildings_lost: Int,
     units_destroyed_by_player: [Int; MAX_PLAYER_COUNT],
     buildings_destroyed_by_player: [Int; MAX_PLAYER_COUNT],
+    objects_built: HashMap<String, Int>,
+    objects_destroyed: [HashMap<String, Int>; MAX_PLAYER_COUNT],
+    objects_lost: HashMap<String, Int>,
+    objects_captured: HashMap<String, Int>,
     tech_buildings_captured: Int,
     faction_buildings_captured: Int,
     current_score: Int,
@@ -686,6 +693,10 @@ impl ScoreKeeper {
             buildings_lost: 0,
             units_destroyed_by_player: [0; MAX_PLAYER_COUNT],
             buildings_destroyed_by_player: [0; MAX_PLAYER_COUNT],
+            objects_built: HashMap::new(),
+            objects_destroyed: [(); MAX_PLAYER_COUNT].map(|_| HashMap::new()),
+            objects_lost: HashMap::new(),
+            objects_captured: HashMap::new(),
             tech_buildings_captured: 0,
             faction_buildings_captured: 0,
             current_score: 0,
@@ -723,9 +734,72 @@ impl ScoreKeeper {
         self.buildings_destroyed = self.total_buildings_destroyed_by_array();
     }
 
+    fn increment_object_count(map: &mut HashMap<String, Int>, template_name: &str) {
+        let entry = map.entry(template_name.to_string()).or_insert(0);
+        *entry += 1;
+    }
+
+    fn decrement_object_count(map: &mut HashMap<String, Int>, template_name: &str) {
+        let entry = map.entry(template_name.to_string()).or_insert(0);
+        *entry -= 1;
+    }
+
     fn recompute_destroyed_aggregates(&mut self) {
         self.units_killed = self.total_units_destroyed_by_array();
         self.buildings_destroyed = self.total_buildings_destroyed_by_array();
+    }
+
+    fn xfer_object_count_map(
+        xfer: &mut dyn Xfer,
+        map: &mut HashMap<String, Int>,
+    ) -> Result<(), String> {
+        let mut map_version: XferVersion = 1;
+        xfer.xfer_version(&mut map_version, 1)
+            .map_err(|e| e.to_string())?;
+
+        let mut map_size = map.len() as u16;
+        xfer.xfer_unsigned_short(&mut map_size)
+            .map_err(|e| e.to_string())?;
+
+        match xfer.get_xfer_mode() {
+            XferMode::Save => {
+                let mut entries: Vec<(String, Int)> = map
+                    .iter()
+                    .map(|(name, count)| (name.clone(), *count))
+                    .collect();
+                entries.sort_by(|a, b| a.0.cmp(&b.0));
+                for (mut template_name, mut count) in entries {
+                    xfer.xfer_ascii_string(&mut template_name)
+                        .map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+                }
+            }
+            XferMode::Load => {
+                map.clear();
+                for _ in 0..map_size {
+                    let mut template_name = String::new();
+                    let mut count: Int = 0;
+                    xfer.xfer_ascii_string(&mut template_name)
+                        .map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+                    map.insert(template_name, count);
+                }
+            }
+            XferMode::Crc => {
+                for _ in 0..map_size {
+                    let mut template_name = String::new();
+                    let mut count: Int = 0;
+                    xfer.xfer_ascii_string(&mut template_name)
+                        .map_err(|e| e.to_string())?;
+                    xfer.xfer_int(&mut count).map_err(|e| e.to_string())?;
+                }
+            }
+            XferMode::Invalid => {
+                return Err("ScoreKeeper::xferObjectCountMap called with invalid xfer mode".into());
+            }
+        }
+
+        Ok(())
     }
 
     pub fn add_unit_built(&mut self) {
@@ -817,6 +891,26 @@ impl ScoreKeeper {
         self.buildings_built += 1;
     }
 
+    fn counts_as_score_building_create(mask: ScoreKindOfMaskType) -> bool {
+        mask.is_set(ScoreKindOf::Structure)
+            && (mask.is_set(ScoreKindOf::Score) || mask.is_set(ScoreKindOf::ScoreCreate))
+    }
+
+    fn counts_as_score_unit_create(mask: ScoreKindOfMaskType) -> bool {
+        (mask.is_set(ScoreKindOf::Infantry) || mask.is_set(ScoreKindOf::Vehicle))
+            && (mask.is_set(ScoreKindOf::Score) || mask.is_set(ScoreKindOf::ScoreCreate))
+    }
+
+    fn counts_as_score_building_destroy(mask: ScoreKindOfMaskType) -> bool {
+        mask.is_set(ScoreKindOf::Structure)
+            && (mask.is_set(ScoreKindOf::Score) || mask.is_set(ScoreKindOf::ScoreDestroy))
+    }
+
+    fn counts_as_score_unit_destroy(mask: ScoreKindOfMaskType) -> bool {
+        (mask.is_set(ScoreKindOf::Infantry) || mask.is_set(ScoreKindOf::Vehicle))
+            && (mask.is_set(ScoreKindOf::Score) || mask.is_set(ScoreKindOf::ScoreDestroy))
+    }
+
     // Trait-based methods for ScoreableObject integration
     // These allow Object to pass itself directly to ScoreKeeper
 
@@ -834,12 +928,14 @@ impl ScoreKeeper {
 
         // Check the KindOf mask to determine if it's a unit or building
         let mask = object.get_score_kindof_mask();
-        use game_engine::common::rts::score_keeper::KindOf;
+        let template_name = object.get_score_template_name();
 
-        if mask.is_set(KindOf::Structure) {
+        if Self::counts_as_score_building_destroy(mask) {
             self.buildings_lost += 1;
-        } else if mask.is_set(KindOf::Infantry) || mask.is_set(KindOf::Vehicle) {
+            Self::increment_object_count(&mut self.objects_lost, template_name);
+        } else if Self::counts_as_score_unit_destroy(mask) {
             self.units_lost += 1;
+            Self::increment_object_count(&mut self.objects_lost, template_name);
         }
     }
 
@@ -857,12 +953,71 @@ impl ScoreKeeper {
 
         // Check the KindOf mask to determine if it's a unit or building
         let mask = object.get_score_kindof_mask();
-        use game_engine::common::rts::score_keeper::KindOf;
+        let template_name = object.get_score_template_name();
+        let slot = Self::player_slot(object.get_score_controlling_player_index());
 
-        if mask.is_set(KindOf::Structure) {
+        if Self::counts_as_score_building_destroy(mask) {
             self.add_building_destroyed_for_player(object.get_score_controlling_player_index());
-        } else if mask.is_set(KindOf::Infantry) || mask.is_set(KindOf::Vehicle) {
+            Self::increment_object_count(&mut self.objects_destroyed[slot], template_name);
+        } else if Self::counts_as_score_unit_destroy(mask) {
             self.add_unit_destroyed_for_player(object.get_score_controlling_player_index());
+            Self::increment_object_count(&mut self.objects_destroyed[slot], template_name);
+        }
+    }
+
+    /// Add an object that was built by this player.
+    /// C++ Reference: ScoreKeeper::addObjectBuilt(const Object* o)
+    pub fn add_object_built_obj(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+    ) {
+        let mask = object.get_score_kindof_mask();
+        let template_name = object.get_score_template_name();
+
+        if Self::counts_as_score_building_create(mask) {
+            self.buildings_built += 1;
+            Self::increment_object_count(&mut self.objects_built, template_name);
+        } else if Self::counts_as_score_unit_create(mask) {
+            self.units_built += 1;
+            Self::increment_object_count(&mut self.objects_built, template_name);
+        }
+    }
+
+    /// Remove an object from the built score map.
+    /// C++ Reference: ScoreKeeper::removeObjectBuilt(const Object* o)
+    pub fn remove_object_built_obj(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+    ) {
+        let mask = object.get_score_kindof_mask();
+        let template_name = object.get_score_template_name();
+
+        if Self::counts_as_score_building_create(mask) {
+            self.buildings_built -= 1;
+            Self::decrement_object_count(&mut self.objects_built, template_name);
+        } else if Self::counts_as_score_unit_create(mask) {
+            self.units_built -= 1;
+            Self::decrement_object_count(&mut self.objects_built, template_name);
+        }
+    }
+
+    /// Add an object captured by this player.
+    /// C++ Reference: ScoreKeeper::addObjectCaptured(const Object* o)
+    pub fn add_object_captured_obj(
+        &mut self,
+        object: &dyn game_engine::common::rts::score_keeper::ScoreableObject,
+    ) {
+        let mask = object.get_score_kindof_mask();
+        if mask.is_set(ScoreKindOf::Structure) {
+            if mask.is_set(ScoreKindOf::Score) {
+                self.faction_buildings_captured += 1;
+            } else {
+                self.tech_buildings_captured += 1;
+            }
+            Self::increment_object_count(
+                &mut self.objects_captured,
+                object.get_score_template_name(),
+            );
         }
     }
 }
@@ -4132,45 +4287,26 @@ impl Snapshotable for Player {
             if xfer.get_xfer_mode() == XferMode::Load {
                 self.score_keeper.recompute_destroyed_aggregates();
             }
-            // objects built map (count + entries)
-            {
-                let mut obj_map_count: u16 = 0;
-                xfer.xfer_unsigned_short(&mut obj_map_count)
-                    .map_err(|e| e.to_string())?;
-                for _ in 0..obj_map_count {
-                    let mut _key: u32 = 0;
-                    let mut _val: Int = 0;
-                    xfer.xfer_u32(&mut _key).map_err(|e| e.to_string())?;
-                    xfer.xfer_int(&mut _val).map_err(|e| e.to_string())?;
-                }
-            }
+            ScoreKeeper::xfer_object_count_map(xfer, &mut self.score_keeper.objects_built)?;
+
             // objects destroyed per-player array
             let mut destroyed_array_size = MAX_PLAYER_COUNT as u16;
             xfer.xfer_unsigned_short(&mut destroyed_array_size)
                 .map_err(|e| e.to_string())?;
-            for _ in 0..destroyed_array_size {
-                let mut obj_map_count: u16 = 0;
-                xfer.xfer_unsigned_short(&mut obj_map_count)
-                    .map_err(|e| e.to_string())?;
-                for _ in 0..obj_map_count {
-                    let mut _key: u32 = 0;
-                    let mut _val: Int = 0;
-                    xfer.xfer_u32(&mut _key).map_err(|e| e.to_string())?;
-                    xfer.xfer_int(&mut _val).map_err(|e| e.to_string())?;
-                }
+            if destroyed_array_size as usize != MAX_PLAYER_COUNT {
+                return Err(format!(
+                    "ScoreKeeper::xfer - objects destroyed array size mismatch: expected {}, got {}",
+                    MAX_PLAYER_COUNT, destroyed_array_size
+                ));
             }
-            // objects lost, objects captured
-            for _ in 0..2 {
-                let mut obj_map_count: u16 = 0;
-                xfer.xfer_unsigned_short(&mut obj_map_count)
-                    .map_err(|e| e.to_string())?;
-                for _ in 0..obj_map_count {
-                    let mut _key: u32 = 0;
-                    let mut _val: Int = 0;
-                    xfer.xfer_u32(&mut _key).map_err(|e| e.to_string())?;
-                    xfer.xfer_int(&mut _val).map_err(|e| e.to_string())?;
-                }
+            for i in 0..MAX_PLAYER_COUNT {
+                ScoreKeeper::xfer_object_count_map(
+                    xfer,
+                    &mut self.score_keeper.objects_destroyed[i],
+                )?;
             }
+            ScoreKeeper::xfer_object_count_map(xfer, &mut self.score_keeper.objects_lost)?;
+            ScoreKeeper::xfer_object_count_map(xfer, &mut self.score_keeper.objects_captured)?;
         }
 
         // KindOf percent production change list
@@ -4559,6 +4695,7 @@ mod tests {
         fn unit(name: &str, player_index: Int) -> Self {
             let mut mask = KindOfMaskType::new();
             mask.set(KindOf::Vehicle);
+            mask.set(KindOf::Score);
             Self {
                 name: name.to_string(),
                 mask,
@@ -4570,6 +4707,7 @@ mod tests {
         fn structure(name: &str, player_index: Int) -> Self {
             let mut mask = KindOfMaskType::new();
             mask.set(KindOf::Structure);
+            mask.set(KindOf::Score);
             Self {
                 name: name.to_string(),
                 mask,
@@ -4654,9 +4792,16 @@ mod tests {
         player
             .score_keeper
             .add_object_destroyed_obj(&TestScoreObject::structure("EnemyBarracks", 3));
+        player
+            .score_keeper
+            .add_object_lost_obj(&TestScoreObject::unit("OwnTruck", 4));
+        player
+            .score_keeper
+            .add_object_built_obj(&TestScoreObject::unit("BuiltHumvee", 4));
+        player
+            .score_keeper
+            .add_object_captured_obj(&TestScoreObject::structure("CapturedOilDerrick", 2));
         player.score_keeper.current_score = 1234;
-        player.score_keeper.tech_buildings_captured = 2;
-        player.score_keeper.faction_buildings_captured = 1;
 
         let loaded = player_xfer_round_trip(player, 0);
 
@@ -4665,8 +4810,15 @@ mod tests {
         assert_eq!(loaded.score_keeper.buildings_destroyed_by_player[3], 1);
         assert_eq!(loaded.score_keeper.get_total_units_destroyed(), 1);
         assert_eq!(loaded.score_keeper.get_total_buildings_destroyed(), 1);
+        assert_eq!(loaded.score_keeper.objects_destroyed[1]["EnemyTank"], 1);
+        assert_eq!(loaded.score_keeper.objects_destroyed[3]["EnemyBarracks"], 1);
+        assert_eq!(loaded.score_keeper.objects_lost["OwnTruck"], 1);
+        assert_eq!(loaded.score_keeper.objects_built["BuiltHumvee"], 1);
+        assert_eq!(
+            loaded.score_keeper.objects_captured["CapturedOilDerrick"],
+            1
+        );
         assert_eq!(loaded.score_keeper.get_current_score(), 1234);
-        assert_eq!(loaded.score_keeper.tech_buildings_captured, 2);
         assert_eq!(loaded.score_keeper.faction_buildings_captured, 1);
     }
 

@@ -99,8 +99,8 @@ pub struct StealthUpgradeManager {
     /// Per-unit: whether unit has OBJECT_STATUS_CAN_STEALTH capability
     has_capability: HashMap<ObjectID, bool>,
 
-    /// Per-player black market availability (0-7 players)
-    black_market_state: [PlayerBlackMarketState; 8],
+    /// Per-player black market availability
+    black_market_state: [PlayerBlackMarketState; crate::common::MAX_PLAYER_COUNT],
 }
 
 impl StealthUpgradeManager {
@@ -110,7 +110,8 @@ impl StealthUpgradeManager {
             upgrades: HashMap::new(),
             unit_upgrades: HashMap::new(),
             has_capability: HashMap::new(),
-            black_market_state: [PlayerBlackMarketState { available: false }; 8],
+            black_market_state: [PlayerBlackMarketState { available: false };
+                crate::common::MAX_PLAYER_COUNT],
         }
     }
 
@@ -296,7 +297,7 @@ impl StealthUpgradeManager {
 
     /// Check if player has black market access
     pub fn check_black_market_available(&self, player_id: usize) -> Result<bool, String> {
-        if player_id >= 8 {
+        if player_id >= crate::common::MAX_PLAYER_COUNT {
             return Err(format!("Invalid player_id: {}", player_id));
         }
         Ok(self.black_market_state[player_id].available)
@@ -308,7 +309,7 @@ impl StealthUpgradeManager {
         player_id: usize,
         available: bool,
     ) -> Result<(), String> {
-        if player_id >= 8 {
+        if player_id >= crate::common::MAX_PLAYER_COUNT {
             return Err(format!("Invalid player_id: {}", player_id));
         }
         self.black_market_state[player_id].available = available;

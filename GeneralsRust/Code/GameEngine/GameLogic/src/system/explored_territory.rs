@@ -14,8 +14,8 @@ use std::collections::HashSet;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-/// Maximum number of players in game (0-7, plus observers)
-const MAX_PLAYER_COUNT: usize = 8;
+/// Maximum number of players in game.
+const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 
 /// Explored Territory Manager singleton
 ///
@@ -35,16 +35,7 @@ impl ExploredTerritoryManager {
     /// Create new ExploredTerritoryManager instance
     pub fn new() -> Self {
         Self {
-            player_explored_objects: [
-                HashSet::new(),
-                HashSet::new(),
-                HashSet::new(),
-                HashSet::new(),
-                HashSet::new(),
-                HashSet::new(),
-                HashSet::new(),
-                HashSet::new(),
-            ],
+            player_explored_objects: std::array::from_fn(|_| HashSet::new()),
             last_update_frame: 0,
         }
     }

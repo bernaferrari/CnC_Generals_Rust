@@ -2222,7 +2222,7 @@ impl engine_module::Module for BehaviorModuleProxy {
 
 // Constants
 pub const MAX_TRIGGER_AREA_INFOS: usize = 5;
-pub const MAX_PLAYER_COUNT: usize = 8;
+pub const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 pub const WEAPONSLOT_COUNT: usize = 3;
 pub const DISABLED_COUNT: usize = 13;
 pub const NUM_SLEEP_HELPERS: usize = 8;
@@ -13095,10 +13095,15 @@ impl game_engine::common::rts::score_keeper::ScoreableObject for Object {
         if self.is_kind_of(KindOf::Vehicle) {
             mask.set(ScoreKindOf::Vehicle);
         }
-
-        // For Score, ScoreCreate, ScoreDestroy, we check using the template's
-        // KindOf mask directly, since these may not be exposed as individual KindOf variants
-        // The score_keeper's KindOf enum uses specific bit positions
+        if self.is_kind_of(KindOf::Score) {
+            mask.set(ScoreKindOf::Score);
+        }
+        if self.is_kind_of(KindOf::ScoreCreate) {
+            mask.set(ScoreKindOf::ScoreCreate);
+        }
+        if self.is_kind_of(KindOf::ScoreDestroy) {
+            mask.set(ScoreKindOf::ScoreDestroy);
+        }
         mask
     }
 

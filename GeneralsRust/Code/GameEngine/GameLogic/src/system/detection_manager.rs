@@ -14,8 +14,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-/// Maximum number of players in game (0-7)
-const MAX_PLAYER_COUNT: usize = 8;
+/// Maximum number of players in game.
+const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 
 /// Detection strength value (0.0-100.0)
 /// Higher value = better at detecting stealth

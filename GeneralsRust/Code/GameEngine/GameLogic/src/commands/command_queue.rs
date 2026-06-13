@@ -676,7 +676,9 @@ pub type CommandQueue = PlayerCommandQueue;
 /// Global command queue manager instance
 use once_cell::sync::Lazy;
 static COMMAND_QUEUE_MANAGER: Lazy<Arc<Mutex<CommandQueueManager>>> = Lazy::new(|| {
-    Arc::new(Mutex::new(CommandQueueManager::new(8))) // Support up to 8 players
+    Arc::new(Mutex::new(CommandQueueManager::new(
+        crate::common::MAX_PLAYER_COUNT as Int,
+    )))
 });
 
 /// Get global command queue manager
