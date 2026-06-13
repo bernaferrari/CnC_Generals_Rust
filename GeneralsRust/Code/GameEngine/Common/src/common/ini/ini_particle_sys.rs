@@ -14,6 +14,115 @@ use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+const PARTICLE_PRIORITY_NAMES: &[&str] = &[
+    "NONE",
+    "WEAPON_EXPLOSION",
+    "SCORCHMARK",
+    "DUST_TRAIL",
+    "BUILDUP",
+    "DEBRIS_TRAIL",
+    "UNIT_DAMAGE_FX",
+    "DEATH_EXPLOSION",
+    "SEMI_CONSTANT",
+    "CONSTANT",
+    "WEAPON_TRAIL",
+    "AREA_EFFECT",
+    "CRITICAL",
+    "ALWAYS_RENDER",
+];
+
+const PARTICLE_SHADER_TYPE_NAMES: &[&str] =
+    &["NONE", "ADDITIVE", "ALPHA", "ALPHA_TEST", "MULTIPLY"];
+const PARTICLE_TYPE_NAMES: &[&str] = &[
+    "NONE",
+    "PARTICLE",
+    "DRAWABLE",
+    "STREAK",
+    "VOLUME_PARTICLE",
+    "SMUDGE",
+];
+const EMISSION_VELOCITY_TYPE_NAMES: &[&str] = &[
+    "NONE",
+    "ORTHO",
+    "SPHERICAL",
+    "HEMISPHERICAL",
+    "CYLINDRICAL",
+    "OUTWARD",
+];
+const EMISSION_VOLUME_TYPE_NAMES: &[&str] = &["NONE", "POINT", "LINE", "BOX", "SPHERE", "CYLINDER"];
+const WIND_MOTION_NAMES: &[&str] = &["NONE", "Unused", "PingPong", "Circular"];
+
+const CPP_PARTICLE_SYSTEM_FIELDS: &[&str] = &[
+    "Priority",
+    "IsOneShot",
+    "Shader",
+    "Type",
+    "ParticleName",
+    "AngleZ",
+    "AngularRateZ",
+    "AngularDamping",
+    "VelocityDamping",
+    "Gravity",
+    "SlaveSystem",
+    "SlavePosOffset",
+    "PerParticleAttachedSystem",
+    "Lifetime",
+    "SystemLifetime",
+    "Size",
+    "StartSizeRate",
+    "SizeRate",
+    "SizeRateDamping",
+    "Alpha1",
+    "Alpha2",
+    "Alpha3",
+    "Alpha4",
+    "Alpha5",
+    "Alpha6",
+    "Alpha7",
+    "Alpha8",
+    "Color1",
+    "Color2",
+    "Color3",
+    "Color4",
+    "Color5",
+    "Color6",
+    "Color7",
+    "Color8",
+    "ColorScale",
+    "BurstDelay",
+    "BurstCount",
+    "InitialDelay",
+    "DriftVelocity",
+    "VelocityType",
+    "VelOrthoX",
+    "VelOrthoY",
+    "VelOrthoZ",
+    "VelSpherical",
+    "VelHemispherical",
+    "VelCylindricalRadial",
+    "VelCylindricalNormal",
+    "VelOutward",
+    "VelOutwardOther",
+    "VolumeType",
+    "VolLineStart",
+    "VolLineEnd",
+    "VolBoxHalfSize",
+    "VolSphereRadius",
+    "VolCylinderRadius",
+    "VolCylinderLength",
+    "IsHollow",
+    "IsGroundAligned",
+    "IsEmitAboveGroundOnly",
+    "IsParticleUpTowardsEmitter",
+    "WindMotion",
+    "WindAngleChangeMin",
+    "WindAngleChangeMax",
+    "WindPingPongStartAngleMin",
+    "WindPingPongStartAngleMax",
+    "WindPingPongEndAngleMin",
+    "WindPingPongEndAngleMax",
+];
+
 /// Result type for particle system parsing operations
 pub type ParticleSystemResult<T> = Result<T, ParticleSystemError>;
 
@@ -93,71 +202,16 @@ impl ParticleSystemTemplate {
         &'static str,
         fn(&str) -> Result<Box<dyn std::any::Any>, String>,
     )> {
-        vec![
-            ("Priority", |value| {
-                value
-                    .parse::<i32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse priority: {}", e))
-            }),
-            ("IsOneShot", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse bool: {}", e))
-            }),
-            ("MaxParticles", |value| {
-                value
-                    .parse::<u32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse max particles: {}", e))
-            }),
-            ("Lifetime", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse lifetime: {}", e))
-            }),
-            ("CreationRate", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse creation rate: {}", e))
-            }),
-            ("Size", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse size: {}", e))
-            }),
-            ("SizeVariation", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse size variation: {}", e))
-            }),
-            ("Texture", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Shader", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("IsEmissive", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse emissive: {}", e))
-            }),
-            ("WindMotion", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse wind motion: {}", e))
-            }),
-            ("Gravity", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse gravity: {}", e))
-            }),
-        ]
+        CPP_PARTICLE_SYSTEM_FIELDS
+            .iter()
+            .map(|field| {
+                (
+                    *field,
+                    parse_cpp_particle_field_for_table
+                        as fn(&str) -> Result<Box<dyn std::any::Any>, String>,
+                )
+            })
+            .collect()
     }
 
     /// Update template properties from parsed data
@@ -168,47 +222,117 @@ impl ParticleSystemTemplate {
         for (key, value) in properties {
             match key.as_str() {
                 "Priority" => {
-                    self.priority = parse_i32_field(key, value)?;
+                    self.priority = parse_enum_index(key, value, PARTICLE_PRIORITY_NAMES)? as i32;
                 }
                 "IsOneShot" => {
                     self.is_one_shot =
                         parse_bool(value).map_err(ParticleSystemError::ParsingError)?;
                 }
-                "MaxParticles" => {
-                    self.max_particles = parse_u32_field(key, value)?;
-                }
-                "Lifetime" => {
-                    self.lifetime = parse_f32_field(key, value)?;
-                }
-                "CreationRate" => {
-                    self.creation_rate = parse_f32_field(key, value)?;
-                }
-                "Size" => {
-                    self.size = parse_f32_field(key, value)?;
-                }
-                "SizeVariation" => {
-                    self.size_variation = parse_f32_field(key, value)?;
-                }
-                "Texture" => {
-                    self.texture_name = AsciiString::from(value);
-                }
                 "Shader" => {
+                    parse_enum_index(key, value, PARTICLE_SHADER_TYPE_NAMES)?;
                     self.shader_type = AsciiString::from(value);
                 }
-                "IsEmissive" => {
-                    self.is_emissive =
-                        parse_bool(value).map_err(ParticleSystemError::ParsingError)?;
+                "Type" => {
+                    parse_enum_index(key, value, PARTICLE_TYPE_NAMES)?;
+                    self.properties.insert(key.clone(), value.clone());
+                }
+                "ParticleName" => {
+                    self.texture_name = AsciiString::from(value);
+                }
+                "AngleZ"
+                | "AngularRateZ"
+                | "AngularDamping"
+                | "VelocityDamping"
+                | "StartSizeRate"
+                | "SizeRate"
+                | "SizeRateDamping"
+                | "ColorScale"
+                | "BurstDelay"
+                | "InitialDelay"
+                | "VelOrthoX"
+                | "VelOrthoY"
+                | "VelOrthoZ"
+                | "VelSpherical"
+                | "VelHemispherical"
+                | "VelCylindricalRadial"
+                | "VelCylindricalNormal"
+                | "VelOutward"
+                | "VelOutwardOther" => {
+                    parse_random_variable_field(key, value)?;
+                    self.properties.insert(key.clone(), value.clone());
+                }
+                "Lifetime" => {
+                    self.lifetime = parse_random_variable_field(key, value)?.0;
+                }
+                "Size" => {
+                    self.size = parse_random_variable_field(key, value)?.0;
+                }
+                "BurstCount" => {
+                    self.creation_rate = parse_random_variable_field(key, value)?.0;
+                }
+                "SystemLifetime" => {
+                    parse_u32_field(key, value)?;
+                    self.properties.insert(key.clone(), value.clone());
+                }
+                "Gravity"
+                | "VolSphereRadius"
+                | "VolCylinderRadius"
+                | "VolCylinderLength"
+                | "WindAngleChangeMin"
+                | "WindAngleChangeMax"
+                | "WindPingPongStartAngleMin"
+                | "WindPingPongStartAngleMax"
+                | "WindPingPongEndAngleMin"
+                | "WindPingPongEndAngleMax" => {
+                    let parsed = parse_f32_field(key, value)?;
+                    if key == "Gravity" {
+                        self.gravity = parsed;
+                    } else {
+                        self.properties.insert(key.clone(), value.clone());
+                    }
+                }
+                "SlaveSystem" | "PerParticleAttachedSystem" => {
+                    self.properties.insert(key.clone(), value.clone());
+                }
+                "SlavePosOffset" | "DriftVelocity" | "VolLineStart" | "VolLineEnd"
+                | "VolBoxHalfSize" => {
+                    parse_coord3d_field(key, value)?;
+                    self.properties.insert(key.clone(), value.clone());
+                }
+                "VelocityType" => {
+                    parse_enum_index(key, value, EMISSION_VELOCITY_TYPE_NAMES)?;
+                    self.properties.insert(key.clone(), value.clone());
+                }
+                "VolumeType" => {
+                    parse_enum_index(key, value, EMISSION_VOLUME_TYPE_NAMES)?;
+                    self.properties.insert(key.clone(), value.clone());
+                }
+                "IsHollow"
+                | "IsGroundAligned"
+                | "IsEmitAboveGroundOnly"
+                | "IsParticleUpTowardsEmitter" => {
+                    parse_bool(value).map_err(ParticleSystemError::ParsingError)?;
+                    self.properties.insert(key.clone(), value.clone());
                 }
                 "WindMotion" => {
-                    self.wind_motion =
-                        parse_bool(value).map_err(ParticleSystemError::ParsingError)?;
+                    parse_enum_index(key, value, WIND_MOTION_NAMES)?;
+                    self.properties.insert(key.clone(), value.clone());
                 }
-                "Gravity" => {
-                    self.gravity = parse_f32_field(key, value)?;
+                "Alpha1" | "Alpha2" | "Alpha3" | "Alpha4" | "Alpha5" | "Alpha6" | "Alpha7"
+                | "Alpha8" => {
+                    parse_random_keyframe_field(key, value)?;
+                    self.properties.insert(key.clone(), value.clone());
+                }
+                "Color1" | "Color2" | "Color3" | "Color4" | "Color5" | "Color6" | "Color7"
+                | "Color8" => {
+                    parse_rgb_color_keyframe_field(key, value)?;
+                    self.properties.insert(key.clone(), value.clone());
                 }
                 _ => {
-                    // Store unknown properties for later processing
-                    self.properties.insert(key.clone(), value.clone());
+                    return Err(ParticleSystemError::ParsingError(format!(
+                        "Unknown particle system field '{}'",
+                        key
+                    )));
                 }
             }
         }
@@ -221,7 +345,7 @@ impl ParticleSystemTemplate {
     }
 
     pub fn is_valid(&self) -> bool {
-        !self.name.is_empty() && self.max_particles > 0 && self.lifetime > 0.0
+        !self.name.is_empty()
     }
 }
 
@@ -342,6 +466,127 @@ fn parse_f32_field(field_name: &str, value: &str) -> ParticleSystemResult<f32> {
         ParticleSystemError::ParsingError(format!(
             "Invalid {} value '{}': {}",
             field_name, value, e
+        ))
+    })
+}
+
+fn parse_cpp_particle_field_for_table(value: &str) -> Result<Box<dyn std::any::Any>, String> {
+    Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+}
+
+fn parse_enum_index(field_name: &str, value: &str, names: &[&str]) -> ParticleSystemResult<usize> {
+    names
+        .iter()
+        .position(|name| *name == value.trim())
+        .ok_or_else(|| {
+            ParticleSystemError::ParsingError(format!(
+                "Invalid {} value '{}': not in C++ enum table",
+                field_name, value
+            ))
+        })
+}
+
+fn parse_random_variable_field(field_name: &str, value: &str) -> ParticleSystemResult<(f32, f32)> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if !(parts.len() == 2 || parts.len() == 3) {
+        return Err(ParticleSystemError::ParsingError(format!(
+            "Invalid {} random variable '{}': expected low high [distribution]",
+            field_name, value
+        )));
+    }
+
+    let low = parse_f32_token(field_name, parts[0])?;
+    let high = parse_f32_token(field_name, parts[1])?;
+    if let Some(distribution) = parts.get(2) {
+        parse_enum_index(
+            field_name,
+            distribution,
+            &[
+                "CONSTANT",
+                "UNIFORM",
+                "GAUSSIAN",
+                "TRIANGULAR",
+                "LOW_BIAS",
+                "HIGH_BIAS",
+            ],
+        )?;
+    }
+    Ok((low, high))
+}
+
+fn parse_random_keyframe_field(field_name: &str, value: &str) -> ParticleSystemResult<()> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() != 3 {
+        return Err(ParticleSystemError::ParsingError(format!(
+            "Invalid {} keyframe '{}': expected low high frame",
+            field_name, value
+        )));
+    }
+    parse_f32_token(field_name, parts[0])?;
+    parse_f32_token(field_name, parts[1])?;
+    parse_u32_field(field_name, parts[2])?;
+    Ok(())
+}
+
+fn parse_rgb_color_keyframe_field(field_name: &str, value: &str) -> ParticleSystemResult<()> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() != 4 {
+        return Err(ParticleSystemError::ParsingError(format!(
+            "Invalid {} color keyframe '{}': expected R:nnn G:nnn B:nnn frame",
+            field_name, value
+        )));
+    }
+    parse_labeled_f32(field_name, parts[0], "R")?;
+    parse_labeled_f32(field_name, parts[1], "G")?;
+    parse_labeled_f32(field_name, parts[2], "B")?;
+    parse_u32_field(field_name, parts[3])?;
+    Ok(())
+}
+
+fn parse_coord3d_field(field_name: &str, value: &str) -> ParticleSystemResult<()> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() != 3 {
+        return Err(ParticleSystemError::ParsingError(format!(
+            "Invalid {} coord '{}': expected X Y Z",
+            field_name, value
+        )));
+    }
+
+    parse_coord_component(field_name, parts[0], "X")?;
+    parse_coord_component(field_name, parts[1], "Y")?;
+    parse_coord_component(field_name, parts[2], "Z")?;
+    Ok(())
+}
+
+fn parse_coord_component(field_name: &str, token: &str, label: &str) -> ParticleSystemResult<f32> {
+    if token.contains(':') {
+        parse_labeled_f32(field_name, token, label)
+    } else {
+        parse_f32_token(field_name, token)
+    }
+}
+
+fn parse_labeled_f32(field_name: &str, token: &str, label: &str) -> ParticleSystemResult<f32> {
+    let (actual_label, value) = token.split_once(':').ok_or_else(|| {
+        ParticleSystemError::ParsingError(format!(
+            "Invalid {} token '{}': expected {}:value",
+            field_name, token, label
+        ))
+    })?;
+    if actual_label != label {
+        return Err(ParticleSystemError::ParsingError(format!(
+            "Invalid {} token '{}': expected {} label",
+            field_name, token, label
+        )));
+    }
+    parse_f32_token(field_name, value)
+}
+
+fn parse_f32_token(field_name: &str, token: &str) -> ParticleSystemResult<f32> {
+    token.parse::<f32>().map_err(|e| {
+        ParticleSystemError::ParsingError(format!(
+            "Invalid {} value '{}': {}",
+            field_name, token, e
         ))
     })
 }
@@ -502,14 +747,21 @@ mod tests {
     fn test_template_properties_update() {
         let mut template = ParticleSystemTemplate::new(AsciiString::from("Test"));
         let mut properties = HashMap::new();
-        properties.insert("MaxParticles".to_string(), "2000".to_string());
-        properties.insert("Lifetime".to_string(), "10.5".to_string());
-        properties.insert("IsOneShot".to_string(), "true".to_string());
+        properties.insert("Priority".to_string(), "WEAPON_EXPLOSION".to_string());
+        properties.insert("Lifetime".to_string(), "10.5 12.5".to_string());
+        properties.insert("Size".to_string(), "2.0 4.0".to_string());
+        properties.insert("BurstCount".to_string(), "1.0 3.0".to_string());
+        properties.insert("ParticleName".to_string(), "EXSmoke.tga".to_string());
+        properties.insert("Shader".to_string(), "ALPHA".to_string());
+        properties.insert("IsOneShot".to_string(), "Yes".to_string());
 
         template.update_from_properties(&properties).unwrap();
 
-        assert_eq!(template.max_particles, 2000);
         assert_eq!(template.lifetime, 10.5);
+        assert_eq!(template.size, 2.0);
+        assert_eq!(template.creation_rate, 1.0);
+        assert_eq!(template.texture_name.as_str(), "EXSmoke.tga");
+        assert_eq!(template.shader_type.as_str(), "ALPHA");
         assert!(template.is_one_shot);
     }
 
@@ -524,17 +776,17 @@ mod tests {
         .is_err());
 
         let mut properties = HashMap::new();
-        properties.insert("MaxParticles".to_string(), "many".to_string());
+        properties.insert("Lifetime".to_string(), "many".to_string());
         assert!(IniParticleSys::parse_particle_system_block(
-            AsciiString::from("BadMaxParticles"),
+            AsciiString::from("BadLifetime"),
             properties,
         )
         .is_err());
 
         let mut properties = HashMap::new();
-        properties.insert("Lifetime".to_string(), "long".to_string());
+        properties.insert("Alpha1".to_string(), "0.0 1.0".to_string());
         assert!(IniParticleSys::parse_particle_system_block(
-            AsciiString::from("BadLifetime"),
+            AsciiString::from("BadAlpha"),
             properties
         )
         .is_err());
@@ -546,6 +798,103 @@ mod tests {
             properties
         )
         .is_err());
+    }
+
+    #[test]
+    fn particle_block_accepts_real_cpp_field_table_fields() {
+        let mut properties = HashMap::new();
+        properties.insert("Priority".to_string(), "WEAPON_EXPLOSION".to_string());
+        properties.insert("IsOneShot".to_string(), "No".to_string());
+        properties.insert("Shader".to_string(), "ALPHA".to_string());
+        properties.insert("Type".to_string(), "PARTICLE".to_string());
+        properties.insert("ParticleName".to_string(), "EXSmokNew1.tga".to_string());
+        properties.insert("AngleZ".to_string(), "0.00 0.25".to_string());
+        properties.insert("AngularRateZ".to_string(), "-0.01 0.01".to_string());
+        properties.insert("AngularDamping".to_string(), "0.99 0.99".to_string());
+        properties.insert("VelocityDamping".to_string(), "0.99 0.98".to_string());
+        properties.insert("Gravity".to_string(), "0.01".to_string());
+        properties.insert("Lifetime".to_string(), "60.00 60.00".to_string());
+        properties.insert("SystemLifetime".to_string(), "0".to_string());
+        properties.insert("Size".to_string(), "5.00 5.00".to_string());
+        properties.insert("StartSizeRate".to_string(), "0.00 0.00".to_string());
+        properties.insert("SizeRate".to_string(), "3.00 3.00".to_string());
+        properties.insert("SizeRateDamping".to_string(), "0.95 0.95".to_string());
+        properties.insert("Alpha1".to_string(), "0.00 0.00 0".to_string());
+        properties.insert("Color1".to_string(), "R:255 G:255 B:255 0".to_string());
+        properties.insert("ColorScale".to_string(), "0.00 0.00".to_string());
+        properties.insert("BurstDelay".to_string(), "40.00 40.00".to_string());
+        properties.insert("BurstCount".to_string(), "0.00 2.00".to_string());
+        properties.insert("InitialDelay".to_string(), "20.00 20.00".to_string());
+        properties.insert(
+            "DriftVelocity".to_string(),
+            "X:0.00 Y:0.00 Z:0.00".to_string(),
+        );
+        properties.insert("VelocityType".to_string(), "OUTWARD".to_string());
+        properties.insert("VelOutward".to_string(), "0.00 0.00".to_string());
+        properties.insert("VelOutwardOther".to_string(), "0.00 0.00".to_string());
+        properties.insert("VolumeType".to_string(), "SPHERE".to_string());
+        properties.insert("VolSphereRadius".to_string(), "4.00".to_string());
+        properties.insert("IsHollow".to_string(), "No".to_string());
+        properties.insert("IsGroundAligned".to_string(), "No".to_string());
+        properties.insert("IsEmitAboveGroundOnly".to_string(), "No".to_string());
+        properties.insert("IsParticleUpTowardsEmitter".to_string(), "No".to_string());
+        properties.insert("WindMotion".to_string(), "Unused".to_string());
+        properties.insert("WindAngleChangeMin".to_string(), "0.149924".to_string());
+        properties.insert("WindAngleChangeMax".to_string(), "0.449946".to_string());
+        properties.insert(
+            "WindPingPongStartAngleMin".to_string(),
+            "0.000000".to_string(),
+        );
+        properties.insert(
+            "WindPingPongStartAngleMax".to_string(),
+            "0.785398".to_string(),
+        );
+        properties.insert(
+            "WindPingPongEndAngleMin".to_string(),
+            "5.497787".to_string(),
+        );
+        properties.insert(
+            "WindPingPongEndAngleMax".to_string(),
+            "6.283185".to_string(),
+        );
+
+        let template = IniParticleSys::parse_particle_system_block(
+            AsciiString::from("TsingMaTrailSmoke"),
+            properties,
+        )
+        .unwrap();
+
+        assert_eq!(template.priority, 1);
+        assert!(!template.is_one_shot);
+        assert_eq!(template.shader_type.as_str(), "ALPHA");
+        assert_eq!(template.texture_name.as_str(), "EXSmokNew1.tga");
+        assert_eq!(template.lifetime, 60.0);
+        assert_eq!(template.size, 5.0);
+        assert_eq!(template.gravity, 0.01);
+    }
+
+    #[test]
+    fn particle_block_rejects_fields_outside_cpp_parse_table() {
+        for field in [
+            "MaxParticles",
+            "CreationRate",
+            "SizeVariation",
+            "Texture",
+            "IsEmissive",
+            "UnknownField",
+        ] {
+            let mut properties = HashMap::new();
+            properties.insert(field.to_string(), "1".to_string());
+            assert!(
+                IniParticleSys::parse_particle_system_block(
+                    AsciiString::from("BadField"),
+                    properties
+                )
+                .is_err(),
+                "{} should be rejected because C++ ParticleSystemTemplate does not parse it",
+                field
+            );
+        }
     }
 
     #[test]
@@ -577,10 +926,10 @@ mod tests {
         assert!(ParticleSystemTokenParser::get_next_name("  SpacedName  ").is_ok());
         assert!(ParticleSystemTokenParser::get_next_name("").is_err());
 
-        let result = ParticleSystemTokenParser::parse_property_line("MaxParticles = 1000");
+        let result = ParticleSystemTokenParser::parse_property_line("SystemLifetime = 1000");
         assert!(result.is_ok());
         let (key, value) = result.unwrap();
-        assert_eq!(key, "MaxParticles");
+        assert_eq!(key, "SystemLifetime");
         assert_eq!(value, "1000");
     }
 }
