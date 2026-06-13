@@ -1,5 +1,5 @@
 use game_client_rust::terrain::{
-    TerrainTrackHeightProvider, TerrainTrackLayer, TerrainTracksConfig,
+    compute_track_spacing, TerrainTrackHeightProvider, TerrainTrackLayer, TerrainTracksConfig,
     TerrainTracksRenderObjClassSystem, BRIDGE_OFFSET_FACTOR,
 };
 use game_engine::map_object::MAP_XY_FACTOR;
@@ -25,6 +25,22 @@ fn config() -> TerrainTracksConfig {
         max_tank_track_fade_delay: 100,
         make_track_marks: true,
     }
+}
+
+#[test]
+fn compute_track_spacing_matches_cpp_bone_fallback_and_width_addition() {
+    assert_eq!(compute_track_spacing(None, None), MAP_XY_FACTOR * 1.4);
+    assert_eq!(
+        compute_track_spacing(Some(Vec3::new(0.0, 0.0, 0.0)), None),
+        MAP_XY_FACTOR * 1.4
+    );
+    assert_eq!(
+        compute_track_spacing(
+            Some(Vec3::new(1.0, 2.0, 0.0)),
+            Some(Vec3::new(4.0, 6.0, 0.0))
+        ),
+        9.0
+    );
 }
 
 #[test]
