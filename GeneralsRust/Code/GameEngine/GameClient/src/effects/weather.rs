@@ -316,7 +316,7 @@ impl SnowSystem {
             box_dimensions,
             emitter_spacing,
             is_visible: true,
-            enabled: true,
+            enabled: false,
             particles: Vec::new(),
         }
     }
@@ -814,9 +814,20 @@ mod tests {
     }
 
     #[test]
+    fn test_snow_system_defaults_disabled_like_cpp() {
+        let mut snow = SnowSystem::new();
+        snow.init();
+
+        snow.update(0.033, Point3::new(100.0, 100.0, 50.0));
+
+        assert_eq!(snow.particle_count(), 0);
+    }
+
+    #[test]
     fn test_snow_system_update() {
         let mut snow = SnowSystem::new();
         snow.init();
+        snow.set_enabled(true);
 
         let camera = Point3::new(100.0, 100.0, 50.0);
         snow.update(0.033, camera);
@@ -902,6 +913,7 @@ mod tests {
     fn test_snow_sine_drift() {
         let mut snow = SnowSystem::new();
         snow.init();
+        snow.set_enabled(true);
 
         let camera = Point3::new(0.0, 0.0, 50.0);
         snow.update(0.033, camera);

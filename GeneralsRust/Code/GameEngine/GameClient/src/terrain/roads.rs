@@ -201,6 +201,9 @@ pub struct RoadGeometry {
     /// Vertex colors for detail
     pub colors: Vec<[f32; 4]>,
 
+    /// C++ road-strip lateral sample positions for each collapsed two-vertex row.
+    pub row_height_samples: Vec<Vec<Vec3>>,
+
     /// Geometry for road edges/shoulders
     pub edge_geometry: Option<EdgeGeometry>,
 
@@ -621,6 +624,7 @@ impl RoadSegment {
         u_vector2 = u_vector2 + (v_vector1 - v_vector2);
 
         let mut vertices = Vec::with_capacity((u_count as usize * 2).min(MAX_SEG_VERTEX));
+        let mut row_height_samples = Vec::with_capacity(u_count as usize);
         let mut indices =
             Vec::with_capacity(((u_count.saturating_sub(1)) as usize * 6).min(MAX_SEG_INDEX));
 
@@ -635,6 +639,23 @@ impl RoadSegment {
             let bottom_pos = origin + u_vector1 * i_factor;
 
             let top_pos = origin + u_vector2 * i_factor + v_vector1 * i_bar + v_vector2 * i_factor;
+
+            let mut row_samples = Vec::with_capacity(_v_count as usize);
+            for j in 0.._v_count {
+                let j_factor = if _v_count > 1 {
+                    j as f32 / (_v_count - 1) as f32
+                } else {
+                    0.0
+                };
+                let j_bar = 1.0 - j_factor;
+                row_samples.push(
+                    origin
+                        + u_vector1 * j_bar * i_factor
+                        + u_vector2 * j_factor * i_factor
+                        + v_vector1 * i_bar * j_factor
+                        + v_vector2 * i_factor * j_factor,
+                );
+            }
 
             if vertices.len() + 2 > MAX_SEG_VERTEX {
                 break;
@@ -667,6 +688,7 @@ impl RoadSegment {
                 color: [1.0, 1.0, 1.0, 1.0],
                 road_distance: road_len * i_factor,
             });
+            row_height_samples.push(row_samples);
 
             if i > 0 && indices.len() + 6 <= MAX_SEG_INDEX {
                 let base = (i as u32) * 2;
@@ -684,6 +706,7 @@ impl RoadSegment {
             indices,
             uvs,
             colors,
+            row_height_samples,
             edge_geometry: None,
             marking_geometry: None,
         })
@@ -1054,8 +1077,12 @@ impl RoadSegment {
         let mut indices = Vec::new();
         let mut uvs = Vec::new();
         let mut colors = Vec::new();
+        let mut row_height_samples = Vec::new();
 
         let half_width = self.width / 2.0;
+        let v_count = (((self.width.max(0.0) / MAP_XY_FACTOR) as u32).saturating_add(1))
+            .max(2)
+            .min(100);
 
         // Generate vertices along the segment
         for i in 0..resolution {
@@ -1072,6 +1099,15 @@ impl RoadSegment {
             let left_point = center_point + right * half_width;
             let right_point = center_point - right * half_width;
             let distance_along_road = (t * segment_length) / self.width; // For texture tiling
+            let mut row_samples = Vec::with_capacity(v_count as usize);
+            for j in 0..v_count {
+                let j_factor = if v_count > 1 {
+                    j as f32 / (v_count - 1) as f32
+                } else {
+                    0.0
+                };
+                row_samples.push(left_point.lerp(right_point, j_factor));
+            }
 
             // Left vertex
             vertices.push(RoadVertex {
@@ -1098,6 +1134,7 @@ impl RoadSegment {
                 color: [1.0, 1.0, 1.0, 1.0],
                 road_distance: t * segment_length,
             });
+            row_height_samples.push(row_samples);
         }
 
         // Generate indices for triangle strips
@@ -1121,6 +1158,7 @@ impl RoadSegment {
             indices,
             uvs,
             colors,
+            row_height_samples,
             edge_geometry: if config.generate_edges {
                 Some(self.generate_edge_geometry()?)
             } else {
@@ -1346,13 +1384,14 @@ impl RoadManager {
         vertices: &mut [RoadVertex],
         overlay_height: f32,
         clamp_rows: bool,
+        row_height_samples: Option<&[Vec<Vec3>]>,
         sample_height: &mut F,
     ) where
         F: FnMut(Vec3) -> f32,
     {
         if clamp_rows {
             let mut pairs = vertices.chunks_exact_mut(2);
-            for pair in &mut pairs {
+            for (row, pair) in (&mut pairs).enumerate() {
                 let pos_a = Vec3::new(
                     pair[0].position[0],
                     pair[0].position[1],
@@ -1363,9 +1402,22 @@ impl RoadManager {
                     pair[1].position[1],
                     pair[1].position[2],
                 );
-                let h_a = Self::sanitize_sampled_height(sample_height(pos_a), pos_a.y);
-                let h_b = Self::sanitize_sampled_height(sample_height(pos_b), pos_b.y);
-                let projected = h_a.max(h_b) + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS + overlay_height;
+                let max_height = row_height_samples
+                    .and_then(|samples| samples.get(row))
+                    .filter(|samples| !samples.is_empty())
+                    .map(|samples| {
+                        samples.iter().fold(f32::NEG_INFINITY, |max_height, pos| {
+                            let sampled = Self::sanitize_sampled_height(sample_height(*pos), pos.y);
+                            max_height.max(sampled)
+                        })
+                    })
+                    .filter(|height| height.is_finite())
+                    .unwrap_or_else(|| {
+                        let h_a = Self::sanitize_sampled_height(sample_height(pos_a), pos_a.y);
+                        let h_b = Self::sanitize_sampled_height(sample_height(pos_b), pos_b.y);
+                        h_a.max(h_b)
+                    });
+                let projected = max_height + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS + overlay_height;
                 pair[0].position[1] = projected;
                 pair[1].position[1] = projected;
             }
@@ -1590,6 +1642,7 @@ impl RoadManager {
                 &mut geometry.vertices,
                 segment.properties.elevation,
                 clamp_surface_rows,
+                Some(&geometry.row_height_samples),
                 &mut sample_height,
             );
             if clamp_surface_rows {
@@ -1602,6 +1655,7 @@ impl RoadManager {
                     &mut edge.vertices,
                     segment.properties.elevation,
                     true,
+                    None,
                     &mut sample_height,
                 );
                 Self::reproject_vertex_normals(&mut edge.vertices, &mut sample_normal);
@@ -1612,6 +1666,7 @@ impl RoadManager {
                     &mut marking.vertices,
                     segment.properties.elevation + 0.02,
                     true,
+                    None,
                     &mut sample_height,
                 );
                 Self::reproject_vertex_normals(&mut marking.vertices, &mut sample_normal);
@@ -2160,6 +2215,7 @@ mod tests {
             indices: vec![0, 1, 0],
             uvs: Vec::new(),
             colors: Vec::new(),
+            row_height_samples: Vec::new(),
             edge_geometry: None,
             marking_geometry: None,
         });
@@ -2240,6 +2296,43 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_terrain_heights_samples_full_width_before_collapsing_rows() {
+        let mut manager = RoadManager::new();
+        let road_id = manager.create_road(
+            "Center Ridge Project".to_string(),
+            RoadType::DirtPath { wear_factor: 0.2 },
+        );
+        let segment_id = manager
+            .create_segment(
+                road_id,
+                Vec3::new(0.0, 0.0, 0.0),
+                Vec3::new(30.0, 0.0, 0.0),
+                Some(40.0),
+            )
+            .unwrap();
+        manager.update_geometry().unwrap();
+
+        manager.apply_terrain_heights_and_normals(
+            |pos| if pos.z.abs() < 1.0 { 10.0 } else { 0.0 },
+            |_| Vec3::new(0.0, 1.0, 0.0),
+        );
+
+        let geometry = manager
+            .get_segment(segment_id)
+            .and_then(|s| s.geometry.as_ref())
+            .unwrap();
+        assert!(
+            geometry.row_height_samples.iter().any(|row| row.len() > 2),
+            "wide road rows should retain C++ lateral height samples"
+        );
+        let expected = 10.0 + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS;
+        for pair in geometry.vertices.chunks_exact(2) {
+            assert!((pair[0].position[1] - expected).abs() < 1.0e-4);
+            assert!((pair[1].position[1] - expected).abs() < 1.0e-4);
+        }
+    }
+
+    #[test]
     fn test_apply_terrain_heights_and_normals_clamps_synthetic_intersections_too() {
         let mut manager = RoadManager::new();
         let road_id = manager.create_road(
@@ -2269,8 +2362,23 @@ mod tests {
             .get_segment(segment_id)
             .and_then(|s| s.geometry.as_ref())
             .unwrap();
-        let expected = 7.0 + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS;
-        for pair in geometry.vertices.chunks_exact(2) {
+        for (row, pair) in geometry.vertices.chunks_exact(2).enumerate() {
+            let max_height = geometry
+                .row_height_samples
+                .get(row)
+                .filter(|samples| !samples.is_empty())
+                .map(|samples| {
+                    samples
+                        .iter()
+                        .map(|pos| if pos.x < 10.0 { 2.0 } else { 7.0 })
+                        .fold(f32::NEG_INFINITY, f32::max)
+                })
+                .unwrap_or_else(|| {
+                    let h0: f32 = if pair[0].position[0] < 10.0 { 2.0 } else { 7.0 };
+                    let h1: f32 = if pair[1].position[0] < 10.0 { 2.0 } else { 7.0 };
+                    h0.max(h1)
+                });
+            let expected = max_height + RoadSegment::ROAD_FLOAT_HEIGHT_BIAS;
             assert!((pair[0].position[1] - expected).abs() < 1.0e-4);
             assert!((pair[1].position[1] - expected).abs() < 1.0e-4);
         }
