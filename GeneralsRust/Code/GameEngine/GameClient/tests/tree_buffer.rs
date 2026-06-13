@@ -4,7 +4,7 @@ use game_client_rust::terrain::{
     END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT, TREE_RADIUS_APPROX,
     W3D_TOPPLE_OPTIONS_NO_BOUNCE,
 };
-use glam::{Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 
 fn module(model: &str, texture: &str) -> TreeModuleData {
     TreeModuleData {
@@ -27,6 +27,12 @@ fn bounds() -> TreeSphere {
 
 fn approx_eq(a: f32, b: f32) {
     assert!((a - b).abs() < 0.001, "{a} != {b}");
+}
+
+fn approx_mat4_eq(a: Mat4, b: Mat4) {
+    for (left, right) in a.to_cols_array().iter().zip(b.to_cols_array()) {
+        approx_eq(*left, right);
+    }
 }
 
 #[test]
@@ -253,6 +259,21 @@ fn toppling_force_clamps_speed_and_no_bounce_sets_down() {
 }
 
 #[test]
+fn toppling_update_pre_rotates_matrix_like_cpp() {
+    let mut buffer = W3DTreeBuffer::new();
+    let location = Vec3::new(3.0, 4.0, 5.0);
+    let id = buffer
+        .add_tree(5, location, 1.0, 0.0, 1.0, module("Oak", "T"), bounds())
+        .unwrap();
+
+    buffer.apply_toppling_force(5, Vec3::X, 0.0, 0);
+    buffer.update_toppling_tree(id, TreeShroudStatus::Clear);
+
+    let expected = Mat4::from_rotation_y(0.1) * Mat4::from_translation(location);
+    approx_mat4_eq(buffer.trees()[id].matrix, expected);
+}
+
+#[test]
 fn fogged_topple_freezes_then_resolves_to_down() {
     let mut buffer = W3DTreeBuffer::new();
     let id = buffer
@@ -266,6 +287,10 @@ fn fogged_topple_freezes_then_resolves_to_down() {
     buffer.update_toppling_tree(id, TreeShroudStatus::Clear);
     assert_eq!(buffer.trees()[id].topple_state, W3DToppleState::Down);
     assert_eq!(buffer.trees()[id].sink_frames_left, 0);
+    approx_mat4_eq(
+        buffer.trees()[id].matrix,
+        Mat4::from_rotation_y(ANGULAR_LIMIT) * Mat4::from_translation(Vec3::ZERO),
+    );
 }
 
 #[test]
@@ -276,6 +301,38 @@ fn terrain_pass_flag_is_consumed_by_cpu_tick() {
     assert!(buffer.need_to_draw());
     buffer.tick_cpu(false, |_| TreeShroudStatus::Clear);
     assert!(!buffer.need_to_draw());
+}
+
+#[test]
+fn down_tree_with_zero_sink_frames_wraps_and_still_sinks_like_cpp() {
+    let mut buffer = W3DTreeBuffer::new();
+    let id = buffer
+        .add_tree(
+            8,
+            Vec3::new(1.0, 2.0, 3.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Oak", "T"),
+            bounds(),
+        )
+        .unwrap();
+    {
+        let tree = buffer.tree_mut(id).unwrap();
+        tree.topple_state = W3DToppleState::Down;
+        tree.sink_frames_left = 0;
+        tree.matrix = Mat4::from_translation(tree.location);
+    }
+
+    buffer.tick_cpu(false, |_| TreeShroudStatus::Clear);
+
+    assert_eq!(buffer.trees()[id].tree_type, DELETED_TREE_TYPE);
+    assert_eq!(buffer.trees()[id].sink_frames_left, u32::MAX);
+    approx_eq(buffer.trees()[id].location.z, 3.0 - 20.0 / 300.0);
+    approx_eq(
+        buffer.trees()[id].matrix.w_axis.z,
+        buffer.trees()[id].location.z,
+    );
 }
 
 #[test]
