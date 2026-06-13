@@ -3,9 +3,28 @@ use game_client_rust::{
     terrain::{
         height_map::HeightMap,
         terrain_visual::{TerrainBibOwnerKind, TerrainVisualImpl},
+        TerrainTrackHeightProvider, TerrainTracksConfig,
     },
 };
-use glam::Mat4;
+use glam::{Mat4, Vec3};
+
+struct FlatTrackTerrain;
+
+impl TerrainTrackHeightProvider for FlatTrackTerrain {
+    fn ground_height_and_normal(&self, _x: f32, _y: f32) -> (f32, Vec3) {
+        (10.0, Vec3::Z)
+    }
+}
+
+fn track_config(max_edges: usize) -> TerrainTracksConfig {
+    TerrainTracksConfig {
+        max_terrain_tracks: 2,
+        max_tank_track_edges: max_edges,
+        max_tank_track_opaque_edges: max_edges / 2,
+        max_tank_track_fade_delay: 100,
+        make_track_marks: true,
+    }
+}
 
 fn loaded_visual_with_border() -> TerrainVisualImpl {
     let mut heightmap = HeightMap::new(6, 6, 255.0, 1.0);
@@ -232,6 +251,49 @@ fn props_and_construction_removal_record_cpp_terrain_visual_calls() {
     assert_eq!(visual.construction_removals().len(), 1);
     assert_eq!(visual.terrain_props().len(), 1);
     assert_eq!(visual.terrain_props()[0].model_name, "TreeB");
+}
+
+#[test]
+fn terrain_visual_forwards_track_detail_to_owned_track_system() {
+    let terrain = FlatTrackTerrain;
+    let mut visual = TerrainVisualImpl::new();
+    visual.set_terrain_tracks_detail_with_config(track_config(4));
+    let handle = visual
+        .terrain_tracks_mut()
+        .bind_track(4.0, 10.0, "tracks.tga")
+        .unwrap();
+    visual
+        .terrain_tracks_mut()
+        .add_edge_to_track(handle, &terrain, 0.0, 0.0, 0);
+    visual
+        .terrain_tracks_mut()
+        .add_edge_to_track(handle, &terrain, 20.0, 0.0, 1);
+
+    visual.set_terrain_tracks_detail_with_config(track_config(6));
+
+    assert_eq!(
+        visual
+            .terrain_tracks()
+            .track(handle)
+            .unwrap()
+            .active_edge_count(),
+        0
+    );
+
+    for i in 0..7 {
+        visual
+            .terrain_tracks_mut()
+            .add_edge_to_track(handle, &terrain, i as f32 * 20.0, 0.0, i);
+    }
+
+    assert_eq!(
+        visual
+            .terrain_tracks()
+            .track(handle)
+            .unwrap()
+            .active_edge_count(),
+        6
+    );
 }
 
 #[test]

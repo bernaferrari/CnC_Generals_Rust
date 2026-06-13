@@ -366,6 +366,9 @@ pub trait TerrainVisual: SubsystemInterface {
 
     /// Oversize the terrain mesh/visibility for script-driven map reveal effects.
     fn oversize_terrain(&mut self, _amount: i32) {}
+
+    /// Forward C++ `setTerrainTracksDetail` into the owned terrain-track system.
+    fn set_terrain_tracks_detail(&mut self) {}
 }
 
 /// Terrain utilities
