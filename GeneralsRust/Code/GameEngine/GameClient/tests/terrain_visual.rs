@@ -1,6 +1,9 @@
 use game_client_rust::{
     system::SubsystemInterface,
-    terrain::{height_map::HeightMap, terrain_visual::TerrainVisualImpl},
+    terrain::{
+        height_map::HeightMap,
+        terrain_visual::{TerrainBibOwnerKind, TerrainVisualImpl},
+    },
 };
 use glam::Mat4;
 
@@ -126,6 +129,109 @@ fn skybox_reset_restores_current_names_to_initial_names() {
             Some("old4")
         ]
     );
+}
+
+#[test]
+fn faction_bib_requires_loaded_heightmap_and_matches_cpp_corners() {
+    let mut visual = TerrainVisualImpl::new();
+    let transform = Mat4::from_translation(glam::Vec3::new(100.0, 200.0, 0.0));
+
+    assert!(!visual.add_faction_bib(
+        42,
+        TerrainBibOwnerKind::Object,
+        transform,
+        10.0,
+        5.0,
+        true,
+        2.0,
+        3.0,
+        true,
+        1.0,
+    ));
+
+    let mut visual = loaded_visual_with_border();
+    assert!(visual.add_faction_bib(
+        42,
+        TerrainBibOwnerKind::Object,
+        transform,
+        10.0,
+        5.0,
+        true,
+        2.0,
+        3.0,
+        true,
+        1.0,
+    ));
+
+    let bib = &visual.terrain_bibs()[0];
+    assert_eq!(bib.owner_id, 42);
+    assert_eq!(bib.owner_kind, TerrainBibOwnerKind::Object);
+    assert!(bib.highlight);
+    assert_eq!(
+        bib.corners,
+        [
+            [86.0, 191.0, 0.0],
+            [116.0, 191.0, 0.0],
+            [116.0, 209.0, 0.0],
+            [86.0, 209.0, 0.0],
+        ]
+    );
+}
+
+#[test]
+fn faction_bib_owner_replacement_removal_and_highlight_clear_match_cpp() {
+    let mut visual = loaded_visual_with_border();
+    let transform = Mat4::IDENTITY;
+
+    assert!(visual.add_faction_bib(
+        7,
+        TerrainBibOwnerKind::Drawable,
+        transform,
+        3.0,
+        1.0,
+        false,
+        0.0,
+        0.0,
+        true,
+        0.0,
+    ));
+    assert!(visual.add_faction_bib(
+        7,
+        TerrainBibOwnerKind::Drawable,
+        transform,
+        4.0,
+        1.0,
+        false,
+        0.0,
+        0.0,
+        true,
+        0.0,
+    ));
+
+    assert_eq!(visual.terrain_bibs().len(), 1);
+    assert_eq!(visual.terrain_bibs()[0].corners[0], [-4.0, -4.0, 0.0]);
+
+    visual.remove_bib_highlighting();
+    assert!(!visual.terrain_bibs()[0].highlight);
+
+    visual.remove_faction_bib(7, TerrainBibOwnerKind::Drawable);
+    assert!(visual.terrain_bibs().is_empty());
+}
+
+#[test]
+fn props_and_construction_removal_record_cpp_terrain_visual_calls() {
+    let mut visual = TerrainVisualImpl::new();
+
+    assert!(!visual.add_prop([0.0, 0.0, 0.0], 0.0, 1.0, ""));
+    assert!(visual.add_prop([1.0, 1.0, 0.0], 0.25, 1.5, "TreeA"));
+    assert!(visual.add_prop([5.0, 5.0, 0.0], 0.5, 0.75, "TreeB"));
+    assert_eq!(visual.terrain_props().len(), 2);
+
+    visual.remove_trees_and_props_for_construction([0.0, 0.0, 0.0], 2.0, 2.0, true, 0.0);
+
+    assert_eq!(visual.construction_removals().len(), 1);
+    assert_eq!(visual.terrain_props().len(), 1);
+    assert_eq!(visual.terrain_props()[0].model_name, "TreeB");
 }
 
 #[test]
