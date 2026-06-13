@@ -48,6 +48,7 @@ pub mod video_buffer;
 pub mod video_player;
 pub mod video_stream;
 pub mod view;
+pub mod w3d_web_browser;
 pub mod water;
 
 // Complete asset loading system
