@@ -313,10 +313,7 @@ impl RankInfoStore {
                     info.science_purchase_points_granted =
                         value.parse().map_err(|_| INIError::InvalidData)?;
                 }
-                _ => {
-                    // Unknown field - log warning but don't fail
-                    // In C++, unknown fields in the parse table are silently ignored
-                }
+                _ => return Err(INIError::UnknownToken),
             }
         }
 
@@ -569,6 +566,45 @@ mod tests {
         assert_eq!(store.get_total_purchase_points_up_to_level(3), 3);
         assert_eq!(store.get_total_purchase_points_up_to_level(4), 4);
         assert_eq!(store.get_total_purchase_points_up_to_level(5), 7); // 1+1+1+1+3
+    }
+
+    #[test]
+    fn rank_definition_rejects_fields_outside_cpp_parse_table() {
+        let mut store = RankInfoStore::new();
+        let mut ini = INI::new();
+
+        let result = ini.with_inline_source(
+            "Rank 1\nRankName = RANK:Private\nBogusField = 7\nEnd\n",
+            |ini| {
+                ini.read_line()?;
+                store.parse_rank_definition(ini, false)
+            },
+        );
+
+        assert_eq!(result, Err(INIError::UnknownToken));
+        assert_eq!(store.get_rank_level_count(), 0);
+    }
+
+    #[test]
+    fn rank_definition_accepts_cpp_field_table_fields() {
+        let mut store = RankInfoStore::new();
+        let mut ini = INI::new();
+
+        let result = ini.with_inline_source(
+            "Rank 1\nRankName = RANK:Private\nSkillPointsNeeded = 800\nSciencesGranted = None\nSciencePurchasePointsGranted = 1\nEnd\n",
+            |ini| {
+                ini.read_line()?;
+                store.parse_rank_definition(ini, false)
+            },
+        );
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(store.get_rank_level_count(), 1);
+        let info = store.get_rank_info(1).unwrap();
+        assert_eq!(info.rank_name, "RANK:Private");
+        assert_eq!(info.skill_points_needed, 800);
+        assert_eq!(info.science_purchase_points_granted, 1);
+        assert!(info.sciences_granted.is_empty());
     }
 
     #[test]
