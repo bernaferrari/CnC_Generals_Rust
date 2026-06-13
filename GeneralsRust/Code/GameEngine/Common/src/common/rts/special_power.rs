@@ -11,7 +11,9 @@
 
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
+use crate::common::ini::ini::INILoadType;
 use crate::common::ini::ini_science::get_science_store;
 
 /// Default defection detection protection time limit (10 seconds at 30 FPS)
@@ -357,7 +359,9 @@ impl SpecialPowerStore {
     /// Find a special power template by name
     /// Reference: C++ SpecialPowerStore::findSpecialPowerTemplatePrivate()
     pub fn find_template(&self, name: &str) -> Option<&SpecialPowerTemplate> {
-        self.templates.iter().find(|t| t.name == name)
+        self.templates
+            .iter()
+            .find(|t| t.name.eq_ignore_ascii_case(name))
     }
 
     /// Find a special power template by ID
@@ -452,16 +456,39 @@ impl SpecialPowerStore {
         name: &str,
         properties: &HashMap<String, String>,
     ) -> Result<(), String> {
-        // Check if template already exists
-        if self.find_template(name).is_some() {
-            return Err(format!("Special power '{}' already exists", name));
+        self.parse_special_power_definition_with_load_type(name, properties, INILoadType::Overwrite)
+    }
+
+    pub fn parse_special_power_definition_with_load_type(
+        &mut self,
+        name: &str,
+        properties: &HashMap<String, String>,
+        load_type: INILoadType,
+    ) -> Result<(), String> {
+        if let Some(index) = self
+            .templates
+            .iter()
+            .position(|template| template.name.eq_ignore_ascii_case(name))
+        {
+            if load_type != INILoadType::CreateOverrides {
+                return Err(format!("Special power '{}' already exists", name));
+            }
+
+            let mut template = self.templates[index].clone();
+            self.apply_field_parse(&mut template, properties)?;
+            self.templates[index] = template;
+            return Ok(());
         }
 
-        // Create new template with next ID
         let id = self.next_special_power_id + 1;
-        self.next_special_power_id = id;
+        let mut template = self
+            .find_template("DefaultSpecialPower")
+            .cloned()
+            .unwrap_or_else(|| SpecialPowerTemplate::new(name.to_string(), id));
 
-        let mut template = SpecialPowerTemplate::new(name.to_string(), id);
+        template.name = name.to_string();
+        template.id = id;
+        self.next_special_power_id = id;
 
         // Parse properties using the field parse array
         // Reference: C++ m_specialPowerFieldParse array (lines 85-102)
@@ -618,6 +645,28 @@ impl Default for SpecialPowerStore {
     fn default() -> Self {
         Self::new()
     }
+}
+
+static SPECIAL_POWER_STORE: OnceLock<RwLock<SpecialPowerStore>> = OnceLock::new();
+
+fn special_power_store_cell() -> &'static RwLock<SpecialPowerStore> {
+    SPECIAL_POWER_STORE.get_or_init(|| RwLock::new(SpecialPowerStore::new()))
+}
+
+pub fn get_special_power_store() -> RwLockReadGuard<'static, SpecialPowerStore> {
+    special_power_store_cell()
+        .read()
+        .expect("SpecialPowerStore poisoned")
+}
+
+pub fn get_special_power_store_mut() -> RwLockWriteGuard<'static, SpecialPowerStore> {
+    special_power_store_cell()
+        .write()
+        .expect("SpecialPowerStore poisoned")
+}
+
+pub fn reset_special_power_store() {
+    get_special_power_store_mut().reset();
 }
 
 /// Special power module - runtime instance of a special power
@@ -1084,6 +1133,36 @@ mod tests {
 
         assert!(result.is_err());
         assert!(store.find_template("BadEnumPower").is_none());
+    }
+
+    #[test]
+    fn special_power_create_overrides_updates_existing_template() {
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert("Enum".to_string(), "SPECIAL_DAISY_CUTTER".to_string());
+
+        store
+            .parse_special_power_definition("OverridePower", &props)
+            .unwrap();
+
+        let id = store.find_template("OverridePower").unwrap().id;
+        let mut override_props = HashMap::new();
+        override_props.insert("Enum".to_string(), "SPECIAL_SCUD_STORM".to_string());
+        override_props.insert("PublicTimer".to_string(), "Yes".to_string());
+
+        store
+            .parse_special_power_definition_with_load_type(
+                "OverridePower",
+                &override_props,
+                INILoadType::CreateOverrides,
+            )
+            .unwrap();
+
+        let template = store.find_template("OverridePower").unwrap();
+        assert_eq!(template.id, id);
+        assert_eq!(template.power_type, SpecialPowerType::ScudStorm);
+        assert!(template.public_timer);
+        assert_eq!(store.get_num_special_powers(), 1);
     }
 
     #[test]
