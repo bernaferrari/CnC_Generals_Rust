@@ -2358,11 +2358,27 @@ impl Drawable {
         self.terrain_decal
     }
 
+    pub fn get_drawable_status_bits(&self) -> u32 {
+        self.drawable_status_bits
+    }
+
+    pub fn test_drawable_status(&self, flag: u32) -> bool {
+        (self.drawable_status_bits & flag) != 0
+    }
+
+    pub fn set_drawable_status(&mut self, flag: u32) {
+        self.drawable_status_bits |= flag;
+    }
+
+    pub fn clear_drawable_status(&mut self, flag: u32) {
+        self.drawable_status_bits &= !flag;
+    }
+
     pub fn set_shadows_enabled(&mut self, enabled: bool) {
         if enabled {
-            self.drawable_status_bits |= 0x00000002; // DRAWABLE_STATUS_SHADOWS
+            self.set_drawable_status(0x00000002); // DRAWABLE_STATUS_SHADOWS
         } else {
-            self.drawable_status_bits &= !0x00000002;
+            self.clear_drawable_status(0x00000002);
         }
         for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
             module_handle.with_module(|module| {

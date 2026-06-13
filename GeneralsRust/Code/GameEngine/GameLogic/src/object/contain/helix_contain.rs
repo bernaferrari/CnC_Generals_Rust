@@ -1015,9 +1015,7 @@ mod tests {
         let mut template = DefaultThingTemplate::new(name.to_string());
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), kind_of.to_string());
-        template
-            .parse_object_fields_from_ini(&fields)
-            .expect("parse object fields");
+        template.parse_object_fields_from_ini(&fields);
         Object::new_with_id(Arc::new(template), id, ObjectStatusMaskType::none(), None)
             .expect("test object")
     }

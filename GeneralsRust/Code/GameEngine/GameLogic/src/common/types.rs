@@ -5159,6 +5159,16 @@ pub trait ParticleSystemManagerInterface: std::fmt::Debug + Send + Sync {
     /// Stop emitting new particles from a system (mirrors ParticleSystem::stop).
     fn stop_particle_system(&self, _system_id: ParticleSystemId) {}
 
+    /// Mark whether the system should be saved (mirrors ParticleSystem::setSaveable).
+    fn set_particle_system_saveable(&self, _system_id: ParticleSystemId, _saveable: bool) {}
+
+    /// Rotate the particle system local transform around Z (mirrors ParticleSystem::rotateLocalTransformZ).
+    fn rotate_particle_system_local_transform_z(&self, _system_id: ParticleSystemId, _angle: Real) {
+    }
+
+    /// Skip parent transform composition (mirrors ParticleSystem::setSkipParentXfrm).
+    fn set_particle_system_skip_parent_xfrm(&self, _system_id: ParticleSystemId, _enable: bool) {}
+
     /// Tint all active particle-system colors (mirrors ParticleSystem::tintAllColors).
     fn tint_particle_system_all_colors(&self, _system_id: ParticleSystemId, _color: Color) {}
 

@@ -1289,6 +1289,48 @@ impl gamelogic::common::types::ParticleSystemManagerInterface for ParticleSystem
         }
     }
 
+    fn set_particle_system_saveable(
+        &self,
+        system_id: gamelogic::common::ParticleSystemId,
+        saveable: bool,
+    ) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.set_saveable(saveable);
+                }
+            }
+        }
+    }
+
+    fn rotate_particle_system_local_transform_z(
+        &self,
+        system_id: gamelogic::common::ParticleSystemId,
+        angle: gamelogic::common::Real,
+    ) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.rotate_local_transform_z(angle);
+                }
+            }
+        }
+    }
+
+    fn set_particle_system_skip_parent_xfrm(
+        &self,
+        system_id: gamelogic::common::ParticleSystemId,
+        enable: bool,
+    ) {
+        if let Ok(mut manager_guard) = get_particle_system_manager_mut() {
+            if let Some(manager) = manager_guard.as_mut() {
+                if let Some(system) = manager.find_particle_system_mut(system_id) {
+                    system.set_skip_parent_xfrm(enable);
+                }
+            }
+        }
+    }
+
     fn tint_particle_system_all_colors(
         &self,
         system_id: gamelogic::common::ParticleSystemId,

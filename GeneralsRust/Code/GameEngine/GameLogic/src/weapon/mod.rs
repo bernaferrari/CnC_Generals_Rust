@@ -6005,9 +6005,7 @@ mod tests {
             crate::common::DefaultThingTemplate::new(format!("ProjectileCollisionObject{}", id));
         let properties =
             std::collections::HashMap::from([("KindOf".to_string(), kind_of.to_string())]);
-        template
-            .parse_object_fields_from_ini(&properties)
-            .expect("parse object fields");
+        template.parse_object_fields_from_ini(&properties);
 
         let object = crate::object::Object::new_with_id(
             Arc::new(template),
