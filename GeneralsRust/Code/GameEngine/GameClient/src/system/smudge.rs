@@ -133,9 +133,6 @@ impl SmudgeManager {
             .position(|candidate| Arc::ptr_eq(candidate, set))
         {
             let set = self.used_sets.swap_remove(pos);
-            if let Ok(mut guard) = set.lock() {
-                guard.reset();
-            }
             self.free_sets.push(set);
         }
     }
@@ -179,4 +176,43 @@ fn push_free_smudge(smudge: Smudge) {
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .push(smudge);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remove_smudge_set_reuses_without_reset_like_cpp() {
+        let mut manager = SmudgeManager::new();
+        let set = manager.add_smudge_set();
+
+        {
+            let mut guard = set.lock().unwrap();
+            guard.add_smudge_to_set().size = 42.0;
+        }
+
+        manager.remove_smudge_set(&set);
+        assert_eq!(set.lock().unwrap().used_smudge_count(), 1);
+
+        let reused = manager.add_smudge_set();
+        assert!(Arc::ptr_eq(&set, &reused));
+
+        let guard = reused.lock().unwrap();
+        assert_eq!(guard.used_smudge_count(), 1);
+        assert_eq!(guard.used_smudges()[0].size, 42.0);
+    }
+
+    #[test]
+    fn reset_clears_used_sets_before_pooling() {
+        let mut manager = SmudgeManager::new();
+        let set = manager.add_smudge_set();
+        set.lock().unwrap().add_smudge_to_set().size = 12.0;
+
+        manager.reset();
+
+        let reused = manager.add_smudge_set();
+        assert!(Arc::ptr_eq(&set, &reused));
+        assert_eq!(reused.lock().unwrap().used_smudge_count(), 0);
+    }
 }
