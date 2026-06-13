@@ -2246,6 +2246,10 @@ impl InGameUI {
         current_frame < hint.creation_frame.saturating_add(hint.lifetime_frames)
     }
 
+    fn hint_draws_waypoint_line(hint: &HintData, current_frame: u32) -> bool {
+        hint.hint_type == HintType::Command && Self::hint_is_alive(hint, current_frame)
+    }
+
     // ── Named timer system ─────────────────────────────────────────────
     // C++: InGameUI::addNamedTimer() (InGameUI.cpp)
     // C++: InGameUI::removeNamedTimer() (InGameUI.cpp)
@@ -2534,10 +2538,7 @@ impl InGameUI {
         renderer: &mut UIRenderer,
     ) -> std::result::Result<(), String> {
         for hint in &self.hints {
-            if hint.hint_type != HintType::Move && hint.hint_type != HintType::Command {
-                continue;
-            }
-            if !Self::hint_is_alive(hint, self.current_frame) {
+            if !Self::hint_draws_waypoint_line(hint, self.current_frame) {
                 continue;
             }
 
@@ -5072,6 +5073,31 @@ mod tests {
         assert_eq!(hint.lifetime_frames, 41);
         assert!(InGameUI::hint_is_alive(&hint, 140));
         assert!(!InGameUI::hint_is_alive(&hint, 141));
+    }
+
+    #[test]
+    fn move_hints_do_not_draw_disabled_cpp_waypoint_line_block() {
+        let move_hint = HintData {
+            hint_type: HintType::Move,
+            start: Coord3D::new(0.0, 0.0, 0.0),
+            end: Coord3D::new(10.0, 0.0, 0.0),
+            creation_frame: 100,
+            source_id: 7,
+            lifetime_frames: MOVE_HINT_LIFETIME_FRAMES,
+        };
+        let command_hint = HintData {
+            hint_type: HintType::Command,
+            start: Coord3D::new(0.0, 0.0, 0.0),
+            end: Coord3D::new(10.0, 0.0, 0.0),
+            creation_frame: 100,
+            source_id: 7,
+            lifetime_frames: MOVE_HINT_LIFETIME_FRAMES,
+        };
+
+        assert!(InGameUI::hint_is_alive(&move_hint, 120));
+        assert!(!InGameUI::hint_draws_waypoint_line(&move_hint, 120));
+        assert!(InGameUI::hint_draws_waypoint_line(&command_hint, 120));
+        assert!(!InGameUI::hint_draws_waypoint_line(&command_hint, 141));
     }
 
     #[test]
