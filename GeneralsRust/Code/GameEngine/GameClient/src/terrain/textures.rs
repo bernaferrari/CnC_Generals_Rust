@@ -39,11 +39,29 @@ pub const TERRAIN_TEXTURE_BORDER_PX: u32 = 4;
 // C++ TileData.h parity constants
 pub const TILE_OFFSET: u32 = 8;
 pub const TILE_PIXEL_EXTENT: u32 = 64;
+pub const TILE_PIXEL_EXTENT_MIP1: u32 = 32;
+pub const TILE_PIXEL_EXTENT_MIP2: u32 = 16;
+pub const TILE_PIXEL_EXTENT_MIP3: u32 = 8;
+pub const TILE_PIXEL_EXTENT_MIP4: u32 = 4;
+pub const TILE_PIXEL_EXTENT_MIP5: u32 = 2;
+pub const TILE_PIXEL_EXTENT_MIP6: u32 = 1;
 pub const TILE_BYTES_PER_PIXEL: u32 = 4;
+pub const DATA_LEN_BYTES: usize =
+    (TILE_PIXEL_EXTENT * TILE_PIXEL_EXTENT * TILE_BYTES_PER_PIXEL) as usize;
 pub const TEXTURE_WIDTH: u32 = 2048;
 pub const NUM_SOURCE_TILES: usize = 1024;
 pub const NUM_BLEND_TILES: usize = 16192;
 pub const NUM_TEXTURE_CLASSES: usize = 256;
+
+const TILE_MIP_WIDTHS: [u32; 7] = [
+    TILE_PIXEL_EXTENT,
+    TILE_PIXEL_EXTENT_MIP1,
+    TILE_PIXEL_EXTENT_MIP2,
+    TILE_PIXEL_EXTENT_MIP3,
+    TILE_PIXEL_EXTENT_MIP4,
+    TILE_PIXEL_EXTENT_MIP5,
+    TILE_PIXEL_EXTENT_MIP6,
+];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TextureKind {
@@ -53,16 +71,50 @@ pub enum TextureKind {
 /// Holds 1 tile's BGRA pixel data. Mirrors C++ TileData.
 #[derive(Debug, Clone)]
 pub struct TileData {
-    pub data: [u8; (TILE_PIXEL_EXTENT * TILE_PIXEL_EXTENT * TILE_BYTES_PER_PIXEL) as usize],
+    pub data: [u8; DATA_LEN_BYTES],
+    tile_data_mip32:
+        [u8; (TILE_PIXEL_EXTENT_MIP1 * TILE_PIXEL_EXTENT_MIP1 * TILE_BYTES_PER_PIXEL) as usize],
+    tile_data_mip16:
+        [u8; (TILE_PIXEL_EXTENT_MIP2 * TILE_PIXEL_EXTENT_MIP2 * TILE_BYTES_PER_PIXEL) as usize],
+    tile_data_mip8:
+        [u8; (TILE_PIXEL_EXTENT_MIP3 * TILE_PIXEL_EXTENT_MIP3 * TILE_BYTES_PER_PIXEL) as usize],
+    tile_data_mip4:
+        [u8; (TILE_PIXEL_EXTENT_MIP4 * TILE_PIXEL_EXTENT_MIP4 * TILE_BYTES_PER_PIXEL) as usize],
+    tile_data_mip2:
+        [u8; (TILE_PIXEL_EXTENT_MIP5 * TILE_PIXEL_EXTENT_MIP5 * TILE_BYTES_PER_PIXEL) as usize],
+    tile_data_mip1:
+        [u8; (TILE_PIXEL_EXTENT_MIP6 * TILE_PIXEL_EXTENT_MIP6 * TILE_BYTES_PER_PIXEL) as usize],
     pub tile_location_in_texture: (i32, i32),
 }
 
 impl TileData {
     pub fn new() -> Self {
         Self {
-            data: [0u8; (TILE_PIXEL_EXTENT * TILE_PIXEL_EXTENT * TILE_BYTES_PER_PIXEL) as usize],
+            data: [0u8; DATA_LEN_BYTES],
+            tile_data_mip32: [0u8; (TILE_PIXEL_EXTENT_MIP1
+                * TILE_PIXEL_EXTENT_MIP1
+                * TILE_BYTES_PER_PIXEL) as usize],
+            tile_data_mip16: [0u8; (TILE_PIXEL_EXTENT_MIP2
+                * TILE_PIXEL_EXTENT_MIP2
+                * TILE_BYTES_PER_PIXEL) as usize],
+            tile_data_mip8: [0u8; (TILE_PIXEL_EXTENT_MIP3
+                * TILE_PIXEL_EXTENT_MIP3
+                * TILE_BYTES_PER_PIXEL) as usize],
+            tile_data_mip4: [0u8; (TILE_PIXEL_EXTENT_MIP4
+                * TILE_PIXEL_EXTENT_MIP4
+                * TILE_BYTES_PER_PIXEL) as usize],
+            tile_data_mip2: [0u8; (TILE_PIXEL_EXTENT_MIP5
+                * TILE_PIXEL_EXTENT_MIP5
+                * TILE_BYTES_PER_PIXEL) as usize],
+            tile_data_mip1: [0u8; (TILE_PIXEL_EXTENT_MIP6
+                * TILE_PIXEL_EXTENT_MIP6
+                * TILE_BYTES_PER_PIXEL) as usize],
             tile_location_in_texture: (0, 0),
         }
+    }
+
+    pub const fn data_len() -> usize {
+        DATA_LEN_BYTES
     }
 
     pub fn data_ptr(&mut self) -> &mut [u8] {
@@ -70,19 +122,70 @@ impl TileData {
     }
 
     pub fn get_rgb_data_for_width(&self, width: u32) -> &[u8] {
-        if width == TILE_PIXEL_EXTENT {
-            &self.data
-        } else if width == TILE_PIXEL_EXTENT / 2 {
-            static MIP32: OnceLock<Vec<u8>> = OnceLock::new();
-            let _ = MIP32.get_or_init(|| Vec::new());
-            &self.data
-        } else {
-            &self.data
+        match width {
+            TILE_PIXEL_EXTENT_MIP1 => &self.tile_data_mip32,
+            TILE_PIXEL_EXTENT_MIP2 => &self.tile_data_mip16,
+            TILE_PIXEL_EXTENT_MIP3 => &self.tile_data_mip8,
+            TILE_PIXEL_EXTENT_MIP4 => &self.tile_data_mip4,
+            TILE_PIXEL_EXTENT_MIP5 => &self.tile_data_mip2,
+            TILE_PIXEL_EXTENT_MIP6 => &self.tile_data_mip1,
+            _ => &self.data,
         }
     }
 
-    pub fn has_rgb_data_for_width(&self, _width: u32) -> bool {
-        true
+    pub fn has_rgb_data_for_width(&self, width: u32) -> bool {
+        TILE_MIP_WIDTHS.contains(&width)
+    }
+
+    pub fn update_mips(&mut self) {
+        Self::do_mip(&self.data, TILE_PIXEL_EXTENT, &mut self.tile_data_mip32);
+        Self::do_mip(
+            &self.tile_data_mip32,
+            TILE_PIXEL_EXTENT_MIP1,
+            &mut self.tile_data_mip16,
+        );
+        Self::do_mip(
+            &self.tile_data_mip16,
+            TILE_PIXEL_EXTENT_MIP2,
+            &mut self.tile_data_mip8,
+        );
+        Self::do_mip(
+            &self.tile_data_mip8,
+            TILE_PIXEL_EXTENT_MIP3,
+            &mut self.tile_data_mip4,
+        );
+        Self::do_mip(
+            &self.tile_data_mip4,
+            TILE_PIXEL_EXTENT_MIP4,
+            &mut self.tile_data_mip2,
+        );
+        Self::do_mip(
+            &self.tile_data_mip2,
+            TILE_PIXEL_EXTENT_MIP5,
+            &mut self.tile_data_mip1,
+        );
+    }
+
+    fn do_mip(hi_res: &[u8], hi_row: u32, lo_res: &mut [u8]) {
+        let hi_row = hi_row as usize;
+        let lo_row = hi_row / 2;
+        let pixel_bytes = TILE_BYTES_PER_PIXEL as usize;
+
+        for i in (0..hi_row).step_by(2) {
+            for j in (0..hi_row).step_by(2) {
+                let ndx = (j * hi_row + i) * pixel_bytes;
+                let lo_ndx = ((j / 2) * lo_row + (i / 2)) * pixel_bytes;
+
+                for p in 0..pixel_bytes {
+                    let pxl = hi_res[ndx + p] as u16
+                        + hi_res[ndx + pixel_bytes + p] as u16
+                        + hi_res[ndx + pixel_bytes * hi_row + p] as u16
+                        + hi_res[ndx + pixel_bytes * hi_row + pixel_bytes + p] as u16
+                        + 2;
+                    lo_res[lo_ndx + p] = (pxl / 4) as u8;
+                }
+            }
+        }
     }
 }
 
@@ -1713,6 +1816,76 @@ mod tests {
         assert_eq!(texture.id, 1);
         assert_eq!(texture.name, "grass");
         assert!(!texture.loaded);
+    }
+
+    #[test]
+    fn tile_data_matches_cpp_supported_width_table() {
+        let tile = TileData::new();
+
+        for width in [
+            TILE_PIXEL_EXTENT,
+            TILE_PIXEL_EXTENT_MIP1,
+            TILE_PIXEL_EXTENT_MIP2,
+            TILE_PIXEL_EXTENT_MIP3,
+            TILE_PIXEL_EXTENT_MIP4,
+            TILE_PIXEL_EXTENT_MIP5,
+            TILE_PIXEL_EXTENT_MIP6,
+        ] {
+            assert!(tile.has_rgb_data_for_width(width));
+            assert_eq!(
+                tile.get_rgb_data_for_width(width).len(),
+                (width * width * TILE_BYTES_PER_PIXEL) as usize
+            );
+        }
+
+        assert!(!tile.has_rgb_data_for_width(3));
+        assert!(!tile.has_rgb_data_for_width(128));
+        assert_eq!(tile.get_rgb_data_for_width(3).len(), TileData::data_len());
+    }
+
+    #[test]
+    fn tile_data_update_mips_averages_2x2_blocks_like_cpp() {
+        let mut tile = TileData::new();
+
+        for y in 0..TILE_PIXEL_EXTENT as usize {
+            for x in 0..TILE_PIXEL_EXTENT as usize {
+                let base = (y * TILE_PIXEL_EXTENT as usize + x) * TILE_BYTES_PER_PIXEL as usize;
+                tile.data[base] = (x * 2 + y) as u8;
+                tile.data[base + 1] = (x + y * 2) as u8;
+                tile.data[base + 2] = (x + y) as u8;
+                tile.data[base + 3] = ((x + y) % 251) as u8;
+            }
+        }
+
+        tile.update_mips();
+
+        let mip32 = tile.get_rgb_data_for_width(TILE_PIXEL_EXTENT_MIP1);
+        assert_eq!(mip32[0], 2);
+        assert_eq!(mip32[1], 2);
+        assert_eq!(mip32[2], 1);
+        assert_eq!(mip32[3], 1);
+
+        let src_base = (2 * TILE_PIXEL_EXTENT as usize + 4) * TILE_BYTES_PER_PIXEL as usize;
+        let dst_base = (1 * TILE_PIXEL_EXTENT_MIP1 as usize + 2) * TILE_BYTES_PER_PIXEL as usize;
+        for p in 0..TILE_BYTES_PER_PIXEL as usize {
+            let expected = (tile.data[src_base + p] as u16
+                + tile.data[src_base + TILE_BYTES_PER_PIXEL as usize + p] as u16
+                + tile.data
+                    [src_base + TILE_BYTES_PER_PIXEL as usize * TILE_PIXEL_EXTENT as usize + p]
+                    as u16
+                + tile.data[src_base
+                    + TILE_BYTES_PER_PIXEL as usize * TILE_PIXEL_EXTENT as usize
+                    + TILE_BYTES_PER_PIXEL as usize
+                    + p] as u16
+                + 2)
+                / 4;
+            assert_eq!(mip32[dst_base + p], expected as u8);
+        }
+
+        let mip16 = tile.get_rgb_data_for_width(TILE_PIXEL_EXTENT_MIP2);
+        let expected_from_mip32 =
+            (mip32[0] as u16 + mip32[4] as u16 + mip32[128] as u16 + mip32[132] as u16 + 2) / 4;
+        assert_eq!(mip16[0], expected_from_mip32 as u8);
     }
 
     #[test]

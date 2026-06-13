@@ -79,7 +79,7 @@ pub enum W3DError {
 pub type Result<T> = std::result::Result<T, W3DError>;
 
 /// W3D vertex format
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum VertexFormat {
     /// Position only (3 floats)
     Position,
@@ -493,11 +493,7 @@ impl Camera {
         let up = self.up;
 
         // forward = normalize(target - eye), but C++ convention: forward is -Z in view space
-        let f = [
-            target[0] - eye[0],
-            target[1] - eye[1],
-            target[2] - eye[2],
-        ];
+        let f = [target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]];
         let f_len = (f[0] * f[0] + f[1] * f[1] + f[2] * f[2]).sqrt();
         let f = [f[0] / f_len, f[1] / f_len, f[2] / f_len];
 
@@ -521,10 +517,12 @@ impl Camera {
             [s[0], u[0], -f[0], 0.0],
             [s[1], u[1], -f[1], 0.0],
             [s[2], u[2], -f[2], 0.0],
-            [-(s[0] * eye[0] + s[1] * eye[1] + s[2] * eye[2]),
-             -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]),
-             f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2],
-             1.0],
+            [
+                -(s[0] * eye[0] + s[1] * eye[1] + s[2] * eye[2]),
+                -(u[0] * eye[0] + u[1] * eye[1] + u[2] * eye[2]),
+                f[0] * eye[0] + f[1] * eye[1] + f[2] * eye[2],
+                1.0,
+            ],
         ];
     }
 

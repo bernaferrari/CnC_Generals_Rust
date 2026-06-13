@@ -15,7 +15,7 @@
 use super::{BoundingBox, Result, W3DError, W3DVertex};
 use crate::video::{ColorFormat, Resolution};
 use bytemuck::{cast_slice, Pod, Zeroable};
-use glam::{Mat4, Quat, Vec2, Vec3, Vec4};
+use glam::{Mat4, Quat, Vec2, Vec3, Vec4, Vec4Swizzles};
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -865,8 +865,10 @@ impl W3DVolumetricShadowManager {
         // Collect dynamic shadow volumes that need rendering this frame.
         self.dynamic_shadow_volumes_to_render.clear();
 
-        for (shadow_idx, shadow) in self.shadow_list.iter_mut().enumerate() {
-            if !shadow.base.is_enabled || shadow.base.is_invisible_enabled {
+        for shadow_idx in 0..self.shadow_list.len() {
+            if !self.shadow_list[shadow_idx].base.is_enabled
+                || self.shadow_list[shadow_idx].base.is_invisible_enabled
+            {
                 continue;
             }
 
@@ -874,14 +876,23 @@ impl W3DVolumetricShadowManager {
 
             // Update shadow volume geometry if light position has changed.
             for mesh_idx in 0..MAX_SHADOW_CASTER_MESHES {
-                let history = shadow.light_pos_history[0][mesh_idx];
-                let delta = (light_pos - history).length();
-                if delta > 0.001 {
-                    shadow.light_pos_history[0][mesh_idx] = light_pos;
+                let should_rebuild = {
+                    let shadow = &mut self.shadow_list[shadow_idx];
+                    let history = shadow.light_pos_history[0][mesh_idx];
+                    let delta = (light_pos - history).length();
+                    if delta > 0.001 {
+                        shadow.light_pos_history[0][mesh_idx] = light_pos;
+                        true
+                    } else {
+                        false
+                    }
+                };
+
+                if should_rebuild {
                     self.rebuild_shadow_volume(shadow_idx, mesh_idx, 0, light_pos);
                 }
 
-                if shadow.shadow_volumes[0][mesh_idx].is_some() {
+                if self.shadow_list[shadow_idx].shadow_volumes[0][mesh_idx].is_some() {
                     self.dynamic_shadow_volumes_to_render
                         .push(VolumetricShadowRenderTask {
                             shadow_index: shadow_idx,
@@ -1456,13 +1467,7 @@ impl Frustum {
     /// * `vp_max` — maximum corner of the z=-1 view plane (x, y).
     /// * `znear` — near clip distance (positive; internally negated).
     /// * `zfar` — far clip distance (positive; internally negated).
-    pub fn init(
-        camera: Mat4,
-        vp_min: Vec2,
-        vp_max: Vec2,
-        mut znear: f32,
-        mut zfar: f32,
-    ) -> Self {
+    pub fn init(camera: Mat4, vp_min: Vec2, vp_max: Vec2, mut znear: f32, mut zfar: f32) -> Self {
         if znear > 0.0 && zfar > 0.0 {
             znear = -znear;
             zfar = -zfar;
@@ -1470,9 +1475,9 @@ impl Frustum {
 
         let camera_transform = camera;
 
-        let x_vec = camera.x_axis().truncate();
-        let y_vec = camera.y_axis().truncate();
-        let z_vec = camera.z_axis().truncate();
+        let x_vec = camera.x_axis.truncate();
+        let y_vec = camera.y_axis.truncate();
+        let z_vec = camera.z_axis.truncate();
         let zv = x_vec.cross(y_vec);
         let reflected = z_vec.dot(zv) < 0.0;
 
@@ -1518,7 +1523,13 @@ impl Frustum {
             bound_max = bound_max.max(corners[i]);
         }
 
-        Self { camera_transform, planes, corners, bound_min, bound_max }
+        Self {
+            camera_transform,
+            planes,
+            corners,
+            bound_min,
+            bound_max,
+        }
     }
 
     /// Extract frustum planes from a view-projection matrix.
@@ -1529,10 +1540,10 @@ impl Frustum {
     pub fn from_view_projection(vp: Mat4) -> Self {
         let row = |r: usize| -> Vec4 {
             match r {
-                0 => vp.x_axis(),
-                1 => vp.y_axis(),
-                2 => vp.z_axis(),
-                3 => vp.w_axis(),
+                0 => vp.x_axis,
+                1 => vp.y_axis,
+                2 => vp.z_axis,
+                3 => vp.w_axis,
                 _ => Vec4::ZERO,
             }
         };
@@ -1543,7 +1554,10 @@ impl Frustum {
                 return Plane::default();
             }
             let inv = 1.0 / len;
-            Plane { n: v.xyz() * inv, d: v.w * inv }
+            Plane {
+                n: v.xyz() * inv,
+                d: v.w * inv,
+            }
         };
 
         let make_outward = |v: Vec4| -> Plane {
@@ -1556,12 +1570,12 @@ impl Frustum {
         let r1 = row(1);
         let r2 = row(2);
 
-        let left   = make_outward(r3 + r0);
-        let right  = make_outward(r3 - r0);
+        let left = make_outward(r3 + r0);
+        let right = make_outward(r3 - r0);
         let bottom = make_outward(r3 + r1);
-        let top    = make_outward(r3 - r1);
-        let near   = make_outward(r3 + r2);
-        let far_p  = make_outward(r3 - r2);
+        let top = make_outward(r3 - r1);
+        let near = make_outward(r3 + r2);
+        let far_p = make_outward(r3 - r2);
 
         let planes: [Plane; 6] = [near, bottom, right, top, left, far_p];
 
@@ -2355,15 +2369,12 @@ impl W3DShadowMapper {
         ];
 
         for plane in &rows {
-            let len = plane.x().hypot(plane.y()).hypot(plane.z());
+            let len = plane.x.hypot(plane.y).hypot(plane.z);
             if len < 1e-6 {
                 continue;
             }
-            let dist = (plane.x() * center.x()
-                + plane.y() * center.y()
-                + plane.z() * center.z()
-                + plane.w())
-                / len;
+            let dist =
+                (plane.x * center.x + plane.y * center.y + plane.z * center.z + plane.w) / len;
             if dist < -radius {
                 return false;
             }

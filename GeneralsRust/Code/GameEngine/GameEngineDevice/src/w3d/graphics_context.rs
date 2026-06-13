@@ -396,10 +396,10 @@ impl GraphicsContext {
         stencil: Option<u32>,
     ) -> Result<()> {
         self.pending_clear_color = color.map(|c| Color {
-            r: c[0],
-            g: c[1],
-            b: c[2],
-            a: c[3],
+            r: c[0] as f64,
+            g: c[1] as f64,
+            b: c[2] as f64,
+            a: c[3] as f64,
         });
         self.pending_clear_depth = depth;
         self.pending_clear_stencil = stencil;
