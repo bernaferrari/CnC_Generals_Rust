@@ -922,6 +922,17 @@ impl RigidBody {
                     height: h2,
                 },
             ) => self.capsule_capsule_collision(other, *r1, *h1, *r2, *h2),
+            (CollisionShape::Box { half_extents }, CollisionShape::Capsule { radius, height }) => {
+                self.box_capsule_collision(other, *half_extents, *radius, *height)
+            }
+            (CollisionShape::Capsule { radius, height }, CollisionShape::Box { half_extents }) => {
+                other
+                    .box_capsule_collision(self, *half_extents, *radius, *height)
+                    .map(|mut info| {
+                        info.normal = -info.normal;
+                        info
+                    })
+            }
             _ => None, // Other combinations not implemented yet
         }
     }
@@ -1167,6 +1178,41 @@ impl RigidBody {
                 contact_point: (point_a + point_b) * 0.5,
                 normal,
                 penetration: min_distance - distance,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn box_capsule_collision(
+        &self,
+        other: &RigidBody,
+        half_extents: Vec3,
+        capsule_radius: f32,
+        capsule_height: f32,
+    ) -> Option<CollisionInfo> {
+        let box_rot = Mat3::from_quat(self.rotation);
+        let inv_box_rot = box_rot.transpose();
+        let (cap_a, cap_b) = capsule_segment_endpoints(other, capsule_height);
+        let local_a = inv_box_rot * (cap_a - self.position);
+        let local_b = inv_box_rot * (cap_b - self.position);
+        let (local_segment_point, local_box_point) =
+            closest_segment_point_to_aabb(local_a, local_b, half_extents);
+        let local_delta = local_segment_point - local_box_point;
+        let distance = local_delta.length();
+
+        if distance < capsule_radius {
+            let local_normal: Vec3 = if distance > 0.000001 {
+                local_delta / distance
+            } else {
+                let local_center = inv_box_rot * (other.position - self.position);
+                local_center.try_normalize().unwrap_or(Vec3::Y)
+            };
+
+            Some(CollisionInfo {
+                contact_point: self.position + box_rot * local_box_point,
+                normal: (box_rot * local_normal).normalize(),
+                penetration: capsule_radius - distance,
             })
         } else {
             None
@@ -1419,6 +1465,50 @@ fn closest_point_on_segment(point: Vec3, a: Vec3, b: Vec3) -> Vec3 {
 
     let t = ((point - a).dot(ab) / denom).clamp(0.0, 1.0);
     a + ab * t
+}
+
+fn closest_point_on_aabb(point: Vec3, half_extents: Vec3) -> Vec3 {
+    Vec3::new(
+        point.x.clamp(-half_extents.x, half_extents.x),
+        point.y.clamp(-half_extents.y, half_extents.y),
+        point.z.clamp(-half_extents.z, half_extents.z),
+    )
+}
+
+fn segment_aabb_distance_at(a: Vec3, b: Vec3, half_extents: Vec3, t: f32) -> (f32, Vec3, Vec3) {
+    let segment_point = a + (b - a) * t;
+    let box_point = closest_point_on_aabb(segment_point, half_extents);
+    (
+        segment_point.distance_squared(box_point),
+        segment_point,
+        box_point,
+    )
+}
+
+fn closest_segment_point_to_aabb(a: Vec3, b: Vec3, half_extents: Vec3) -> (Vec3, Vec3) {
+    if a.distance_squared(b) <= 0.000001 {
+        let box_point = closest_point_on_aabb(a, half_extents);
+        return (a, box_point);
+    }
+
+    let mut lo = 0.0;
+    let mut hi = 1.0;
+    for _ in 0..48 {
+        let m1 = lo + (hi - lo) / 3.0;
+        let m2 = hi - (hi - lo) / 3.0;
+        let d1 = segment_aabb_distance_at(a, b, half_extents, m1).0;
+        let d2 = segment_aabb_distance_at(a, b, half_extents, m2).0;
+
+        if d1 < d2 {
+            hi = m2;
+        } else {
+            lo = m1;
+        }
+    }
+
+    let t = (lo + hi) * 0.5;
+    let (_, segment_point, box_point) = segment_aabb_distance_at(a, b, half_extents, t);
+    (segment_point, box_point)
 }
 
 fn closest_points_between_segments(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> (Vec3, Vec3) {
@@ -2205,6 +2295,60 @@ mod tests {
         assert!((collision.contact_point.x - 0.4).abs() < 0.0001);
         assert!(collision.contact_point.y.abs() <= 1.0);
         assert!(collision.contact_point.z.abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_box_capsule_collision_detects_side_overlap() {
+        let box_body = test_body(
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            CollisionShape::Box {
+                half_extents: Vec3::ONE,
+            },
+        );
+        let capsule = test_body(
+            Vec3::new(1.4, 0.0, 0.0),
+            Quat::IDENTITY,
+            CollisionShape::Capsule {
+                radius: 0.5,
+                height: 2.0,
+            },
+        );
+
+        let collision = box_body
+            .collide_with(&capsule)
+            .expect("box should overlap capsule");
+        assert!((collision.penetration - 0.1).abs() < 0.0001);
+        assert!(collision.normal.dot(Vec3::X) > 0.999);
+        assert!((collision.contact_point.x - 1.0).abs() < 0.0001);
+        assert!(collision.contact_point.y.abs() <= 1.0);
+        assert!(collision.contact_point.z.abs() < 0.0001);
+    }
+
+    #[test]
+    fn test_capsule_box_collision_inverts_normal() {
+        let capsule = test_body(
+            Vec3::new(1.4, 0.0, 0.0),
+            Quat::IDENTITY,
+            CollisionShape::Capsule {
+                radius: 0.5,
+                height: 2.0,
+            },
+        );
+        let box_body = test_body(
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            CollisionShape::Box {
+                half_extents: Vec3::ONE,
+            },
+        );
+
+        let collision = capsule
+            .collide_with(&box_body)
+            .expect("capsule should overlap box");
+        assert!((collision.penetration - 0.1).abs() < 0.0001);
+        assert!(collision.normal.dot(Vec3::NEG_X) > 0.999);
+        assert!((collision.contact_point.x - 1.0).abs() < 0.0001);
     }
 
     #[test]
