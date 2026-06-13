@@ -1142,10 +1142,10 @@ pub struct Player {
     upgrade_list: Vec<UpgradeInfo>,
     /// Bitmask of upgrades in progress
     /// C++: m_upgradesInProgress (Player.h line 348)
-    upgrades_in_progress: u64,
+    upgrades_in_progress: u128,
     /// Bitmask of completed upgrades
     /// C++: m_upgradesCompleted (Player.h line 349)
-    upgrades_completed: u64,
+    upgrades_completed: u128,
 
     // =========================================================
     // Team Prototype List (C++ Player.h line 375)
@@ -3060,37 +3060,37 @@ impl Player {
 
     /// Get completed upgrade mask
     /// C++ Reference: Player::getCompletedUpgradeMask() (Player.h line 159)
-    pub fn get_completed_upgrade_mask(&self) -> u64 {
+    pub fn get_completed_upgrade_mask(&self) -> u128 {
         self.upgrades_completed
     }
 
     /// Set upgrade in progress bit
     pub fn set_upgrade_in_progress(&mut self, bit: u32) {
-        if bit < 64 {
-            self.upgrades_in_progress |= 1 << bit;
+        if bit < 128 {
+            self.upgrades_in_progress |= 1u128 << bit;
         }
     }
 
     /// Clear upgrade in progress bit
     pub fn clear_upgrade_in_progress(&mut self, bit: u32) {
-        if bit < 64 {
-            self.upgrades_in_progress &= !(1 << bit);
+        if bit < 128 {
+            self.upgrades_in_progress &= !(1u128 << bit);
         }
     }
 
     /// Set upgrade completed bit
     pub fn set_upgrade_completed(&mut self, bit: u32) {
-        if bit < 64 {
-            self.upgrades_completed |= 1 << bit;
+        if bit < 128 {
+            self.upgrades_completed |= 1u128 << bit;
             // Clear from in-progress when completed
-            self.upgrades_in_progress &= !(1 << bit);
+            self.upgrades_in_progress &= !(1u128 << bit);
         }
     }
 
     /// Clear upgrade completed bit
     pub fn clear_upgrade_completed(&mut self, bit: u32) {
-        if bit < 64 {
-            self.upgrades_completed &= !(1 << bit);
+        if bit < 128 {
+            self.upgrades_completed &= !(1u128 << bit);
         }
     }
 
@@ -3567,19 +3567,19 @@ impl Snapshotable for Player {
 
         // --- 11. Upgrades in progress ---
         // C++ line 4062: xfer->xferUpgradeMask(&m_upgradesInProgress)
-        let mut upgrades_in_progress_mask = self.upgrades_in_progress as u128;
+        let mut upgrades_in_progress_mask = self.upgrades_in_progress;
         xfer.xfer_upgrade_mask(&mut upgrades_in_progress_mask)
             .map_err(|e| format!("upgrades_in_progress xfer failed: {}", e))?;
 
         // --- 12. Upgrades completed ---
         // C++ line 4065: xfer->xferUpgradeMask(&m_upgradesCompleted)
-        let mut upgrades_completed_mask = self.upgrades_completed as u128;
+        let mut upgrades_completed_mask = self.upgrades_completed;
         xfer.xfer_upgrade_mask(&mut upgrades_completed_mask)
             .map_err(|e| format!("upgrades_completed xfer failed: {}", e))?;
 
         if matches!(xfer.get_xfer_mode(), XferMode::Load) {
-            self.upgrades_in_progress = upgrades_in_progress_mask as u64;
-            self.upgrades_completed = upgrades_completed_mask as u64;
+            self.upgrades_in_progress = upgrades_in_progress_mask;
+            self.upgrades_completed = upgrades_completed_mask;
         }
 
         // --- 13. Energy xferSnapshot ---
@@ -4862,7 +4862,21 @@ mod tests {
         // Set in-progress bit
         player.set_upgrade_in_progress(5);
         player.set_upgrade_completed(5); // Should also clear in-progress
-        assert_eq!(player.get_completed_upgrade_mask(), 0b11000);
+        assert_eq!(player.get_completed_upgrade_mask(), 0b101000);
+
+        // C++ UpgradeMaskType has 128 bits; high upgrade indices must not truncate.
+        player.set_upgrade_completed(127);
+        assert_eq!(
+            player.get_completed_upgrade_mask(),
+            (1u128 << 127) | 0b101000
+        );
+
+        // Out-of-range indices are ignored.
+        player.set_upgrade_completed(128);
+        assert_eq!(
+            player.get_completed_upgrade_mask(),
+            (1u128 << 127) | 0b101000
+        );
     }
 
     #[test]
