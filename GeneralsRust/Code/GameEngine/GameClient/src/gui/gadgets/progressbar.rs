@@ -24,6 +24,34 @@ pub enum ProgressBarStyle {
     Gradient,
 }
 
+/// Draw command emitted by [`ProgressBar`] for the UI renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProgressBarRenderCommand {
+    Background {
+        rect: Rect,
+        color: Color,
+    },
+    Fill {
+        rect: Rect,
+        color: Color,
+        style: ProgressBarStyle,
+    },
+    Stripes {
+        rect: Rect,
+        stripe_width: u32,
+        offset: i32,
+    },
+    Border {
+        rect: Rect,
+        color: Color,
+    },
+    Text {
+        rect: Rect,
+        text: String,
+        color: Color,
+    },
+}
+
 /// ProgressBar configuration
 #[derive(Debug, Clone)]
 pub struct ProgressBarConfig {
@@ -181,13 +209,12 @@ impl ProgressBar {
         self
     }
 
-    /// Render the progress bar
-    #[allow(unused_variables)]
-    fn render_progressbar(&self, theme: &GadgetTheme) {
-        // Render background
-        // [Background rendering code]
+    /// Build renderer-facing commands for the current progress bar state.
+    pub fn render_commands(&self, _theme: &GadgetTheme) -> Vec<ProgressBarRenderCommand> {
+        if !self.visible {
+            return Vec::new();
+        }
 
-        // Calculate fill size based on orientation
         let (fill_width, fill_height) = match self.config.orientation {
             ProgressBarOrientation::Horizontal => (
                 (self.bounds.width as f32 * self.value) as u32,
@@ -199,35 +226,51 @@ impl ProgressBar {
             ),
         };
 
-        // Render fill based on style
-        match self.config.style {
-            ProgressBarStyle::Solid => {
-                // Solid fill rendering
-                // [Fill rendering code]
+        let fill_rect = match self.config.orientation {
+            ProgressBarOrientation::Horizontal => {
+                Rect::new(self.bounds.x, self.bounds.y, fill_width, self.bounds.height)
             }
-            ProgressBarStyle::Striped | ProgressBarStyle::AnimatedStripes => {
-                // Striped pattern rendering
-                let stripe_width = 10;
-                let offset = if self.config.style == ProgressBarStyle::AnimatedStripes {
+            ProgressBarOrientation::Vertical => Rect::new(
+                self.bounds.x,
+                self.bounds.y + self.bounds.height as i32 - fill_height as i32,
+                self.bounds.width,
+                fill_height,
+            ),
+        };
+
+        let mut commands = vec![
+            ProgressBarRenderCommand::Background {
+                rect: self.bounds,
+                color: self.config.background_color,
+            },
+            ProgressBarRenderCommand::Fill {
+                rect: fill_rect,
+                color: self.config.fill_color,
+                style: self.config.style,
+            },
+        ];
+
+        if matches!(
+            self.config.style,
+            ProgressBarStyle::Striped | ProgressBarStyle::AnimatedStripes
+        ) {
+            commands.push(ProgressBarRenderCommand::Stripes {
+                rect: fill_rect,
+                stripe_width: 10,
+                offset: if self.config.style == ProgressBarStyle::AnimatedStripes {
                     self.animation_offset as i32
                 } else {
                     0
-                };
-                // [Striped rendering code]
-            }
-            ProgressBarStyle::Gradient => {
-                // Gradient fill rendering
-                // [Gradient rendering code]
-            }
+                },
+            });
         }
 
-        // Render border
-        // [Border rendering code]
+        commands.push(ProgressBarRenderCommand::Border {
+            rect: self.bounds,
+            color: self.config.border_color,
+        });
 
-        // Render text/percentage
         if self.config.show_percentage || self.config.show_text {
-            let (center_x, center_y) = self.bounds.center();
-
             let display_text = if self.config.show_text && !self.text.is_empty() {
                 if self.config.show_percentage {
                     format!("{} - {:.0}%", self.text, self.percentage())
@@ -240,8 +283,16 @@ impl ProgressBar {
                 String::new()
             };
 
-            // [Text rendering code]
+            if !display_text.is_empty() {
+                commands.push(ProgressBarRenderCommand::Text {
+                    rect: self.bounds,
+                    text: display_text,
+                    color: self.config.text_color,
+                });
+            }
         }
+
+        commands
     }
 }
 
@@ -314,7 +365,7 @@ impl Gadget for ProgressBar {
             return;
         }
 
-        self.render_progressbar(theme);
+        let _commands = self.render_commands(theme);
     }
 
     fn tooltip(&self) -> Option<&str> {
@@ -447,5 +498,76 @@ mod tests {
         bar.set_value_range(50.0, 0.0, 100.0);
         assert_eq!(bar.value(), 0.5);
         assert_eq!(bar.percentage(), 50.0);
+    }
+
+    #[test]
+    fn progress_bar_render_commands_emit_fill_border_and_text() {
+        let theme = GadgetTheme::default();
+        let mut bar = ProgressBar::new(1, 10, 20, 200, 20);
+        bar.set_percentage(40.0);
+
+        assert_eq!(
+            bar.render_commands(&theme),
+            vec![
+                ProgressBarRenderCommand::Background {
+                    rect: Rect::new(10, 20, 200, 20),
+                    color: ProgressBarConfig::default().background_color,
+                },
+                ProgressBarRenderCommand::Fill {
+                    rect: Rect::new(10, 20, 80, 20),
+                    color: ProgressBarConfig::default().fill_color,
+                    style: ProgressBarStyle::Solid,
+                },
+                ProgressBarRenderCommand::Border {
+                    rect: Rect::new(10, 20, 200, 20),
+                    color: ProgressBarConfig::default().border_color,
+                },
+                ProgressBarRenderCommand::Text {
+                    rect: Rect::new(10, 20, 200, 20),
+                    text: "40%".to_string(),
+                    color: ProgressBarConfig::default().text_color,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn progress_bar_render_commands_cover_vertical_stripes_and_hidden() {
+        let theme = GadgetTheme::default();
+        let mut bar = ProgressBar::new(1, 10, 20, 20, 100)
+            .with_orientation(ProgressBarOrientation::Vertical)
+            .with_style(ProgressBarStyle::AnimatedStripes)
+            .with_percentage(false)
+            .with_animation(true);
+
+        bar.set_percentage(25.0);
+        bar.update(0.5);
+
+        assert_eq!(
+            bar.render_commands(&theme),
+            vec![
+                ProgressBarRenderCommand::Background {
+                    rect: Rect::new(10, 20, 20, 100),
+                    color: ProgressBarConfig::default().background_color,
+                },
+                ProgressBarRenderCommand::Fill {
+                    rect: Rect::new(10, 95, 20, 25),
+                    color: ProgressBarConfig::default().fill_color,
+                    style: ProgressBarStyle::AnimatedStripes,
+                },
+                ProgressBarRenderCommand::Stripes {
+                    rect: Rect::new(10, 95, 20, 25),
+                    stripe_width: 10,
+                    offset: 5,
+                },
+                ProgressBarRenderCommand::Border {
+                    rect: Rect::new(10, 20, 20, 100),
+                    color: ProgressBarConfig::default().border_color,
+                },
+            ]
+        );
+
+        bar.set_visible(false);
+        assert!(bar.render_commands(&theme).is_empty());
     }
 }
