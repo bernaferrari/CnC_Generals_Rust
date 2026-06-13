@@ -446,6 +446,22 @@ impl HeightMap {
         }
     }
 
+    /// C++ `WorldHeightMap::getTerrainNameAt` indexes the logic map by
+    /// floor(world / MAP_XY_FACTOR), clamps to map bounds, then shifts the
+    /// packed tile index right by two because four grids share one tile.
+    pub fn get_packed_terrain_tile_at_world(&self, world_x: f32, world_y: f32) -> u32 {
+        if self.width == 0 || self.height == 0 || self.scale.abs() <= f32::EPSILON {
+            return 0;
+        }
+
+        let max_x = self.width.saturating_sub(1) as i32;
+        let max_y = self.height.saturating_sub(1) as i32;
+        let x_index = ((world_x / self.scale).floor() as i32 + self.border_size).clamp(0, max_x);
+        let y_index = ((world_y / self.scale).floor() as i32 + self.border_size).clamp(0, max_y);
+        let packed_tile = self.get_tile_index(x_index, y_index) as i32;
+        (packed_tile >> 2).max(0) as u32
+    }
+
     pub fn get_blend_tile_index(&self, x_index: i32, y_index: i32) -> i16 {
         let ndx = y_index * (self.width as i32) + x_index;
         if ndx >= 0 && (ndx as usize) < self.blend_tile_ndxes.len() {
@@ -810,6 +826,17 @@ mod tests {
         let height = heightmap.get_height_at(1.25, 1.75);
 
         assert!((height - 50.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn packed_terrain_tile_query_matches_cpp_floor_clamp_and_shift() {
+        let mut heightmap = HeightMap::new(4, 4, 100.0, 1.0);
+        heightmap.border_size = 1;
+        heightmap.tile_ndxes[(2 * 4 + 2) as usize] = 44;
+        heightmap.tile_ndxes[0] = 28;
+
+        assert_eq!(heightmap.get_packed_terrain_tile_at_world(1.25, 1.75), 11);
+        assert_eq!(heightmap.get_packed_terrain_tile_at_world(-99.0, -99.0), 7);
     }
 
     #[test]

@@ -70,6 +70,20 @@ fn raw_map_height_returns_zero_without_loaded_logic_map() {
     assert_eq!(visual.get_raw_map_height(1, 2), 0);
 }
 
+#[test]
+fn terrain_tile_query_uses_logic_heightmap_packed_tile_indices() {
+    let mut heightmap = HeightMap::new(6, 6, 255.0, 1.0);
+    heightmap.border_size = 1;
+    heightmap.tile_ndxes[(3 * 6 + 2) as usize] = 52;
+
+    let mut visual = TerrainVisualImpl::new();
+    visual
+        .load_heightmap_from_data(heightmap, None, None)
+        .expect("runtime heightmap should load");
+
+    assert_eq!(visual.get_terrain_tile(1.25, 2.75).unwrap(), 13);
+}
+
 fn option_names(names: &[Option<String>; 5]) -> [Option<&str>; 5] {
     std::array::from_fn(|i| names[i].as_deref())
 }
