@@ -144,6 +144,7 @@ pub struct UpgradeTemplate {
     pub name: AsciiString,
     pub display_name: AsciiString,
     pub description: AsciiString,
+    pub upgrade_mask: u128,
     pub category: UpgradeCategory,
     pub requirements: UpgradeRequirement,
     pub effects: Vec<UpgradeEffect>,
@@ -164,6 +165,7 @@ impl UpgradeTemplate {
             name,
             display_name: AsciiString::from(""),
             description: AsciiString::from(""),
+            upgrade_mask: 0,
             category: UpgradeCategory::Custom("Unknown".to_string()),
             requirements: UpgradeRequirement::default(),
             effects: Vec::new(),
@@ -341,6 +343,10 @@ impl UpgradeTemplate {
         &self.name
     }
 
+    pub fn get_upgrade_mask(&self) -> u128 {
+        self.upgrade_mask
+    }
+
     pub fn is_valid(&self) -> bool {
         !self.name.is_empty()
     }
@@ -367,6 +373,7 @@ impl UpgradeTemplate {
 pub struct UpgradeCenter {
     templates: HashMap<String, UpgradeTemplate>,
     template_order: Vec<String>,
+    next_template_mask_bit: usize,
     researched_upgrades: HashMap<String, u32>, // Name -> stack count
 }
 
@@ -375,8 +382,18 @@ impl UpgradeCenter {
         Self {
             templates: HashMap::new(),
             template_order: Vec::new(),
+            next_template_mask_bit: 0,
             researched_upgrades: HashMap::new(),
         }
+    }
+
+    fn assign_new_template_mask(&mut self, template: &mut UpgradeTemplate) {
+        if self.next_template_mask_bit >= 128 {
+            panic!("Can't have over 128 types of Upgrades and have a Bitfield function.");
+        }
+
+        template.upgrade_mask = 1u128 << self.next_template_mask_bit;
+        self.next_template_mask_bit += 1;
     }
 
     /// Find a template by name
@@ -391,9 +408,12 @@ impl UpgradeCenter {
 
     /// Create a new template
     pub fn new_template(&mut self, name: AsciiString) -> &mut UpgradeTemplate {
-        let template = UpgradeTemplate::new(name.clone());
         let key = name.as_str().to_string();
-        if !self.templates.contains_key(&key) {
+        let mut template = UpgradeTemplate::new(name.clone());
+        if let Some(existing) = self.templates.get(&key) {
+            template.upgrade_mask = existing.upgrade_mask;
+        } else {
+            self.assign_new_template_mask(&mut template);
             self.template_order.insert(0, key.clone());
         }
         self.templates.insert(key, template);
@@ -409,9 +429,12 @@ impl UpgradeCenter {
     }
 
     /// Register a template
-    pub fn register_template(&mut self, template: UpgradeTemplate) {
+    pub fn register_template(&mut self, mut template: UpgradeTemplate) {
         let name = template.name.as_str().to_string();
-        if !self.templates.contains_key(&name) {
+        if let Some(existing) = self.templates.get(&name) {
+            template.upgrade_mask = existing.upgrade_mask;
+        } else {
+            self.assign_new_template_mask(&mut template);
             self.template_order.insert(0, name.clone());
         }
         self.templates.insert(name, template);
@@ -485,6 +508,7 @@ impl UpgradeCenter {
     pub fn clear(&mut self) {
         self.templates.clear();
         self.template_order.clear();
+        self.next_template_mask_bit = 0;
         self.researched_upgrades.clear();
     }
 
@@ -675,6 +699,45 @@ mod tests {
 
         // Count templates
         assert_eq!(center.get_template_count(), 1);
+    }
+
+    #[test]
+    fn upgrade_center_assigns_cpp_style_unique_masks() {
+        let mut center = UpgradeCenter::new();
+
+        let first_mask = center
+            .new_template(AsciiString::from("MaskUpgradeA"))
+            .get_upgrade_mask();
+        let second_mask = center
+            .new_template(AsciiString::from("MaskUpgradeB"))
+            .get_upgrade_mask();
+        let third_mask = center
+            .new_template(AsciiString::from("MaskUpgradeC"))
+            .get_upgrade_mask();
+
+        assert_eq!(first_mask, 1u128 << 0);
+        assert_eq!(second_mask, 1u128 << 1);
+        assert_eq!(third_mask, 1u128 << 2);
+    }
+
+    #[test]
+    fn upgrade_center_preserves_mask_when_template_is_reparsed() {
+        let mut center = UpgradeCenter::new();
+        let name = AsciiString::from("ReparsedUpgrade");
+        let original_mask = center.new_template(name.clone()).get_upgrade_mask();
+
+        let mut replacement = UpgradeTemplate::new(name.clone());
+        replacement.requirements.cost = 1000;
+        center.register_template(replacement);
+
+        let reparsed = center.find_template(&name).unwrap();
+        assert_eq!(reparsed.get_upgrade_mask(), original_mask);
+        assert_eq!(reparsed.requirements.cost, 1000);
+
+        let next_mask = center
+            .new_template(AsciiString::from("AfterReparsedUpgrade"))
+            .get_upgrade_mask();
+        assert_eq!(next_mask, 1u128 << 1);
     }
 
     #[test]
