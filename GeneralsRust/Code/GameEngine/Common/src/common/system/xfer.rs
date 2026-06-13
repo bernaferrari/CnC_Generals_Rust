@@ -12,25 +12,25 @@
 use super::geometry::{Coord3D, Matrix3D, Point2D};
 use super::kind_of::KIND_OF_BIT_NAMES;
 use super::snapshot::Snapshot;
+use crate::common::ascii_string::AsciiString;
 use crate::common::ini::ini_upgrade::get_upgrade_center;
 use crate::common::rts::science::{get_science_store, ScienceType, SCIENCE_INVALID};
 use crate::common::thing::thing::KindOfType;
 use crate::System::SaveGame::get_game_state;
 use std::io;
 
-fn upgrade_names_in_serialization_order() -> Option<Vec<String>> {
+fn upgrade_templates_in_serialization_order() -> Option<Vec<(String, u128)>> {
     let center = get_upgrade_center()?;
-    let mut names = center
-        .get_template_names()
-        .into_iter()
-        .map(|name| name.clone())
-        .collect::<Vec<_>>();
-
-    // PARITY_NOTE: C++ iterates TheUpgradeCenter's linked-list order. The current Rust
-    // UpgradeCenter exposes templates through a HashMap, so sort names to keep save output
-    // deterministic until the linked-list parity layer exists here too.
-    names.sort();
-    Some(names)
+    Some(
+        center
+            .get_template_names()
+            .into_iter()
+            .filter_map(|name| {
+                let template = center.find_template(&AsciiString::from(name.as_str()))?;
+                Some((name.clone(), template.get_upgrade_mask()))
+            })
+            .collect::<Vec<_>>(),
+    )
 }
 
 /// Type alias for XferVersion - matches C++ line 29
@@ -792,12 +792,13 @@ pub trait Xfer {
 
         match self.get_xfer_mode() {
             XferMode::Save => {
-                let upgrade_names = upgrade_names_in_serialization_order().unwrap_or_default();
+                let upgrade_templates =
+                    upgrade_templates_in_serialization_order().unwrap_or_default();
                 let mut selected_names = Vec::new();
 
                 // PARITY_NOTE: C++ writes each set upgrade bit as a name string instead of raw bits.
-                for (index, upgrade_name) in upgrade_names.into_iter().enumerate() {
-                    if (*upgrade_mask_data & (1u128 << index)) != 0 {
+                for (upgrade_name, upgrade_mask) in upgrade_templates {
+                    if (*upgrade_mask_data & upgrade_mask) == upgrade_mask {
                         selected_names.push(upgrade_name);
                     }
                 }
@@ -814,15 +815,16 @@ pub trait Xfer {
                 self.xfer_unsigned_short(&mut count)?;
                 *upgrade_mask_data = 0;
 
-                let upgrade_names = upgrade_names_in_serialization_order();
+                let upgrade_templates = upgrade_templates_in_serialization_order();
                 for _ in 0..count {
                     let mut upgrade_name = String::new();
                     self.xfer_ascii_string(&mut upgrade_name)?;
 
-                    let Some(index) = upgrade_names
-                        .as_ref()
-                        .and_then(|names| names.iter().position(|name| name == &upgrade_name))
-                    else {
+                    let Some(upgrade_mask) = upgrade_templates.as_ref().and_then(|templates| {
+                        templates
+                            .iter()
+                            .find_map(|(name, mask)| (name == &upgrade_name).then_some(*mask))
+                    }) else {
                         return Err(io::Error::new(
                             io::ErrorKind::InvalidData,
                             format!(
@@ -832,7 +834,7 @@ pub trait Xfer {
                         ));
                     };
 
-                    *upgrade_mask_data |= 1u128 << index;
+                    *upgrade_mask_data |= upgrade_mask;
                 }
                 Ok(())
             }
@@ -981,6 +983,9 @@ pub trait Xferable {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::ini::ini_upgrade::{get_upgrade_center_mut, initialize_upgrade_center};
+    use crate::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
 
     #[test]
     fn test_xfer_options() {
@@ -1020,5 +1025,40 @@ mod tests {
         };
         assert_eq!(region.lo.x, 0.0);
         assert_eq!(region.hi.x, 10.0);
+    }
+
+    #[test]
+    fn xfer_upgrade_mask_saves_names_in_upgrade_center_order() {
+        initialize_upgrade_center();
+
+        let (mask_a, mask_c) = {
+            let mut center = get_upgrade_center_mut().unwrap();
+            let mask_a = center
+                .get_or_create_template(&AsciiString::from("XferOrderUpgradeA"))
+                .get_upgrade_mask();
+            let _mask_b = center
+                .get_or_create_template(&AsciiString::from("XferOrderUpgradeB"))
+                .get_upgrade_mask();
+            let mask_c = center
+                .get_or_create_template(&AsciiString::from("XferOrderUpgradeC"))
+                .get_upgrade_mask();
+            (mask_a, mask_c)
+        };
+
+        let mut saved = Vec::new();
+        {
+            let cursor = Cursor::new(&mut saved);
+            let mut xfer = XferSave::new(cursor, 0);
+            let mut mask = mask_a | mask_c;
+            xfer.xfer_upgrade_mask(&mut mask).unwrap();
+        }
+
+        let mut expected = vec![1, 2, 0];
+        expected.push("XferOrderUpgradeC".len() as u8);
+        expected.extend_from_slice(b"XferOrderUpgradeC");
+        expected.push("XferOrderUpgradeA".len() as u8);
+        expected.extend_from_slice(b"XferOrderUpgradeA");
+
+        assert_eq!(saved, expected);
     }
 }
