@@ -12,6 +12,8 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 
+use crate::common::ini::ini_science::get_science_store;
+
 /// Default defection detection protection time limit (10 seconds at 30 FPS)
 /// Reference: C++ DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT
 pub const DEFAULT_DEFECTION_DETECTION_PROTECTION_TIME_LIMIT: u32 = 30 * 10;
@@ -463,7 +465,7 @@ impl SpecialPowerStore {
 
         // Parse properties using the field parse array
         // Reference: C++ m_specialPowerFieldParse array (lines 85-102)
-        self.apply_field_parse(&mut template, properties);
+        self.apply_field_parse(&mut template, properties)?;
 
         self.templates.push(template);
         Ok(())
@@ -475,7 +477,7 @@ impl SpecialPowerStore {
         &mut self,
         template: &mut SpecialPowerTemplate,
         properties: &HashMap<String, String>,
-    ) {
+    ) -> Result<(), String> {
         // Reference: C++ field parse array
         // { "ReloadTime",              INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_reloadTime) },
         if let Some(value) = properties.get("ReloadTime") {
@@ -486,7 +488,7 @@ impl SpecialPowerStore {
 
         // { "RequiredScience",         INI::parseScience,              NULL, offsetof(SpecialPowerTemplate, m_requiredScience) },
         if let Some(value) = properties.get("RequiredScience") {
-            template.required_science = Self::parse_science(value);
+            template.required_science = Self::parse_science(value)?;
         }
 
         // { "InitiateSound",           INI::parseAudioEventRTS,        NULL, offsetof(SpecialPowerTemplate, m_initiateSound) },
@@ -552,6 +554,8 @@ impl SpecialPowerStore {
         if let Some(value) = properties.get("AcademyClassify") {
             template.academy_classification_type = AcademyClassificationType::from_str(value);
         }
+
+        Ok(())
     }
 
     /// Parse duration to frames (matches C++ INI::parseDurationUnsignedInt)
@@ -589,18 +593,16 @@ impl SpecialPowerStore {
     }
 
     /// Parse science type (matches C++ INI::parseScience)
-    fn parse_science(value: &str) -> i32 {
+    fn parse_science(value: &str) -> Result<i32, String> {
         let value = value.trim();
-        if value.is_empty() || value.eq_ignore_ascii_case("None") {
-            return SCIENCE_INVALID;
+        if value.is_empty() {
+            return Err("Science name is empty".to_string());
         }
-        // In the full implementation, this would look up the science in the science store
-        // For now, use a simple hash-based ID
-        let mut hash: i32 = 0;
-        for c in value.chars() {
-            hash = hash.wrapping_mul(31).wrapping_add(c as i32);
-        }
-        hash.abs()
+
+        get_science_store()
+            .friend_lookup_science(value)
+            .map(|science| science.0)
+            .map_err(|err| err.to_string())
     }
 
     /// Parse special power enum (matches C++ INI::parseIndexList with SpecialPowerMaskType::getBitNames())
@@ -870,6 +872,8 @@ impl SpecialPowerExecution {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::ascii_string::AsciiString;
+    use crate::common::ini::ini_science::{get_science_store_mut, ScienceInfo, ScienceType};
 
     #[test]
     fn test_special_power_template_creation() {
@@ -1009,6 +1013,47 @@ mod tests {
             template.academy_classification_type,
             AcademyClassificationType::Superpower
         );
+    }
+
+    #[test]
+    fn special_power_required_science_uses_science_store_id() {
+        let science_name = "SCIENCE_SpecialPowerParseTest";
+        let science_type = ScienceType(0x5A17);
+        {
+            let mut science_store = get_science_store_mut();
+            science_store
+                .add_science(
+                    AsciiString::from(science_name),
+                    ScienceInfo::new(science_type),
+                )
+                .unwrap();
+        }
+
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert("RequiredScience".to_string(), science_name.to_string());
+
+        store
+            .parse_special_power_definition("ScienceBackedPower", &props)
+            .unwrap();
+
+        let template = store.find_template("ScienceBackedPower").unwrap();
+        assert_eq!(template.required_science, science_type.0);
+    }
+
+    #[test]
+    fn special_power_required_science_rejects_unknown_names() {
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert(
+            "RequiredScience".to_string(),
+            "SCIENCE_MissingSpecialPowerParseTest".to_string(),
+        );
+
+        let result = store.parse_special_power_definition("BadSciencePower", &props);
+
+        assert!(result.is_err());
+        assert!(store.find_template("BadSciencePower").is_none());
     }
 
     #[test]
