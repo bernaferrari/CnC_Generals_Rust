@@ -1978,7 +1978,7 @@ impl W3DModelDraw {
                 let pitch = turret_pitch + turret.turret_art_pitch;
                 overrides.push(BoneOverrideState {
                     bone_index: turret.turret_pitch_bone,
-                    transform: Matrix3D::from_rotation_y(pitch),
+                    transform: Matrix3D::from_rotation_y(-pitch),
                 });
             }
         }
@@ -1994,7 +1994,7 @@ impl W3DModelDraw {
                 if barrels[i].recoil_bone != 0 && shift.abs() > 0.001 {
                     overrides.push(BoneOverrideState {
                         bone_index: barrels[i].recoil_bone,
-                        transform: Matrix3D::from_translation(glam::Vec3::new(shift, 0.0, 0.0)),
+                        transform: Matrix3D::from_translation(glam::Vec3::new(-shift, 0.0, 0.0)),
                     });
                 }
             }
@@ -2036,9 +2036,11 @@ impl W3DModelDraw {
 
 impl Module for W3DModelDraw {
     fn on_drawable_bound_to_object(&mut self) {
-        // Initialize to default state
         if self.data.default_state >= 0 {
             self.set_model_state(self.data.default_state as usize);
+        } else if let Some(state_index) = self.find_best_state_index(&ModelConditionFlags::empty())
+        {
+            self.set_model_state(state_index);
         }
     }
 
@@ -2145,6 +2147,13 @@ impl DrawModule for W3DModelDraw {
         self.terrain_decal_opacity = Some(opacity);
     }
 
+    fn set_hidden(&mut self, hidden: bool) {
+        if self.hidden != hidden {
+            self.hidden = hidden;
+            self.do_start_or_stop_particle_sys();
+        }
+    }
+
     fn update_bones_for_client_particle_systems(&mut self) -> bool {
         W3DModelDraw::update_bones_for_client_particle_systems(self)
     }
@@ -2172,6 +2181,14 @@ impl DrawModule for W3DModelDraw {
 
     fn react_to_geometry_change(&mut self) {
         // C++ W3DModelDraw declares reactToGeometryChange() as a no-op.
+    }
+
+    fn get_object_draw_interface(&self) -> Option<&dyn ObjectDrawInterface> {
+        Some(self)
+    }
+
+    fn get_object_draw_interface_mut(&mut self) -> Option<&mut dyn ObjectDrawInterface> {
+        Some(self)
     }
 }
 
@@ -2584,10 +2601,10 @@ impl ObjectDrawInterface for W3DModelDraw {
 
         if barrel_info.fx_bone != 0 {
             // Weapon fire FX attachment to FX bone depends on render-object transform lookups.
-            // Keep return value true so this module remains authoritative for weapon barrel FX.
+            // C++ only reports handled after actually invoking FXList::doFXPos from this path.
         }
 
-        true
+        false
     }
 
     fn get_barrel_count(&self, weapon_slot: usize) -> i32 {
@@ -3455,5 +3472,98 @@ mod tests {
                 | MODEL_CONDITION_BARRELS_VALID
                 | MODEL_CONDITION_PUBLIC_BONES_VALID
         );
+    }
+
+    #[test]
+    fn exposes_object_draw_interface_from_draw_module() {
+        let mut draw = W3DModelDraw::new(W3DModelDrawModuleData::new());
+
+        assert!(DrawModule::get_object_draw_interface(&draw).is_some());
+        assert!(DrawModule::get_object_draw_interface_mut(&mut draw).is_some());
+    }
+
+    #[test]
+    fn bound_model_draw_initializes_best_empty_condition_state() {
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.conditions_yes.push(ModelConditionFlags::empty());
+        data.condition_states.push(state);
+        let mut draw = W3DModelDraw::new(data);
+
+        draw.on_drawable_bound_to_object();
+
+        assert_eq!(draw.cur_state, Some(ActiveModelState::Condition(0)));
+    }
+
+    #[test]
+    fn bone_overrides_use_cpp_pitch_and_recoil_signs() {
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.conditions_yes.push(ModelConditionFlags::empty());
+        state.turrets.push(TurretInfo {
+            turret_pitch_bone: 11,
+            turret_art_pitch: 0.25,
+            ..TurretInfo::new()
+        });
+        state.weapon_barrels[0].push(WeaponBarrelInfo {
+            recoil_bone: 12,
+            ..WeaponBarrelInfo::new()
+        });
+        data.condition_states.push(state);
+        let mut draw = W3DModelDraw::new(data);
+        draw.cur_state = Some(ActiveModelState::Condition(0));
+        draw.weapon_recoil_info[0].push(WeaponRecoilInfo {
+            state: RecoilState::Recoil,
+            shift: 0.5,
+            recoil_rate: 0.0,
+        });
+
+        let overrides = draw.collect_bone_overrides();
+
+        let pitch = overrides
+            .iter()
+            .find(|override_state| override_state.bone_index == 11)
+            .expect("pitch override");
+        let recoil = overrides
+            .iter()
+            .find(|override_state| override_state.bone_index == 12)
+            .expect("recoil override");
+
+        let pitch_cols = pitch.transform.to_cols_array();
+        assert!(pitch_cols[2] < 0.0);
+        assert_eq!(recoil.transform.w_axis.x, -0.5);
+    }
+
+    #[test]
+    fn weapon_fire_fx_starts_recoil_but_does_not_fabricate_handled_fx() {
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.conditions_yes.push(ModelConditionFlags::empty());
+        state.weapon_barrels[0].push(WeaponBarrelInfo {
+            fx_bone: 7,
+            recoil_bone: 12,
+            muzzle_flash_bone: 13,
+            ..WeaponBarrelInfo::new()
+        });
+        data.condition_states.push(state);
+        data.initial_recoil = 1.75;
+
+        let mut draw = W3DModelDraw::new(data);
+        draw.cur_state = Some(ActiveModelState::Condition(0));
+        draw.weapon_recoil_info[0].push(WeaponRecoilInfo::new());
+
+        let handled = ObjectDrawInterface::handle_weapon_fire_fx(
+            &mut draw,
+            0,
+            0,
+            &Coord3D::new(1.0, 2.0, 3.0),
+        );
+
+        assert!(!handled);
+        assert!(matches!(
+            draw.weapon_recoil_info[0][0].state,
+            RecoilState::RecoilStart
+        ));
+        assert_eq!(draw.weapon_recoil_info[0][0].recoil_rate, 1.75);
     }
 }
