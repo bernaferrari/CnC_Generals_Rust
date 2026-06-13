@@ -299,6 +299,180 @@ impl ModelConditionInfo {
             weapon_barrels: vec![Vec::new(); WEAPONSLOT_COUNT],
         }
     }
+
+    fn find_pristine_bone(&self, bone_key: NameKeyType) -> Option<&PristineBoneInfo> {
+        if bone_key == NAMEKEY_INVALID {
+            return None;
+        }
+        self.pristine_bones.get(&bone_key)
+    }
+
+    fn find_pristine_bone_by_name(
+        &self,
+        bone_name: &str,
+    ) -> Option<(NameKeyType, &PristineBoneInfo)> {
+        if bone_name.is_empty() {
+            return None;
+        }
+        let bone_key = name_key_generate(bone_name);
+        self.find_pristine_bone(bone_key)
+            .map(|info| (bone_key, info))
+    }
+
+    fn pristine_bone_index_by_name(&self, bone_name: &str) -> i32 {
+        self.find_pristine_bone_by_name(bone_name)
+            .map(|(_, info)| info.bone_index)
+            .unwrap_or(0)
+    }
+
+    fn validate_turret_info(&mut self) {
+        if self.pristine_bones.is_empty() {
+            return;
+        }
+
+        let angle_keys: Vec<NameKeyType> = self
+            .turrets
+            .iter()
+            .map(|turret| turret.turret_angle_name_key)
+            .collect();
+        let pitch_keys: Vec<NameKeyType> = self
+            .turrets
+            .iter()
+            .map(|turret| turret.turret_pitch_name_key)
+            .collect();
+
+        let angle_bones: Vec<i32> = angle_keys
+            .iter()
+            .map(|key| {
+                self.find_pristine_bone(*key)
+                    .map(|bone| bone.bone_index)
+                    .unwrap_or(0)
+            })
+            .collect();
+        let pitch_bones: Vec<i32> = pitch_keys
+            .iter()
+            .map(|key| {
+                self.find_pristine_bone(*key)
+                    .map(|bone| bone.bone_index)
+                    .unwrap_or(0)
+            })
+            .collect();
+
+        for (index, turret) in self.turrets.iter_mut().enumerate() {
+            turret.turret_angle_bone = angle_bones.get(index).copied().unwrap_or(0);
+            turret.turret_pitch_bone = pitch_bones.get(index).copied().unwrap_or(0);
+        }
+    }
+
+    fn validate_weapon_barrel_info(&mut self) {
+        let has_requested_weapon_bones = (0..WEAPONSLOT_COUNT).any(|slot| {
+            !self.weapon_fire_fx_bone[slot].is_empty()
+                || !self.weapon_recoil_bone[slot].is_empty()
+                || !self.weapon_muzzle_flash[slot].is_empty()
+                || !self.weapon_projectile_launch_bone[slot].is_empty()
+        });
+        if has_requested_weapon_bones && self.pristine_bones.is_empty() {
+            return;
+        }
+
+        let mut validated_barrels = vec![Vec::new(); WEAPONSLOT_COUNT];
+
+        for (slot, barrels) in validated_barrels.iter_mut().enumerate() {
+            let fx_bone_name = self.weapon_fire_fx_bone[slot].as_str();
+            let recoil_bone_name = self.weapon_recoil_bone[slot].as_str();
+            let muzzle_flash_name = self.weapon_muzzle_flash[slot].as_str();
+            let projectile_launch_name = self.weapon_projectile_launch_bone[slot].as_str();
+
+            if fx_bone_name.is_empty()
+                && recoil_bone_name.is_empty()
+                && muzzle_flash_name.is_empty()
+                && projectile_launch_name.is_empty()
+            {
+                continue;
+            }
+
+            let mut prev_fx_bone = 0;
+            for index in 1..=99 {
+                let mut info = WeaponBarrelInfo::new();
+
+                if !recoil_bone_name.is_empty() {
+                    let name = format!("{recoil_bone_name}{index:02}");
+                    info.recoil_bone = self.pristine_bone_index_by_name(&name);
+                }
+
+                if !muzzle_flash_name.is_empty() {
+                    let name = format!("{muzzle_flash_name}{index:02}");
+                    info.muzzle_flash_bone = self.pristine_bone_index_by_name(&name);
+                }
+
+                if !fx_bone_name.is_empty() {
+                    let name = format!("{fx_bone_name}{index:02}");
+                    info.fx_bone = self.pristine_bone_index_by_name(&name);
+                    if info.fx_bone == 0 && info.muzzle_flash_bone != 0 {
+                        info.fx_bone = prev_fx_bone;
+                    }
+                }
+
+                let mut projectile_launch_bone = 0;
+                if !projectile_launch_name.is_empty() {
+                    let name = format!("{projectile_launch_name}{index:02}");
+                    if let Some((_, bone)) = self.find_pristine_bone_by_name(&name) {
+                        projectile_launch_bone = bone.bone_index;
+                        info.projectile_offset_mtx = bone.transform;
+                    }
+                }
+
+                if info.fx_bone == 0
+                    && info.recoil_bone == 0
+                    && info.muzzle_flash_bone == 0
+                    && projectile_launch_bone == 0
+                {
+                    break;
+                }
+
+                prev_fx_bone = info.fx_bone;
+                barrels.push(info);
+            }
+
+            if barrels.is_empty() {
+                let mut info = WeaponBarrelInfo::new();
+
+                if !recoil_bone_name.is_empty() {
+                    info.recoil_bone = self.pristine_bone_index_by_name(recoil_bone_name);
+                }
+
+                if !muzzle_flash_name.is_empty() {
+                    info.muzzle_flash_bone = self.pristine_bone_index_by_name(muzzle_flash_name);
+                }
+
+                if !projectile_launch_name.is_empty() {
+                    if let Some((_, bone)) = self.find_pristine_bone_by_name(projectile_launch_name)
+                    {
+                        info.projectile_offset_mtx = bone.transform;
+                    }
+                }
+
+                if !fx_bone_name.is_empty() {
+                    info.fx_bone = self.pristine_bone_index_by_name(fx_bone_name);
+                }
+
+                if info.fx_bone != 0
+                    || info.recoil_bone != 0
+                    || info.muzzle_flash_bone != 0
+                    || info.projectile_offset_mtx != Matrix3D::IDENTITY
+                {
+                    barrels.push(info);
+                }
+            }
+        }
+
+        self.weapon_barrels = validated_barrels;
+    }
+
+    fn validate_runtime_caches(&mut self) {
+        self.validate_turret_info();
+        self.validate_weapon_barrel_info();
+    }
 }
 
 impl Default for ModelConditionInfo {
@@ -1368,6 +1542,7 @@ impl W3DModelDraw {
         if state_index >= self.data.condition_states.len() {
             return;
         }
+        self.data.condition_states[state_index].validate_runtime_caches();
 
         let mut new_state_ref = ActiveModelState::Condition(state_index);
         let mut pending_next_state: Option<usize> = None;
@@ -1406,6 +1581,10 @@ impl W3DModelDraw {
                     pending_next_state = Some(state_index);
                 }
             }
+        }
+
+        if let Some(state) = self.resolve_state_mut(new_state_ref) {
+            state.validate_runtime_caches();
         }
 
         let prev_state = self.cur_state;
@@ -3565,5 +3744,154 @@ mod tests {
             RecoilState::RecoilStart
         ));
         assert_eq!(draw.weapon_recoil_info[0][0].recoil_rate, 1.75);
+    }
+
+    #[test]
+    fn state_activation_populates_turret_bones_from_pristine_bones() {
+        let turret_key = name_key_generate("turret");
+        let pitch_key = name_key_generate("pitch");
+
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.conditions_yes.push(ModelConditionFlags::empty());
+        state.turrets.push(TurretInfo {
+            turret_angle_name_key: turret_key,
+            turret_pitch_name_key: pitch_key,
+            ..TurretInfo::new()
+        });
+        state.pristine_bones.insert(
+            turret_key,
+            PristineBoneInfo {
+                transform: Matrix3D::IDENTITY,
+                bone_index: 21,
+            },
+        );
+        state.pristine_bones.insert(
+            pitch_key,
+            PristineBoneInfo {
+                transform: Matrix3D::IDENTITY,
+                bone_index: 22,
+            },
+        );
+        data.condition_states.push(state);
+
+        let mut draw = W3DModelDraw::new(data);
+        draw.set_model_state(0);
+
+        let state = draw.current_state().expect("active state");
+        assert_eq!(state.turrets[0].turret_angle_bone, 21);
+        assert_eq!(state.turrets[0].turret_pitch_bone, 22);
+    }
+
+    #[test]
+    fn state_activation_populates_numbered_weapon_barrels_like_cpp() {
+        let fx01_key = name_key_generate("fx01");
+        let recoil01_key = name_key_generate("recoil01");
+        let muzzle01_key = name_key_generate("muzzle01");
+        let muzzle02_key = name_key_generate("muzzle02");
+        let projectile01_key = name_key_generate("projectile01");
+        let projectile02_key = name_key_generate("projectile02");
+        let projectile01 = Matrix3D::from_translation(glam::Vec3::new(1.0, 0.0, 0.0));
+        let projectile02 = Matrix3D::from_translation(glam::Vec3::new(2.0, 0.0, 0.0));
+
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.conditions_yes.push(ModelConditionFlags::empty());
+        state.weapon_fire_fx_bone[0] = AsciiString::from("fx");
+        state.weapon_recoil_bone[0] = AsciiString::from("recoil");
+        state.weapon_muzzle_flash[0] = AsciiString::from("muzzle");
+        state.weapon_projectile_launch_bone[0] = AsciiString::from("projectile");
+        state.pristine_bones.insert(
+            fx01_key,
+            PristineBoneInfo {
+                transform: Matrix3D::IDENTITY,
+                bone_index: 31,
+            },
+        );
+        state.pristine_bones.insert(
+            recoil01_key,
+            PristineBoneInfo {
+                transform: Matrix3D::IDENTITY,
+                bone_index: 32,
+            },
+        );
+        state.pristine_bones.insert(
+            muzzle01_key,
+            PristineBoneInfo {
+                transform: Matrix3D::IDENTITY,
+                bone_index: 33,
+            },
+        );
+        state.pristine_bones.insert(
+            muzzle02_key,
+            PristineBoneInfo {
+                transform: Matrix3D::IDENTITY,
+                bone_index: 34,
+            },
+        );
+        state.pristine_bones.insert(
+            projectile01_key,
+            PristineBoneInfo {
+                transform: projectile01,
+                bone_index: 35,
+            },
+        );
+        state.pristine_bones.insert(
+            projectile02_key,
+            PristineBoneInfo {
+                transform: projectile02,
+                bone_index: 36,
+            },
+        );
+        data.condition_states.push(state);
+
+        let mut draw = W3DModelDraw::new(data);
+        draw.set_model_state(0);
+
+        let barrels = &draw.current_state().expect("active state").weapon_barrels[0];
+        assert_eq!(barrels.len(), 2);
+        assert_eq!(barrels[0].fx_bone, 31);
+        assert_eq!(barrels[0].recoil_bone, 32);
+        assert_eq!(barrels[0].muzzle_flash_bone, 33);
+        assert_eq!(barrels[0].projectile_offset_mtx.w_axis.x, 1.0);
+        assert_eq!(barrels[1].fx_bone, 31);
+        assert_eq!(barrels[1].muzzle_flash_bone, 34);
+        assert_eq!(barrels[1].projectile_offset_mtx.w_axis.x, 2.0);
+    }
+
+    #[test]
+    fn state_activation_uses_unadorned_weapon_bone_fallback() {
+        let fx_key = name_key_generate("fx");
+        let projectile_key = name_key_generate("projectile");
+        let projectile = Matrix3D::from_translation(glam::Vec3::new(3.0, 0.0, 0.0));
+
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.conditions_yes.push(ModelConditionFlags::empty());
+        state.weapon_fire_fx_bone[0] = AsciiString::from("fx");
+        state.weapon_projectile_launch_bone[0] = AsciiString::from("projectile");
+        state.pristine_bones.insert(
+            fx_key,
+            PristineBoneInfo {
+                transform: Matrix3D::IDENTITY,
+                bone_index: 41,
+            },
+        );
+        state.pristine_bones.insert(
+            projectile_key,
+            PristineBoneInfo {
+                transform: projectile,
+                bone_index: 42,
+            },
+        );
+        data.condition_states.push(state);
+
+        let mut draw = W3DModelDraw::new(data);
+        draw.set_model_state(0);
+
+        let barrels = &draw.current_state().expect("active state").weapon_barrels[0];
+        assert_eq!(barrels.len(), 1);
+        assert_eq!(barrels[0].fx_bone, 41);
+        assert_eq!(barrels[0].projectile_offset_mtx.w_axis.x, 3.0);
     }
 }
