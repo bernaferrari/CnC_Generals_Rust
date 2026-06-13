@@ -28,6 +28,7 @@ use game_network::gamespy::persistent_storage_thread::get_ps_message_queue;
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
+const GGM_CLOSE: u32 = 16384 + 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PasswordMode {
@@ -1026,9 +1027,12 @@ pub fn rc_game_details_menu_system(
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
-        // TODO: C++ handles GWM_CLOSE (WindowMessage::Close) in the RC game details menu
-        // system callback. The Rust WindowMessage enum does not yet have a Close variant.
-        // Add handling when Close is added to the enum.
+        WindowMessage::User(code) if code == GGM_CLOSE => {
+            if let Some(layout) = window.get_layout() {
+                with_window_manager(|manager| manager.destroy_layout(&layout));
+            }
+            WindowMsgHandled::Handled
+        }
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             let ladder_button = name_to_id("RCGameDetailsMenu.wnd:ButtonLadderDetails");
