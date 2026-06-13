@@ -10,6 +10,7 @@ pub mod performance_optimizer;
 pub mod renderer;
 pub mod shadow_system;
 pub mod texture_manager;
+pub mod volumetric_shadow;
 pub mod w3d_c_api;
 pub mod w3d_device;
 
