@@ -58,6 +58,7 @@ pub mod terrain_visual;
 pub mod textures;
 pub mod vertex;
 pub mod water;
+pub mod water_tracks;
 
 use glam::{Mat4, Vec3};
 use std::collections::HashMap;
@@ -81,6 +82,10 @@ pub use terrain_tracks::{
 pub use textures::{BlendMode, TerrainTextures, TextureLayer};
 pub use vertex::TerrainVertex;
 pub use water::{WaterBody, WaterSettings, WaterSystem};
+pub use water_tracks::{
+    WaterTrackHeightProvider, WaterTrackSaveRecord, WaterTrackType, WaterTrackVertex,
+    WaterTracksFlush, WaterTracksObj, WaterTracksRenderSystem, WATER_TRACK_WAVE_INFO,
+};
 
 /// Result type for terrain operations
 pub type TerrainResult<T> = Result<T, TerrainError>;
