@@ -73,6 +73,10 @@ impl W3DPoliceCarDraw {
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.base.bind_owner_id(owner_id);
     }
+
+    pub fn cur_frame(&self) -> Real {
+        self.cur_frame
+    }
 }
 impl Module for W3DPoliceCarDraw {
     fn on_object_created(&mut self) {
@@ -88,7 +92,7 @@ impl Module for W3DPoliceCarDraw {
         self.base.on_delete();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self.base.get_module_name_key()
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DPoliceCarDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
@@ -163,5 +167,26 @@ impl Snapshotable for W3DPoliceCarDraw {
     }
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    #[test]
+    fn constructor_randomizes_frame_in_cpp_range() {
+        let draw = W3DPoliceCarDraw::new(W3DPoliceCarDrawModuleData::new());
+        assert!((0.0..=10.0).contains(&draw.cur_frame()));
+    }
+
+    #[test]
+    fn module_name_key_is_police_car_draw_not_base_truck_draw() {
+        let draw = W3DPoliceCarDraw::new(W3DPoliceCarDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DPoliceCarDraw")
+        );
     }
 }
