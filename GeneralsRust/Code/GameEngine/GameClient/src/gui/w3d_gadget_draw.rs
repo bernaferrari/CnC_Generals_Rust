@@ -3,6 +3,7 @@
 use crate::display::image::{ensure_client_mapped_image, get_mapped_image_collection};
 use crate::display::view::{with_tactical_view_ref, IPoint2};
 use crate::gui::callbacks::get_menu_manager;
+use crate::gui::display_string::DisplayString;
 use crate::gui::font::{get_font_library, FontDesc};
 use crate::gui::gadgets::tabcontrol::{
     TP_BOTTOMRIGHT, TP_BOTTOM_SIDE, TP_CENTER, TP_LEFT_SIDE, TP_RIGHT_SIDE, TP_TOP_SIDE,
@@ -769,8 +770,10 @@ mod tests {
         text_entry_image_tile_rects, text_entry_start_y, text_entry_text_color_defined,
         text_entry_text_draw_x, truncate_to_i32, TextEntryImageTileKind,
     };
-    use crate::gui::gadgets::{TabControl, TabControlData};
-    use crate::gui::game_window::{GameWindow, WindowInstanceData, WindowState, WindowStatus};
+    use crate::gui::gadgets::{ListBox, ListBoxItemData, TabControl, TabControlData};
+    use crate::gui::game_window::{
+        GameWindow, WindowInstanceData, WindowState, WindowStatus, WindowWidget,
+    };
 
     #[test]
     fn test_truncate_to_i32_matches_cpp_cast_behavior() {
@@ -966,6 +969,62 @@ mod tests {
             list_box_solid_frame_and_content_widths(100, Some((17, true))),
             (100, 100)
         );
+    }
+
+    #[test]
+    fn list_box_solid_row_text_does_not_overwrite_title_display_string() {
+        let mut window = GameWindow::new();
+        window.set_size(160, 60).unwrap();
+        window.set_text("Title").unwrap();
+
+        let mut listbox = ListBox::new(7, 0, 0, 160, 60);
+        listbox.set_columns(2);
+        let row = listbox.add_item_with_data_and_color(1, "Fallback", None, None);
+        assert!(listbox.set_item_column_data(
+            row,
+            0,
+            ListBoxItemData::Text("Alpha".to_string())
+        ));
+        assert!(listbox.set_item_column_data(
+            row,
+            1,
+            ListBoxItemData::Text("Bravo".to_string())
+        ));
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        let title = window
+            .instance_data()
+            .display_text
+            .as_ref()
+            .expect("set_text should create title display string")
+            .clone();
+        assert_eq!(title.borrow().get_text(), "Title");
+
+        super::w3d_gadget_list_box_draw(&window, window.instance_data());
+
+        assert_eq!(title.borrow().get_text(), "Title");
+    }
+
+    #[test]
+    fn list_box_image_row_text_does_not_require_title_display_string() {
+        let mut window = GameWindow::new();
+        window.set_size(160, 60).unwrap();
+
+        let mut listbox = ListBox::new(7, 0, 0, 160, 60);
+        listbox.set_columns(1);
+        let row = listbox.add_item_with_data_and_color(1, "Alpha", None, None);
+        assert!(listbox.set_item_column_data(
+            row,
+            0,
+            ListBoxItemData::Text("Alpha".to_string())
+        ));
+        window.set_widget(WindowWidget::ListBox(listbox));
+
+        assert!(window.instance_data().display_text.is_none());
+
+        super::w3d_gadget_list_box_image_draw(&window, window.instance_data());
+
+        assert!(window.instance_data().display_text.is_none());
     }
 
     #[test]
@@ -4791,6 +4850,39 @@ fn list_box_image_content_width(width: i32, slider_width: Option<i32>) -> i32 {
     }
 }
 
+const LIST_BOX_TEXT_X_OFFSET: i32 = 5;
+const LIST_BOX_TEXT_WIDTH_OFFSET: i32 = 7;
+
+fn draw_list_box_cell_text(
+    text: &str,
+    inst_data: &WindowInstanceData,
+    column_region: IRegion2D,
+    column_x: i32,
+    draw_y: i32,
+    column_width: i32,
+    window_status: WindowStatus,
+    text_color: u32,
+    border_color: u32,
+) {
+    let mut display = DisplayString::new();
+    display.set_text(text.to_string());
+    if let Some(font) = inst_data.font.as_ref() {
+        display.set_font(font);
+    }
+    if window_status.contains(WindowStatus::ONE_LINE) {
+        display.set_word_wrap(0);
+    } else {
+        display.set_word_wrap(column_width - LIST_BOX_TEXT_WIDTH_OFFSET);
+    }
+    display.set_clip_region(Some(column_region));
+    display.draw(
+        column_x + LIST_BOX_TEXT_X_OFFSET,
+        draw_y,
+        text_color,
+        border_color,
+    );
+}
+
 pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceData) {
     let (draw_data, text_colors) =
         if inst_data.state.contains(WindowState::DISABLED) || !window.is_enabled() {
@@ -4814,12 +4906,14 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
 
     if let Some(title) = inst_data.display_text.as_ref() {
         let mut title = title.borrow_mut();
-        if let Some(font) = inst_data.font.as_ref() {
-            title.set_font(font);
+        if title.get_text_length() > 0 {
+            if let Some(font) = inst_data.font.as_ref() {
+                title.set_font(font);
+            }
+            title.draw(x + 1, y, text_colors.color, text_colors.border_color);
+            y += font_height + 1;
+            height -= font_height + 1;
         }
-        title.draw(x + 1, y, text_colors.color, text_colors.border_color);
-        y += font_height + 1;
-        height -= font_height + 1;
     }
 
     let mut slider_hidden = false;
@@ -4918,19 +5012,20 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                     let column_color = item.column_colors.get(column).and_then(|color| *color);
                     match cell {
                         Some(super::gadgets::ListBoxItemData::Text(text)) => {
-                            if let Some(display) = inst_data.display_text.as_ref() {
-                                let mut display = display.borrow_mut();
-                                display.set_text(text.clone());
-                                if let Some(font) = inst_data.font.as_ref() {
-                                    display.set_font(font);
-                                }
-                                display.set_clip_region(Some(column_region));
-                                let color = gadget_color_opt_to_win_color(column_color)
-                                    .or(gadget_color_opt_to_win_color(item.text_color))
-                                    .unwrap_or(text_colors.color);
-                                display.draw(column_x + 4, draw_y, color, text_colors.border_color);
-                                display.set_clip_region(None);
-                            }
+                            let color = gadget_color_opt_to_win_color(column_color)
+                                .or(gadget_color_opt_to_win_color(item.text_color))
+                                .unwrap_or(text_colors.color);
+                            draw_list_box_cell_text(
+                                text,
+                                inst_data,
+                                column_region,
+                                column_x,
+                                draw_y,
+                                column_width,
+                                window.get_status(),
+                                color,
+                                text_colors.border_color,
+                            );
                         }
                         Some(super::gadgets::ListBoxItemData::Image {
                             name,
@@ -4986,24 +5081,20 @@ pub fn w3d_gadget_list_box_draw(window: &GameWindow, inst_data: &WindowInstanceD
                         }
                         _ => {
                             if column == 0 {
-                                if let Some(display) = inst_data.display_text.as_ref() {
-                                    let mut display = display.borrow_mut();
-                                    display.set_text(item.text.clone());
-                                    if let Some(font) = inst_data.font.as_ref() {
-                                        display.set_font(font);
-                                    }
-                                    display.set_clip_region(Some(column_region));
-                                    let color = gadget_color_opt_to_win_color(column_color)
-                                        .or(gadget_color_opt_to_win_color(item.text_color))
-                                        .unwrap_or(text_colors.color);
-                                    display.draw(
-                                        column_x + 4,
-                                        draw_y,
-                                        color,
-                                        text_colors.border_color,
-                                    );
-                                    display.set_clip_region(None);
-                                }
+                                let color = gadget_color_opt_to_win_color(column_color)
+                                    .or(gadget_color_opt_to_win_color(item.text_color))
+                                    .unwrap_or(text_colors.color);
+                                draw_list_box_cell_text(
+                                    &item.text,
+                                    inst_data,
+                                    column_region,
+                                    column_x,
+                                    draw_y,
+                                    column_width,
+                                    window.get_status(),
+                                    color,
+                                    text_colors.border_color,
+                                );
                             }
                         }
                     }
@@ -5058,12 +5149,14 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
     });
     if let Some(title) = inst_data.display_text.as_ref() {
         let mut title = title.borrow_mut();
-        if let Some(font) = inst_data.font.as_ref() {
-            title.set_font(font);
+        if title.get_text_length() > 0 {
+            if let Some(font) = inst_data.font.as_ref() {
+                title.set_font(font);
+            }
+            title.draw(x + 1, y, text_colors.color, text_colors.border_color);
+            y += font_height + 1;
+            height -= font_height + 1;
         }
-        title.draw(x + 1, y, text_colors.color, text_colors.border_color);
-        y += font_height + 1;
-        height -= font_height + 1;
     }
 
     if let Some(widget) = window.widget() {
@@ -5131,19 +5224,20 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                     let column_color = item.column_colors.get(column).and_then(|color| *color);
                     match cell {
                         Some(super::gadgets::ListBoxItemData::Text(text)) => {
-                            if let Some(display) = inst_data.display_text.as_ref() {
-                                let mut display = display.borrow_mut();
-                                display.set_text(text.clone());
-                                if let Some(font) = inst_data.font.as_ref() {
-                                    display.set_font(font);
-                                }
-                                display.set_clip_region(Some(column_region));
-                                let color = gadget_color_opt_to_win_color(column_color)
-                                    .or(gadget_color_opt_to_win_color(item.text_color))
-                                    .unwrap_or(text_colors.color);
-                                display.draw(column_x + 4, draw_y, color, text_colors.border_color);
-                                display.set_clip_region(None);
-                            }
+                            let color = gadget_color_opt_to_win_color(column_color)
+                                .or(gadget_color_opt_to_win_color(item.text_color))
+                                .unwrap_or(text_colors.color);
+                            draw_list_box_cell_text(
+                                text,
+                                inst_data,
+                                column_region,
+                                column_x,
+                                draw_y,
+                                column_width,
+                                window.get_status(),
+                                color,
+                                text_colors.border_color,
+                            );
                         }
                         Some(super::gadgets::ListBoxItemData::Image {
                             name,
@@ -5199,24 +5293,20 @@ pub fn w3d_gadget_list_box_image_draw(window: &GameWindow, inst_data: &WindowIns
                         }
                         _ => {
                             if column == 0 {
-                                if let Some(display) = inst_data.display_text.as_ref() {
-                                    let mut display = display.borrow_mut();
-                                    display.set_text(item.text.clone());
-                                    if let Some(font) = inst_data.font.as_ref() {
-                                        display.set_font(font);
-                                    }
-                                    display.set_clip_region(Some(column_region));
-                                    let color = gadget_color_opt_to_win_color(column_color)
-                                        .or(gadget_color_opt_to_win_color(item.text_color))
-                                        .unwrap_or(text_colors.color);
-                                    display.draw(
-                                        column_x + 4,
-                                        draw_y,
-                                        color,
-                                        text_colors.border_color,
-                                    );
-                                    display.set_clip_region(None);
-                                }
+                                let color = gadget_color_opt_to_win_color(column_color)
+                                    .or(gadget_color_opt_to_win_color(item.text_color))
+                                    .unwrap_or(text_colors.color);
+                                draw_list_box_cell_text(
+                                    &item.text,
+                                    inst_data,
+                                    column_region,
+                                    column_x,
+                                    draw_y,
+                                    column_width,
+                                    window.get_status(),
+                                    color,
+                                    text_colors.border_color,
+                                );
                             }
                         }
                     }
