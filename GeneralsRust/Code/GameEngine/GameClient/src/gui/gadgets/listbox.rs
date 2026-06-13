@@ -1222,19 +1222,28 @@ impl Gadget for ListBox {
                     return Vec::new();
                 }
                 match key {
-                    KeyCode::Tab if modifiers.shift == false => {
+                    KeyCode::Tab => {
                         return vec![GadgetMessage::Custom {
                             gadget_id: self.id,
                             data: "tab_next".to_string(),
                         }];
                     }
-                    KeyCode::Tab if modifiers.shift => {
+                    KeyCode::Right if self.selection_mode == SelectionMode::Single => {
+                        return vec![GadgetMessage::Custom {
+                            gadget_id: self.id,
+                            data: "tab_next".to_string(),
+                        }];
+                    }
+                    KeyCode::Left if self.selection_mode == SelectionMode::Single => {
                         return vec![GadgetMessage::Custom {
                             gadget_id: self.id,
                             data: "tab_prev".to_string(),
                         }];
                     }
                     KeyCode::Up => {
+                        if self.selection_mode == SelectionMode::Multiple {
+                            return Vec::new();
+                        }
                         if self.items.is_empty() {
                             return Vec::new();
                         }
@@ -1251,6 +1260,9 @@ impl Gadget for ListBox {
                         }];
                     }
                     KeyCode::Down => {
+                        if self.selection_mode == SelectionMode::Multiple {
+                            return Vec::new();
+                        }
                         if self.items.is_empty() {
                             return Vec::new();
                         }
@@ -1266,6 +1278,9 @@ impl Gadget for ListBox {
                         }];
                     }
                     KeyCode::Home => {
+                        if self.selection_mode == SelectionMode::Multiple {
+                            return Vec::new();
+                        }
                         if !self.items.is_empty() && self.select_index(0, *modifiers) {
                             return vec![GadgetMessage::ValueChanged {
                                 gadget_id: self.id,
@@ -1274,6 +1289,9 @@ impl Gadget for ListBox {
                         }
                     }
                     KeyCode::End => {
+                        if self.selection_mode == SelectionMode::Multiple {
+                            return Vec::new();
+                        }
                         if !self.items.is_empty() {
                             let last = self.items.len() - 1;
                             if self.select_index(last, *modifiers) {
@@ -1286,6 +1304,9 @@ impl Gadget for ListBox {
                     }
 
                     KeyCode::PageUp => {
+                        if self.selection_mode == SelectionMode::Multiple {
+                            return Vec::new();
+                        }
                         let visible = self.visible_rows();
                         let current = self.selected_indices.first().copied().unwrap_or(0);
                         let next = current.saturating_sub(visible);
@@ -1297,6 +1318,9 @@ impl Gadget for ListBox {
                         }
                     }
                     KeyCode::PageDown => {
+                        if self.selection_mode == SelectionMode::Multiple {
+                            return Vec::new();
+                        }
                         let visible = self.visible_rows();
                         let current = self.selected_indices.first().copied().unwrap_or(0);
                         let next = (current + visible).min(self.items.len().saturating_sub(1));
@@ -1426,6 +1450,16 @@ mod tests {
         })
     }
 
+    fn custom_message<'a>(messages: &'a [GadgetMessage], expected: &str) -> Option<&'a str> {
+        messages.iter().find_map(|message| {
+            if let GadgetMessage::Custom { data, .. } = message {
+                (data == expected).then_some(data.as_str())
+            } else {
+                None
+            }
+        })
+    }
+
     #[test]
     fn single_select_click_toggles_existing_selection_when_not_forced() {
         let mut listbox = ListBox::new(7, 0, 0, 100, 40);
@@ -1524,6 +1558,68 @@ mod tests {
 
         assert!(messages.is_empty());
         assert_eq!(listbox.selected_indices(), &[0]);
+    }
+
+    #[test]
+    fn single_select_left_right_and_tab_keys_match_cpp_tab_navigation() {
+        let mut listbox = ListBox::new(7, 0, 0, 100, 40);
+        listbox.set_focus(true);
+
+        let right = listbox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Right,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(custom_message(&right, "tab_next"), Some("tab_next"));
+
+        let tab = listbox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Tab,
+            modifiers: KeyModifiers {
+                shift: true,
+                ctrl: false,
+                alt: false,
+            },
+        });
+        assert_eq!(custom_message(&tab, "tab_next"), Some("tab_next"));
+
+        let left = listbox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Left,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(custom_message(&left, "tab_prev"), Some("tab_prev"));
+    }
+
+    #[test]
+    fn multi_select_keyboard_ignores_single_select_navigation_keys_like_cpp() {
+        let mut listbox =
+            ListBox::new(7, 0, 0, 100, 40).with_selection_mode(SelectionMode::Multiple);
+        listbox.add_item_with_id(10, "Alpha");
+        listbox.add_item_with_id(20, "Bravo");
+        listbox.set_focus(true);
+        listbox.set_selected_indices(&[0]);
+
+        for key in [
+            KeyCode::Up,
+            KeyCode::Down,
+            KeyCode::Left,
+            KeyCode::Right,
+            KeyCode::Home,
+            KeyCode::End,
+            KeyCode::PageUp,
+            KeyCode::PageDown,
+        ] {
+            let messages = listbox.handle_input(&InputEvent::KeyDown {
+                key,
+                modifiers: KeyModifiers::none(),
+            });
+            assert!(messages.is_empty(), "key {key:?} should be ignored");
+            assert_eq!(listbox.selected_indices(), &[0]);
+        }
+
+        let tab = listbox.handle_input(&InputEvent::KeyDown {
+            key: KeyCode::Tab,
+            modifiers: KeyModifiers::none(),
+        });
+        assert_eq!(custom_message(&tab, "tab_next"), Some("tab_next"));
     }
 
     #[test]
