@@ -13,6 +13,35 @@ use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+const CPP_WATER_SETTING_FIELDS: &[&str] = &[
+    "SkyTexture",
+    "WaterTexture",
+    "Vertex00Color",
+    "Vertex10Color",
+    "Vertex01Color",
+    "Vertex11Color",
+    "DiffuseColor",
+    "TransparentDiffuseColor",
+    "UScrollPerMS",
+    "VScrollPerMS",
+    "SkyTexelsPerUnit",
+    "WaterRepeatCount",
+];
+
+const CPP_WATER_TRANSPARENCY_FIELDS: &[&str] = &[
+    "TransparentWaterDepth",
+    "TransparentWaterMinOpacity",
+    "StandingWaterColor",
+    "StandingWaterTexture",
+    "AdditiveBlending",
+    "RadarWaterColor",
+    "SkyboxTextureN",
+    "SkyboxTextureE",
+    "SkyboxTextureS",
+    "SkyboxTextureW",
+    "SkyboxTextureT",
+];
+
 /// Result type for water parsing operations
 pub type WaterResult<T> = Result<T, WaterError>;
 
@@ -174,214 +203,71 @@ impl WaterSetting {
         &'static str,
         fn(&str) -> Result<Box<dyn std::any::Any>, String>,
     )> {
-        vec![
-            ("SurfaceColor", |value| {
-                parse_color_rgba(value)
-                    .map(|c| Box::new(c) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse surface color: {}", e))
-            }),
-            ("DepthColor", |value| {
-                parse_color_rgba(value)
-                    .map(|c| Box::new(c) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse depth color: {}", e))
-            }),
-            ("ReflectionColor", |value| {
-                parse_color_rgba(value)
-                    .map(|c| Box::new(c) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse reflection color: {}", e))
-            }),
-            ("WaveAmplitude", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse wave amplitude: {}", e))
-            }),
-            ("WaveFrequency", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse wave frequency: {}", e))
-            }),
-            ("WaveSpeed", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse wave speed: {}", e))
-            }),
-            ("Transparency", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v.clamp(0.0, 1.0)) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse transparency: {}", e))
-            }),
-            ("ReflectionIntensity", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v.clamp(0.0, 1.0)) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse reflection intensity: {}", e))
-            }),
-            ("RefractionIntensity", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v.clamp(0.0, 1.0)) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse refraction intensity: {}", e))
-            }),
-            ("FoamColor", |value| {
-                parse_color_rgba(value)
-                    .map(|c| Box::new(c) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse foam color: {}", e))
-            }),
-            ("CausticIntensity", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v.clamp(0.0, 1.0)) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse caustic intensity: {}", e))
-            }),
-            ("NormalMapScale", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse normal map scale: {}", e))
-            }),
-            ("Texture", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("NormalMap", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("EnvironmentMap", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-        ]
+        CPP_WATER_SETTING_FIELDS
+            .iter()
+            .map(|field| {
+                (
+                    *field,
+                    parse_cpp_water_field_for_table
+                        as fn(&str) -> Result<Box<dyn std::any::Any>, String>,
+                )
+            })
+            .collect()
     }
 
     /// Update water setting from properties
-    pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+    pub fn update_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> WaterResult<()> {
         for (key, value) in properties {
             match key.as_str() {
                 "SkyTexture" => {
                     self.sky_texture_name = AsciiString::from(value);
                 }
-                "WaterTexture" | "Texture" => {
+                "WaterTexture" => {
                     self.texture_name = AsciiString::from(value);
                 }
                 "Vertex00Color" => {
-                    if let Ok(color) = parse_color_rgba(value) {
-                        self.vertex00_color = color;
-                    }
+                    self.vertex00_color = parse_color_rgba_for_water(key, value)?;
                 }
                 "Vertex10Color" => {
-                    if let Ok(color) = parse_color_rgba(value) {
-                        self.vertex10_color = color;
-                    }
+                    self.vertex10_color = parse_color_rgba_for_water(key, value)?;
                 }
                 "Vertex01Color" => {
-                    if let Ok(color) = parse_color_rgba(value) {
-                        self.vertex01_color = color;
-                    }
+                    self.vertex01_color = parse_color_rgba_for_water(key, value)?;
                 }
                 "Vertex11Color" => {
-                    if let Ok(color) = parse_color_rgba(value) {
-                        self.vertex11_color = color;
-                    }
+                    self.vertex11_color = parse_color_rgba_for_water(key, value)?;
                 }
-                "DiffuseColor" | "SurfaceColor" => {
-                    if let Ok(color) = parse_color_rgba(value) {
-                        self.surface_color = color;
-                    }
+                "DiffuseColor" => {
+                    self.surface_color = parse_color_rgba_for_water(key, value)?;
                 }
                 "TransparentDiffuseColor" => {
-                    if let Ok(color) = parse_color_rgba(value) {
-                        self.transparent_diffuse_color = color;
-                    }
+                    self.transparent_diffuse_color = parse_color_rgba_for_water(key, value)?;
                 }
                 "UScrollPerMS" => {
-                    if let Ok(scroll) = value.parse::<f32>() {
-                        self.u_scroll_per_ms = scroll;
-                    }
+                    self.u_scroll_per_ms = parse_f32_field(key, value)?;
                 }
                 "VScrollPerMS" => {
-                    if let Ok(scroll) = value.parse::<f32>() {
-                        self.v_scroll_per_ms = scroll;
-                    }
+                    self.v_scroll_per_ms = parse_f32_field(key, value)?;
                 }
                 "SkyTexelsPerUnit" => {
-                    if let Ok(texels) = value.parse::<f32>() {
-                        self.sky_texels_per_unit = texels;
-                    }
+                    self.sky_texels_per_unit = parse_f32_field(key, value)?;
                 }
                 "WaterRepeatCount" => {
-                    if let Ok(count) = value.parse::<i32>() {
-                        self.water_repeat_count = count;
-                    }
-                }
-                "DepthColor" => {
-                    if let Ok(color) = parse_color_rgba(value) {
-                        self.depth_color = color;
-                    }
-                }
-                "ReflectionColor" => {
-                    if let Ok(color) = parse_color_rgba(value) {
-                        self.reflection_color = color;
-                    }
-                }
-                "WaveAmplitude" => {
-                    if let Ok(amplitude) = value.parse::<f32>() {
-                        self.wave_amplitude = amplitude;
-                    }
-                }
-                "WaveFrequency" => {
-                    if let Ok(frequency) = value.parse::<f32>() {
-                        self.wave_frequency = frequency;
-                    }
-                }
-                "WaveSpeed" => {
-                    if let Ok(speed) = value.parse::<f32>() {
-                        self.wave_speed = speed;
-                    }
-                }
-                "Transparency" => {
-                    if let Ok(transparency) = value.parse::<f32>() {
-                        self.transparency = transparency.clamp(0.0, 1.0);
-                    }
-                }
-                "ReflectionIntensity" => {
-                    if let Ok(intensity) = value.parse::<f32>() {
-                        self.reflection_intensity = intensity.clamp(0.0, 1.0);
-                    }
-                }
-                "RefractionIntensity" => {
-                    if let Ok(intensity) = value.parse::<f32>() {
-                        self.refraction_intensity = intensity.clamp(0.0, 1.0);
-                    }
-                }
-                "FoamColor" => {
-                    if let Ok(color) = parse_color_rgba(value) {
-                        self.foam_color = color;
-                    }
-                }
-                "CausticIntensity" => {
-                    if let Ok(intensity) = value.parse::<f32>() {
-                        self.caustic_intensity = intensity.clamp(0.0, 1.0);
-                    }
-                }
-                "NormalMapScale" => {
-                    if let Ok(scale) = value.parse::<f32>() {
-                        self.normal_map_scale = scale;
-                    }
-                }
-                "NormalMap" => {
-                    self.normal_map_name = AsciiString::from(value);
-                }
-                "EnvironmentMap" => {
-                    self.environment_map_name = AsciiString::from(value);
+                    self.water_repeat_count = parse_i32_field(key, value)?;
                 }
                 _ => {
-                    // Store unknown properties
-                    self.properties.insert(key.clone(), value.clone());
+                    return Err(WaterError::ParseError(format!(
+                        "Unknown water setting field '{}'",
+                        key
+                    )));
                 }
             }
         }
+
+        Ok(())
     }
 
     pub fn is_valid(&self) -> bool {
@@ -437,29 +323,16 @@ impl WaterTransparencySetting {
         &'static str,
         fn(&str) -> Result<Box<dyn std::any::Any>, String>,
     )> {
-        vec![
-            ("SkyboxTextureN", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("SkyboxTextureE", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("SkyboxTextureS", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("SkyboxTextureW", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("SkyboxTextureT", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("WaterTransparency", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v.clamp(0.0, 1.0)) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse water transparency: {}", e))
-            }),
-        ]
+        CPP_WATER_TRANSPARENCY_FIELDS
+            .iter()
+            .map(|field| {
+                (
+                    *field,
+                    parse_cpp_water_field_for_table
+                        as fn(&str) -> Result<Box<dyn std::any::Any>, String>,
+                )
+            })
+            .collect()
     }
 
     pub fn mark_as_override(&mut self) {
@@ -592,6 +465,40 @@ pub fn parse_color_rgb(value: &str) -> Result<(f32, f32, f32), String> {
     Ok((r, g, b))
 }
 
+fn parse_cpp_water_field_for_table(value: &str) -> Result<Box<dyn std::any::Any>, String> {
+    Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+}
+
+fn parse_color_rgba_for_water(field_name: &str, value: &str) -> WaterResult<(f32, f32, f32, f32)> {
+    parse_color_rgba(value).map_err(|e| {
+        WaterError::ParseError(format!("Invalid {} color '{}': {}", field_name, value, e))
+    })
+}
+
+fn parse_color_rgb_for_water(field_name: &str, value: &str) -> WaterResult<(f32, f32, f32)> {
+    parse_color_rgb(value).map_err(|e| {
+        WaterError::ParseError(format!("Invalid {} color '{}': {}", field_name, value, e))
+    })
+}
+
+fn parse_f32_field(field_name: &str, value: &str) -> WaterResult<f32> {
+    value.parse::<f32>().map_err(|e| {
+        WaterError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
+    })
+}
+
+fn parse_i32_field(field_name: &str, value: &str) -> WaterResult<i32> {
+    value.parse::<i32>().map_err(|e| {
+        WaterError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
+    })
+}
+
+fn parse_bool_field(field_name: &str, value: &str) -> WaterResult<bool> {
+    parse_bool(value).map_err(|e| {
+        WaterError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
+    })
+}
+
 fn parse_bool(value: &str) -> Result<bool, String> {
     match value.trim().to_ascii_lowercase().as_str() {
         "yes" | "true" | "1" => Ok(true),
@@ -708,7 +615,7 @@ impl IniWater {
         let mut water_setting = WaterSetting::new(time_of_day);
 
         // Update setting from properties
-        water_setting.update_from_properties(&properties);
+        water_setting.update_from_properties(&properties)?;
 
         Ok(water_setting)
     }
@@ -723,32 +630,24 @@ impl IniWater {
         for (key, value) in properties {
             match key.as_str() {
                 "TransparentWaterDepth" => {
-                    if let Ok(depth) = value.parse::<f32>() {
-                        transparency_setting.transparent_water_depth = depth;
-                    }
+                    transparency_setting.transparent_water_depth = parse_f32_field(&key, &value)?;
                 }
                 "TransparentWaterMinOpacity" => {
-                    if let Ok(opacity) = value.parse::<f32>() {
-                        transparency_setting.min_water_opacity = opacity;
-                    }
+                    transparency_setting.min_water_opacity = parse_f32_field(&key, &value)?;
                 }
                 "StandingWaterColor" => {
-                    if let Ok(color) = parse_color_rgb(&value) {
-                        transparency_setting.standing_water_color = color;
-                    }
+                    transparency_setting.standing_water_color =
+                        parse_color_rgb_for_water(&key, &value)?;
                 }
                 "StandingWaterTexture" => {
                     transparency_setting.standing_water_texture = AsciiString::from(&value);
                 }
                 "AdditiveBlending" => {
-                    if let Ok(enabled) = parse_bool(&value) {
-                        transparency_setting.additive_blending = enabled;
-                    }
+                    transparency_setting.additive_blending = parse_bool_field(&key, &value)?;
                 }
                 "RadarWaterColor" => {
-                    if let Ok(color) = parse_color_rgb(&value) {
-                        transparency_setting.radar_water_color = color;
-                    }
+                    transparency_setting.radar_water_color =
+                        parse_color_rgb_for_water(&key, &value)?;
                 }
                 "SkyboxTextureN" => {
                     transparency_setting.skybox_texture_n = AsciiString::from(&value);
@@ -765,13 +664,11 @@ impl IniWater {
                 "SkyboxTextureT" => {
                     transparency_setting.skybox_texture_t = AsciiString::from(&value);
                 }
-                "WaterTransparency" => {
-                    if let Ok(transparency) = value.parse::<f32>() {
-                        transparency_setting.water_transparency = transparency.clamp(0.0, 1.0);
-                    }
-                }
                 _ => {
-                    transparency_setting.properties.insert(key, value);
+                    return Err(WaterError::ParseError(format!(
+                        "Unknown water transparency field '{}'",
+                        key
+                    )));
                 }
             }
         }
@@ -855,15 +752,15 @@ mod tests {
     fn test_water_properties_update() {
         let mut setting = WaterSetting::new(TimeOfDay::Evening);
         let mut properties = HashMap::new();
-        properties.insert("WaveAmplitude".to_string(), "1.5".to_string());
-        properties.insert("Transparency".to_string(), "0.9".to_string());
-        properties.insert("SurfaceColor".to_string(), "0.1 0.3 0.7 0.8".to_string());
+        properties.insert("WaterTexture".to_string(), "WaterEvening.tga".to_string());
+        properties.insert("DiffuseColor".to_string(), "0.1 0.3 0.7 0.8".to_string());
+        properties.insert("WaterRepeatCount".to_string(), "12".to_string());
 
-        setting.update_from_properties(&properties);
+        setting.update_from_properties(&properties).unwrap();
 
-        assert_eq!(setting.wave_amplitude, 1.5);
-        assert_eq!(setting.transparency, 0.9);
+        assert_eq!(setting.texture_name.as_str(), "WaterEvening.tga");
         assert_eq!(setting.surface_color, (0.1, 0.3, 0.7, 0.8));
+        assert_eq!(setting.water_repeat_count, 12);
     }
 
     #[test]
@@ -904,6 +801,53 @@ mod tests {
     }
 
     #[test]
+    fn water_setting_rejects_fields_outside_cpp_parse_table() {
+        for field in [
+            "SurfaceColor",
+            "Texture",
+            "DepthColor",
+            "ReflectionColor",
+            "WaveAmplitude",
+            "WaveFrequency",
+            "WaveSpeed",
+            "Transparency",
+            "NormalMap",
+            "EnvironmentMap",
+            "UnknownField",
+        ] {
+            let mut properties = HashMap::new();
+            properties.insert(field.to_string(), "1".to_string());
+            assert!(
+                IniWater::parse_water_setting_block(AsciiString::from("Morning"), properties)
+                    .is_err(),
+                "{} should be rejected because C++ WaterSetting does not parse it",
+                field
+            );
+        }
+    }
+
+    #[test]
+    fn water_setting_rejects_malformed_cpp_field_values() {
+        let mut properties = HashMap::new();
+        properties.insert("DiffuseColor".to_string(), "not-a-color".to_string());
+        assert!(
+            IniWater::parse_water_setting_block(AsciiString::from("Morning"), properties).is_err()
+        );
+
+        let mut properties = HashMap::new();
+        properties.insert("UScrollPerMS".to_string(), "fast".to_string());
+        assert!(
+            IniWater::parse_water_setting_block(AsciiString::from("Morning"), properties).is_err()
+        );
+
+        let mut properties = HashMap::new();
+        properties.insert("WaterRepeatCount".to_string(), "many".to_string());
+        assert!(
+            IniWater::parse_water_setting_block(AsciiString::from("Morning"), properties).is_err()
+        );
+    }
+
+    #[test]
     fn water_transparency_accepts_cpp_field_table_fields() {
         let mut properties = HashMap::new();
         properties.insert("TransparentWaterDepth".to_string(), "9.5".to_string());
@@ -935,6 +879,34 @@ mod tests {
         assert_eq!(setting.skybox_texture_w.as_str(), "West.tga");
         assert_eq!(setting.skybox_texture_t.as_str(), "Top.tga");
         assert!(setting.properties.is_empty());
+    }
+
+    #[test]
+    fn water_transparency_rejects_fields_outside_cpp_parse_table() {
+        for field in ["WaterTransparency", "UnknownField"] {
+            let mut properties = HashMap::new();
+            properties.insert(field.to_string(), "1".to_string());
+            assert!(
+                IniWater::parse_water_transparency_block(properties).is_err(),
+                "{} should be rejected because C++ WaterTransparencySetting does not parse it",
+                field
+            );
+        }
+    }
+
+    #[test]
+    fn water_transparency_rejects_malformed_cpp_field_values() {
+        let mut properties = HashMap::new();
+        properties.insert("TransparentWaterDepth".to_string(), "deep".to_string());
+        assert!(IniWater::parse_water_transparency_block(properties).is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("StandingWaterColor".to_string(), "blue".to_string());
+        assert!(IniWater::parse_water_transparency_block(properties).is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("AdditiveBlending".to_string(), "maybe".to_string());
+        assert!(IniWater::parse_water_transparency_block(properties).is_err());
     }
 
     #[test]
