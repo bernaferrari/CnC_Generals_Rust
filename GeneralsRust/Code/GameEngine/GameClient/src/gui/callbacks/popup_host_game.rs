@@ -9,8 +9,8 @@ use crate::gamespy_overlay::{
     GameSpyOverlayType,
 };
 use crate::gui::{
-    with_window_manager, CustomMatchPreferencesStore, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    with_window_manager, write_input_focus_response, CustomMatchPreferencesStore, GameWindow,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::gamespy::peer_defs::get_gamespy_info;
@@ -244,15 +244,10 @@ pub fn popup_host_game_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes back to mData2 (data2) to indicate focus state;
-            // Rust uses values not pointers for WindowMsgData so write-back is not
-            // possible without API changes. Preserve this as a parity note.
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         // TODO: C++ handles GWM_COMBOLIST_SELECTED (ComboBoxSelected) in this callback.
         // When a ladder is selected with ladderID < 0 (the "choose ladder" sentinel),
         // it restores the combo box selection and opens the ladder select overlay.

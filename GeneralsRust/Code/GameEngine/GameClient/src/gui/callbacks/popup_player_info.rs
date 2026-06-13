@@ -13,7 +13,8 @@ use crate::gui::callbacks::wol_lobby_menu::refresh_game_list_boxes;
 use crate::gui::callbacks::wol_welcome_menu::{get_look_at_player, populate_player_info_windows};
 use crate::gui::CustomMatchPreferencesStore;
 use crate::gui::{
-    with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::gamespy::buddy_thread::{
@@ -203,10 +204,7 @@ pub fn popup_player_info_system(
 
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes back focus state via mData2 pointer; Rust uses values, needs write-back parity
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             if control_id == state.button_close_id {
