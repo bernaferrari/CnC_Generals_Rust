@@ -257,6 +257,29 @@ fn flush_uses_cpp_strip_indices_and_fixed_frame_update() {
 }
 
 #[test]
+fn reflection_flush_advances_time_but_emits_no_vertices() {
+    let water = FlatWater;
+    let mut system = WaterTracksRenderSystem::new(1);
+    let handle = system.bind_track(WaterTrackType::Pond).unwrap();
+    system.track_mut(handle).unwrap().init(
+        18.0,
+        28.0,
+        Vec2::new(10.0, 20.0),
+        Vec2::new(10.0, 21.0),
+        "wave256.tga",
+        0,
+    );
+    system.set_backface_culling_inverted(true);
+
+    let flush = system.flush(&water);
+
+    assert!(flush.vertices.is_empty());
+    assert!(flush.indices.is_empty());
+    assert!(flush.ranges.is_empty());
+    assert_eq!(system.track(handle).unwrap().elapsed_ms(), 33.0);
+}
+
+#[test]
 fn flush_is_suppressed_when_cpp_global_water_flags_disable_it() {
     let water = FlatWater;
     let mut system = WaterTracksRenderSystem::new(1);
