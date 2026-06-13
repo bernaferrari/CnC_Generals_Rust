@@ -341,6 +341,33 @@ fn water_grid_transform_resolution_and_clamps_round_trip() {
 }
 
 #[test]
+fn water_grid_resolution_matches_cpp_y_only_reallocation_bug() {
+    let mut visual = TerrainVisualImpl::new();
+
+    visual.set_water_grid_resolution(4.0, 5.0, 10.0);
+    visual.set_water_attenuation_factors(1.0, 0.0, 0.0, 10.0);
+    visual.set_water_transform(0.0, 0.0, 0.0, 5.0);
+    visual.enable_water_grid(true);
+    assert!(visual.change_water_height(10.0, 10.0, 2.0));
+    visual.add_water_velocity(10.0, 10.0, 1.0, 3.0);
+    assert_eq!(visual.water_grid_resolution(), (4.0, 5.0, 10.0));
+    assert!(!visual.water_grid_state().height_deltas.is_empty());
+    assert!(!visual.water_grid_state().velocity_events.is_empty());
+
+    visual.set_water_grid_resolution(4.0, 9.0, 12.0);
+
+    assert_eq!(visual.water_grid_resolution(), (4.0, 5.0, 12.0));
+    assert!(!visual.water_grid_state().height_deltas.is_empty());
+    assert!(!visual.water_grid_state().velocity_events.is_empty());
+
+    visual.set_water_grid_resolution(6.0, 9.0, 12.0);
+
+    assert_eq!(visual.water_grid_resolution(), (6.0, 9.0, 12.0));
+    assert!(visual.water_grid_state().height_deltas.is_empty());
+    assert!(visual.water_grid_state().velocity_events.is_empty());
+}
+
+#[test]
 fn water_grid_rejects_cpp_world_to_grid_outside_edges() {
     let mut visual = TerrainVisualImpl::new();
     visual.set_water_grid_resolution(4.0, 4.0, 10.0);
