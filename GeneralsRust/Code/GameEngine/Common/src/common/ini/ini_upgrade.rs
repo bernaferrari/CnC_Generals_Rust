@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::common::ascii_string::AsciiString;
+use crate::common::rts::special_power::AcademyClassificationType;
 
 /// Result type for upgrade parsing operations
 pub type UpgradeResult<T> = Result<T, UpgradeError>;
@@ -90,6 +91,23 @@ impl UpgradeCategory {
     }
 }
 
+/// C++ UpgradeType enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpgradeType {
+    Player,
+    Object,
+}
+
+impl UpgradeType {
+    pub fn from_string(s: &str) -> Result<Self, String> {
+        match s.trim().to_ascii_uppercase().as_str() {
+            "PLAYER" => Ok(Self::Player),
+            "OBJECT" => Ok(Self::Object),
+            _ => Err(format!("Invalid upgrade type: {}", s)),
+        }
+    }
+}
+
 /// Upgrade effect types
 #[derive(Debug, Clone, PartialEq)]
 pub enum UpgradeEffect {
@@ -145,12 +163,16 @@ pub struct UpgradeTemplate {
     pub display_name: AsciiString,
     pub description: AsciiString,
     pub upgrade_mask: u128,
+    pub upgrade_type: UpgradeType,
     pub category: UpgradeCategory,
     pub requirements: UpgradeRequirement,
     pub effects: Vec<UpgradeEffect>,
     pub icon_name: AsciiString,
     pub button_image: AsciiString,
+    pub research_sound: AsciiString,
+    pub unit_specific_sound: AsciiString,
     pub sound_effect: AsciiString,
+    pub academy_classification_type: AcademyClassificationType,
     pub is_purchasable: bool,
     pub is_stackable: bool,
     pub max_stack_count: u32,
@@ -166,12 +188,16 @@ impl UpgradeTemplate {
             display_name: AsciiString::from(""),
             description: AsciiString::from(""),
             upgrade_mask: 0,
+            upgrade_type: UpgradeType::Player,
             category: UpgradeCategory::Custom("Unknown".to_string()),
             requirements: UpgradeRequirement::default(),
             effects: Vec::new(),
             icon_name: AsciiString::from(""),
             button_image: AsciiString::from(""),
+            research_sound: AsciiString::from(""),
+            unit_specific_sound: AsciiString::from(""),
             sound_effect: AsciiString::from(""),
+            academy_classification_type: AcademyClassificationType::None,
             is_purchasable: true,
             is_stackable: false,
             max_stack_count: 1,
@@ -198,6 +224,11 @@ impl UpgradeTemplate {
             ("Category", |value| {
                 Ok(Box::new(UpgradeCategory::from_string(value)) as Box<dyn std::any::Any>)
             }),
+            ("Type", |value| {
+                UpgradeType::from_string(value)
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
+                    .map_err(|e| format!("Failed to parse upgrade type: {}", e))
+            }),
             ("PrerequisiteScience", |value| {
                 let sciences: Vec<AsciiString> = value
                     .split_whitespace()
@@ -218,11 +249,23 @@ impl UpgradeTemplate {
                     .map(|v| Box::new(v) as Box<dyn std::any::Any>)
                     .map_err(|e| format!("Failed to parse cost: {}", e))
             }),
+            ("BuildCost", |value| {
+                value
+                    .parse::<u32>()
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
+                    .map_err(|e| format!("Failed to parse build cost: {}", e))
+            }),
             ("ResearchTime", |value| {
                 value
                     .parse::<f32>()
                     .map(|v| Box::new(v) as Box<dyn std::any::Any>)
                     .map_err(|e| format!("Failed to parse research time: {}", e))
+            }),
+            ("BuildTime", |value| {
+                value
+                    .parse::<f32>()
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
+                    .map_err(|e| format!("Failed to parse build time: {}", e))
             }),
             ("IconName", |value| {
                 Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
@@ -232,6 +275,17 @@ impl UpgradeTemplate {
             }),
             ("SoundEffect", |value| {
                 Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+            }),
+            ("ResearchSound", |value| {
+                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+            }),
+            ("UnitSpecificSound", |value| {
+                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+            }),
+            ("AcademyClassify", |value| {
+                parse_academy_classification(value)
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
+                    .map_err(|e| format!("Failed to parse academy classification: {}", e))
             }),
             ("IsPurchasable", |value| {
                 parse_bool(value)
@@ -275,6 +329,11 @@ impl UpgradeTemplate {
                 "Category" => {
                     self.category = UpgradeCategory::from_string(value);
                 }
+                "Type" => {
+                    if let Ok(upgrade_type) = UpgradeType::from_string(value) {
+                        self.upgrade_type = upgrade_type;
+                    }
+                }
                 "PrerequisiteScience" => {
                     self.requirements.prerequisite_science = value
                         .split_whitespace()
@@ -287,12 +346,12 @@ impl UpgradeTemplate {
                         .map(|s| AsciiString::from(s))
                         .collect();
                 }
-                "Cost" => {
+                "Cost" | "BuildCost" => {
                     if let Ok(cost) = value.parse::<u32>() {
                         self.requirements.cost = cost;
                     }
                 }
-                "ResearchTime" => {
+                "ResearchTime" | "BuildTime" => {
                     if let Ok(time) = value.parse::<f32>() {
                         self.requirements.research_time = time;
                     }
@@ -305,6 +364,17 @@ impl UpgradeTemplate {
                 }
                 "SoundEffect" => {
                     self.sound_effect = AsciiString::from(value);
+                }
+                "ResearchSound" => {
+                    self.research_sound = AsciiString::from(value);
+                }
+                "UnitSpecificSound" => {
+                    self.unit_specific_sound = AsciiString::from(value);
+                }
+                "AcademyClassify" => {
+                    if let Ok(classification) = parse_academy_classification(value) {
+                        self.academy_classification_type = classification;
+                    }
                 }
                 "IsPurchasable" => {
                     if let Ok(purchasable) = parse_bool(value) {
@@ -563,6 +633,18 @@ pub fn parse_bool(value: &str) -> Result<bool, String> {
     }
 }
 
+pub fn parse_academy_classification(value: &str) -> Result<AcademyClassificationType, String> {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "ACT_NONE" => Ok(AcademyClassificationType::None),
+        "ACT_UPGRADE_RADAR" => Ok(AcademyClassificationType::UpgradeRadar),
+        "ACT_SUPERPOWER" => Ok(AcademyClassificationType::Superpower),
+        _ => Err(format!(
+            "token {} is not a valid member of the academy classification list",
+            value
+        )),
+    }
+}
+
 /// INI parsing functions for upgrades
 pub struct IniUpgrade;
 
@@ -809,16 +891,45 @@ mod tests {
         let mut template = UpgradeTemplate::new(AsciiString::from("Test"));
         let mut properties = HashMap::new();
         properties.insert("Category".to_string(), "Speed".to_string());
-        properties.insert("Cost".to_string(), "1000".to_string());
+        properties.insert("Type".to_string(), "OBJECT".to_string());
+        properties.insert("BuildCost".to_string(), "1000".to_string());
+        properties.insert("BuildTime".to_string(), "12.5".to_string());
+        properties.insert("ResearchSound".to_string(), "UpgradeStarted".to_string());
+        properties.insert("UnitSpecificSound".to_string(), "UnitUpgrade".to_string());
+        properties.insert(
+            "AcademyClassify".to_string(),
+            "ACT_UPGRADE_RADAR".to_string(),
+        );
         properties.insert("IsStackable".to_string(), "true".to_string());
         properties.insert("MaxStackCount".to_string(), "3".to_string());
 
         template.update_from_properties(&properties);
 
         assert!(matches!(template.category, UpgradeCategory::Speed));
+        assert_eq!(template.upgrade_type, UpgradeType::Object);
         assert_eq!(template.requirements.cost, 1000);
+        assert_eq!(template.requirements.research_time, 12.5);
+        assert_eq!(template.research_sound.as_str(), "UpgradeStarted");
+        assert_eq!(template.unit_specific_sound.as_str(), "UnitUpgrade");
+        assert_eq!(
+            template.academy_classification_type,
+            AcademyClassificationType::UpgradeRadar
+        );
         assert!(template.is_stackable);
         assert_eq!(template.max_stack_count, 3);
+    }
+
+    #[test]
+    fn test_upgrade_type_and_academy_parsing() {
+        assert_eq!(UpgradeType::from_string("PLAYER"), Ok(UpgradeType::Player));
+        assert_eq!(UpgradeType::from_string("object"), Ok(UpgradeType::Object));
+        assert!(UpgradeType::from_string("GLOBAL").is_err());
+
+        assert_eq!(
+            parse_academy_classification("ACT_SUPERPOWER"),
+            Ok(AcademyClassificationType::Superpower)
+        );
+        assert!(parse_academy_classification("SUPERWEAPON").is_err());
     }
 
     #[test]
