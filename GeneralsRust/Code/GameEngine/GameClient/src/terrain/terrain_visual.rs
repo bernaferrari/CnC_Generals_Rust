@@ -23,12 +23,14 @@ use super::chunk::{ChunkId, ChunkManager, ViewFrustum};
 use super::roads::{
     RoadCondition, RoadMinimapSample, RoadSyntheticIntersectionKind, RoadType, StoneType,
 };
+use super::terrain_tracks::{TerrainTrackHeightProvider, TerrainTracksConfig};
 use super::textures::{
     TerrainTexture, TerrainTextures, TextureId, TextureKind, TextureRule, MAX_BLEND_WEIGHTS,
 };
 use super::{
     calculate_terrain_lod, HeightMap, RoadSystem, TerrainConfig, TerrainError, TerrainLOD,
-    TerrainModification, TerrainResult, TerrainStats, TerrainVertex, TerrainVisual, WaterSystem,
+    TerrainModification, TerrainResult, TerrainStats, TerrainTracksRenderObjClassSystem,
+    TerrainVertex, TerrainVisual, WaterSystem,
 };
 use bytemuck::cast_slice;
 use game_engine::common::ascii_string::AsciiString;
@@ -378,6 +380,9 @@ pub struct TerrainVisualImpl {
     /// Road rendering system
     road_system: RoadSystem,
 
+    /// Terrain track rendering system.
+    terrain_tracks: TerrainTracksRenderObjClassSystem,
+
     /// Sun direction for lighting
     sun_direction: Vec3,
     /// Sun color
@@ -564,6 +569,10 @@ fn matrix4_to_array(matrix: &Mat4) -> [[f32; 4]; 4] {
     matrix.to_cols_array_2d()
 }
 
+fn positive_usize(value: i32) -> Option<usize> {
+    (value > 0).then_some(value as usize)
+}
+
 impl TerrainVisualImpl {
     pub fn new() -> Self {
         let mut instance = Self {
@@ -578,6 +587,7 @@ impl TerrainVisualImpl {
             texture_system: TerrainTextures::new(),
             water_system: WaterSystem::new(),
             road_system: RoadSystem::new(),
+            terrain_tracks: TerrainTracksRenderObjClassSystem::new(Self::terrain_tracks_config()),
             device: None,
             queue: None,
             uniform_buffer: None,
@@ -629,6 +639,50 @@ impl TerrainVisualImpl {
         };
 
         instance
+    }
+
+    fn terrain_tracks_config() -> TerrainTracksConfig {
+        let from_values = |max_terrain_tracks: i32,
+                           max_tank_track_edges: i32,
+                           max_tank_track_opaque_edges: i32,
+                           max_tank_track_fade_delay: i32,
+                           make_track_marks: bool| {
+            let defaults = TerrainTracksConfig::default();
+            TerrainTracksConfig {
+                max_terrain_tracks: positive_usize(max_terrain_tracks)
+                    .unwrap_or(defaults.max_terrain_tracks),
+                max_tank_track_edges: positive_usize(max_tank_track_edges)
+                    .unwrap_or(defaults.max_tank_track_edges),
+                max_tank_track_opaque_edges: positive_usize(max_tank_track_opaque_edges)
+                    .unwrap_or(defaults.max_tank_track_opaque_edges),
+                max_tank_track_fade_delay: if max_tank_track_fade_delay > 0 {
+                    max_tank_track_fade_delay
+                } else {
+                    defaults.max_tank_track_fade_delay
+                },
+                make_track_marks,
+            }
+        };
+
+        if let Some(global_data) = get_global_data() {
+            let data = global_data.read();
+            return from_values(
+                data.max_terrain_tracks,
+                data.max_tank_track_edges,
+                data.max_tank_track_opaque_edges,
+                data.max_tank_track_fade_delay,
+                data.make_track_marks,
+            );
+        }
+
+        let data = global_data::read();
+        from_values(
+            data.max_terrain_tracks,
+            data.max_tank_track_edges,
+            data.max_tank_track_opaque_edges,
+            data.max_tank_track_fade_delay,
+            data.make_track_marks,
+        )
     }
 
     /// Expose chunk manager for renderer passes.
@@ -3967,6 +4021,26 @@ impl TerrainVisualImpl {
         &self.construction_removals
     }
 
+    /// C++ terrain-track render object system owned by `W3DTerrainVisual`.
+    pub fn terrain_tracks(&self) -> &TerrainTracksRenderObjClassSystem {
+        &self.terrain_tracks
+    }
+
+    /// Mutable access for callers that bind and append track marks.
+    pub fn terrain_tracks_mut(&mut self) -> &mut TerrainTracksRenderObjClassSystem {
+        &mut self.terrain_tracks
+    }
+
+    /// C++ `setTerrainTracksDetail`.
+    pub fn set_terrain_tracks_detail(&mut self) {
+        self.set_terrain_tracks_detail_with_config(Self::terrain_tracks_config());
+    }
+
+    /// Forward a concrete config into the terrain-track system.
+    pub fn set_terrain_tracks_detail_with_config(&mut self, config: TerrainTracksConfig) {
+        self.terrain_tracks.set_detail(config);
+    }
+
     /// C++ `addFactionBib`/`addFactionBibDrawable` geometry wrapper.
     pub fn add_faction_bib(
         &mut self,
@@ -4456,6 +4530,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.water_system.init()?;
         self.road_system.init()?;
         self.chunk_manager.init()?;
+        self.set_terrain_tracks_detail();
 
         Ok(())
     }
@@ -4474,6 +4549,7 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.water_system.reset()?;
         self.road_system.reset()?;
         self.chunk_manager.reset()?;
+        self.terrain_tracks.reset();
         self.chunk_meshes.clear();
         self.texture_rules.clear();
         self.chunk_texture_bindings.clear();
@@ -4565,6 +4641,16 @@ impl SubsystemInterface for TerrainVisualImpl {
     }
 }
 
+impl TerrainTrackHeightProvider for TerrainVisualImpl {
+    fn ground_height_and_normal(&self, x: f32, y: f32) -> (f32, Vec3) {
+        if let Some(heightmap) = self.height_map.as_ref() {
+            (heightmap.get_height_at(x, y), heightmap.get_normal_at(x, y))
+        } else {
+            (0.0, Vec3::Z)
+        }
+    }
+}
+
 impl TerrainVisual for TerrainVisualImpl {
     fn render(&mut self, view_matrix: &Mat4, projection_matrix: &Mat4) -> Result<(), TerrainError> {
         if !self.enabled {
@@ -4647,6 +4733,10 @@ impl TerrainVisual for TerrainVisualImpl {
 
     fn oversize_terrain(&mut self, amount: i32) {
         TerrainVisualImpl::oversize_terrain(self, amount);
+    }
+
+    fn set_terrain_tracks_detail(&mut self) {
+        TerrainVisualImpl::set_terrain_tracks_detail(self);
     }
 }
 
