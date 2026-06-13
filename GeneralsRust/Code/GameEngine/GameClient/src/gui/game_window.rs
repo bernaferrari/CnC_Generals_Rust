@@ -2518,6 +2518,44 @@ impl GameWindow {
         }
     }
 
+    pub fn gadget_check_box_set_checked(&mut self, checked: bool) -> WindowMsgHandled {
+        let Some(WindowWidget::CheckBox(checkbox)) = self.widget.as_mut() else {
+            return WindowMsgHandled::Ignored;
+        };
+
+        checkbox.set_checked(checked);
+        self.sync_state_from_widget();
+        self.notify_owner_gadget_selected();
+        WindowMsgHandled::Handled
+    }
+
+    pub fn gadget_check_box_toggle(&mut self) -> WindowMsgHandled {
+        let Some(WindowWidget::CheckBox(checkbox)) = self.widget.as_mut() else {
+            return WindowMsgHandled::Ignored;
+        };
+
+        checkbox.toggle();
+        self.sync_state_from_widget();
+        self.notify_owner_gadget_selected();
+        WindowMsgHandled::Handled
+    }
+
+    fn notify_owner_gadget_selected(&mut self) {
+        if self.owner_is_self {
+            let _ = self.send_system_message(
+                WindowMessage::GadgetSelected,
+                self.id as WindowMsgData,
+                0,
+            );
+        } else if let Some(owner) = self.get_owner() {
+            let _ = owner.borrow_mut().send_system_message(
+                WindowMessage::GadgetSelected,
+                self.id as WindowMsgData,
+                0,
+            );
+        }
+    }
+
     pub fn progress_bar_mut(&mut self) -> Option<&mut ProgressBar> {
         match self.widget.as_mut() {
             Some(WindowWidget::ProgressBar(widget)) => Some(widget),
@@ -2855,6 +2893,14 @@ impl GameWindow {
             return WindowMsgHandled::Ignored;
         };
 
+        if matches!(
+            event,
+            InputEvent::MouseEnter { .. } | InputEvent::MouseLeave { .. }
+        ) && (self.inst_data.style & GWS_MOUSE_TRACK == 0)
+        {
+            return WindowMsgHandled::Ignored;
+        }
+
         let state_before = widget.state();
         let messages = widget.handle_input(&event);
         let state_changed = widget.state() != state_before;
@@ -2902,17 +2948,25 @@ impl GameWindow {
         }
 
         let mut handled = slider_thumb_hilite_handled;
-        let target_owner = if self.get_parent().is_some() && !self.owner_is_self {
-            self.get_owner()
-        } else {
-            None
-        };
+        let is_checkbox_message = matches!(self.widget, Some(WindowWidget::CheckBox(_)));
+        let target_owner =
+            if !self.owner_is_self && (self.get_parent().is_some() || is_checkbox_message) {
+                self.get_owner()
+            } else {
+                None
+            };
         let is_listbox_message = matches!(self.widget, Some(WindowWidget::ListBox(_)));
+        let original_data1 = data1;
         for message in messages {
             let (msg, data1, data2) = match message {
                 GadgetMessage::Clicked { .. } if is_listbox_message => {
                     continue;
                 }
+                GadgetMessage::Clicked { .. } if is_checkbox_message => (
+                    WindowMessage::GadgetSelected,
+                    self.id as WindowMsgData,
+                    original_data1,
+                ),
                 GadgetMessage::Clicked { .. } => {
                     (WindowMessage::GadgetSelected, self.id as WindowMsgData, 0)
                 }
@@ -2934,8 +2988,21 @@ impl GameWindow {
                     if !self.status.contains(WindowStatus::RIGHT_CLICK) {
                         continue;
                     }
-                    (WindowMessage::GadgetRightClick, self.id as WindowMsgData, 0)
+                    (
+                        WindowMessage::GadgetRightClick,
+                        self.id as WindowMsgData,
+                        if is_checkbox_message {
+                            original_data1
+                        } else {
+                            0
+                        },
+                    )
                 }
+                GadgetMessage::LeftDrag { .. } if is_checkbox_message => (
+                    WindowMessage::User(GGM_LEFT_DRAG),
+                    self.id as WindowMsgData,
+                    original_data1,
+                ),
                 GadgetMessage::LeftDrag { .. } => (WindowMessage::User(GGM_LEFT_DRAG), data1, 0),
                 GadgetMessage::ValueChanged { value, .. } if is_listbox_message => {
                     let selected = match value {
@@ -2963,10 +3030,20 @@ impl GameWindow {
                 GadgetMessage::EditingComplete { .. } => {
                     (WindowMessage::GadgetEditDone, self.id as WindowMsgData, 0)
                 }
+                GadgetMessage::MouseEnter { .. } if is_checkbox_message => (
+                    WindowMessage::GadgetMouseEntering,
+                    self.id as WindowMsgData,
+                    original_data1,
+                ),
                 GadgetMessage::MouseEnter { .. } => (
                     WindowMessage::GadgetMouseEntering,
                     self.id as WindowMsgData,
                     0,
+                ),
+                GadgetMessage::MouseLeave { .. } if is_checkbox_message => (
+                    WindowMessage::GadgetMouseLeaving,
+                    self.id as WindowMsgData,
+                    original_data1,
                 ),
                 GadgetMessage::MouseLeave { .. } => (
                     WindowMessage::GadgetMouseLeaving,
@@ -3659,6 +3736,18 @@ impl GameWindow {
             }
         }
 
+        if matches!(self.widget, Some(WindowWidget::CheckBox(_))) {
+            match msg {
+                WindowMessage::Create | WindowMessage::Destroy => {
+                    return WindowMsgHandled::Handled;
+                }
+                WindowMessage::User(code) if code == GBM_SET_SELECTION => {
+                    return self.gadget_check_box_set_checked(data1 != 0);
+                }
+                _ => {}
+            }
+        }
+
         if matches!(self.widget, Some(WindowWidget::ProgressBar(_))) {
             if let WindowMessage::User(code) = msg {
                 if code == GPM_SET_PROGRESS {
@@ -3677,6 +3766,11 @@ impl GameWindow {
 
         if msg == WindowMessage::InputFocus {
             let focused = data1 != 0;
+            if data2 != 0 {
+                unsafe {
+                    *(data2 as *mut bool) = focused;
+                }
+            }
             let event = if focused {
                 InputEvent::FocusGained
             } else {
@@ -5812,6 +5906,130 @@ mod tests {
     }
 
     #[test]
+    fn checkbox_set_selection_notifies_owner_even_when_unchanged_like_cpp_helper() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut window = GameWindow::new();
+        window.set_id(20);
+        window.set_owner(Some(&owner));
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(20, 0, 0, 16)));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_system_message(WindowMessage::User(GBM_SET_SELECTION), 1, 0),
+            WindowMsgHandled::Handled
+        );
+        assert!(matches!(
+            window.widget(),
+            Some(WindowWidget::CheckBox(checkbox)) if checkbox.is_checked()
+        ));
+        assert!(window.instance_data().state.contains(WindowState::SELECTED));
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[
+                (WindowMessage::GadgetSelected, 20, 0),
+                (WindowMessage::GadgetSelected, 20, 0),
+            ]
+        );
+    }
+
+    #[test]
+    fn checkbox_create_destroy_are_consumed_like_cpp_system_callback() {
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(21, 0, 0, 16)));
+
+        assert_eq!(
+            window.send_system_message(WindowMessage::Create, 0, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_system_message(WindowMessage::Destroy, 0, 0),
+            WindowMsgHandled::Handled
+        );
+    }
+
+    #[test]
+    fn checkbox_mouse_track_gate_and_payloads_match_cpp() {
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+
+        let mut window = GameWindow::new();
+        window.set_id(22);
+        window.set_owner(Some(&owner));
+        window.enable(true).unwrap();
+        window.set_widget(WindowWidget::CheckBox(CheckBox::new(22, 0, 0, 16)));
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::MouseEntering, 77, 0),
+            WindowMsgHandled::Ignored
+        );
+        assert!(owner_seen.borrow().is_empty());
+
+        window.instance_data_mut().style |= GWS_MOUSE_TRACK;
+        assert_eq!(
+            window.send_input_message(WindowMessage::MouseEntering, 77, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftUp, 88, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            window.send_input_message(WindowMessage::LeftDrag, 99, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[
+                (WindowMessage::GadgetMouseEntering, 22, 77),
+                (WindowMessage::GadgetSelected, 22, 88),
+                (WindowMessage::User(GGM_LEFT_DRAG), 22, 99),
+            ]
+        );
+
+        owner_seen.borrow_mut().clear();
+        window.set_status(WindowStatus::RIGHT_CLICK);
+        window.check_box_mut().unwrap().set_checked(true);
+        window.sync_state_from_widget();
+
+        assert_eq!(
+            window.send_input_message(WindowMessage::RightUp, 111, 0),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[(WindowMessage::GadgetRightClick, 22, 111)]
+        );
+        assert!(matches!(
+            window.widget(),
+            Some(WindowWidget::CheckBox(checkbox)) if !checkbox.is_checked()
+        ));
+    }
+
+    #[test]
     fn input_focus_notifies_owner_and_updates_hilite_like_cpp_gadgets() {
         let owner_seen = Rc::new(RefCell::new(Vec::new()));
         let owner = Rc::new(RefCell::new(GameWindow::new()));
@@ -5830,16 +6048,27 @@ mod tests {
         window.set_owner(Some(&owner));
         window.set_widget(WindowWidget::CheckBox(CheckBox::new(31, 0, 0, 16)));
 
+        let mut accepts_focus = false;
         assert_eq!(
-            window.send_system_message(WindowMessage::InputFocus, 1, 0),
+            window.send_system_message(
+                WindowMessage::InputFocus,
+                1,
+                &mut accepts_focus as *mut bool as WindowMsgData,
+            ),
             WindowMsgHandled::Handled
         );
+        assert!(accepts_focus);
         assert!(window.instance_data().state.contains(WindowState::HILITED));
 
         assert_eq!(
-            window.send_system_message(WindowMessage::InputFocus, 0, 0),
+            window.send_system_message(
+                WindowMessage::InputFocus,
+                0,
+                &mut accepts_focus as *mut bool as WindowMsgData,
+            ),
             WindowMsgHandled::Handled
         );
+        assert!(!accepts_focus);
         assert!(!window.instance_data().state.contains(WindowState::HILITED));
 
         assert_eq!(

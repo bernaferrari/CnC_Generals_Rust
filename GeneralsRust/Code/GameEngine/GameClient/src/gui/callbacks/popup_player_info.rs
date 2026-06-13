@@ -69,9 +69,7 @@ fn checkbox_checked(window: &Rc<RefCell<GameWindow>>) -> bool {
 }
 
 fn set_checkbox_checked(window: &Rc<RefCell<GameWindow>>, checked: bool) {
-    if let Some(check) = window.borrow_mut().check_box_mut() {
-        check.set_checked(checked);
-    }
+    let _ = window.borrow_mut().gadget_check_box_set_checked(checked);
 }
 
 fn message_box_yes() {
