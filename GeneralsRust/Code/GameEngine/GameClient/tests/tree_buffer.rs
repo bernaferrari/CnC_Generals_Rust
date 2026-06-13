@@ -375,6 +375,82 @@ impl TreeRandom for FixedRandom {
     }
 }
 
+struct AddTreeRandom {
+    expected_real_min: f32,
+    expected_real_max: f32,
+    real: f32,
+    int: i32,
+}
+
+impl TreeRandom for AddTreeRandom {
+    fn int_range(&mut self, min: i32, max: i32) -> i32 {
+        assert_eq!(min, 0);
+        assert_eq!(max, 9);
+        self.int
+    }
+
+    fn real_range(&mut self, min: f32, max: f32) -> f32 {
+        approx_eq(min, self.expected_real_min);
+        approx_eq(max, self.expected_real_max);
+        self.real
+    }
+}
+
+#[test]
+fn add_tree_randomized_matches_cpp_scale_amount_and_sway_rng() {
+    let mut buffer = W3DTreeBuffer::new();
+    let mut rng = AddTreeRandom {
+        expected_real_min: 0.75,
+        expected_real_max: 1.25,
+        real: 1.2,
+        int: 7,
+    };
+
+    let id = buffer
+        .add_tree_randomized(
+            11,
+            Vec3::new(10.0, 20.0, 3.0),
+            2.0,
+            0.0,
+            0.25,
+            module("Oak", "T"),
+            bounds(),
+            &mut rng,
+        )
+        .unwrap();
+
+    approx_eq(buffer.trees()[id].scale, 2.4);
+    assert_eq!(buffer.trees()[id].sway_type, 7);
+    approx_eq(buffer.trees()[id].bounds.radius, 12.0);
+}
+
+#[test]
+fn add_tree_zero_random_scale_amount_keeps_scale_but_still_draws_sway_type() {
+    let mut buffer = W3DTreeBuffer::new();
+    let mut rng = AddTreeRandom {
+        expected_real_min: 1.0,
+        expected_real_max: 1.0,
+        real: 99.0,
+        int: 3,
+    };
+
+    let id = buffer
+        .add_tree_randomized(
+            12,
+            Vec3::ZERO,
+            2.0,
+            0.0,
+            0.0,
+            module("Oak", "T"),
+            bounds(),
+            &mut rng,
+        )
+        .unwrap();
+
+    approx_eq(buffer.trees()[id].scale, 2.0);
+    assert_eq!(buffer.trees()[id].sway_type, 3);
+}
+
 #[test]
 fn update_sway_matches_cpp_array_shapes_and_randomized_type_base() {
     let mut buffer = W3DTreeBuffer::new();
