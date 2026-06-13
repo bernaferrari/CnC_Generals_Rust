@@ -3205,9 +3205,8 @@ impl BasicDrawable {
         turret_rot_pos: &mut Vector3,
         mut turret_pitch_pos: Option<&mut Vector3>,
     ) -> bool {
-        // C++ iterates draw modules via ObjectDrawInterface.
-        // PARITY_NOTE: Rust draw modules currently skip the pitch parameter
-        // since the W3D bone transform pipeline isn't fully connected yet.
+        // C++ iterates draw modules via ObjectDrawInterface and forwards all
+        // output pointers to the first module that can answer.
         for dm in &self.draw_modules {
             if dm.get_projectile_launch_offset(
                 wslot,
@@ -3215,11 +3214,8 @@ impl BasicDrawable {
                 launch_pos,
                 turret,
                 turret_rot_pos,
-                None,
+                turret_pitch_pos.as_deref_mut(),
             ) {
-                if let Some(ref mut pitch) = turret_pitch_pos {
-                    **pitch = *turret_rot_pos;
-                }
                 return true;
             }
         }
@@ -4738,6 +4734,35 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
+    struct ProjectileLaunchTestDrawModule {
+        observed_pitch_pointer: Arc<Mutex<bool>>,
+    }
+
+    impl DrawModule for ProjectileLaunchTestDrawModule {
+        fn get_projectile_launch_offset(
+            &self,
+            wslot: WeaponSlotType,
+            barrel: i32,
+            launch_pos: &mut Matrix4,
+            turret: WhichTurretType,
+            turret_rot_pos: &mut Vector3,
+            turret_pitch_pos: Option<&mut Vector3>,
+        ) -> bool {
+            assert_eq!(wslot, WeaponSlotType::Primary);
+            assert_eq!(barrel, 1);
+            assert_eq!(turret, WhichTurretType::Main);
+
+            *launch_pos = Matrix4::translation(Vector3::new(10.0, 20.0, 30.0));
+            *turret_rot_pos = Vector3::new(1.0, 2.0, 3.0);
+            if let Some(pitch) = turret_pitch_pos {
+                *self.observed_pitch_pointer.lock() = true;
+                *pitch = Vector3::new(4.0, 5.0, 6.0);
+            }
+            true
+        }
+    }
+
     #[test]
     fn test_drawable_creation() {
         let drawable = BasicDrawable::new(DrawableId(1));
@@ -5764,6 +5789,36 @@ mod tests {
         assert_near(loco.acceleration_roll_rate, 0.0);
 
         OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
+    fn projectile_launch_offset_forwards_pitch_pointer_to_draw_module() {
+        let observed_pitch_pointer = Arc::new(Mutex::new(false));
+        let mut drawable = BasicDrawable::new(DrawableId(1));
+        drawable.add_draw_module(Box::new(ProjectileLaunchTestDrawModule {
+            observed_pitch_pointer: observed_pitch_pointer.clone(),
+        }));
+
+        let mut launch_pos = Matrix4::identity();
+        let mut turret_rot_pos = Vector3::zero();
+        let mut turret_pitch_pos = Vector3::zero();
+
+        assert!(drawable.get_projectile_launch_offset(
+            WeaponSlotType::Primary,
+            1,
+            &mut launch_pos,
+            WhichTurretType::Main,
+            &mut turret_rot_pos,
+            Some(&mut turret_pitch_pos),
+        ));
+
+        assert!(*observed_pitch_pointer.lock());
+        assert_eq!(
+            launch_pos,
+            Matrix4::translation(Vector3::new(10.0, 20.0, 30.0))
+        );
+        assert_eq!(turret_rot_pos, Vector3::new(1.0, 2.0, 3.0));
+        assert_eq!(turret_pitch_pos, Vector3::new(4.0, 5.0, 6.0));
     }
 
     #[test]
