@@ -2004,6 +2004,19 @@ impl ThingTemplate {
         }
     }
 
+    fn load_prerequisites_from_properties(&mut self, properties: &HashMap<String, String>) {
+        let fields = collect_named_subblock_fields(properties, "Prerequisites");
+        if fields.is_empty() {
+            return;
+        }
+
+        let lines = fields
+            .into_iter()
+            .map(|field| format!("{} = {}", field.field, field.value.trim()))
+            .collect::<Vec<_>>();
+        self.parse_prerequisites_block(&lines);
+    }
+
     /// Find the best matching armor template set for the supplied flags.
     pub fn find_armor_template_set(&self, flags: &ArmorSetBitFlags) -> Option<&ArmorTemplateSet> {
         self.armor_template_set_finder
@@ -2381,6 +2394,7 @@ impl ThingTemplate {
         self.load_armor_sets_from_properties(properties)?;
         self.load_per_unit_sounds_from_properties(properties);
         self.load_per_unit_fx_from_properties(properties);
+        self.load_prerequisites_from_properties(properties);
 
         for (key, value) in properties {
             let trimmed = value.trim();
@@ -2389,7 +2403,10 @@ impl ThingTemplate {
                     .set(audio_type, AudioEventRts::with_event_name(trimmed));
                 continue;
             }
-            if key.starts_with("UnitSpecificSounds.") || key.starts_with("UnitSpecificFX.") {
+            if key.starts_with("UnitSpecificSounds.")
+                || key.starts_with("UnitSpecificFX.")
+                || key.starts_with("Prerequisites.")
+            {
                 continue;
             }
 
@@ -2992,6 +3009,41 @@ mod tests {
             .per_unit_fx
             .get(&AsciiString::from("VeteranFX"))
             .is_some_and(Option::is_none));
+    }
+
+    #[test]
+    fn object_field_parse_populates_prerequisites_from_collected_subblock() {
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            (
+                "Prerequisites.Object".to_string(),
+                "AmericaBarracks AmericaWarFactory".to_string(),
+            ),
+            (
+                "Prerequisites.Object#1".to_string(),
+                "AmericaStrategyCenter".to_string(),
+            ),
+        ]);
+
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("collected prerequisites should parse");
+
+        assert_eq!(template.get_prereq_count(), 2);
+
+        let first = template.get_prereq(0).expect("first prereq");
+        let first_units = first.get_unit_prereqs();
+        assert_eq!(first_units.len(), 2);
+        assert_eq!(first_units[0].name, "AmericaBarracks");
+        assert!(!first_units[0].flags.has_or_with_prev());
+        assert_eq!(first_units[1].name, "AmericaWarFactory");
+        assert!(first_units[1].flags.has_or_with_prev());
+
+        let second = template.get_prereq(1).expect("second prereq");
+        let second_units = second.get_unit_prereqs();
+        assert_eq!(second_units.len(), 1);
+        assert_eq!(second_units[0].name, "AmericaStrategyCenter");
+        assert!(!second_units[0].flags.has_or_with_prev());
     }
 
     #[test]

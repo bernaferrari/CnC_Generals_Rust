@@ -264,6 +264,8 @@ fn object_prefixed_subblock_key(
         Some("UnitSpecificSounds".to_string())
     } else if block_name.eq_ignore_ascii_case("UnitSpecificFX") {
         Some("UnitSpecificFX".to_string())
+    } else if block_name.eq_ignore_ascii_case("Prerequisites") {
+        Some("Prerequisites".to_string())
     } else {
         None
     }
@@ -1395,6 +1397,34 @@ mod tests {
                 .get("UnitSpecificFX.VeteranFX")
                 .map(String::as_str),
             Some("None")
+        );
+    }
+
+    #[test]
+    fn parse_object_block_properties_collects_prerequisites_block() {
+        let contents = r#"
+            Object TestObject
+              Prerequisites
+                Object = AmericaBarracks AmericaWarFactory
+                Science = SCIENCE_BattleDrone
+              End
+            End
+        "#;
+        let lines: Vec<&str> = contents.lines().collect();
+        let start = lines
+            .iter()
+            .position(|line| line.trim_start().starts_with("Object TestObject"))
+            .expect("object declaration")
+            + 1;
+
+        let (properties, _) = parse_object_block_properties(&lines, start);
+        assert_eq!(
+            properties.get("Prerequisites.Object").map(String::as_str),
+            Some("AmericaBarracks AmericaWarFactory")
+        );
+        assert_eq!(
+            properties.get("Prerequisites.Science").map(String::as_str),
+            Some("SCIENCE_BattleDrone")
         );
     }
 
