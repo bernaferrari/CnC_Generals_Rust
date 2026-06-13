@@ -20,6 +20,30 @@ pub const BODYDAMAGETYPE_COUNT: usize = 5;
 pub const MAX_BRIDGE_BODY_FX: usize = 3;
 const BODY_PRISTINE_INDEX: usize = 0;
 const BODY_DAMAGED_INDEX: usize = 1;
+const CPP_TERRAIN_BRIDGE_FIELDS: &[&str] = &[
+    "BridgeScale",
+    "ScaffoldObjectName",
+    "ScaffoldSupportObjectName",
+    "RadarColor",
+    "TransitionEffectsHeight",
+    "NumFXPerType",
+    "BridgeModelName",
+    "Texture",
+    "BridgeModelNameDamaged",
+    "TextureDamaged",
+    "BridgeModelNameReallyDamaged",
+    "TextureReallyDamaged",
+    "BridgeModelNameBroken",
+    "TextureBroken",
+    "TowerObjectNameFromLeft",
+    "TowerObjectNameFromRight",
+    "TowerObjectNameToLeft",
+    "TowerObjectNameToRight",
+    "DamagedToSound",
+    "RepairedToSound",
+    "TransitionToOCL",
+    "TransitionToFX",
+];
 
 fn parse_body_damage_type(value: &str) -> Result<usize, INIError> {
     match value.trim().to_ascii_lowercase().as_str() {
@@ -72,6 +96,7 @@ fn store_property(
 
 macro_rules! bridge_property_parser {
     ($fn_name:ident, $key:expr) => {
+        #[allow(dead_code)]
         fn $fn_name(
             _: &mut INI,
             ctx: &mut BridgeParseContext,
@@ -209,92 +234,8 @@ fn parse_repaired_to_sound(
 
 const BRIDGE_PARSE_TABLE: &[FieldParse<BridgeParseContext>] = &[
     FieldParse {
-        token: "Material",
-        parse: parse_material_field,
-    },
-    FieldParse {
         token: "Texture",
         parse: parse_texture_field,
-    },
-    FieldParse {
-        token: "Model",
-        parse: parse_model_field,
-    },
-    FieldParse {
-        token: "Width",
-        parse: parse_width_field,
-    },
-    FieldParse {
-        token: "Height",
-        parse: parse_height_field,
-    },
-    FieldParse {
-        token: "Length",
-        parse: parse_length_field,
-    },
-    FieldParse {
-        token: "MaxSpan",
-        parse: parse_max_span_field,
-    },
-    FieldParse {
-        token: "Health",
-        parse: parse_health_field,
-    },
-    FieldParse {
-        token: "Armor",
-        parse: parse_armor_field,
-    },
-    FieldParse {
-        token: "CanBeDestroyed",
-        parse: parse_can_be_destroyed_field,
-    },
-    FieldParse {
-        token: "CanBeRepaired",
-        parse: parse_can_be_repaired_field,
-    },
-    FieldParse {
-        token: "ConstructionTime",
-        parse: parse_construction_time_field,
-    },
-    FieldParse {
-        token: "ConstructionCost",
-        parse: parse_construction_cost_field,
-    },
-    FieldParse {
-        token: "MovementSpeedModifier",
-        parse: parse_movement_speed_modifier_field,
-    },
-    FieldParse {
-        token: "SupportsInfantry",
-        parse: parse_supports_infantry_field,
-    },
-    FieldParse {
-        token: "SupportsVehicles",
-        parse: parse_supports_vehicles_field,
-    },
-    FieldParse {
-        token: "SupportsTanks",
-        parse: parse_supports_tanks_field,
-    },
-    FieldParse {
-        token: "SupportsAircraft",
-        parse: parse_supports_aircraft_field,
-    },
-    FieldParse {
-        token: "SoundEffectWalking",
-        parse: parse_sound_effect_walking_field,
-    },
-    FieldParse {
-        token: "SoundEffectDriving",
-        parse: parse_sound_effect_driving_field,
-    },
-    FieldParse {
-        token: "SoundEffectDestruction",
-        parse: parse_sound_effect_destruction_field,
-    },
-    FieldParse {
-        token: "ParticleEffectDestruction",
-        parse: parse_particle_effect_destruction_field,
     },
     FieldParse {
         token: "BridgeScale",
@@ -457,6 +398,25 @@ fn parse_usize_field(field_name: &str, value: &str) -> Result<usize, String> {
     value
         .parse::<usize>()
         .map_err(|e| format!("{}: invalid integer value '{}': {}", field_name, value, e))
+}
+
+fn parse_rgb_color_field(field_name: &str, value: &str) -> Result<(), String> {
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.len() != 3 {
+        return Err(format!(
+            "{}: invalid RGB color '{}': expected three components",
+            field_name, value
+        ));
+    }
+    for part in parts {
+        part.parse::<f32>()
+            .map_err(|e| format!("{}: invalid RGB component '{}': {}", field_name, part, e))?;
+    }
+    Ok(())
+}
+
+fn parse_cpp_bridge_field_for_table(value: &str) -> Result<Box<dyn std::any::Any>, String> {
+    Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
 }
 
 /// Bridge connection points
@@ -649,108 +609,16 @@ impl TerrainRoadType {
         &'static str,
         fn(&str) -> Result<Box<dyn std::any::Any>, String>,
     )> {
-        vec![
-            ("Material", |value| {
-                Ok(Box::new(BridgeMaterial::from_string(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Texture", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Model", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Width", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse width: {}", e))
-            }),
-            ("Height", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse height: {}", e))
-            }),
-            ("Length", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse length: {}", e))
-            }),
-            ("MaxSpan", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse max span: {}", e))
-            }),
-            ("Health", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse health: {}", e))
-            }),
-            ("Armor", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse armor: {}", e))
-            }),
-            ("CanBeDestroyed", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse destroyable: {}", e))
-            }),
-            ("CanBeRepaired", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse repairable: {}", e))
-            }),
-            ("ConstructionTime", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse construction time: {}", e))
-            }),
-            ("ConstructionCost", |value| {
-                value
-                    .parse::<u32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse construction cost: {}", e))
-            }),
-            ("MovementSpeedModifier", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse movement speed modifier: {}", e))
-            }),
-            ("SupportsInfantry", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse supports infantry: {}", e))
-            }),
-            ("SupportsVehicles", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse supports vehicles: {}", e))
-            }),
-            ("SupportsTanks", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse supports tanks: {}", e))
-            }),
-            ("SoundEffectWalking", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("SoundEffectDriving", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("SoundEffectDestruction", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("ParticleEffectDestruction", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-        ]
+        CPP_TERRAIN_BRIDGE_FIELDS
+            .iter()
+            .map(|field| {
+                (
+                    *field,
+                    parse_cpp_bridge_field_for_table
+                        as fn(&str) -> Result<Box<dyn std::any::Any>, String>,
+                )
+            })
+            .collect()
     }
 
     /// Get the road field parse table
@@ -831,8 +699,7 @@ impl TerrainRoadType {
                 "ocl" if !store_fx => {
                     value = Some(AsciiString::from(value_str));
                 }
-                // Accept labels we don't understand so we stay compatible with loose INI input.
-                _ => {}
+                _ => return Err(INIError::InvalidData),
             }
         }
 
@@ -1356,6 +1223,102 @@ fn empty_ascii_array<const N: usize>() -> [AsciiString; N] {
     std::array::from_fn(|_| AsciiString::default())
 }
 
+fn apply_cpp_bridge_properties(
+    bridge: &mut TerrainRoadType,
+    properties: &HashMap<String, String>,
+) -> Result<(), String> {
+    for (key, value) in properties {
+        if !CPP_TERRAIN_BRIDGE_FIELDS.contains(&key.as_str()) {
+            return Err(format!("Unknown terrain bridge field '{}'", key));
+        }
+
+        match key.as_str() {
+            "BridgeScale" => {
+                bridge.bridge_scale = parse_f32_field(key, value)?;
+            }
+            "ScaffoldObjectName" => {
+                bridge.scaffold_object_name = AsciiString::from(value);
+            }
+            "ScaffoldSupportObjectName" => {
+                bridge.scaffold_support_object_name = AsciiString::from(value);
+            }
+            "RadarColor" => {
+                parse_rgb_color_field(key, value)?;
+                bridge.radar_color = AsciiString::from(value);
+            }
+            "TransitionEffectsHeight" => {
+                bridge.transition_effects_height = parse_f32_field(key, value)?;
+            }
+            "NumFXPerType" => {
+                bridge.num_fx_per_type = parse_usize_field(key, value)?;
+            }
+            "BridgeModelName" => {
+                bridge.model_name = AsciiString::from(value);
+            }
+            "Texture" => {
+                bridge.texture_name = AsciiString::from(value);
+            }
+            "BridgeModelNameDamaged" => {
+                bridge.bridge_model_name_damaged = AsciiString::from(value);
+            }
+            "TextureDamaged" => {
+                bridge.texture_damaged = AsciiString::from(value);
+            }
+            "BridgeModelNameReallyDamaged" => {
+                bridge.bridge_model_name_really_damaged = AsciiString::from(value);
+            }
+            "TextureReallyDamaged" => {
+                bridge.texture_really_damaged = AsciiString::from(value);
+            }
+            "BridgeModelNameBroken" => {
+                bridge.bridge_model_name_broken = AsciiString::from(value);
+            }
+            "TextureBroken" => {
+                bridge.texture_broken = AsciiString::from(value);
+            }
+            "TowerObjectNameFromLeft" => {
+                bridge.tower_object_name_from_left = AsciiString::from(value);
+            }
+            "TowerObjectNameFromRight" => {
+                bridge.tower_object_name_from_right = AsciiString::from(value);
+            }
+            "TowerObjectNameToLeft" => {
+                bridge.tower_object_name_to_left = AsciiString::from(value);
+            }
+            "TowerObjectNameToRight" => {
+                bridge.tower_object_name_to_right = AsciiString::from(value);
+            }
+            "DamagedToSound" => {
+                let tokens: Vec<&str> = value.split_whitespace().collect();
+                bridge
+                    .parse_damage_to_sound_tokens(&tokens)
+                    .map_err(|err| err.to_string())?;
+            }
+            "RepairedToSound" => {
+                let tokens: Vec<&str> = value.split_whitespace().collect();
+                bridge
+                    .parse_repaired_to_sound_tokens(&tokens)
+                    .map_err(|err| err.to_string())?;
+            }
+            "TransitionToOCL" => {
+                let tokens: Vec<&str> = value.split_whitespace().collect();
+                bridge
+                    .parse_bridge_effect_tokens(&tokens, false)
+                    .map_err(|err| err.to_string())?;
+            }
+            "TransitionToFX" => {
+                let tokens: Vec<&str> = value.split_whitespace().collect();
+                bridge
+                    .parse_bridge_effect_tokens(&tokens, true)
+                    .map_err(|err| err.to_string())?;
+            }
+            _ => unreachable!("field was validated against C++ terrain bridge table"),
+        }
+    }
+
+    Ok(())
+}
+
 /// INI parsing functions for terrain bridges
 pub struct IniTerrainBridge;
 
@@ -1390,9 +1353,7 @@ impl IniTerrainBridge {
                 other => TerrainBridgeError::ParseError(other.to_string()),
             })?;
 
-        context
-            .bridge
-            .update_from_properties(&context.properties)
+        apply_cpp_bridge_properties(&mut context.bridge, &context.properties)
             .map_err(TerrainBridgeError::ParseError)?;
 
         if !context.bridge.is_valid() {
@@ -1415,8 +1376,7 @@ impl IniTerrainBridge {
         }
 
         let mut bridge = TerrainRoadType::new_bridge(name);
-        bridge
-            .update_from_properties(&properties)
+        apply_cpp_bridge_properties(&mut bridge, &properties)
             .map_err(TerrainBridgeError::ParseError)?;
 
         if !bridge.is_valid() {
@@ -1581,6 +1541,192 @@ mod tests {
         assert!(IniTerrainBridge::parse_terrain_bridge_block(
             AsciiString::from("BadNumFX"),
             properties
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn bridge_block_accepts_cpp_field_table_fields() {
+        let mut properties = HashMap::new();
+        properties.insert("BridgeScale".to_string(), "1.25".to_string());
+        properties.insert(
+            "ScaffoldObjectName".to_string(),
+            "BridgeScaffold".to_string(),
+        );
+        properties.insert(
+            "ScaffoldSupportObjectName".to_string(),
+            "BridgeSupport".to_string(),
+        );
+        properties.insert("RadarColor".to_string(), "10 20 30".to_string());
+        properties.insert("TransitionEffectsHeight".to_string(), "18.5".to_string());
+        properties.insert("NumFXPerType".to_string(), "3".to_string());
+        properties.insert("BridgeModelName".to_string(), "BridgeModel".to_string());
+        properties.insert("Texture".to_string(), "BridgeTexture.tga".to_string());
+        properties.insert(
+            "BridgeModelNameDamaged".to_string(),
+            "BridgeModelDamaged".to_string(),
+        );
+        properties.insert(
+            "TextureDamaged".to_string(),
+            "BridgeDamaged.tga".to_string(),
+        );
+        properties.insert(
+            "BridgeModelNameReallyDamaged".to_string(),
+            "BridgeModelReallyDamaged".to_string(),
+        );
+        properties.insert(
+            "TextureReallyDamaged".to_string(),
+            "BridgeReallyDamaged.tga".to_string(),
+        );
+        properties.insert(
+            "BridgeModelNameBroken".to_string(),
+            "BridgeModelBroken".to_string(),
+        );
+        properties.insert("TextureBroken".to_string(), "BridgeBroken.tga".to_string());
+        properties.insert("TowerObjectNameFromLeft".to_string(), "TowerFL".to_string());
+        properties.insert(
+            "TowerObjectNameFromRight".to_string(),
+            "TowerFR".to_string(),
+        );
+        properties.insert("TowerObjectNameToLeft".to_string(), "TowerTL".to_string());
+        properties.insert("TowerObjectNameToRight".to_string(), "TowerTR".to_string());
+        properties.insert(
+            "DamagedToSound".to_string(),
+            "BridgeDamagedSound".to_string(),
+        );
+        properties.insert(
+            "RepairedToSound".to_string(),
+            "BridgeRepairedSound".to_string(),
+        );
+        properties.insert(
+            "TransitionToOCL".to_string(),
+            "Transition:Damage ToState:Medium EffectNum:1 OCL:BridgeOCL".to_string(),
+        );
+        properties.insert(
+            "TransitionToFX".to_string(),
+            "Transition:Repair ToState:Medium EffectNum:2 FX:BridgeFX".to_string(),
+        );
+
+        let bridge =
+            IniTerrainBridge::parse_terrain_bridge_block(AsciiString::from("Bridge"), properties)
+                .unwrap();
+
+        assert_eq!(bridge.bridge_scale, 1.25);
+        assert_eq!(bridge.scaffold_object_name.as_str(), "BridgeScaffold");
+        assert_eq!(
+            bridge.scaffold_support_object_name.as_str(),
+            "BridgeSupport"
+        );
+        assert_eq!(bridge.radar_color.as_str(), "10 20 30");
+        assert_eq!(bridge.transition_effects_height, 18.5);
+        assert_eq!(bridge.num_fx_per_type, 3);
+        assert_eq!(bridge.model_name.as_str(), "BridgeModel");
+        assert_eq!(bridge.texture_name.as_str(), "BridgeTexture.tga");
+        assert_eq!(
+            bridge.bridge_model_name_damaged.as_str(),
+            "BridgeModelDamaged"
+        );
+        assert_eq!(
+            bridge.bridge_model_name_really_damaged.as_str(),
+            "BridgeModelReallyDamaged"
+        );
+        assert_eq!(
+            bridge.bridge_model_name_broken.as_str(),
+            "BridgeModelBroken"
+        );
+        assert_eq!(bridge.texture_damaged.as_str(), "BridgeDamaged.tga");
+        assert_eq!(
+            bridge.texture_really_damaged.as_str(),
+            "BridgeReallyDamaged.tga"
+        );
+        assert_eq!(bridge.texture_broken.as_str(), "BridgeBroken.tga");
+        assert_eq!(bridge.tower_object_name_from_left.as_str(), "TowerFL");
+        assert_eq!(bridge.tower_object_name_from_right.as_str(), "TowerFR");
+        assert_eq!(bridge.tower_object_name_to_left.as_str(), "TowerTL");
+        assert_eq!(bridge.tower_object_name_to_right.as_str(), "TowerTR");
+        assert_eq!(
+            bridge
+                .get_damage_to_sound_string(BODY_DAMAGED_INDEX)
+                .unwrap()
+                .as_str(),
+            "BridgeDamagedSound"
+        );
+        assert_eq!(
+            bridge
+                .get_repaired_to_sound_string(BODY_DAMAGED_INDEX)
+                .unwrap()
+                .as_str(),
+            "BridgeRepairedSound"
+        );
+        assert_eq!(
+            bridge.get_damage_to_ocl_string(2, 0).unwrap().as_str(),
+            "BridgeOCL"
+        );
+        assert_eq!(
+            bridge.get_repaired_to_fx_string(2, 1).unwrap().as_str(),
+            "BridgeFX"
+        );
+        assert!(bridge.properties.is_empty());
+    }
+
+    #[test]
+    fn bridge_block_rejects_fields_outside_cpp_parse_table() {
+        for field in [
+            "Material",
+            "Model",
+            "Width",
+            "Height",
+            "Length",
+            "MaxSpan",
+            "Health",
+            "Armor",
+            "CanBeDestroyed",
+            "CanBeRepaired",
+            "ConstructionTime",
+            "ConstructionCost",
+            "MovementSpeedModifier",
+            "SupportsInfantry",
+            "SupportsVehicles",
+            "SupportsTanks",
+            "SupportsAircraft",
+            "SoundEffectWalking",
+            "SoundEffectDriving",
+            "SoundEffectDestruction",
+            "ParticleEffectDestruction",
+            "UnknownField",
+        ] {
+            let mut properties = HashMap::new();
+            properties.insert(field.to_string(), "1".to_string());
+            assert!(
+                IniTerrainBridge::parse_terrain_bridge_block(
+                    AsciiString::from("BadBridge"),
+                    properties
+                )
+                .is_err(),
+                "{} should be rejected because C++ TerrainRoadType bridge table does not parse it",
+                field
+            );
+        }
+    }
+
+    #[test]
+    fn bridge_block_rejects_malformed_cpp_values() {
+        let mut properties = HashMap::new();
+        properties.insert("RadarColor".to_string(), "red".to_string());
+        assert!(IniTerrainBridge::parse_terrain_bridge_block(
+            AsciiString::from("BadRadarColor"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert(
+            "TransitionToFX".to_string(),
+            "Transition:Damage ToState:Medium EffectNum:1 Unknown:BridgeFX".to_string(),
+        );
+        assert!(IniTerrainBridge::parse_terrain_bridge_block(
+            AsciiString::from("BadTransitionLabel"),
+            properties,
         )
         .is_err());
     }
