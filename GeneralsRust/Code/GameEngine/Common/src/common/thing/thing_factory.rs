@@ -203,7 +203,7 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
                 if let Some(eq_pos) = line.find('=') {
                     let key = format!("{}.{}", prefix, line[..eq_pos].trim());
                     let value = line[eq_pos + 1..].trim().to_string();
-                    properties.insert(key, value);
+                    insert_repeated_property(&mut properties, key, value);
                 }
             }
             // Other sub-blocks are silently consumed
@@ -260,6 +260,21 @@ fn object_prefixed_subblock_key(
         Some(key)
     } else {
         None
+    }
+}
+
+fn insert_repeated_property(properties: &mut HashMap<String, String>, key: String, value: String) {
+    if !properties.contains_key(&key) {
+        properties.insert(key, value);
+        return;
+    }
+
+    for index in 1.. {
+        let repeated_key = format!("{}#{}", key, index);
+        if !properties.contains_key(&repeated_key) {
+            properties.insert(repeated_key, value);
+            return;
+        }
     }
 }
 
@@ -886,7 +901,11 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
                 let value = split_ini_assignment(line)
                     .map(|(_, value)| value)
                     .unwrap_or_default();
-                properties.insert(format!("{}.{}", prefix, key), value.to_string());
+                insert_repeated_property(
+                    &mut properties,
+                    format!("{}.{}", prefix, key),
+                    value.to_string(),
+                );
             }
         } else if object_field_starts_subblock(first_token)
             || !object_line_is_plain_field_without_assignment(first_token)
@@ -1292,6 +1311,7 @@ mod tests {
               WeaponSet
                 Conditions = None
                 Weapon = PRIMARY TestWeapon
+                Weapon = SECONDARY OtherWeapon
               End
               ArmorSet
                 Conditions = None
@@ -1310,6 +1330,14 @@ mod tests {
         assert_eq!(
             properties.get("WeaponSet0.Conditions").map(String::as_str),
             Some("None")
+        );
+        assert_eq!(
+            properties.get("WeaponSet0.Weapon").map(String::as_str),
+            Some("PRIMARY TestWeapon")
+        );
+        assert_eq!(
+            properties.get("WeaponSet0.Weapon#1").map(String::as_str),
+            Some("SECONDARY OtherWeapon")
         );
         assert_eq!(
             properties.get("ArmorSet0.Conditions").map(String::as_str),
