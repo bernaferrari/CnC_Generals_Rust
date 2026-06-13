@@ -481,8 +481,13 @@ impl TextureLoader {
         // Parse TGA header (matches TARGA file format specification)
         // Offset 0: ID length, 1: Color map type, 2: Image type
         let id_length = data[0];
-        let _color_map_type = data[1];
-        let _image_type = data[2];
+        let color_map_type = data[1];
+        let image_type = data[2];
+        if color_map_type != 0 {
+            return Err(W3DError::InvalidParameter(
+                "Color-mapped TGA files are not supported".to_string(),
+            ));
+        }
 
         // Offset 12-13: Width, 14-15: Height, 16: Bits per pixel, 17: Image descriptor
         let width = u16::from_le_bytes([data[12], data[13]]) as u32;
@@ -526,41 +531,113 @@ impl TextureLoader {
         let bytes_per_pixel = (bpp / 8) as u32;
         let image_size = (width * height * bytes_per_pixel) as usize;
 
-        if header_size + image_size <= data.len() {
-            if let Some(base_level) = texture.mip_levels.first_mut() {
-                // Check if image is stored top-to-bottom or bottom-to-top
-                // Bit 5 of image descriptor indicates vertical flip
-                let is_top_down = (image_descriptor & 0x20) != 0;
-
-                if is_top_down {
-                    // Image stored top-to-bottom, copy directly
-                    base_level.data = data[header_size..header_size + image_size].to_vec();
-                } else {
-                    // Image stored bottom-to-top, need to flip vertically (C++ targa.cpp)
-                    base_level.data = Vec::with_capacity(image_size);
-                    let row_size = (width * bytes_per_pixel) as usize;
-                    for y in (0..height).rev() {
-                        let row_start = header_size + (y as usize * row_size);
-                        let row_end = row_start + row_size;
-                        if row_end <= data.len() {
-                            base_level.data.extend_from_slice(&data[row_start..row_end]);
-                        }
-                    }
+        let decoded = match image_type {
+            2 | 3 => {
+                if header_size + image_size > data.len() {
+                    return Err(W3DError::InvalidParameter(
+                        "TGA image data is truncated".to_string(),
+                    ));
                 }
+                data[header_size..header_size + image_size].to_vec()
+            }
+            10 | 11 => {
+                Self::decode_tga_rle(&data[header_size..], image_size, bytes_per_pixel as usize)?
+            }
+            _ => {
+                return Err(W3DError::InvalidParameter(format!(
+                    "Unsupported TGA image type: {}",
+                    image_type
+                )));
+            }
+        };
 
-                base_level.pitch = width * bytes_per_pixel;
+        if let Some(base_level) = texture.mip_levels.first_mut() {
+            // Check if image is stored top-to-bottom or bottom-to-top.
+            // Bit 5 of image descriptor indicates vertical flip.
+            let is_top_down = (image_descriptor & 0x20) != 0;
 
-                // Note: RLE compression (image_type == 10) not implemented yet
-                // In C++, this would be handled in targa.cpp with run-length decoding
+            if is_top_down {
+                base_level.data = decoded;
+            } else {
+                base_level.data = Vec::with_capacity(image_size);
+                let row_size = (width * bytes_per_pixel) as usize;
+                for y in (0..height).rev() {
+                    let row_start = y as usize * row_size;
+                    let row_end = row_start + row_size;
+                    base_level
+                        .data
+                        .extend_from_slice(&decoded[row_start..row_end]);
+                }
             }
 
-            // Generate additional mip levels if requested
-            if texture.mip_levels.len() > 1 {
-                self.generate_mipmaps(&mut texture)?;
-            }
+            base_level.pitch = width * bytes_per_pixel;
+        }
+
+        // Generate additional mip levels if requested.
+        if texture.mip_levels.len() > 1 {
+            self.generate_mipmaps(&mut texture)?;
         }
 
         Ok(texture)
+    }
+
+    fn decode_tga_rle(
+        data: &[u8],
+        expected_size: usize,
+        bytes_per_pixel: usize,
+    ) -> W3DResult<Vec<u8>> {
+        if bytes_per_pixel == 0 {
+            return Err(W3DError::InvalidParameter(
+                "TGA RLE bytes-per-pixel is zero".to_string(),
+            ));
+        }
+
+        let mut output = Vec::with_capacity(expected_size);
+        let mut offset = 0usize;
+
+        while output.len() < expected_size {
+            let Some(&packet_header) = data.get(offset) else {
+                return Err(W3DError::InvalidParameter(
+                    "TGA RLE packet header is truncated".to_string(),
+                ));
+            };
+            offset += 1;
+
+            let count = ((packet_header & 0x7f) as usize) + 1;
+            let bytes_to_write = count.checked_mul(bytes_per_pixel).ok_or_else(|| {
+                W3DError::InvalidParameter("TGA RLE packet size overflow".to_string())
+            })?;
+            if output.len() + bytes_to_write > expected_size {
+                return Err(W3DError::InvalidParameter(
+                    "TGA RLE packet overruns image data".to_string(),
+                ));
+            }
+
+            if (packet_header & 0x80) != 0 {
+                let pixel_end = offset + bytes_per_pixel;
+                if pixel_end > data.len() {
+                    return Err(W3DError::InvalidParameter(
+                        "TGA RLE repeated pixel is truncated".to_string(),
+                    ));
+                }
+                let pixel = &data[offset..pixel_end];
+                offset = pixel_end;
+                for _ in 0..count {
+                    output.extend_from_slice(pixel);
+                }
+            } else {
+                let packet_end = offset + bytes_to_write;
+                if packet_end > data.len() {
+                    return Err(W3DError::InvalidParameter(
+                        "TGA RLE raw packet is truncated".to_string(),
+                    ));
+                }
+                output.extend_from_slice(&data[offset..packet_end]);
+                offset = packet_end;
+            }
+        }
+
+        Ok(output)
     }
 
     /// Load BMP texture file
@@ -838,9 +915,58 @@ mod tests {
 
     #[test]
     fn test_texture_manager() {
-        let mut manager = TextureManager::new();
+        let manager = TextureManager::new();
         let (count, memory) = manager.memory_stats();
         assert_eq!(count, 0);
         assert_eq!(memory, 0);
+    }
+
+    #[test]
+    fn load_tga_decodes_rle_packets_and_flips_bottom_up_rows() {
+        let mut data = vec![0u8; 18];
+        data[2] = 10; // RLE true-color TGA
+        data[12] = 2; // width
+        data[14] = 2; // height
+        data[16] = 24; // BGR
+
+        let repeated = [1, 2, 3];
+        let top_left = [4, 5, 6];
+        let top_right = [7, 8, 9];
+        data.push(0x81); // repeat the next pixel twice: bottom row
+        data.extend_from_slice(&repeated);
+        data.push(0x01); // two raw pixels: top row
+        data.extend_from_slice(&top_left);
+        data.extend_from_slice(&top_right);
+
+        let path = std::env::temp_dir().join(format!(
+            "ww3d_assets_rle_{}_{}.tga",
+            std::process::id(),
+            "bottom_up"
+        ));
+        std::fs::write(&path, data).unwrap();
+
+        let texture = TextureLoader::new()
+            .load_from_file(&path, TextureFormat::Unknown, false, MipCount::None)
+            .unwrap();
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(texture.width, 2);
+        assert_eq!(texture.height, 2);
+        assert_eq!(texture.format, TextureFormat::R8G8B8);
+        assert_eq!(
+            texture.mip_levels[0].data,
+            vec![
+                4, 5, 6, 7, 8, 9, // top row after bottom-up flip
+                1, 2, 3, 1, 2, 3, // bottom row
+            ]
+        );
+    }
+
+    #[test]
+    fn decode_tga_rle_rejects_truncated_packets() {
+        let err = TextureLoader::decode_tga_rle(&[0x82, 1, 2], 9, 3).unwrap_err();
+        assert!(
+            matches!(err, W3DError::InvalidParameter(message) if message.contains("truncated"))
+        );
     }
 }
