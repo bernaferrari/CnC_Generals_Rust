@@ -306,6 +306,17 @@ pub fn get_science_store_mut() -> RwLockWriteGuard<'static, ScienceStore> {
         .unwrap()
 }
 
+fn parse_cpp_bool(field_name: &str, value: &str) -> ScienceResult<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "yes" => Ok(true),
+        "no" => Ok(false),
+        _ => Err(ScienceError::ParseError(format!(
+            "{}: invalid boolean token '{}' (expected Yes or No)",
+            field_name, value
+        ))),
+    }
+}
+
 /// Parse a science definition from INI
 /// Matches C++ ScienceStore::friend_parseScienceDefinition from Science.cpp lines 138-214
 /// Field parse table from Science.cpp lines 147-155
@@ -340,7 +351,7 @@ pub fn parse_science_definition(
                 })?;
             }
             "IsGrantable" => {
-                info.grantable = value.parse::<bool>().unwrap_or(true);
+                info.grantable = parse_cpp_bool(key, value)?;
             }
             "PrerequisiteSciences" => {
                 // Parse space-separated list of science names
@@ -423,7 +434,7 @@ mod tests {
         props.insert("DisplayName".to_string(), "Test Science".to_string());
         props.insert("Description".to_string(), "A test science".to_string());
         props.insert("SciencePurchasePointCost".to_string(), "100".to_string());
-        props.insert("IsGrantable".to_string(), "true".to_string());
+        props.insert("IsGrantable".to_string(), "Yes".to_string());
 
         let result = parse_science_definition("TestScience", &props);
         assert!(result.is_ok());
@@ -431,6 +442,18 @@ mod tests {
         let info = result.unwrap();
         assert_eq!(info.science_purchase_point_cost, 100);
         assert!(info.grantable);
+
+        props.insert("IsGrantable".to_string(), "No".to_string());
+        let info = parse_science_definition("TestScienceNo", &props).unwrap();
+        assert!(!info.grantable);
+    }
+
+    #[test]
+    fn science_is_grantable_rejects_invalid_cpp_bool() {
+        let mut props = HashMap::new();
+        props.insert("IsGrantable".to_string(), "maybe".to_string());
+
+        assert!(parse_science_definition("BadScience", &props).is_err());
     }
 
     #[test]
