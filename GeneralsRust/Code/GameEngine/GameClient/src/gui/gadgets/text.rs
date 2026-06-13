@@ -817,6 +817,10 @@ impl TextEntry {
         self
     }
 
+    pub fn set_text_color(&mut self, color: Option<Color>) {
+        self.text_color = color;
+    }
+
     /// Set background color
     pub fn with_background_color(mut self, color: Color) -> Self {
         self.background_color = Some(color);

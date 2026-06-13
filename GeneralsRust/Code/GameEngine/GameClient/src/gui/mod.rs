@@ -100,6 +100,12 @@ pub mod window_video_manager;
 
 // Re-export main types for convenience
 pub use game_window::{
+    gadget_combo_box_add_entry, gadget_combo_box_get_item_data, gadget_combo_box_get_length,
+    gadget_combo_box_get_selected_pos, gadget_combo_box_get_text, gadget_combo_box_hide_list,
+    gadget_combo_box_reset, gadget_combo_box_set_ascii_only, gadget_combo_box_set_is_editable,
+    gadget_combo_box_set_item_data, gadget_combo_box_set_letters_and_numbers_only,
+    gadget_combo_box_set_max_chars, gadget_combo_box_set_max_display,
+    gadget_combo_box_set_selected_pos, gadget_combo_box_set_text,
     gadget_list_box_get_bottom_visible_entry, gadget_list_box_get_column_width,
     gadget_list_box_get_num_columns, gadget_list_box_get_selected,
     gadget_list_box_get_top_visible_entry, gadget_list_box_is_full,
@@ -107,7 +113,9 @@ pub use game_window::{
     gadget_list_box_set_colors, gadget_list_box_set_top_visible_entry, write_input_focus_response,
     GameWindow, WindowCallbacks, WindowDrawData, WindowError, WindowId, WindowInputReturnCode,
     WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled, WindowRegion, WindowResult,
-    WindowState, WindowStatus, WindowTextColors, WindowWidget, GLM_DOUBLE_CLICKED,
+    WindowState, WindowStatus, WindowTextColors, WindowWidget, GCM_ADD_ENTRY, GCM_DEL_ALL,
+    GCM_DEL_ENTRY, GCM_EDIT_DONE, GCM_GET_ITEM_DATA, GCM_GET_SELECTION, GCM_GET_TEXT, GCM_SELECTED,
+    GCM_SET_ITEM_DATA, GCM_SET_SELECTION, GCM_SET_TEXT, GCM_UPDATE_TEXT, GLM_DOUBLE_CLICKED,
     GLM_RIGHT_CLICKED, GLM_SELECTED, GWS_PUSH_BUTTON, GWS_STATIC_TEXT, GWS_USER_WINDOW,
     WIN_COLOR_UNDEFINED,
 };
