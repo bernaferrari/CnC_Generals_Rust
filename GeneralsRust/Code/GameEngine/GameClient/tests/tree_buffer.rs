@@ -452,6 +452,68 @@ fn add_tree_zero_random_scale_amount_keeps_scale_but_still_draws_sway_type() {
 }
 
 #[test]
+fn cull_trees_updates_visibility_and_sort_key_like_cpp() {
+    let mut buffer = W3DTreeBuffer::new();
+    let first = buffer
+        .add_tree(
+            21,
+            Vec3::new(4.0, 10.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Oak", "T"),
+            bounds(),
+        )
+        .unwrap();
+    let second = buffer
+        .add_tree(
+            22,
+            Vec3::new(30.0, 2.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Pine", "T"),
+            bounds(),
+        )
+        .unwrap();
+
+    buffer.cull_trees(Vec3::X, |sphere| sphere.center.x < 20.0);
+
+    assert_eq!(buffer.camera_look_at_vector(), Vec3::X);
+    assert!(buffer.trees()[first].visible);
+    assert!(!buffer.trees()[second].visible);
+    approx_eq(buffer.trees()[first].sort_key, 4.0);
+    approx_eq(buffer.trees()[second].sort_key, 0.0);
+    assert!(buffer.anything_changed());
+    assert!(!buffer.update_all_keys());
+}
+
+#[test]
+fn cull_trees_recomputes_visible_sort_keys_after_full_update() {
+    let mut buffer = W3DTreeBuffer::new();
+    let id = buffer
+        .add_tree(
+            23,
+            Vec3::new(4.0, 10.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Oak", "T"),
+            bounds(),
+        )
+        .unwrap();
+    buffer.cull_trees(Vec3::X, |_| true);
+    approx_eq(buffer.trees()[id].sort_key, 4.0);
+
+    buffer.do_full_update();
+    assert!(buffer.update_all_keys());
+    buffer.cull_trees(Vec3::Y, |_| true);
+
+    approx_eq(buffer.trees()[id].sort_key, 10.0);
+    assert!(!buffer.update_all_keys());
+}
+
+#[test]
 fn update_sway_matches_cpp_array_shapes_and_randomized_type_base() {
     let mut buffer = W3DTreeBuffer::new();
     buffer
