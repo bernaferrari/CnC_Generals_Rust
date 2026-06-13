@@ -5,6 +5,7 @@ use crate::helpers::{
     BoneOverrideState, TheAudio, TheGameClient, TheGameLogic, TheParticleSystemManager,
 };
 use game_engine::common::ini::{INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType, TimeOfDay};
 use std::any::Any;
@@ -506,7 +507,7 @@ impl Module for W3DTruckDraw {
         self.base.on_delete();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self.base.get_module_name_key()
+        NameKeyGenerator::name_to_key("W3DTruckDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
@@ -620,10 +621,12 @@ impl DrawModule for W3DTruckDraw {
         self.base.allocate_shadows();
     }
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
-        if fully_obscured {
-            self.toss_emitters();
-        } else {
-            self.create_emitters();
+        if self.base.fully_obscured_by_shroud() != fully_obscured {
+            if fully_obscured {
+                self.toss_emitters();
+            } else {
+                self.create_emitters();
+            }
         }
         self.base.set_fully_obscured_by_shroud(fully_obscured);
     }
@@ -646,7 +649,7 @@ impl DrawModule for W3DTruckDraw {
             .react_to_transform_change(old_mtx, old_pos, old_angle);
     }
     fn react_to_geometry_change(&mut self) {
-        self.base.react_to_geometry_change();
+        // C++ W3DTruckDraw overrides this as a no-op.
     }
     fn get_object_draw_interface(&self) -> Option<&dyn ObjectDrawInterface> {
         Some(&self.base)
@@ -671,5 +674,26 @@ impl Snapshotable for W3DTruckDraw {
         self.base.load_post_process()?;
         self.toss_emitters();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn module_name_key_is_truck_draw() {
+        let draw = W3DTruckDraw::new(W3DTruckDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DTruckDraw")
+        );
+    }
+
+    #[test]
+    fn bind_owner_id_forwards_to_base_model_draw() {
+        let mut draw = W3DTruckDraw::new(W3DTruckDrawModuleData::new());
+        draw.bind_owner_id(313);
+        assert_eq!(draw.owner_id(), Some(313));
     }
 }
