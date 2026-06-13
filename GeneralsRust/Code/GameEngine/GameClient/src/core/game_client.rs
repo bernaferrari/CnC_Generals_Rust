@@ -1421,6 +1421,10 @@ impl GameClient {
         // C++ line 735: TheDisplay->DRAW()
         self.draw_display()?;
 
+        // C++ W3DView::drawablePostDraw(): draw per-drawable icon UI after the
+        // 3D drawable pass and before post-draw shell/InGameUI updates.
+        self.draw_drawable_icon_ui();
+
         // C++ line 740: DisplayStringManager update
         self.update_display_string_manager()?;
 
@@ -3674,6 +3678,14 @@ impl GameClient {
         Ok(())
     }
 
+    fn draw_drawable_icon_ui(&mut self) {
+        for drawable in self.drawable_map.values_mut() {
+            if drawable.is_visible() {
+                drawable.draw_icon_ui();
+            }
+        }
+    }
+
     fn update_display_string_manager(&self) -> GameClientResult<()> {
         crate::display_string_manager::update_display_string_manager()
             .map_err(|err| GameClientError::SubsystemError(format!("{err}")))
@@ -4887,6 +4899,28 @@ mod tests {
 
         client.destroy_drawable(first_id).unwrap();
         assert_eq!(client.get_drawable_for_object(99), Some(second_id));
+    }
+
+    #[test]
+    fn post_draw_pass_populates_drawable_icon_ui() {
+        let mut client = GameClient::new().unwrap();
+        let mut drawable = BasicDrawable::new(DrawableId::INVALID);
+        drawable.set_caption_text("Beacon Alpha");
+        drawable.overlay_data.health_region =
+            Some(IRegion2D::new(ICoord2D::new(0, 0), ICoord2D::new(64, 12)));
+
+        let drawable_id = client.register_drawable(Box::new(drawable)).unwrap();
+        client.draw_drawable_icon_ui();
+
+        let drawable = client
+            .find_drawable_by_id(drawable_id)
+            .expect("drawable should remain registered");
+        let basic = drawable
+            .as_any()
+            .downcast_ref::<BasicDrawable>()
+            .expect("registered drawable should be BasicDrawable");
+        assert_eq!(basic.overlay_data.caption.as_deref(), Some("Beacon Alpha"));
+        assert!(basic.overlay_data.visible);
     }
 
     #[test]
