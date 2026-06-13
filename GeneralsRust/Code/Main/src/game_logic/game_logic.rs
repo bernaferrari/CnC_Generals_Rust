@@ -2536,11 +2536,21 @@ impl GameLogic {
                     super::script_loader::parse_heightmap_data_from_chunky(&chunky)
                         .ok()
                         .flatten();
+                let blend_tile_data = heightmap_data.as_ref().and_then(|hm| {
+                    match super::script_loader::parse_blend_tile_data_from_chunky(&chunky, hm) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            log::warn!("Map '{}' BlendTileData parse failed: {}", map_name, err);
+                            None
+                        }
+                    }
+                });
                 log::info!(
-                    "Map '{}' heightmap parse finished in {:.2}s (present={})",
+                    "Map '{}' heightmap parse finished in {:.2}s (heightmap_present={}, blend_tiles_present={})",
                     map_name,
                     heightmap_started.elapsed().as_secs_f32(),
-                    heightmap_data.is_some()
+                    heightmap_data.is_some(),
+                    blend_tile_data.is_some()
                 );
 
                 // Replace the test map with parsed object placements for basic fidelity.
@@ -2757,6 +2767,15 @@ impl GameLogic {
                                 width, height, max_height, 1.0,
                             );
                             heightmap.heights = hm.data.iter().map(|h| *h as f32 / 255.0).collect();
+                            if let Some(blend) = blend_tile_data.as_ref() {
+                                if blend.tile_ndxes.len() == heightmap.tile_ndxes.len() {
+                                    heightmap.tile_ndxes = blend.tile_ndxes.clone();
+                                }
+                                if blend.blend_tile_ndxes.len() == heightmap.blend_tile_ndxes.len()
+                                {
+                                    heightmap.blend_tile_ndxes = blend.blend_tile_ndxes.clone();
+                                }
+                            }
                             self.terrain = Some(super::terrain::TerrainData::from_heightmap(
                                 heightmap,
                                 self.world_min,

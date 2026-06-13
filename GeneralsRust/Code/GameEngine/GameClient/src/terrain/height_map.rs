@@ -11,6 +11,7 @@ use gamelogic::common::types::MAP_HEIGHT_SCALE;
 use glam::Vec3;
 use image::{DynamicImage, ImageBuffer, Luma};
 
+use super::textures::TileData;
 use super::utils::calculate_normal;
 use super::{TerrainError, TerrainResult};
 
@@ -460,6 +461,48 @@ impl HeightMap {
         let y_index = ((world_y / self.scale).floor() as i32 + self.border_size).clamp(0, max_y);
         let packed_tile = self.get_tile_index(x_index, y_index) as i32;
         (packed_tile >> 2).max(0) as u32
+    }
+
+    /// Match C++ `WorldHeightMap::getTerrainColorAt`: floor/clamp the world
+    /// position, unpack the 4-grid terrain tile index, sample the source tile
+    /// mipped down to one BGRA pixel, and return RGB floats.
+    pub fn get_terrain_color_at_world(
+        &self,
+        world_x: f32,
+        world_y: f32,
+        source_tiles: &[Option<TileData>],
+    ) -> [f32; 3] {
+        if self.width == 0 || self.height == 0 || self.scale.abs() <= f32::EPSILON {
+            return [0.0, 0.0, 0.0];
+        }
+
+        let max_x = self.width.saturating_sub(1) as i32;
+        let max_y = self.height.saturating_sub(1) as i32;
+        let x_index = ((world_x / self.scale).floor() as i32 + self.border_size).clamp(0, max_x);
+        let y_index = ((world_y / self.scale).floor() as i32 + self.border_size).clamp(0, max_y);
+        let ndx = y_index * self.width as i32 + x_index;
+        if ndx < 0 || (ndx as usize) >= self.heights.len() {
+            return [0.0, 0.0, 0.0];
+        }
+
+        let tile_ndx = self.tile_ndxes.get(ndx as usize).copied().unwrap_or(0) >> 2;
+        if tile_ndx < 0 {
+            return [0.0, 0.0, 0.0];
+        }
+
+        let Some(Some(tile)) = source_tiles.get(tile_ndx as usize) else {
+            return [0.0, 0.0, 0.0];
+        };
+        let pixel = tile.get_rgb_data_for_width(1);
+        if pixel.len() < 3 {
+            return [0.0, 0.0, 0.0];
+        }
+
+        [
+            pixel[2] as f32 / 255.0,
+            pixel[1] as f32 / 255.0,
+            pixel[0] as f32 / 255.0,
+        ]
     }
 
     pub fn get_blend_tile_index(&self, x_index: i32, y_index: i32) -> i16 {

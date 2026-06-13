@@ -25,7 +25,8 @@ use super::roads::{
 };
 use super::terrain_tracks::{TerrainTrackHeightProvider, TerrainTracksConfig};
 use super::textures::{
-    TerrainTexture, TerrainTextures, TextureId, TextureKind, TextureRule, MAX_BLEND_WEIGHTS,
+    TerrainTexture, TerrainTextures, TextureId, TextureKind, TextureRule, TileData,
+    MAX_BLEND_WEIGHTS, NUM_SOURCE_TILES,
 };
 use super::{
     calculate_terrain_lod, HeightMap, RoadSystem, TerrainConfig, TerrainError, TerrainLOD,
@@ -374,6 +375,9 @@ pub struct TerrainVisualImpl {
     /// Texture management
     texture_system: TerrainTextures,
 
+    /// C++ WorldHeightMap source tile data used for terrain color/radar sampling.
+    source_tiles: Vec<Option<TileData>>,
+
     /// Water rendering system
     water_system: WaterSystem,
 
@@ -585,6 +589,7 @@ impl TerrainVisualImpl {
             height_map: None,
             chunk_manager: ChunkManager::new(),
             texture_system: TerrainTextures::new(),
+            source_tiles: vec![None; NUM_SOURCE_TILES],
             water_system: WaterSystem::new(),
             road_system: RoadSystem::new(),
             terrain_tracks: TerrainTracksRenderObjClassSystem::new(Self::terrain_tracks_config()),
@@ -911,6 +916,13 @@ impl TerrainVisualImpl {
 
     pub fn debug_roads_need_terrain_normal_reprojection(&self) -> bool {
         self.road_system.needs_terrain_normal_reprojection()
+    }
+
+    pub fn debug_set_source_tile(&mut self, index: usize, tile: TileData) {
+        if index >= self.source_tiles.len() {
+            self.source_tiles.resize_with(index + 1, || None);
+        }
+        self.source_tiles[index] = Some(tile);
     }
 
     /// Export minimap-ready road samples for static map overlays.
@@ -3821,7 +3833,10 @@ impl TerrainVisualImpl {
 
     /// Get terrain color at position
     pub fn get_terrain_color_at(&self, x: f32, y: f32) -> Result<[f32; 3], TerrainError> {
-        // Sample terrain textures at position
+        if let Some(height_map) = self.height_map.as_ref() {
+            return Ok(height_map.get_terrain_color_at_world(x, y, &self.source_tiles));
+        }
+
         self.texture_system.sample_color_at(x, y)
     }
 
