@@ -120,6 +120,9 @@ use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 use std::time::Instant;
 
+const DEFAULT_WORLD_WIDTH: Real = 64.0;
+const DEFAULT_WORLD_HEIGHT: Real = 64.0;
+
 fn should_freeze_time(
     tactical_frozen: bool,
     camera_movement_finished: bool,
@@ -4159,8 +4162,8 @@ impl GameLogic {
     /// When `loading_save_game` is false, the object-ID allocator is also reset to 1.
     pub fn set_defaults(&mut self, loading_save_game: bool) {
         self.frame = 0;
-        self.width = 0.0;
-        self.height = 0.0;
+        self.width = DEFAULT_WORLD_WIDTH;
+        self.height = DEFAULT_WORLD_HEIGHT;
         self.normal_updates.clear();
         for _entry in &self.sleepy_updates {
             // C++: (*it)->friend_setIndexInLogic(-1)
@@ -5337,6 +5340,25 @@ mod tests {
 
         assert_eq!(logic.get_width(), 1024.0);
         assert_eq!(logic.get_height(), 768.0);
+    }
+
+    #[test]
+    fn set_defaults_uses_cpp_default_world_dimensions() {
+        let mut logic = GameLogic::new();
+        logic.set_dimensions(1024.0, 768.0);
+        logic.frame = 99;
+        logic.next_object_id = 42;
+
+        logic.set_defaults(true);
+
+        assert_eq!(logic.frame, 0);
+        assert_eq!(logic.get_width(), 64.0);
+        assert_eq!(logic.get_height(), 64.0);
+        assert_eq!(logic.next_object_id, 42);
+
+        logic.set_defaults(false);
+
+        assert_eq!(logic.next_object_id, 1);
     }
 
     #[test]
