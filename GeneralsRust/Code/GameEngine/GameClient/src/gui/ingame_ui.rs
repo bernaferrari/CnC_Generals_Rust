@@ -385,6 +385,8 @@ pub struct HintData {
 
 /// Maximum number of simultaneous move hints. C++: MAX_MOVE_HINTS = 256
 const MAX_MOVE_HINTS: usize = 256;
+/// C++ W3DInGameUI::drawMoveHints draws while `elapsed <= 40`.
+const MOVE_HINT_LIFETIME_FRAMES: u32 = 41;
 
 /// C++: InGameUI m_idleWorkers[MAX_PLAYER_COUNT] — per-player idle worker tracking
 #[derive(Debug, Clone)]
@@ -2144,7 +2146,7 @@ impl InGameUI {
             end,
             creation_frame: self.current_frame,
             source_id,
-            lifetime_frames: 60,
+            lifetime_frames: MOVE_HINT_LIFETIME_FRAMES,
         });
     }
 
@@ -2227,8 +2229,9 @@ impl InGameUI {
     }
 
     pub fn expire_hints(&mut self) {
+        let current_frame = self.current_frame;
         self.hints
-            .retain(|h| self.current_frame < h.creation_frame + h.lifetime_frames);
+            .retain(|h| Self::hint_is_alive(h, current_frame));
     }
 
     pub fn clear_hints(&mut self) {
@@ -2237,6 +2240,10 @@ impl InGameUI {
 
     pub fn get_hints(&self) -> &[HintData] {
         &self.hints
+    }
+
+    fn hint_is_alive(hint: &HintData, current_frame: u32) -> bool {
+        current_frame < hint.creation_frame.saturating_add(hint.lifetime_frames)
     }
 
     // ── Named timer system ─────────────────────────────────────────────
@@ -2530,7 +2537,7 @@ impl InGameUI {
             if hint.hint_type != HintType::Move && hint.hint_type != HintType::Command {
                 continue;
             }
-            if self.current_frame >= hint.creation_frame + hint.lifetime_frames {
+            if !Self::hint_is_alive(hint, self.current_frame) {
                 continue;
             }
 
@@ -5049,6 +5056,22 @@ mod tests {
         assert_eq!(rect.y, 10.0);
         assert_eq!(rect.width, 90.0);
         assert_eq!(rect.height, 90.0);
+    }
+
+    #[test]
+    fn move_hint_expires_after_cpp_elapsed_40_boundary() {
+        let hint = HintData {
+            hint_type: HintType::Move,
+            start: Coord3D::new(0.0, 0.0, 0.0),
+            end: Coord3D::new(10.0, 0.0, 0.0),
+            creation_frame: 100,
+            source_id: 7,
+            lifetime_frames: MOVE_HINT_LIFETIME_FRAMES,
+        };
+
+        assert_eq!(hint.lifetime_frames, 41);
+        assert!(InGameUI::hint_is_alive(&hint, 140));
+        assert!(!InGameUI::hint_is_alive(&hint, 141));
     }
 
     #[test]
