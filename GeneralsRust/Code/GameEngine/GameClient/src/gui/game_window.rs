@@ -19,10 +19,11 @@ use crate::game_text::GameText;
 use crate::video_buffer::{VideoBufferHandle, VideoBufferType};
 
 use super::gadgets::{
-    CheckBox, ComboBox, Gadget, GadgetMessage, GadgetState, GadgetValue, HorizontalSlider,
-    InputEvent, KeyCode, KeyModifiers, ListBox, ListBoxAddEntry, ListBoxItemData, ListBoxSelection,
-    ListBoxTextAndColor, MouseButton, ProgressBar, PushButton, RadioButton, SelectionMode,
-    StaticText, TabControl, TabControlData, TextEntry, VerticalSlider,
+    CheckBox, Color as GadgetColor, ComboBox, ComboBoxItem, Gadget, GadgetMessage, GadgetState,
+    GadgetValue, HorizontalSlider, InputEvent, KeyCode, KeyModifiers, ListBox, ListBoxAddEntry,
+    ListBoxItemData, ListBoxSelection, ListBoxTextAndColor, MouseButton, ProgressBar, PushButton,
+    RadioButton, SelectionMode, StaticText, TabControl, TabControlData, TextEntry, ValidationMode,
+    VerticalSlider,
 };
 use super::{
     display_string::DisplayStringHandle,
@@ -82,7 +83,34 @@ const GLM_SCROLL_BUFFER: u32 = GGM_LEFT_DRAG + 28;
 const GLM_UPDATE_DISPLAY: u32 = GGM_LEFT_DRAG + 29;
 const GLM_GET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 30;
 const GLM_SET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 31;
+const GGM_CLOSE: u32 = GGM_LEFT_DRAG + 5;
+pub const GCM_ADD_ENTRY: u32 = GGM_LEFT_DRAG + 32;
+pub const GCM_DEL_ENTRY: u32 = GGM_LEFT_DRAG + 33;
+pub const GCM_DEL_ALL: u32 = GGM_LEFT_DRAG + 34;
+pub const GCM_SELECTED: u32 = GGM_LEFT_DRAG + 35;
+pub const GCM_GET_TEXT: u32 = GGM_LEFT_DRAG + 36;
+pub const GCM_SET_TEXT: u32 = GGM_LEFT_DRAG + 37;
+pub const GCM_EDIT_DONE: u32 = GGM_LEFT_DRAG + 38;
+pub const GCM_GET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 39;
+pub const GCM_SET_ITEM_DATA: u32 = GGM_LEFT_DRAG + 40;
+pub const GCM_GET_SELECTION: u32 = GGM_LEFT_DRAG + 41;
+pub const GCM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 42;
+pub const GCM_UPDATE_TEXT: u32 = GGM_LEFT_DRAG + 43;
 pub(crate) const GPM_SET_PROGRESS: u32 = GGM_LEFT_DRAG + 48;
+
+fn shell_color_from_packed_arg(value: WindowMsgData) -> super::shell::Color {
+    let value = value as u32;
+    super::shell::Color::new(
+        ((value >> 16) & 0xFF) as u8,
+        ((value >> 8) & 0xFF) as u8,
+        (value & 0xFF) as u8,
+        ((value >> 24) & 0xFF) as u8,
+    )
+}
+
+fn gadget_color_from_shell_color(color: super::shell::Color) -> GadgetColor {
+    GadgetColor::rgba(color.r, color.g, color.b, color.a)
+}
 
 // Window style flags (GWS_*)
 pub const GWS_PUSH_BUTTON: u32 = 0x0000_0001;
@@ -275,6 +303,143 @@ pub fn gadget_list_box_set_colors(
                 hilite_selected.color,
                 hilite_selected.border_color,
             );
+        }
+    }
+}
+
+pub fn gadget_combo_box_get_text(combo_box: &GameWindow) -> String {
+    let Some(links) = combo_box.combobox_links else {
+        return String::new();
+    };
+    combo_box
+        .find_child_by_id(links.edit_box)
+        .and_then(|edit_box| {
+            edit_box.borrow().widget().and_then(|widget| match widget {
+                WindowWidget::TextEntry(entry) => Some(entry.text().to_string()),
+                _ => None,
+            })
+        })
+        .unwrap_or_default()
+}
+
+pub fn gadget_combo_box_set_text(combo_box: &mut GameWindow, text: &str) {
+    let text = text.to_string();
+    let _ = combo_box.send_system_message(
+        WindowMessage::User(GCM_SET_TEXT),
+        &text as *const String as WindowMsgData,
+        0,
+    );
+}
+
+pub fn gadget_combo_box_add_entry(
+    combo_box: &mut GameWindow,
+    text: &str,
+    color: super::shell::Color,
+) -> i32 {
+    let index = {
+        let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() else {
+            return -1;
+        };
+        let index = combo.items().len() as i32;
+        combo.add_item(ComboBoxItem::new(index as u32, text));
+        index
+    };
+    if let Some(links) = combo_box.combobox_links {
+        if let Some(list_box) = combo_box.find_child_by_id(links.list_box) {
+            combo_box.sync_combobox_listbox(&list_box);
+            if let Some(WindowWidget::ListBox(listbox)) = list_box.borrow_mut().widget_mut() {
+                let _ = listbox.set_item_color(index as usize, color);
+            }
+            combo_box.resize_combobox_listbox(&list_box);
+        }
+    }
+    index
+}
+
+pub fn gadget_combo_box_reset(combo_box: &mut GameWindow) {
+    let _ = combo_box.send_system_message(WindowMessage::User(GCM_DEL_ALL), 0, 0);
+}
+
+pub fn gadget_combo_box_get_selected_pos(combo_box: &mut GameWindow, selected_index: &mut i32) {
+    let _ = combo_box.send_system_message(
+        WindowMessage::User(GCM_GET_SELECTION),
+        0,
+        selected_index as *mut i32 as WindowMsgData,
+    );
+}
+
+pub fn gadget_combo_box_set_selected_pos(
+    combo_box: &mut GameWindow,
+    selected_index: i32,
+    dont_hide: bool,
+) {
+    let _ = combo_box.send_system_message(
+        WindowMessage::User(GCM_SET_SELECTION),
+        selected_index as WindowMsgData,
+        dont_hide as WindowMsgData,
+    );
+}
+
+pub fn gadget_combo_box_set_item_data(combo_box: &mut GameWindow, index: i32, data: WindowMsgData) {
+    let _ = combo_box.send_system_message(
+        WindowMessage::User(GCM_SET_ITEM_DATA),
+        index as WindowMsgData,
+        data,
+    );
+}
+
+pub fn gadget_combo_box_get_item_data(combo_box: &mut GameWindow, index: i32) -> WindowMsgData {
+    let mut data = 0;
+    let _ = combo_box.send_system_message(
+        WindowMessage::User(GCM_GET_ITEM_DATA),
+        index as WindowMsgData,
+        &mut data as *mut WindowMsgData as WindowMsgData,
+    );
+    data
+}
+
+pub fn gadget_combo_box_get_length(combo_box: &GameWindow) -> i32 {
+    match combo_box.widget.as_ref() {
+        Some(WindowWidget::ComboBox(combo)) => combo.items().len() as i32,
+        _ => 0,
+    }
+}
+
+pub fn gadget_combo_box_hide_list(combo_box: &mut GameWindow) {
+    combo_box.hide_combobox_list();
+}
+
+pub fn gadget_combo_box_set_max_display(combo_box: &mut GameWindow, max_display: i32) {
+    if let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() {
+        combo.set_max_display(max_display.max(0) as usize);
+    }
+}
+
+pub fn gadget_combo_box_set_is_editable(combo_box: &mut GameWindow, editable: bool) {
+    combo_box.set_combobox_editable(editable);
+}
+
+pub fn gadget_combo_box_set_ascii_only(combo_box: &mut GameWindow, ascii_only: bool) {
+    combo_box.set_combobox_validation_flags(Some(ascii_only), None);
+}
+
+pub fn gadget_combo_box_set_letters_and_numbers_only(
+    combo_box: &mut GameWindow,
+    letters_and_numbers_only: bool,
+) {
+    combo_box.set_combobox_validation_flags(None, Some(letters_and_numbers_only));
+}
+
+pub fn gadget_combo_box_set_max_chars(combo_box: &mut GameWindow, max_chars: i32) {
+    let max_chars = max_chars.max(0) as usize;
+    if let Some(WindowWidget::ComboBox(combo)) = combo_box.widget.as_mut() {
+        combo.set_max_chars(max_chars);
+    }
+    if let Some(links) = combo_box.combobox_links {
+        if let Some(edit_box) = combo_box.find_child_by_id(links.edit_box) {
+            if let Some(WindowWidget::TextEntry(entry)) = edit_box.borrow_mut().widget_mut() {
+                entry.set_max_length(max_chars);
+            }
         }
     }
 }
@@ -2137,6 +2302,131 @@ impl GameWindow {
         }
     }
 
+    fn hide_combobox_list(&mut self) {
+        let Some(links) = self.combobox_links else {
+            return;
+        };
+        let Some(list_box) = self.find_child_by_id(links.list_box) else {
+            return;
+        };
+        if list_box.borrow().is_hidden() {
+            return;
+        }
+        let _ = list_box.borrow_mut().hide(true);
+        if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+            let base_height = edit_box.borrow().get_size().1;
+            let (width, _) = self.get_size();
+            let _ = self.set_size(width, base_height);
+        }
+    }
+
+    fn set_combobox_editable(&mut self, editable: bool) {
+        if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+            combo.set_editable(editable);
+        }
+        let Some(links) = self.combobox_links else {
+            return;
+        };
+        let Some(edit_box) = self.find_child_by_id(links.edit_box) else {
+            return;
+        };
+        if editable {
+            let _ = edit_box.borrow_mut().clear_status(WindowStatus::NO_INPUT);
+        } else {
+            let _ = edit_box.borrow_mut().set_status(WindowStatus::NO_INPUT);
+        }
+    }
+
+    fn set_combobox_validation_flags(
+        &mut self,
+        ascii_only: Option<bool>,
+        letters_and_numbers: Option<bool>,
+    ) {
+        let mut ascii = false;
+        let mut alnum = false;
+        if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+            if let Some(value) = ascii_only {
+                combo.set_ascii_only(value);
+            }
+            if let Some(value) = letters_and_numbers {
+                combo.set_letters_and_numbers(value);
+            }
+            ascii = combo.ascii_only();
+            alnum = combo.letters_and_numbers();
+        }
+        let mode = if alnum {
+            ValidationMode::AlphanumericOnly
+        } else if ascii {
+            ValidationMode::AsciiOnly
+        } else {
+            ValidationMode::None
+        };
+        if let Some(links) = self.combobox_links {
+            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                if let Some(WindowWidget::TextEntry(entry)) = edit_box.borrow_mut().widget_mut() {
+                    entry.set_validation(mode);
+                }
+            }
+        }
+    }
+
+    fn handle_combobox_list_selection(
+        &mut self,
+        links: ComboBoxLinks,
+        list_box: &Rc<RefCell<GameWindow>>,
+        selected: i32,
+    ) -> WindowMsgHandled {
+        let dont_hide = if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+            if selected < 0 {
+                combo.clear_selection();
+            } else {
+                let _ = combo.select_index(selected as usize);
+            }
+            combo.take_dont_hide_next()
+        } else {
+            false
+        };
+
+        if selected >= 0 {
+            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                let selected_text_and_color =
+                    list_box.borrow().widget().and_then(|widget| match widget {
+                        WindowWidget::ListBox(listbox) => {
+                            Some(listbox.get_text_and_color(selected, 0))
+                        }
+                        _ => None,
+                    });
+                if let Some(text_and_color) = selected_text_and_color {
+                    if let Some(WindowWidget::TextEntry(entry)) = edit_box.borrow_mut().widget_mut()
+                    {
+                        entry.set_text_color(Some(gadget_color_from_shell_color(
+                            text_and_color.color,
+                        )));
+                        entry.set_text(text_and_color.text);
+                    }
+                } else {
+                    self.sync_combobox_edit_box(&edit_box);
+                }
+            }
+        }
+
+        if !dont_hide {
+            self.hide_combobox_list();
+        }
+
+        if selected >= 0 && !self.owner_is_self {
+            if let Some(owner) = self.get_owner() {
+                let _ = owner.borrow_mut().send_system_message(
+                    WindowMessage::User(GCM_SELECTED),
+                    self.id as WindowMsgData,
+                    0,
+                );
+            }
+        }
+
+        WindowMsgHandled::Handled
+    }
+
     pub fn check_box_mut(&mut self) -> Option<&mut CheckBox> {
         match self.widget.as_mut() {
             Some(WindowWidget::CheckBox(widget)) => Some(widget),
@@ -2662,6 +2952,166 @@ impl GameWindow {
         }
 
         if matches!(self.widget, Some(WindowWidget::ComboBox(_))) {
+            if let WindowMessage::User(code) = msg {
+                match code {
+                    GCM_GET_TEXT => {
+                        if data2 != 0 {
+                            let text = gadget_combo_box_get_text(self);
+                            unsafe {
+                                *(data2 as *mut String) = text;
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GCM_SET_TEXT => {
+                        if data1 != 0 {
+                            let text = unsafe { &*(data1 as *const String) };
+                            let mut set_child = false;
+                            if let Some(links) = self.combobox_links {
+                                if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                                    if let Some(WindowWidget::TextEntry(entry)) =
+                                        edit_box.borrow_mut().widget_mut()
+                                    {
+                                        entry.set_text(text.clone());
+                                        set_child = true;
+                                    }
+                                }
+                            }
+                            if !set_child {
+                                if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+                                    combo.set_text(text.clone());
+                                }
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GCM_ADD_ENTRY => {
+                        let added_index = if data1 != 0 {
+                            let text = unsafe { &*(data1 as *const String) };
+                            gadget_combo_box_add_entry(
+                                self,
+                                text,
+                                shell_color_from_packed_arg(data2),
+                            )
+                        } else {
+                            -1
+                        };
+                        return WindowMsgHandled::Value(added_index as WindowMsgData);
+                    }
+                    GCM_DEL_ALL => {
+                        if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+                            combo.clear();
+                        }
+                        if let Some(links) = self.combobox_links {
+                            if let Some(list_box) = self.find_child_by_id(links.list_box) {
+                                if let Some(WindowWidget::ListBox(listbox)) =
+                                    list_box.borrow_mut().widget_mut()
+                                {
+                                    listbox.clear();
+                                }
+                                list_box.borrow_mut().update_listbox_scrollbar();
+                            }
+                            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
+                                if let Some(WindowWidget::TextEntry(entry)) =
+                                    edit_box.borrow_mut().widget_mut()
+                                {
+                                    entry.set_text(String::new());
+                                }
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GCM_DEL_ENTRY => {
+                        return WindowMsgHandled::Handled;
+                    }
+                    GGM_CLOSE => {
+                        self.hide_combobox_list();
+                        return WindowMsgHandled::Handled;
+                    }
+                    GCM_SET_SELECTION => {
+                        let selected = data1 as i32;
+                        if let Some(links) = self.combobox_links {
+                            if let Some(list_box) = self.find_child_by_id(links.list_box) {
+                                if !list_box.borrow().is_hidden() && data2 != 0 {
+                                    if let Some(WindowWidget::ComboBox(combo)) =
+                                        self.widget.as_mut()
+                                    {
+                                        combo.set_dont_hide_next(true);
+                                    }
+                                }
+                                if let Some(WindowWidget::ListBox(listbox)) =
+                                    list_box.borrow_mut().widget_mut()
+                                {
+                                    if selected < 0 {
+                                        listbox.set_selected_indices(&[]);
+                                    } else {
+                                        let _ = listbox
+                                            .select_index(selected as usize, KeyModifiers::none());
+                                    }
+                                }
+                                list_box.borrow_mut().update_listbox_scrollbar();
+                                return self
+                                    .handle_combobox_list_selection(links, &list_box, selected);
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GCM_GET_SELECTION => {
+                        if data2 != 0 {
+                            let selected = if let Some(links) = self.combobox_links {
+                                self.find_child_by_id(links.list_box)
+                                    .and_then(|list_box| {
+                                        list_box.borrow().widget().and_then(|widget| match widget {
+                                            WindowWidget::ListBox(listbox) => listbox
+                                                .selected_indices()
+                                                .first()
+                                                .copied()
+                                                .map(|index| index as i32),
+                                            _ => None,
+                                        })
+                                    })
+                                    .unwrap_or(-1)
+                            } else {
+                                -1
+                            };
+                            unsafe {
+                                *(data2 as *mut i32) = selected;
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GCM_SET_ITEM_DATA => {
+                        if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+                            let index = data1 as i32;
+                            if index >= 0 {
+                                let _ = combo.set_item_data_raw(index as usize, data2);
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    GCM_GET_ITEM_DATA => {
+                        if data2 != 0 {
+                            let data =
+                                if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_ref() {
+                                    let index = data1 as i32;
+                                    if index >= 0 {
+                                        combo.item_data_raw(index as usize).unwrap_or(0)
+                                    } else {
+                                        0
+                                    }
+                                } else {
+                                    0
+                                };
+                            unsafe {
+                                *(data2 as *mut WindowMsgData) = data;
+                            }
+                        }
+                        return WindowMsgHandled::Handled;
+                    }
+                    _ => {}
+                }
+            }
+
             if let Some(links) = self.combobox_links {
                 if msg == WindowMessage::GadgetSelected && data1 == links.drop_down as WindowMsgData
                 {
@@ -2693,37 +3143,53 @@ impl GameWindow {
                     && data1 == links.list_box as WindowMsgData
                 {
                     if let Some(list_box) = self.find_child_by_id(links.list_box) {
-                        if let Some(selected) =
-                            list_box.borrow().widget().and_then(|widget| match widget {
+                        let selected = list_box
+                            .borrow()
+                            .widget()
+                            .and_then(|widget| match widget {
                                 WindowWidget::ListBox(listbox) => {
                                     listbox.selected_indices().first().copied()
                                 }
                                 _ => None,
                             })
-                        {
-                            if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
-                                let _ = combo.select_index(selected);
-                            }
-                        }
-                        if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
-                            self.sync_combobox_edit_box(&edit_box);
-                        }
-                        let dont_hide =
-                            if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
-                                combo.take_dont_hide_next()
-                            } else {
-                                false
-                            };
-                        if !dont_hide {
-                            let _ = list_box.borrow_mut().hide(true);
-                            if let Some(edit_box) = self.find_child_by_id(links.edit_box) {
-                                let base_height = edit_box.borrow().get_size().1;
-                                let (width, _) = self.get_size();
-                                let _ = self.set_size(width, base_height);
-                            }
-                        }
-                        return WindowMsgHandled::Handled;
+                            .map(|index| index as i32)
+                            .unwrap_or(-1);
+                        return self.handle_combobox_list_selection(links, &list_box, selected);
                     }
+                }
+
+                if msg == WindowMessage::User(GLM_SELECTED)
+                    && data1 == links.list_box as WindowMsgData
+                {
+                    if let Some(list_box) = self.find_child_by_id(links.list_box) {
+                        return self.handle_combobox_list_selection(links, &list_box, data2 as i32);
+                    }
+                }
+
+                if msg == WindowMessage::GadgetValueChanged
+                    && data1 == links.edit_box as WindowMsgData
+                {
+                    if !self.owner_is_self {
+                        if let Some(owner) = self.get_owner() {
+                            let _ = owner.borrow_mut().send_system_message(
+                                WindowMessage::User(GCM_UPDATE_TEXT),
+                                self.id as WindowMsgData,
+                                0,
+                            );
+                        }
+                    }
+                    if let Some(WindowWidget::ComboBox(combo)) = self.widget.as_mut() {
+                        combo.clear_selection();
+                    }
+                    if let Some(list_box) = self.find_child_by_id(links.list_box) {
+                        if let Some(WindowWidget::ListBox(listbox)) =
+                            list_box.borrow_mut().widget_mut()
+                        {
+                            listbox.set_selected_indices(&[]);
+                        }
+                    }
+                    self.hide_combobox_list();
+                    return WindowMsgHandled::Handled;
                 }
 
                 if msg == WindowMessage::GadgetEditDone && data1 == links.edit_box as WindowMsgData
@@ -2740,6 +3206,16 @@ impl GameWindow {
                             (edit_text, self.widget.as_mut())
                         {
                             combo.set_text(&text);
+                        }
+                        self.hide_combobox_list();
+                        if !self.owner_is_self {
+                            if let Some(owner) = self.get_owner() {
+                                let _ = owner.borrow_mut().send_system_message(
+                                    WindowMessage::User(GCM_SELECTED),
+                                    self.id as WindowMsgData,
+                                    0,
+                                );
+                            }
                         }
                         return WindowMsgHandled::Handled;
                     }
@@ -4247,6 +4723,49 @@ mod tests {
 
     use super::*;
 
+    fn combo_fixture() -> (
+        GameWindow,
+        Rc<RefCell<GameWindow>>,
+        Rc<RefCell<GameWindow>>,
+        Rc<RefCell<GameWindow>>,
+    ) {
+        let mut combo = GameWindow::new();
+        combo.set_id(1);
+        combo.set_size(120, 20).unwrap();
+        combo.set_widget(WindowWidget::ComboBox(ComboBox::new(1, 0, 0, 120, 20)));
+
+        let edit_box = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let mut edit_box = edit_box.borrow_mut();
+            edit_box.set_id(2);
+            edit_box.set_size(120, 20).unwrap();
+            edit_box.set_widget(WindowWidget::TextEntry(TextEntry::new(2, 0, 0, 120, 20)));
+        }
+
+        let list_box = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let mut list_box = list_box.borrow_mut();
+            list_box.set_id(3);
+            list_box.set_size(120, 40).unwrap();
+            list_box.set_widget(WindowWidget::ListBox(ListBox::new(3, 0, 20, 120, 40)));
+            list_box.hide(true).unwrap();
+        }
+
+        let drop_down = Rc::new(RefCell::new(GameWindow::new()));
+        drop_down.borrow_mut().set_id(4);
+
+        combo.add_child(edit_box.clone());
+        combo.add_child(list_box.clone());
+        combo.add_child(drop_down.clone());
+        combo.set_combobox_links(ComboBoxLinks {
+            drop_down: 4,
+            edit_box: 2,
+            list_box: 3,
+        });
+
+        (combo, edit_box, list_box, drop_down)
+    }
+
     #[test]
     fn undefined_window_color_matches_cpp_transparent_white_sentinel() {
         assert_eq!(WIN_COLOR_UNDEFINED, 0x00FF_FFFF);
@@ -4484,6 +5003,167 @@ mod tests {
         assert_eq!(drop_down.inst_data.hilite_text.color, 0);
         assert_eq!(drop_down.inst_data.ime_composite_text.color, 0);
         assert!(drop_down.get_font().is_none());
+    }
+
+    #[test]
+    fn combo_box_set_text_uses_edit_child_without_selecting_matching_item_like_cpp() {
+        let (mut combo, edit_box, _list_box, _drop_down) = combo_fixture();
+        {
+            let combo_widget = combo.combo_box_mut().unwrap();
+            combo_widget.add_item(ComboBoxItem::new(0, "Alpha"));
+            combo_widget.add_item(ComboBoxItem::new(1, "Bravo"));
+        }
+
+        let text = "Alpha".to_string();
+        assert_eq!(
+            combo.send_system_message(
+                WindowMessage::User(GCM_SET_TEXT),
+                &text as *const String as WindowMsgData,
+                0,
+            ),
+            WindowMsgHandled::Handled
+        );
+
+        assert_eq!(
+            edit_box
+                .borrow()
+                .widget()
+                .and_then(|widget| match widget {
+                    WindowWidget::TextEntry(entry) => Some(entry.text().to_string()),
+                    _ => None,
+                })
+                .as_deref(),
+            Some("Alpha")
+        );
+        assert_eq!(combo.combo_box_mut().unwrap().selected_index(), None);
+
+        let mut out = "stale".to_string();
+        let _ = combo.send_system_message(
+            WindowMessage::User(GCM_GET_TEXT),
+            0,
+            &mut out as *mut String as WindowMsgData,
+        );
+        assert_eq!(out, "Alpha");
+    }
+
+    #[test]
+    fn combo_box_item_data_round_trips_pointer_sized_values_like_cpp() {
+        let (mut combo, _edit_box, _list_box, _drop_down) = combo_fixture();
+        let alpha = "Alpha".to_string();
+        let _ = combo.send_system_message(
+            WindowMessage::User(GCM_ADD_ENTRY),
+            &alpha as *const String as WindowMsgData,
+            0xFF11_2233,
+        );
+
+        let raw_data = usize::MAX - 7;
+        assert_eq!(
+            combo.send_system_message(WindowMessage::User(GCM_SET_ITEM_DATA), 0, raw_data,),
+            WindowMsgHandled::Handled
+        );
+
+        let mut out = 0;
+        let _ = combo.send_system_message(
+            WindowMessage::User(GCM_GET_ITEM_DATA),
+            0,
+            &mut out as *mut WindowMsgData as WindowMsgData,
+        );
+        assert_eq!(out, raw_data);
+    }
+
+    #[test]
+    fn combo_box_selection_hides_list_updates_edit_and_notifies_owner_like_cpp() {
+        let (mut combo, edit_box, list_box, _drop_down) = combo_fixture();
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_window, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+        combo.set_owner(Some(&owner));
+
+        let alpha = "Alpha".to_string();
+        let bravo = "Bravo".to_string();
+        let _ = combo.send_system_message(
+            WindowMessage::User(GCM_ADD_ENTRY),
+            &alpha as *const String as WindowMsgData,
+            0xFF11_2233,
+        );
+        let _ = combo.send_system_message(
+            WindowMessage::User(GCM_ADD_ENTRY),
+            &bravo as *const String as WindowMsgData,
+            0xFF44_5566,
+        );
+        list_box.borrow_mut().hide(false).unwrap();
+        combo.set_size(120, 80).unwrap();
+
+        assert_eq!(
+            combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 1, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert!(list_box.borrow().is_hidden());
+        assert_eq!(combo.get_size(), (120, 20));
+        assert_eq!(
+            edit_box
+                .borrow()
+                .widget()
+                .and_then(|widget| match widget {
+                    WindowWidget::TextEntry(entry) => Some(entry.text().to_string()),
+                    _ => None,
+                })
+                .as_deref(),
+            Some("Bravo")
+        );
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[(WindowMessage::User(GCM_SELECTED), 1, 0)]
+        );
+    }
+
+    #[test]
+    fn combo_box_edit_update_clears_selection_hides_list_and_notifies_owner_like_cpp() {
+        let (mut combo, _edit_box, list_box, _drop_down) = combo_fixture();
+        let owner_seen = Rc::new(RefCell::new(Vec::new()));
+        let owner = Rc::new(RefCell::new(GameWindow::new()));
+        {
+            let owner_seen = owner_seen.clone();
+            owner
+                .borrow_mut()
+                .set_system_callback(move |_window, msg, data1, data2| {
+                    owner_seen.borrow_mut().push((msg, data1, data2));
+                    WindowMsgHandled::Handled
+                });
+        }
+        combo.set_owner(Some(&owner));
+
+        let alpha = "Alpha".to_string();
+        let _ = combo.send_system_message(
+            WindowMessage::User(GCM_ADD_ENTRY),
+            &alpha as *const String as WindowMsgData,
+            0xFF11_2233,
+        );
+        let _ = combo.send_system_message(WindowMessage::User(GCM_SET_SELECTION), 0, 0);
+        list_box.borrow_mut().hide(false).unwrap();
+        combo.set_size(120, 80).unwrap();
+        owner_seen.borrow_mut().clear();
+
+        assert_eq!(
+            combo.send_system_message(WindowMessage::GadgetValueChanged, 2, 0),
+            WindowMsgHandled::Handled
+        );
+
+        assert!(list_box.borrow().is_hidden());
+        assert_eq!(combo.combo_box_mut().unwrap().selected_index(), None);
+        assert_eq!(
+            owner_seen.borrow().as_slice(),
+            &[(WindowMessage::User(GCM_UPDATE_TEXT), 1, 0)]
+        );
     }
 
     #[test]
