@@ -408,9 +408,33 @@ impl W3DTreeBuffer {
         location: Vec3,
         scale: f32,
         angle: f32,
-        random_scale_factor: f32,
+        random_scale_amount: f32,
         data: TreeModuleData,
         base_bounds: TreeSphere,
+    ) -> Option<usize> {
+        let mut rng = DeterministicTreeRandom;
+        self.add_tree_randomized(
+            drawable_id,
+            location,
+            scale,
+            angle,
+            random_scale_amount,
+            data,
+            base_bounds,
+            &mut rng,
+        )
+    }
+
+    pub fn add_tree_randomized(
+        &mut self,
+        drawable_id: u32,
+        location: Vec3,
+        scale: f32,
+        angle: f32,
+        random_scale_amount: f32,
+        data: TreeModuleData,
+        base_bounds: TreeSphere,
+        rng: &mut impl TreeRandom,
     ) -> Option<usize> {
         if self.trees.len() >= MAX_TREES || !self.initialized {
             return None;
@@ -431,9 +455,15 @@ impl W3DTreeBuffer {
             })
             .or_else(|| self.add_tree_type(data.clone(), base_bounds))?;
 
+        let random_scale = rng.real_range(1.0 - random_scale_amount, 1.0 + random_scale_amount);
+        let final_scale = if random_scale_amount > 0.0 {
+            scale * random_scale
+        } else {
+            scale
+        };
         let mut entry = TreeEntry {
             location,
-            scale: scale * random_scale_factor,
+            scale: final_scale,
             sin: angle.sin(),
             cos: angle.cos(),
             tree_type: tree_type as i32,
@@ -441,7 +471,7 @@ impl W3DTreeBuffer {
             drawable_id,
             first_index: 0,
             buffer_ndx: -1,
-            sway_type: (self.trees.len() % MAX_SWAY_TYPES) as i32,
+            sway_type: rng.int_range(0, MAX_SWAY_TYPES as i32 - 1),
             push_aside: 0.0,
             last_frame_updated: 0,
             push_aside_source: u32::MAX,
@@ -865,4 +895,16 @@ fn set_matrix_translation(tree: &mut TreeEntry) {
 pub trait TreeRandom {
     fn int_range(&mut self, min: i32, max: i32) -> i32;
     fn real_range(&mut self, min: f32, max: f32) -> f32;
+}
+
+struct DeterministicTreeRandom;
+
+impl TreeRandom for DeterministicTreeRandom {
+    fn int_range(&mut self, min: i32, _max: i32) -> i32 {
+        min
+    }
+
+    fn real_range(&mut self, min: f32, max: f32) -> f32 {
+        (min + max) * 0.5
+    }
 }
