@@ -141,7 +141,9 @@ impl Module for W3DScienceModelDraw {
         self.base.on_delete();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self.base.get_module_name_key()
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            "W3DScienceModelDraw",
+        )
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.base.get_module_tag_name_key()
@@ -167,10 +169,11 @@ impl DrawModule for W3DScienceModelDraw {
                     .map(|g| (!g.is_player_active()) || g.has_science(science))
             })
             .unwrap_or(true);
-        DrawModule::set_hidden(&mut self.base, !has_science);
-        if has_science {
-            self.base.do_draw_module(transform_mtx);
+        if !has_science {
+            DrawModule::set_hidden(&mut self.base, true);
+            return;
         }
+        self.base.do_draw_module(transform_mtx);
     }
     fn set_shadows_enabled(&mut self, enable: bool) {
         self.base.set_shadows_enabled(enable);
@@ -222,5 +225,26 @@ impl Snapshotable for W3DScienceModelDraw {
     }
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    #[test]
+    fn module_data_defaults_required_science_to_invalid() {
+        let data = W3DScienceModelDrawModuleData::new();
+        assert_eq!(data.required_science, SCIENCE_INVALID);
+    }
+
+    #[test]
+    fn module_name_key_is_science_model_draw_not_base_model_draw() {
+        let draw = W3DScienceModelDraw::new(W3DScienceModelDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DScienceModelDraw")
+        );
     }
 }
