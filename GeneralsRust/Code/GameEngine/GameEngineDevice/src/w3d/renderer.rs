@@ -1323,6 +1323,10 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {{
             "    @location(0) position: vec3<f32>,\n    @location(1) normal: vec3<f32>,\n    @location(2) uv: vec2<f32>,\n    @location(3) color: vec4<f32>,\n",
             "material.base_color * input.color",
         ),
+        super::VertexFormat::Skinned => (
+            "    @location(0) position: vec3<f32>,\n    @location(1) normal: vec3<f32>,\n    @location(2) uv: vec2<f32>,\n    @location(3) bone_indices: vec4<u32>,\n    @location(4) bone_weights: vec4<f32>,\n",
+            "material.base_color",
+        ),
     };
 
     format!(
