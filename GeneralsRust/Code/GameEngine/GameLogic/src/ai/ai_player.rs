@@ -25,7 +25,6 @@ use crate::helpers::{
     game_logic_random_value, TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory,
 };
 use crate::modules::ProductionUpdateInterface;
-use crate::object::production::build_cost_calculator::{BuildCostCalculator, PlayerBuildModifiers};
 use crate::object::production::construction::FoundationValidator;
 use crate::object::production::supply_warehouse_dock::SupplyWarehouseDockUpdate;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -3666,10 +3665,6 @@ impl AIPlayer {
 
         let mut total_cost: i32 = 0;
         let mut has_factories = true;
-        let calc = BuildCostCalculator::new();
-        let mut modifiers = PlayerBuildModifiers::default();
-        modifiers.handicap_cost_multiplier = player_guard.get_handicap().get_cost_multiplier();
-
         for unit in proto.units_info() {
             if unit.unit_thing_name.is_empty() {
                 continue;
@@ -3679,8 +3674,7 @@ impl AIPlayer {
                 continue;
             };
             let count = unit.max_units.max(unit.min_units).max(1);
-            let base_cost = template.get_build_cost();
-            let cost = calc.calc_cost_to_build(base_cost, &modifiers);
+            let cost = template.calc_cost_to_build(Some(&*player_guard));
             total_cost += cost.saturating_mul(count);
 
             let factory_id =

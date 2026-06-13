@@ -678,6 +678,47 @@ pub trait Thing: std::fmt::Debug + Send + Sync {
     fn as_drawable(&self) -> Option<&dyn Drawable> {
         None
     }
+
+    fn get_production_cost_change_percent(&self, _template_name: &str) -> f32 {
+        0.0
+    }
+
+    fn get_production_time_change_percent(&self, _template_name: &str) -> f32 {
+        0.0
+    }
+
+    fn get_production_cost_change_based_on_kind_of(&self, _kind_of: u64) -> f32 {
+        1.0
+    }
+
+    fn get_build_cost_handicap(
+        &self,
+        _template: &crate::common::thing::thing_template::ThingTemplate,
+    ) -> f32 {
+        1.0
+    }
+
+    fn get_build_time_handicap(
+        &self,
+        _template: &crate::common::thing::thing_template::ThingTemplate,
+    ) -> f32 {
+        1.0
+    }
+
+    fn get_energy_supply_ratio(&self) -> f32 {
+        1.0
+    }
+
+    fn builds_instantly_for_debug(&self) -> bool {
+        false
+    }
+
+    fn count_equivalent_build_facilities(
+        &self,
+        _template: &crate::common::thing::thing_template::ThingTemplate,
+    ) -> i32 {
+        0
+    }
 }
 
 pub trait Player: Send + Sync {

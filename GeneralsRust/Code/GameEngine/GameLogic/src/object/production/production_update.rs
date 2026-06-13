@@ -170,9 +170,17 @@ impl ProductionUpdate {
             mods.handicap_time_multiplier = player
                 .get_handicap()
                 .get_build_time_multiplier_for_template(&template);
+            mods.production_cost_change_percent =
+                player.get_production_cost_change_percent(template.get_name().as_str());
+            mods.production_time_change_percent =
+                player.get_production_time_change_percent(template.get_name().as_str());
         } else {
             mods.handicap_cost_multiplier = player.get_handicap().get_cost_multiplier();
             mods.handicap_time_multiplier = player.get_handicap().get_build_time_multiplier();
+            mods.production_cost_change_percent =
+                player.get_production_cost_change_percent(template_name);
+            mods.production_time_change_percent =
+                player.get_production_time_change_percent(template_name);
         }
         mods.energy_supply_ratio = player.get_energy().supply_ratio();
 

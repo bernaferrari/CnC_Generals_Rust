@@ -4477,6 +4477,56 @@ impl PlayerInterface for Player {
     }
 }
 
+impl game_engine::common::thing::module::Thing for Player {
+    fn get_production_cost_change_percent(&self, template_name: &str) -> f32 {
+        self.get_production_cost_change_percent(template_name)
+    }
+
+    fn get_production_time_change_percent(&self, template_name: &str) -> f32 {
+        self.get_production_time_change_percent(template_name)
+    }
+
+    fn get_production_cost_change_based_on_kind_of(&self, kind_of: u64) -> f32 {
+        self.get_production_cost_change_based_on_kind_of(kind_of)
+    }
+
+    fn get_build_cost_handicap(&self, template: &game_engine::common::thing::ThingTemplate) -> f32 {
+        if template
+            .is_kind_of(game_engine::common::system::kind_of::KindOfMask::STRUCTURE.bits() as u64)
+        {
+            self.handicap.build_cost_buildings
+        } else {
+            self.handicap.build_cost_generic
+        }
+    }
+
+    fn get_build_time_handicap(&self, template: &game_engine::common::thing::ThingTemplate) -> f32 {
+        if template
+            .is_kind_of(game_engine::common::system::kind_of::KindOfMask::STRUCTURE.bits() as u64)
+        {
+            self.handicap.build_time_buildings
+        } else {
+            self.handicap.build_time_generic
+        }
+    }
+
+    fn get_energy_supply_ratio(&self) -> f32 {
+        self.energy.supply_ratio()
+    }
+
+    fn builds_instantly_for_debug(&self) -> bool {
+        #[cfg(any(debug_assertions, feature = "allow_debug_cheats"))]
+        {
+            return self.builds_instantly();
+        }
+
+        #[cfg(not(any(debug_assertions, feature = "allow_debug_cheats")))]
+        {
+            false
+        }
+    }
+}
+
 impl Default for Player {
     fn default() -> Self {
         Player::new(0)
