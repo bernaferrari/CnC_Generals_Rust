@@ -1,4 +1,7 @@
-use game_client_rust::terrain::{height_map::HeightMap, terrain_visual::TerrainVisualImpl};
+use game_client_rust::{
+    system::SubsystemInterface,
+    terrain::{height_map::HeightMap, terrain_visual::TerrainVisualImpl},
+};
 use glam::Mat4;
 
 fn loaded_visual_with_border() -> TerrainVisualImpl {
@@ -36,6 +39,93 @@ fn raw_map_height_returns_zero_without_loaded_logic_map() {
     assert_eq!(visual.get_raw_map_height(1, 2), 0);
     visual.set_raw_map_height(1, 2, 80);
     assert_eq!(visual.get_raw_map_height(1, 2), 0);
+}
+
+fn option_names(names: &[Option<String>; 5]) -> [Option<&str>; 5] {
+    std::array::from_fn(|i| names[i].as_deref())
+}
+
+#[test]
+fn skybox_replacement_tracks_initial_and_current_names_without_gpu() {
+    let mut visual = TerrainVisualImpl::new();
+    let old = ["old0", "old1", "old2", "old3", "old4"];
+    let first = ["new0", "new1", "new2", "new3", "new4"];
+    let second = ["new0", "alt1", "new2", "alt3", "new4"];
+
+    visual.replace_skybox_textures(&old, &first).unwrap();
+    assert_eq!(
+        option_names(visual.initial_skybox_texture_names()),
+        [
+            Some("old0"),
+            Some("old1"),
+            Some("old2"),
+            Some("old3"),
+            Some("old4")
+        ]
+    );
+    assert_eq!(
+        option_names(visual.current_skybox_texture_names()),
+        [
+            Some("new0"),
+            Some("new1"),
+            Some("new2"),
+            Some("new3"),
+            Some("new4")
+        ]
+    );
+
+    visual.replace_skybox_textures(&old, &second).unwrap();
+    assert_eq!(
+        option_names(visual.initial_skybox_texture_names()),
+        [
+            Some("old0"),
+            Some("old1"),
+            Some("old2"),
+            Some("old3"),
+            Some("old4")
+        ]
+    );
+    assert_eq!(
+        option_names(visual.current_skybox_texture_names()),
+        [
+            Some("new0"),
+            Some("alt1"),
+            Some("new2"),
+            Some("alt3"),
+            Some("new4")
+        ]
+    );
+}
+
+#[test]
+fn skybox_reset_restores_current_names_to_initial_names() {
+    let mut visual = TerrainVisualImpl::new();
+    let old = ["old0", "old1", "old2", "old3", "old4"];
+    let new = ["new0", "new1", "new2", "new3", "new4"];
+
+    visual.replace_skybox_textures(&old, &new).unwrap();
+    visual.reset().unwrap();
+
+    assert_eq!(
+        option_names(visual.initial_skybox_texture_names()),
+        [
+            Some("old0"),
+            Some("old1"),
+            Some("old2"),
+            Some("old3"),
+            Some("old4")
+        ]
+    );
+    assert_eq!(
+        option_names(visual.current_skybox_texture_names()),
+        [
+            Some("old0"),
+            Some("old1"),
+            Some("old2"),
+            Some("old3"),
+            Some("old4")
+        ]
+    );
 }
 
 #[test]
