@@ -3664,6 +3664,7 @@ impl GameWindow {
                 if code == GPM_SET_PROGRESS {
                     let progress = data1 as i32;
                     if (0..=100).contains(&progress) {
+                        self.set_user_data(progress);
                         if let Some(WindowWidget::ProgressBar(progress_bar)) = self.widget.as_mut()
                         {
                             progress_bar.set_progress(progress as f32);
@@ -5591,12 +5592,14 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
+        assert_eq!(window.get_user_data::<i32>(), Some(&37));
 
         assert_eq!(
             window.send_system_message(WindowMessage::User(GPM_SET_PROGRESS), 101, 0),
             WindowMsgHandled::Handled
         );
         assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
+        assert_eq!(window.get_user_data::<i32>(), Some(&37));
 
         assert_eq!(
             window.send_system_message(
@@ -5607,6 +5610,7 @@ mod tests {
             WindowMsgHandled::Handled
         );
         assert_eq!(window.progress_bar_mut().unwrap().percentage(), 37.0);
+        assert_eq!(window.get_user_data::<i32>(), Some(&37));
     }
 
     #[test]
