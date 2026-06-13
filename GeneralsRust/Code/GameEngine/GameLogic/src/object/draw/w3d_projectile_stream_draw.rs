@@ -8,6 +8,7 @@ use crate::common::*;
 use crate::helpers::TheGameClient;
 use crate::object::behavior::projectile_stream_update::MAX_PROJECTILE_STREAM;
 use game_engine::common::ini::{FieldParse, INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
 use std::any::Any;
@@ -183,9 +184,6 @@ pub struct W3DProjectileStreamDraw {
     data: W3DProjectileStreamDrawModuleData,
     cached_lines: Vec<Vec<Coord3D>>,
     owner_id: Option<ObjectID>,
-    hidden: bool,
-    fully_obscured_by_shroud: bool,
-    shadows_enabled: bool,
 }
 
 impl W3DProjectileStreamDraw {
@@ -194,14 +192,36 @@ impl W3DProjectileStreamDraw {
             data,
             cached_lines: Vec::new(),
             owner_id: None,
-            hidden: false,
-            fully_obscured_by_shroud: false,
-            shadows_enabled: false,
         }
     }
 
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.owner_id = Some(owner_id);
+    }
+
+    pub fn owner_id(&self) -> Option<ObjectID> {
+        self.owner_id
+    }
+
+    pub fn cached_lines(&self) -> &[Vec<Coord3D>] {
+        &self.cached_lines
+    }
+
+    fn sync_client_projectile_stream(&self, lines: Vec<Vec<Coord3D>>) {
+        let Some(owner_id) = self.owner_id else {
+            return;
+        };
+
+        if let Some(client) = TheGameClient::get() {
+            client.set_drawable_projectile_stream(
+                owner_id,
+                lines,
+                self.data.texture_name.clone(),
+                self.data.width,
+                self.data.tile_factor,
+                self.data.scroll_rate,
+            );
+        }
     }
 
     fn build_lines_from_points(&self, points: &[Coord3D]) -> Vec<Vec<Coord3D>> {
@@ -232,7 +252,7 @@ impl Module for W3DProjectileStreamDraw {
     fn on_drawable_bound_to_object(&mut self) {}
     fn on_delete(&mut self) {}
     fn get_module_name_key(&self) -> NameKeyType {
-        self.data.module_tag_name_key
+        NameKeyGenerator::name_to_key("W3DProjectileStreamDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.data.module_tag_name_key
@@ -247,21 +267,6 @@ impl DrawModule for W3DProjectileStreamDraw {
         let Some(owner_id) = self.owner_id else {
             return;
         };
-
-        if self.hidden || self.fully_obscured_by_shroud {
-            self.cached_lines.clear();
-            if let Some(client) = TheGameClient::get() {
-                client.set_drawable_projectile_stream(
-                    owner_id,
-                    Vec::new(),
-                    self.data.texture_name.clone(),
-                    self.data.width,
-                    self.data.tile_factor,
-                    self.data.scroll_rate,
-                );
-            }
-            return;
-        }
 
         let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(owner_id) else {
             return;
@@ -296,29 +301,23 @@ impl DrawModule for W3DProjectileStreamDraw {
 
         let lines = self.build_lines_from_points(&points);
         self.cached_lines = lines.clone();
-
-        if let Some(client) = TheGameClient::get() {
-            client.set_drawable_projectile_stream(
-                owner_id,
-                lines,
-                self.data.texture_name.clone(),
-                self.data.width,
-                self.data.tile_factor,
-                self.data.scroll_rate,
-            );
-        }
+        self.sync_client_projectile_stream(lines);
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
-        self.shadows_enabled = enable;
+        let _ = enable;
     }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
     fn set_hidden(&mut self, hidden: bool) {
-        self.hidden = hidden;
+        let _ = hidden;
     }
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
-        self.fully_obscured_by_shroud = fully_obscured;
+        if fully_obscured {
+            self.sync_client_projectile_stream(Vec::new());
+        } else {
+            self.sync_client_projectile_stream(self.cached_lines.clone());
+        }
     }
     fn react_to_transform_change(
         &mut self,
@@ -327,9 +326,7 @@ impl DrawModule for W3DProjectileStreamDraw {
         _old_angle: Real,
     ) {
     }
-    fn react_to_geometry_change(&mut self) {
-        self.cached_lines.clear();
-    }
+    fn react_to_geometry_change(&mut self) {}
 }
 
 impl Snapshotable for W3DProjectileStreamDraw {
@@ -352,5 +349,57 @@ impl Snapshotable for W3DProjectileStreamDraw {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn point(x: Real, y: Real, z: Real) -> Coord3D {
+        Coord3D::new(x, y, z)
+    }
+
+    #[test]
+    fn module_name_key_is_projectile_stream_draw() {
+        let draw = W3DProjectileStreamDraw::new(W3DProjectileStreamDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DProjectileStreamDraw")
+        );
+    }
+
+    #[test]
+    fn bind_owner_id_sets_owner() {
+        let mut draw = W3DProjectileStreamDraw::new(W3DProjectileStreamDrawModuleData::new());
+        draw.bind_owner_id(42);
+        assert_eq!(draw.owner_id(), Some(42));
+    }
+
+    #[test]
+    fn build_lines_splits_on_zero_and_skips_single_points() {
+        let draw = W3DProjectileStreamDraw::new(W3DProjectileStreamDrawModuleData::new());
+        let zero = Coord3D::origin();
+        let lines = draw.build_lines_from_points(&[
+            point(1.0, 0.0, 0.0),
+            point(2.0, 0.0, 0.0),
+            zero,
+            point(3.0, 0.0, 0.0),
+            zero,
+            point(4.0, 0.0, 0.0),
+            point(5.0, 0.0, 0.0),
+        ]);
+
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], vec![point(1.0, 0.0, 0.0), point(2.0, 0.0, 0.0)]);
+        assert_eq!(lines[1], vec![point(4.0, 0.0, 0.0), point(5.0, 0.0, 0.0)]);
+    }
+
+    #[test]
+    fn geometry_change_keeps_cached_lines_like_cpp() {
+        let mut draw = W3DProjectileStreamDraw::new(W3DProjectileStreamDrawModuleData::new());
+        draw.cached_lines = vec![vec![point(1.0, 2.0, 3.0), point(4.0, 5.0, 6.0)]];
+        draw.react_to_geometry_change();
+        assert_eq!(draw.cached_lines().len(), 1);
     }
 }
