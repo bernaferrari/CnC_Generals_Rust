@@ -878,6 +878,50 @@ impl W3DTreeBuffer {
             .collect()
     }
 
+    pub fn load_records(&mut self, records: &[TreeSaveRecord]) {
+        self.trees.clear();
+        self.area_partition.fill(END_OF_PARTITION);
+        self.cur_num_tree_vertices = [0; MAX_BUFFERS];
+        self.cur_num_tree_indices = [0; MAX_BUFFERS];
+
+        for record in records {
+            let Some(tree_type) = self.tree_types.iter().position(|existing| {
+                existing
+                    .data
+                    .model_name
+                    .eq_ignore_ascii_case(&record.model_name)
+                    && existing
+                        .data
+                        .texture_name
+                        .eq_ignore_ascii_case(&record.model_texture)
+            }) else {
+                continue;
+            };
+            let data = self.tree_types[tree_type].data.clone();
+            let base_bounds = self.tree_types[tree_type].bounds;
+            let Some(index) = self.add_tree(
+                record.drawable_id,
+                record.location,
+                record.scale,
+                0.0,
+                0.0,
+                data,
+                base_bounds,
+            ) else {
+                continue;
+            };
+            let tree = &mut self.trees[index];
+            tree.angular_acceleration = record.angular_acceleration;
+            tree.angular_velocity = record.angular_velocity;
+            tree.topple_direction = record.topple_direction;
+            tree.topple_state = record.topple_state;
+            tree.options = record.options;
+            tree.matrix = record.matrix;
+            tree.sink_frames_left = record.sink_frames_left;
+        }
+        self.anything_changed = true;
+    }
+
     fn scaled_bounds(&self, tree_type: usize, location: Vec3, scale: f32) -> TreeSphere {
         let base = self.tree_types[tree_type].bounds;
         TreeSphere {
