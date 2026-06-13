@@ -153,14 +153,21 @@ fn apply_static_lod_level(level_name: &str) {
         refresh_custom_static_lod_level();
     }
 
-    let lod_info = {
+    let (lod_info, requested_texture_reduction) = {
         let manager = get_game_lod_manager();
-        manager.static_game_lod_info[index].clone()
+        let lod_info = manager.static_game_lod_info[index].clone();
+        let texture_reduction = if level == StaticGameLODLevel::Custom {
+            lod_info.texture_reduction
+        } else {
+            recommended_texture_reduction(&manager, level)
+        };
+        (lod_info, texture_reduction)
     };
-    let requested_texture_reduction = if level == StaticGameLODLevel::Custom {
-        Some(lod_info.texture_reduction)
+
+    let requested_trees = if level == StaticGameLODLevel::Custom {
+        lod_info.use_trees
     } else {
-        None
+        did_mem_pass()
     };
 
     let Some(global_data) = get_global_data() else {
@@ -177,15 +184,38 @@ fn apply_static_lod_level(level_name: &str) {
     global.max_tank_track_edges = lod_info.max_tank_track_edges;
     global.max_tank_track_opaque_edges = lod_info.max_tank_track_opaque_edges;
     global.max_tank_track_fade_delay = lod_info.max_tank_track_fade_delay;
-    if let Some(texture_reduction) = requested_texture_reduction {
-        global.texture_reduction_factor = texture_reduction;
-    }
+    global.texture_reduction_factor = requested_texture_reduction;
     global.use_tree_sway = lod_info.use_tree_sway;
     global.use_draw_module_lod = !lod_info.use_buildup_scaffolds;
     global.use_heat_effects = lod_info.use_heat_effects;
     global.enable_dynamic_lod = lod_info.enable_dynamic_lod;
     global.use_fps_limit = lod_info.use_fps_limit;
-    global.use_trees = lod_info.use_trees;
+    global.use_trees = requested_trees;
+    if !did_mem_pass() {
+        global.shell_map_on = false;
+    }
+}
+
+fn recommended_texture_reduction(
+    manager: &crate::common::ini::ini_game_lod::GameLODManager,
+    requested_level: StaticGameLODLevel,
+) -> i32 {
+    if !did_mem_pass() {
+        return manager.static_game_lod_info[StaticGameLODLevel::Low.to_index().unwrap()]
+            .texture_reduction;
+    }
+
+    let ideal_level = canonical_static_lod_name(&get_ideal_static_lod())
+        .and_then(StaticGameLODLevel::from_str)
+        .filter(|level| {
+            matches!(
+                level,
+                StaticGameLODLevel::Low | StaticGameLODLevel::Medium | StaticGameLODLevel::High
+            )
+        })
+        .unwrap_or(requested_level);
+
+    manager.static_game_lod_info[ideal_level.to_index().unwrap()].texture_reduction
 }
 
 /// Mirrors C++ `GameLODManager::refreshCustomStaticLODLevel`.
@@ -435,6 +465,41 @@ mod tests {
         assert_eq!(custom.texture_reduction, 2);
         assert!(!custom.enable_dynamic_lod);
         assert!(!custom.use_trees);
+    }
+
+    #[test]
+    fn non_custom_static_lod_uses_cpp_memory_recommended_texture_reduction() {
+        crate::common::ini::ini_game_data::init_global_data();
+        let global_data = get_global_data().expect("global data initialized");
+
+        {
+            let mut manager = get_game_lod_manager_mut();
+            let low_index = StaticGameLODLevel::Low.to_index().unwrap();
+            let high_index = StaticGameLODLevel::High.to_index().unwrap();
+            manager.static_game_lod_info[low_index].texture_reduction = 3;
+            manager.static_game_lod_info[high_index].texture_reduction = 0;
+            manager.static_game_lod_info[high_index].use_trees = true;
+        }
+
+        {
+            let mut global = global_data.write();
+            global.texture_reduction_factor = 0;
+            global.use_trees = true;
+            global.shell_map_on = true;
+        }
+
+        set_ideal_static_lod_from_string("Unknown");
+        set_mem_passed_override_for_tests(Some(false));
+        set_static_lod_from_string("High");
+
+        {
+            let global = global_data.read();
+            assert_eq!(global.texture_reduction_factor, 3);
+            assert!(!global.use_trees);
+            assert!(!global.shell_map_on);
+        }
+
+        set_mem_passed_override_for_tests(None);
     }
 
     #[test]
