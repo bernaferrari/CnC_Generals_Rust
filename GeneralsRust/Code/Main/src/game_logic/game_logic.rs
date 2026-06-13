@@ -551,6 +551,7 @@ pub struct GameLogic {
     spawned_map_object_ids: Vec<(ObjectId, usize)>,
     terrain: Option<super::terrain::TerrainData>,
     runtime_road_segments: Vec<super::script_loader::RuntimeRoadSegment>,
+    runtime_terrain_texture_classes: Vec<super::script_loader::BlendTileTextureClass>,
     pathfinding_height_samples: Option<PathfindingHeightSamples>,
     weather_state: RuntimeWeatherState,
 }
@@ -1313,6 +1314,7 @@ impl GameLogic {
             spawned_map_object_ids: Vec::new(),
             terrain: None,
             runtime_road_segments: Vec::new(),
+            runtime_terrain_texture_classes: Vec::new(),
             pathfinding_height_samples: None,
             weather_state: RuntimeWeatherState::default(),
         };
@@ -1503,6 +1505,12 @@ impl GameLogic {
     /// Snapshot map road spans parsed from map-object ROAD_POINT flags.
     pub fn terrain_road_segments_snapshot(&self) -> Vec<super::script_loader::RuntimeRoadSegment> {
         self.runtime_road_segments.clone()
+    }
+
+    pub fn terrain_texture_classes_snapshot(
+        &self,
+    ) -> Vec<super::script_loader::BlendTileTextureClass> {
+        self.runtime_terrain_texture_classes.clone()
     }
 
     /// Export terrain/pathing passability as a compact grid mask for save/load parity.
@@ -2076,6 +2084,7 @@ impl GameLogic {
                     Vec::new()
                 }
             };
+        self.runtime_terrain_texture_classes.clear();
         let sides_data = match super::script_loader::parse_runtime_sides_from_chunky(chunky) {
             Ok(value) => value,
             Err(err) => {
@@ -2474,6 +2483,7 @@ impl GameLogic {
         let load_started = Instant::now();
         self.map_name = map_name.to_string();
         self.pathfinding_height_samples = None;
+        self.runtime_terrain_texture_classes.clear();
         self.configure_victory_rules_for_map(map_name);
         self.scripts_loaded = false;
         self.script_event_pump_in_flight
@@ -2545,6 +2555,10 @@ impl GameLogic {
                         }
                     }
                 });
+                self.runtime_terrain_texture_classes = blend_tile_data
+                    .as_ref()
+                    .map(|blend| blend.texture_classes.clone())
+                    .unwrap_or_default();
                 log::info!(
                     "Map '{}' heightmap parse finished in {:.2}s (heightmap_present={}, blend_tiles_present={})",
                     map_name,
