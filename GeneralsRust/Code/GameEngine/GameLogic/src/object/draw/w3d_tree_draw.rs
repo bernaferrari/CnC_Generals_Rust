@@ -3,15 +3,12 @@
 //! Port of C++ W3DTreeDraw.h
 //! Reference: /GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DTreeDraw.h
 //!
-//! Features:
-//! - Push aside when units move through
-//! - Topple and fall when destroyed
-//! - Bounce effects on impact
-//! - Sink into ground after falling
+//! C++ parity note: `W3DTreeDraw` only registers terrain trees once. Tree
+//! push/topple/sink behavior is owned by the terrain tree buffer path.
 
 use super::draw_module::*;
 use crate::common::*;
-use crate::helpers::{TheFXListStore, TheGameClient, TERRAIN_TREE_STATE};
+use crate::helpers::{TheGameClient, TERRAIN_TREE_STATE};
 use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{Module, ModuleData};
@@ -388,51 +385,18 @@ impl Snapshotable for W3DTreeDrawModuleData {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TreeState {
-    Standing,
-    PushingAside,
-    Returning,
-    Toppling,
-    Fallen,
-    Sinking,
-}
-
 pub struct W3DTreeDraw {
     data: W3DTreeDrawModuleData,
     drawable_id: u32,
     tree_added: bool,
-    tree_state: TreeState,
-    current_offset: Coord3D,
-    current_rotation: Real,
-    push_direction: Coord3D,
-    animation_frame: u32,
-    topple_velocity: Real,
-    sink_amount: Real,
-    last_world_position: Coord3D,
-    hidden: bool,
-    fully_obscured_by_shroud: bool,
-    shadows_enabled: bool,
 }
 
 impl W3DTreeDraw {
     pub fn new(data: W3DTreeDrawModuleData) -> Self {
-        let shadows_enabled = data.do_shadow;
         Self {
             data,
             drawable_id: 0,
             tree_added: false,
-            tree_state: TreeState::Standing,
-            current_offset: Coord3D::origin(),
-            current_rotation: 0.0,
-            push_direction: Coord3D::origin(),
-            animation_frame: 0,
-            topple_velocity: 0.0,
-            sink_amount: 0.0,
-            last_world_position: Coord3D::origin(),
-            hidden: false,
-            fully_obscured_by_shroud: false,
-            shadows_enabled,
         }
     }
 
@@ -442,14 +406,6 @@ impl W3DTreeDraw {
 
     fn reset_runtime_state(&mut self) {
         self.tree_added = false;
-        self.tree_state = TreeState::Standing;
-        self.current_offset = Coord3D::origin();
-        self.current_rotation = 0.0;
-        self.push_direction = Coord3D::origin();
-        self.animation_frame = 0;
-        self.topple_velocity = 0.0;
-        self.sink_amount = 0.0;
-        self.last_world_position = Coord3D::origin();
     }
 
     fn unregister_tree(&mut self) {
@@ -462,134 +418,8 @@ impl W3DTreeDraw {
         self.tree_added = false;
     }
 
-    pub fn push_aside(&mut self, direction: &Coord3D) {
-        if self.tree_state == TreeState::Standing {
-            self.tree_state = TreeState::PushingAside;
-            self.push_direction = *direction;
-            self.animation_frame = 0;
-        }
-    }
-
-    pub fn topple(&mut self, impact_velocity: Real) {
-        if !self.data.do_topple {
-            return;
-        }
-
-        if impact_velocity < self.data.minimum_topple_speed {
-            return;
-        }
-
-        self.tree_state = TreeState::Toppling;
-        self.topple_velocity = impact_velocity * self.data.initial_velocity_percent;
-        self.animation_frame = 0;
-    }
-
-    fn update_push_aside(&mut self) {
-        match self.tree_state {
-            TreeState::PushingAside => {
-                self.animation_frame += 1;
-                let progress =
-                    self.animation_frame as Real / self.data.frames_to_move_outward as Real;
-
-                if progress >= 1.0 {
-                    self.tree_state = TreeState::Returning;
-                    self.animation_frame = 0;
-                } else {
-                    // Smooth interpolation
-                    let t = (progress * std::f32::consts::PI).sin();
-                    self.current_offset = self.push_direction * self.data.max_outward_movement * t;
-                }
-            }
-            TreeState::Returning => {
-                self.animation_frame += 1;
-                let progress =
-                    self.animation_frame as Real / self.data.frames_to_move_inward as Real;
-
-                if progress >= 1.0 {
-                    self.tree_state = TreeState::Standing;
-                    self.current_offset = Coord3D::origin();
-                } else {
-                    let t = 1.0 - (progress * std::f32::consts::PI).sin();
-                    self.current_offset = self.push_direction * self.data.max_outward_movement * t;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn update_topple(&mut self) {
-        if self.tree_state != TreeState::Toppling {
-            return;
-        }
-
-        // Rotate tree down (per frame)
-        self.current_rotation += self.topple_velocity / LOGICFRAMES_PER_SECOND as Real;
-        self.topple_velocity += self.data.initial_accel_percent;
-
-        // Check if hit ground
-        if self.current_rotation >= 90.0 {
-            self.current_rotation = 90.0;
-            self.tree_state = TreeState::Fallen;
-
-            // Bounce effect
-            self.topple_velocity = -self.topple_velocity * self.data.bounce_velocity_percent;
-
-            // Play bounce FX if configured
-            // Matches C++ W3DTreeBuffer.cpp:1887-1897
-            if let Some(bounce_fx) = &self.data.bounce_fx {
-                if let Some(fx) = TheFXListStore::lookup_fx_list(bounce_fx) {
-                    let _ = fx.do_fx_at_position(&self.last_world_position);
-                } else {
-                    log::warn!("W3DTreeDraw: unresolved bounce FXList '{}'", bounce_fx);
-                }
-            }
-
-            if self.data.kill_when_toppled {
-                self.tree_state = TreeState::Sinking;
-                self.animation_frame = 0;
-            }
-        }
-    }
-
-    fn update_sink(&mut self) {
-        if self.tree_state != TreeState::Sinking {
-            return;
-        }
-
-        self.animation_frame += 1;
-        let progress = self.animation_frame as Real / self.data.sink_frames as Real;
-
-        if progress >= 1.0 {
-            self.sink_amount = self.data.sink_distance;
-            // Mark tree for deletion when sink is complete
-            // Matches C++ W3DTreeBuffer.cpp:1601-1603
-            // In C++, this sets tree.treeType = DELETED_TREE_TYPE
-            // In Rust, the object system should handle deletion via kill_when_toppled flag
-            // The actual deletion is managed by the parent object/drawable system
-        } else {
-            self.sink_amount = self.data.sink_distance * progress;
-        }
-    }
-
-    fn topple_axis(&self) -> glam::Vec3 {
-        let lateral = glam::Vec2::new(self.push_direction.x, self.push_direction.y);
-        if lateral.length_squared() > 1.0e-6 {
-            // Rotate around axis perpendicular to push direction in X/Y plane.
-            glam::Vec3::new(-lateral.y, lateral.x, 0.0).normalize()
-        } else {
-            // Deterministic fallback when no push direction is available.
-            glam::Vec3::X
-        }
-    }
-
-    fn topple_rotation_matrix(&self) -> Option<Matrix3D> {
-        if self.current_rotation <= 0.0 {
-            return None;
-        }
-        Some(Matrix3D::from_axis_angle(
-            self.topple_axis(),
-            self.current_rotation.to_radians(),
-        ))
+    pub fn is_tree_added(&self) -> bool {
+        self.tree_added
     }
 }
 
@@ -600,7 +430,7 @@ impl Module for W3DTreeDraw {
         self.reset_runtime_state();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self.data.module_tag_name_key
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DTreeDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.data.module_tag_name_key
@@ -612,35 +442,7 @@ impl Module for W3DTreeDraw {
 
 impl DrawModule for W3DTreeDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        if self.hidden || self.fully_obscured_by_shroud {
-            self.unregister_tree();
-            return;
-        }
-
-        // Update animations
-        self.update_push_aside();
-        self.update_topple();
-        self.update_sink();
-
-        // Build transform with offset, rotation, and sink
-        let mut final_transform = *transform_mtx;
-
-        // Apply offset (push aside)
-        final_transform = final_transform * Matrix3D::from_translation(self.current_offset);
-
-        // Apply rotation (topple)
-        // Matches C++ W3DTreeBuffer.cpp:1867-1868
-        if let Some(rotation) = self.topple_rotation_matrix() {
-            final_transform = final_transform * rotation;
-        }
-
-        // Apply sink
-        if self.sink_amount > 0.0 {
-            let sink_offset = Coord3D::new(0.0, 0.0, -self.sink_amount);
-            final_transform = final_transform * Matrix3D::from_translation(sink_offset);
-        }
-        let (scale, rotation, translation) = final_transform.to_scale_rotation_translation();
-        self.last_world_position = translation;
+        let (scale, rotation, translation) = transform_mtx.to_scale_rotation_translation();
 
         // C++ parity bridge: add the tree to terrain rendering once using current
         // drawable transform (W3DTreeDraw::reactToTransformChange + addTree call path).
@@ -660,25 +462,18 @@ impl DrawModule for W3DTreeDraw {
         }
 
         // In C++, W3DTreeDraw::doDrawModule just returns early (W3DTreeDraw.cpp:134-137).
-        let _ = final_transform;
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
-        self.shadows_enabled = enable;
+        let _ = enable;
     }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
     fn set_hidden(&mut self, hidden: bool) {
-        self.hidden = hidden;
-        if hidden {
-            self.unregister_tree();
-        }
+        let _ = hidden;
     }
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
-        self.fully_obscured_by_shroud = fully_obscured;
-        if fully_obscured {
-            self.unregister_tree();
-        }
+        let _ = fully_obscured;
     }
     fn react_to_transform_change(
         &mut self,
@@ -688,9 +483,7 @@ impl DrawModule for W3DTreeDraw {
     ) {
         // Tree registration is handled in do_draw_module where current transform is available.
     }
-    fn react_to_geometry_change(&mut self) {
-        self.unregister_tree();
-    }
+    fn react_to_geometry_change(&mut self) {}
 }
 
 impl Snapshotable for W3DTreeDraw {
@@ -735,27 +528,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn topple_axis_uses_push_direction_perpendicular() {
+    fn constructor_matches_cpp_module_defaults() {
+        let data = W3DTreeDrawModuleData::new();
+
+        assert_eq!(data.frames_to_move_inward, 1);
+        assert_eq!(data.frames_to_move_outward, 1);
+        assert_eq!(data.darkening, 0.0);
+        assert_eq!(data.max_outward_movement, 1.0);
+        assert_eq!(data.initial_velocity_percent, 0.2);
+        assert_eq!(data.initial_accel_percent, 0.01);
+        assert_eq!(data.bounce_velocity_percent, 0.3);
+        assert_eq!(data.minimum_topple_speed, 0.5);
+        assert_eq!(data.sink_frames, 10 * LOGICFRAMES_PER_SECOND);
+        assert_eq!(data.sink_distance, 20.0);
+        assert!(data.kill_when_toppled);
+        assert!(!data.do_topple);
+        assert!(!data.do_shadow);
+    }
+
+    #[test]
+    fn hidden_shadow_shroud_and_geometry_hooks_are_noops() {
         let mut draw = W3DTreeDraw::new(W3DTreeDrawModuleData::new());
-        draw.push_direction = Coord3D::new(0.0, 1.0, 0.0);
-        let axis = draw.topple_axis();
-        assert!((axis.x + 1.0).abs() < 1.0e-6);
-        assert!(axis.y.abs() < 1.0e-6);
-        assert!(axis.z.abs() < 1.0e-6);
+        draw.tree_added = true;
+
+        draw.set_hidden(true);
+        draw.set_fully_obscured_by_shroud(true);
+        draw.set_shadows_enabled(false);
+        draw.react_to_geometry_change();
+
+        assert!(draw.is_tree_added());
     }
 
     #[test]
-    fn topple_axis_falls_back_to_x_axis() {
-        let draw = W3DTreeDraw::new(W3DTreeDrawModuleData::new());
-        let axis = draw.topple_axis();
-        assert!((axis.x - 1.0).abs() < 1.0e-6);
-        assert!(axis.y.abs() < 1.0e-6);
-        assert!(axis.z.abs() < 1.0e-6);
-    }
+    fn delete_clears_registration_state() {
+        let mut draw = W3DTreeDraw::new(W3DTreeDrawModuleData::new());
+        draw.tree_added = true;
 
-    #[test]
-    fn topple_rotation_matrix_absent_when_not_toppling() {
-        let draw = W3DTreeDraw::new(W3DTreeDrawModuleData::new());
-        assert!(draw.topple_rotation_matrix().is_none());
+        draw.on_delete();
+
+        assert!(!draw.is_tree_added());
     }
 }
