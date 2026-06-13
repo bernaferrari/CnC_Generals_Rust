@@ -662,6 +662,10 @@ pub struct TerrainLogic {
     map_dx: i32,
     /// Height of map samples
     map_dy: i32,
+    /// Minimum loaded terrain height in world coordinates.
+    map_min_z: f32,
+    /// Maximum loaded terrain height in world coordinates.
+    map_max_z: f32,
     /// Map boundaries
     boundaries: Vec<ICoord2D>,
     /// Border size in cells (matches map loader)
@@ -834,6 +838,8 @@ impl TerrainLogic {
             map_data: Vec::new(),
             map_dx: 0,
             map_dy: 0,
+            map_min_z: 0.0,
+            map_max_z: 1.0,
             boundaries: Vec::new(),
             border_size: 0,
             active_boundary: 0,
@@ -868,6 +874,15 @@ impl TerrainLogic {
         self.map_data = map_data.heightmap.clone();
         self.map_dx = map_data.width as i32;
         self.map_dy = map_data.height as i32;
+        if let Some((&min_height, &max_height)) =
+            self.map_data.iter().min().zip(self.map_data.iter().max())
+        {
+            self.map_min_z = min_height as f32 * MAP_HEIGHT_SCALE;
+            self.map_max_z = max_height as f32 * MAP_HEIGHT_SCALE;
+        } else {
+            self.map_min_z = 0.0;
+            self.map_max_z = 1.0;
+        }
         self.boundaries = map_data.boundaries.clone();
         self.border_size = map_data.border_size;
 
@@ -917,26 +932,28 @@ impl TerrainLogic {
 
     /// Get map extent including border in world coordinates.
     pub fn get_extent_including_border(&self) -> Region3D {
-        let width = (self.map_dx.max(0) as f32) * MAP_XY_FACTOR;
-        let height = (self.map_dy.max(0) as f32) * MAP_XY_FACTOR;
+        let border = (self.border_size.max(0) as f32) * MAP_XY_FACTOR;
+        let width = (self.map_dx.max(0) as f32) * MAP_XY_FACTOR - border;
+        let height = (self.map_dy.max(0) as f32) * MAP_XY_FACTOR - border;
         Region3D::new(
-            Coord3D::new(0.0, 0.0, 0.0),
-            Coord3D::new(width, height, 0.0),
+            Coord3D::new(-border, -border, self.map_min_z),
+            Coord3D::new(width, height, self.map_max_z),
         )
     }
 
-    /// Get maximum pathfind extent (playable area excluding border).
+    /// Get largest pathfind boundary in world coordinates.
     pub fn get_maximum_pathfind_extent(&self) -> Region3D {
-        let width = (self.map_dx.max(0) as f32) * MAP_XY_FACTOR;
-        let height = (self.map_dy.max(0) as f32) * MAP_XY_FACTOR;
-        let border = (self.border_size.max(0) as f32) * MAP_XY_FACTOR;
+        let mut hi_x: f32 = 0.0;
+        let mut hi_y: f32 = 0.0;
+        for boundary in &self.boundaries {
+            hi_x = hi_x.max(boundary.x as f32 * MAP_XY_FACTOR);
+            hi_y = hi_y.max(boundary.y as f32 * MAP_XY_FACTOR);
+        }
 
-        let lo_x = border.min(width);
-        let lo_y = border.min(height);
-        let hi_x = (width - border).max(lo_x);
-        let hi_y = (height - border).max(lo_y);
-
-        Region3D::new(Coord3D::new(lo_x, lo_y, 0.0), Coord3D::new(hi_x, hi_y, 0.0))
+        Region3D::new(
+            Coord3D::new(0.0, 0.0, self.map_min_z),
+            Coord3D::new(hi_x, hi_y, self.map_max_z),
+        )
     }
 
     /// Get the map extent in world coordinates.
@@ -944,8 +961,20 @@ impl TerrainLogic {
     ///
     /// Returns the bounding box of the playable map area.
     pub fn get_extent(&self) -> Region3D {
-        // Use the maximum pathfind extent as the primary extent
-        self.get_maximum_pathfind_extent()
+        let active_boundary = self
+            .boundaries
+            .get(self.active_boundary.max(0) as usize)
+            .copied()
+            .unwrap_or_else(|| ICoord2D::new(0, 0));
+
+        Region3D::new(
+            Coord3D::new(0.0, 0.0, self.map_min_z),
+            Coord3D::new(
+                active_boundary.x as f32 * MAP_XY_FACTOR,
+                active_boundary.y as f32 * MAP_XY_FACTOR,
+                self.map_max_z,
+            ),
+        )
     }
 
     /// Initialize the terrain system
@@ -957,11 +986,19 @@ impl TerrainLogic {
     /// Reset the terrain system
     pub fn reset(&mut self) {
         self.map_data.clear();
+        self.map_dx = 0;
+        self.map_dy = 0;
+        self.map_min_z = 0.0;
+        self.map_max_z = 1.0;
+        self.boundaries.clear();
         self.border_size = 0;
+        self.active_boundary = 0;
         self.waypoint_list_head = None;
         self.bridge_list_head = None;
         self.water_to_update.clear();
         self.water_handles.clear();
+        self.water_handles_by_trigger_id.clear();
+        self.terrain_data = None;
         self.bridge_damage_states_changed = false;
         self.trigger_areas.clear();
         self.query_load_pending = false;
@@ -1181,17 +1218,42 @@ impl TerrainLogic {
         normal: Option<&mut Coord3D>,
         clip: bool,
     ) -> f32 {
-        let pos = Coord3D::new(x, y, 0.0);
+        let mut ground_normal = Coord3D::new(0.0, 0.0, 1.0);
+        let height = self.get_ground_height(x, y, Some(&mut ground_normal));
 
-        // Check if position is on a bridge for this layer
         if layer != PathfindLayerEnum::Ground {
+            let pos = Coord3D::new(x, y, height);
+
+            if layer == PathfindLayerEnum::Wall {
+                if !clip || self.is_point_on_wall(&pos) {
+                    if let Some(out) = normal {
+                        *out = ground_normal;
+                    }
+                    return self.get_wall_height();
+                }
+
+                if let Some(out) = normal {
+                    *out = ground_normal;
+                }
+                return height;
+            }
+
             if let Some(bridge) = self.find_bridge_layer_at(&pos, layer, clip) {
-                return bridge.get_bridge_height(&pos, normal);
+                let mut bridge_normal = Coord3D::new(0.0, 0.0, 1.0);
+                let bridge_height = bridge.get_bridge_height(&pos, Some(&mut bridge_normal));
+                if bridge_height > height {
+                    if let Some(out) = normal {
+                        *out = bridge_normal;
+                    }
+                    return bridge_height;
+                }
             }
         }
 
-        // Fall back to ground height
-        self.get_ground_height(x, y, normal)
+        if let Some(out) = normal {
+            *out = ground_normal;
+        }
+        height
     }
 
     /// Find closest edge point
@@ -3247,6 +3309,18 @@ mod tests {
         trigger
     }
 
+    fn map_data_with_heightmap(
+        width: u32,
+        height: u32,
+        heightmap: Vec<u8>,
+    ) -> crate::system::map_loader::MapData {
+        let mut map_data = crate::system::map_loader::MapData::new();
+        map_data.width = width;
+        map_data.height = height;
+        map_data.heightmap = heightmap;
+        map_data
+    }
+
     #[test]
     fn bridge_info_from_parts_matches_expected_rectangle() {
         let bridge_info = TerrainLogic::bridge_info_from_parts(
@@ -3348,6 +3422,97 @@ mod tests {
         assert!(terrain
             .get_waypoint_by_name(&AsciiString::from("WaveGuide1"))
             .is_some());
+    }
+
+    #[test]
+    fn w3d_extents_use_boundaries_border_and_height_range() {
+        let mut terrain = TerrainLogic::new();
+        let mut map_data = map_data_with_heightmap(8, 6, vec![4, 10, 1, 9, 8, 2, 7, 5]);
+        map_data.boundaries = vec![ICoord2D::new(3, 4), ICoord2D::new(7, 5)];
+        map_data.border_size = 2;
+        terrain.load_map_data(map_data);
+
+        let extent = terrain.get_extent();
+        assert_eq!(extent.lo, Coord3D::new(0.0, 0.0, 1.0 * MAP_HEIGHT_SCALE));
+        assert_eq!(
+            extent.hi,
+            Coord3D::new(
+                3.0 * MAP_XY_FACTOR,
+                4.0 * MAP_XY_FACTOR,
+                10.0 * MAP_HEIGHT_SCALE
+            )
+        );
+
+        let max_extent = terrain.get_maximum_pathfind_extent();
+        assert_eq!(max_extent.lo.x, 0.0);
+        assert_eq!(max_extent.lo.y, 0.0);
+        assert_eq!(max_extent.hi.x, 7.0 * MAP_XY_FACTOR);
+        assert_eq!(max_extent.hi.y, 5.0 * MAP_XY_FACTOR);
+        assert_eq!(max_extent.lo.z, 1.0 * MAP_HEIGHT_SCALE);
+        assert_eq!(max_extent.hi.z, 10.0 * MAP_HEIGHT_SCALE);
+
+        let with_border = terrain.get_extent_including_border();
+        assert_eq!(with_border.lo.x, -2.0 * MAP_XY_FACTOR);
+        assert_eq!(with_border.lo.y, -2.0 * MAP_XY_FACTOR);
+        assert_eq!(with_border.hi.x, 6.0 * MAP_XY_FACTOR);
+        assert_eq!(with_border.hi.y, 4.0 * MAP_XY_FACTOR);
+    }
+
+    #[test]
+    fn w3d_reset_restores_empty_extent_state() {
+        let mut terrain = TerrainLogic::new();
+        let mut map_data = map_data_with_heightmap(3, 3, vec![2, 4, 6, 8]);
+        map_data.boundaries = vec![ICoord2D::new(3, 3)];
+        map_data.border_size = 1;
+        terrain.load_map_data(map_data);
+
+        terrain.reset();
+
+        assert!(terrain.map_data.is_empty());
+        assert_eq!(terrain.map_dx, 0);
+        assert_eq!(terrain.map_dy, 0);
+        assert_eq!(terrain.map_min_z, 0.0);
+        assert_eq!(terrain.map_max_z, 1.0);
+        assert!(terrain.boundaries.is_empty());
+        assert!(terrain.terrain_data.is_none());
+        assert_eq!(terrain.get_extent().hi, Coord3D::new(0.0, 0.0, 1.0));
+    }
+
+    #[test]
+    fn layer_height_ignores_bridge_below_ground() {
+        let mut terrain = TerrainLogic::new();
+        terrain.load_map_data(map_data_with_heightmap(2, 2, vec![20, 20, 20, 20]));
+
+        let ground_height = 20.0 * MAP_HEIGHT_SCALE;
+        let bridge_info = TerrainLogic::bridge_info_from_parts(
+            Coord3D::new(5.0, 5.0, ground_height - 5.0),
+            0.0,
+            5.0,
+            5.0,
+            crate::object::INVALID_ID,
+        );
+        let mut bridge = Box::new(Bridge::new(bridge_info, AsciiString::from("BuriedBridge")));
+        bridge.set_layer(PathfindLayerEnum::Bridge1);
+        terrain.bridge_list_head = Some(bridge);
+
+        let height = terrain.get_layer_height(5.0, 5.0, PathfindLayerEnum::Bridge1, None, true);
+        assert_eq!(height, ground_height);
+    }
+
+    #[test]
+    fn layer_height_uses_wall_height_only_when_unclipped_or_on_wall() {
+        let mut terrain = TerrainLogic::new();
+        terrain.load_map_data(map_data_with_heightmap(2, 2, vec![10, 10, 10, 10]));
+
+        let ground_height = 10.0 * MAP_HEIGHT_SCALE;
+        assert_eq!(
+            terrain.get_layer_height(5.0, 5.0, PathfindLayerEnum::Wall, None, true),
+            ground_height
+        );
+        assert_eq!(
+            terrain.get_layer_height(5.0, 5.0, PathfindLayerEnum::Wall, None, false),
+            terrain.get_wall_height()
+        );
     }
 
     #[test]
