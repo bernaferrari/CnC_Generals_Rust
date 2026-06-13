@@ -481,9 +481,7 @@ impl SpecialPowerStore {
         // Reference: C++ field parse array
         // { "ReloadTime",              INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_reloadTime) },
         if let Some(value) = properties.get("ReloadTime") {
-            if let Some(frames) = Self::parse_duration_frames(value) {
-                template.reload_time = frames;
-            }
+            template.reload_time = Self::parse_duration_frames(value)?;
         }
 
         // { "RequiredScience",         INI::parseScience,              NULL, offsetof(SpecialPowerTemplate, m_requiredScience) },
@@ -513,9 +511,7 @@ impl SpecialPowerStore {
 
         // { "DetectionTime",           INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_detectionTime) },
         if let Some(value) = properties.get("DetectionTime") {
-            if let Some(frames) = Self::parse_duration_frames(value) {
-                template.detection_time = frames;
-            }
+            template.detection_time = Self::parse_duration_frames(value)?;
         }
 
         // { "SharedSyncedTimer",       INI::parseBool,                 NULL, offsetof(SpecialPowerTemplate, m_sharedNSync) },
@@ -525,9 +521,7 @@ impl SpecialPowerStore {
 
         // { "ViewObjectDuration",      INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_viewObjectDuration) },
         if let Some(value) = properties.get("ViewObjectDuration") {
-            if let Some(frames) = Self::parse_duration_frames(value) {
-                template.view_object_duration = frames;
-            }
+            template.view_object_duration = Self::parse_duration_frames(value)?;
         }
 
         // { "ViewObjectRange",         INI::parseReal,                 NULL, offsetof(SpecialPowerTemplate, m_viewObjectRange) },
@@ -558,33 +552,17 @@ impl SpecialPowerStore {
         Ok(())
     }
 
-    /// Parse duration to frames (matches C++ INI::parseDurationUnsignedInt)
-    fn parse_duration_frames(value: &str) -> Option<u32> {
-        let value = value.trim();
+    /// Parse duration in milliseconds and convert to frames.
+    ///
+    /// Matches C++ `INI::parseDurationUnsignedInt`, which scans an unsigned integer
+    /// millisecond value and rounds the frame conversion up.
+    fn parse_duration_frames(value: &str) -> Result<u32, String> {
+        let millis = value
+            .trim()
+            .parse::<u32>()
+            .map_err(|err| format!("Invalid duration '{}': {}", value, err))?;
 
-        // Handle milliseconds (e.g., "1500ms")
-        if value.ends_with("ms") {
-            let ms_str = &value[..value.len() - 2];
-            if let Ok(ms) = ms_str.parse::<u32>() {
-                // Convert ms to frames (30 FPS)
-                return Some((ms as f32 * 30.0 / 1000.0) as u32);
-            }
-        }
-
-        // Handle seconds (e.g., "1.5s" or "1.5")
-        let secs_str = if value.ends_with('s') {
-            &value[..value.len() - 1]
-        } else {
-            value
-        };
-
-        if let Ok(secs) = secs_str.parse::<f32>() {
-            // Convert seconds to frames (30 FPS)
-            return Some((secs * 30.0) as u32);
-        }
-
-        // Try parsing as raw frames
-        value.parse::<u32>().ok()
+        Ok(((millis as f32) * 30.0 / 1000.0).ceil() as u32)
     }
 
     /// Parse boolean (matches C++ INI::parseBool)
@@ -995,7 +973,7 @@ mod tests {
     fn test_parse_special_power_definition() {
         let mut store = SpecialPowerStore::new();
         let mut props = HashMap::new();
-        props.insert("ReloadTime".to_string(), "5.0s".to_string());
+        props.insert("ReloadTime".to_string(), "5000".to_string());
         props.insert("PublicTimer".to_string(), "Yes".to_string());
         props.insert("Enum".to_string(), "SPECIAL_DAISY_CUTTER".to_string());
         props.insert("AcademyClassify".to_string(), "SUPERWEAPON".to_string());
@@ -1215,10 +1193,30 @@ mod tests {
 
     #[test]
     fn test_parse_duration_frames() {
-        assert_eq!(SpecialPowerStore::parse_duration_frames("1500ms"), Some(45));
-        assert_eq!(SpecialPowerStore::parse_duration_frames("1.5s"), Some(45));
-        assert_eq!(SpecialPowerStore::parse_duration_frames("2s"), Some(60));
-        assert_eq!(SpecialPowerStore::parse_duration_frames("90"), Some(90)); // raw frames
+        assert_eq!(
+            SpecialPowerStore::parse_duration_frames("1500").unwrap(),
+            45
+        );
+        assert_eq!(
+            SpecialPowerStore::parse_duration_frames("5000").unwrap(),
+            150
+        );
+        assert_eq!(SpecialPowerStore::parse_duration_frames("1").unwrap(), 1);
+        assert_eq!(SpecialPowerStore::parse_duration_frames("34").unwrap(), 2);
+        assert!(SpecialPowerStore::parse_duration_frames("1.5s").is_err());
+        assert!(SpecialPowerStore::parse_duration_frames("-100").is_err());
+    }
+
+    #[test]
+    fn special_power_invalid_duration_rejects_template() {
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert("ReloadTime".to_string(), "5.0s".to_string());
+
+        let result = store.parse_special_power_definition("BadDurationPower", &props);
+
+        assert!(result.is_err());
+        assert!(store.find_template("BadDurationPower").is_none());
     }
 
     #[test]
