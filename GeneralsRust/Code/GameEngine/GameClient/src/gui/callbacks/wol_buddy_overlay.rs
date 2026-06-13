@@ -13,8 +13,8 @@ use crate::gui::callbacks::wol_lobby_menu::{
 };
 use crate::gui::gadgets::{ListBoxItemData, ListBoxRightClick};
 use crate::gui::{
-    with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
-    WindowWidget,
+    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, WindowWidget,
 };
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -852,7 +852,7 @@ pub fn wol_buddy_overlay_system(
     window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     if buddy_control_system(window, msg, data1).is_handled() {
         return WindowMsgHandled::Handled;
@@ -860,10 +860,7 @@ pub fn wol_buddy_overlay_system(
 
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes back focus state via mData2 pointer; Rust uses values, needs write-back parity
-            return WindowMsgHandled::Handled;
-        }
+        WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetRightClick => {
             let (listbox_ignore_id, listbox_ignore) = {
                 let state = wol_buddy_state().lock().unwrap_or_else(|e| e.into_inner());

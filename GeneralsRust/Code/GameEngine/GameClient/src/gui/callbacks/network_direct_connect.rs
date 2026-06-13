@@ -8,8 +8,8 @@ use std::sync::{Mutex, OnceLock};
 use crate::gui::callbacks::{set_lan_button_pushed, set_lan_is_shutting_down};
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, LanPreferences, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, LanPreferences,
+    WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::lan_api::{LanApi, LanConfig};
@@ -435,7 +435,7 @@ pub fn network_direct_connect_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     let mut state = network_direct_connect_state()
         .lock()
@@ -444,12 +444,7 @@ pub fn network_direct_connect_system(
     match msg {
         WindowMessage::Create => return WindowMsgHandled::Handled,
         WindowMessage::Destroy => return WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes back to mData2 (data2) to indicate focus state;
-            // Rust uses values not pointers for WindowMsgData so write-back is not
-            // possible without API changes. Preserve this as a parity note.
-            return WindowMsgHandled::Handled;
-        }
+        WindowMessage::InputFocus => return write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             if state.button_pushed {
                 return WindowMsgHandled::Handled;

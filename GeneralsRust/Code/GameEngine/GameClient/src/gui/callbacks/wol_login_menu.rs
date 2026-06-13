@@ -11,8 +11,8 @@ use crate::game_text::GameText;
 use crate::gamespy_overlay::{gs_message_box_ok, raise_gs_message_box};
 use crate::gui::gadgets::ComboBoxItem;
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use crate::shell_hooks::{signal_ui_interaction, SHELL_SCRIPT_HOOK_GENERALS_ONLINE_LOGIN};
 use chrono::Datelike;
@@ -963,14 +963,11 @@ pub fn wol_login_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes back focus state via mData2 pointer; Rust uses values, needs write-back parity
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetValueChanged => {
             let control_id = data1 as u32;
             let mut state = wol_login_state().lock().unwrap_or_else(|e| e.into_inner());

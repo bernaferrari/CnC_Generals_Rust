@@ -18,8 +18,8 @@ use crate::gui::callbacks::wol_welcome_menu::populate_player_info_windows;
 use crate::gui::challenge_generals::get_challenge_generals;
 use crate::gui::gadgets::{ComboBox, ComboBoxItem, ListBox, ListBoxItemData};
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use crate::helpers::TheInGameUI;
 use crate::map_util::get_map_cache_manager;
@@ -1400,14 +1400,11 @@ pub fn wol_quick_match_menu_system(
     _window: &GameWindow,
     msg: WindowMessage,
     data1: WindowMsgData,
-    _data2: WindowMsgData,
+    data2: WindowMsgData,
 ) -> WindowMsgHandled {
     match msg {
         WindowMessage::Create | WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes back focus state via mData2 pointer; Rust uses values, needs write-back parity
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let mut state = quickmatch_state().lock().unwrap_or_else(|e| e.into_inner());
             let control_id = data1 as i32;

@@ -5,8 +5,8 @@ use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 
 use crate::gui::{
-    get_shell, with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled,
+    get_shell, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 
@@ -115,10 +115,7 @@ pub fn wol_custom_score_screen_system(
     match msg {
         WindowMessage::Create => WindowMsgHandled::Handled,
         WindowMessage::Destroy => WindowMsgHandled::Handled,
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes *(Bool*)mData2 = TRUE when mData1 != 0 to accept focus
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => WindowMsgHandled::Handled,
         WindowMessage::EditDone => WindowMsgHandled::Handled,
         _ => WindowMsgHandled::Ignored,

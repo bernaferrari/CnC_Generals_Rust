@@ -10,7 +10,8 @@ use crate::gamespy_overlay::{close_overlay, GameSpyOverlayType};
 use crate::gui::callbacks::popup_host_game::custom_match_hide_host_popup;
 use crate::gui::gadgets::{ComboBoxItem, ListBox, ListBoxItemData};
 use crate::gui::{
-    with_window_manager, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    with_window_manager, write_input_focus_response, GameWindow, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled,
 };
 use crate::map_util::get_map_cache_manager;
 use game_engine::common::ascii_string::AsciiString;
@@ -919,12 +920,7 @@ pub fn popup_ladder_select_system(
             state.listbox_ladder_details = None;
             WindowMsgHandled::Handled
         }
-        WindowMessage::InputFocus => {
-            // TODO: C++ writes back to mData2 (data2) to indicate focus state;
-            // Rust uses values not pointers for WindowMsgData so write-back is not
-            // possible without API changes. Preserve this as a parity note.
-            WindowMsgHandled::Handled
-        }
+        WindowMessage::InputFocus => write_input_focus_response(data1, data2, true),
         WindowMessage::GadgetSelected => {
             let control_id = data1 as u32;
             if control_id == state.button_ok_id {
