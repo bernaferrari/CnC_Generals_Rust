@@ -15,6 +15,7 @@ pub const PARTITION_WIDTH_HEIGHT: usize = 100;
 pub const END_OF_PARTITION: i16 = -1;
 pub const DELETED_TREE_TYPE: i32 = -2;
 pub const TREE_RADIUS_APPROX: f32 = 7.0;
+pub const CONSTRUCTION_TREE_COLLISION_RADIUS: f32 = 2.0 * TREE_RADIUS_APPROX;
 pub const W3D_TOPPLE_OPTIONS_NONE: u32 = 0x0000_0000;
 pub const W3D_TOPPLE_OPTIONS_NO_BOUNCE: u32 = 0x0000_0001;
 pub const W3D_TOPPLE_OPTIONS_NO_FX: u32 = 0x0000_0002;
@@ -253,6 +254,24 @@ pub struct TreeCollisionUnit {
     pub geometry_type: TreeGeometryType,
     pub crusher_level: i32,
     pub immobile: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TreeConstructionGeometry {
+    pub position: Vec3,
+    pub major_radius: f32,
+    pub minor_radius: f32,
+    pub geometry_type: TreeGeometryType,
+}
+
+impl TreeConstructionGeometry {
+    fn collision_radius(self) -> f32 {
+        if self.geometry_type == TreeGeometryType::Box && self.major_radius > self.minor_radius {
+            self.minor_radius
+        } else {
+            self.major_radius
+        }
+    }
 }
 
 /// Snapshot record order used by C++ `W3DTreeBuffer::xfer`.
@@ -545,6 +564,21 @@ impl W3DTreeBuffer {
                 tree.location = Vec3::ZERO;
                 tree.tree_type = DELETED_TREE_TYPE;
                 tree.bounds = TreeSphere::default();
+                self.anything_changed = true;
+            }
+        }
+    }
+
+    pub fn remove_trees_for_construction(&mut self, geom: TreeConstructionGeometry) {
+        let radius = geom.collision_radius() + CONSTRUCTION_TREE_COLLISION_RADIUS;
+        let radius_sqr = radius * radius;
+        for tree in &mut self.trees {
+            if tree.tree_type < 0 {
+                continue;
+            }
+            let delta = tree.location - geom.position;
+            if delta.x * delta.x + delta.y * delta.y <= radius_sqr {
+                tree.tree_type = DELETED_TREE_TYPE;
                 self.anything_changed = true;
             }
         }

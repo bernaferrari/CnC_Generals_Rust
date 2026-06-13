@@ -1,8 +1,8 @@
 use game_client_rust::terrain::{
-    BreezeInfo, TreeCollisionUnit, TreeGeometryType, TreeModuleData, TreeRandom, TreeRegion2D,
-    TreeShroudStatus, TreeSphere, W3DToppleState, W3DTreeBuffer, ANGULAR_LIMIT, DELETED_TREE_TYPE,
-    END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT, TREE_RADIUS_APPROX,
-    W3D_TOPPLE_OPTIONS_NO_BOUNCE,
+    BreezeInfo, TreeCollisionUnit, TreeConstructionGeometry, TreeGeometryType, TreeModuleData,
+    TreeRandom, TreeRegion2D, TreeShroudStatus, TreeSphere, W3DToppleState, W3DTreeBuffer,
+    ANGULAR_LIMIT, CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE, END_OF_PARTITION,
+    MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT, TREE_RADIUS_APPROX, W3D_TOPPLE_OPTIONS_NO_BOUNCE,
 };
 use glam::{Mat4, Vec2, Vec3};
 
@@ -511,6 +511,76 @@ fn cull_trees_recomputes_visible_sort_keys_after_full_update() {
 
     approx_eq(buffer.trees()[id].sort_key, 10.0);
     assert!(!buffer.update_all_keys());
+}
+
+#[test]
+fn remove_trees_for_construction_uses_cpp_tree_cylinder_radius() {
+    let mut buffer = W3DTreeBuffer::new();
+    let removed = buffer
+        .add_tree(
+            31,
+            Vec3::new(10.0, 0.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Oak", "T"),
+            bounds(),
+        )
+        .unwrap();
+    let kept = buffer
+        .add_tree(
+            32,
+            Vec3::new(40.0, 0.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Pine", "T"),
+            bounds(),
+        )
+        .unwrap();
+
+    buffer.remove_trees_for_construction(TreeConstructionGeometry {
+        position: Vec3::ZERO,
+        major_radius: 1.0,
+        minor_radius: 1.0,
+        geometry_type: TreeGeometryType::Cylinder,
+    });
+
+    assert_eq!(CONSTRUCTION_TREE_COLLISION_RADIUS, 14.0);
+    assert_eq!(buffer.trees()[removed].tree_type, DELETED_TREE_TYPE);
+    assert!(buffer.trees()[kept].tree_type >= 0);
+    assert!(buffer.anything_changed());
+}
+
+#[test]
+fn remove_trees_for_construction_skips_already_deleted_trees() {
+    let mut buffer = W3DTreeBuffer::new();
+    let deleted = buffer
+        .add_tree(41, Vec3::ZERO, 1.0, 0.0, 1.0, module("Oak", "T"), bounds())
+        .unwrap();
+    let removed = buffer
+        .add_tree(
+            42,
+            Vec3::new(12.0, 0.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Pine", "T"),
+            bounds(),
+        )
+        .unwrap();
+    buffer.remove_tree(41);
+    buffer.tree_mut(deleted).unwrap().location = Vec3::new(12.0, 0.0, 0.0);
+
+    buffer.remove_trees_for_construction(TreeConstructionGeometry {
+        position: Vec3::ZERO,
+        major_radius: 1.0,
+        minor_radius: 1.0,
+        geometry_type: TreeGeometryType::Cylinder,
+    });
+
+    assert_eq!(buffer.trees()[deleted].tree_type, DELETED_TREE_TYPE);
+    assert_eq!(buffer.trees()[removed].tree_type, DELETED_TREE_TYPE);
 }
 
 #[test]
