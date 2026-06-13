@@ -2422,41 +2422,72 @@ impl ThingTemplate {
     /// C++ Reference: ThingTemplate::calcCostToBuild (ThingTemplate.cpp lines 1508-1517)
     pub fn calc_cost_to_build(
         &self,
-        _player: Option<&dyn crate::common::thing::module::Thing>,
+        player: Option<&dyn crate::common::thing::module::Thing>,
     ) -> i32 {
-        if _player.is_none() {
+        let Some(player) = player else {
             return 0;
-        }
+        };
 
         let base_cost = self.get_build_cost() as f32;
-
-        // C++ applies faction modifier and handicap multiplier:
-        //   factionModifier = 1 + player->getProductionCostChangePercent(getName());
-        //   factionModifier *= player->getProductionCostChangeBasedOnKindOf(m_kindof);
-        //   result = getBuildCost() * factionModifier * player->getHandicap()->getHandicap(BUILDCOST, this);
-        // PARITY_NOTE: Player modifiers deferred until Player is accessible through parameter type.
-        let result = base_cost;
-        1.max(result as i32)
+        let mut faction_modifier =
+            1.0 + player.get_production_cost_change_percent(self.get_name().as_str());
+        faction_modifier *= player.get_production_cost_change_based_on_kind_of(self.kindof);
+        let result = base_cost * faction_modifier * player.get_build_cost_handicap(self);
+        result as i32
     }
 
     /// Calculate the time (in logic frames) to build this template for a given player.
     ///
     /// C++ Reference: ThingTemplate::calcTimeToBuild (ThingTemplate.cpp lines 1524-1576)
     ///
-    /// Applies: handicap multiplier, faction modifier, energy penalty, factory bonus.
-    /// PARITY_NOTE: Player-dependent modifiers deferred until Player is accessible through parameter type.
     pub fn calc_time_to_build(
         &self,
-        _player: Option<&dyn crate::common::thing::module::Thing>,
+        player: Option<&dyn crate::common::thing::module::Thing>,
     ) -> i32 {
-        const LOGICFRAMES_PER_SECOND: f32 = 30.0;
-        let mut build_time = self.get_build_time() * LOGICFRAMES_PER_SECOND;
+        let mut build_time = (self.get_build_time()
+            * crate::common::game_common::LOGICFRAMES_PER_SECOND as f32)
+            as i32;
 
-        // C++ applies: handicap, faction modifier, energy penalty, factory bonus.
-        // PARITY_NOTE: All player-dependent modifiers deferred. See C++ lines 1527-1573.
-        let _ = &mut build_time;
+        let Some(player) = player else {
+            return build_time;
+        };
 
-        build_time as i32
+        build_time = ((build_time as f32) * player.get_build_time_handicap(self)) as i32;
+
+        let faction_modifier =
+            1.0 + player.get_production_time_change_percent(self.get_name().as_str());
+        build_time = ((build_time as f32) * faction_modifier) as i32;
+
+        if player.builds_instantly_for_debug() {
+            build_time = 1;
+        }
+
+        let globals = global_data::read();
+        let energy_percent = player.get_energy_supply_ratio().min(1.0);
+        let energy_short = (1.0 - energy_percent) * globals.low_energy_penalty_modifier;
+        let mut penalty_rate = 1.0 - energy_short;
+        penalty_rate = penalty_rate.max(globals.min_low_energy_production_speed);
+        if energy_percent < 1.0 {
+            penalty_rate = penalty_rate.min(globals.max_low_energy_production_speed);
+        }
+        let penalty_rate = if penalty_rate <= 0.0 {
+            0.01
+        } else {
+            penalty_rate
+        };
+        build_time = ((build_time as f32) / penalty_rate) as i32;
+
+        if self.get_build_completion() == BuildCompletionType::AppearsAtRallyPoint {
+            let count = player.count_equivalent_build_facilities(self);
+            let factory_multiplier = globals.multiple_factory;
+            if factory_multiplier > 0.0 {
+                for _ in 0..count.saturating_sub(1) {
+                    build_time = ((build_time as f32) * factory_multiplier) as i32;
+                }
+            }
+        }
+
+        build_time
     }
 
     pub fn is_buildable_item(&self) -> bool {

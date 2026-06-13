@@ -151,8 +151,8 @@ impl BuildCostCalculator {
         // Apply handicap
         let final_modifier = total_modifier * player_modifiers.handicap_cost_multiplier;
 
-        // Calculate final cost
-        ((base_cost as f32) * final_modifier).round() as i32
+        // C++ returns a Real expression as Int, truncating at conversion.
+        ((base_cost as f32) * final_modifier) as i32
     }
 
     /// Calculate time to build a unit/structure in logic frames
@@ -174,19 +174,17 @@ impl BuildCostCalculator {
         // Convert seconds to logic frames
         let mut build_time = (base_build_time_seconds
             * (self.global_modifiers.logic_frames_per_second as f32))
-            .round() as i32;
+            as i32;
 
         // Apply handicap multiplier
-        build_time =
-            ((build_time as f32) * player_modifiers.handicap_time_multiplier).round() as i32;
+        build_time = ((build_time as f32) * player_modifiers.handicap_time_multiplier) as i32;
 
         // Apply faction time modifier (1 + percent change)
         let faction_modifier = 1.0 + player_modifiers.production_time_change_percent;
-        build_time = ((build_time as f32) * faction_modifier).round() as i32;
+        build_time = ((build_time as f32) * faction_modifier) as i32;
 
-        // Debug instant build
         if player_modifiers.builds_instantly {
-            return 1;
+            build_time = 1;
         }
 
         // Apply energy supply penalty
@@ -200,7 +198,7 @@ impl BuildCostCalculator {
             }
         }
 
-        build_time.max(1) as u32 // Minimum 1 frame
+        build_time.max(0) as u32
     }
 
     /// Apply energy supply penalty to build time
@@ -244,7 +242,7 @@ impl BuildCostCalculator {
         };
 
         // Apply penalty (divide time by rate means slower)
-        ((build_time as f32) / penalty_rate).round() as i32
+        ((build_time as f32) / penalty_rate) as i32
     }
 
     /// Apply multiple factory bonus
@@ -264,14 +262,14 @@ impl BuildCostCalculator {
             return build_time;
         }
 
-        let mut result = build_time as f32;
+        let mut result = build_time;
 
         // Apply bonus for each additional factory (count - 1)
         for _ in 0..(facility_count - 1).max(0) {
-            result *= self.global_modifiers.multiple_factory_bonus;
+            result = ((result as f32) * self.global_modifiers.multiple_factory_bonus) as i32;
         }
 
-        result.round() as i32
+        result
     }
 
     /// Get global modifiers (read-only)
@@ -329,6 +327,10 @@ mod tests {
         // 25% increase
         mods.production_cost_change_percent = 0.25;
         assert_eq!(calc.calc_cost_to_build(1000, &mods), 1250);
+
+        // C++ truncates when converting the Real expression back to Int.
+        mods.production_cost_change_percent = 0.333;
+        assert_eq!(calc.calc_cost_to_build(1000, &mods), 1333);
     }
 
     #[test]
@@ -364,9 +366,12 @@ mod tests {
 
         mods.builds_instantly = true;
 
-        // Always returns 1 frame
+        // C++ sets buildTime to 1, then still applies later modifiers.
         assert_eq!(calc.calc_time_to_build(10.0, &mods, None), 1);
         assert_eq!(calc.calc_time_to_build(100.0, &mods, None), 1);
+
+        mods.energy_supply_ratio = 0.5;
+        assert_eq!(calc.calc_time_to_build(10.0, &mods, None), 1);
     }
 
     #[test]
@@ -449,10 +454,10 @@ mod tests {
 
         // Base: 10 seconds = 300 frames
         // After faction: 300 * 0.8 = 240 frames
-        // After energy: 240 / ~0.9 = ~267 frames
-        // After factory: 267 * 0.8 = ~213 frames
+        // After energy: 240 / 0.9 = 266 frames after C++ truncation
+        // After factory: 266 * 0.8 = 212 frames after C++ truncation
         let time = calc.calc_time_to_build(10.0, &mods, Some(&context));
-        assert!(time > 200 && time < 230); // Should be around 213
+        assert_eq!(time, 212);
     }
 
     #[test]
@@ -472,12 +477,12 @@ mod tests {
     }
 
     #[test]
-    fn test_minimum_time() {
+    fn test_sub_frame_time_truncates_like_cpp() {
         let calc = BuildCostCalculator::new();
         let mods = PlayerBuildModifiers::default();
 
-        // Very short build time still returns at least 1 frame
+        // C++ stores the frame count in Int immediately; sub-frame values become 0.
         let time = calc.calc_time_to_build(0.001, &mods, None);
-        assert!(time >= 1);
+        assert_eq!(time, 0);
     }
 }
