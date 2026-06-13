@@ -177,151 +177,34 @@ impl Video {
             ("Comment", |value| {
                 Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
             }),
-            ("DisplayName", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("FilePath", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Description", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("PlaybackMode", |value| {
-                Ok(Box::new(VideoPlaybackMode::from_string(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Width", |value| {
-                value
-                    .parse::<u32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse width: {}", e))
-            }),
-            ("Height", |value| {
-                value
-                    .parse::<u32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse height: {}", e))
-            }),
-            ("FrameRate", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse frame rate: {}", e))
-            }),
-            ("Duration", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse duration: {}", e))
-            }),
-            ("IsLooping", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse looping: {}", e))
-            }),
-            ("CanSkip", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse can skip: {}", e))
-            }),
-            ("AutoStart", |value| {
-                parse_bool(value)
-                    .map(|b| Box::new(b) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse auto start: {}", e))
-            }),
-            ("Volume", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v.clamp(0.0, 1.0)) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse volume: {}", e))
-            }),
-            ("SubtitleFile", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("TriggerEvents", |value| {
-                let events: Vec<AsciiString> = value
-                    .split_whitespace()
-                    .map(|s| AsciiString::from(s))
-                    .collect();
-                Ok(Box::new(events) as Box<dyn std::any::Any>)
-            }),
         ]
     }
 
     /// Update video from properties
-    pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+    pub fn update_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> VideoResult<()> {
         for (key, value) in properties {
             match key.as_str() {
-                "DisplayName" => {
-                    self.display_name = AsciiString::from(value);
-                }
-                "Filename" | "FilePath" => {
+                "Filename" => {
                     self.file_path = AsciiString::from(value);
-                    // Auto-detect codec from file extension
                     if let Some(ext) = self.file_path.as_str().split('.').last() {
                         self.codec = VideoCodec::from_extension(ext);
                     }
                 }
-                "Comment" | "Description" => {
+                "Comment" => {
                     self.description = AsciiString::from(value);
                 }
-                "PlaybackMode" => {
-                    self.playback_mode = VideoPlaybackMode::from_string(value);
-                }
-                "Width" => {
-                    if let Ok(width) = value.parse::<u32>() {
-                        self.width = width;
-                    }
-                }
-                "Height" => {
-                    if let Ok(height) = value.parse::<u32>() {
-                        self.height = height;
-                    }
-                }
-                "FrameRate" => {
-                    if let Ok(rate) = value.parse::<f32>() {
-                        self.frame_rate = rate;
-                    }
-                }
-                "Duration" => {
-                    if let Ok(duration) = value.parse::<f32>() {
-                        self.duration = duration;
-                    }
-                }
-                "IsLooping" => {
-                    if let Ok(looping) = parse_bool(value) {
-                        self.is_looping = looping;
-                    }
-                }
-                "CanSkip" => {
-                    if let Ok(can_skip) = parse_bool(value) {
-                        self.can_skip = can_skip;
-                    }
-                }
-                "AutoStart" => {
-                    if let Ok(auto_start) = parse_bool(value) {
-                        self.auto_start = auto_start;
-                    }
-                }
-                "Volume" => {
-                    if let Ok(volume) = value.parse::<f32>() {
-                        self.volume = volume.clamp(0.0, 1.0);
-                    }
-                }
-                "SubtitleFile" => {
-                    self.subtitle_file = AsciiString::from(value);
-                }
-                "TriggerEvents" => {
-                    self.trigger_events = value
-                        .split_whitespace()
-                        .map(|s| AsciiString::from(s))
-                        .collect();
-                }
                 _ => {
-                    // Store unknown properties
-                    self.properties.insert(key.clone(), value.clone());
+                    return Err(VideoError::ParseError(format!(
+                        "Unknown video field: {}",
+                        key
+                    )));
                 }
             }
         }
+        Ok(())
     }
 
     pub fn get_internal_name(&self) -> &AsciiString {
@@ -628,7 +511,7 @@ impl IniVideo {
         let mut video = Video::new(internal_name);
 
         // Update video from properties
-        video.update_from_properties(&properties);
+        video.update_from_properties(&properties)?;
 
         // Validate video
         if !video.is_valid() {
@@ -826,20 +709,23 @@ mod tests {
     fn test_video_properties_update() {
         let mut video = Video::new(AsciiString::from("Test"));
         let mut properties = HashMap::new();
-        properties.insert("FilePath".to_string(), "test.mp4".to_string());
-        properties.insert("Width".to_string(), "1920".to_string());
-        properties.insert("Height".to_string(), "1080".to_string());
-        properties.insert("IsLooping".to_string(), "true".to_string());
-        properties.insert("Volume".to_string(), "0.8".to_string());
+        properties.insert("Filename".to_string(), "test.mp4".to_string());
+        properties.insert("Comment".to_string(), "Test video".to_string());
 
-        video.update_from_properties(&properties);
+        video.update_from_properties(&properties).unwrap();
 
         assert_eq!(video.file_path.as_str(), "test.mp4");
-        assert_eq!(video.width, 1920);
-        assert_eq!(video.height, 1080);
-        assert!(video.is_looping);
-        assert_eq!(video.volume, 0.8);
+        assert_eq!(video.description.as_str(), "Test video");
         assert!(matches!(video.codec, VideoCodec::MP4));
+    }
+
+    #[test]
+    fn video_properties_reject_fields_outside_cpp_parse_table() {
+        let mut video = Video::new(AsciiString::from("Test"));
+        let mut properties = HashMap::new();
+        properties.insert("FilePath".to_string(), "test.mp4".to_string());
+
+        assert!(video.update_from_properties(&properties).is_err());
     }
 
     #[test]
@@ -852,7 +738,7 @@ mod tests {
         );
         properties.insert("Comment".to_string(), "WorldBuilder note".to_string());
 
-        video.update_from_properties(&properties);
+        video.update_from_properties(&properties).unwrap();
 
         assert_eq!(video.file_path.as_str(), "Data\\Movies\\Intro.bik");
         assert_eq!(video.description.as_str(), "WorldBuilder note");
@@ -873,6 +759,14 @@ mod tests {
         assert_eq!(video.file_path.as_str(), "Intro.avi");
         assert_eq!(video.description.as_str(), "Intro movie");
         assert!(matches!(video.codec, VideoCodec::AVI));
+    }
+
+    #[test]
+    fn test_parse_video_block_rejects_non_cpp_fields() {
+        let mut properties = HashMap::new();
+        properties.insert("FilePath".to_string(), "Intro.avi".to_string());
+
+        assert!(IniVideo::parse_video_block(AsciiString::from("Intro"), properties).is_err());
     }
 
     #[test]
