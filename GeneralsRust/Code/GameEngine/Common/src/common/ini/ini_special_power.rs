@@ -28,6 +28,32 @@ pub enum SpecialPowerError {
     NotFound,
 }
 
+const CPP_SPECIAL_POWER_FIELDS: &[&str] = &[
+    "ReloadTime",
+    "RequiredScience",
+    "InitiateSound",
+    "InitiateAtLocationSound",
+    "PublicTimer",
+    "Enum",
+    "DetectionTime",
+    "SharedSyncedTimer",
+    "ViewObjectDuration",
+    "ViewObjectRange",
+    "RadiusCursorRadius",
+    "ShortcutPower",
+    "AcademyClassify",
+];
+
+fn is_cpp_special_power_field(key: &str) -> bool {
+    CPP_SPECIAL_POWER_FIELDS
+        .iter()
+        .any(|field| field.eq_ignore_ascii_case(key))
+}
+
+fn parse_cpp_special_power_field_for_table(value: &str) -> Result<Box<dyn std::any::Any>, String> {
+    Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
+}
+
 impl std::fmt::Display for SpecialPowerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -150,105 +176,27 @@ impl SpecialPowerTemplate {
         &'static str,
         fn(&str) -> Result<Box<dyn std::any::Any>, String>,
     )> {
-        vec![
-            ("Type", |value| {
-                Ok(Box::new(SpecialPowerType::from_string(value)) as Box<dyn std::any::Any>)
-            }),
-            ("PrerequisiteScience", |value| {
-                let sciences: Vec<AsciiString> = value
-                    .split_whitespace()
-                    .map(|s| AsciiString::from(s))
-                    .collect();
-                Ok(Box::new(sciences) as Box<dyn std::any::Any>)
-            }),
-            ("RequiredScience", |value| {
-                let sciences: Vec<AsciiString> = value
-                    .split_whitespace()
-                    .map(|s| AsciiString::from(s))
-                    .collect();
-                Ok(Box::new(sciences) as Box<dyn std::any::Any>)
-            }),
-            ("RechargeTime", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse recharge time: {}", e))
-            }),
-            ("InitChargeTime", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse init charge time: {}", e))
-            }),
-            ("Cost", |value| {
-                value
-                    .parse::<u32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse cost: {}", e))
-            }),
-            ("Range", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse range: {}", e))
-            }),
-            ("Radius", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse radius: {}", e))
-            }),
-            ("Damage", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse damage: {}", e))
-            }),
-            ("SharedSyncGroup", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("ViewObjectName", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("ViewObjectDuration", |value| {
-                value
-                    .parse::<f32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse view object duration: {}", e))
-            }),
-            ("IconName", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("ButtonBorderType", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Description", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("SoundEffect", |value| {
-                Ok(Box::new(AsciiString::from(value)) as Box<dyn std::any::Any>)
-            }),
-            ("Flags", |value| {
-                value
-                    .parse::<u32>()
-                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
-                    .map_err(|e| format!("Failed to parse flags: {}", e))
-            }),
-        ]
+        CPP_SPECIAL_POWER_FIELDS
+            .iter()
+            .map(|field| {
+                (
+                    *field,
+                    parse_cpp_special_power_field_for_table
+                        as fn(&str) -> Result<Box<dyn std::any::Any>, String>,
+                )
+            })
+            .collect()
     }
 
     /// Update template from properties
-    pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+    pub fn update_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> SpecialPowerResult<()> {
         for (key, value) in properties {
             match key.as_str() {
-                "Type" => {
+                "Enum" => {
                     self.power_type = SpecialPowerType::from_string(value);
-                }
-                "PrerequisiteScience" => {
-                    self.prerequisite_science = value
-                        .split_whitespace()
-                        .map(|s| AsciiString::from(s))
-                        .collect();
                 }
                 "RequiredScience" => {
                     self.required_science = value
@@ -256,70 +204,45 @@ impl SpecialPowerTemplate {
                         .map(|s| AsciiString::from(s))
                         .collect();
                 }
-                "RechargeTime" => {
-                    if let Ok(time) = value.parse::<f32>() {
-                        self.recharge_time = time;
-                    }
+                "ReloadTime" => {
+                    self.recharge_time = parse_u32_field(key, value)? as f32;
                 }
-                "InitChargeTime" => {
-                    if let Ok(time) = value.parse::<f32>() {
-                        self.init_charge_time = time;
-                    }
-                }
-                "Cost" => {
-                    if let Ok(cost) = value.parse::<u32>() {
-                        self.cost = cost;
-                    }
-                }
-                "Range" => {
-                    if let Ok(range) = value.parse::<f32>() {
-                        self.range = range;
-                    }
-                }
-                "Radius" => {
-                    if let Ok(radius) = value.parse::<f32>() {
-                        self.radius = radius;
-                    }
-                }
-                "Damage" => {
-                    if let Ok(damage) = value.parse::<f32>() {
-                        self.damage = damage;
-                    }
-                }
-                "SharedSyncGroup" => {
-                    self.shared_sync_group = AsciiString::from(value);
-                }
-                "ViewObjectName" => {
-                    self.view_object_name = AsciiString::from(value);
-                }
-                "ViewObjectDuration" => {
-                    if let Ok(duration) = value.parse::<f32>() {
-                        self.view_object_duration = duration;
-                    }
-                }
-                "IconName" => {
-                    self.icon_name = AsciiString::from(value);
-                }
-                "ButtonBorderType" => {
-                    self.button_border_type = AsciiString::from(value);
-                }
-                "Description" => {
-                    self.description = AsciiString::from(value);
-                }
-                "SoundEffect" => {
+                "InitiateSound" => {
                     self.sound_effect = AsciiString::from(value);
                 }
-                "Flags" => {
-                    if let Ok(flags) = value.parse::<u32>() {
-                        self.flags = flags;
-                    }
+                "ViewObjectDuration" => {
+                    self.view_object_duration = parse_u32_field(key, value)? as f32;
+                }
+                "ViewObjectRange" => {
+                    self.range = parse_f32_field(key, value)?;
+                }
+                "RadiusCursorRadius" => {
+                    self.radius = parse_f32_field(key, value)?;
+                }
+                "PublicTimer" | "SharedSyncedTimer" | "ShortcutPower" => {
+                    parse_bool(value).map_err(SpecialPowerError::ParseError)?;
+                    self.properties.insert(key.clone(), value.clone());
                 }
                 _ => {
-                    // Store unknown properties
-                    self.properties.insert(key.clone(), value.clone());
+                    if is_cpp_special_power_field(key) {
+                        if value.trim().is_empty() {
+                            return Err(SpecialPowerError::ParseError(format!(
+                                "Invalid {} value: missing token",
+                                key
+                            )));
+                        }
+                        self.properties.insert(key.clone(), value.clone());
+                    } else {
+                        return Err(SpecialPowerError::ParseError(format!(
+                            "Unknown special power field '{}'",
+                            key
+                        )));
+                    }
                 }
             }
         }
+
+        Ok(())
     }
 
     pub fn get_name(&self) -> &AsciiString {
@@ -327,7 +250,7 @@ impl SpecialPowerTemplate {
     }
 
     pub fn is_valid(&self) -> bool {
-        !self.name.is_empty() && self.recharge_time > 0.0
+        !self.name.is_empty()
     }
 
     pub fn is_superweapon(&self) -> bool {
@@ -450,7 +373,7 @@ impl SpecialPowerStore {
             template
         };
 
-        template.update_from_properties(properties);
+        template.update_from_properties(properties)?;
         if !template.is_valid() {
             return Err(SpecialPowerError::ParseError(
                 "Invalid special power template configuration".to_string(),
@@ -550,6 +473,26 @@ pub fn get_special_power_store_mut() -> Option<RwLockWriteGuard<'static, Special
     Some(special_power_store_mut())
 }
 
+pub fn parse_bool(value: &str) -> Result<bool, String> {
+    match value.trim().to_lowercase().as_str() {
+        "true" | "yes" | "1" => Ok(true),
+        "false" | "no" | "0" => Ok(false),
+        _ => Err(format!("Invalid boolean value: {}", value)),
+    }
+}
+
+fn parse_f32_field(field_name: &str, value: &str) -> SpecialPowerResult<f32> {
+    value.parse::<f32>().map_err(|e| {
+        SpecialPowerError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
+    })
+}
+
+fn parse_u32_field(field_name: &str, value: &str) -> SpecialPowerResult<u32> {
+    value.parse::<u32>().map_err(|e| {
+        SpecialPowerError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
+    })
+}
+
 /// INI parsing functions for special powers
 pub struct IniSpecialPower;
 
@@ -582,7 +525,7 @@ impl IniSpecialPower {
         let mut template = SpecialPowerTemplate::new(name);
 
         // Update template from properties
-        template.update_from_properties(&properties);
+        template.update_from_properties(&properties)?;
 
         // Validate template
         if !template.is_valid() {
@@ -774,9 +717,9 @@ mod tests {
         let first_name = AsciiString::from("FirstPower");
         let second_name = AsciiString::from("SecondPower");
         let mut first_properties = HashMap::new();
-        first_properties.insert("Cost".to_string(), "100".to_string());
+        first_properties.insert("RadiusCursorRadius".to_string(), "100".to_string());
         let mut second_properties = HashMap::new();
-        second_properties.insert("Cost".to_string(), "200".to_string());
+        second_properties.insert("RadiusCursorRadius".to_string(), "200".to_string());
 
         store
             .register_definition(
@@ -796,7 +739,7 @@ mod tests {
         let first_id = store.find_template(&first_name).unwrap().id;
         let second_id = store.find_template(&second_name).unwrap().id;
         let mut override_properties = HashMap::new();
-        override_properties.insert("Cost".to_string(), "777".to_string());
+        override_properties.insert("RadiusCursorRadius".to_string(), "777".to_string());
         store
             .register_definition(
                 first_name.clone(),
@@ -807,7 +750,7 @@ mod tests {
 
         let first = store.find_template(&first_name).unwrap();
         assert_eq!(first.id, first_id);
-        assert_eq!(first.cost, 777);
+        assert_eq!(first.radius, 777.0);
         assert_eq!(store.find_template(&second_name).unwrap().id, second_id);
         assert_eq!(
             store
@@ -828,18 +771,88 @@ mod tests {
     fn test_template_properties_update() {
         let mut template = SpecialPowerTemplate::new(AsciiString::from("Test"));
         let mut properties = HashMap::new();
-        properties.insert("Type".to_string(), "Nuke".to_string());
-        properties.insert("Cost".to_string(), "5000".to_string());
-        properties.insert("RechargeTime".to_string(), "120.0".to_string());
-        properties.insert("Damage".to_string(), "1000.0".to_string());
+        properties.insert("Enum".to_string(), "SPECIAL_NEUTRON_MISSILE".to_string());
+        properties.insert("ReloadTime".to_string(), "120".to_string());
+        properties.insert("RequiredScience".to_string(), "SCIENCE_Nuke".to_string());
+        properties.insert(
+            "InitiateSound".to_string(),
+            "NeutronMissileLaunch".to_string(),
+        );
+        properties.insert("PublicTimer".to_string(), "Yes".to_string());
+        properties.insert("ViewObjectDuration".to_string(), "90".to_string());
+        properties.insert("ViewObjectRange".to_string(), "250.5".to_string());
+        properties.insert("RadiusCursorRadius".to_string(), "1000.0".to_string());
 
-        template.update_from_properties(&properties);
+        template.update_from_properties(&properties).unwrap();
 
-        assert!(matches!(template.power_type, SpecialPowerType::Nuke));
-        assert_eq!(template.cost, 5000);
+        assert!(matches!(
+            template.power_type,
+            SpecialPowerType::Custom(ref name) if name == "SPECIAL_NEUTRON_MISSILE"
+        ));
         assert_eq!(template.recharge_time, 120.0);
-        assert_eq!(template.damage, 1000.0);
-        assert!(template.is_superweapon());
+        assert_eq!(
+            template.required_science,
+            vec![AsciiString::from("SCIENCE_Nuke")]
+        );
+        assert_eq!(template.sound_effect.as_str(), "NeutronMissileLaunch");
+        assert_eq!(template.view_object_duration, 90.0);
+        assert_eq!(template.range, 250.5);
+        assert_eq!(template.radius, 1000.0);
+        assert_eq!(template.properties.get("PublicTimer").unwrap(), "Yes");
+    }
+
+    #[test]
+    fn special_power_block_rejects_fields_outside_cpp_parse_table() {
+        let mut properties = HashMap::new();
+        properties.insert("Type".to_string(), "Nuke".to_string());
+        assert!(IniSpecialPower::parse_special_power_block(
+            AsciiString::from("RustType"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("RechargeTime".to_string(), "120".to_string());
+        assert!(IniSpecialPower::parse_special_power_block(
+            AsciiString::from("RustRechargeTime"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("TotallyUnknown".to_string(), "value".to_string());
+        assert!(IniSpecialPower::parse_special_power_block(
+            AsciiString::from("UnknownSpecialPowerField"),
+            properties
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn special_power_block_rejects_malformed_cpp_values() {
+        let mut properties = HashMap::new();
+        properties.insert("ReloadTime".to_string(), "later".to_string());
+        assert!(IniSpecialPower::parse_special_power_block(
+            AsciiString::from("BadReloadTime"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("ViewObjectRange".to_string(), "far".to_string());
+        assert!(IniSpecialPower::parse_special_power_block(
+            AsciiString::from("BadViewObjectRange"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("SharedSyncedTimer".to_string(), "sometimes".to_string());
+        assert!(IniSpecialPower::parse_special_power_block(
+            AsciiString::from("BadSharedSyncedTimer"),
+            properties
+        )
+        .is_err());
     }
 
     #[test]
