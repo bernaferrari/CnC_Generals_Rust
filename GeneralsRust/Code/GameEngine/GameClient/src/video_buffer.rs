@@ -7,6 +7,8 @@ type Bool = bool;
 type Real = f32;
 type UnsignedInt = u32;
 
+const MAX_SOFTWARE_TEXTURE_DIMENSION: UnsignedInt = 4096;
+
 /// Buffer pixel format types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -181,6 +183,40 @@ impl SoftwareVideoBuffer {
             VideoBufferType::Unknown => 0,
         }
     }
+
+    fn validate_texture_size(
+        width: UnsignedInt,
+        height: UnsignedInt,
+    ) -> (UnsignedInt, UnsignedInt) {
+        let mut texture_width = next_power_of_two_at_least_one(width);
+        let mut texture_height = next_power_of_two_at_least_one(height);
+
+        texture_width = texture_width.min(MAX_SOFTWARE_TEXTURE_DIMENSION);
+        texture_height = texture_height.min(MAX_SOFTWARE_TEXTURE_DIMENSION);
+
+        if texture_width > texture_height {
+            while texture_height != 0 && texture_width / texture_height > 8 {
+                texture_height = texture_height.saturating_mul(2);
+            }
+        } else {
+            while texture_width != 0 && texture_height / texture_width > 8 {
+                texture_width = texture_width.saturating_mul(2);
+            }
+        }
+
+        (
+            texture_width.min(MAX_SOFTWARE_TEXTURE_DIMENSION),
+            texture_height.min(MAX_SOFTWARE_TEXTURE_DIMENSION),
+        )
+    }
+}
+
+fn next_power_of_two_at_least_one(value: UnsignedInt) -> UnsignedInt {
+    let mut power = 1;
+    while power < value {
+        power = power.saturating_mul(2);
+    }
+    power
 }
 
 impl VideoBuffer for SoftwareVideoBuffer {
@@ -189,13 +225,20 @@ impl VideoBuffer for SoftwareVideoBuffer {
         if bpp == 0 {
             return false;
         }
-        let size = (width * height * bpp) as usize;
+        let (texture_width, texture_height) = Self::validate_texture_size(width, height);
+        let Some(size) = texture_width
+            .checked_mul(texture_height)
+            .and_then(|pixels| pixels.checked_mul(bpp))
+            .map(|bytes| bytes as usize)
+        else {
+            return false;
+        };
         self.data = vec![0; size];
         self.base.width = width;
         self.base.height = height;
-        self.base.texture_width = width;
-        self.base.texture_height = height;
-        self.base.pitch = width * bpp;
+        self.base.texture_width = texture_width;
+        self.base.texture_height = texture_height;
+        self.base.pitch = texture_width * bpp;
         true
     }
 
@@ -280,5 +323,30 @@ mod tests {
         assert_eq!(rect2.y1, 6.0);
         assert_eq!(rect2.x2, 7.0);
         assert_eq!(rect2.y2, 8.0);
+    }
+
+    #[test]
+    fn software_video_buffer_validates_texture_size_like_w3d() {
+        let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::X8R8G8B8);
+        assert!(buffer.allocate(300, 200));
+
+        assert_eq!(buffer.width(), 300);
+        assert_eq!(buffer.height(), 200);
+        assert_eq!(buffer.texture_width(), 512);
+        assert_eq!(buffer.texture_height(), 256);
+        assert_eq!(buffer.pitch(), 512 * 4);
+
+        let rect = buffer.rect(0.0, 0.0, 1.0, 1.0);
+        assert_eq!(rect, RectClass::new(0.0, 0.0, 300.0 / 512.0, 200.0 / 256.0));
+    }
+
+    #[test]
+    fn software_video_buffer_balances_extreme_aspect_ratio_like_w3d() {
+        let mut buffer = SoftwareVideoBuffer::new(VideoBufferType::R5G6B5);
+        assert!(buffer.allocate(1, 100));
+
+        assert_eq!(buffer.texture_width(), 16);
+        assert_eq!(buffer.texture_height(), 128);
+        assert_eq!(buffer.pitch(), 16 * 2);
     }
 }
