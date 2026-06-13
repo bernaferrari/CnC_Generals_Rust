@@ -1127,7 +1127,6 @@ impl RigidBody {
         }
     }
 
-    #[allow(unused_assignments)]
     fn box_ray_cast(
         &self,
         origin: Vec3,
@@ -1135,88 +1134,62 @@ impl RigidBody {
         max_distance: f32,
         half_extents: Vec3,
     ) -> Option<RayCastInfo> {
-        let min = self.position - half_extents;
-        let max = self.position + half_extents;
+        let rot_mat = Mat3::from_quat(self.rotation);
+        let inv_basis = rot_mat.transpose();
+        let local_origin = inv_basis * (origin - self.position);
+        let local_direction = inv_basis * direction;
 
         let mut tmin: f32 = 0.0;
         let mut tmax: f32 = max_distance;
+        let mut hit_axis: Option<usize> = None;
+        let mut hit_side = 0.0;
 
-        // X axis
-        if direction.x.abs() > 0.0001 {
-            let inv_dx = 1.0 / direction.x;
-            let tx1 = (min.x - origin.x) * inv_dx;
-            let tx2 = (max.x - origin.x) * inv_dx;
-            let (txnear, txfar) = if tx1 < tx2 { (tx1, tx2) } else { (tx2, tx1) };
-            tmin = tmin.max(txnear);
-            tmax = tmax.min(txfar);
+        for axis in 0..3 {
+            let origin_axis = local_origin[axis];
+            let direction_axis = local_direction[axis];
+            let min_axis = -half_extents[axis];
+            let max_axis = half_extents[axis];
+
+            if direction_axis.abs() <= 0.0001 {
+                if origin_axis < min_axis || origin_axis > max_axis {
+                    return None;
+                }
+                continue;
+            }
+
+            let inv_dir = 1.0 / direction_axis;
+            let t1 = (min_axis - origin_axis) * inv_dir;
+            let t2 = (max_axis - origin_axis) * inv_dir;
+            let (near, far, side) = if t1 < t2 {
+                (t1, t2, -1.0)
+            } else {
+                (t2, t1, 1.0)
+            };
+
+            if near > tmin {
+                tmin = near;
+                hit_axis = Some(axis);
+                hit_side = side;
+            }
+
+            tmax = tmax.min(far);
             if tmax <= tmin {
                 return None;
             }
         }
 
-        // Y axis
-        if direction.y.abs() > 0.0001 {
-            let inv_dy = 1.0 / direction.y;
-            let ty1 = (min.y - origin.y) * inv_dy;
-            let ty2 = (max.y - origin.y) * inv_dy;
-            let (tynear, tyfar) = if ty1 < ty2 { (ty1, ty2) } else { (ty2, ty1) };
-            tmin = tmin.max(tynear);
-            tmax = tmax.min(tyfar);
-            if tmax <= tmin {
-                return None;
-            }
-        }
-
-        // Z axis
-        if direction.z.abs() > 0.0001 {
-            let inv_dz = 1.0 / direction.z;
-            let tz1 = (min.z - origin.z) * inv_dz;
-            let tz2 = (max.z - origin.z) * inv_dz;
-            let (tznear, tzfar) = if tz1 < tz2 { (tz1, tz2) } else { (tz2, tz1) };
-            tmin = tmin.max(tznear);
-            tmax = tmax.min(tzfar);
-            if tmax <= tmin {
-                return None;
-            }
-        }
-
-        if tmin < 0.0 {
-            tmin = 0.0;
-        }
         if tmin > max_distance {
             return None;
         }
 
         let point = origin + direction * tmin;
-
-        // Calculate normal based on which face was hit
-        let local_point = point - self.position;
-        let mut normal = Vec3::ZERO;
-        let mut max_comp = 0.0;
-
-        if local_point.x.abs() >= half_extents.x - 0.001 {
-            let comp = (local_point.x.abs() - half_extents.x).abs();
-            if comp > max_comp {
-                max_comp = comp;
-                normal = Vec3::new(local_point.x.signum(), 0.0, 0.0);
-            }
-        }
-
-        if local_point.y.abs() >= half_extents.y - 0.001 {
-            let comp = (local_point.y.abs() - half_extents.y).abs();
-            if comp > max_comp {
-                max_comp = comp;
-                normal = Vec3::new(0.0, local_point.y.signum(), 0.0);
-            }
-        }
-
-        if local_point.z.abs() >= half_extents.z - 0.001 {
-            let comp = (local_point.z.abs() - half_extents.z).abs();
-            if comp > max_comp {
-                max_comp = comp;
-                normal = Vec3::new(0.0, 0.0, local_point.z.signum());
-            }
-        }
+        let normal = if let Some(axis) = hit_axis {
+            let mut local_normal = Vec3::ZERO;
+            local_normal[axis] = hit_side;
+            (rot_mat * local_normal).normalize()
+        } else {
+            Vec3::ZERO
+        };
 
         Some(RayCastInfo {
             point,
@@ -1688,6 +1661,34 @@ mod tests {
         let hit = hit.unwrap();
         assert_eq!(hit.body, body_id);
         assert!(hit.distance > 0.0 && hit.distance < 2.0);
+    }
+
+    #[test]
+    fn test_ray_cast_hits_rotated_box_outside_unrotated_aabb() {
+        let mut world = PhysicsWorld::new();
+        let rotation = Quat::from_axis_angle(Vec3::Y, std::f32::consts::FRAC_PI_4);
+
+        let body_id = world.create_body(RigidBodyDesc {
+            position: Vec3::ZERO,
+            rotation,
+            shape: CollisionShape::Box {
+                half_extents: Vec3::new(2.0, 0.25, 0.25),
+            },
+            ..Default::default()
+        });
+
+        // At z=1.0 this ray is outside the old unrotated AABB (z extent 0.25),
+        // but it intersects the 45-degree oriented box, matching C++ OBBox ray tests.
+        let hit = world
+            .ray_cast(Vec3::new(-4.0, 0.0, 1.0), Vec3::new(1.0, 0.0, 0.0), 10.0)
+            .expect("ray should hit the rotated box");
+
+        assert_eq!(hit.body, body_id);
+        assert!((hit.distance - 2.6464467).abs() < 0.0001);
+        assert!((hit.point - Vec3::new(-1.3535533, 0.0, 1.0)).length() < 0.0001);
+
+        let expected_normal = rotation * Vec3::new(0.0, 0.0, -1.0);
+        assert!(hit.normal.dot(expected_normal) > 0.999);
     }
 
     #[test]
