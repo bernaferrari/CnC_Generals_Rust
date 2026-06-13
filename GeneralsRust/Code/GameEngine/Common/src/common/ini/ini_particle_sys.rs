@@ -161,43 +161,33 @@ impl ParticleSystemTemplate {
     }
 
     /// Update template properties from parsed data
-    pub fn update_from_properties(&mut self, properties: &HashMap<String, String>) {
+    pub fn update_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> ParticleSystemResult<()> {
         for (key, value) in properties {
             match key.as_str() {
                 "Priority" => {
-                    if let Ok(priority) = value.parse::<i32>() {
-                        self.priority = priority;
-                    }
+                    self.priority = parse_i32_field(key, value)?;
                 }
                 "IsOneShot" => {
-                    if let Ok(is_one_shot) = parse_bool(value) {
-                        self.is_one_shot = is_one_shot;
-                    }
+                    self.is_one_shot =
+                        parse_bool(value).map_err(ParticleSystemError::ParsingError)?;
                 }
                 "MaxParticles" => {
-                    if let Ok(max_particles) = value.parse::<u32>() {
-                        self.max_particles = max_particles;
-                    }
+                    self.max_particles = parse_u32_field(key, value)?;
                 }
                 "Lifetime" => {
-                    if let Ok(lifetime) = value.parse::<f32>() {
-                        self.lifetime = lifetime;
-                    }
+                    self.lifetime = parse_f32_field(key, value)?;
                 }
                 "CreationRate" => {
-                    if let Ok(rate) = value.parse::<f32>() {
-                        self.creation_rate = rate;
-                    }
+                    self.creation_rate = parse_f32_field(key, value)?;
                 }
                 "Size" => {
-                    if let Ok(size) = value.parse::<f32>() {
-                        self.size = size;
-                    }
+                    self.size = parse_f32_field(key, value)?;
                 }
                 "SizeVariation" => {
-                    if let Ok(variation) = value.parse::<f32>() {
-                        self.size_variation = variation;
-                    }
+                    self.size_variation = parse_f32_field(key, value)?;
                 }
                 "Texture" => {
                     self.texture_name = AsciiString::from(value);
@@ -206,19 +196,15 @@ impl ParticleSystemTemplate {
                     self.shader_type = AsciiString::from(value);
                 }
                 "IsEmissive" => {
-                    if let Ok(emissive) = parse_bool(value) {
-                        self.is_emissive = emissive;
-                    }
+                    self.is_emissive =
+                        parse_bool(value).map_err(ParticleSystemError::ParsingError)?;
                 }
                 "WindMotion" => {
-                    if let Ok(wind) = parse_bool(value) {
-                        self.wind_motion = wind;
-                    }
+                    self.wind_motion =
+                        parse_bool(value).map_err(ParticleSystemError::ParsingError)?;
                 }
                 "Gravity" => {
-                    if let Ok(gravity) = value.parse::<f32>() {
-                        self.gravity = gravity;
-                    }
+                    self.gravity = parse_f32_field(key, value)?;
                 }
                 _ => {
                     // Store unknown properties for later processing
@@ -226,6 +212,8 @@ impl ParticleSystemTemplate {
                 }
             }
         }
+
+        Ok(())
     }
 
     pub fn get_name(&self) -> &AsciiString {
@@ -331,6 +319,33 @@ pub fn parse_bool(value: &str) -> Result<bool, String> {
     }
 }
 
+fn parse_i32_field(field_name: &str, value: &str) -> ParticleSystemResult<i32> {
+    value.parse::<i32>().map_err(|e| {
+        ParticleSystemError::ParsingError(format!(
+            "Invalid {} value '{}': {}",
+            field_name, value, e
+        ))
+    })
+}
+
+fn parse_u32_field(field_name: &str, value: &str) -> ParticleSystemResult<u32> {
+    value.parse::<u32>().map_err(|e| {
+        ParticleSystemError::ParsingError(format!(
+            "Invalid {} value '{}': {}",
+            field_name, value, e
+        ))
+    })
+}
+
+fn parse_f32_field(field_name: &str, value: &str) -> ParticleSystemResult<f32> {
+    value.parse::<f32>().map_err(|e| {
+        ParticleSystemError::ParsingError(format!(
+            "Invalid {} value '{}': {}",
+            field_name, value, e
+        ))
+    })
+}
+
 /// INI parsing functions for particle systems
 pub struct IniParticleSys;
 
@@ -380,7 +395,7 @@ impl IniParticleSys {
         let mut template = ParticleSystemTemplate::new(name);
 
         // Update template from properties
-        template.update_from_properties(&properties);
+        template.update_from_properties(&properties)?;
 
         // Validate template
         if !template.is_valid() {
@@ -491,11 +506,46 @@ mod tests {
         properties.insert("Lifetime".to_string(), "10.5".to_string());
         properties.insert("IsOneShot".to_string(), "true".to_string());
 
-        template.update_from_properties(&properties);
+        template.update_from_properties(&properties).unwrap();
 
         assert_eq!(template.max_particles, 2000);
         assert_eq!(template.lifetime, 10.5);
         assert!(template.is_one_shot);
+    }
+
+    #[test]
+    fn particle_block_rejects_invalid_parsed_field_values() {
+        let mut properties = HashMap::new();
+        properties.insert("Priority".to_string(), "urgent".to_string());
+        assert!(IniParticleSys::parse_particle_system_block(
+            AsciiString::from("BadPriority"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("MaxParticles".to_string(), "many".to_string());
+        assert!(IniParticleSys::parse_particle_system_block(
+            AsciiString::from("BadMaxParticles"),
+            properties,
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("Lifetime".to_string(), "long".to_string());
+        assert!(IniParticleSys::parse_particle_system_block(
+            AsciiString::from("BadLifetime"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("IsOneShot".to_string(), "maybe".to_string());
+        assert!(IniParticleSys::parse_particle_system_block(
+            AsciiString::from("BadIsOneShot"),
+            properties
+        )
+        .is_err());
     }
 
     #[test]
