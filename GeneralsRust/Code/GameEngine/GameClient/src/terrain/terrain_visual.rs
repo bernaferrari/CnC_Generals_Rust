@@ -49,6 +49,49 @@ use image::ImageFormat;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct WaterHandle(pub u32);
 
+/// CPU mirror of C++ vertex water-grid state.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WaterGridCpuState {
+    pub height_clamps: (f32, f32),
+    pub attenuation: (f32, f32, f32, f32),
+    pub transform: Mat4,
+    pub resolution: (f32, f32, f32),
+    pub height_deltas: BTreeMap<(i32, i32), f32>,
+    pub point_motions: BTreeMap<(i32, i32), WaterGridPointMotion>,
+    pub velocity_events: Vec<WaterGridVelocityEvent>,
+}
+
+impl Default for WaterGridCpuState {
+    fn default() -> Self {
+        Self {
+            height_clamps: (0.0, 0.0),
+            attenuation: (0.0, 0.0, 0.0, 0.0),
+            transform: Mat4::IDENTITY,
+            resolution: (0.0, 0.0, 1.0),
+            height_deltas: BTreeMap::new(),
+            point_motions: BTreeMap::new(),
+            velocity_events: Vec::new(),
+        }
+    }
+}
+
+/// CPU mirror of C++ `WaterMeshData` motion fields for a touched grid vertex.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WaterGridPointMotion {
+    pub velocity: f32,
+    pub preferred_height: f32,
+    pub in_motion: bool,
+}
+
+/// CPU record for C++ `addWaterVelocity`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WaterGridVelocityEvent {
+    pub world_x: f32,
+    pub world_y: f32,
+    pub velocity: f32,
+    pub preferred_height: f32,
+}
+
 /// Runtime road segment descriptor passed from game-logic map parsing.
 #[derive(Debug, Clone)]
 pub struct RuntimeRoadVisualSegment {
@@ -348,6 +391,9 @@ pub struct TerrainVisualImpl {
     /// Static water handle
     grid_water_handle: WaterHandle,
 
+    /// CPU water-grid state.
+    water_grid: WaterGridCpuState,
+
     /// Cached GPU meshes for terrain chunks
     chunk_meshes: HashMap<ChunkId, GpuChunkMesh>,
 
@@ -503,8 +549,9 @@ impl TerrainVisualImpl {
             skybox_background_bind_group_layout: None,
             skybox_sampler: None,
             seismic_simulations: Vec::new(),
-            water_grid_enabled: true,
+            water_grid_enabled: false,
             grid_water_handle: WaterHandle(0),
+            water_grid: WaterGridCpuState::default(),
             chunk_meshes: HashMap::new(),
             texture_rules: Vec::new(),
             water_plane: None,
@@ -3667,6 +3714,191 @@ impl TerrainVisualImpl {
     pub fn enable_water_grid(&mut self, enable: bool) {
         self.water_grid_enabled = enable;
         self.water_system.set_enabled(enable);
+    }
+
+    /// Current C++ water-grid enabled flag.
+    pub fn water_grid_enabled(&self) -> bool {
+        self.water_grid_enabled
+    }
+
+    /// CPU water-grid state.
+    pub fn water_grid_state(&self) -> &WaterGridCpuState {
+        &self.water_grid
+    }
+
+    /// C++ `setWaterGridHeightClamps`.
+    pub fn set_water_grid_height_clamps(&mut self, low: f32, high: f32) {
+        self.water_grid.height_clamps = (low, high);
+    }
+
+    /// C++ `setWaterAttenuationFactors`.
+    pub fn set_water_attenuation_factors(&mut self, a: f32, b: f32, c: f32, range: f32) {
+        self.water_grid.attenuation = (a, b, c, range);
+    }
+
+    /// C++ `setWaterTransform(angle, x, y, z)`.
+    pub fn set_water_transform(&mut self, angle: f32, x: f32, y: f32, z: f32) {
+        self.water_grid.transform =
+            Mat4::from_translation(Vec3::new(x, y, z)) * Mat4::from_rotation_z(angle);
+    }
+
+    /// C++ `setWaterTransform(Matrix3D*)`.
+    pub fn set_water_transform_matrix(&mut self, transform: Mat4) {
+        self.water_grid.transform = transform;
+    }
+
+    /// C++ `getWaterTransform`.
+    pub fn water_transform(&self) -> Mat4 {
+        self.water_grid.transform
+    }
+
+    /// C++ `setWaterGridResolution`.
+    pub fn set_water_grid_resolution(
+        &mut self,
+        grid_cells_x: f32,
+        grid_cells_y: f32,
+        cell_size: f32,
+    ) {
+        let old_resolution = self.water_grid.resolution;
+        let cell_size = cell_size.max(f32::EPSILON);
+        self.water_grid.resolution = (grid_cells_x, grid_cells_y, cell_size);
+        if old_resolution.0 != grid_cells_x || old_resolution.1 != grid_cells_y {
+            self.water_grid.height_deltas.clear();
+            self.water_grid.point_motions.clear();
+            self.water_grid.velocity_events.clear();
+        }
+    }
+
+    /// C++ `getWaterGridResolution`.
+    pub fn water_grid_resolution(&self) -> (f32, f32, f32) {
+        self.water_grid.resolution
+    }
+
+    /// C++ `changeWaterHeight`.
+    pub fn change_water_height(&mut self, world_x: f32, world_y: f32, delta: f32) -> bool {
+        let Some((grid_x, grid_y)) = self.water_grid_space(world_x, world_y) else {
+            return false;
+        };
+        let (grid_cells_x, grid_cells_y, cell_size) = self.water_grid.resolution;
+        let (att0, att1, att2, range) = self.water_grid.attenuation;
+        let range = range / cell_size;
+        let min_x = (grid_x - range).floor().max(0.0) as i32;
+        let max_x = (grid_x + range).ceil().min(grid_cells_x) as i32;
+        let min_y = (grid_y - range).floor().max(0.0) as i32;
+        let max_y = (grid_y + range).ceil().min(grid_cells_y) as i32;
+        let (min_height, max_height) = self.water_grid.height_clamps;
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let distance = ((grid_x - x as f32).powi(2) + (grid_y - y as f32).powi(2)).sqrt();
+                let denominator = att0 + att1 * distance + distance * distance * att2;
+                if denominator == 0.0 {
+                    continue;
+                }
+                let old_height = self
+                    .water_grid
+                    .height_deltas
+                    .get(&(x, y))
+                    .copied()
+                    .unwrap_or(0.0);
+                let new_height = (old_height + delta / denominator).clamp(min_height, max_height);
+                self.water_grid.height_deltas.insert((x, y), new_height);
+            }
+        }
+        true
+    }
+
+    /// C++ `addWaterVelocity`.
+    pub fn add_water_velocity(
+        &mut self,
+        world_x: f32,
+        world_y: f32,
+        velocity: f32,
+        preferred_height: f32,
+    ) {
+        if !self.water_grid_enabled {
+            return;
+        }
+        let Some((grid_x, grid_y)) = self.water_grid_space(world_x, world_y) else {
+            return;
+        };
+        let (grid_cells_x, grid_cells_y, cell_size) = self.water_grid.resolution;
+        let range = self.water_grid.attenuation.3 / cell_size;
+        let min_x = (grid_x - range).floor().max(0.0) as i32;
+        let max_x = (grid_x + range).ceil().min(grid_cells_x) as i32;
+        let min_y = (grid_y - range).floor().max(0.0) as i32;
+        let max_y = (grid_y + range).ceil().min(grid_cells_y) as i32;
+
+        for y in min_y..=max_y {
+            for x in min_x..=max_x {
+                let motion =
+                    self.water_grid
+                        .point_motions
+                        .entry((x, y))
+                        .or_insert(WaterGridPointMotion {
+                            velocity: 0.0,
+                            preferred_height,
+                            in_motion: false,
+                        });
+                motion.preferred_height = preferred_height;
+                motion.velocity += velocity;
+                motion.in_motion = true;
+            }
+        }
+
+        self.water_grid
+            .velocity_events
+            .push(WaterGridVelocityEvent {
+                world_x,
+                world_y,
+                velocity,
+                preferred_height,
+            });
+    }
+
+    /// C++ `getWaterGridHeight`.
+    pub fn get_water_grid_height(&self, world_x: f32, world_y: f32) -> Option<f32> {
+        if !self.water_grid_enabled {
+            return None;
+        }
+        let (grid_x, grid_y) = self.water_grid_indices(world_x, world_y)?;
+        let base_height = self.water_grid.transform.w_axis.z;
+        Some(
+            base_height
+                + self
+                    .water_grid
+                    .height_deltas
+                    .get(&(grid_x, grid_y))
+                    .copied()
+                    .unwrap_or(0.0),
+        )
+    }
+
+    fn water_grid_space(&self, world_x: f32, world_y: f32) -> Option<(f32, f32)> {
+        let (grid_cells_x, grid_cells_y, cell_size) = self.water_grid.resolution;
+        if grid_cells_x < 1.0 || grid_cells_y < 1.0 || cell_size <= 0.0 {
+            return None;
+        }
+        let local = self
+            .water_grid
+            .transform
+            .inverse()
+            .transform_point3(Vec3::new(world_x, world_y, 0.0));
+        let grid_x = local.x / cell_size;
+        let grid_y = local.y / cell_size;
+        if grid_x < 0.0
+            || grid_y < 0.0
+            || grid_x > grid_cells_x - 1.0
+            || grid_y > grid_cells_y - 1.0
+        {
+            return None;
+        }
+        Some((grid_x, grid_y))
+    }
+
+    fn water_grid_indices(&self, world_x: f32, world_y: f32) -> Option<(i32, i32)> {
+        let (grid_x, grid_y) = self.water_grid_space(world_x, world_y)?;
+        Some((grid_x as i32, grid_y as i32))
     }
 
     /// Replace skybox textures
