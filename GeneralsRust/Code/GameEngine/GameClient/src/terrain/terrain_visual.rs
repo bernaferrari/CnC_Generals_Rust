@@ -694,6 +694,28 @@ impl TerrainVisualImpl {
         self.height_map.is_some()
     }
 
+    /// C++ `W3DTerrainVisual::getRawMapHeight`.
+    pub fn get_raw_map_height(&self, grid_x: i32, grid_y: i32) -> i32 {
+        let Some(height_map) = self.height_map.as_ref() else {
+            return 0;
+        };
+        let x = grid_x + height_map.border_size;
+        let y = grid_y + height_map.border_size;
+        height_map.get_raw_height(x, y) as i32
+    }
+
+    /// C++ `W3DTerrainVisual::setRawMapHeight`.
+    pub fn set_raw_map_height(&mut self, grid_x: i32, grid_y: i32, height: i32) {
+        let Some(height_map) = self.height_map.as_mut() else {
+            return;
+        };
+        let x = grid_x + height_map.border_size;
+        let y = grid_y + height_map.border_size;
+        if height_map.get_raw_height(x, y) as i32 > height {
+            height_map.set_raw_height(x, y, height.clamp(0, u8::MAX as i32) as u8);
+        }
+    }
+
     pub fn debug_total_chunk_count(&self) -> usize {
         self.chunk_manager.total_chunk_count()
     }
