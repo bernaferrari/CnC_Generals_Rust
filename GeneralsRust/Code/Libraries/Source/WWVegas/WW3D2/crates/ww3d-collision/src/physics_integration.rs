@@ -1086,10 +1086,12 @@ impl RigidBody {
             CollisionShape::Box { half_extents } => {
                 self.box_ray_cast(origin, direction, max_distance, *half_extents)
             }
+            CollisionShape::Capsule { radius, height } => {
+                self.capsule_ray_cast(origin, direction, max_distance, *radius, *height)
+            }
             CollisionShape::Mesh { vertices, indices } => {
                 self.mesh_ray_cast(origin, direction, max_distance, vertices, indices)
             }
-            _ => None, // Other shapes not implemented yet
         }
     }
 
@@ -1246,6 +1248,108 @@ impl RigidBody {
 
         closest
     }
+
+    fn capsule_ray_cast(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f32,
+        radius: f32,
+        height: f32,
+    ) -> Option<RayCastInfo> {
+        let rot_mat = Mat3::from_quat(self.rotation);
+        let inv_basis = rot_mat.transpose();
+        let local_origin = inv_basis * (origin - self.position);
+        let local_direction = inv_basis * direction;
+        let half_height = height * 0.5;
+
+        let mut closest: Option<(f32, Vec3)> = None;
+
+        let a = local_direction.x * local_direction.x + local_direction.z * local_direction.z;
+        if a > 0.000001 {
+            let b = 2.0 * (local_origin.x * local_direction.x + local_origin.z * local_direction.z);
+            let c =
+                local_origin.x * local_origin.x + local_origin.z * local_origin.z - radius * radius;
+            let discriminant = b * b - 4.0 * a * c;
+
+            if discriminant >= 0.0 {
+                let sqrt_disc = discriminant.sqrt();
+                for t in [(-b - sqrt_disc) / (2.0 * a), (-b + sqrt_disc) / (2.0 * a)] {
+                    if t >= 0.0 && t <= max_distance {
+                        let hit = local_origin + local_direction * t;
+                        if hit.y >= -half_height && hit.y <= half_height {
+                            let normal = Vec3::new(hit.x, 0.0, hit.z).normalize_or_zero();
+                            update_closest_ray_hit(&mut closest, t, normal);
+                        }
+                    }
+                }
+            }
+        }
+
+        for cap_center in [
+            Vec3::new(0.0, -half_height, 0.0),
+            Vec3::new(0.0, half_height, 0.0),
+        ] {
+            if let Some((t, normal)) = ray_sphere_intersection_local(
+                local_origin,
+                local_direction,
+                cap_center,
+                radius,
+                max_distance,
+            ) {
+                update_closest_ray_hit(&mut closest, t, normal);
+            }
+        }
+
+        closest.map(|(distance, local_normal)| RayCastInfo {
+            point: origin + direction * distance,
+            normal: (rot_mat * local_normal).normalize(),
+            distance,
+        })
+    }
+}
+
+fn update_closest_ray_hit(closest: &mut Option<(f32, Vec3)>, distance: f32, normal: Vec3) {
+    if normal == Vec3::ZERO {
+        return;
+    }
+
+    if closest
+        .as_ref()
+        .map(|(closest_distance, _)| distance < *closest_distance)
+        .unwrap_or(true)
+    {
+        *closest = Some((distance, normal));
+    }
+}
+
+fn ray_sphere_intersection_local(
+    origin: Vec3,
+    direction: Vec3,
+    center: Vec3,
+    radius: f32,
+    max_distance: f32,
+) -> Option<(f32, Vec3)> {
+    let oc = origin - center;
+    let a = direction.dot(direction);
+    let b = 2.0 * oc.dot(direction);
+    let c = oc.dot(oc) - radius * radius;
+    let discriminant = b * b - 4.0 * a * c;
+
+    if discriminant < 0.0 {
+        return None;
+    }
+
+    let sqrt_disc = discriminant.sqrt();
+    let t1 = (-b - sqrt_disc) / (2.0 * a);
+    let t2 = (-b + sqrt_disc) / (2.0 * a);
+    let t = if t1 >= 0.0 { t1 } else { t2 };
+    if t < 0.0 || t > max_distance {
+        return None;
+    }
+
+    let point = origin + direction * t;
+    Some((t, (point - center).normalize_or_zero()))
 }
 
 fn ray_triangle_intersection(
@@ -1838,6 +1942,54 @@ mod tests {
         assert!((hit.distance - 1.0).abs() < 0.0001);
         assert!((hit.point - Vec3::new(3.0, 0.0, 0.0)).length() < 0.0001);
         assert!(hit.normal.dot(rotation * Vec3::Z) > 0.999);
+    }
+
+    #[test]
+    fn test_ray_cast_hits_capsule_side() {
+        let mut world = PhysicsWorld::new();
+
+        let body_id = world.create_body(RigidBodyDesc {
+            position: Vec3::ZERO,
+            shape: CollisionShape::Capsule {
+                radius: 0.5,
+                height: 4.0,
+            },
+            ..Default::default()
+        });
+
+        let hit = world
+            .ray_cast(Vec3::new(-2.0, 0.0, 0.0), Vec3::X, 10.0)
+            .expect("ray should hit capsule side");
+
+        assert_eq!(hit.body, body_id);
+        assert!((hit.distance - 1.5).abs() < 0.0001);
+        assert!((hit.point - Vec3::new(-0.5, 0.0, 0.0)).length() < 0.0001);
+        assert!(hit.normal.dot(Vec3::NEG_X) > 0.999);
+    }
+
+    #[test]
+    fn test_ray_cast_hits_capsule_cap_with_body_transform() {
+        let mut world = PhysicsWorld::new();
+        let rotation = Quat::from_axis_angle(Vec3::Z, std::f32::consts::FRAC_PI_2);
+
+        let body_id = world.create_body(RigidBodyDesc {
+            position: Vec3::new(1.0, 0.0, 0.0),
+            rotation,
+            shape: CollisionShape::Capsule {
+                radius: 0.5,
+                height: 4.0,
+            },
+            ..Default::default()
+        });
+
+        let hit = world
+            .ray_cast(Vec3::new(-2.0, 0.0, 0.0), Vec3::X, 10.0)
+            .expect("ray should hit rotated capsule cap");
+
+        assert_eq!(hit.body, body_id);
+        assert!((hit.distance - 0.5).abs() < 0.0001);
+        assert!((hit.point - Vec3::new(-1.5, 0.0, 0.0)).length() < 0.0001);
+        assert!(hit.normal.dot(Vec3::NEG_X) > 0.999);
     }
 
     #[test]
