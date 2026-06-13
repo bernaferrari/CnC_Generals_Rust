@@ -159,7 +159,7 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
         if block_depth == 0 {
             if let Some((key, value)) = split_ini_assignment(&line) {
                 if object_field_starts_subblock(key) {
-                    properties.insert(key.to_string(), value.to_string());
+                    insert_object_property(&mut properties, key, value);
                     block_key_prefix = object_prefixed_subblock_key(
                         key,
                         &mut weapon_set_counter,
@@ -169,7 +169,7 @@ fn consume_ini_properties(ini: &mut INI) -> HashMap<String, String> {
                     continue;
                 }
 
-                properties.insert(key.to_string(), value.to_string());
+                insert_object_property(&mut properties, key, value);
                 continue;
             }
 
@@ -245,6 +245,21 @@ fn object_line_is_plain_field_without_assignment(first_token: &str) -> bool {
         first_token.to_ascii_lowercase().as_str(),
         "removemodule" | "locomotor"
     )
+}
+
+fn object_field_is_repeatable_property(field: &str) -> bool {
+    matches!(
+        field.to_ascii_lowercase().as_str(),
+        "behavior" | "body" | "draw" | "clientupdate"
+    )
+}
+
+fn insert_object_property(properties: &mut HashMap<String, String>, key: &str, value: &str) {
+    if object_field_is_repeatable_property(key) {
+        insert_repeated_property(properties, key.to_string(), value.to_string());
+    } else {
+        properties.insert(key.to_string(), value.to_string());
+    }
 }
 
 fn object_prefixed_subblock_key(
@@ -877,7 +892,7 @@ fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<Strin
 
         if depth == 0 {
             if let Some((key, value)) = split_ini_assignment(line) {
-                properties.insert(key.to_string(), value.to_string());
+                insert_object_property(&mut properties, key, value);
                 if object_field_starts_subblock(key) {
                     block_key_prefix = object_prefixed_subblock_key(
                         key,
@@ -1256,6 +1271,8 @@ mod tests {
               Behavior = GrantUpgradeCreate ModuleTag_01
                 GrantUpgrade = Upgrade_Test
               End
+              Behavior = StealthUpdate ModuleTag_02
+              End
               Locomotor = SET_NORMAL TestLocomotor
               BuildCost = 42
             End
@@ -1280,6 +1297,10 @@ mod tests {
         assert_eq!(
             properties.get("Behavior").map(String::as_str),
             Some("GrantUpgradeCreate ModuleTag_01")
+        );
+        assert_eq!(
+            properties.get("Behavior#1").map(String::as_str),
+            Some("StealthUpdate ModuleTag_02")
         );
         assert!(!properties.contains_key("GrantUpgrade"));
         assert!(end_idx > start);
