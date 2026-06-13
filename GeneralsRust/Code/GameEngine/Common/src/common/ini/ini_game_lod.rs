@@ -239,73 +239,117 @@ impl ChipsetType {
 
 /// Particle priority type
 /// Must stay in sync with ParticlePriorityNames from ParticleSys.h
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(i32)]
 pub enum ParticlePriorityType {
-    #[default]
-    Lowest = 0,
-    AreaEffect = 1,
-    DustCloud = 2,
-    Debris = 3,
-    Scorch = 4,
-    Smoke = 5,
-    DustTrail = 6,
-    WeaponExplosion = 7,
-    Constant = 8,
-    BuildingExplosion = 9,
-    UnitWeaponTrail = 10,
-    Critical = 11,
+    Invalid = 0,
+    WeaponExplosion = 1,
+    ScorchMark = 2,
+    DustTrail = 3,
+    Buildup = 4,
+    DebrisTrail = 5,
+    UnitDamageFx = 6,
+    DeathExplosion = 7,
+    SemiConstant = 8,
+    Constant = 9,
+    WeaponTrail = 10,
+    AreaEffect = 11,
+    Critical = 12,
+    AlwaysRender = 13,
+}
+
+impl Default for ParticlePriorityType {
+    fn default() -> Self {
+        ParticlePriorityType::WeaponExplosion
+    }
 }
 
 impl ParticlePriorityType {
     /// Convert from string name
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
-            "lowest" | "particle_priority_lowest" => Some(ParticlePriorityType::Lowest),
-            "areaeffect" | "area_effect" | "particle_priority_area_effect" => {
-                Some(ParticlePriorityType::AreaEffect)
-            }
-            "dustcloud" | "dust_cloud" | "particle_priority_dust_cloud" => {
-                Some(ParticlePriorityType::DustCloud)
-            }
-            "debris" | "particle_priority_debris" => Some(ParticlePriorityType::Debris),
-            "scorch" | "particle_priority_scorch" => Some(ParticlePriorityType::Scorch),
-            "smoke" | "particle_priority_smoke" => Some(ParticlePriorityType::Smoke),
-            "dusttrail" | "dust_trail" | "particle_priority_dust_trail" => {
-                Some(ParticlePriorityType::DustTrail)
-            }
-            "weaponexplosion" | "weapon_explosion" | "particle_priority_weapon_explosion" => {
+            "none" | "invalid_priority" => Some(ParticlePriorityType::Invalid),
+            "lowest" | "particle_priority_lowest" | "weapon_explosion" => {
                 Some(ParticlePriorityType::WeaponExplosion)
             }
-            "constant" | "particle_priority_constant" => Some(ParticlePriorityType::Constant),
-            "buildingexplosion" | "building_explosion" | "particle_priority_building_explosion" => {
-                Some(ParticlePriorityType::BuildingExplosion)
-            }
-            "unitweapntrail" | "unit_weapon_trail" | "particle_priority_unit_weapon_trail" => {
-                Some(ParticlePriorityType::UnitWeaponTrail)
-            }
-            "critical" | "particle_priority_critical" => Some(ParticlePriorityType::Critical),
+            "scorchmark" | "scorch_mark" => Some(ParticlePriorityType::ScorchMark),
+            "dust_trail" | "dusttrail" => Some(ParticlePriorityType::DustTrail),
+            "buildup" => Some(ParticlePriorityType::Buildup),
+            "debris_trail" | "debristrail" => Some(ParticlePriorityType::DebrisTrail),
+            "unit_damage_fx" | "unitdamagefx" => Some(ParticlePriorityType::UnitDamageFx),
+            "death_explosion" | "deathexplosion" => Some(ParticlePriorityType::DeathExplosion),
+            "semi_constant" | "semiconstant" => Some(ParticlePriorityType::SemiConstant),
+            "constant" => Some(ParticlePriorityType::Constant),
+            "weapon_trail" | "weapontrail" => Some(ParticlePriorityType::WeaponTrail),
+            "area_effect" | "areaeffect" => Some(ParticlePriorityType::AreaEffect),
+            "critical" => Some(ParticlePriorityType::Critical),
+            "always_render" | "alwaysrender" => Some(ParticlePriorityType::AlwaysRender),
             _ => None,
+        }
+    }
+
+    pub fn from_index(index: usize) -> Option<Self> {
+        match index {
+            0 => Some(ParticlePriorityType::Invalid),
+            1 => Some(ParticlePriorityType::WeaponExplosion),
+            2 => Some(ParticlePriorityType::ScorchMark),
+            3 => Some(ParticlePriorityType::DustTrail),
+            4 => Some(ParticlePriorityType::Buildup),
+            5 => Some(ParticlePriorityType::DebrisTrail),
+            6 => Some(ParticlePriorityType::UnitDamageFx),
+            7 => Some(ParticlePriorityType::DeathExplosion),
+            8 => Some(ParticlePriorityType::SemiConstant),
+            9 => Some(ParticlePriorityType::Constant),
+            10 => Some(ParticlePriorityType::WeaponTrail),
+            11 => Some(ParticlePriorityType::AreaEffect),
+            12 => Some(ParticlePriorityType::Critical),
+            13 => Some(ParticlePriorityType::AlwaysRender),
+            _ => None,
+        }
+    }
+
+    fn parse_cpp_index_list_token(s: &str) -> Option<Self> {
+        if let Ok(index) = s.parse::<usize>() {
+            return ParticlePriorityType::from_index(index);
+        }
+        ParticlePriorityType::from_str(s)
+    }
+
+    fn to_cpp_name(self) -> &'static str {
+        match self {
+            ParticlePriorityType::Invalid => "NONE",
+            ParticlePriorityType::WeaponExplosion => "WEAPON_EXPLOSION",
+            ParticlePriorityType::ScorchMark => "SCORCHMARK",
+            ParticlePriorityType::DustTrail => "DUST_TRAIL",
+            ParticlePriorityType::Buildup => "BUILDUP",
+            ParticlePriorityType::DebrisTrail => "DEBRIS_TRAIL",
+            ParticlePriorityType::UnitDamageFx => "UNIT_DAMAGE_FX",
+            ParticlePriorityType::DeathExplosion => "DEATH_EXPLOSION",
+            ParticlePriorityType::SemiConstant => "SEMI_CONSTANT",
+            ParticlePriorityType::Constant => "CONSTANT",
+            ParticlePriorityType::WeaponTrail => "WEAPON_TRAIL",
+            ParticlePriorityType::AreaEffect => "AREA_EFFECT",
+            ParticlePriorityType::Critical => "CRITICAL",
+            ParticlePriorityType::AlwaysRender => "ALWAYS_RENDER",
         }
     }
 
     /// Get string name
     pub fn to_str(self) -> &'static str {
-        match self {
-            ParticlePriorityType::Lowest => "PARTICLE_PRIORITY_LOWEST",
-            ParticlePriorityType::AreaEffect => "PARTICLE_PRIORITY_AREA_EFFECT",
-            ParticlePriorityType::DustCloud => "PARTICLE_PRIORITY_DUST_CLOUD",
-            ParticlePriorityType::Debris => "PARTICLE_PRIORITY_DEBRIS",
-            ParticlePriorityType::Scorch => "PARTICLE_PRIORITY_SCORCH",
-            ParticlePriorityType::Smoke => "PARTICLE_PRIORITY_SMOKE",
-            ParticlePriorityType::DustTrail => "PARTICLE_PRIORITY_DUST_TRAIL",
-            ParticlePriorityType::WeaponExplosion => "PARTICLE_PRIORITY_WEAPON_EXPLOSION",
-            ParticlePriorityType::Constant => "PARTICLE_PRIORITY_CONSTANT",
-            ParticlePriorityType::BuildingExplosion => "PARTICLE_PRIORITY_BUILDING_EXPLOSION",
-            ParticlePriorityType::UnitWeaponTrail => "PARTICLE_PRIORITY_UNIT_WEAPON_TRAIL",
-            ParticlePriorityType::Critical => "PARTICLE_PRIORITY_CRITICAL",
-        }
+        self.to_cpp_name()
     }
+}
+
+fn parse_cpp_yes_no_bool(token: &str) -> INIResult<bool> {
+    match token.to_ascii_lowercase().as_str() {
+        "yes" => Ok(true),
+        "no" => Ok(false),
+        _ => Err(INIError::InvalidData),
+    }
+}
+
+fn parse_cpp_int_bits_as_u32(token: &str) -> INIResult<u32> {
+    Ok(INI::parse_int(token)? as u32)
 }
 
 // ============================================================================
@@ -460,8 +504,8 @@ impl Default for DynamicGameLODInfo {
             dynamic_particle_skip_mask: 0,
             dynamic_debris_skip_mask: 0,
             slow_death_scale: 1.0,
-            min_dynamic_particle_priority: ParticlePriorityType::Lowest,
-            min_dynamic_particle_skip_priority: ParticlePriorityType::Lowest,
+            min_dynamic_particle_priority: ParticlePriorityType::WeaponExplosion,
+            min_dynamic_particle_skip_priority: ParticlePriorityType::WeaponExplosion,
         }
     }
 }
@@ -717,19 +761,19 @@ impl GameLODManager {
                     lod_info.max_particle_count = INI::parse_int(value_str)?;
                 }
                 "useshadowvolumes" => {
-                    lod_info.use_shadow_volumes = INI::parse_bool(value_str)?;
+                    lod_info.use_shadow_volumes = parse_cpp_yes_no_bool(value_str)?;
                 }
                 "useshadowdecals" => {
-                    lod_info.use_shadow_decals = INI::parse_bool(value_str)?;
+                    lod_info.use_shadow_decals = parse_cpp_yes_no_bool(value_str)?;
                 }
                 "usecloudmap" => {
-                    lod_info.use_cloud_map = INI::parse_bool(value_str)?;
+                    lod_info.use_cloud_map = parse_cpp_yes_no_bool(value_str)?;
                 }
                 "uselightmap" => {
-                    lod_info.use_light_map = INI::parse_bool(value_str)?;
+                    lod_info.use_light_map = parse_cpp_yes_no_bool(value_str)?;
                 }
                 "showsoftwateredge" => {
-                    lod_info.show_soft_water_edge = INI::parse_bool(value_str)?;
+                    lod_info.show_soft_water_edge = parse_cpp_yes_no_bool(value_str)?;
                 }
                 "maxtanktrackedges" => {
                     lod_info.max_tank_track_edges = INI::parse_int(value_str)?;
@@ -741,28 +785,19 @@ impl GameLODManager {
                     lod_info.max_tank_track_fade_delay = INI::parse_int(value_str)?;
                 }
                 "usebuildupscaffolds" => {
-                    lod_info.use_buildup_scaffolds = INI::parse_bool(value_str)?;
+                    lod_info.use_buildup_scaffolds = parse_cpp_yes_no_bool(value_str)?;
                 }
                 "usetreesway" => {
-                    lod_info.use_tree_sway = INI::parse_bool(value_str)?;
+                    lod_info.use_tree_sway = parse_cpp_yes_no_bool(value_str)?;
                 }
                 "useemissivenightmaterials" => {
-                    lod_info.use_emissive_night_materials = INI::parse_bool(value_str)?;
+                    lod_info.use_emissive_night_materials = parse_cpp_yes_no_bool(value_str)?;
                 }
                 "useheateffects" => {
-                    lod_info.use_heat_effects = INI::parse_bool(value_str)?;
+                    lod_info.use_heat_effects = parse_cpp_yes_no_bool(value_str)?;
                 }
                 "texturereductionfactor" => {
                     lod_info.texture_reduction = INI::parse_int(value_str)?;
-                }
-                "usefpslimit" => {
-                    lod_info.use_fps_limit = INI::parse_bool(value_str)?;
-                }
-                "enabledynamiclod" => {
-                    lod_info.enable_dynamic_lod = INI::parse_bool(value_str)?;
-                }
-                "usetrees" => {
-                    lod_info.use_trees = INI::parse_bool(value_str)?;
                 }
                 _ => {
                     // Unknown field - silently ignore like C++
@@ -812,21 +847,23 @@ impl GameLODManager {
                     lod_info.min_fps = INI::parse_int(value_str)?;
                 }
                 "particleskipmask" => {
-                    lod_info.dynamic_particle_skip_mask = INI::parse_unsigned_int(value_str)?;
+                    lod_info.dynamic_particle_skip_mask = parse_cpp_int_bits_as_u32(value_str)?;
                 }
                 "debrisskipmask" => {
-                    lod_info.dynamic_debris_skip_mask = INI::parse_unsigned_int(value_str)?;
+                    lod_info.dynamic_debris_skip_mask = parse_cpp_int_bits_as_u32(value_str)?;
                 }
                 "slowdeathscale" => {
                     lod_info.slow_death_scale = INI::parse_real(value_str)?;
                 }
                 "minparticlepriority" => {
                     lod_info.min_dynamic_particle_priority =
-                        ParticlePriorityType::from_str(value_str).ok_or(INIError::InvalidData)?;
+                        ParticlePriorityType::parse_cpp_index_list_token(value_str)
+                            .ok_or(INIError::InvalidData)?;
                 }
                 "minparticleskippriority" => {
                     lod_info.min_dynamic_particle_skip_priority =
-                        ParticlePriorityType::from_str(value_str).ok_or(INIError::InvalidData)?;
+                        ParticlePriorityType::parse_cpp_index_list_token(value_str)
+                            .ok_or(INIError::InvalidData)?;
                 }
                 _ => {
                     // Unknown field - silently ignore like C++
@@ -1038,6 +1075,31 @@ mod tests {
     }
 
     #[test]
+    fn test_particle_priority_matches_cpp_index_list() {
+        assert_eq!(
+            ParticlePriorityType::from_str("WEAPON_EXPLOSION"),
+            Some(ParticlePriorityType::WeaponExplosion)
+        );
+        assert_eq!(
+            ParticlePriorityType::from_str("SCORCHMARK"),
+            Some(ParticlePriorityType::ScorchMark)
+        );
+        assert_eq!(
+            ParticlePriorityType::from_str("AREA_EFFECT"),
+            Some(ParticlePriorityType::AreaEffect)
+        );
+        assert_eq!(
+            ParticlePriorityType::from_str("ALWAYS_RENDER"),
+            Some(ParticlePriorityType::AlwaysRender)
+        );
+        assert_eq!(
+            ParticlePriorityType::parse_cpp_index_list_token("12"),
+            Some(ParticlePriorityType::Critical)
+        );
+        assert_eq!(ParticlePriorityType::ScorchMark.to_str(), "SCORCHMARK");
+    }
+
+    #[test]
     fn test_cpu_type_conversion() {
         assert_eq!(CpuType::from_str("P3"), Some(CpuType::P3));
         assert_eq!(CpuType::from_str("P4"), Some(CpuType::P4));
@@ -1080,7 +1142,80 @@ mod tests {
         assert_eq!(info.slow_death_scale, 1.0);
         assert_eq!(
             info.min_dynamic_particle_priority,
-            ParticlePriorityType::Lowest
+            ParticlePriorityType::WeaponExplosion
+        );
+    }
+
+    #[test]
+    fn test_static_lod_bool_fields_use_cpp_yes_no_tokens() {
+        init_game_lod_manager();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "StaticGameLOD Low\nUseShadowVolumes = No\nUseShadowDecals = Yes\nEnd\n",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("valid C++ Yes/No bools should parse");
+
+        let manager = get_game_lod_manager();
+        let low = &manager.static_game_lod_info[StaticGameLODLevel::Low.to_index().unwrap()];
+        assert!(!low.use_shadow_volumes);
+        assert!(low.use_shadow_decals);
+    }
+
+    #[test]
+    fn test_static_lod_rejects_non_cpp_bool_tokens() {
+        init_game_lod_manager();
+
+        let mut ini = INI::new();
+        let result = ini
+            .with_inline_source("StaticGameLOD Low\nUseShadowVolumes = true\nEnd\n", |ini| {
+                ini.parse_current_file()
+            });
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_static_lod_ignores_fields_not_in_cpp_parse_table() {
+        init_game_lod_manager();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "StaticGameLOD Low\nUseFPSLimit = No\nEnableDynamicLOD = No\nUseTrees = No\nEnd\n",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("unknown static LOD fields are ignored by the table parser");
+
+        let manager = get_game_lod_manager();
+        let low = &manager.static_game_lod_info[StaticGameLODLevel::Low.to_index().unwrap()];
+        assert!(low.use_fps_limit);
+        assert!(low.enable_dynamic_lod);
+        assert!(low.use_trees);
+    }
+
+    #[test]
+    fn test_dynamic_lod_parses_cpp_priority_names_and_signed_skip_masks() {
+        init_game_lod_manager();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "DynamicGameLOD Low\nParticleSkipMask = -1\nDebrisSkipMask = 7\nMinParticlePriority = SCORCHMARK\nMinParticleSkipPriority = AREA_EFFECT\nEnd\n",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("valid C++ dynamic LOD fields should parse");
+
+        let manager = get_game_lod_manager();
+        let low = &manager.dynamic_game_lod_info[DynamicGameLODLevel::Low.to_index().unwrap()];
+        assert_eq!(low.dynamic_particle_skip_mask, u32::MAX);
+        assert_eq!(low.dynamic_debris_skip_mask, 7);
+        assert_eq!(
+            low.min_dynamic_particle_priority,
+            ParticlePriorityType::ScorchMark
+        );
+        assert_eq!(
+            low.min_dynamic_particle_skip_priority,
+            ParticlePriorityType::AreaEffect
         );
     }
 
