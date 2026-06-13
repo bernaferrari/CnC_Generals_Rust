@@ -141,6 +141,9 @@ pub struct RadioButtonData {
 #[derive(Debug, Default, Clone)]
 pub struct StaticTextData {
     pub centered: bool,
+    pub centered_vertically: bool,
+    pub left_margin: u32,
+    pub top_margin: u32,
 }
 
 #[derive(Debug)]
@@ -812,6 +815,9 @@ fn parse_static_text_data(value: &str) -> StaticTextData {
             .get("CENTERED")
             .and_then(|v| parse_bool(v))
             .unwrap_or(false),
+        centered_vertically: true,
+        left_margin: 7,
+        top_margin: 7,
     }
 }
 
@@ -913,4 +919,19 @@ fn extract_numbers(value: &str) -> Vec<i32> {
 
 fn pack_color(rgba: [u8; 4]) -> u32 {
     ((rgba[3] as u32) << 24) | ((rgba[0] as u32) << 16) | ((rgba[1] as u32) << 8) | (rgba[2] as u32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_static_text_data;
+
+    #[test]
+    fn static_text_data_uses_cpp_defaults() {
+        let data = parse_static_text_data("CENTERED: 0;");
+
+        assert!(!data.centered);
+        assert!(data.centered_vertically);
+        assert_eq!(data.left_margin, 7);
+        assert_eq!(data.top_margin, 7);
+    }
 }
