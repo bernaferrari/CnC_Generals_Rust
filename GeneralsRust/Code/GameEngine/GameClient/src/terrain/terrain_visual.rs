@@ -92,6 +92,41 @@ pub struct WaterGridVelocityEvent {
     pub preferred_height: f32,
 }
 
+/// Owner namespace for C++ terrain bib records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TerrainBibOwnerKind {
+    Object,
+    Drawable,
+}
+
+/// CPU record for C++ `addTerrainBib`/`addTerrainBibDrawable`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TerrainBibRecord {
+    pub owner_id: u32,
+    pub owner_kind: TerrainBibOwnerKind,
+    pub corners: [[f32; 3]; 4],
+    pub highlight: bool,
+}
+
+/// CPU record for C++ `W3DTerrainRenderObject::addProp`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TerrainPropRecord {
+    pub position: [f32; 3],
+    pub angle: f32,
+    pub scale: f32,
+    pub model_name: String,
+}
+
+/// CPU record for C++ `removeTreesAndPropsForConstruction`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TerrainConstructionRemoval {
+    pub position: [f32; 3],
+    pub major_radius: f32,
+    pub minor_radius: f32,
+    pub geometry_is_box: bool,
+    pub angle: f32,
+}
+
 /// Runtime road segment descriptor passed from game-logic map parsing.
 #[derive(Debug, Clone)]
 pub struct RuntimeRoadVisualSegment {
@@ -396,6 +431,15 @@ pub struct TerrainVisualImpl {
     /// CPU water-grid state.
     water_grid: WaterGridCpuState,
 
+    /// CPU terrain bib records passed through W3DTerrainVisual.
+    terrain_bibs: Vec<TerrainBibRecord>,
+
+    /// CPU terrain prop records passed through W3DTerrainVisual.
+    terrain_props: Vec<TerrainPropRecord>,
+
+    /// CPU construction-clearing requests passed through W3DTerrainVisual.
+    construction_removals: Vec<TerrainConstructionRemoval>,
+
     /// Cached GPU meshes for terrain chunks
     chunk_meshes: HashMap<ChunkId, GpuChunkMesh>,
 
@@ -556,6 +600,9 @@ impl TerrainVisualImpl {
             water_grid_enabled: false,
             grid_water_handle: WaterHandle(0),
             water_grid: WaterGridCpuState::default(),
+            terrain_bibs: Vec::new(),
+            terrain_props: Vec::new(),
+            construction_removals: Vec::new(),
             chunk_meshes: HashMap::new(),
             texture_rules: Vec::new(),
             water_plane: None,
@@ -3905,6 +3952,168 @@ impl TerrainVisualImpl {
         Some((grid_x as i32, grid_y as i32))
     }
 
+    /// Current C++ terrain bib records.
+    pub fn terrain_bibs(&self) -> &[TerrainBibRecord] {
+        &self.terrain_bibs
+    }
+
+    /// Current C++ terrain prop records.
+    pub fn terrain_props(&self) -> &[TerrainPropRecord] {
+        &self.terrain_props
+    }
+
+    /// Current C++ construction tree/prop removal requests.
+    pub fn construction_removals(&self) -> &[TerrainConstructionRemoval] {
+        &self.construction_removals
+    }
+
+    /// C++ `addFactionBib`/`addFactionBibDrawable` geometry wrapper.
+    pub fn add_faction_bib(
+        &mut self,
+        owner_id: u32,
+        owner_kind: TerrainBibOwnerKind,
+        transform: Mat4,
+        major_radius: f32,
+        minor_radius: f32,
+        geometry_is_box: bool,
+        factory_exit_width: f32,
+        factory_extra_bib_width: f32,
+        highlight: bool,
+        extra: f32,
+    ) -> bool {
+        if self.height_map.is_none() {
+            return false;
+        }
+
+        let size_x = major_radius;
+        let size_y = if geometry_is_box {
+            minor_radius
+        } else {
+            major_radius
+        };
+        let extra_width = factory_extra_bib_width + extra;
+        let corners = [
+            Vec3::new(-size_x - extra_width, -size_y - extra_width, 0.0),
+            Vec3::new(
+                size_x + factory_exit_width + extra_width,
+                -size_y - extra_width,
+                0.0,
+            ),
+            Vec3::new(
+                size_x + factory_exit_width + extra_width,
+                size_y + extra_width,
+                0.0,
+            ),
+            Vec3::new(-size_x - extra_width, size_y + extra_width, 0.0),
+        ]
+        .map(|corner| transform.transform_point3(corner).to_array());
+
+        if let Some(existing) = self
+            .terrain_bibs
+            .iter_mut()
+            .find(|bib| bib.owner_id == owner_id && bib.owner_kind == owner_kind)
+        {
+            existing.corners = corners;
+            existing.highlight = highlight;
+        } else {
+            self.terrain_bibs.push(TerrainBibRecord {
+                owner_id,
+                owner_kind,
+                corners,
+                highlight,
+            });
+        }
+        true
+    }
+
+    /// C++ `removeFactionBib`/`removeFactionBibDrawable`.
+    pub fn remove_faction_bib(&mut self, owner_id: u32, owner_kind: TerrainBibOwnerKind) {
+        self.terrain_bibs
+            .retain(|bib| bib.owner_id != owner_id || bib.owner_kind != owner_kind);
+    }
+
+    /// C++ `removeAllBibs`.
+    pub fn remove_all_bibs(&mut self) {
+        self.terrain_bibs.clear();
+    }
+
+    /// C++ `removeBibHighlighting`.
+    pub fn remove_bib_highlighting(&mut self) {
+        for bib in &mut self.terrain_bibs {
+            bib.highlight = false;
+        }
+    }
+
+    /// C++ `removeTreesAndPropsForConstruction`.
+    pub fn remove_trees_and_props_for_construction(
+        &mut self,
+        position: [f32; 3],
+        major_radius: f32,
+        minor_radius: f32,
+        geometry_is_box: bool,
+        angle: f32,
+    ) {
+        self.construction_removals.push(TerrainConstructionRemoval {
+            position,
+            major_radius,
+            minor_radius,
+            geometry_is_box,
+            angle,
+        });
+        self.terrain_props.retain(|prop| {
+            !Self::point_inside_construction_footprint(
+                prop.position,
+                position,
+                major_radius,
+                minor_radius,
+                geometry_is_box,
+                angle,
+            )
+        });
+    }
+
+    /// C++ `addProp` terminal terrain-render-object call.
+    pub fn add_prop(
+        &mut self,
+        position: [f32; 3],
+        angle: f32,
+        scale: f32,
+        model_name: &str,
+    ) -> bool {
+        if model_name.is_empty() {
+            return false;
+        }
+        self.terrain_props.push(TerrainPropRecord {
+            position,
+            angle,
+            scale,
+            model_name: model_name.to_string(),
+        });
+        true
+    }
+
+    fn point_inside_construction_footprint(
+        point: [f32; 3],
+        center: [f32; 3],
+        major_radius: f32,
+        minor_radius: f32,
+        geometry_is_box: bool,
+        angle: f32,
+    ) -> bool {
+        let dx = point[0] - center[0];
+        let dy = point[1] - center[1];
+        let (sin, cos) = angle.sin_cos();
+        let local_x = dx * cos + dy * sin;
+        let local_y = -dx * sin + dy * cos;
+        let size_y = if geometry_is_box {
+            minor_radius
+        } else {
+            major_radius
+        };
+
+        local_x.abs() <= major_radius && local_y.abs() <= size_y
+    }
+
     /// Replace skybox textures
     pub fn replace_skybox_textures(
         &mut self,
@@ -4272,6 +4481,9 @@ impl SubsystemInterface for TerrainVisualImpl {
         self.terrain_sampler = None;
         self.terrain_sampler_mode = None;
         self.water_plane = None;
+        self.terrain_bibs.clear();
+        self.terrain_props.clear();
+        self.construction_removals.clear();
         self.road_meshes.clear();
         self.skybox_background_view = None;
         self.skybox_background_bind_group = None;
