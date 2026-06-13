@@ -10,8 +10,8 @@
 
 pub use crate::common::rts::NameKeyType;
 use crate::common::{
+    ascii_string::AsciiString,
     ini::ini_upgrade::{get_upgrade_center, UpgradeTemplate},
-    rts::AsciiString,
     system::{build_assistant::ObjectID, Snapshotable, Xfer},
 };
 use std::{
@@ -821,8 +821,8 @@ pub struct UpgradeMuxData {
     trigger_upgrade_names: Vec<AsciiString>,
     activation_upgrade_names: Vec<AsciiString>,
     conflicting_upgrade_names: Vec<AsciiString>,
-    activation_mask: u64,  // UpgradeMaskType
-    conflicting_mask: u64, // UpgradeMaskType
+    activation_mask: u128,  // UpgradeMaskType
+    conflicting_mask: u128, // UpgradeMaskType
     requires_all_triggers: bool,
 }
 
@@ -882,10 +882,55 @@ impl UpgradeMuxData {
         false
     }
 
-    pub fn get_upgrade_activation_masks(&self) -> (u64, u64) {
-        // This would compute and cache the activation masks from upgrade names
-        // For now, return cached values
+    pub fn get_upgrade_activation_masks(&mut self) -> (u128, u128) {
+        if !self.activation_upgrade_names.is_empty() || !self.conflicting_upgrade_names.is_empty() {
+            let activation_upgrade_names = self.activation_upgrade_names.clone();
+            let conflicting_upgrade_names = self.conflicting_upgrade_names.clone();
+
+            let Some(upgrade_center) = get_upgrade_center() else {
+                panic!("UpgradeMuxData references upgrades before TheUpgradeCenter is initialized");
+            };
+
+            self.activation_mask = Self::resolve_upgrade_mask(
+                &upgrade_center,
+                &activation_upgrade_names,
+                "activation",
+            );
+            self.conflicting_mask = Self::resolve_upgrade_mask(
+                &upgrade_center,
+                &conflicting_upgrade_names,
+                "conflicting",
+            );
+
+            self.trigger_upgrade_names = activation_upgrade_names;
+            self.activation_upgrade_names.clear();
+            self.conflicting_upgrade_names.clear();
+        }
+
         (self.activation_mask, self.conflicting_mask)
+    }
+
+    fn resolve_upgrade_mask(
+        upgrade_center: &crate::common::ini::ini_upgrade::UpgradeCenter,
+        upgrade_names: &[AsciiString],
+        mask_kind: &str,
+    ) -> u128 {
+        let mut mask = 0u128;
+
+        for upgrade_name in upgrade_names {
+            let the_template = upgrade_center.find_template(upgrade_name);
+            if let Some(template) = the_template {
+                mask |= template.get_upgrade_mask();
+            } else if !upgrade_name.is_empty() && !upgrade_name.is_none() {
+                panic!(
+                    "An upgrade module references {} as a {} upgrade, which is not an Upgrade",
+                    upgrade_name.as_str(),
+                    mask_kind
+                );
+            }
+        }
+
+        mask
     }
 
     pub fn requires_all_triggers(&self) -> bool {
@@ -917,6 +962,7 @@ impl UpgradeMuxData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::ini::ini_upgrade::{get_upgrade_center_mut, initialize_upgrade_center};
     use crate::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
@@ -980,5 +1026,61 @@ mod tests {
         let mut module = BaseDrawableModule::new(module_data, 0, None);
 
         assert_eq!(xfer_bytes(&mut module), vec![1, 1]);
+    }
+
+    #[test]
+    fn upgrade_mux_data_resolves_and_caches_activation_masks() {
+        initialize_upgrade_center();
+
+        let activation_name = AsciiString::from("UpgradeMuxDataActivationTest");
+        let conflicting_name = AsciiString::from("UpgradeMuxDataConflictTest");
+        let (activation_mask, conflicting_mask) = {
+            let mut center = get_upgrade_center_mut().unwrap();
+            let activation_mask = center
+                .get_or_create_template(&activation_name)
+                .get_upgrade_mask();
+            let conflicting_mask = center
+                .get_or_create_template(&conflicting_name)
+                .get_upgrade_mask();
+            (activation_mask, conflicting_mask)
+        };
+
+        let mut mux_data = UpgradeMuxData::new();
+        mux_data
+            .activation_upgrade_names
+            .push(activation_name.clone());
+        mux_data
+            .activation_upgrade_names
+            .push(AsciiString::from("None"));
+        mux_data.conflicting_upgrade_names.push(conflicting_name);
+
+        assert_eq!(
+            mux_data.get_upgrade_activation_masks(),
+            (activation_mask, conflicting_mask)
+        );
+        assert_eq!(
+            mux_data.trigger_upgrade_names(),
+            &[activation_name, AsciiString::from("None")]
+        );
+        assert!(mux_data.activation_upgrade_names().is_empty());
+        assert!(mux_data.conflicting_upgrade_names().is_empty());
+
+        assert_eq!(
+            mux_data.get_upgrade_activation_masks(),
+            (activation_mask, conflicting_mask)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "UpgradeMuxDataMissingTest")]
+    fn upgrade_mux_data_rejects_unknown_activation_upgrade() {
+        initialize_upgrade_center();
+
+        let mut mux_data = UpgradeMuxData::new();
+        mux_data
+            .activation_upgrade_names
+            .push(AsciiString::from("UpgradeMuxDataMissingTest"));
+
+        let _ = mux_data.get_upgrade_activation_masks();
     }
 }
