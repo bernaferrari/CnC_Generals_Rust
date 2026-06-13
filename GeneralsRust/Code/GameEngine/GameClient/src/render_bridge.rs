@@ -725,8 +725,8 @@ impl RenderBridge {
 
     /// Drain all processed submissions from the scene layers after `flush()`.
     ///
-    /// Returns `(DrawSubmission, is_transparent)` pairs. The scene is cleared
-    /// after draining so the submissions are not rendered a second time.
+    /// Returns drained draw submissions. The scene is cleared after draining
+    /// so the submissions are not rendered a second time.
     ///
     /// This is the bridge point where the GameClient drawable pipeline hands
     /// off its culled/sorted submissions to the main `RenderPipeline`.
