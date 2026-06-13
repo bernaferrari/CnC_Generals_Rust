@@ -200,6 +200,16 @@ impl RadioButton {
         &self.group
     }
 
+    /// Get group id
+    pub fn group_id(&self) -> RadioGroupId {
+        self.group.id
+    }
+
+    /// Deselect this radio button without changing the owning group's current selection.
+    pub(crate) fn deselect_for_group_update(&mut self) {
+        self.deselect();
+    }
+
     /// Handle mouse click
     fn handle_click(&mut self) -> Vec<GadgetMessage> {
         if self.enabled && !self.selected {
