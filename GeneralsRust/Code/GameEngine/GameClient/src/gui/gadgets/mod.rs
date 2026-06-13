@@ -70,7 +70,7 @@ pub use checkbox::{
     CheckBox, CheckBoxBuilder, CheckBoxCallback, CheckBoxConfig, CheckBoxRenderCommand,
     CheckBoxStyle,
 };
-pub use combobox::{ComboBox, ComboBoxCallback, ComboBoxItem};
+pub use combobox::{ComboBox, ComboBoxCallback, ComboBoxItem, ComboBoxRenderCommand};
 pub use listbox::{
     ListBox, ListBoxAddEntry, ListBoxCallback, ListBoxItem, ListBoxItemData, ListBoxRightClick,
     ListBoxSelection, ListBoxTextAndColor, SelectionMode,
