@@ -3827,8 +3827,11 @@ impl TerrainVisualImpl {
 
     /// Get terrain tile type at position
     pub fn get_terrain_tile(&self, x: f32, y: f32) -> Result<u32, TerrainError> {
-        // Return terrain type based on texture blending weights
-        self.texture_system.get_terrain_type_at(x, y)
+        if let Some(height_map) = self.height_map.as_ref() {
+            Ok(height_map.get_packed_terrain_tile_at_world(x, y))
+        } else {
+            self.texture_system.get_terrain_type_at(x, y)
+        }
     }
 
     /// Ray-terrain intersection
