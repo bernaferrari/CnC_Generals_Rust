@@ -11,12 +11,11 @@ use crate::common::bit_flags::{
     create_armor_set_flags, create_weapon_set_flags, ArmorSetBitFlags, BitFlags, WeaponSetBitFlags,
 };
 use crate::common::system::Snapshotable;
-#[cfg(test)]
 use crate::common::thing::module::BaseModuleData;
-use crate::common::thing::module_factory::register_descriptor_set_global;
 #[cfg(test)]
+use crate::common::thing::module_factory::clear_pending_descriptors_for_test;
 use crate::common::thing::module_factory::{
-    clear_pending_descriptors_for_test, get_module_factory, ModuleFactory,
+    get_module_factory, register_descriptor_set_global, ModuleFactory,
 };
 use crate::common::thing::sparse_match_finder::{
     SparseBitSet, SparseMatchCandidate, SparseMatchFinder,
@@ -154,11 +153,41 @@ const CPP_OBJECT_FIELDS: &[&str] = &[
 ];
 
 fn is_cpp_object_field(key: &str) -> bool {
+    let key = property_base_key(key);
     CPP_OBJECT_FIELDS
         .iter()
         .any(|field| field.eq_ignore_ascii_case(key))
         || key.starts_with("WeaponSet")
         || key.starts_with("ArmorSet")
+}
+
+fn property_base_key(key: &str) -> &str {
+    if let Some((base, repeat)) = key.rsplit_once('#') {
+        if repeat.parse::<usize>().is_ok() {
+            return base;
+        }
+    }
+    key
+}
+
+fn property_repeat_index(key: &str) -> usize {
+    key.rsplit_once('#')
+        .and_then(|(_, repeat)| repeat.parse::<usize>().ok())
+        .unwrap_or(0)
+}
+
+fn module_field_order(field: &str) -> usize {
+    match field {
+        "Behavior" => 0,
+        "Body" => 1,
+        "Draw" => 2,
+        "ClientUpdate" => 3,
+        _ => usize::MAX,
+    }
+}
+
+fn is_module_object_field(field: &str) -> bool {
+    matches!(field, "Behavior" | "Body" | "Draw" | "ClientUpdate")
 }
 
 impl SparseBitSet for BitFlags {
@@ -2017,6 +2046,72 @@ impl ThingTemplate {
         self.parse_prerequisites_block(&lines);
     }
 
+    fn add_module_from_property(&mut self, field_name: &str, value: &str) -> Result<(), String> {
+        let mut tokens = value.split_whitespace();
+        let module_name = tokens
+            .next()
+            .ok_or_else(|| format!("Missing module name for '{}'", field_name))?;
+        let module_tag = tokens
+            .next()
+            .ok_or_else(|| format!("Missing module tag for '{}'", module_name))?;
+
+        let (module_type, fallback_mask) = match field_name {
+            "Behavior" => (ModuleType::Behavior, ModuleInterfaceType::UPDATE),
+            "Body" => (ModuleType::Behavior, ModuleInterfaceType::BODY),
+            "Draw" => (ModuleType::Draw, ModuleInterfaceType::DRAW),
+            "ClientUpdate" => (ModuleType::ClientUpdate, ModuleInterfaceType::CLIENT_UPDATE),
+            other => return Err(format!("Unknown module field '{}'", other)),
+        };
+
+        let interface_mask = lookup_module_interface_mask(module_name, module_type, fallback_mask);
+        let mut data = BaseModuleData::new();
+        data.set_module_tag_name_key(NameKeyGenerator::name_to_key(module_tag));
+        let data: Arc<dyn ModuleData> = Arc::new(data);
+        let target_info = match module_type {
+            ModuleType::Behavior => &mut self.behavior_module_info,
+            ModuleType::Draw => &mut self.draw_module_info,
+            ModuleType::ClientUpdate => &mut self.client_update_module_info,
+        };
+        target_info.add_module_info(
+            AsciiString::from(module_name),
+            AsciiString::from(module_tag),
+            data,
+            interface_mask.0 as i32,
+            false,
+            false,
+        );
+
+        Ok(())
+    }
+
+    fn load_modules_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        let mut fields = properties
+            .iter()
+            .filter_map(|(key, value)| {
+                let base_key = property_base_key(key);
+                is_module_object_field(base_key).then_some((
+                    module_field_order(base_key),
+                    property_repeat_index(key),
+                    base_key,
+                    value.as_str(),
+                ))
+            })
+            .collect::<Vec<_>>();
+
+        fields.sort_by_key(|(field_order, repeat_index, field_name, _)| {
+            (*field_order, *repeat_index, (*field_name).to_string())
+        });
+
+        for (_, _, field_name, value) in fields {
+            self.add_module_from_property(field_name, value.trim())?;
+        }
+
+        Ok(())
+    }
+
     /// Find the best matching armor template set for the supplied flags.
     pub fn find_armor_template_set(&self, flags: &ArmorSetBitFlags) -> Option<&ArmorTemplateSet> {
         self.armor_template_set_finder
@@ -2395,10 +2490,12 @@ impl ThingTemplate {
         self.load_per_unit_sounds_from_properties(properties);
         self.load_per_unit_fx_from_properties(properties);
         self.load_prerequisites_from_properties(properties);
+        self.load_modules_from_properties(properties)?;
 
         for (key, value) in properties {
+            let base_key = property_base_key(key);
             let trimmed = value.trim();
-            if let Some(audio_type) = object_audio_field_type(key) {
+            if let Some(audio_type) = object_audio_field_type(base_key) {
                 self.audioarray
                     .set(audio_type, AudioEventRts::with_event_name(trimmed));
                 continue;
@@ -2409,8 +2506,11 @@ impl ThingTemplate {
             {
                 continue;
             }
+            if is_module_object_field(base_key) {
+                continue;
+            }
 
-            match key.as_str() {
+            match base_key {
                 // --- Display ---
                 "DisplayName" => {
                     // C++ uses parseAndTranslateLabel -> UnicodeString
@@ -2792,6 +2892,28 @@ fn parse_radar_priority(s: &str) -> RadarPriorityType {
     }
 }
 
+fn lookup_module_interface_mask(
+    module_name: &str,
+    module_type: ModuleType,
+    fallback_mask: ModuleInterfaceType,
+) -> ModuleInterfaceType {
+    if let Ok(factory_guard) = get_module_factory() {
+        if let Some(factory) = factory_guard.as_ref() {
+            let mask = factory.find_module_interface_mask(module_name, module_type);
+            if mask != ModuleInterfaceType::NONE {
+                return mask;
+            }
+        }
+    }
+
+    let mask = ModuleFactory::new().find_module_interface_mask(module_name, module_type);
+    if mask != ModuleInterfaceType::NONE {
+        mask
+    } else {
+        fallback_mask
+    }
+}
+
 fn parse_buildable_status(s: &str) -> BuildableStatus {
     match s.trim() {
         "IgnorePrerequisites" => BuildableStatus::IgnorePrerequisites,
@@ -2923,6 +3045,60 @@ mod tests {
         template
             .parse_object_fields_from_ini(&properties)
             .expect("valid C++ object fields should be accepted");
+    }
+
+    #[test]
+    fn object_field_parse_populates_module_descriptors_from_module_fields() {
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            (
+                "Behavior".to_string(),
+                "SlowDeathBehavior ModuleTag_Die".to_string(),
+            ),
+            (
+                "Behavior#1".to_string(),
+                "StealthUpdate ModuleTag_Stealth".to_string(),
+            ),
+            ("Body".to_string(), "ActiveBody ModuleTag_Body".to_string()),
+            (
+                "Draw".to_string(),
+                "W3DModelDraw ModuleTag_Draw".to_string(),
+            ),
+            (
+                "ClientUpdate".to_string(),
+                "LaserUpdate ModuleTag_Client".to_string(),
+            ),
+        ]);
+
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("module fields should parse");
+
+        let descriptors = template.module_descriptors();
+        assert_eq!(descriptors.behavior.len(), 3);
+        assert_eq!(descriptors.draw.len(), 1);
+        assert_eq!(descriptors.client_update.len(), 1);
+
+        assert_eq!(descriptors.behavior[0].name.as_str(), "SlowDeathBehavior");
+        assert_eq!(descriptors.behavior[0].module_tag.as_str(), "ModuleTag_Die");
+        assert!(descriptors.behavior[0].supports(ModuleInterfaceType::DIE));
+        assert_eq!(
+            descriptors.behavior[1].module_tag.as_str(),
+            "ModuleTag_Stealth"
+        );
+        assert_eq!(descriptors.behavior[2].name.as_str(), "ActiveBody");
+        assert!(descriptors.behavior[2].supports(ModuleInterfaceType::BODY));
+
+        assert_eq!(descriptors.draw[0].name.as_str(), "W3DModelDraw");
+        assert_eq!(descriptors.draw[0].module_tag.as_str(), "ModuleTag_Draw");
+        assert!(descriptors.draw[0].supports(ModuleInterfaceType::DRAW));
+
+        assert_eq!(descriptors.client_update[0].name.as_str(), "LaserUpdate");
+        assert_eq!(
+            descriptors.client_update[0].module_tag.as_str(),
+            "ModuleTag_Client"
+        );
+        assert!(descriptors.client_update[0].supports(ModuleInterfaceType::CLIENT_UPDATE));
     }
 
     #[test]
