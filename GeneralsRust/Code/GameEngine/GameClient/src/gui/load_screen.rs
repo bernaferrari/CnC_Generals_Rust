@@ -2553,6 +2553,7 @@ mod tests {
 
     #[test]
     fn multiplayer_progress_bar_image_falls_back_when_color_image_missing_like_cpp() {
+        let _state_guard = lock_test_load_screen_state();
         let collection = get_mapped_image_collection();
         {
             let mut collection = collection.write();
@@ -3473,6 +3474,9 @@ mod tests {
 
     #[test]
     fn multiplayer_progress_bar_images_match_cpp_apparent_color_names() {
+        let _state_guard = lock_test_load_screen_state();
+        get_mapped_image_collection().write().clear();
+
         let colored = load_screen_slot_with_color("Player", "USA", 3, Some(6), false, true);
         assert_eq!(
             multiplayer_progress_bar_image(&colored),
@@ -3484,6 +3488,8 @@ mod tests {
 
         let invalid = load_screen_slot_with_color("Player", "USA", 3, Some(-1), false, true);
         assert_eq!(multiplayer_progress_bar_image(&invalid), None);
+
+        get_mapped_image_collection().write().clear();
     }
 
     #[test]
