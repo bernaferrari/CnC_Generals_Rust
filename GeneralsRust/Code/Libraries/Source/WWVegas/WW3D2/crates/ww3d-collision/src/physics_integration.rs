@@ -893,6 +893,35 @@ impl RigidBody {
                     info.normal = -info.normal;
                     info
                 }),
+            (
+                CollisionShape::Sphere { radius },
+                CollisionShape::Capsule {
+                    radius: capsule_radius,
+                    height,
+                },
+            ) => self.sphere_capsule_collision(other, *radius, *capsule_radius, *height),
+            (
+                CollisionShape::Capsule {
+                    radius: capsule_radius,
+                    height,
+                },
+                CollisionShape::Sphere { radius },
+            ) => other
+                .sphere_capsule_collision(self, *radius, *capsule_radius, *height)
+                .map(|mut info| {
+                    info.normal = -info.normal;
+                    info
+                }),
+            (
+                CollisionShape::Capsule {
+                    radius: r1,
+                    height: h1,
+                },
+                CollisionShape::Capsule {
+                    radius: r2,
+                    height: h2,
+                },
+            ) => self.capsule_capsule_collision(other, *r1, *h1, *r2, *h2),
             _ => None, // Other combinations not implemented yet
         }
     }
@@ -1072,6 +1101,72 @@ impl RigidBody {
                 contact_point,
                 normal,
                 penetration,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn sphere_capsule_collision(
+        &self,
+        other: &RigidBody,
+        sphere_radius: f32,
+        capsule_radius: f32,
+        capsule_height: f32,
+    ) -> Option<CollisionInfo> {
+        let (cap_a, cap_b) = capsule_segment_endpoints(other, capsule_height);
+        let closest = closest_point_on_segment(self.position, cap_a, cap_b);
+        let sphere_to_capsule = closest - self.position;
+        let distance = sphere_to_capsule.length();
+        let min_distance = sphere_radius + capsule_radius;
+
+        if distance < min_distance {
+            let normal = if distance > 0.000001 {
+                sphere_to_capsule / distance
+            } else {
+                (other.position - self.position)
+                    .try_normalize()
+                    .unwrap_or(Vec3::Y)
+            };
+
+            Some(CollisionInfo {
+                contact_point: closest,
+                normal,
+                penetration: min_distance - distance,
+            })
+        } else {
+            None
+        }
+    }
+
+    fn capsule_capsule_collision(
+        &self,
+        other: &RigidBody,
+        r1: f32,
+        h1: f32,
+        r2: f32,
+        h2: f32,
+    ) -> Option<CollisionInfo> {
+        let (a0, a1) = capsule_segment_endpoints(self, h1);
+        let (b0, b1) = capsule_segment_endpoints(other, h2);
+        let (point_a, point_b) = closest_points_between_segments(a0, a1, b0, b1);
+        let self_to_other = point_b - point_a;
+        let distance = self_to_other.length();
+        let min_distance = r1 + r2;
+
+        if distance < min_distance {
+            let normal = if distance > 0.000001 {
+                self_to_other / distance
+            } else {
+                (other.position - self.position)
+                    .try_normalize()
+                    .unwrap_or(Vec3::Y)
+            };
+
+            Some(CollisionInfo {
+                contact_point: (point_a + point_b) * 0.5,
+                normal,
+                penetration: min_distance - distance,
             })
         } else {
             None
@@ -1307,6 +1402,64 @@ impl RigidBody {
             distance,
         })
     }
+}
+
+fn capsule_segment_endpoints(body: &RigidBody, height: f32) -> (Vec3, Vec3) {
+    let axis = body.rotation * Vec3::Y;
+    let half_axis = axis * (height * 0.5);
+    (body.position - half_axis, body.position + half_axis)
+}
+
+fn closest_point_on_segment(point: Vec3, a: Vec3, b: Vec3) -> Vec3 {
+    let ab = b - a;
+    let denom = ab.length_squared();
+    if denom <= 0.000001 {
+        return a;
+    }
+
+    let t = ((point - a).dot(ab) / denom).clamp(0.0, 1.0);
+    a + ab * t
+}
+
+fn closest_points_between_segments(p1: Vec3, q1: Vec3, p2: Vec3, q2: Vec3) -> (Vec3, Vec3) {
+    let d1 = q1 - p1;
+    let d2 = q2 - p2;
+    let r = p1 - p2;
+    let a = d1.dot(d1);
+    let e = d2.dot(d2);
+    let f = d2.dot(r);
+
+    let (s, t) = if a <= 0.000001 && e <= 0.000001 {
+        (0.0, 0.0)
+    } else if a <= 0.000001 {
+        (0.0, (f / e).clamp(0.0, 1.0))
+    } else {
+        let c = d1.dot(r);
+        if e <= 0.000001 {
+            ((-c / a).clamp(0.0, 1.0), 0.0)
+        } else {
+            let b = d1.dot(d2);
+            let denom = a * e - b * b;
+            let mut s = if denom != 0.0 {
+                ((b * f - c * e) / denom).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let mut t = (b * s + f) / e;
+
+            if t < 0.0 {
+                t = 0.0;
+                s = (-c / a).clamp(0.0, 1.0);
+            } else if t > 1.0 {
+                t = 1.0;
+                s = ((b - c) / a).clamp(0.0, 1.0);
+            }
+
+            (s, t)
+        }
+    };
+
+    (p1 + d1 * s, p2 + d2 * t)
 }
 
 fn update_closest_ray_hit(closest: &mut Option<(f32, Vec3)>, distance: f32, normal: Vec3) {
@@ -1782,6 +1935,15 @@ pub struct PhysicsStats {
 mod tests {
     use super::*;
 
+    fn test_body(position: Vec3, rotation: Quat, shape: CollisionShape) -> RigidBody {
+        RigidBody::new(RigidBodyDesc {
+            position,
+            rotation,
+            shape,
+            ..Default::default()
+        })
+    }
+
     #[test]
     fn test_physics_world_creation() {
         let world = PhysicsWorld::new();
@@ -1990,6 +2152,59 @@ mod tests {
         assert!((hit.distance - 0.5).abs() < 0.0001);
         assert!((hit.point - Vec3::new(-1.5, 0.0, 0.0)).length() < 0.0001);
         assert!(hit.normal.dot(Vec3::NEG_X) > 0.999);
+    }
+
+    #[test]
+    fn test_sphere_capsule_collision_detects_closest_segment_point() {
+        let sphere = test_body(
+            Vec3::new(0.8, 0.0, 0.0),
+            Quat::IDENTITY,
+            CollisionShape::Sphere { radius: 0.5 },
+        );
+        let capsule = test_body(
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            CollisionShape::Capsule {
+                radius: 0.5,
+                height: 2.0,
+            },
+        );
+
+        let collision = sphere
+            .collide_with(&capsule)
+            .expect("sphere should overlap capsule");
+        assert!((collision.penetration - 0.2).abs() < 0.0001);
+        assert!(collision.normal.dot(Vec3::NEG_X) > 0.999);
+        assert!(collision.contact_point.length() < 0.0001);
+    }
+
+    #[test]
+    fn test_capsule_capsule_collision_uses_segment_closest_points() {
+        let capsule_a = test_body(
+            Vec3::ZERO,
+            Quat::IDENTITY,
+            CollisionShape::Capsule {
+                radius: 0.5,
+                height: 2.0,
+            },
+        );
+        let capsule_b = test_body(
+            Vec3::new(0.8, 0.0, 0.0),
+            Quat::IDENTITY,
+            CollisionShape::Capsule {
+                radius: 0.5,
+                height: 2.0,
+            },
+        );
+
+        let collision = capsule_a
+            .collide_with(&capsule_b)
+            .expect("capsules should overlap");
+        assert!((collision.penetration - 0.2).abs() < 0.0001);
+        assert!(collision.normal.dot(Vec3::X) > 0.999);
+        assert!((collision.contact_point.x - 0.4).abs() < 0.0001);
+        assert!(collision.contact_point.y.abs() <= 1.0);
+        assert!(collision.contact_point.z.abs() < 0.0001);
     }
 
     #[test]
