@@ -11,6 +11,29 @@ pub type RadioGroupId = u32;
 /// Callback function for radio button selection
 pub type RadioButtonCallback = Box<dyn Fn(GadgetId) + Send + Sync>;
 
+/// Draw command emitted by [`RadioButton`] for the UI renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RadioButtonRenderCommand {
+    Border {
+        rect: Rect,
+        color: Color,
+    },
+    FillRect {
+        rect: Rect,
+        color: Color,
+    },
+    Line {
+        start: (i32, i32),
+        end: (i32, i32),
+        color: Color,
+    },
+    Text {
+        rect: Rect,
+        text: String,
+        color: Color,
+    },
+}
+
 /// Radio button group for mutual exclusivity
 #[derive(Clone)]
 pub struct RadioButtonGroup {
@@ -89,7 +112,6 @@ pub struct RadioButton {
     selected: bool,
     mouse_inside: bool,
     label: String,
-    label_offset: i32,
     group: RadioButtonGroup,
     callback: Option<RadioButtonCallback>,
     tooltip: Option<String>,
@@ -114,7 +136,6 @@ impl RadioButton {
             selected: false,
             mouse_inside: false,
             label: String::new(),
-            label_offset: 5,
             group,
             callback: None,
             tooltip: None,
@@ -220,79 +241,101 @@ impl RadioButton {
         }
     }
 
-    /// Render the radio button
-    #[allow(unused_variables)]
-    fn render_radiobutton(&self, theme: &GadgetTheme) {
-        // Get colors based on state
-        let bg_color = if !self.enabled {
+    fn current_background_color(&self, theme: &GadgetTheme) -> Color {
+        if !self.enabled {
+            return theme.disabled_color;
+        }
+
+        match self.state {
+            GadgetState::Normal => theme.normal_color,
+            GadgetState::Hovered => theme.hovered_color,
+            GadgetState::Pressed => theme.pressed_color,
+            GadgetState::Focused => theme.focused_color,
+            GadgetState::Disabled => theme.disabled_color,
+        }
+    }
+
+    fn current_box_color(&self, theme: &GadgetTheme) -> Color {
+        if !self.enabled {
             theme.disabled_color
+        } else if self.selected {
+            self.selected_color
         } else {
-            match self.state {
-                GadgetState::Normal => {
-                    if self.selected {
-                        self.selected_color
-                    } else {
-                        self.unselected_color
-                    }
-                }
-                GadgetState::Hovered => {
-                    let base = if self.selected {
-                        self.selected_color
-                    } else {
-                        self.unselected_color
-                    };
-                    base.lighten(20)
-                }
-                GadgetState::Pressed => {
-                    let base = if self.selected {
-                        self.selected_color
-                    } else {
-                        self.unselected_color
-                    };
-                    base.darken(20)
-                }
-                GadgetState::Focused => theme.focused_color,
-                GadgetState::Disabled => theme.disabled_color,
-            }
-        };
+            self.unselected_color
+        }
+    }
 
-        // Animation factor (0.0 to 1.0)
-        let anim_factor = (self.animation_time * 5.0).min(1.0);
-
-        // Draw outer circle
-        let center_x = self.bounds.x + (self.bounds.width / 2) as i32;
-        let center_y = self.bounds.y + (self.bounds.height / 2) as i32;
-        let radius = (self.bounds.width / 2) as f32;
-
-        // [Circle rendering code would go here]
-
-        // Draw inner dot if selected
-        if self.selected {
-            let dot_radius = radius * 0.5 * anim_factor;
-            let dot_alpha = anim_factor;
-
-            // [Inner dot rendering code would go here]
+    /// Build renderer-facing commands for the current radio button state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<RadioButtonRenderCommand> {
+        if !self.visible {
+            return Vec::new();
         }
 
-        // Draw focus ring
-        if self.focused {
-            let focus_radius = radius + 3.0;
-            // [Focus ring rendering code would go here]
-        }
+        let bg_color = self.current_background_color(theme);
+        let box_color = self.current_box_color(theme);
+        let x = self.bounds.x;
+        let y = self.bounds.y;
+        let width = self.bounds.width as i32;
+        let height = self.bounds.height as i32;
 
-        // Draw label if present
+        let mut commands = vec![
+            RadioButtonRenderCommand::Border {
+                rect: self.bounds,
+                color: theme.border_color,
+            },
+            RadioButtonRenderCommand::FillRect {
+                rect: Rect::new(
+                    x + 1,
+                    y + 1,
+                    self.bounds.width.saturating_sub(2),
+                    self.bounds.height.saturating_sub(2),
+                ),
+                color: bg_color,
+            },
+            RadioButtonRenderCommand::Line {
+                start: (x + height, y),
+                end: (x + height, y + height),
+                color: theme.border_color,
+            },
+            RadioButtonRenderCommand::FillRect {
+                rect: Rect::new(
+                    x + 1,
+                    y + 1,
+                    height.saturating_sub(2) as u32,
+                    height.saturating_sub(2) as u32,
+                ),
+                color: box_color,
+            },
+            RadioButtonRenderCommand::Line {
+                start: (x + width - height, y),
+                end: (x + width - height, y + height),
+                color: theme.border_color,
+            },
+            RadioButtonRenderCommand::FillRect {
+                rect: Rect::new(
+                    x + width - height,
+                    y + 1,
+                    height.saturating_sub(1) as u32,
+                    height.saturating_sub(2) as u32,
+                ),
+                color: box_color,
+            },
+        ];
+
         if !self.label.is_empty() {
-            let label_x = self.bounds.x + self.bounds.width as i32 + self.label_offset;
-            let label_y = self.bounds.y + (self.bounds.height / 2) as i32;
-
             let text_color = if self.enabled {
                 theme.text_color
             } else {
                 theme.disabled_text_color
             };
-
-            // [Text rendering code would go here]
+            commands.push(RadioButtonRenderCommand::Text {
+                rect: self.bounds,
+                text: self.label.clone(),
+                color: text_color,
+            });
         }
+
+        commands
     }
 }
 
@@ -478,7 +521,7 @@ impl Gadget for RadioButton {
             return;
         }
 
-        self.render_radiobutton(theme);
+        let _commands = self.render_commands(theme);
     }
 
     fn tooltip(&self) -> Option<&str> {
@@ -640,6 +683,64 @@ mod tests {
 
         assert_eq!(radio.label(), "Test Option");
         assert!(radio.is_selected());
+    }
+
+    #[test]
+    fn radio_button_render_commands_match_w3d_solid_geometry() {
+        let theme = GadgetTheme::default();
+        let group = RadioButtonGroup::new(1);
+        let mut radio = RadioButton::new(1, 10, 20, 40, group)
+            .with_selected(true)
+            .with_label("Alpha");
+        radio.set_size(160, 40);
+
+        assert_eq!(
+            radio.render_commands(&theme),
+            vec![
+                RadioButtonRenderCommand::Border {
+                    rect: Rect::new(10, 20, 160, 40),
+                    color: theme.border_color,
+                },
+                RadioButtonRenderCommand::FillRect {
+                    rect: Rect::new(11, 21, 158, 38),
+                    color: theme.normal_color,
+                },
+                RadioButtonRenderCommand::Line {
+                    start: (50, 20),
+                    end: (50, 60),
+                    color: theme.border_color,
+                },
+                RadioButtonRenderCommand::FillRect {
+                    rect: Rect::new(11, 21, 38, 38),
+                    color: radio.selected_color,
+                },
+                RadioButtonRenderCommand::Line {
+                    start: (130, 20),
+                    end: (130, 60),
+                    color: theme.border_color,
+                },
+                RadioButtonRenderCommand::FillRect {
+                    rect: Rect::new(130, 21, 39, 38),
+                    color: radio.selected_color,
+                },
+                RadioButtonRenderCommand::Text {
+                    rect: Rect::new(10, 20, 160, 40),
+                    text: "Alpha".to_string(),
+                    color: theme.text_color,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn radio_button_render_commands_skip_hidden() {
+        let theme = GadgetTheme::default();
+        let group = RadioButtonGroup::new(1);
+        let mut radio = RadioButton::new(1, 10, 20, 120, group);
+
+        radio.set_visible(false);
+
+        assert!(radio.render_commands(&theme).is_empty());
     }
 
     #[test]
