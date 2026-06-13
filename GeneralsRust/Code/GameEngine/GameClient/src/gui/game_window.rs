@@ -60,6 +60,8 @@ pub const WIN_COLOR_UNDEFINED: u32 = 0x00FF_FFFF;
 
 /// Gadget system message IDs
 const GGM_LEFT_DRAG: u32 = 16384;
+const GGM_SET_LABEL: u32 = GGM_LEFT_DRAG + 1;
+const GGM_GET_LABEL: u32 = GGM_LEFT_DRAG + 2;
 const GGM_FOCUS_CHANGE: u32 = GGM_LEFT_DRAG + 3;
 const GGM_RESIZED: u32 = GGM_LEFT_DRAG + 4;
 const GBM_SET_SELECTION: u32 = GGM_LEFT_DRAG + 10;
@@ -3052,6 +3054,26 @@ impl GameWindow {
             return WindowMsgHandled::Ignored;
         }
 
+        if let WindowMessage::User(code) = msg {
+            match code {
+                GGM_SET_LABEL => {
+                    if data1 != 0 {
+                        let text = unsafe { &*(data1 as *const String) };
+                        let _ = self.set_text(text);
+                    }
+                    return WindowMsgHandled::Handled;
+                }
+                GGM_GET_LABEL => {
+                    if data2 != 0 {
+                        let out = unsafe { &mut *(data2 as *mut String) };
+                        *out = self.get_text().to_string();
+                    }
+                    return WindowMsgHandled::Handled;
+                }
+                _ => {}
+            }
+        }
+
         if matches!(self.widget, Some(WindowWidget::ComboBox(_))) {
             if let WindowMessage::User(code) = msg {
                 match code {
@@ -4890,6 +4912,41 @@ mod tests {
         assert_eq!(map_keycode(0x26), KeyCode::Up);
         assert_eq!(map_keycode(0x27), KeyCode::Right);
         assert_eq!(map_keycode(0x28), KeyCode::Down);
+    }
+
+    #[test]
+    fn static_text_label_system_messages_match_cpp() {
+        let mut window = GameWindow::new();
+        window.set_widget(WindowWidget::StaticText(StaticText::new(7, 0, 0, 120, 24)));
+
+        let label = "Mission Objective".to_string();
+        assert_eq!(
+            window.send_system_message(
+                WindowMessage::User(GGM_SET_LABEL),
+                (&label as *const String) as WindowMsgData,
+                0,
+            ),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(window.get_text(), "Mission Objective");
+        assert_eq!(
+            window.widget().and_then(|widget| match widget {
+                WindowWidget::StaticText(static_text) => Some(static_text.text()),
+                _ => None,
+            }),
+            Some("Mission Objective")
+        );
+
+        let mut out = String::new();
+        assert_eq!(
+            window.send_system_message(
+                WindowMessage::User(GGM_GET_LABEL),
+                0,
+                (&mut out as *mut String) as WindowMsgData,
+            ),
+            WindowMsgHandled::Handled
+        );
+        assert_eq!(out, "Mission Objective");
     }
 
     #[test]
