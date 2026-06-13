@@ -3,14 +3,7 @@
 //! Port of C++ W3DRopeDraw.h/cpp
 //! Reference: /GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DRopeDraw.h
 //!
-//! ## Rendering Gap
-//!
-//! Active implementation in the draw pipeline (instantiated by `module_overrides.rs`,
-//! dispatched by `GameLogic Drawable::draw()`). However, `do_draw_module()` only
-//! computes segment positions in memory — it never creates `SegmentedLine` objects
-//! in `W3DDisplay::global_scene()` because GameLogic cannot depend on GameEngineDevice.
-//!
-//! Reference rendering: `GameEngineDevice/.../Drawable/Draw/wthree_d_rope_draw.rs`
+//! C++ parity note: rope segment state is runtime-only and is rebuilt after load.
 
 use super::draw_module::*;
 use crate::common::*;
@@ -103,9 +96,6 @@ pub struct W3DRopeDraw {
     cur_wobble_phase: Real,
     cur_z_offset: Real,
     segment_line_ids: Vec<Option<SceneLineId>>,
-    hidden: bool,
-    fully_obscured_by_shroud: bool,
-    shadows_enabled: bool,
 }
 
 impl W3DRopeDraw {
@@ -126,9 +116,6 @@ impl W3DRopeDraw {
             cur_wobble_phase: 0.0,
             cur_z_offset: 0.0,
             segment_line_ids: Vec::new(),
-            hidden: false,
-            fully_obscured_by_shroud: false,
-            shadows_enabled: false,
         }
     }
 
@@ -164,31 +151,12 @@ impl W3DRopeDraw {
         }
     }
 
-    fn sync_segment_visibility(&mut self, visible: bool) {
-        for (i, seg) in self.segments.iter().enumerate() {
-            let Some(Some(id)) = self.segment_line_ids.get(i) else {
-                continue;
-            };
-            let desc = SceneLineDesc {
-                start: game_engine::common::system::geometry::Coord3D::new(
-                    seg.start.x,
-                    seg.start.y,
-                    seg.start.z,
-                ),
-                end: game_engine::common::system::geometry::Coord3D::new(
-                    seg.end.x, seg.end.y, seg.end.z,
-                ),
-                width: self.width,
-                color_r: self.color.r as f32 / 255.0,
-                color_g: self.color.g as f32 / 255.0,
-                color_b: self.color.b as f32 / 255.0,
-                opacity: 1.0,
-                texture_name: None,
-                tile_factor: 0.0,
-                visible,
-            };
-            update_scene_line(*id, &desc);
-        }
+    pub fn segment_count(&self) -> usize {
+        self.segments.len()
+    }
+
+    pub fn cur_len(&self) -> Real {
+        self.cur_len
     }
 }
 
@@ -198,7 +166,7 @@ impl Module for W3DRopeDraw {
         self.toss_segments();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self._data.module_tag_name_key
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DRopeDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self._data.module_tag_name_key
@@ -210,11 +178,6 @@ impl Module for W3DRopeDraw {
 
 impl DrawModule for W3DRopeDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        if self.hidden || self.fully_obscured_by_shroud {
-            self.sync_segment_visibility(false);
-            return;
-        }
-
         if self.segments.is_empty() {
             self.build_segments();
         }
@@ -289,17 +252,15 @@ impl DrawModule for W3DRopeDraw {
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
-        self.shadows_enabled = enable;
+        let _ = enable;
     }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
     fn set_hidden(&mut self, hidden: bool) {
-        self.hidden = hidden;
-        self.sync_segment_visibility(!hidden && !self.fully_obscured_by_shroud);
+        let _ = hidden;
     }
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
-        self.fully_obscured_by_shroud = fully_obscured;
-        self.sync_segment_visibility(!fully_obscured && !self.hidden);
+        let _ = fully_obscured;
     }
     fn react_to_transform_change(
         &mut self,
@@ -308,9 +269,7 @@ impl DrawModule for W3DRopeDraw {
         _old_angle: Real,
     ) {
     }
-    fn react_to_geometry_change(&mut self) {
-        self.toss_segments();
-    }
+    fn react_to_geometry_change(&mut self) {}
 
     fn get_rope_draw_interface(&self) -> Option<&dyn RopeDrawInterface> {
         Some(self)
@@ -466,5 +425,53 @@ impl Snapshotable for W3DRopeDraw {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    #[test]
+    fn constructor_matches_cpp_defaults() {
+        let draw = W3DRopeDraw::new(W3DRopeDrawModuleData::new());
+
+        assert_eq!(draw.cur_len(), 0.0);
+        assert_eq!(draw.max_len, 1.0);
+        assert_eq!(draw.width, 0.5);
+        assert_eq!(draw.color.r, 0);
+        assert_eq!(draw.color.g, 0);
+        assert_eq!(draw.color.b, 0);
+        assert_eq!(draw.cur_speed, 0.0);
+        assert_eq!(draw.max_speed, 0.0);
+        assert_eq!(draw.accel, 0.0);
+        assert_eq!(draw.wobble_len, 1.0);
+        assert_eq!(draw.wobble_amp, 0.0);
+        assert_eq!(draw.cur_wobble_phase, 0.0);
+        assert_eq!(draw.cur_z_offset, 0.0);
+    }
+
+    #[test]
+    fn visibility_shadow_and_geometry_hooks_are_noops() {
+        let mut draw = W3DRopeDraw::new(W3DRopeDrawModuleData::new());
+        draw.init_rope_parms(10.0, 1.0, &RGBColor::new(1, 2, 3), 5.0, 0.0, 0.0);
+        let before = draw.segment_count();
+
+        draw.set_hidden(true);
+        draw.set_fully_obscured_by_shroud(true);
+        draw.set_shadows_enabled(false);
+        draw.react_to_geometry_change();
+
+        assert_eq!(draw.segment_count(), before);
+    }
+
+    #[test]
+    fn module_name_key_matches_rope_draw() {
+        let draw = W3DRopeDraw::new(W3DRopeDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DRopeDraw")
+        );
     }
 }
