@@ -15,6 +15,8 @@ use crate::common::ini::ini_terrain_bridge::{
 use crate::debug_assert_crash;
 use std::collections::HashMap;
 
+const CPP_TERRAIN_ROAD_FIELDS: &[&str] = &["Texture", "RoadWidth", "RoadWidthInTexture"];
+
 /// Result type for terrain road parsing operations
 pub type TerrainRoadResult<T> = Result<T, TerrainRoadError>;
 
@@ -216,9 +218,28 @@ impl IniTerrainRoad {
         // Create road
         let mut road = TerrainRoadType::new_road(name);
 
-        // Update road from properties
-        road.update_from_properties(&properties)
-            .map_err(TerrainRoadError::ParseError)?;
+        // Update road from C++ TerrainRoadType::m_terrainRoadFieldParseTable.
+        for (key, value) in &properties {
+            if !CPP_TERRAIN_ROAD_FIELDS.contains(&key.as_str()) {
+                return Err(TerrainRoadError::ParseError(format!(
+                    "Unknown terrain road field '{}'",
+                    key
+                )));
+            }
+
+            match key.as_str() {
+                "Texture" => {
+                    road.texture_name = AsciiString::from(value);
+                }
+                "RoadWidth" => {
+                    road.width = parse_f32_field(key, value)?;
+                }
+                "RoadWidthInTexture" => {
+                    road.road_width_in_texture = parse_f32_field(key, value)?;
+                }
+                _ => unreachable!("field was validated against C++ terrain road table"),
+            }
+        }
 
         // Validate road
         if !road.is_valid() {
@@ -282,7 +303,10 @@ impl IniTerrainRoad {
                     })?;
                 }
                 _ => {
-                    // Ignore unknown properties for road configuration
+                    return Err(TerrainRoadError::ParseError(format!(
+                        "Unknown road configuration field '{}'",
+                        key
+                    )));
                 }
             }
         }
@@ -388,6 +412,12 @@ impl IniTerrainRoad {
     }
 }
 
+fn parse_f32_field(field_name: &str, value: &str) -> TerrainRoadResult<f32> {
+    value.parse::<f32>().map_err(|e| {
+        TerrainRoadError::ParseError(format!("Invalid {} value '{}': {}", field_name, value, e))
+    })
+}
+
 /// Token parser for extracting road data from INI tokens
 pub struct RoadTokenParser;
 
@@ -478,6 +508,71 @@ mod tests {
         assert_eq!(config.lane_count, 4);
         assert!(config.has_sidewalks);
         assert_eq!(config.construction_cost, 250);
+    }
+
+    #[test]
+    fn road_block_accepts_cpp_field_table_fields() {
+        let mut properties = HashMap::new();
+        properties.insert("Texture".to_string(), "RoadTex.tga".to_string());
+        properties.insert("RoadWidth".to_string(), "12.5".to_string());
+        properties.insert("RoadWidthInTexture".to_string(), "64.0".to_string());
+
+        let road =
+            IniTerrainRoad::parse_terrain_road_block(AsciiString::from("RoadType"), properties)
+                .unwrap();
+
+        assert_eq!(road.texture_name.as_str(), "RoadTex.tga");
+        assert_eq!(road.width, 12.5);
+        assert_eq!(road.road_width_in_texture, 64.0);
+        assert!(road.properties.is_empty());
+    }
+
+    #[test]
+    fn road_block_rejects_fields_outside_cpp_parse_table() {
+        for field in [
+            "Width",
+            "Surface",
+            "LaneCount",
+            "HasSidewalks",
+            "ConstructionCost",
+            "MovementSpeedModifier",
+            "UnknownField",
+        ] {
+            let mut properties = HashMap::new();
+            properties.insert(field.to_string(), "1".to_string());
+            assert!(
+                IniTerrainRoad::parse_terrain_road_block(AsciiString::from("BadRoad"), properties)
+                    .is_err(),
+                "{} should be rejected because C++ TerrainRoadType road table does not parse it",
+                field
+            );
+        }
+    }
+
+    #[test]
+    fn road_block_rejects_malformed_cpp_numeric_values() {
+        let mut properties = HashMap::new();
+        properties.insert("RoadWidth".to_string(), "wide".to_string());
+        assert!(IniTerrainRoad::parse_terrain_road_block(
+            AsciiString::from("BadWidth"),
+            properties
+        )
+        .is_err());
+
+        let mut properties = HashMap::new();
+        properties.insert("RoadWidthInTexture".to_string(), "many".to_string());
+        assert!(IniTerrainRoad::parse_terrain_road_block(
+            AsciiString::from("BadTextureWidth"),
+            properties
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn road_configuration_rejects_unknown_fields() {
+        let mut properties = HashMap::new();
+        properties.insert("UnknownField".to_string(), "1".to_string());
+        assert!(IniTerrainRoad::parse_road_configuration(&properties).is_err());
     }
 
     #[test]
