@@ -996,11 +996,24 @@ fn recoil_state_from_i32(value: i32) -> RecoilState {
 }
 
 fn xfer_matrix3d_values(xfer: &mut dyn Xfer, matrix: &mut Matrix3D) -> Result<(), String> {
-    let mut cols = matrix.to_cols_array();
-    for value in &mut cols {
+    let cols = matrix.to_cols_array();
+    let mut row0 = [cols[0], cols[4], cols[8], cols[12]];
+    let mut row1 = [cols[1], cols[5], cols[9], cols[13]];
+    let mut row2 = [cols[2], cols[6], cols[10], cols[14]];
+
+    for value in row0
+        .iter_mut()
+        .chain(row1.iter_mut())
+        .chain(row2.iter_mut())
+    {
         xfer.xfer_real(value).map_err(|e| e.to_string())?;
     }
-    *matrix = Matrix3D::from_cols_array(&cols);
+
+    let rebuilt_cols = [
+        row0[0], row1[0], row2[0], 0.0, row0[1], row1[1], row2[1], 0.0, row0[2], row1[2], row2[2],
+        0.0, row0[3], row1[3], row2[3], 1.0,
+    ];
+    *matrix = Matrix3D::from_cols_array(&rebuilt_cols);
     Ok(())
 }
 
@@ -3650,6 +3663,52 @@ mod tests {
                 | MODEL_CONDITION_HAS_PROJECTILE_BONES
                 | MODEL_CONDITION_BARRELS_VALID
                 | MODEL_CONDITION_PUBLIC_BONES_VALID
+        );
+    }
+
+    #[test]
+    fn matrix3d_user_xfer_uses_cpp_raw_3x4_row_layout() {
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let mut matrix = Matrix3D::from_cols_array(&[
+            1.0, 5.0, 9.0, 13.0, 2.0, 6.0, 10.0, 14.0, 3.0, 7.0, 11.0, 15.0, 4.0, 8.0, 12.0, 16.0,
+        ]);
+
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut save = XferSave::new(cursor, 1);
+            save.open("w3d_model_draw_matrix3d_user").unwrap();
+            xfer_matrix3d_values(&mut save, &mut matrix).unwrap();
+            save.close().unwrap();
+        }
+
+        assert_eq!(bytes.len(), 12 * std::mem::size_of::<f32>());
+        for (index, expected) in (1..=12).map(|value| value as f32).enumerate() {
+            let start = index * std::mem::size_of::<f32>();
+            assert_eq!(&bytes[start..start + 4], &expected.to_le_bytes());
+        }
+    }
+
+    #[test]
+    fn matrix3d_user_xfer_load_restores_glam_bottom_row() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use std::io::Cursor;
+
+        let bytes = (1..=12)
+            .flat_map(|value| (value as f32).to_le_bytes())
+            .collect::<Vec<_>>();
+        let mut matrix = Matrix3D::from_cols_array(&[99.0; 16]);
+        let mut load = XferLoad::new(Cursor::new(bytes), 1);
+
+        load.open("w3d_model_draw_matrix3d_user").unwrap();
+        xfer_matrix3d_values(&mut load, &mut matrix).unwrap();
+        load.close().unwrap();
+
+        assert_eq!(
+            matrix.to_cols_array(),
+            [1.0, 5.0, 9.0, 0.0, 2.0, 6.0, 10.0, 0.0, 3.0, 7.0, 11.0, 0.0, 4.0, 8.0, 12.0, 1.0]
         );
     }
 
