@@ -3,18 +3,8 @@
 //! Port of C++ W3DLaserDraw.h
 //! Reference: /GeneralsMD/Code/GameEngineDevice/Include/W3DDevice/GameClient/Module/W3DLaserDraw.h
 //!
-//! ## Rendering Gap
-//!
-//! This module is the **active implementation** in the draw pipeline (instantiated
-//! by `module_overrides.rs`, dispatched by `GameLogic Drawable::draw()`). However,
-//! `do_draw_module()` only computes beam geometry into `Vec<LaserLine>` — it never
-//! submits `SegmentedLine` objects to `W3DDisplay::global_scene()` because GameLogic
-//! cannot depend on GameEngineDevice.
-//!
-//! The reference rendering implementation lives at:
-//! `GameEngineDevice/src/W3DDevice/GameClient/Drawable/Draw/wthree_d_laser_draw.rs`
-//!
-//! This gap affects ALL draw modules (see `W3DModelDraw::do_draw_module()` line 1888).
+//! C++ parity note: `LaserUpdate` owns laser position and width lifetime. This
+//! draw module only mirrors that state into beam line geometry.
 
 use super::draw_module::*;
 use crate::common::*;
@@ -428,9 +418,6 @@ impl Snapshotable for W3DLaserDrawModuleData {
 
 pub struct W3DLaserDraw {
     data: W3DLaserDrawModuleData,
-    current_intensity: Real,
-    current_frame: u32,
-    texture_offset: Real,
     owner_id: Option<ObjectID>,
     self_dirty: bool,
     start_pos: Coord3D,
@@ -440,18 +427,12 @@ pub struct W3DLaserDraw {
     has_texture: bool,
     texture_aspect_ratio: Real,
     scene_line_ids: Vec<Option<SceneLineId>>,
-    hidden: bool,
-    fully_obscured_by_shroud: bool,
-    shadows_enabled: bool,
 }
 
 impl W3DLaserDraw {
     pub fn new(data: W3DLaserDrawModuleData) -> Self {
         Self {
             data,
-            current_intensity: 1.0,
-            current_frame: 0,
-            texture_offset: 0.0,
             owner_id: None,
             self_dirty: true,
             start_pos: Coord3D::origin(),
@@ -461,9 +442,6 @@ impl W3DLaserDraw {
             has_texture: false,
             texture_aspect_ratio: 1.0,
             scene_line_ids: Vec::new(),
-            hidden: false,
-            fully_obscured_by_shroud: false,
-            shadows_enabled: false,
         }
     }
 
@@ -475,6 +453,10 @@ impl W3DLaserDraw {
     /// Get the laser template width (outer beam width)
     pub fn get_laser_template_width(&self) -> Real {
         self.data.outer_beam_width * 0.5
+    }
+
+    pub fn is_self_dirty(&self) -> bool {
+        self.self_dirty
     }
 
     fn refresh_from_laser_update(&mut self) -> bool {
@@ -593,41 +575,6 @@ impl W3DLaserDraw {
         self.release_scene_lines();
         self.scene_line_ids.resize(required, None);
     }
-
-    fn sync_scene_visibility(&mut self, visible: bool) {
-        for (index, maybe_id) in self.scene_line_ids.iter().enumerate() {
-            let Some(id) = maybe_id else {
-                continue;
-            };
-            let Some(line) = self.lines.get(index) else {
-                continue;
-            };
-            let (cr, cg, cb, ca) = color_components_real(line.color);
-            let desc = SceneLineDesc {
-                start: game_engine::common::system::geometry::Coord3D::new(
-                    line.start.x,
-                    line.start.y,
-                    line.start.z,
-                ),
-                end: game_engine::common::system::geometry::Coord3D::new(
-                    line.end.x, line.end.y, line.end.z,
-                ),
-                width: line.width,
-                color_r: cr,
-                color_g: cg,
-                color_b: cb,
-                opacity: ca,
-                texture_name: if self.has_texture {
-                    Some(self.data.texture_name.to_string())
-                } else {
-                    None
-                },
-                tile_factor: line.tile_factor,
-                visible: visible && line.visible,
-            };
-            update_scene_line(*id, &desc);
-        }
-    }
 }
 
 impl Module for W3DLaserDraw {
@@ -636,7 +583,7 @@ impl Module for W3DLaserDraw {
         self.release_scene_lines();
     }
     fn get_module_name_key(&self) -> NameKeyType {
-        self.data.module_tag_name_key
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key("W3DLaserDraw")
     }
     fn get_module_tag_name_key(&self) -> NameKeyType {
         self.data.module_tag_name_key
@@ -650,24 +597,7 @@ impl DrawModule for W3DLaserDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         let _ = transform_mtx;
 
-        if self.hidden || self.fully_obscured_by_shroud {
-            self.sync_scene_visibility(false);
-            return;
-        }
-
         let needs_update = self.refresh_from_laser_update();
-
-        // Update animation
-        self.current_frame += 1;
-        self.texture_offset += self.data.scroll_rate / LOGICFRAMES_PER_SECOND as Real;
-
-        // Update intensity (fade in/out)
-        if self.current_frame < self.data.max_intensity_frames {
-            self.current_intensity =
-                self.current_frame as Real / self.data.max_intensity_frames as Real;
-        } else if self.current_frame > self.data.max_intensity_frames + self.data.fade_frames {
-            self.current_intensity = 0.0;
-        }
 
         if !needs_update {
             return;
@@ -796,17 +726,15 @@ impl DrawModule for W3DLaserDraw {
     }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
-        self.shadows_enabled = enable;
+        let _ = enable;
     }
     fn release_shadows(&mut self) {}
     fn allocate_shadows(&mut self) {}
     fn set_hidden(&mut self, hidden: bool) {
-        self.hidden = hidden;
-        self.sync_scene_visibility(!hidden && !self.fully_obscured_by_shroud);
+        let _ = hidden;
     }
     fn set_fully_obscured_by_shroud(&mut self, fully_obscured: bool) {
-        self.fully_obscured_by_shroud = fully_obscured;
-        self.sync_scene_visibility(!fully_obscured && !self.hidden);
+        let _ = fully_obscured;
     }
     fn react_to_transform_change(
         &mut self,
@@ -815,9 +743,7 @@ impl DrawModule for W3DLaserDraw {
         _old_angle: Real,
     ) {
     }
-    fn react_to_geometry_change(&mut self) {
-        self.self_dirty = true;
-    }
+    fn react_to_geometry_change(&mut self) {}
     fn is_laser(&self) -> bool {
         true
     }
@@ -909,6 +835,36 @@ fn color_from_real(r: Real, g: Real, b: Real, a: Real) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constructor_matches_cpp_module_defaults() {
+        let data = W3DLaserDrawModuleData::new();
+
+        assert_eq!(data.inner_beam_width, 0.0);
+        assert_eq!(data.outer_beam_width, 1.0);
+        assert_eq!(data.num_beams, 1);
+        assert_eq!(data.max_intensity_frames, 0);
+        assert_eq!(data.fade_frames, 0);
+        assert_eq!(data.scroll_rate, 0.0);
+        assert!(!data.tile);
+        assert_eq!(data.segments, 1);
+        assert_eq!(data.arc_height, 0.0);
+        assert_eq!(data.segment_overlap_ratio, 0.0);
+        assert_eq!(data.tiling_scalar, 1.0);
+    }
+
+    #[test]
+    fn hidden_shadow_shroud_and_geometry_hooks_are_noops() {
+        let mut draw = W3DLaserDraw::new(W3DLaserDrawModuleData::new());
+        draw.self_dirty = false;
+
+        draw.set_hidden(true);
+        draw.set_fully_obscured_by_shroud(true);
+        draw.set_shadows_enabled(false);
+        draw.react_to_geometry_change();
+
+        assert!(!draw.is_self_dirty());
+    }
 
     #[test]
     fn parse_duration_frames_accepts_seconds_suffix() {
