@@ -409,6 +409,7 @@ enum DrawModuleKindMut<'a> {
     ProjectileStream(&'a mut crate::object::draw::W3DProjectileStreamDraw),
     Tree(&'a mut crate::object::draw::W3DTreeDraw),
     Debris(&'a mut crate::object::draw::W3DDebrisDraw),
+    Supply(&'a mut crate::object::draw::W3DSupplyDraw),
 }
 
 impl<'a> DrawModuleKindMut<'a> {
@@ -424,6 +425,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::ProjectileStream(draw) => draw,
             Self::Tree(draw) => draw,
             Self::Debris(draw) => draw,
+            Self::Supply(draw) => draw,
         }
     }
 
@@ -446,6 +448,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::ProjectileStream(draw) => draw.set_terrain_decal(decal_type),
             Self::Tree(draw) => draw.set_terrain_decal(decal_type),
             Self::Debris(draw) => draw.set_terrain_decal(decal_type),
+            Self::Supply(draw) => draw.set_terrain_decal(decal_type),
         }
     }
 
@@ -457,6 +460,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::Laser(draw) => draw.bind_owner_id(object_id),
             Self::ProjectileStream(draw) => draw.bind_owner_id(object_id),
             Self::Debris(draw) => draw.bind_owner_id(object_id),
+            Self::Supply(draw) => draw.bind_owner_id(object_id),
             Self::Tracer(_) | Self::Rope(_) | Self::Projectile(_) | Self::Tree(_) => {}
         }
     }
@@ -515,6 +519,11 @@ fn with_draw_module_kind(
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DDebrisDraw>()
     {
         func(DrawModuleKindMut::Debris(module));
+        true
+    } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DSupplyDraw>()
+    {
+        func(DrawModuleKindMut::Supply(module));
         true
     } else {
         false
