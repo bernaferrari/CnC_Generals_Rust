@@ -35,7 +35,7 @@ use crate::common::{
     thing::module::{ModuleData, ModuleInterfaceType, ModuleType},
 };
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     sync::{Arc, RwLock},
 };
 
@@ -641,7 +641,7 @@ pub type PerUnitSoundMap = HashMap<AsciiString, AudioEventRts>;
 
 pub type PerUnitFxMap = HashMap<AsciiString, Option<Arc<crate::common::ini::ini_fx_list::FXList>>>;
 
-/// Weapon template set placeholder
+/// Weapon template set definition mirroring the legacy C++ structure.
 #[derive(Debug, Clone)]
 pub struct WeaponTemplateSet {
     /// Bit-flag mask describing when this weapon set applies.
@@ -650,7 +650,7 @@ pub struct WeaponTemplateSet {
     weapon_template_names: [Option<AsciiString>; WEAPON_SLOT_COUNT],
     /// Command source mask per slot mirroring auto-choose rules.
     auto_choose_masks: [u32; WEAPON_SLOT_COUNT],
-    /// Preferred target kind mask per slot (KindOfMaskType placeholder).
+    /// Preferred target kind mask per slot.
     preferred_against_masks: [crate::common::system::kind_of::KindOfMask; WEAPON_SLOT_COUNT],
     /// Whether reload times are shared across all slots in this set.
     is_reload_time_shared: bool,
@@ -947,6 +947,139 @@ pub(crate) fn split_weapon_condition_tokens(value: &str) -> Vec<String> {
             }
         })
         .collect()
+}
+
+#[derive(Debug, Clone)]
+struct IndexedSubblockField {
+    repeat_index: usize,
+    field: String,
+    value: String,
+}
+
+fn indexed_subblock_field_order(field: &str) -> usize {
+    match field {
+        "Conditions" => 0,
+        "Weapon" | "Armor" => 1,
+        "AutoChooseSources" | "DamageFX" => 2,
+        "PreferredAgainst" => 3,
+        "ShareWeaponReloadTime" => 4,
+        "WeaponLockSharedAcrossSets" => 5,
+        _ => usize::MAX,
+    }
+}
+
+fn collect_indexed_subblocks(
+    properties: &HashMap<String, String>,
+    prefix: &str,
+) -> BTreeMap<usize, Vec<IndexedSubblockField>> {
+    let mut blocks: BTreeMap<usize, Vec<IndexedSubblockField>> = BTreeMap::new();
+
+    for (key, value) in properties {
+        let Some(rest) = key.strip_prefix(prefix) else {
+            continue;
+        };
+        let digit_len = rest
+            .chars()
+            .take_while(|character| character.is_ascii_digit())
+            .count();
+        if digit_len == 0 {
+            continue;
+        }
+        let (index_text, field_text) = rest.split_at(digit_len);
+        let Some(field_text) = field_text.strip_prefix('.') else {
+            continue;
+        };
+        let Ok(block_index) = index_text.parse::<usize>() else {
+            continue;
+        };
+        let (field, repeat_index) = if let Some((field, repeat)) = field_text.rsplit_once('#') {
+            (field, repeat.parse::<usize>().unwrap_or(0))
+        } else {
+            (field_text, 0)
+        };
+        blocks
+            .entry(block_index)
+            .or_default()
+            .push(IndexedSubblockField {
+                repeat_index,
+                field: field.to_string(),
+                value: value.clone(),
+            });
+    }
+
+    for fields in blocks.values_mut() {
+        fields.sort_by_key(|field| {
+            (
+                field.repeat_index,
+                indexed_subblock_field_order(&field.field),
+                field.field.clone(),
+            )
+        });
+    }
+
+    blocks
+}
+
+fn parse_weapon_slot(token: &str) -> Result<usize, String> {
+    match token.to_ascii_uppercase().as_str() {
+        "PRIMARY" => Ok(0),
+        "SECONDARY" => Ok(1),
+        "TERTIARY" => Ok(2),
+        _ => Err(format!("Unknown weapon slot '{}'", token)),
+    }
+}
+
+fn parse_slot_prefixed_value(value: &str) -> Result<(usize, String), String> {
+    let mut parts = value.split_whitespace();
+    let slot = parts
+        .next()
+        .ok_or_else(|| "Missing weapon slot".to_string())
+        .and_then(parse_weapon_slot)?;
+    let remainder = parts.collect::<Vec<_>>().join(" ");
+    Ok((slot, remainder))
+}
+
+fn parse_command_source_mask(value: &str) -> Result<u32, String> {
+    let mut mask = 0u32;
+    for token in split_weapon_condition_tokens(value) {
+        match token.as_str() {
+            "NONE" => {}
+            "FROM_PLAYER" => mask |= 1 << 0,
+            "FROM_SCRIPT" => mask |= 1 << 1,
+            "FROM_AI" => mask |= 1 << 2,
+            "FROM_DOZER" => mask |= 1 << 3,
+            "DEFAULT_SWITCH_WEAPON" => mask |= 1 << 4,
+            other => return Err(format!("Unknown command source '{}'", other)),
+        }
+    }
+    Ok(mask)
+}
+
+fn parse_kindof_mask(value: &str) -> Result<crate::common::system::kind_of::KindOfMask, String> {
+    let mut mask = crate::common::system::kind_of::KindOfMask::empty();
+    for token in split_weapon_condition_tokens(value) {
+        if token == "NONE" {
+            continue;
+        }
+        let Some(flag) = crate::common::system::kind_of::KindOfMask::from_string(&token) else {
+            return Err(format!("Unknown KindOf token '{}'", token));
+        };
+        mask |= flag;
+    }
+    Ok(mask)
+}
+
+fn apply_flag_tokens(flags: &mut BitFlags, value: &str, field_name: &str) -> Result<(), String> {
+    flags.clear();
+    for token in split_weapon_condition_tokens(value) {
+        if token == "NONE" {
+            continue;
+        }
+        if !flags.set_bit_by_name(&token) {
+            return Err(format!("Unknown {} condition '{}'", field_name, token));
+        }
+    }
+    Ok(())
 }
 /// Armor template set definition mirroring the legacy C++ structure.
 #[derive(Debug, Clone)]
@@ -1635,6 +1768,57 @@ impl ThingTemplate {
         Ok(())
     }
 
+    fn load_weapon_sets_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        let blocks = collect_indexed_subblocks(properties, "WeaponSet");
+        if blocks.is_empty() {
+            return Ok(());
+        }
+
+        self.clear_weapon_template_sets();
+        for fields in blocks.values() {
+            let mut set = WeaponTemplateSet::new();
+            for field in fields {
+                match field.field.as_str() {
+                    "Conditions" => {
+                        apply_flag_tokens(set.types_mut(), &field.value, "weapon set")?;
+                    }
+                    "Weapon" => {
+                        let (slot, weapon_name) = parse_slot_prefixed_value(&field.value)?;
+                        let weapon_name = weapon_name.trim();
+                        let weapon_name =
+                            if weapon_name.is_empty() || weapon_name.eq_ignore_ascii_case("None") {
+                                None
+                            } else {
+                                Some(AsciiString::from(weapon_name))
+                            };
+                        set.set_weapon_template_name(slot, weapon_name);
+                    }
+                    "AutoChooseSources" => {
+                        let (slot, source_names) = parse_slot_prefixed_value(&field.value)?;
+                        set.set_auto_choose_mask(slot, parse_command_source_mask(&source_names)?);
+                    }
+                    "PreferredAgainst" => {
+                        let (slot, kindof_names) = parse_slot_prefixed_value(&field.value)?;
+                        set.set_preferred_against_mask(slot, parse_kindof_mask(&kindof_names)?);
+                    }
+                    "ShareWeaponReloadTime" => {
+                        set.set_reload_time_shared(parse_bool_field(&field.value)?);
+                    }
+                    "WeaponLockSharedAcrossSets" => {
+                        set.set_weapon_lock_shared_across_sets(parse_bool_field(&field.value)?);
+                    }
+                    other => return Err(format!("Unknown WeaponSet field '{}'", other)),
+                }
+            }
+            self.add_weapon_template_set(set);
+        }
+
+        Ok(())
+    }
+
     /// Returns true if any weapon template set contains at least one weapon template.
     pub fn can_possibly_have_any_weapon(&self) -> bool {
         self.weapon_template_sets
@@ -1657,6 +1841,50 @@ impl ThingTemplate {
     pub fn clear_armor_template_sets(&mut self) {
         self.armor_template_sets.clear();
         self.armor_template_set_finder.clear();
+    }
+
+    fn load_armor_sets_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        let blocks = collect_indexed_subblocks(properties, "ArmorSet");
+        if blocks.is_empty() {
+            return Ok(());
+        }
+
+        self.clear_armor_template_sets();
+        for fields in blocks.values() {
+            let mut set = ArmorTemplateSet::new();
+            for field in fields {
+                match field.field.as_str() {
+                    "Conditions" => {
+                        apply_flag_tokens(set.types_mut(), &field.value, "armor set")?;
+                    }
+                    "Armor" => {
+                        let value = field.value.trim();
+                        let name = if value.is_empty() || value.eq_ignore_ascii_case("None") {
+                            None
+                        } else {
+                            Some(AsciiString::from(value))
+                        };
+                        set.set_armor_template_name(name);
+                    }
+                    "DamageFX" => {
+                        let value = field.value.trim();
+                        let name = if value.is_empty() || value.eq_ignore_ascii_case("None") {
+                            None
+                        } else {
+                            Some(AsciiString::from(value))
+                        };
+                        set.set_damage_fx_name(name);
+                    }
+                    other => return Err(format!("Unknown ArmorSet field '{}'", other)),
+                }
+            }
+            self.add_armor_template_set(set);
+        }
+
+        Ok(())
     }
 
     /// Find the best matching armor template set for the supplied flags.
@@ -2032,6 +2260,9 @@ impl ThingTemplate {
         &mut self,
         properties: &std::collections::HashMap<String, String>,
     ) -> Result<(), String> {
+        self.load_weapon_sets_from_properties(properties)?;
+        self.load_armor_sets_from_properties(properties)?;
+
         for (key, value) in properties {
             let trimmed = value.trim();
             match key.as_str() {
@@ -2533,6 +2764,128 @@ mod tests {
         template
             .parse_object_fields_from_ini(&properties)
             .expect("valid C++ object fields should be accepted");
+    }
+
+    #[test]
+    fn object_field_parse_populates_weapon_sets_from_collected_subblocks() {
+        use crate::common::system::kind_of::KindOfMask;
+
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            ("WeaponSet0.Conditions".to_string(), "HERO".to_string()),
+            (
+                "WeaponSet0.Weapon".to_string(),
+                "PRIMARY HeroPrimary".to_string(),
+            ),
+            (
+                "WeaponSet0.Weapon#1".to_string(),
+                "SECONDARY HeroSecondary".to_string(),
+            ),
+            (
+                "WeaponSet0.AutoChooseSources".to_string(),
+                "PRIMARY FROM_PLAYER FROM_AI".to_string(),
+            ),
+            (
+                "WeaponSet0.PreferredAgainst".to_string(),
+                "SECONDARY AIRCRAFT BALLISTIC_MISSILE".to_string(),
+            ),
+            (
+                "WeaponSet0.ShareWeaponReloadTime".to_string(),
+                "Yes".to_string(),
+            ),
+            (
+                "WeaponSet0.WeaponLockSharedAcrossSets".to_string(),
+                "No".to_string(),
+            ),
+        ]);
+
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("weapon set properties should parse");
+
+        assert_eq!(template.weapon_template_sets().len(), 1);
+        let set = &template.weapon_template_sets()[0];
+        assert!(set.types().test(WeaponSetBits::HERO));
+        assert_eq!(
+            set.weapon_template_name(0).map(|name| name.as_str()),
+            Some("HeroPrimary")
+        );
+        assert_eq!(
+            set.weapon_template_name(1).map(|name| name.as_str()),
+            Some("HeroSecondary")
+        );
+        assert_eq!(set.auto_choose_mask(0), (1 << 0) | (1 << 2));
+        assert_eq!(
+            set.preferred_against_mask(1),
+            KindOfMask::AIRCRAFT | KindOfMask::BALLISTIC_MISSILE
+        );
+        assert!(set.is_reload_time_shared());
+        assert!(!set.is_weapon_lock_shared_across_sets());
+    }
+
+    #[test]
+    fn object_field_parse_populates_armor_sets_from_collected_subblocks() {
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            (
+                "ArmorSet0.Conditions".to_string(),
+                "PLAYER_UPGRADE".to_string(),
+            ),
+            (
+                "ArmorSet0.Armor".to_string(),
+                "StructureArmorTough".to_string(),
+            ),
+            (
+                "ArmorSet0.DamageFX".to_string(),
+                "StructureDamageFXNoShake".to_string(),
+            ),
+        ]);
+
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("armor set properties should parse");
+
+        assert_eq!(template.armor_template_sets().len(), 1);
+        let set = &template.armor_template_sets()[0];
+        assert!(set.types().test(ArmorSetBits::PLAYER_UPGRADE));
+        assert_eq!(
+            set.armor_template_name().map(|name| name.as_str()),
+            Some("StructureArmorTough")
+        );
+        assert_eq!(
+            set.damage_fx_name().map(|name| name.as_str()),
+            Some("StructureDamageFXNoShake")
+        );
+    }
+
+    #[test]
+    fn object_field_parse_treats_none_weapon_and_armor_conditions_as_empty() {
+        let mut template = ThingTemplate::new();
+        let properties = HashMap::from([
+            ("WeaponSet0.Conditions".to_string(), "None".to_string()),
+            ("WeaponSet0.Weapon".to_string(), "PRIMARY None".to_string()),
+            (
+                "WeaponSet0.AutoChooseSources".to_string(),
+                "PRIMARY None".to_string(),
+            ),
+            ("ArmorSet0.Conditions".to_string(), "None".to_string()),
+            ("ArmorSet0.Armor".to_string(), "None".to_string()),
+            ("ArmorSet0.DamageFX".to_string(), "None".to_string()),
+        ]);
+
+        template
+            .parse_object_fields_from_ini(&properties)
+            .expect("None values should parse like empty C++ masks/references");
+
+        let weapon_set = &template.weapon_template_sets()[0];
+        assert!(!weapon_set.types().any());
+        assert!(weapon_set.weapon_template_name(0).is_none());
+        assert_eq!(weapon_set.auto_choose_mask(0), 0);
+
+        let armor_set = &template.armor_template_sets()[0];
+        assert!(!armor_set.types().any());
+        assert!(armor_set.armor_template_name().is_none());
+        assert!(armor_set.damage_fx_name().is_none());
     }
 
     #[test]
