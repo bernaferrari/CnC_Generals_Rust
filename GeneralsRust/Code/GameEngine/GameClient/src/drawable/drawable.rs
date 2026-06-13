@@ -2062,6 +2062,14 @@ impl BasicDrawable {
         })
     }
 
+    fn object_stealth_visuals(&self) -> Option<(bool, f32)> {
+        let object_id = self.object_id?;
+        let obj_arc = OBJECT_REGISTRY.get_object(object_id)?;
+        let stealth = obj_arc.read().ok()?.get_stealth()?;
+        let stealth = stealth.lock().ok()?;
+        Some((stealth.is_disguised(), stealth.get_friendly_opacity()))
+    }
+
     /// Full stealth look logic ported from C++ Drawable::setStealthLook (Drawable.cpp:2527-2606).
     /// Sets stealth opacity, hidden-by-stealth flag, and second material pass opacity
     /// based on the stealth look type. The trait's set_stealth_look delegates here.
@@ -2078,14 +2086,19 @@ impl BasicDrawable {
             }
             StealthLook::VisibleFriendly | StealthLook::VisibleFriendlyDetected => {
                 // C++ reads TheGlobalData->m_stealthFriendlyOpacity as default opacity.
-                let opacity: f32 = get_global_data()
+                let mut opacity: f32 = get_global_data()
                     .map(|data| data.read().stealth_friendly_opacity)
                     .unwrap_or(DEFAULT_STEALTH_FRIENDLY_OPACITY);
 
-                // C++ checks for disguised objects — if disguised, stealth opacity
-                // is not applied (disguised objects are fully visible to their owner).
-                // PARITY_NOTE: Requires StealthUpdate module (Drawable.cpp:2549-2566).
-                // When ported, check stealth->isDisguised() and read stealth->getFriendlyOpacity()
+                if let Some((is_disguised, friendly_opacity)) = self.object_stealth_visuals() {
+                    if is_disguised {
+                        self.hidden_by_stealth = false;
+                        self.stealth_look = look;
+                        return;
+                    }
+                    opacity = friendly_opacity;
+                }
+
                 self.stealth_opacity = opacity;
                 self.hidden_by_stealth = false;
 
@@ -5855,6 +5868,73 @@ mod tests {
 
         assert!(drawable.overlay_data.show_bombed);
         assert_eq!(drawable.overlay_data.bomb_type, 3);
+
+        OBJECT_REGISTRY.unregister_object(object_id);
+    }
+
+    #[test]
+    fn visible_friendly_stealth_uses_module_friendly_opacity_like_cpp() {
+        use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
+        use gamelogic::object::Object;
+        use gamelogic::stealth_update::{StealthUpdateModule, StealthUpdateModuleData};
+
+        let global_data = game_engine::common::ini::ini_game_data::ensure_global_data();
+        let original_global_opacity = global_data.read().stealth_friendly_opacity;
+        global_data.write().stealth_friendly_opacity = 0.25;
+
+        let object_id = 900_003;
+        let template = Arc::new(DefaultThingTemplate::new(
+            "DrawableStealthOpacityTest".to_string(),
+        ));
+        let _object =
+            Object::new_with_id(template, object_id, ObjectStatusMaskType::none(), None).unwrap();
+
+        let mut stealth_module =
+            StealthUpdateModule::new(0, Arc::new(StealthUpdateModuleData::default()), object_id);
+        stealth_module.on_object_created();
+
+        let mut drawable = BasicDrawable::new(DrawableId(3));
+        drawable.set_object_id(Some(object_id));
+        drawable.apply_stealth_look(StealthLook::VisibleFriendly);
+
+        assert_near(drawable.stealth_opacity, 0.5);
+        assert!(!drawable.hidden_by_stealth);
+        assert_eq!(drawable.second_material_pass_opacity, 0.0);
+
+        OBJECT_REGISTRY.unregister_object(object_id);
+        global_data.write().stealth_friendly_opacity = original_global_opacity;
+    }
+
+    #[test]
+    fn disguised_friendly_stealth_leaves_opacity_and_second_pass_like_cpp_break() {
+        use gamelogic::common::{DefaultThingTemplate, ObjectStatusMaskType};
+        use gamelogic::object::Object;
+        use gamelogic::stealth_update::{StealthUpdateModule, StealthUpdateModuleData};
+
+        let object_id = 900_004;
+        let template = Arc::new(DefaultThingTemplate::new(
+            "DrawableStealthDisguiseTest".to_string(),
+        ));
+        let _object =
+            Object::new_with_id(template, object_id, ObjectStatusMaskType::none(), None).unwrap();
+
+        let mut stealth_module =
+            StealthUpdateModule::new(0, Arc::new(StealthUpdateModuleData::default()), object_id);
+        stealth_module.on_object_created();
+        stealth_module
+            .get_stealth_disguise_control_interface()
+            .unwrap()
+            .disguise_as_template(Some("ChinaVehicleTroopCrawler".to_string()), 0);
+
+        let mut drawable = BasicDrawable::new(DrawableId(4));
+        drawable.set_object_id(Some(object_id));
+        drawable.second_material_pass_opacity = 0.75;
+        drawable.apply_stealth_look(StealthLook::VisibleFriendlyDetected);
+
+        assert_near(drawable.stealth_opacity, 1.0);
+        assert!(!drawable.hidden_by_stealth);
+        assert_eq!(drawable.stealth_look, StealthLook::VisibleFriendlyDetected);
+        assert_near(drawable.second_material_pass_opacity, 0.75);
 
         OBJECT_REGISTRY.unregister_object(object_id);
     }

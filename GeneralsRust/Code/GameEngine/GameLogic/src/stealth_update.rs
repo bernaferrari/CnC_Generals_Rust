@@ -370,6 +370,14 @@ impl StealthController {
         self.is_stealthed
     }
 
+    pub fn is_disguised(&self) -> bool {
+        self.disguise_as_template_name.is_some()
+    }
+
+    pub fn get_friendly_opacity(&self) -> Real {
+        self.data.friendly_opacity_min
+    }
+
     pub fn is_temporary_grant(&self) -> bool {
         self.frames_granted > 0
     }
