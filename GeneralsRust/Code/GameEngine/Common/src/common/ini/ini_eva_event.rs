@@ -532,9 +532,7 @@ impl EvaEventStore {
                     let side_sounds = self.parse_side_sounds_block(ini)?;
                     info.eva_side_sounds.push(side_sounds);
                 }
-                _ => {
-                    // Unknown field - log warning but don't fail
-                }
+                _ => return Err(INIError::UnknownToken),
             }
         }
 
@@ -580,9 +578,7 @@ impl EvaEventStore {
                     // parseSoundsList - space-separated sound names
                     side_sounds.sound_names = value_tokens.iter().map(|s| s.to_string()).collect();
                 }
-                _ => {
-                    // Unknown field - ignore
-                }
+                _ => return Err(INIError::UnknownToken),
             }
         }
 
@@ -731,6 +727,66 @@ mod tests {
         // With s suffix
         assert_eq!(EvaEventStore::parse_duration_to_frames("1s").unwrap(), 30);
         assert_eq!(EvaEventStore::parse_duration_to_frames("2s").unwrap(), 60);
+    }
+
+    #[test]
+    fn eva_event_rejects_fields_outside_cpp_parse_table() {
+        let mut store = EvaEventStore::new();
+        let mut ini = INI::new();
+
+        let result = ini.with_inline_source(
+            "EvaEvent LowPower\nPriority = 2\nBogusField = 7\nEnd\n",
+            |ini| {
+                ini.read_line()?;
+                store.parse_eva_event_definition(ini)
+            },
+        );
+
+        assert_eq!(result, Err(INIError::UnknownToken));
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn eva_event_rejects_unknown_side_sounds_fields() {
+        let mut store = EvaEventStore::new();
+        let mut ini = INI::new();
+
+        let result = ini.with_inline_source(
+            "EvaEvent LowPower\nSideSounds\nSide = America\nBogusNested = 7\nEnd\nEnd\n",
+            |ini| {
+                ini.read_line()?;
+                store.parse_eva_event_definition(ini)
+            },
+        );
+
+        assert_eq!(result, Err(INIError::UnknownToken));
+        assert!(store.is_empty());
+    }
+
+    #[test]
+    fn eva_event_accepts_cpp_field_table_fields() {
+        let mut store = EvaEventStore::new();
+        let mut ini = INI::new();
+
+        let result = ini.with_inline_source(
+            "EvaEvent LowPower\nPriority = 4\nTimeBetweenChecksMS = 1000\nExpirationTimeMS = 2000\nSideSounds\nSide = America\nSounds = Eva_LowPower Eva_LowPower2\nEnd\nEnd\n",
+            |ini| {
+                ini.read_line()?;
+                store.parse_eva_event_definition(ini)
+            },
+        );
+
+        assert_eq!(result, Ok(()));
+        let info = store.get_check_info(EvaMessage::LowPower).unwrap();
+        assert_eq!(info.priority, 4);
+        assert_eq!(info.frames_between_checks, 30);
+        assert_eq!(info.frames_to_expire, 60);
+        assert_eq!(info.eva_side_sounds.len(), 1);
+        assert_eq!(info.eva_side_sounds[0].side, "America");
+        assert_eq!(
+            info.eva_side_sounds[0].sound_names,
+            vec!["Eva_LowPower".to_string(), "Eva_LowPower2".to_string()]
+        );
     }
 
     #[test]
