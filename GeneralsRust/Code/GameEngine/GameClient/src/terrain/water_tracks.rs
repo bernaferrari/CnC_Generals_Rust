@@ -591,6 +591,7 @@ pub struct WaterTracksRenderSystem {
     batch_start: usize,
     show_soft_water_edge: bool,
     transparent_water_depth: f32,
+    backface_culling_inverted: bool,
 }
 
 impl WaterTracksRenderSystem {
@@ -606,6 +607,7 @@ impl WaterTracksRenderSystem {
             batch_start: 0,
             show_soft_water_edge: true,
             transparent_water_depth: 1.0,
+            backface_culling_inverted: false,
         }
     }
 
@@ -628,6 +630,10 @@ impl WaterTracksRenderSystem {
     pub fn set_render_enabled(&mut self, show_soft_water_edge: bool, transparent_water_depth: f32) {
         self.show_soft_water_edge = show_soft_water_edge;
         self.transparent_water_depth = transparent_water_depth;
+    }
+
+    pub fn set_backface_culling_inverted(&mut self, inverted: bool) {
+        self.backface_culling_inverted = inverted;
     }
 
     /// C++ `bindTrack`, including same-type sorted insertion and `SYNC_WAVES`.
@@ -786,6 +792,11 @@ impl WaterTracksRenderSystem {
         }
 
         self.update_fixed_frame();
+
+        if self.used.is_empty() || self.backface_culling_inverted {
+            return WaterTracksFlush::default();
+        }
+
         self.batch_start = 0xffff;
 
         let mut output = WaterTracksFlush::default();

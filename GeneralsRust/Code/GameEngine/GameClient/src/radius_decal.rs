@@ -13,6 +13,10 @@ use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 
+fn real_to_int(value: Real) -> i32 {
+    value.trunc() as i32
+}
+
 #[derive(Debug, Clone)]
 pub struct ShadowTypeInfo {
     pub allow_updates: Bool,
@@ -375,17 +379,8 @@ impl RadiusDecal {
     }
 
     pub fn xfer_radius_decal(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| format!("xfer version failed: {e}"))?;
-
-        xfer.xfer_bool(&mut self.empty)
-            .map_err(|e| format!("xfer empty failed: {e}"))?;
-
         if xfer.get_xfer_mode() == XferMode::Load {
-            let was_empty = self.empty;
             self.clear();
-            self.empty = was_empty;
         }
         Ok(())
     }
@@ -413,9 +408,10 @@ impl RadiusDecal {
             * ((now % template.opacity_throb_time) as f32 / template.opacity_throb_time as f32);
         let percent = 0.5 * (theta.sin() + 1.0);
         let opac = if TheGameLogic::get_draw_icon_ui() {
-            ((template.min_opacity + percent * (template.max_opacity - template.min_opacity))
-                * 255.0)
-                .round() as i32
+            real_to_int(
+                (template.min_opacity + percent * (template.max_opacity - template.min_opacity))
+                    * 255.0,
+            )
         } else {
             0
         };
@@ -424,7 +420,7 @@ impl RadiusDecal {
 
     pub fn set_opacity(&mut self, opacity: Real) {
         if let Some(decal) = &self.decal {
-            decal.set_opacity((255.0 * opacity).round() as i32);
+            decal.set_opacity(real_to_int(255.0 * opacity));
         }
     }
 
@@ -432,5 +428,85 @@ impl RadiusDecal {
         if let Some(decal) = &self.decal {
             decal.set_position(pos.x, pos.y, pos.z);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    fn test_shadow_handle() -> ShadowHandle {
+        ShadowHandle(Arc::new(Mutex::new(ShadowDecal::new(ShadowTypeInfo {
+            allow_updates: false,
+            allow_world_align: true,
+            shadow_type: SHADOW_ALPHA_DECAL,
+            shadow_name: AsciiString::from("test"),
+            size_x: 1.0,
+            size_y: 1.0,
+        }))))
+    }
+
+    #[test]
+    fn set_opacity_truncates_like_cpp_real_to_int() {
+        let handle = test_shadow_handle();
+        let mut radius_decal = RadiusDecal {
+            template: None,
+            decal: Some(handle.clone()),
+            empty: false,
+        };
+
+        radius_decal.set_opacity(0.5);
+        assert_eq!(handle.0.lock().opacity, 127);
+
+        radius_decal.set_opacity(0.999);
+        assert_eq!(handle.0.lock().opacity, 254);
+    }
+
+    #[test]
+    fn real_to_int_truncates_toward_zero() {
+        assert_eq!(real_to_int(127.9), 127);
+        assert_eq!(real_to_int(-127.9), -127);
+    }
+
+    #[test]
+    fn xfer_radius_decal_save_writes_no_bytes_like_cpp_todo() {
+        let handle = test_shadow_handle();
+        let mut radius_decal = RadiusDecal {
+            template: None,
+            decal: Some(handle),
+            empty: false,
+        };
+        let mut bytes = Vec::new();
+        {
+            let cursor = Cursor::new(&mut bytes);
+            let mut xfer = XferSave::new(cursor, 0);
+            radius_decal.xfer_radius_decal(&mut xfer).unwrap();
+        }
+
+        assert!(bytes.is_empty());
+        assert!(!radius_decal.empty);
+        assert!(radius_decal.decal.is_some());
+    }
+
+    #[test]
+    fn xfer_radius_decal_load_clears_without_reading_like_cpp_todo() {
+        let handle = test_shadow_handle();
+        let mut radius_decal = RadiusDecal {
+            template: Some(RadiusDecalTemplate::default()),
+            decal: Some(handle.clone()),
+            empty: false,
+        };
+        let cursor = Cursor::new(Vec::<u8>::new());
+        let mut xfer = XferLoad::new(cursor, 0);
+
+        radius_decal.xfer_radius_decal(&mut xfer).unwrap();
+
+        assert!(radius_decal.empty);
+        assert!(radius_decal.template.is_none());
+        assert!(radius_decal.decal.is_none());
+        assert!(!handle.0.lock().active);
     }
 }
