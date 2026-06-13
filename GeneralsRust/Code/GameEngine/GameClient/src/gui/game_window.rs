@@ -4750,6 +4750,14 @@ fn map_keycode(data: WindowMsgData) -> KeyCode {
         13 => KeyCode::Enter,
         27 => KeyCode::Escape,
         32 => KeyCode::Space,
+        33 => KeyCode::PageUp,
+        34 => KeyCode::PageDown,
+        35 => KeyCode::End,
+        36 => KeyCode::Home,
+        37 => KeyCode::Left,
+        38 => KeyCode::Up,
+        39 => KeyCode::Right,
+        40 => KeyCode::Down,
         127 => KeyCode::Delete,
         b'0' => KeyCode::Num0,
         b'1' => KeyCode::Num1,
@@ -4870,6 +4878,18 @@ mod tests {
     #[test]
     fn undefined_window_color_matches_cpp_transparent_white_sentinel() {
         assert_eq!(WIN_COLOR_UNDEFINED, 0x00FF_FFFF);
+    }
+
+    #[test]
+    fn legacy_virtual_keys_map_to_gadget_key_codes_like_cpp() {
+        assert_eq!(map_keycode(0x21), KeyCode::PageUp);
+        assert_eq!(map_keycode(0x22), KeyCode::PageDown);
+        assert_eq!(map_keycode(0x23), KeyCode::End);
+        assert_eq!(map_keycode(0x24), KeyCode::Home);
+        assert_eq!(map_keycode(0x25), KeyCode::Left);
+        assert_eq!(map_keycode(0x26), KeyCode::Up);
+        assert_eq!(map_keycode(0x27), KeyCode::Right);
+        assert_eq!(map_keycode(0x28), KeyCode::Down);
     }
 
     #[test]
