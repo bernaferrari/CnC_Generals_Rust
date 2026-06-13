@@ -1,9 +1,9 @@
 use game_client_rust::terrain::{
-    BreezeInfo, TreeCollisionUnit, TreeConstructionGeometry, TreeGeometryType, TreeModuleData,
-    TreeRandom, TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere, W3DToppleState,
-    W3DTreeBuffer, ANGULAR_LIMIT, CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE,
-    END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT, TREE_RADIUS_APPROX,
-    W3D_TOPPLE_OPTIONS_NO_BOUNCE,
+    BreezeInfo, TreeCollisionUnit, TreeConstructionGeometry, TreeFxKind, TreeGeometryType,
+    TreeModuleData, TreeRandom, TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere,
+    W3DToppleState, W3DTreeBuffer, ANGULAR_LIMIT, CONSTRUCTION_TREE_COLLISION_RADIUS,
+    DELETED_TREE_TYPE, END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT,
+    TREE_RADIUS_APPROX, W3D_TOPPLE_OPTIONS_NO_BOUNCE, W3D_TOPPLE_OPTIONS_NO_FX,
 };
 use glam::{Mat4, Vec2, Vec3};
 
@@ -257,6 +257,58 @@ fn toppling_force_clamps_speed_and_no_bounce_sets_down() {
     buffer.update_toppling_tree(id, TreeShroudStatus::Clear);
     assert_eq!(buffer.trees()[id].topple_state, W3DToppleState::Down);
     assert_eq!(buffer.trees()[id].sink_frames_left, 300);
+}
+
+#[test]
+fn toppling_force_emits_topple_fx_even_when_no_fx_option_is_set() {
+    let mut buffer = W3DTreeBuffer::new();
+    let mut data = module("Oak", "T");
+    data.topple_fx = Some("TreeTopple".to_string());
+    buffer
+        .add_tree(5, Vec3::new(2.0, 3.0, 4.0), 1.0, 0.0, 1.0, data, bounds())
+        .unwrap();
+
+    assert!(buffer.apply_toppling_force(5, Vec3::X, 1.0, W3D_TOPPLE_OPTIONS_NO_FX));
+
+    let events = buffer.take_pending_fx_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, TreeFxKind::Topple);
+    assert_eq!(events[0].fx_name, "TreeTopple");
+    assert_eq!(events[0].position, Vec3::new(2.0, 3.0, 4.0));
+}
+
+#[test]
+fn toppling_update_emits_bounce_fx_unless_no_fx_option_is_set() {
+    let mut buffer = W3DTreeBuffer::new();
+    let mut data = module("Oak", "T");
+    data.bounce_fx = Some("TreeBounce".to_string());
+    let id = buffer
+        .add_tree(5, Vec3::ZERO, 1.0, 0.0, 1.0, data, bounds())
+        .unwrap();
+    buffer.apply_toppling_force(5, Vec3::X, 1.0, 0);
+    buffer.take_pending_fx_events();
+    buffer.tree_mut(id).unwrap().angular_accumulation = ANGULAR_LIMIT - 0.01;
+
+    buffer.update_toppling_tree(id, TreeShroudStatus::Clear);
+
+    let events = buffer.take_pending_fx_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, TreeFxKind::Bounce);
+    assert_eq!(events[0].fx_name, "TreeBounce");
+
+    let mut suppressed = W3DTreeBuffer::new();
+    let mut data = module("Pine", "T");
+    data.bounce_fx = Some("TreeBounce".to_string());
+    let id = suppressed
+        .add_tree(6, Vec3::ZERO, 1.0, 0.0, 1.0, data, bounds())
+        .unwrap();
+    suppressed.apply_toppling_force(6, Vec3::X, 1.0, W3D_TOPPLE_OPTIONS_NO_FX);
+    suppressed.take_pending_fx_events();
+    suppressed.tree_mut(id).unwrap().angular_accumulation = ANGULAR_LIMIT - 0.01;
+
+    suppressed.update_toppling_tree(id, TreeShroudStatus::Clear);
+
+    assert!(suppressed.take_pending_fx_events().is_empty());
 }
 
 #[test]

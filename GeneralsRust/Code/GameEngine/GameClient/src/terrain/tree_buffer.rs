@@ -74,6 +74,8 @@ impl Default for TreeSphere {
 pub struct TreeModuleData {
     pub model_name: String,
     pub texture_name: String,
+    pub topple_fx: Option<String>,
+    pub bounce_fx: Option<String>,
     pub frames_to_move_outward: u32,
     pub frames_to_move_inward: u32,
     pub max_outward_movement: f32,
@@ -94,6 +96,8 @@ impl Default for TreeModuleData {
         Self {
             model_name: String::new(),
             texture_name: String::new(),
+            topple_fx: None,
+            bounce_fx: None,
             frames_to_move_outward: 1,
             frames_to_move_inward: 1,
             max_outward_movement: 1.0,
@@ -307,6 +311,19 @@ pub struct TreeSaveRecord {
     pub sink_frames_left: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeFxKind {
+    Topple,
+    Bounce,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TreeFxEvent {
+    pub kind: TreeFxKind,
+    pub fx_name: String,
+    pub position: Vec3,
+}
+
 #[derive(Debug, Clone)]
 pub struct W3DTreeBuffer {
     area_partition: Vec<i16>,
@@ -328,6 +345,7 @@ pub struct W3DTreeBuffer {
     cur_sway_factor: [f32; MAX_SWAY_TYPES],
     cur_num_tree_vertices: [i32; MAX_BUFFERS],
     cur_num_tree_indices: [i32; MAX_BUFFERS],
+    pending_fx_events: Vec<TreeFxEvent>,
 }
 
 impl Default for W3DTreeBuffer {
@@ -358,6 +376,7 @@ impl W3DTreeBuffer {
             cur_sway_factor: [0.0; MAX_SWAY_TYPES],
             cur_num_tree_vertices: [0; MAX_BUFFERS],
             cur_num_tree_indices: [0; MAX_BUFFERS],
+            pending_fx_events: Vec::new(),
         };
         buffer.clear_all_trees();
         buffer.initialized = true;
@@ -403,6 +422,14 @@ impl W3DTreeBuffer {
 
     pub fn need_to_update_texture(&self) -> bool {
         self.need_to_update_texture
+    }
+
+    pub fn pending_fx_events(&self) -> &[TreeFxEvent] {
+        &self.pending_fx_events
+    }
+
+    pub fn take_pending_fx_events(&mut self) -> Vec<TreeFxEvent> {
+        std::mem::take(&mut self.pending_fx_events)
     }
 
     pub fn set_bounds(&mut self, bounds: TreeRegion2D) {
@@ -453,6 +480,7 @@ impl W3DTreeBuffer {
         self.tree_types.clear();
         self.num_tiles = 0;
         self.need_to_update_texture = false;
+        self.pending_fx_events.clear();
     }
 
     pub fn add_tree_type(&mut self, data: TreeModuleData, bounds: TreeSphere) -> Option<usize> {
@@ -758,6 +786,7 @@ impl W3DTreeBuffer {
         }
 
         const VELOCITY_BOUNCE_LIMIT: f32 = 0.01;
+        const VELOCITY_BOUNCE_SOUND_LIMIT: f32 = 0.03;
         let mut cur_vel_to_use = self.trees[index].angular_velocity;
         if self.trees[index].angular_accumulation + cur_vel_to_use > ANGULAR_LIMIT {
             cur_vel_to_use = ANGULAR_LIMIT - self.trees[index].angular_accumulation;
@@ -775,6 +804,19 @@ impl W3DTreeBuffer {
                 self.trees[index].topple_state = W3DToppleState::Down;
                 if data.kill_when_toppled {
                     self.trees[index].sink_frames_left = data.sink_frames;
+                }
+            } else if self.trees[index].angular_velocity.abs() >= VELOCITY_BOUNCE_SOUND_LIMIT
+                && self.trees[index].options & W3D_TOPPLE_OPTIONS_NO_FX == 0
+            {
+                if let Some(fx_name) = data.bounce_fx {
+                    let position = self.trees[index]
+                        .matrix
+                        .transform_point3(Vec3::new(0.0, 0.0, 3.0 * TREE_RADIUS_APPROX));
+                    self.pending_fx_events.push(TreeFxEvent {
+                        kind: TreeFxKind::Bounce,
+                        fx_name,
+                        position,
+                    });
                 }
             }
         } else {
@@ -964,6 +1006,13 @@ impl W3DTreeBuffer {
         self.trees[index].options = options;
         self.any_push_changed = true;
         self.trees[index].matrix = Mat4::from_translation(self.trees[index].location);
+        if let Some(fx_name) = data.topple_fx.clone() {
+            self.pending_fx_events.push(TreeFxEvent {
+                kind: TreeFxKind::Topple,
+                fx_name,
+                position: self.trees[index].location,
+            });
+        }
         true
     }
 
