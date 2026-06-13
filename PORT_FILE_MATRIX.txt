@@ -1196,7 +1196,7 @@ Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DModelDraw.cpp | N/A | MISS
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DOverlordAircraftDraw.cpp | N/A | MISSING | subsystem=GameEngineDevice/W3D/GameClient/Drawable
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DOverlordTankDraw.cpp | N/A | MISSING | subsystem=GameEngineDevice/W3D/GameClient/Drawable
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DOverlordTruckDraw.cpp | N/A | MISSING | subsystem=GameEngineDevice/W3D/GameClient/Drawable
-Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DPoliceCarDraw.cpp | N/A | MISSING | subsystem=GameEngineDevice/W3D/GameClient/Drawable
+Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DPoliceCarDraw.cpp | GameLogic/src/object/draw/w3d_police_car_draw.rs | FOUND | subsystem=GameEngineDevice/W3D/GameClient/Drawable
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DProjectileStreamDraw.cpp | N/A | MISSING | subsystem=GameEngineDevice/W3D/GameClient/Drawable
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DPropDraw.cpp | GameLogic/src/object/draw/w3d_prop_draw.rs | FOUND | subsystem=GameEngineDevice/W3D/GameClient/Drawable
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DRopeDraw.cpp | GameLogic/src/object/draw/w3d_rope_draw.rs | FOUND | subsystem=GameEngineDevice/W3D/GameClient/Drawable
