@@ -404,6 +404,7 @@ enum DrawModuleKindMut<'a> {
     OverlordAircraft(&'a mut crate::object::draw::W3DOverlordAircraftDraw),
     OverlordTank(&'a mut crate::object::draw::W3DOverlordTankDraw),
     OverlordTruck(&'a mut crate::object::draw::W3DOverlordTruckDraw),
+    Truck(&'a mut crate::object::draw::W3DTruckDraw),
     Tracer(&'a mut crate::object::draw::W3DTracerDraw),
     Laser(&'a mut crate::object::draw::W3DLaserDraw),
     Rope(&'a mut crate::object::draw::W3DRopeDraw),
@@ -422,6 +423,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::OverlordAircraft(draw) => draw,
             Self::OverlordTank(draw) => draw,
             Self::OverlordTruck(draw) => draw,
+            Self::Truck(draw) => draw,
             Self::Tracer(draw) => draw,
             Self::Laser(draw) => draw,
             Self::Rope(draw) => draw,
@@ -447,6 +449,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::OverlordAircraft(draw) => draw.set_terrain_decal(decal_type),
             Self::OverlordTank(draw) => draw.set_terrain_decal(decal_type),
             Self::OverlordTruck(draw) => draw.set_terrain_decal(decal_type),
+            Self::Truck(draw) => draw.set_terrain_decal(decal_type),
             Self::Tracer(draw) => draw.set_terrain_decal(decal_type),
             Self::Laser(draw) => draw.set_terrain_decal(decal_type),
             Self::Rope(draw) => draw.set_terrain_decal(decal_type),
@@ -463,6 +466,7 @@ impl<'a> DrawModuleKindMut<'a> {
             Self::OverlordAircraft(draw) => draw.bind_owner_id(object_id),
             Self::OverlordTank(draw) => draw.bind_owner_id(object_id),
             Self::OverlordTruck(draw) => draw.bind_owner_id(object_id),
+            Self::Truck(draw) => draw.bind_owner_id(object_id),
             Self::Model(draw) => draw.bind_owner_id(object_id),
             Self::Tank(draw) => draw.bind_owner_id(object_id),
             Self::Laser(draw) => draw.bind_owner_id(object_id),
@@ -502,6 +506,11 @@ fn with_draw_module_kind(
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DOverlordTruckDraw>()
     {
         func(DrawModuleKindMut::OverlordTruck(module));
+        true
+    } else if let Some(module) =
+        (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DTruckDraw>()
+    {
+        func(DrawModuleKindMut::Truck(module));
         true
     } else if let Some(module) =
         (module as &mut dyn Any).downcast_mut::<crate::object::draw::W3DTracerDraw>()

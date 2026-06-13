@@ -1055,6 +1055,10 @@ impl W3DModelDraw {
         self.owner_id
     }
 
+    pub fn fully_obscured_by_shroud(&self) -> bool {
+        self.fully_obscured_by_shroud
+    }
+
     fn with_owner_drawable<R>(
         &self,
         func: impl FnOnce(&crate::object::drawable::Drawable) -> R,
