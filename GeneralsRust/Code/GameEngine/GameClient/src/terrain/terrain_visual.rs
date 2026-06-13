@@ -318,6 +318,14 @@ impl Default for TerrainVisualLOD {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerrainSourceTileClass {
+    pub first_tile: i32,
+    pub num_tiles: i32,
+    pub width: i32,
+    pub name: String,
+}
+
 /// Seismic simulation for dynamic terrain effects
 #[derive(Debug, Clone)]
 pub struct SeismicSimulationNode {
@@ -923,6 +931,129 @@ impl TerrainVisualImpl {
             self.source_tiles.resize_with(index + 1, || None);
         }
         self.source_tiles[index] = Some(tile);
+    }
+
+    pub fn load_source_tiles_from_texture_classes(
+        &mut self,
+        classes: &[TerrainSourceTileClass],
+    ) -> TerrainResult<usize> {
+        let mut loaded = 0usize;
+        for class in classes {
+            loaded += self.load_source_tiles_for_class(class)?;
+        }
+        Ok(loaded)
+    }
+
+    fn load_source_tiles_for_class(
+        &mut self,
+        class: &TerrainSourceTileClass,
+    ) -> TerrainResult<usize> {
+        let first_tile = match usize::try_from(class.first_tile) {
+            Ok(value) => value,
+            Err(_) => return Ok(0),
+        };
+        let num_tiles = match usize::try_from(class.num_tiles) {
+            Ok(value) if value > 0 => value,
+            _ => return Ok(0),
+        };
+        let Some(path) = Self::resolve_source_tile_texture_path(&class.name) else {
+            return Ok(0);
+        };
+
+        let image = image::open(&path)
+            .map_err(|err| {
+                TerrainError::TextureError(GameImageError::LoadError {
+                    path: path.display().to_string(),
+                    source: Box::new(err),
+                })
+            })?
+            .to_rgba8();
+        let image_width = image.width() as usize;
+        let image_height = image.height() as usize;
+        if image_width < 64 || image_height < 64 {
+            return Ok(0);
+        }
+
+        let available_columns = image_width / 64;
+        let available_rows = image_height / 64;
+        let available_tiles = available_columns.saturating_mul(available_rows);
+        let read_tiles = num_tiles.min(available_tiles);
+        let rows = Self::source_tile_square_width(read_tiles, class.width);
+        if rows == 0 {
+            return Ok(0);
+        }
+
+        let needed_len = first_tile.saturating_add(rows.saturating_mul(rows));
+        if needed_len > self.source_tiles.len() {
+            self.source_tiles.resize_with(needed_len, || None);
+        }
+
+        let mut count = 0usize;
+        for tile_row in 0..rows {
+            for tile_col in 0..rows {
+                let mut tile = TileData::new();
+                for y in 0..64usize {
+                    for x in 0..64usize {
+                        let src_x = tile_col * 64 + x;
+                        let src_y = tile_row * 64 + y;
+                        let rgba = image.get_pixel(src_x as u32, src_y as u32).0;
+                        let dst = (y * 64 + x) * 4;
+                        tile.data[dst] = rgba[2];
+                        tile.data[dst + 1] = rgba[1];
+                        tile.data[dst + 2] = rgba[0];
+                        tile.data[dst + 3] = rgba[3];
+                    }
+                }
+                tile.tile_location_in_texture = ((tile_col * 64) as i32, (tile_row * 64) as i32);
+                tile.update_mips();
+                self.source_tiles[first_tile + count] = Some(tile);
+                count += 1;
+            }
+        }
+
+        Ok(count)
+    }
+
+    fn source_tile_square_width(num_tiles: usize, class_width: i32) -> usize {
+        if let Ok(width) = usize::try_from(class_width) {
+            if width > 0 && width <= 10 && num_tiles >= width.saturating_mul(width) {
+                return width;
+            }
+        }
+        for width in (1usize..=10).rev() {
+            if num_tiles >= width.saturating_mul(width) {
+                return width;
+            }
+        }
+        0
+    }
+
+    fn resolve_source_tile_texture_path(class_name: &str) -> Option<PathBuf> {
+        let mut candidates = Vec::new();
+        if let Some(registry) = ini_terrain::get_terrain_types() {
+            let guard = registry.read();
+            let key = AsciiString::from(class_name);
+            if let Some(terrain) = guard.find_terrain(&key) {
+                let texture = terrain.texture_name.as_str().trim();
+                if !texture.is_empty() {
+                    candidates.push(format!("{TERRAIN_TGA_DIR_PATH}{texture}"));
+                    candidates.push(texture.to_string());
+                }
+            }
+        }
+        candidates.push(class_name.to_string());
+
+        for candidate in candidates {
+            let path = Path::new(&candidate);
+            if path.is_file() {
+                return Some(path.to_path_buf());
+            }
+            if let Some(path) = TerrainTextures::resolve_texture_path(&candidate) {
+                return Some(path);
+            }
+        }
+
+        None
     }
 
     /// Export minimap-ready road samples for static map overlays.

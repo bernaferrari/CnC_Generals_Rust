@@ -2,12 +2,13 @@ use game_client_rust::{
     system::SubsystemInterface,
     terrain::{
         height_map::HeightMap,
-        terrain_visual::{TerrainBibOwnerKind, TerrainVisualImpl},
+        terrain_visual::{TerrainBibOwnerKind, TerrainSourceTileClass, TerrainVisualImpl},
         textures::TileData,
         TerrainTrackHeightProvider, TerrainTracksConfig,
     },
 };
 use glam::{Mat4, Vec3};
+use image::{Rgba, RgbaImage};
 
 struct FlatTrackTerrain;
 
@@ -106,6 +107,36 @@ fn terrain_color_query_uses_logic_heightmap_source_tile_mip_like_cpp() {
     tile.update_mips();
     visual.debug_set_source_tile(13, tile);
 
+    let color = visual.get_terrain_color_at(1.25, 2.75).unwrap();
+    assert_eq!(color, [192.0 / 255.0, 128.0 / 255.0, 64.0 / 255.0]);
+}
+
+#[test]
+fn terrain_source_tile_classes_load_tga_tiles_for_color_queries() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let tile_path = temp.path().join("terrain_tile.tga");
+    let image = RgbaImage::from_pixel(64, 64, Rgba([192, 128, 64, 255]));
+    image.save(&tile_path).expect("write source tile image");
+
+    let mut heightmap = HeightMap::new(6, 6, 255.0, 1.0);
+    heightmap.border_size = 1;
+    heightmap.tile_ndxes[(3 * 6 + 2) as usize] = 52;
+
+    let mut visual = TerrainVisualImpl::new();
+    visual
+        .load_heightmap_from_data(heightmap, None, None)
+        .expect("runtime heightmap should load");
+
+    let loaded = visual
+        .load_source_tiles_from_texture_classes(&[TerrainSourceTileClass {
+            first_tile: 13,
+            num_tiles: 1,
+            width: 1,
+            name: tile_path.to_string_lossy().to_string(),
+        }])
+        .expect("source tile should load");
+
+    assert_eq!(loaded, 1);
     let color = visual.get_terrain_color_at(1.25, 2.75).unwrap();
     assert_eq!(color, [192.0 / 255.0, 128.0 / 255.0, 64.0 / 255.0]);
 }
