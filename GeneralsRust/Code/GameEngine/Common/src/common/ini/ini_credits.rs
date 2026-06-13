@@ -388,21 +388,15 @@ impl CreditsManager {
                 }
                 "titlecolor" => {
                     // parseColorInt
-                    self.title_color = Self::parse_color_value(
-                        value_tokens.first().ok_or(INIError::InvalidData)?,
-                    )?;
+                    self.title_color = Self::parse_color_value(&value_tokens)?;
                 }
                 "minortitlecolor" => {
                     // parseColorInt
-                    self.position_color = Self::parse_color_value(
-                        value_tokens.first().ok_or(INIError::InvalidData)?,
-                    )?;
+                    self.position_color = Self::parse_color_value(&value_tokens)?;
                 }
                 "normalcolor" => {
                     // parseColorInt
-                    self.normal_color = Self::parse_color_value(
-                        value_tokens.first().ok_or(INIError::InvalidData)?,
-                    )?;
+                    self.normal_color = Self::parse_color_value(&value_tokens)?;
                 }
                 "style" => {
                     // parseLookupList - CreditStyleNames
@@ -431,8 +425,8 @@ impl CreditsManager {
                     self.add_text(&text);
                 }
                 _ => {
-                    // Unknown field - log warning but don't fail
-                    // In C++, unknown fields in the parse table are silently ignored
+                    // C++ initFromINI throws INI_UNKNOWN_TOKEN for unknown fields.
+                    return Err(INIError::UnknownToken);
                 }
             }
         }
@@ -448,30 +442,57 @@ impl CreditsManager {
         Ok(())
     }
 
-    /// Parse boolean value (Yes/No/True/False/1/0)
+    /// Parse boolean value with C++ INI::parseBool semantics.
     fn parse_bool_value(token: &str) -> INIResult<bool> {
         match token.to_ascii_lowercase().as_str() {
-            "yes" | "true" | "1" => Ok(true),
-            "no" | "false" | "0" => Ok(false),
+            "yes" => Ok(true),
+            "no" => Ok(false),
             _ => Err(INIError::InvalidData),
         }
     }
 
-    /// Parse color value as ARGB integer
-    /// Matches C++ INI::parseColorInt
-    fn parse_color_value(token: &str) -> INIResult<u32> {
-        // Try parsing as integer first
-        if let Ok(val) = token.parse::<u32>() {
-            return Ok(val);
+    /// Parse color value with C++ INI::parseColorInt semantics.
+    fn parse_color_value(tokens: &[&str]) -> INIResult<u32> {
+        let mut index = 0;
+        let r = Self::parse_labeled_u8(tokens, &mut index, "R")?;
+        let g = Self::parse_labeled_u8(tokens, &mut index, "G")?;
+        let b = Self::parse_labeled_u8(tokens, &mut index, "B")?;
+        let a = if index < tokens.len() {
+            Self::parse_labeled_u8(tokens, &mut index, "A")?
+        } else {
+            255
+        };
+        if index != tokens.len() {
+            return Err(INIError::InvalidData);
         }
 
-        // Try parsing as hex with 0x prefix
-        if token.starts_with("0x") || token.starts_with("0X") {
-            let hex_str = &token[2..];
-            u32::from_str_radix(hex_str, 16).map_err(|_| INIError::InvalidData)
-        } else {
-            Err(INIError::InvalidData)
+        Ok(((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | b as u32)
+    }
+
+    fn parse_labeled_u8(tokens: &[&str], index: &mut usize, expected: &str) -> INIResult<u8> {
+        let value = Self::parse_labeled_value(tokens, index, expected)?;
+        INI::parse_unsigned_byte(value)
+    }
+
+    fn parse_labeled_value<'a>(
+        tokens: &'a [&'a str],
+        index: &mut usize,
+        expected: &str,
+    ) -> INIResult<&'a str> {
+        let token = tokens.get(*index).ok_or(INIError::InvalidData)?;
+        *index += 1;
+
+        let (key, value) = token.split_once(':').ok_or(INIError::InvalidData)?;
+        if !key.eq_ignore_ascii_case(expected) {
+            return Err(INIError::InvalidData);
         }
+        if !value.is_empty() {
+            return Ok(value);
+        }
+
+        let value = tokens.get(*index).ok_or(INIError::InvalidData)?;
+        *index += 1;
+        Ok(value)
     }
 }
 
@@ -611,26 +632,74 @@ mod tests {
     fn test_parse_bool_value() {
         assert_eq!(CreditsManager::parse_bool_value("Yes").unwrap(), true);
         assert_eq!(CreditsManager::parse_bool_value("yes").unwrap(), true);
-        assert_eq!(CreditsManager::parse_bool_value("TRUE").unwrap(), true);
-        assert_eq!(CreditsManager::parse_bool_value("1").unwrap(), true);
         assert_eq!(CreditsManager::parse_bool_value("No").unwrap(), false);
-        assert_eq!(CreditsManager::parse_bool_value("false").unwrap(), false);
-        assert_eq!(CreditsManager::parse_bool_value("0").unwrap(), false);
+        assert!(CreditsManager::parse_bool_value("TRUE").is_err());
+        assert!(CreditsManager::parse_bool_value("1").is_err());
+        assert!(CreditsManager::parse_bool_value("false").is_err());
+        assert!(CreditsManager::parse_bool_value("0").is_err());
         assert!(CreditsManager::parse_bool_value("invalid").is_err());
     }
 
     #[test]
     fn test_parse_color_value() {
-        assert_eq!(CreditsManager::parse_color_value("0").unwrap(), 0);
-        assert_eq!(CreditsManager::parse_color_value("255").unwrap(), 255);
         assert_eq!(
-            CreditsManager::parse_color_value("0xFFFFFFFF").unwrap(),
+            CreditsManager::parse_color_value(&["R:255", "G:255", "B:255"]).unwrap(),
             0xFFFFFFFF
         );
         assert_eq!(
-            CreditsManager::parse_color_value("0xFF0000FF").unwrap(),
+            CreditsManager::parse_color_value(&["R:0", "G:0", "B:255", "A:255"]).unwrap(),
             0xFF0000FF
         );
+        assert_eq!(
+            CreditsManager::parse_color_value(&["R:", "1", "G:", "2", "B:", "3", "A:", "4"])
+                .unwrap(),
+            0x04010203
+        );
+        assert!(CreditsManager::parse_color_value(&["255"]).is_err());
+        assert!(CreditsManager::parse_color_value(&["0xFFFFFFFF"]).is_err());
+        assert!(CreditsManager::parse_color_value(&["G:255", "R:255", "B:255"]).is_err());
+        assert!(CreditsManager::parse_color_value(&["R:255", "G:255"]).is_err());
+    }
+
+    #[test]
+    fn test_parse_credits_uses_cpp_bool_color_and_unknown_field_rules() {
+        init_credits_manager();
+
+        let mut ini = INI::new();
+        ini.with_inline_source(
+            "Credits\nScrollDown = No\nTitleColor = R:10 G:20 B:30 A:40\nMinorTitleColor = R:50 G:60 B:70\nNormalColor = R:80 G:90 B:100 A:110\nEnd\n",
+            |ini| ini.parse_current_file(),
+        )
+        .expect("valid C++ credits fields should parse");
+
+        let manager = get_credits_manager();
+        assert!(!manager.scroll_down);
+        assert_eq!(manager.title_color, 0x280A141E);
+        assert_eq!(manager.position_color, 0xFF323C46);
+        assert_eq!(manager.normal_color, 0x6E505A64);
+    }
+
+    #[test]
+    fn test_parse_credits_rejects_non_cpp_bool_color_and_unknown_fields() {
+        init_credits_manager();
+
+        let mut ini = INI::new();
+        let bad_bool = ini.with_inline_source("Credits\nScrollDown = true\nEnd\n", |ini| {
+            ini.parse_current_file()
+        });
+        assert!(bad_bool.is_err());
+
+        let mut ini = INI::new();
+        let bad_color = ini.with_inline_source("Credits\nTitleColor = 0xFFFFFFFF\nEnd\n", |ini| {
+            ini.parse_current_file()
+        });
+        assert!(bad_color.is_err());
+
+        let mut ini = INI::new();
+        let unknown = ini.with_inline_source("Credits\nUnexpected = 1\nEnd\n", |ini| {
+            ini.parse_current_file()
+        });
+        assert!(unknown.is_err());
     }
 
     #[test]
