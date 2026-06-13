@@ -1437,6 +1437,7 @@ impl W3DModelDraw {
             return false;
         };
 
+        let mut created_or_recalculated = false;
         if self.need_recalc_bone_particle_systems
             || self.particle_system_ids.len() != particle_sys_bones.len()
         {
@@ -1444,6 +1445,7 @@ impl W3DModelDraw {
                 ps_manager.destroy_particle_system(system_id);
             }
             self.need_recalc_bone_particle_systems = false;
+            created_or_recalculated = true;
         }
 
         for (idx, info) in particle_sys_bones.iter().enumerate() {
@@ -1461,6 +1463,7 @@ impl W3DModelDraw {
                     };
                 ps_manager.attach_particle_system_to_drawable(system_id, owner_id);
                 self.particle_system_ids.push(system_id);
+                created_or_recalculated = true;
                 system_id
             };
 
@@ -1476,6 +1479,10 @@ impl W3DModelDraw {
             } else {
                 ps_manager.set_particle_system_position(system_id, &drawable_guard.get_position());
             }
+        }
+
+        if created_or_recalculated {
+            self.do_start_or_stop_particle_sys();
         }
 
         true
