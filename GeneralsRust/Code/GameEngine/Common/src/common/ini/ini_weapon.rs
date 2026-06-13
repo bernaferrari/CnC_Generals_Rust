@@ -257,17 +257,35 @@ impl WeaponTemplate {
                     .map(|v| Box::new(v) as Box<dyn std::any::Any>)
                     .map_err(|e| format!("Failed to parse secondary damage: {}", e))
             }),
+            ("PrimaryDamageRadius", |value| {
+                value
+                    .parse::<f32>()
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
+                    .map_err(|e| format!("Failed to parse primary damage radius: {}", e))
+            }),
             ("DamageRadius", |value| {
                 value
                     .parse::<f32>()
                     .map(|v| Box::new(v) as Box<dyn std::any::Any>)
                     .map_err(|e| format!("Failed to parse damage radius: {}", e))
             }),
+            ("AttackRange", |value| {
+                value
+                    .parse::<f32>()
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
+                    .map_err(|e| format!("Failed to parse attack range: {}", e))
+            }),
             ("Range", |value| {
                 value
                     .parse::<f32>()
                     .map(|v| Box::new(v) as Box<dyn std::any::Any>)
                     .map_err(|e| format!("Failed to parse range: {}", e))
+            }),
+            ("MinimumAttackRange", |value| {
+                value
+                    .parse::<f32>()
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
+                    .map_err(|e| format!("Failed to parse minimum attack range: {}", e))
             }),
             ("MinRange", |value| {
                 value
@@ -298,6 +316,12 @@ impl WeaponTemplate {
                     .parse::<f32>()
                     .map(|v| Box::new(v) as Box<dyn std::any::Any>)
                     .map_err(|e| format!("Failed to parse projectile speed: {}", e))
+            }),
+            ("WeaponSpeed", |value| {
+                value
+                    .parse::<f32>()
+                    .map(|v| Box::new(v) as Box<dyn std::any::Any>)
+                    .map_err(|e| format!("Failed to parse weapon speed: {}", e))
             }),
             ("ProjectileCount", |value| {
                 value
@@ -403,13 +427,13 @@ impl WeaponTemplate {
                 "SecondaryDamage" => {
                     self.secondary_damage = parse_f32_field(key, value)?;
                 }
-                "DamageRadius" => {
+                "DamageRadius" | "PrimaryDamageRadius" => {
                     self.damage_radius = parse_f32_field(key, value)?;
                 }
-                "Range" => {
+                "Range" | "AttackRange" => {
                     self.range = parse_f32_field(key, value)?;
                 }
-                "MinRange" => {
+                "MinRange" | "MinimumAttackRange" => {
                     self.min_range = parse_f32_field(key, value)?;
                 }
                 "RateOfFire" => {
@@ -421,7 +445,7 @@ impl WeaponTemplate {
                 "Accuracy" => {
                     self.accuracy = parse_f32_field(key, value)?.clamp(0.0, 1.0);
                 }
-                "ProjectileSpeed" => {
+                "ProjectileSpeed" | "WeaponSpeed" => {
                     self.projectile_speed = parse_f32_field(key, value)?;
                 }
                 "ProjectileCount" => {
@@ -1031,6 +1055,35 @@ mod tests {
         assert_eq!(template.range, 200.0);
         assert!(!template.can_target_air);
         assert_eq!(template.projectile_count, 3);
+    }
+
+    #[test]
+    fn weapon_template_accepts_cpp_weapon_field_names() {
+        let mut properties = HashMap::new();
+        properties.insert("PrimaryDamage".to_string(), "125.0".to_string());
+        properties.insert("PrimaryDamageRadius".to_string(), "20.5".to_string());
+        properties.insert("AttackRange".to_string(), "260.0".to_string());
+        properties.insert("MinimumAttackRange".to_string(), "35.0".to_string());
+        properties.insert("WeaponSpeed".to_string(), "999.0".to_string());
+        properties.insert("ProjectileObject".to_string(), "TestProjectile".to_string());
+
+        let template =
+            IniWeapon::parse_weapon_template_block(AsciiString::from("CxxWeapon"), properties)
+                .unwrap();
+
+        assert_eq!(template.primary_damage, 125.0);
+        assert_eq!(template.damage_radius, 20.5);
+        assert_eq!(template.range, 260.0);
+        assert_eq!(template.min_range, 35.0);
+        assert_eq!(template.projectile_speed, 999.0);
+        assert_eq!(
+            template.effects.projectile_object.as_str(),
+            "TestProjectile"
+        );
+        assert!(!template.properties.contains_key("PrimaryDamageRadius"));
+        assert!(!template.properties.contains_key("AttackRange"));
+        assert!(!template.properties.contains_key("MinimumAttackRange"));
+        assert!(!template.properties.contains_key("WeaponSpeed"));
     }
 
     #[test]
