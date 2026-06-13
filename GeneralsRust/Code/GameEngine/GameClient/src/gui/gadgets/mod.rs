@@ -78,7 +78,10 @@ pub use listbox::{
 pub use progressbar::{
     ProgressBar, ProgressBarBuilder, ProgressBarConfig, ProgressBarOrientation, ProgressBarStyle,
 };
-pub use radiobutton::{RadioButton, RadioButtonBuilder, RadioButtonCallback, RadioButtonGroup};
+pub use radiobutton::{
+    RadioButton, RadioButtonBuilder, RadioButtonCallback, RadioButtonGroup,
+    RadioButtonRenderCommand,
+};
 pub use slider::{
     HorizontalSlider, SliderCallback, SliderConfig, SliderOrientation, SliderRenderCommand,
     SliderStyle, VerticalSlider,
