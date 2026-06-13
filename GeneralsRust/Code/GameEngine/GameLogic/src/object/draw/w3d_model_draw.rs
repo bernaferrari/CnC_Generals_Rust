@@ -21,6 +21,7 @@ use crate::helpers::{
 };
 use crate::upgrade::modules::model_condition::parse_model_condition_flag;
 use game_engine::common::ini::{INIError, INI};
+use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 use game_engine::common::thing::module::{
     Module, ModuleData, ModuleInterfaceType, ModuleType, TimeOfDay,
@@ -2054,10 +2055,7 @@ impl Module for W3DModelDraw {
     }
 
     fn get_module_name_key(&self) -> NameKeyType {
-        // W3DModelDraw modules use a standard name key
-        // In the C++ code, this is typically derived from the module type
-        // Reference: C++ Module.h - module name keys are registered at startup
-        self.data.module_tag_name_key
+        NameKeyGenerator::name_to_key("W3DModelDraw")
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
@@ -2181,8 +2179,7 @@ impl DrawModule for W3DModelDraw {
     }
 
     fn react_to_geometry_change(&mut self) {
-        // Model changed, recalculate bone particle systems
-        self.need_recalc_bone_particle_systems = true;
+        // C++ W3DModelDraw declares reactToGeometryChange() as a no-op.
     }
 }
 
@@ -3440,5 +3437,24 @@ mod tests {
         assert_eq!(draw.sub_object_vec[0].sub_obj_name.as_str(), "wheel_l");
         assert!(draw.sub_object_vec[0].hide);
         assert!(!draw.sub_objects_dirty);
+    }
+
+    #[test]
+    fn module_name_key_is_model_draw() {
+        let draw = W3DModelDraw::new(W3DModelDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DModelDraw")
+        );
+    }
+
+    #[test]
+    fn react_to_geometry_change_is_noop_like_cpp() {
+        let mut draw = W3DModelDraw::new(W3DModelDrawModuleData::new());
+        draw.need_recalc_bone_particle_systems = false;
+
+        draw.react_to_geometry_change();
+
+        assert!(!draw.need_recalc_bone_particle_systems);
     }
 }
