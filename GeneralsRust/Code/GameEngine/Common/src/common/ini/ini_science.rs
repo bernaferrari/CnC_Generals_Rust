@@ -354,17 +354,13 @@ pub fn parse_science_definition(
                 info.grantable = parse_cpp_bool(key, value)?;
             }
             "PrerequisiteSciences" => {
-                // Parse space-separated list of science names
-                let prereq_names: Vec<&str> = value.split_whitespace().collect();
-                for prereq_name in prereq_names {
-                    let prereq_science =
-                        ScienceType(NameKeyGenerator::name_to_key(prereq_name) as i32);
-                    info.prereq_sciences.push(prereq_science);
-                }
+                info.prereq_sciences = parse_science_vector(value)?;
             }
             _ => {
-                // Unknown field - log warning but don't fail
-                eprintln!("Warning: Unknown science field: {}", key);
+                return Err(ScienceError::ParseError(format!(
+                    "Unknown science field: {}",
+                    key
+                )));
             }
         }
     }
@@ -454,6 +450,25 @@ mod tests {
         props.insert("IsGrantable".to_string(), "maybe".to_string());
 
         assert!(parse_science_definition("BadScience", &props).is_err());
+    }
+
+    #[test]
+    fn science_definition_rejects_fields_outside_cpp_parse_table() {
+        let mut props = HashMap::new();
+        props.insert("DisplayName".to_string(), "Bad Science".to_string());
+        props.insert("ButtonImage".to_string(), "ScienceIcon".to_string());
+
+        assert!(parse_science_definition("UnknownScienceField", &props).is_err());
+    }
+
+    #[test]
+    fn science_prerequisites_use_cpp_vector_none_sentinel() {
+        let mut props = HashMap::new();
+        props.insert("PrerequisiteSciences".to_string(), "None".to_string());
+
+        let info = parse_science_definition("NoPrereqScience", &props).unwrap();
+
+        assert!(info.prereq_sciences.is_empty());
     }
 
     #[test]
