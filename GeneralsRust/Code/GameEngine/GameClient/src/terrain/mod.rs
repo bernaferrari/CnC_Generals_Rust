@@ -56,6 +56,7 @@ pub mod terrain_roads;
 pub mod terrain_tracks;
 pub mod terrain_visual;
 pub mod textures;
+pub mod tree_buffer;
 pub mod vertex;
 pub mod water;
 pub mod water_tracks;
@@ -80,6 +81,13 @@ pub use terrain_tracks::{
     TerrainTracksRenderObjClassSystem, BRIDGE_OFFSET_FACTOR,
 };
 pub use textures::{BlendMode, TerrainTextures, TextureLayer};
+pub use tree_buffer::{
+    BreezeInfo, TreeCollisionUnit, TreeGeometryType, TreeModuleData, TreeRandom, TreeRegion2D,
+    TreeSaveRecord, TreeShroudStatus, TreeSphere, W3DToppleState, W3DTreeBuffer, ANGULAR_LIMIT,
+    DELETED_TREE_TYPE, END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT,
+    TREE_RADIUS_APPROX, W3D_TOPPLE_OPTIONS_NONE, W3D_TOPPLE_OPTIONS_NO_BOUNCE,
+    W3D_TOPPLE_OPTIONS_NO_FX,
+};
 pub use vertex::TerrainVertex;
 pub use water::{WaterBody, WaterSettings, WaterSystem};
 pub use water_tracks::{
