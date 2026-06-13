@@ -800,8 +800,10 @@ pub fn parse_locomotor_template_definition(
                 }
             },
             _ => {
-                // Unknown field - log warning but don't fail
-                eprintln!("Warning: Unknown locomotor field: {}", key);
+                return Err(LocomotorError::ParseError(format!(
+                    "Unknown locomotor field: {}",
+                    key
+                )));
             }
         }
     }
@@ -1100,5 +1102,14 @@ mod tests {
                 "{field} should reject invalid C++ bool token"
             );
         }
+    }
+
+    #[test]
+    fn locomotor_rejects_fields_outside_cpp_parse_table() {
+        let mut props = HashMap::new();
+        props.insert("Speed".to_string(), "300".to_string());
+        props.insert("BogusField".to_string(), "1".to_string());
+
+        assert!(parse_locomotor_template_definition("BadFieldLoco", &props).is_err());
     }
 }
