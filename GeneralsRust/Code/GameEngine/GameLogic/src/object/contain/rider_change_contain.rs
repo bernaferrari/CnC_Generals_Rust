@@ -483,9 +483,7 @@ mod tests {
         if name.starts_with("BikeRider") {
             let mut fields = HashMap::new();
             fields.insert("KindOf".to_string(), "INFANTRY".to_string());
-            template
-                .parse_object_fields_from_ini(&fields)
-                .expect("parse object fields");
+            template.parse_object_fields_from_ini(&fields);
         }
         let template = Arc::new(template);
         Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))

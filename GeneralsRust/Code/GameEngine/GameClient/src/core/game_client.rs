@@ -4710,7 +4710,9 @@ mod tests {
             shell.show_shell_map(false);
         }
         {
-            let mut stream = THE_MESSAGE_STREAM.write().unwrap_or_else(|e| e.into_inner());
+            let mut stream = THE_MESSAGE_STREAM
+                .write()
+                .unwrap_or_else(|e| e.into_inner());
             stream.clear_messages();
         }
         {
