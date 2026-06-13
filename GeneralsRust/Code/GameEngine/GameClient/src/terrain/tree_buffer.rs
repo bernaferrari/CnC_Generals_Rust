@@ -471,6 +471,14 @@ impl W3DTreeBuffer {
         self.update_all_keys = false;
     }
 
+    pub fn cull_trees_from_camera_transform(
+        &mut self,
+        camera_transform: Mat4,
+        is_visible: impl FnMut(&TreeSphere) -> bool,
+    ) {
+        self.cull_trees(-camera_transform.z_axis.truncate(), is_visible);
+    }
+
     pub fn clear_all_trees(&mut self) {
         self.trees.clear();
         self.bounds = TreeRegion2D::default();

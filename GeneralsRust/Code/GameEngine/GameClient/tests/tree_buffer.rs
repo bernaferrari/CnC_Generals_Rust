@@ -5,7 +5,7 @@ use game_client_rust::terrain::{
     DELETED_TREE_TYPE, END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT,
     TREE_RADIUS_APPROX, W3D_TOPPLE_OPTIONS_NO_BOUNCE, W3D_TOPPLE_OPTIONS_NO_FX,
 };
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3, Vec4};
 
 fn module(model: &str, texture: &str) -> TreeModuleData {
     TreeModuleData {
@@ -655,6 +655,33 @@ fn cull_trees_recomputes_visible_sort_keys_after_full_update() {
 
     approx_eq(buffer.trees()[id].sort_key, 10.0);
     assert!(!buffer.update_all_keys());
+}
+
+#[test]
+fn cull_trees_from_camera_transform_matches_cpp_negative_z_axis() {
+    let mut buffer = W3DTreeBuffer::new();
+    let id = buffer
+        .add_tree(
+            24,
+            Vec3::new(1.0, 2.0, 3.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Oak", "T"),
+            bounds(),
+        )
+        .unwrap();
+    let camera_transform = Mat4::from_cols(
+        Vec4::X,
+        Vec4::Y,
+        Vec4::new(-2.0, 3.0, 4.0, 0.0),
+        Vec4::W,
+    );
+
+    buffer.cull_trees_from_camera_transform(camera_transform, |_| true);
+
+    assert_eq!(buffer.camera_look_at_vector(), Vec3::new(2.0, -3.0, -4.0));
+    approx_eq(buffer.trees()[id].sort_key, -16.0);
 }
 
 #[test]
