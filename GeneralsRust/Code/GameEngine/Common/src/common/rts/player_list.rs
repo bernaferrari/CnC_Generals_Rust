@@ -9,7 +9,7 @@ use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 /// Maximum number of players
 /// C++ Reference: MAX_PLAYER_COUNT defined in GameCommon.h
-pub const MAX_PLAYER_COUNT: usize = 8;
+pub use crate::common::game_common::MAX_PLAYER_COUNT;
 
 /// Allow player relationship flags
 /// C++ Reference: AllowPlayerRelationship enum in PlayerList.h

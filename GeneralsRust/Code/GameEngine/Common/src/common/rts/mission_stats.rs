@@ -4,7 +4,7 @@
 //! units killed, buildings destroyed, units lost, etc.
 
 /// Maximum number of players that can be tracked
-pub const MAX_PLAYER_COUNT: usize = 8;
+pub use crate::common::game_common::MAX_PLAYER_COUNT;
 
 /// Mission statistics tracker
 ///

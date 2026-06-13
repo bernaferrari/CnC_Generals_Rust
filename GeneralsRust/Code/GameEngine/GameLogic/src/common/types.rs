@@ -224,7 +224,7 @@ impl ModuleDataExt for Arc<dyn ModuleData> {
 
 // Game constants
 /// Maximum number of players/sides in a game
-pub const MAX_PLAYER_COUNT: usize = 8;
+pub const MAX_PLAYER_COUNT: usize = 16;
 
 /// Maximum number of objects that can exist simultaneously
 pub const MAX_OBJECT_COUNT: u32 = 65536;

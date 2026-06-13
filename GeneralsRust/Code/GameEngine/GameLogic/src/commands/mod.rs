@@ -407,7 +407,7 @@ mod tests {
     #[test]
     fn test_command_system_stats() {
         let stats = get_command_system_stats();
-        assert!(stats.queue_stats.len() <= 8); // Max 8 players supported
+        assert!(stats.queue_stats.len() <= crate::common::MAX_PLAYER_COUNT);
     }
 
     #[test]

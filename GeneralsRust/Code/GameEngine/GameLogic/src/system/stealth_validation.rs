@@ -6,8 +6,8 @@
 use crate::common::{ObjectID, INVALID_ID};
 use std::fmt;
 
-/// Maximum player ID (0-7 range, 8 players)
-const MAX_PLAYER_ID: u32 = 7;
+/// Maximum player ID.
+const MAX_PLAYER_ID: u32 = (crate::common::MAX_PLAYER_COUNT as u32) - 1;
 
 /// Maximum string length for template/upgrade names
 const MAX_NAME_LENGTH: usize = 255;
@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_validate_player_id_invalid() {
-        let result = StealthValidator::validate_player_id(8);
+        let result = StealthValidator::validate_player_id(crate::common::MAX_PLAYER_COUNT as u32);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert_eq!(err.error_type, ValidationErrorType::InvalidPlayerId);
@@ -664,7 +664,15 @@ mod tests {
 
     #[test]
     fn test_validate_all_invalid_player_id() {
-        let result = StealthValidator::validate_all(50.0, 60.0, 0.8, 100.0, 25.0, 10, 42);
+        let result = StealthValidator::validate_all(
+            50.0,
+            60.0,
+            0.8,
+            100.0,
+            25.0,
+            crate::common::MAX_PLAYER_COUNT as u32,
+            42,
+        );
         assert!(result.is_err());
     }
 
@@ -719,7 +727,7 @@ mod tests {
         let err = ValidationError::object_id(0, "invalid");
         assert_eq!(err.error_type, ValidationErrorType::InvalidObjectId);
 
-        let err = ValidationError::player_id(8, "too high");
+        let err = ValidationError::player_id(crate::common::MAX_PLAYER_COUNT as u32, "too high");
         assert_eq!(err.error_type, ValidationErrorType::InvalidPlayerId);
 
         let err = ValidationError::range(150.0, 0.0, 100.0);

@@ -8,6 +8,8 @@
 use crate::common::thing::thing_factory::get_thing_factory;
 use std::collections::HashMap;
 
+pub use crate::common::game_common::MAX_PLAYER_COUNT;
+
 /// Forward declarations
 pub struct Object;
 pub struct ThingTemplate;
@@ -31,10 +33,6 @@ pub trait ScoreableObject {
     /// Check if this object is under construction
     fn is_score_under_construction(&self) -> bool;
 }
-
-/// Maximum number of players
-/// Matches C++ ScoreKeeper.h line 89
-pub const MAX_PLAYER_COUNT: usize = 8;
 
 /// KindOf bit flags for object classification
 /// Matches C++ KindOf.h enum definitions
@@ -854,18 +852,27 @@ impl ScoreKeeper {
     }
 
     fn serialize_map(data: &mut Vec<u8>, map: &HashMap<String, i32>) {
+        // C++ xferObjectCountMap writes its own version before every map.
+        data.extend_from_slice(&1u32.to_le_bytes());
+
         // Map size
         data.extend_from_slice(&(map.len() as u16).to_le_bytes());
 
         // Map entries
-        for (name, count) in map {
-            // String length and data
+        let mut entries: Vec<(&String, &i32)> = map.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        for (name, count) in entries {
+            // XferSave::xfer_ascii_string writes a one-byte string length.
             let name_bytes = name.as_bytes();
-            data.extend_from_slice(&(name_bytes.len() as u16).to_le_bytes());
+            assert!(
+                name_bytes.len() <= u8::MAX as usize,
+                "ScoreKeeper object template name is too long to xfer"
+            );
+            data.push(name_bytes.len() as u8);
             data.extend_from_slice(name_bytes);
 
             // Count
-            data.extend_from_slice(&count.to_le_bytes());
+            data.extend_from_slice(&(*count).to_le_bytes());
         }
     }
 
@@ -1044,6 +1051,20 @@ impl ScoreKeeper {
         data: &[u8],
         offset: &mut usize,
     ) -> Result<HashMap<String, i32>, &'static str> {
+        if *offset + 4 > data.len() {
+            return Err("Truncated map version");
+        }
+        let map_version = u32::from_le_bytes([
+            data[*offset],
+            data[*offset + 1],
+            data[*offset + 2],
+            data[*offset + 3],
+        ]);
+        *offset += 4;
+        if map_version != 1 {
+            return Err("Unsupported map version");
+        }
+
         if *offset + 2 > data.len() {
             return Err("Truncated map data");
         }
@@ -1055,11 +1076,11 @@ impl ScoreKeeper {
 
         for _ in 0..map_size {
             // String length
-            if *offset + 2 > data.len() {
+            if *offset + 1 > data.len() {
                 return Err("Truncated map entry");
             }
-            let str_len = u16::from_le_bytes([data[*offset], data[*offset + 1]]) as usize;
-            *offset += 2;
+            let str_len = data[*offset] as usize;
+            *offset += 1;
 
             // String data
             if *offset + str_len > data.len() {
@@ -1321,6 +1342,7 @@ mod tests {
         // Matches C++ ScoreKeeper.cpp xfer() implementation lines 465-536
         let mut keeper = ScoreKeeper::new();
         keeper.reset(3);
+        assert_eq!(MAX_PLAYER_COUNT, 16);
 
         let unit_mask = create_scoring_unit_mask();
         let building_mask = create_scoring_building_mask();
@@ -1330,6 +1352,9 @@ mod tests {
         keeper.add_money_earned(5000);
         keeper.add_money_spent(2000);
         keeper.add_object_destroyed("EnemyTank", &unit_mask, 1, false);
+        keeper.add_object_destroyed("BossDozer", &unit_mask, 12, false);
+        keeper.add_object_lost("LostTank", &unit_mask, false);
+        keeper.add_object_captured("OilDerrick", &building_mask);
         keeper.calculate_score();
 
         let serialized = keeper.serialize();
@@ -1353,6 +1378,12 @@ mod tests {
         );
         assert_eq!(keeper.get_current_score(), deserialized.get_current_score());
         assert_eq!(keeper.player_index, deserialized.player_index);
+        assert_eq!(deserialized.total_units_destroyed[12], 1);
+        assert_eq!(deserialized.objects_built["Tank"], 1);
+        assert_eq!(deserialized.objects_destroyed[1]["EnemyTank"], 1);
+        assert_eq!(deserialized.objects_destroyed[12]["BossDozer"], 1);
+        assert_eq!(deserialized.objects_lost["LostTank"], 1);
+        assert_eq!(deserialized.objects_captured["OilDerrick"], 1);
     }
 
     #[test]

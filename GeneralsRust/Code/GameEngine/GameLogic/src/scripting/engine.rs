@@ -1147,7 +1147,7 @@ impl ScriptEngine {
         }
     }
 
-    const MAX_PLAYER_COUNT: usize = 8; // Typical max players in C&C
+    const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 
     pub fn new() -> GameLogicResult<Self> {
         let mut engine = Self {

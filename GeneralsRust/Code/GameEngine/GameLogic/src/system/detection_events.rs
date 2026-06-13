@@ -23,8 +23,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::sync::OnceLock;
 
-/// Maximum number of players in game (0-7)
-const MAX_PLAYER_COUNT: usize = 8;
+/// Maximum number of players in game.
+const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 
 /// Detection event types for radar and UI feedback
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
