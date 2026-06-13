@@ -36,7 +36,9 @@ use game_engine::System::XferVersion;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use gamelogic::commands::command::CommandType;
 use gamelogic::common::audio::AudioEventRts as LogicAudioEventRts;
-use gamelogic::helpers::{TerrainTreeRegistration, TheAudio, TheGameLogic, TheScriptEngine};
+use gamelogic::helpers::{
+    TerrainTreeRegistration, TheAudio, TheFXList, TheGameLogic, TheScriptEngine,
+};
 use gamelogic::object::draw::W3DTreeDrawModuleData;
 use glam::{Mat4, Vec3};
 use kira::manager::{AudioManager, AudioManagerSettings};
@@ -2290,6 +2292,28 @@ impl TerrainVisualStub {
         self.registered_trees.clear();
         self.tree_buffer.clear_all_trees();
     }
+
+    fn drain_tree_fx_events_with(
+        &mut self,
+        mut dispatch: impl FnMut(&str, &Vec3),
+    ) -> usize {
+        let events = self.tree_buffer.take_pending_fx_events();
+        let count = events.len();
+        for event in events {
+            dispatch(&event.fx_name, &event.position);
+        }
+        count
+    }
+
+    fn drain_tree_fx_events(&mut self) {
+        let Some(fx) = TheFXList::get() else {
+            self.tree_buffer.take_pending_fx_events();
+            return;
+        };
+        self.drain_tree_fx_events_with(|fx_name, position| {
+            fx.do_fx_at_position(fx_name, position);
+        });
+    }
 }
 
 impl SubsystemInterface for TerrainVisualStub {
@@ -2321,6 +2345,7 @@ impl SubsystemInterface for TerrainVisualStub {
                 terrain.update()?;
             }
         }
+        self.drain_tree_fx_events();
         Ok(())
     }
 }
@@ -2587,6 +2612,40 @@ mod tests {
             record.matrix,
             Mat4::from_translation(Vec3::new(1.0, 2.0, 3.0))
         );
+    }
+
+    #[test]
+    fn terrain_visual_update_drain_dispatches_pending_tree_fx_once() {
+        let mut module_data = W3DTreeDrawModuleData::new();
+        module_data.model_name = AsciiString::from("Oak");
+        module_data.texture_name = AsciiString::from("OakLeaves");
+        module_data.do_topple = true;
+        module_data.topple_fx = Some(AsciiString::from("FX_TreeTopple"));
+
+        let mut terrain = TerrainVisualStub::default();
+        terrain.add_tree_registration(TerrainTreeRegistration {
+            drawable_id: 88,
+            location: Vec3::new(4.0, 5.0, 6.0),
+            scale: 1.0,
+            angle: 0.0,
+            random_scale_amount: 0.0,
+            module_data,
+        });
+        assert!(terrain
+            .tree_buffer_mut()
+            .apply_toppling_force(88, Vec3::X, 1.0, 0));
+
+        let mut dispatched = Vec::new();
+        let count = terrain.drain_tree_fx_events_with(|fx_name, position| {
+            dispatched.push((fx_name.to_string(), *position));
+        });
+
+        assert_eq!(count, 1);
+        assert_eq!(
+            dispatched,
+            vec![("FX_TreeTopple".to_string(), Vec3::new(4.0, 5.0, 6.0))]
+        );
+        assert_eq!(terrain.drain_tree_fx_events_with(|_, _| {}), 0);
     }
 
     #[test]
