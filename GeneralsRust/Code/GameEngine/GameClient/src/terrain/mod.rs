@@ -53,6 +53,7 @@ pub mod manager;
 pub mod roads;
 pub mod terrain_background;
 pub mod terrain_roads;
+pub mod terrain_tracks;
 pub mod terrain_visual;
 pub mod textures;
 pub mod vertex;
@@ -73,6 +74,10 @@ pub use height_map::HeightMap;
 pub use manager::TerrainManager;
 pub use roads::{Road, RoadSystem, RoadType};
 pub use terrain_background::{IRegion2D, TerrainBackgroundHeightMap, W3DTerrainBackground};
+pub use terrain_tracks::{
+    TerrainTrackHeightProvider, TerrainTrackLayer, TerrainTracksConfig,
+    TerrainTracksRenderObjClassSystem, BRIDGE_OFFSET_FACTOR,
+};
 pub use textures::{BlendMode, TerrainTextures, TextureLayer};
 pub use vertex::TerrainVertex;
 pub use water::{WaterBody, WaterSettings, WaterSystem};
