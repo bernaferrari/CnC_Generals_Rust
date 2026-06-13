@@ -1031,8 +1031,7 @@ impl RenderPipeline {
         let terrain_pass_started = Instant::now();
         if let Ok(mut guard) = game_client::terrain::terrain_visual::get_terrain_visual() {
             if let Some(terrain_visual) = guard.as_mut() {
-                let client_view_matrix =
-                    Mat4::from_cols_array_2d(&view_matrix.to_cols_array_2d());
+                let client_view_matrix = Mat4::from_cols_array_2d(&view_matrix.to_cols_array_2d());
                 let client_projection_matrix =
                     Mat4::from_cols_array_2d(&projection_matrix.to_cols_array_2d());
                 let terrain_render_started = Instant::now();
@@ -1755,7 +1754,9 @@ impl RenderPipeline {
         let submissions_count = submissions.len();
         let mut bridge_items_added = 0usize;
 
-        for (submission, is_transparent) in submissions {
+        for drained in submissions {
+            let submission = drained.submission;
+            let is_transparent = drained.is_transparent;
             let model_name = &submission.model_name;
             if model_name.is_empty() {
                 continue;
