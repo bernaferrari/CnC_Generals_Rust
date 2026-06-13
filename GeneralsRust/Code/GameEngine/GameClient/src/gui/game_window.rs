@@ -444,6 +444,88 @@ pub fn gadget_combo_box_set_max_chars(combo_box: &mut GameWindow, max_chars: i32
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub fn gadget_combo_box_set_colors(
+    combo_box: &mut GameWindow,
+    enabled_color: Color,
+    enabled_border_color: Color,
+    enabled_selected_item_color: Color,
+    enabled_selected_item_border_color: Color,
+    disabled_color: Color,
+    disabled_border_color: Color,
+    disabled_selected_item_color: Color,
+    disabled_selected_item_border_color: Color,
+    hilite_color: Color,
+    hilite_border_color: Color,
+    hilite_selected_item_color: Color,
+    hilite_selected_item_border_color: Color,
+) {
+    let _ = combo_box.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+    let _ = combo_box.set_enabled_draw_colors(
+        1,
+        enabled_selected_item_color,
+        enabled_selected_item_border_color,
+    );
+    let _ = combo_box.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+    let _ = combo_box.set_disabled_draw_colors(
+        1,
+        disabled_selected_item_color,
+        disabled_selected_item_border_color,
+    );
+    let _ = combo_box.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+    let _ = combo_box.set_hilite_draw_colors(
+        1,
+        hilite_selected_item_color,
+        hilite_selected_item_border_color,
+    );
+
+    let Some(links) = combo_box.combobox_links else {
+        return;
+    };
+
+    for child_id in [links.edit_box, links.drop_down] {
+        if let Some(child) = combo_box.find_child_by_id(child_id) {
+            let mut child = child.borrow_mut();
+            let _ = child.set_enabled_draw_colors(0, enabled_color, enabled_border_color);
+            let _ = child.set_enabled_draw_colors(
+                1,
+                enabled_selected_item_color,
+                enabled_selected_item_border_color,
+            );
+            let _ = child.set_disabled_draw_colors(0, disabled_color, disabled_border_color);
+            let _ = child.set_disabled_draw_colors(
+                1,
+                disabled_selected_item_color,
+                disabled_selected_item_border_color,
+            );
+            let _ = child.set_hilite_draw_colors(0, hilite_color, hilite_border_color);
+            let _ = child.set_hilite_draw_colors(
+                1,
+                hilite_selected_item_color,
+                hilite_selected_item_border_color,
+            );
+        }
+    }
+
+    if let Some(list_box) = combo_box.find_child_by_id(links.list_box) {
+        gadget_list_box_set_colors(
+            &mut list_box.borrow_mut(),
+            enabled_color,
+            enabled_border_color,
+            enabled_selected_item_color,
+            enabled_selected_item_border_color,
+            disabled_color,
+            disabled_border_color,
+            disabled_selected_item_color,
+            disabled_selected_item_border_color,
+            hilite_color,
+            hilite_border_color,
+            hilite_selected_item_color,
+            hilite_selected_item_border_color,
+        );
+    }
+}
+
 bitflags! {
     /// Window status flags
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -5003,6 +5085,56 @@ mod tests {
         assert_eq!(drop_down.inst_data.hilite_text.color, 0);
         assert_eq!(drop_down.inst_data.ime_composite_text.color, 0);
         assert!(drop_down.get_font().is_none());
+    }
+
+    #[test]
+    fn combo_box_set_colors_propagates_to_sub_gadgets_like_cpp() {
+        let (mut combo, edit_box, list_box, drop_down) = combo_fixture();
+        fn assert_combo_button_colors(window: &GameWindow) {
+            assert_eq!(window.get_enabled_draw_data(0).unwrap().color, 0x01020304);
+            assert_eq!(
+                window.get_enabled_draw_data(0).unwrap().border_color,
+                0x05060708
+            );
+            assert_eq!(window.get_enabled_draw_data(1).unwrap().color, 0x11121314);
+            assert_eq!(
+                window.get_enabled_draw_data(1).unwrap().border_color,
+                0x15161718
+            );
+            assert_eq!(window.get_disabled_draw_data(0).unwrap().color, 0x21222324);
+            assert_eq!(
+                window.get_disabled_draw_data(1).unwrap().border_color,
+                0x35363738
+            );
+            assert_eq!(window.get_hilite_draw_data(0).unwrap().color, 0x41424344);
+            assert_eq!(
+                window.get_hilite_draw_data(1).unwrap().border_color,
+                0x55565758
+            );
+        }
+
+        gadget_combo_box_set_colors(
+            &mut combo, 0x01020304, 0x05060708, 0x11121314, 0x15161718, 0x21222324, 0x25262728,
+            0x31323334, 0x35363738, 0x41424344, 0x45464748, 0x51525354, 0x55565758,
+        );
+
+        assert_combo_button_colors(&combo);
+        assert_combo_button_colors(&edit_box.borrow());
+        assert_combo_button_colors(&drop_down.borrow());
+
+        let list_box = list_box.borrow();
+        assert_eq!(list_box.get_enabled_draw_data(0).unwrap().color, 0x01020304);
+        assert_eq!(list_box.get_enabled_draw_data(1).unwrap().color, 0x11121314);
+        assert_eq!(
+            list_box.get_disabled_draw_data(0).unwrap().color,
+            0x21222324
+        );
+        assert_eq!(
+            list_box.get_disabled_draw_data(1).unwrap().color,
+            0x31323334
+        );
+        assert_eq!(list_box.get_hilite_draw_data(0).unwrap().color, 0x41424344);
+        assert_eq!(list_box.get_hilite_draw_data(1).unwrap().color, 0x51525354);
     }
 
     #[test]
