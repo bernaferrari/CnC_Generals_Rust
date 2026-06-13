@@ -48,10 +48,12 @@ pub mod simple_object_iterator;
 pub mod structure;
 pub mod types;
 pub mod unit;
+pub mod w3d_ghost_object;
 pub mod weapon_set;
 pub use crate::common::types::ObjectStatusTypes;
 pub use crate::template::ObjectTemplate;
 pub use ghost_object::{GhostObject, GhostObjectManager, THE_GHOST_OBJECT_MANAGER};
+pub use w3d_ghost_object::{W3DGhostObject, W3DGhostObjectManager, W3DRenderObjectSnapshot};
 
 use once_cell::sync::Lazy;
 use parking_lot::Mutex as ParkingMutex;
