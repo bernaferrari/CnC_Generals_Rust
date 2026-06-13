@@ -143,6 +143,108 @@ pub struct CustomEdgingVertex {
     pub alpha: u8,
 }
 
+/// Texture handles consumed by the custom-edging render passes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CustomEdgingTextures<'a> {
+    /// C++ `terrainTexture`.
+    pub terrain: Option<&'a str>,
+    /// C++ `pMap->getEdgeTerrainTexture()`.
+    pub edge: Option<&'a str>,
+    /// Optional cloud overlay texture.
+    pub cloud: Option<&'a str>,
+    /// Optional noise overlay texture.
+    pub noise: Option<&'a str>,
+}
+
+/// C++ custom-edging shader selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CustomEdgingShader {
+    /// C++ `detailAlphaTestShader`.
+    DetailAlphaTest,
+    /// C++ `detailOpaqueShader`.
+    DetailOpaque,
+}
+
+/// C++ alpha compare operation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CustomEdgingAlphaFunc {
+    /// C++ `D3DCMP_LESSEQUAL`.
+    LessEqual,
+    /// C++ `D3DCMP_GREATEREQUAL`.
+    GreaterEqual,
+    /// C++ `D3DCMP_NOTEQUAL`.
+    NotEqual,
+}
+
+/// C++ blend factor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CustomEdgingBlend {
+    /// C++ `D3DBLEND_DESTCOLOR`.
+    DestColor,
+    /// C++ `D3DBLEND_ZERO`.
+    Zero,
+}
+
+/// Logical render pass emitted by `W3DCustomEdging::drawEdging`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CustomEdgingRenderPassKind {
+    /// First pass: terrain texture clipped by edge alpha.
+    TerrainMask,
+    /// Second pass: custom edge texture clipped by inverse alpha.
+    CustomEdge,
+    /// Optional cloud multiplicative pass.
+    Cloud,
+    /// Optional noise multiplicative pass.
+    Noise,
+}
+
+/// One C++ `DX8Wrapper::Draw_Triangles` equivalent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CustomEdgingRenderPass<'a> {
+    /// Pass identity.
+    pub kind: CustomEdgingRenderPassKind,
+    /// Shader selected before drawing.
+    pub shader: CustomEdgingShader,
+    /// Texture stage 0 binding.
+    pub texture0: Option<&'a str>,
+    /// Texture stage 1 binding.
+    pub texture1: Option<&'a str>,
+    /// C++ `D3DRS_ALPHAREF`.
+    pub alpha_ref: u8,
+    /// C++ `D3DRS_ALPHAFUNC`.
+    pub alpha_func: CustomEdgingAlphaFunc,
+    /// C++ `D3DRS_ALPHATESTENABLE`.
+    pub alpha_test: bool,
+    /// C++ `D3DRS_ALPHABLENDENABLE` when explicitly set by the pass.
+    pub alpha_blend: Option<bool>,
+    /// C++ `D3DRS_SRCBLEND` when explicitly set by the pass.
+    pub src_blend: Option<CustomEdgingBlend>,
+    /// C++ `D3DRS_DESTBLEND` when explicitly set by the pass.
+    pub dest_blend: Option<CustomEdgingBlend>,
+    /// First index offset.
+    pub start_index: usize,
+    /// Triangle count.
+    pub triangle_count: usize,
+    /// First vertex.
+    pub min_vertex: usize,
+    /// Vertex count.
+    pub vertex_count: usize,
+}
+
+/// Render plan returned after rebuilding custom-edging geometry.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CustomEdgingDrawPlan<'a> {
+    /// Draw calls in C++ emission order.
+    pub passes: Vec<CustomEdgingRenderPass<'a>>,
+}
+
+impl CustomEdgingDrawPlan<'_> {
+    /// Whether there is anything to render.
+    pub fn is_empty(&self) -> bool {
+        self.passes.is_empty()
+    }
+}
+
 /// Draw buffer for all custom terrain blend edges.
 #[derive(Debug, Default)]
 pub struct W3DCustomEdging {
@@ -315,6 +417,106 @@ impl W3DCustomEdging {
         !self.indices.is_empty()
     }
 
+    /// C++ `drawEdging` render-pass sequence.
+    pub fn draw_edging_plan<'a, M: CustomEdgingHeightMap>(
+        &mut self,
+        map: &M,
+        min_x: i32,
+        max_x: i32,
+        min_y: i32,
+        max_y: i32,
+        textures: CustomEdgingTextures<'a>,
+    ) -> CustomEdgingDrawPlan<'a> {
+        self.load_edgings_in_vertex_and_index_buffers(map, min_x, max_x, min_y, max_y);
+        if self.indices.is_empty() {
+            return CustomEdgingDrawPlan::default();
+        }
+
+        let triangle_count = self.indices.len() / 3;
+        let vertex_count = self.vertices.len();
+        let common = |kind,
+                      shader,
+                      texture0,
+                      texture1,
+                      alpha_ref,
+                      alpha_func,
+                      alpha_blend,
+                      src_blend,
+                      dest_blend| {
+            CustomEdgingRenderPass {
+                kind,
+                shader,
+                texture0,
+                texture1,
+                alpha_ref,
+                alpha_func,
+                alpha_test: true,
+                alpha_blend,
+                src_blend,
+                dest_blend,
+                start_index: 0,
+                triangle_count,
+                min_vertex: 0,
+                vertex_count,
+            }
+        };
+
+        let mut passes = vec![
+            common(
+                CustomEdgingRenderPassKind::TerrainMask,
+                CustomEdgingShader::DetailAlphaTest,
+                textures.terrain,
+                textures.edge,
+                0x7b,
+                CustomEdgingAlphaFunc::LessEqual,
+                None,
+                None,
+                None,
+            ),
+            common(
+                CustomEdgingRenderPassKind::CustomEdge,
+                CustomEdgingShader::DetailAlphaTest,
+                textures.edge,
+                None,
+                0x84,
+                CustomEdgingAlphaFunc::GreaterEqual,
+                None,
+                None,
+                None,
+            ),
+        ];
+
+        if let Some(cloud) = textures.cloud {
+            passes.push(common(
+                CustomEdgingRenderPassKind::Cloud,
+                CustomEdgingShader::DetailOpaque,
+                Some(cloud),
+                textures.edge,
+                0x80,
+                CustomEdgingAlphaFunc::NotEqual,
+                Some(true),
+                Some(CustomEdgingBlend::DestColor),
+                Some(CustomEdgingBlend::Zero),
+            ));
+        }
+
+        if let Some(noise) = textures.noise {
+            passes.push(common(
+                CustomEdgingRenderPassKind::Noise,
+                CustomEdgingShader::DetailOpaque,
+                Some(noise),
+                textures.edge,
+                0x80,
+                CustomEdgingAlphaFunc::NotEqual,
+                Some(true),
+                Some(CustomEdgingBlend::DestColor),
+                Some(CustomEdgingBlend::Zero),
+            ));
+        }
+
+        CustomEdgingDrawPlan { passes }
+    }
+
     /// Current vertices.
     pub fn vertices(&self) -> &[CustomEdgingVertex] {
         &self.vertices
@@ -431,5 +633,99 @@ mod tests {
 
         edging.load_edgings_in_vertex_and_index_buffers(&map, 0, 4, 0, 4);
         assert!(edging.vertices().is_empty());
+    }
+
+    #[test]
+    fn draw_plan_matches_cpp_pass_order_and_optional_modulation() {
+        let map = TestMap {
+            blend: CustomBlendTile {
+                custom_blend_edge_class: 2,
+                horiz: true,
+                ..Default::default()
+            },
+        };
+        let mut edging = W3DCustomEdging::new();
+
+        let plan = edging.draw_edging_plan(
+            &map,
+            0,
+            4,
+            0,
+            4,
+            CustomEdgingTextures {
+                terrain: Some("terrain"),
+                edge: Some("edge"),
+                cloud: Some("cloud"),
+                noise: Some("noise"),
+            },
+        );
+
+        assert_eq!(plan.passes.len(), 4);
+        assert_eq!(plan.passes[0].kind, CustomEdgingRenderPassKind::TerrainMask);
+        assert_eq!(plan.passes[0].shader, CustomEdgingShader::DetailAlphaTest);
+        assert_eq!(plan.passes[0].texture0, Some("terrain"));
+        assert_eq!(plan.passes[0].texture1, Some("edge"));
+        assert_eq!(plan.passes[0].alpha_ref, 0x7b);
+        assert_eq!(plan.passes[0].alpha_func, CustomEdgingAlphaFunc::LessEqual);
+
+        assert_eq!(plan.passes[1].kind, CustomEdgingRenderPassKind::CustomEdge);
+        assert_eq!(plan.passes[1].texture0, Some("edge"));
+        assert_eq!(plan.passes[1].texture1, None);
+        assert_eq!(plan.passes[1].alpha_ref, 0x84);
+        assert_eq!(
+            plan.passes[1].alpha_func,
+            CustomEdgingAlphaFunc::GreaterEqual
+        );
+
+        for (pass, kind, texture) in [
+            (&plan.passes[2], CustomEdgingRenderPassKind::Cloud, "cloud"),
+            (&plan.passes[3], CustomEdgingRenderPassKind::Noise, "noise"),
+        ] {
+            assert_eq!(pass.kind, kind);
+            assert_eq!(pass.shader, CustomEdgingShader::DetailOpaque);
+            assert_eq!(pass.texture0, Some(texture));
+            assert_eq!(pass.texture1, Some("edge"));
+            assert_eq!(pass.alpha_ref, 0x80);
+            assert_eq!(pass.alpha_func, CustomEdgingAlphaFunc::NotEqual);
+            assert_eq!(pass.alpha_blend, Some(true));
+            assert_eq!(pass.src_blend, Some(CustomEdgingBlend::DestColor));
+            assert_eq!(pass.dest_blend, Some(CustomEdgingBlend::Zero));
+            assert_eq!(pass.triangle_count, 2);
+            assert_eq!(pass.vertex_count, 4);
+        }
+    }
+
+    #[test]
+    fn draw_plan_omits_cloud_and_noise_when_textures_are_absent() {
+        let map = TestMap {
+            blend: CustomBlendTile {
+                custom_blend_edge_class: 2,
+                horiz: true,
+                ..Default::default()
+            },
+        };
+        let mut edging = W3DCustomEdging::new();
+
+        let plan = edging.draw_edging_plan(
+            &map,
+            0,
+            4,
+            0,
+            4,
+            CustomEdgingTextures {
+                terrain: Some("terrain"),
+                edge: Some("edge"),
+                cloud: None,
+                noise: None,
+            },
+        );
+
+        assert_eq!(
+            plan.passes.iter().map(|pass| pass.kind).collect::<Vec<_>>(),
+            vec![
+                CustomEdgingRenderPassKind::TerrainMask,
+                CustomEdgingRenderPassKind::CustomEdge,
+            ]
+        );
     }
 }

@@ -763,14 +763,19 @@ mod tests {
         list_box_image_content_width, list_box_selected_image_rect, list_box_selected_image_slots,
         list_box_solid_content_width, list_box_solid_frame_and_content_widths,
     };
-    use super::{push_button_color_entry_index, push_button_one_image_source, PushButtonDrawBank};
+    use super::{
+        push_button_color_entry_index, push_button_one_image_source, w3d_gadget_push_button_draw,
+        PushButtonDrawBank,
+    };
     use super::{static_text_draw_data, static_text_text_colors, WIN_COLOR_UNDEFINED};
     use super::{
         text_entry_clip_region, text_entry_cursor_window_x, text_entry_focus_matches,
         text_entry_image_tile_rects, text_entry_start_y, text_entry_text_color_defined,
         text_entry_text_draw_x, truncate_to_i32, TextEntryImageTileKind,
     };
-    use crate::gui::gadgets::{ListBox, ListBoxItemData, TabControl, TabControlData};
+    use crate::gui::gadgets::{
+        Color, ListBox, ListBoxItemData, PushButton, TabControl, TabControlData,
+    };
     use crate::gui::game_window::{
         GameWindow, WindowInstanceData, WindowState, WindowStatus, WindowWidget,
     };
@@ -904,6 +909,23 @@ mod tests {
             push_button_one_image_source(WindowStatus::ENABLED, WindowState::SELECTED, true),
             (PushButtonDrawBank::Hilite, 1)
         );
+    }
+
+    #[test]
+    fn w3d_push_button_draw_consumes_clock_request_like_cpp() {
+        let mut window = GameWindow::new();
+        window.set_status(WindowStatus::ENABLED);
+        let mut button = PushButton::new(7, 0, 0, 100, 30);
+        button.set_clock_progress(50, Color::GREEN);
+        window.set_widget(WindowWidget::PushButton(button));
+
+        w3d_gadget_push_button_draw(&window, window.instance_data());
+
+        let Some(WindowWidget::PushButton(button)) = window.widget() else {
+            panic!("push button widget missing");
+        };
+        assert_eq!(button.clock_request(), None);
+        assert_eq!(button.consume_clock_request(), None);
     }
 
     #[test]
@@ -2411,32 +2433,32 @@ fn draw_button_style_overlay(window: &GameWindow, button: &PushButton) {
         });
     }
 
-    match button.style().clock_mode {
-        ClockMode::Normal => {
+    match button.consume_clock_request() {
+        Some((ClockMode::Normal, progress, color)) => {
             with_window_manager_ref(|manager| {
                 manager.win_draw_rect_clock(
                     x,
                     y,
                     w,
                     h,
-                    button.style().clock_progress as i32,
-                    gadget_color_to_win_color(button.style().clock_color),
+                    progress as i32,
+                    gadget_color_to_win_color(color),
                 );
             });
         }
-        ClockMode::Inverse => {
+        Some((ClockMode::Inverse, progress, color)) => {
             with_window_manager_ref(|manager| {
                 manager.win_draw_remaining_rect_clock(
                     x,
                     y,
                     w,
                     h,
-                    button.style().clock_progress as i32,
-                    gadget_color_to_win_color(button.style().clock_color),
+                    progress as i32,
+                    gadget_color_to_win_color(color),
                 );
             });
         }
-        ClockMode::None => {}
+        Some((ClockMode::None, _, _)) | None => {}
     }
 }
 
