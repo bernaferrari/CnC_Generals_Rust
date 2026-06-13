@@ -361,6 +361,14 @@ impl W3DTreeBuffer {
         self.any_push_changed
     }
 
+    pub fn update_all_keys(&self) -> bool {
+        self.update_all_keys
+    }
+
+    pub fn camera_look_at_vector(&self) -> Vec3 {
+        self.camera_look_at_vector
+    }
+
     pub fn need_to_update_texture(&self) -> bool {
         self.need_to_update_texture
     }
@@ -379,6 +387,29 @@ impl W3DTreeBuffer {
 
     pub fn do_full_update(&mut self) {
         self.update_all_keys = true;
+    }
+
+    pub fn cull_trees(
+        &mut self,
+        camera_look_at_vector: Vec3,
+        mut is_visible: impl FnMut(&TreeSphere) -> bool,
+    ) {
+        self.camera_look_at_vector = camera_look_at_vector;
+        for tree in &mut self.trees {
+            let mut update_key = false;
+            let visible = is_visible(&tree.bounds);
+            if visible != tree.visible {
+                tree.visible = visible;
+                self.anything_changed = true;
+                if visible {
+                    update_key = true;
+                }
+            }
+            if update_key || (visible && self.update_all_keys) {
+                tree.sort_key = tree.location.dot(self.camera_look_at_vector);
+            }
+        }
+        self.update_all_keys = false;
     }
 
     pub fn clear_all_trees(&mut self) {
