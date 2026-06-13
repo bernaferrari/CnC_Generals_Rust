@@ -87,6 +87,48 @@ pub struct ListBoxAddEntry {
     pub color: Option<Color>,
 }
 
+/// Draw command emitted by [`ListBox`] for the UI renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListBoxRenderCommand {
+    Background {
+        rect: Rect,
+        color: super::Color,
+        border_color: super::Color,
+        border_width: u32,
+    },
+    Selection {
+        rect: Rect,
+        row: usize,
+        color: super::Color,
+    },
+    TextCell {
+        rect: Rect,
+        row: usize,
+        column: usize,
+        text: String,
+        color: Color,
+        selected: bool,
+        hovered: bool,
+        enabled: bool,
+    },
+    ImageCell {
+        rect: Rect,
+        row: usize,
+        column: usize,
+        image_name: String,
+        image_width: u32,
+        image_height: u32,
+        color: Color,
+        selected: bool,
+        hovered: bool,
+        enabled: bool,
+    },
+    FocusOutline {
+        rect: Rect,
+        color: super::Color,
+    },
+}
+
 /// Selection mode for list boxes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SelectionMode {
@@ -1098,6 +1140,161 @@ impl ListBox {
 
         false
     }
+
+    fn row_rect(&self, visible_row: usize) -> Rect {
+        let y = self.bounds.y
+            + self.content_top_inset as i32
+            + (visible_row as u32 * self.item_height) as i32;
+        let bottom = self.bounds.y + self.bounds.height as i32;
+        let remaining_height = (bottom - y).max(0) as u32;
+        Rect::new(
+            self.bounds.x,
+            y,
+            self.content_width(),
+            self.item_height.min(remaining_height),
+        )
+    }
+
+    fn cell_color(&self, item: &ListBoxItem, column: usize) -> Color {
+        item.column_colors
+            .get(column)
+            .and_then(|color| *color)
+            .or(if column == 0 { item.text_color } else { None })
+            .unwrap_or_else(|| Color::new(0, 0, 0, 0))
+    }
+
+    fn push_cell_render_command(
+        &self,
+        commands: &mut Vec<ListBoxRenderCommand>,
+        item: &ListBoxItem,
+        row: usize,
+        column: usize,
+        rect: Rect,
+        selected: bool,
+        hovered: bool,
+    ) {
+        let color = self.cell_color(item, column);
+        if let Some(data) = item.column_data.get(column) {
+            match data {
+                ListBoxItemData::Text(text) => {
+                    commands.push(ListBoxRenderCommand::TextCell {
+                        rect,
+                        row,
+                        column,
+                        text: text.clone(),
+                        color,
+                        selected,
+                        hovered,
+                        enabled: item.enabled,
+                    });
+                    return;
+                }
+                ListBoxItemData::Image {
+                    name,
+                    width,
+                    height,
+                    ..
+                } => {
+                    commands.push(ListBoxRenderCommand::ImageCell {
+                        rect,
+                        row,
+                        column,
+                        image_name: name.clone(),
+                        image_width: *width,
+                        image_height: *height,
+                        color,
+                        selected,
+                        hovered,
+                        enabled: item.enabled,
+                    });
+                    return;
+                }
+                ListBoxItemData::Integer(_) => {}
+            }
+        }
+
+        if column == 0 {
+            commands.push(ListBoxRenderCommand::TextCell {
+                rect,
+                row,
+                column,
+                text: item.text.clone(),
+                color,
+                selected,
+                hovered,
+                enabled: item.enabled,
+            });
+        }
+    }
+
+    /// Build renderer-facing commands for the current list-box state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<ListBoxRenderCommand> {
+        if !self.visible {
+            return Vec::new();
+        }
+
+        let mut commands = vec![ListBoxRenderCommand::Background {
+            rect: self.bounds,
+            color: if self.enabled {
+                theme.normal_color
+            } else {
+                theme.disabled_color
+            },
+            border_color: theme.border_color,
+            border_width: theme.border_width,
+        }];
+
+        let visible_rows = self.visible_rows();
+        let column_widths = self.column_widths_for_width(self.content_width());
+        for visible_row in 0..visible_rows {
+            let row = self.scroll_offset + visible_row;
+            let Some(item) = self.items.get(row) else {
+                break;
+            };
+
+            let row_rect = self.row_rect(visible_row);
+            if row_rect.height == 0 {
+                break;
+            }
+
+            let selected = self.selected_indices.contains(&row);
+            let hovered = self.hovered_index == Some(row);
+            if selected {
+                commands.push(ListBoxRenderCommand::Selection {
+                    rect: row_rect,
+                    row,
+                    color: theme.pressed_color,
+                });
+            }
+
+            let mut cell_x = self.bounds.x;
+            for (column, width) in column_widths.iter().enumerate() {
+                if *width == 0 {
+                    continue;
+                }
+                let rect = Rect::new(cell_x, row_rect.y, *width, row_rect.height);
+                self.push_cell_render_command(
+                    &mut commands,
+                    item,
+                    row,
+                    column,
+                    rect,
+                    selected,
+                    hovered,
+                );
+                cell_x += *width as i32;
+            }
+        }
+
+        if self.focused {
+            commands.push(ListBoxRenderCommand::FocusOutline {
+                rect: self.bounds,
+                color: theme.focused_color,
+            });
+        }
+
+        commands
+    }
 }
 
 impl Gadget for ListBox {
@@ -1412,11 +1609,11 @@ impl Gadget for ListBox {
         }
     }
 
-    fn render(&self, _theme: &GadgetTheme) {
+    fn render(&self, theme: &GadgetTheme) {
         if !self.visible {
             return;
         }
-        // Rendering handled by UI layer.
+        let _commands = self.render_commands(theme);
     }
 
     fn tooltip(&self) -> Option<&str> {
@@ -1500,6 +1697,104 @@ mod tests {
         });
         assert_eq!(value_changed_integer(&content_click), Some(0));
         assert_eq!(listbox.selected_indices(), &[0]);
+    }
+
+    #[test]
+    fn listbox_render_commands_cover_visible_rows_columns_selection_images_and_focus() {
+        let theme = GadgetTheme::default();
+        let mut listbox = ListBox::new(7, 10, 20, 120, 50).with_item_height(10);
+        listbox.set_content_top_inset(5);
+        listbox.set_columns(2);
+        listbox.set_column_width_percentages(vec![50, 50]);
+        listbox.add_item_with_color("Alpha", Color::new(1, 2, 3, 4));
+        listbox.add_item_with_id(43, "Bravo");
+        assert!(listbox.set_item_column_data(
+            1,
+            0,
+            ListBoxItemData::Image {
+                name: "icon.dds".to_string(),
+                width: 16,
+                height: 8,
+                text: None,
+            },
+        ));
+        assert!(listbox.set_item_column_color(1, 0, Some(Color::new(9, 10, 11, 12))));
+        assert!(listbox.set_item_column_data(1, 1, ListBoxItemData::Text("Bravo".to_string())));
+        assert!(listbox.set_item_column_color(1, 1, Some(Color::new(5, 6, 7, 8))));
+        listbox.set_selected_indices(&[1]);
+        listbox.set_focus(true);
+
+        let messages = listbox.handle_input(&InputEvent::MouseMove { x: 75, y: 36 });
+        assert!(messages.is_empty());
+
+        assert_eq!(
+            listbox.render_commands(&theme),
+            vec![
+                ListBoxRenderCommand::Background {
+                    rect: Rect::new(10, 20, 120, 50),
+                    color: theme.normal_color,
+                    border_color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                ListBoxRenderCommand::TextCell {
+                    rect: Rect::new(10, 25, 60, 10),
+                    row: 0,
+                    column: 0,
+                    text: "Alpha".to_string(),
+                    color: Color::new(1, 2, 3, 4),
+                    selected: false,
+                    hovered: false,
+                    enabled: true,
+                },
+                ListBoxRenderCommand::Selection {
+                    rect: Rect::new(10, 35, 120, 10),
+                    row: 1,
+                    color: theme.pressed_color,
+                },
+                ListBoxRenderCommand::ImageCell {
+                    rect: Rect::new(10, 35, 60, 10),
+                    row: 1,
+                    column: 0,
+                    image_name: "icon.dds".to_string(),
+                    image_width: 16,
+                    image_height: 8,
+                    color: Color::new(9, 10, 11, 12),
+                    selected: true,
+                    hovered: true,
+                    enabled: true,
+                },
+                ListBoxRenderCommand::TextCell {
+                    rect: Rect::new(70, 35, 60, 10),
+                    row: 1,
+                    column: 1,
+                    text: "Bravo".to_string(),
+                    color: Color::new(5, 6, 7, 8),
+                    selected: true,
+                    hovered: true,
+                    enabled: true,
+                },
+                ListBoxRenderCommand::FocusOutline {
+                    rect: Rect::new(10, 20, 120, 50),
+                    color: theme.focused_color,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn listbox_render_commands_skip_hidden_and_use_disabled_background() {
+        let theme = GadgetTheme::default();
+        let mut listbox = ListBox::new(7, 10, 20, 120, 50).with_item_height(10);
+        listbox.add_item_with_id(42, "Alpha");
+
+        listbox.set_enabled(false);
+        assert!(matches!(
+            listbox.render_commands(&theme).as_slice(),
+            [ListBoxRenderCommand::Background { color, .. }, ..] if *color == theme.disabled_color
+        ));
+
+        listbox.set_visible(false);
+        assert!(listbox.render_commands(&theme).is_empty());
     }
 
     #[test]
