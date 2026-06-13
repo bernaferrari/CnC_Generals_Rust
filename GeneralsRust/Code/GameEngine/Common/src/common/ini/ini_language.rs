@@ -55,20 +55,18 @@ impl FontDesc {
     ///
     /// Format: "FontName" Size Bold
     /// Example: "Arial Unicode MS" 12 Yes
-    pub fn parse_from_tokens(ini: &mut INI, tokens: &[&str]) -> INIResult<Self> {
+    pub fn parse_from_tokens(_ini: &mut INI, tokens: &[&str]) -> INIResult<Self> {
         let mut font_desc = FontDesc::default();
 
-        // First token should be quoted font name
         if tokens.is_empty() {
-            return Ok(font_desc);
+            return Err(INIError::InvalidData);
         }
 
-        // Handle quoted font name
         let name_token = tokens[0];
-        if name_token.starts_with('"') && name_token.ends_with('"') {
+        let remaining_start = if name_token.starts_with('"') && name_token.ends_with('"') {
             font_desc.name = name_token[1..name_token.len() - 1].to_string();
+            1
         } else if name_token.starts_with('"') {
-            // Multi-word font name - need to find the closing quote
             let mut name_parts = vec![&name_token[1..]];
             let mut idx = 1;
             while idx < tokens.len() {
@@ -81,39 +79,63 @@ impl FontDesc {
                 name_parts.push(part);
                 idx += 1;
             }
-            let _ = idx; // suppress unused_assignments
+            if idx == tokens.len() && !tokens.last().is_some_and(|part| part.ends_with('"')) {
+                return Err(INIError::InvalidData);
+            }
             font_desc.name = name_parts.join(" ");
+            idx
         } else {
             font_desc.name = name_token.to_string();
-        }
-
-        // Parse size and bold from remaining tokens
-        let remaining_start = if font_desc.name.contains(' ') {
-            // Multi-word font name consumed more tokens
-            let mut count = 1;
-            for (i, t) in tokens.iter().enumerate().skip(1) {
-                if t.ends_with('"') {
-                    count = i + 1;
-                    break;
-                }
-            }
-            count
-        } else {
             1
         };
 
-        if remaining_start < tokens.len() {
-            if let Ok(size) = tokens[remaining_start].parse::<i32>() {
-                font_desc.size = size;
-            }
-
-            if remaining_start + 1 < tokens.len() {
-                font_desc.bold = INI::parse_bool(tokens[remaining_start + 1]).unwrap_or(false);
-            }
+        if remaining_start + 1 >= tokens.len() {
+            return Err(INIError::InvalidData);
         }
+
+        font_desc.size = INI::parse_int(tokens[remaining_start])?;
+        font_desc.bold = parse_cpp_yes_no(tokens[remaining_start + 1])?;
 
         Ok(font_desc)
     }
+}
+
+fn parse_cpp_yes_no(token: &str) -> INIResult<bool> {
+    if token.eq_ignore_ascii_case("yes") {
+        Ok(true)
+    } else if token.eq_ignore_ascii_case("no") {
+        Ok(false)
+    } else {
+        Err(INIError::InvalidData)
+    }
+}
+
+fn parse_required_ascii_string_token(tokens: &[&str]) -> INIResult<String> {
+    if tokens.is_empty() {
+        return Err(INIError::InvalidData);
+    }
+
+    let token = tokens[0];
+    if token.starts_with('"') && token.ends_with('"') {
+        Ok(token[1..token.len() - 1].to_string())
+    } else {
+        Ok(token.to_string())
+    }
+}
+
+fn parse_required_i32_token(tokens: &[&str]) -> INIResult<i32> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    INI::parse_int(token)
+}
+
+fn parse_required_f32_token(tokens: &[&str]) -> INIResult<f32> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    INI::parse_real(token)
+}
+
+fn parse_required_cpp_bool_token(tokens: &[&str]) -> INIResult<bool> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    parse_cpp_yes_no(token)
 }
 
 // ============================================================================
@@ -246,10 +268,7 @@ fn parse_unicode_font_name(
     target: &mut GlobalLanguage,
     tokens: &[&str],
 ) -> INIResult<()> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    target.unicode_font_name = INI::parse_ascii_string(tokens[0])?;
+    target.unicode_font_name = parse_required_ascii_string_token(tokens)?;
     Ok(())
 }
 
@@ -259,11 +278,8 @@ fn parse_local_font_file(
     target: &mut GlobalLanguage,
     tokens: &[&str],
 ) -> INIResult<()> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    let font_file = INI::parse_ascii_string(tokens[0])?;
-    target.local_fonts.push(font_file);
+    let font_file = parse_required_ascii_string_token(tokens)?;
+    target.local_fonts.insert(0, font_file);
     Ok(())
 }
 
@@ -273,10 +289,7 @@ fn parse_military_caption_speed(
     target: &mut GlobalLanguage,
     tokens: &[&str],
 ) -> INIResult<()> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    target.military_caption_speed = INI::parse_int(tokens[0])?;
+    target.military_caption_speed = parse_required_i32_token(tokens)?;
     Ok(())
 }
 
@@ -286,10 +299,7 @@ fn parse_use_hard_wrap(
     target: &mut GlobalLanguage,
     tokens: &[&str],
 ) -> INIResult<()> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    target.use_hard_wrap = INI::parse_bool(tokens[0])?;
+    target.use_hard_wrap = parse_required_cpp_bool_token(tokens)?;
     Ok(())
 }
 
@@ -299,10 +309,7 @@ fn parse_resolution_font_adjustment(
     target: &mut GlobalLanguage,
     tokens: &[&str],
 ) -> INIResult<()> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    target.resolution_font_size_adjustment = INI::parse_real(tokens[0])?;
+    target.resolution_font_size_adjustment = parse_required_f32_token(tokens)?;
     Ok(())
 }
 
@@ -312,10 +319,7 @@ fn parse_military_caption_delay_ms(
     target: &mut GlobalLanguage,
     tokens: &[&str],
 ) -> INIResult<()> {
-    if tokens.is_empty() {
-        return Err(INIError::InvalidData);
-    }
-    target.military_caption_delay_ms = INI::parse_int(tokens[0])?;
+    target.military_caption_delay_ms = parse_required_i32_token(tokens)?;
     Ok(())
 }
 
@@ -660,6 +664,67 @@ mod tests {
         assert_eq!(font.name, "Custom Font");
         assert_eq!(font.size, 14);
         assert_eq!(font.bold, true);
+    }
+
+    #[test]
+    fn font_desc_parses_cpp_quoted_name_size_and_bold() {
+        let mut ini = INI::new();
+        let font =
+            FontDesc::parse_from_tokens(&mut ini, &["\"Arial", "Unicode", "MS\"", "14", "Yes"])
+                .expect("valid C++ font descriptor");
+
+        assert_eq!(font, FontDesc::new("Arial Unicode MS", 14, true));
+    }
+
+    #[test]
+    fn font_desc_rejects_missing_cpp_fields() {
+        let mut ini = INI::new();
+
+        assert!(FontDesc::parse_from_tokens(&mut ini, &[]).is_err());
+        assert!(FontDesc::parse_from_tokens(&mut ini, &["\"Arial Unicode MS\""]).is_err());
+        assert!(FontDesc::parse_from_tokens(&mut ini, &["\"Arial Unicode MS\"", "12"]).is_err());
+    }
+
+    #[test]
+    fn font_desc_rejects_invalid_cpp_numeric_and_bool_fields() {
+        let mut ini = INI::new();
+
+        assert!(
+            FontDesc::parse_from_tokens(&mut ini, &["\"Arial Unicode MS\"", "large", "No"])
+                .is_err()
+        );
+        assert!(
+            FontDesc::parse_from_tokens(&mut ini, &["\"Arial Unicode MS\"", "12", "false"])
+                .is_err()
+        );
+        assert!(
+            FontDesc::parse_from_tokens(&mut ini, &["\"Arial Unicode MS\"", "12", "1"]).is_err()
+        );
+    }
+
+    #[test]
+    fn language_bool_fields_use_cpp_yes_no_tokens() {
+        let mut ini = INI::new();
+        let mut lang = GlobalLanguage::default();
+
+        parse_use_hard_wrap(&mut ini, &mut lang, &["Yes"]).expect("Yes is valid C++ bool");
+        assert!(lang.use_hard_wrap);
+        parse_use_hard_wrap(&mut ini, &mut lang, &["No"]).expect("No is valid C++ bool");
+        assert!(!lang.use_hard_wrap);
+
+        assert!(parse_use_hard_wrap(&mut ini, &mut lang, &["true"]).is_err());
+        assert!(parse_use_hard_wrap(&mut ini, &mut lang, &["1"]).is_err());
+    }
+
+    #[test]
+    fn local_font_file_matches_cpp_push_front_order() {
+        let mut ini = INI::new();
+        let mut lang = GlobalLanguage::default();
+
+        parse_local_font_file(&mut ini, &mut lang, &["first.ttf"]).expect("first font");
+        parse_local_font_file(&mut ini, &mut lang, &["second.ttf"]).expect("second font");
+
+        assert_eq!(lang.local_fonts, vec!["second.ttf", "first.ttf"]);
     }
 
     #[test]
