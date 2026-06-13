@@ -1,8 +1,9 @@
 use game_client_rust::terrain::{
     BreezeInfo, TreeCollisionUnit, TreeConstructionGeometry, TreeGeometryType, TreeModuleData,
-    TreeRandom, TreeRegion2D, TreeShroudStatus, TreeSphere, W3DToppleState, W3DTreeBuffer,
-    ANGULAR_LIMIT, CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE, END_OF_PARTITION,
-    MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT, TREE_RADIUS_APPROX, W3D_TOPPLE_OPTIONS_NO_BOUNCE,
+    TreeRandom, TreeRegion2D, TreeSaveRecord, TreeShroudStatus, TreeSphere, W3DToppleState,
+    W3DTreeBuffer, ANGULAR_LIMIT, CONSTRUCTION_TREE_COLLISION_RADIUS, DELETED_TREE_TYPE,
+    END_OF_PARTITION, MAX_TREES, MAX_TYPES, PARTITION_WIDTH_HEIGHT, TREE_RADIUS_APPROX,
+    W3D_TOPPLE_OPTIONS_NO_BOUNCE,
 };
 use glam::{Mat4, Vec2, Vec3};
 
@@ -361,6 +362,97 @@ fn save_records_follow_cpp_xfer_order_for_existing_and_deleted_trees() {
     assert_eq!(records[0].drawable_id, 9);
     assert_eq!(records[0].topple_state, W3DToppleState::Falling);
     assert_eq!(buffer.trees()[id].tree_type, DELETED_TREE_TYPE);
+}
+
+#[test]
+fn load_records_rebuilds_from_known_types_and_restores_cpp_subset() {
+    let mut buffer = W3DTreeBuffer::new();
+    let data = module("Oak", "Leaf");
+    buffer.add_tree_type(data, bounds()).unwrap();
+    buffer
+        .add_tree(
+            100,
+            Vec3::new(99.0, 99.0, 0.0),
+            1.0,
+            0.0,
+            1.0,
+            module("Existing", "T"),
+            bounds(),
+        )
+        .unwrap();
+    let matrix = Mat4::from_translation(Vec3::new(7.0, 8.0, 9.0));
+    let records = vec![
+        TreeSaveRecord {
+            model_name: String::new(),
+            model_texture: String::new(),
+            location: Vec3::ZERO,
+            scale: 1.0,
+            sin: 0.0,
+            cos: 1.0,
+            drawable_id: 1,
+            angular_velocity: 0.0,
+            angular_acceleration: 0.0,
+            topple_direction: Vec3::ZERO,
+            topple_state: W3DToppleState::Upright,
+            angular_accumulation: 0.0,
+            options: 0,
+            matrix: Mat4::IDENTITY,
+            sink_frames_left: 0,
+        },
+        TreeSaveRecord {
+            model_name: "Unknown".to_string(),
+            model_texture: "Leaf".to_string(),
+            location: Vec3::ZERO,
+            scale: 1.0,
+            sin: 0.0,
+            cos: 1.0,
+            drawable_id: 2,
+            angular_velocity: 0.0,
+            angular_acceleration: 0.0,
+            topple_direction: Vec3::ZERO,
+            topple_state: W3DToppleState::Upright,
+            angular_accumulation: 0.0,
+            options: 0,
+            matrix: Mat4::IDENTITY,
+            sink_frames_left: 0,
+        },
+        TreeSaveRecord {
+            model_name: "Oak".to_string(),
+            model_texture: "Leaf".to_string(),
+            location: Vec3::new(3.0, 4.0, 5.0),
+            scale: 1.5,
+            sin: 0.75,
+            cos: 0.25,
+            drawable_id: 77,
+            angular_velocity: 2.0,
+            angular_acceleration: 0.5,
+            topple_direction: Vec3::Y,
+            topple_state: W3DToppleState::Falling,
+            angular_accumulation: 1.0,
+            options: W3D_TOPPLE_OPTIONS_NO_BOUNCE,
+            matrix,
+            sink_frames_left: 12,
+        },
+    ];
+
+    buffer.load_records(&records);
+
+    assert_eq!(buffer.trees().len(), 1);
+    let tree = &buffer.trees()[0];
+    assert_eq!(tree.drawable_id, 77);
+    assert_eq!(tree.location, Vec3::new(3.0, 4.0, 5.0));
+    approx_eq(tree.scale, 1.5);
+    approx_eq(tree.sin, 0.0);
+    approx_eq(tree.cos, 1.0);
+    approx_eq(tree.angular_velocity, 2.0);
+    approx_eq(tree.angular_acceleration, 0.5);
+    assert_eq!(tree.topple_direction, Vec3::Y);
+    assert_eq!(tree.topple_state, W3DToppleState::Falling);
+    approx_eq(tree.angular_accumulation, 0.0);
+    assert_eq!(tree.options, W3D_TOPPLE_OPTIONS_NO_BOUNCE);
+    assert_eq!(tree.matrix, matrix);
+    assert_eq!(tree.sink_frames_left, 12);
+    assert!(buffer.anything_changed());
 }
 
 struct FixedRandom;
