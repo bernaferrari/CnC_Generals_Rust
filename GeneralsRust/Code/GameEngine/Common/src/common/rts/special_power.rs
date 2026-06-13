@@ -505,6 +505,12 @@ impl SpecialPowerStore {
         template: &mut SpecialPowerTemplate,
         properties: &HashMap<String, String>,
     ) -> Result<(), String> {
+        for key in properties.keys() {
+            if !Self::is_special_power_field(key) {
+                return Err(format!("Unknown special power field '{}'", key));
+            }
+        }
+
         // Reference: C++ field parse array
         // { "ReloadTime",              INI::parseDurationUnsignedInt,  NULL, offsetof(SpecialPowerTemplate, m_reloadTime) },
         if let Some(value) = properties.get("ReloadTime") {
@@ -573,6 +579,25 @@ impl SpecialPowerStore {
         }
 
         Ok(())
+    }
+
+    fn is_special_power_field(key: &str) -> bool {
+        matches!(
+            key,
+            "ReloadTime"
+                | "RequiredScience"
+                | "InitiateSound"
+                | "InitiateAtLocationSound"
+                | "PublicTimer"
+                | "Enum"
+                | "DetectionTime"
+                | "SharedSyncedTimer"
+                | "ViewObjectDuration"
+                | "ViewObjectRange"
+                | "RadiusCursorRadius"
+                | "ShortcutPower"
+                | "AcademyClassify"
+        )
     }
 
     /// Parse duration in milliseconds and convert to frames.
@@ -1133,6 +1158,19 @@ mod tests {
 
         assert!(result.is_err());
         assert!(store.find_template("BadEnumPower").is_none());
+    }
+
+    #[test]
+    fn special_power_rejects_fields_outside_cpp_parse_table() {
+        let mut store = SpecialPowerStore::new();
+        let mut props = HashMap::new();
+        props.insert("Enum".to_string(), "SPECIAL_DAISY_CUTTER".to_string());
+        props.insert("RechargeTime".to_string(), "5000".to_string());
+
+        let result = store.parse_special_power_definition("UnknownFieldPower", &props);
+
+        assert!(result.is_err());
+        assert!(store.find_template("UnknownFieldPower").is_none());
     }
 
     #[test]
