@@ -12,7 +12,7 @@ use std::sync::Mutex;
 use std::sync::OnceLock;
 
 /// Maximum number of players
-const MAX_PLAYER_COUNT: usize = 8;
+const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 
 /// Minimap FOW pixel states
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,26 +103,8 @@ impl MinimapFowManager {
 
         Self {
             dimensions,
-            player_fow_state: [
-                vec![MinimapFowState::Hidden; pixel_count],
-                vec![MinimapFowState::Hidden; pixel_count],
-                vec![MinimapFowState::Hidden; pixel_count],
-                vec![MinimapFowState::Hidden; pixel_count],
-                vec![MinimapFowState::Hidden; pixel_count],
-                vec![MinimapFowState::Hidden; pixel_count],
-                vec![MinimapFowState::Hidden; pixel_count],
-                vec![MinimapFowState::Hidden; pixel_count],
-            ],
-            player_fow_texture: [
-                vec![0; pixel_count * 4],
-                vec![0; pixel_count * 4],
-                vec![0; pixel_count * 4],
-                vec![0; pixel_count * 4],
-                vec![0; pixel_count * 4],
-                vec![0; pixel_count * 4],
-                vec![0; pixel_count * 4],
-                vec![0; pixel_count * 4],
-            ],
+            player_fow_state: std::array::from_fn(|_| vec![MinimapFowState::Hidden; pixel_count]),
+            player_fow_texture: std::array::from_fn(|_| vec![0; pixel_count * 4]),
             last_update_frame: 0,
         }
     }

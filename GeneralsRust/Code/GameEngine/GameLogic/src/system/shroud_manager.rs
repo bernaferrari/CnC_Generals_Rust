@@ -50,7 +50,7 @@ use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 /// Maximum number of players in game
-const MAX_PLAYER_COUNT: usize = 8;
+const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 
 /// Default frame interval between visibility updates (reduce per-frame cost)
 const DEFAULT_UPDATE_INTERVAL: u32 = 2;
