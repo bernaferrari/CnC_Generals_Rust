@@ -99,6 +99,11 @@ impl W3DOverlordTankDraw {
 
     pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
         self.owner_id = Some(owner_id);
+        self.base.bind_owner_id(owner_id);
+    }
+
+    pub fn owner_id(&self) -> Option<ObjectID> {
+        self.owner_id
     }
 }
 
@@ -120,7 +125,9 @@ impl Module for W3DOverlordTankDraw {
     }
 
     fn get_module_name_key(&self) -> NameKeyType {
-        self.base.get_module_name_key()
+        game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+            "W3DOverlordTankDraw",
+        )
     }
 
     fn get_module_tag_name_key(&self) -> NameKeyType {
@@ -288,5 +295,27 @@ impl Snapshotable for W3DOverlordTankDraw {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         self.base.load_post_process()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use game_engine::common::name_key_generator::NameKeyGenerator;
+
+    #[test]
+    fn bind_owner_id_sets_wrapper_owner() {
+        let mut draw = W3DOverlordTankDraw::new(W3DOverlordTankDrawModuleData::new());
+        draw.bind_owner_id(42);
+        assert_eq!(draw.owner_id(), Some(42));
+    }
+
+    #[test]
+    fn module_name_key_is_overlord_tank_draw_not_base_tank_draw() {
+        let draw = W3DOverlordTankDraw::new(W3DOverlordTankDrawModuleData::new());
+        assert_eq!(
+            draw.get_module_name_key(),
+            NameKeyGenerator::name_to_key("W3DOverlordTankDraw")
+        );
     }
 }
