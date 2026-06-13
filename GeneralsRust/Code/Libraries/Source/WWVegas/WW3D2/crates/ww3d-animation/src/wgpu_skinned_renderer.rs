@@ -4,11 +4,11 @@
 ///! Implements vertex skinning on the GPU using bone matrices in uniform buffers.
 ///!
 ///! Reference: Modern GPU skinning techniques, wgpu best practices
-
 use crate::skeletal_animation::{AnimatedModel, SkeletonState, MAX_BONES};
 use crate::w3d_model_loader::{W3DMeshData, W3DModel};
-use glam::{Mat4, Vec3};
+use glam::Vec3;
 use std::mem;
+use wgpu::util::DeviceExt;
 
 /// Vertex format for skinned meshes
 /// Compatible with WGPU vertex buffers
@@ -349,4 +349,3 @@ mod tests {
         assert_eq!(uniform.matrices[MAX_BONES - 1][15], 0.0);
     }
 }
-"#;
