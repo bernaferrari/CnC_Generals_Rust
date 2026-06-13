@@ -34,6 +34,48 @@ impl ComboBoxItem {
 /// ComboBox selection callback
 pub type ComboBoxCallback = Box<dyn Fn(u32) + Send + Sync>;
 
+/// Draw command emitted by [`ComboBox`] for the UI renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ComboBoxRenderCommand {
+    MainBox {
+        rect: Rect,
+        color: Color,
+        border_color: Color,
+        border_width: u32,
+    },
+    MainText {
+        rect: Rect,
+        text: String,
+        color: Color,
+    },
+    DropDownButton {
+        rect: Rect,
+        color: Color,
+        border_color: Color,
+        border_width: u32,
+    },
+    DropDownArrow {
+        rect: Rect,
+        color: Color,
+    },
+    DropDownBackground {
+        rect: Rect,
+        color: Color,
+        border_color: Color,
+        border_width: u32,
+    },
+    Item {
+        rect: Rect,
+        index: usize,
+        text: String,
+        color: Color,
+        text_color: Color,
+        selected: bool,
+        hovered: bool,
+        enabled: bool,
+    },
+}
+
 /// ComboBox gadget
 pub struct ComboBox {
     id: GadgetId,
@@ -334,6 +376,140 @@ impl ComboBox {
             None
         }
     }
+
+    fn drop_down_button_width(&self) -> u32 {
+        self.bounds.width.min(21)
+    }
+
+    fn edit_box_rect(&self) -> Rect {
+        let button_width = self.drop_down_button_width();
+        Rect::new(
+            self.bounds.x,
+            self.bounds.y,
+            self.bounds.width.saturating_sub(button_width),
+            self.bounds.height,
+        )
+    }
+
+    fn drop_down_button_rect(&self) -> Rect {
+        let button_width = self.drop_down_button_width();
+        Rect::new(
+            self.bounds.x + self.bounds.width.saturating_sub(button_width) as i32,
+            self.bounds.y,
+            button_width,
+            self.bounds.height,
+        )
+    }
+
+    fn box_color(&self, theme: &GadgetTheme) -> Color {
+        if !self.enabled {
+            theme.disabled_color
+        } else if self.focused {
+            theme.focused_color
+        } else {
+            match self.state {
+                GadgetState::Hovered => theme.hovered_color,
+                GadgetState::Pressed => theme.pressed_color,
+                GadgetState::Disabled => theme.disabled_color,
+                GadgetState::Focused => theme.focused_color,
+                GadgetState::Normal => theme.normal_color,
+            }
+        }
+    }
+
+    fn item_color(&self, theme: &GadgetTheme, index: usize, item: &ComboBoxItem) -> Color {
+        if !item.enabled {
+            theme.disabled_color
+        } else if self.selected_index == Some(index) {
+            theme.pressed_color
+        } else if self.hovered_item == Some(index) {
+            theme.hovered_color
+        } else {
+            theme.normal_color
+        }
+    }
+
+    /// Build renderer-facing commands for the current combobox state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<ComboBoxRenderCommand> {
+        if !self.visible {
+            return Vec::new();
+        }
+
+        let box_color = self.box_color(theme);
+        let text_color = if self.enabled {
+            theme.text_color
+        } else {
+            theme.disabled_text_color
+        };
+        let edit_rect = self.edit_box_rect();
+        let button_rect = self.drop_down_button_rect();
+
+        let mut commands = vec![
+            ComboBoxRenderCommand::MainBox {
+                rect: edit_rect,
+                color: box_color,
+                border_color: theme.border_color,
+                border_width: theme.border_width,
+            },
+            ComboBoxRenderCommand::MainText {
+                rect: edit_rect,
+                text: self.text().to_string(),
+                color: text_color,
+            },
+            ComboBoxRenderCommand::DropDownButton {
+                rect: button_rect,
+                color: box_color,
+                border_color: theme.border_color,
+                border_width: theme.border_width,
+            },
+            ComboBoxRenderCommand::DropDownArrow {
+                rect: button_rect,
+                color: text_color,
+            },
+        ];
+
+        if self.dropdown_open {
+            let dropdown = self.dropdown_bounds_internal();
+            commands.push(ComboBoxRenderCommand::DropDownBackground {
+                rect: dropdown,
+                color: theme.normal_color,
+                border_color: theme.border_color,
+                border_width: theme.border_width,
+            });
+
+            let visible_count = if self.item_height == 0 {
+                0
+            } else {
+                (dropdown.height / self.item_height) as usize
+            };
+
+            for (index, item) in self.items.iter().take(visible_count).enumerate() {
+                let item_rect = Rect::new(
+                    dropdown.x,
+                    dropdown.y + (index as u32 * self.item_height) as i32,
+                    dropdown.width,
+                    self.item_height,
+                );
+                let item_text_color = if item.enabled {
+                    theme.text_color
+                } else {
+                    theme.disabled_text_color
+                };
+                commands.push(ComboBoxRenderCommand::Item {
+                    rect: item_rect,
+                    index,
+                    text: item.text.clone(),
+                    color: self.item_color(theme, index, item),
+                    text_color: item_text_color,
+                    selected: self.selected_index == Some(index),
+                    hovered: self.hovered_item == Some(index),
+                    enabled: item.enabled,
+                });
+            }
+        }
+
+        commands
+    }
 }
 
 impl Gadget for ComboBox {
@@ -520,28 +696,7 @@ impl Gadget for ComboBox {
             return;
         }
 
-        // Render main box with selected item
-        // [Main box rendering code]
-
-        // Render dropdown arrow
-        // [Arrow rendering code]
-
-        // Render dropdown list if open
-        if self.dropdown_open {
-            let dropdown = self.dropdown_bounds_internal();
-
-            // Render dropdown background
-            // [Background rendering code]
-
-            // Render items
-            for (index, item) in self.items.iter().enumerate() {
-                let item_y = dropdown.y + (index as u32 * self.item_height) as i32;
-                let is_selected = self.selected_index == Some(index);
-                let is_hovered = self.hovered_item == Some(index);
-
-                // [Item rendering code]
-            }
-        }
+        let _commands = self.render_commands(theme);
     }
 
     fn tooltip(&self) -> Option<&str> {
@@ -662,5 +817,112 @@ mod tests {
         });
         assert!(up.is_empty());
         assert!(!combobox.is_open());
+    }
+
+    #[test]
+    fn combobox_render_commands_cover_main_edit_and_dropdown_button() {
+        let theme = GadgetTheme::default();
+        let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
+        combobox.add_item(ComboBoxItem::new(1, "Item 1"));
+        combobox.select_index(0);
+
+        assert_eq!(
+            combobox.render_commands(&theme),
+            vec![
+                ComboBoxRenderCommand::MainBox {
+                    rect: Rect::new(10, 20, 129, 25),
+                    color: theme.normal_color,
+                    border_color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                ComboBoxRenderCommand::MainText {
+                    rect: Rect::new(10, 20, 129, 25),
+                    text: "Item 1".to_string(),
+                    color: theme.text_color,
+                },
+                ComboBoxRenderCommand::DropDownButton {
+                    rect: Rect::new(139, 20, 21, 25),
+                    color: theme.normal_color,
+                    border_color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                ComboBoxRenderCommand::DropDownArrow {
+                    rect: Rect::new(139, 20, 21, 25),
+                    color: theme.text_color,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn combobox_render_commands_cover_open_list_visible_items_and_hidden() {
+        let theme = GadgetTheme::default();
+        let mut combobox = ComboBox::new(1, 10, 20, 150, 25);
+        combobox.add_item(ComboBoxItem::new(1, "Item 1"));
+        combobox.add_item(ComboBoxItem::new(2, "Item 2"));
+        combobox.add_item(ComboBoxItem::new(3, "Item 3"));
+        combobox.set_max_display(2);
+        combobox.select_index(1);
+        combobox.open();
+
+        let messages = combobox.handle_input(&InputEvent::MouseMove { x: 20, y: 72 });
+        assert!(messages.is_empty());
+        assert_eq!(combobox.hovered_item(), Some(1));
+
+        assert_eq!(
+            combobox.render_commands(&theme),
+            vec![
+                ComboBoxRenderCommand::MainBox {
+                    rect: Rect::new(10, 20, 129, 25),
+                    color: theme.normal_color,
+                    border_color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                ComboBoxRenderCommand::MainText {
+                    rect: Rect::new(10, 20, 129, 25),
+                    text: "Item 2".to_string(),
+                    color: theme.text_color,
+                },
+                ComboBoxRenderCommand::DropDownButton {
+                    rect: Rect::new(139, 20, 21, 25),
+                    color: theme.normal_color,
+                    border_color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                ComboBoxRenderCommand::DropDownArrow {
+                    rect: Rect::new(139, 20, 21, 25),
+                    color: theme.text_color,
+                },
+                ComboBoxRenderCommand::DropDownBackground {
+                    rect: Rect::new(10, 45, 150, 50),
+                    color: theme.normal_color,
+                    border_color: theme.border_color,
+                    border_width: theme.border_width,
+                },
+                ComboBoxRenderCommand::Item {
+                    rect: Rect::new(10, 45, 150, 25),
+                    index: 0,
+                    text: "Item 1".to_string(),
+                    color: theme.normal_color,
+                    text_color: theme.text_color,
+                    selected: false,
+                    hovered: false,
+                    enabled: true,
+                },
+                ComboBoxRenderCommand::Item {
+                    rect: Rect::new(10, 70, 150, 25),
+                    index: 1,
+                    text: "Item 2".to_string(),
+                    color: theme.pressed_color,
+                    text_color: theme.text_color,
+                    selected: true,
+                    hovered: true,
+                    enabled: true,
+                },
+            ]
+        );
+
+        combobox.set_visible(false);
+        assert!(combobox.render_commands(&theme).is_empty());
     }
 }
