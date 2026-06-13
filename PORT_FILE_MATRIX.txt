@@ -1205,7 +1205,7 @@ Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DSupplyDraw.cpp | N/A | MIS
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DTankDraw.cpp | N/A | MISSING | subsystem=GameEngineDevice/W3D/GameClient/Drawable
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DTankTruckDraw.cpp | N/A | MISSING | subsystem=GameEngineDevice/W3D/GameClient/Drawable
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DTracerDraw.cpp | GameLogic/src/object/draw/w3d_tracer_draw.rs | FOUND | subsystem=GameEngineDevice/W3D/GameClient/Drawable
-Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DTreeDraw.cpp | N/A | MISSING | subsystem=GameEngineDevice/W3D/GameClient/Drawable
+Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DTreeDraw.cpp | GameLogic/src/object/draw/w3d_tree_draw.rs | FOUND | subsystem=GameEngineDevice/W3D/GameClient/Drawable
 Source | Source/W3DDevice/GameClient/Drawable/Draw/W3DTruckDraw.cpp | N/A | MISSING | subsystem=GameEngineDevice/W3D/GameClient/Drawable
 Source | Source/W3DDevice/GameClient/GUI/Gadget/W3DCheckBox.cpp | GameClient/src/gui/gadget/gadget_check_box.rs | PARTIAL | subsystem=GameEngineDevice/W3D/GameClient/GUI/Gadget
 Source | Source/W3DDevice/GameClient/GUI/Gadget/W3DComboBox.cpp | GameClient/src/gui/gadget/gadget_combo_box.rs | PARTIAL | subsystem=GameEngineDevice/W3D/GameClient/GUI/Gadget
