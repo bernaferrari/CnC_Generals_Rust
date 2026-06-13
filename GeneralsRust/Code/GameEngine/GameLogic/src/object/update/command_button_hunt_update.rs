@@ -799,9 +799,7 @@ mod tests {
         let mut template = DefaultThingTemplate::new(format!("HuntTarget{id}"));
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), kind_of.to_string());
-        template
-            .parse_object_fields_from_ini(&fields)
-            .expect("parse object fields");
+        template.parse_object_fields_from_ini(&fields);
         crate::object::Object::new_raw(Arc::new(template), id, ObjectStatusMaskType::none(), None)
     }
 

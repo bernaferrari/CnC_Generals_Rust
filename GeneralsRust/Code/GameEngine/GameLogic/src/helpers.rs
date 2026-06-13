@@ -1901,6 +1901,24 @@ impl TheParticleSystemManager {
         }
     }
 
+    pub fn set_particle_system_saveable(&self, id: u32, saveable: bool) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.set_particle_system_saveable(id, saveable);
+        }
+    }
+
+    pub fn rotate_particle_system_local_transform_z(&self, id: u32, angle: Real) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.rotate_particle_system_local_transform_z(id, angle);
+        }
+    }
+
+    pub fn set_particle_system_skip_parent_xfrm(&self, id: u32, enable: bool) {
+        if let Some(manager) = get_particle_system_manager() {
+            manager.set_particle_system_skip_parent_xfrm(id, enable);
+        }
+    }
+
     pub fn tint_particle_system_all_colors(&self, id: u32, color: Color) {
         if let Some(manager) = get_particle_system_manager() {
             manager.tint_particle_system_all_colors(id, color);
