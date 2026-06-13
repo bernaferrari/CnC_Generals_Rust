@@ -782,6 +782,12 @@ impl TextEntry {
         self.ime_cursor
     }
 
+    /// Set active IME composition text and cursor for W3D draw parity.
+    pub fn set_ime_composition<S: Into<String>>(&mut self, composition: S, cursor: usize) {
+        self.ime_composition = composition.into();
+        self.ime_cursor = cursor.min(self.ime_composition.len());
+    }
+
     /// Set text change callback
     pub fn with_change_callback(mut self, callback: TextEntryCallback) -> Self {
         self.change_callback = Some(callback);
