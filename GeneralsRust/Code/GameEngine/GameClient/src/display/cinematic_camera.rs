@@ -66,6 +66,13 @@ const DEFAULT_FOV: f32 = 50.0 * PI / 180.0;
 /// C++ Reference: View.cpp line 152
 const PITCH_LIMIT: f32 = PI / 5.0;
 
+fn clamp_shake_angles(mut angles: Vec3) -> Vec3 {
+    angles.x = angles.x.clamp(-AXIS_ROTATION.x, AXIS_ROTATION.x);
+    angles.y = angles.y.clamp(-AXIS_ROTATION.y, AXIS_ROTATION.y);
+    angles.z = angles.z.clamp(-AXIS_ROTATION.z, AXIS_ROTATION.z);
+    angles
+}
+
 // ================================================================================================
 // ENUMS
 // ================================================================================================
@@ -205,19 +212,14 @@ impl CameraShaker {
             let omega = self.omega[i] + (END_OMEGA - self.omega[i]) * self.elapsed_time;
             angles[i] =
                 AXIS_ROTATION[i] * intensity * (omega * self.elapsed_time + self.phi[i]).sin();
+
+            // C++ creates and adds one secondary random vector inside the axis loop,
+            // so the non-periodic perturbation is accumulated three times per shaker.
+            let minor_intensity = intensity * 0.5;
+            angles.x += (rand::random::<f32>() * 2.0 - 1.0) * minor_intensity;
+            angles.y += (rand::random::<f32>() * 2.0 - 1.0) * minor_intensity;
+            angles.z += (rand::random::<f32>() * 2.0 - 1.0) * minor_intensity;
         }
-
-        // Add additional random fudge to avoid overly mathematical patterns
-        // C++ Reference: camerashakesystem.cpp lines 132-138
-        let minor_intensity = intensity * 0.5;
-        angles.x += (rand::random::<f32>() * 2.0 - 1.0) * minor_intensity;
-        angles.y += (rand::random::<f32>() * 2.0 - 1.0) * minor_intensity;
-        angles.z += (rand::random::<f32>() * 2.0 - 1.0) * minor_intensity;
-
-        // Clamp results to axis rotation limits
-        angles.x = angles.x.clamp(-AXIS_ROTATION.x, AXIS_ROTATION.x);
-        angles.y = angles.y.clamp(-AXIS_ROTATION.y, AXIS_ROTATION.y);
-        angles.z = angles.z.clamp(-AXIS_ROTATION.z, AXIS_ROTATION.z);
 
         angles
     }
@@ -283,7 +285,7 @@ impl CameraShakeSystem {
             angles += shaker.compute_rotations(camera_position);
         }
 
-        angles
+        clamp_shake_angles(angles)
     }
 }
 
@@ -1410,6 +1412,15 @@ mod tests {
         // Update past duration
         system.timestep(0.2);
         assert!(!system.is_camera_shaking());
+    }
+
+    #[test]
+    fn camera_shake_clamps_accumulated_angles_to_cpp_axis_limits() {
+        let angles = clamp_shake_angles(AXIS_ROTATION * 4.0);
+        assert_eq!(angles, AXIS_ROTATION);
+
+        let angles = clamp_shake_angles(AXIS_ROTATION * -4.0);
+        assert_eq!(angles, -AXIS_ROTATION);
     }
 
     #[test]

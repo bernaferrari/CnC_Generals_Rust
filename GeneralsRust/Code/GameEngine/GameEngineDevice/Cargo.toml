@@ -64,6 +64,7 @@ crossbeam-channel = "0.5"
 rayon = "1.11"
 bitflags = "2.10"  # For modifier key flags
 game_client = { path = "../GameClient", package = "game-client-rust" }
+game_engine = { path = "../Common" }
 ww3d-gpu = { path = "../../Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu", optional = true }
 libc = { version = "0.2", optional = true } # Platform syscall bridge for legacy parity paths
 
