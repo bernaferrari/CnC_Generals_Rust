@@ -66,7 +66,10 @@ pub use button::{
     register_button_audio_hook, ButtonAudioHook, ButtonCallback, ButtonStyle, ClockMode,
     PushButton, PushButtonBuilder, PushButtonRenderCommand,
 };
-pub use checkbox::{CheckBox, CheckBoxBuilder, CheckBoxCallback, CheckBoxConfig, CheckBoxStyle};
+pub use checkbox::{
+    CheckBox, CheckBoxBuilder, CheckBoxCallback, CheckBoxConfig, CheckBoxRenderCommand,
+    CheckBoxStyle,
+};
 pub use combobox::{ComboBox, ComboBoxCallback, ComboBoxItem};
 pub use listbox::{
     ListBox, ListBoxAddEntry, ListBoxCallback, ListBoxItem, ListBoxItemData, ListBoxRightClick,

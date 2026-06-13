@@ -18,6 +18,33 @@ pub enum CheckBoxStyle {
     Custom,
 }
 
+/// Draw command emitted by [`CheckBox`] for the UI renderer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CheckBoxRenderCommand {
+    Border {
+        rect: Rect,
+        color: Color,
+    },
+    FillRect {
+        rect: Rect,
+        color: Color,
+    },
+    CheckMarkLine {
+        start: (i32, i32),
+        end: (i32, i32),
+        color: Color,
+    },
+    Text {
+        position: (i32, i32),
+        text: String,
+        color: Color,
+    },
+    FocusOutline {
+        rect: Rect,
+        color: Color,
+    },
+}
+
 /// CheckBox gadget configuration
 #[derive(Debug, Clone)]
 pub struct CheckBoxConfig {
@@ -158,102 +185,145 @@ impl CheckBox {
         }
     }
 
-    /// Render the checkbox (implementation-specific)
-    fn render_checkbox(&self, theme: &GadgetTheme) {
-        // Get colors based on state
+    fn current_background_color(&self, theme: &GadgetTheme) -> Color {
+        if !self.enabled {
+            return theme.disabled_color;
+        }
+
+        match self.state {
+            GadgetState::Normal => {
+                if self.checked {
+                    self.config.checked_color
+                } else {
+                    self.config.unchecked_color
+                }
+            }
+            GadgetState::Hovered => {
+                let base = if self.checked {
+                    self.config.checked_color
+                } else {
+                    self.config.unchecked_color
+                };
+                base.lighten(20)
+            }
+            GadgetState::Pressed => {
+                let base = if self.checked {
+                    self.config.checked_color
+                } else {
+                    self.config.unchecked_color
+                };
+                base.darken(20)
+            }
+            GadgetState::Focused => theme.focused_color,
+            GadgetState::Disabled => theme.disabled_color,
+        }
+    }
+
+    /// Build renderer-facing commands for the current checkbox state.
+    pub fn render_commands(&self, theme: &GadgetTheme) -> Vec<CheckBoxRenderCommand> {
+        if !self.visible {
+            return Vec::new();
+        }
+
         let bg_color = if !self.enabled {
             theme.disabled_color
         } else {
-            match self.state {
-                GadgetState::Normal => {
-                    if self.checked {
-                        self.config.checked_color
-                    } else {
-                        self.config.unchecked_color
-                    }
-                }
-                GadgetState::Hovered => {
-                    let base = if self.checked {
-                        self.config.checked_color
-                    } else {
-                        self.config.unchecked_color
-                    };
-                    base.lighten(20)
-                }
-                GadgetState::Pressed => {
-                    let base = if self.checked {
-                        self.config.checked_color
-                    } else {
-                        self.config.unchecked_color
-                    };
-                    base.darken(20)
-                }
-                GadgetState::Focused => theme.focused_color,
-                GadgetState::Disabled => theme.disabled_color,
-            }
+            self.current_background_color(theme)
         };
 
-        // Animation factor (0.0 to 1.0)
-        let anim_factor = (self.animation_time * 5.0).min(1.0);
+        let mut commands = Vec::new();
 
-        // Draw based on style
         match self.config.style {
             CheckBoxStyle::Standard => {
-                // Draw box background
-                // [Rendering code would go here]
+                commands.push(CheckBoxRenderCommand::Border {
+                    rect: self.bounds,
+                    color: theme.border_color,
+                });
+                commands.push(CheckBoxRenderCommand::FillRect {
+                    rect: Rect::new(
+                        self.bounds.x + 1,
+                        self.bounds.y + 1,
+                        self.bounds.width.saturating_sub(2),
+                        self.bounds.height.saturating_sub(2),
+                    ),
+                    color: bg_color,
+                });
 
-                // Draw check mark if checked
+                let check_offset_from_left = self.bounds.width as i32 / 16;
+                let check_size = self.bounds.height as i32 / 3;
+                let check_rect = Rect::new(
+                    self.bounds.x + check_offset_from_left,
+                    self.bounds.y + self.bounds.height as i32 / 3,
+                    check_size.max(0) as u32,
+                    check_size.max(0) as u32,
+                );
+                commands.push(CheckBoxRenderCommand::Border {
+                    rect: check_rect,
+                    color: theme.border_color,
+                });
+
                 if self.checked {
-                    let check_alpha = if self.animation_time < 0.2 {
-                        anim_factor
-                    } else {
-                        1.0
-                    };
-                    // Draw check mark with alpha
-                    // [Rendering code would go here]
+                    let x0 = check_rect.x;
+                    let y0 = check_rect.y;
+                    let x1 = check_rect.x + check_rect.width as i32;
+                    let y1 = check_rect.y + check_rect.height as i32;
+                    commands.push(CheckBoxRenderCommand::CheckMarkLine {
+                        start: (x0, y0),
+                        end: (x1, y1),
+                        color: self.config.check_mark_color,
+                    });
+                    commands.push(CheckBoxRenderCommand::CheckMarkLine {
+                        start: (x0, y1),
+                        end: (x1, y0),
+                        color: self.config.check_mark_color,
+                    });
                 }
 
-                // Draw border
                 if self.focused {
-                    // Draw focus border
-                    // [Rendering code would go here]
+                    commands.push(CheckBoxRenderCommand::FocusOutline {
+                        rect: self.bounds,
+                        color: theme.focused_color,
+                    });
                 }
             }
             CheckBoxStyle::Toggle => {
-                // Draw toggle switch background
-                let toggle_width = self.bounds.width as f32 * 1.5;
-                let toggle_height = self.bounds.height as f32;
-
-                // Background pill shape
-                // [Rendering code would go here]
-
-                // Toggle circle
-                let circle_x = if self.checked {
-                    toggle_width * 0.7 * anim_factor + toggle_width * 0.3 * (1.0 - anim_factor)
-                } else {
-                    toggle_width * 0.3 * anim_factor + toggle_width * 0.7 * (1.0 - anim_factor)
-                };
-                // [Rendering code would go here]
+                commands.push(CheckBoxRenderCommand::FillRect {
+                    rect: Rect::new(
+                        self.bounds.x,
+                        self.bounds.y,
+                        self.bounds.width + self.bounds.width / 2,
+                        self.bounds.height,
+                    ),
+                    color: bg_color,
+                });
             }
             CheckBoxStyle::Custom => {
-                // Custom rendering
-                // [Rendering code would go here]
+                commands.push(CheckBoxRenderCommand::FillRect {
+                    rect: self.bounds,
+                    color: bg_color,
+                });
             }
         }
 
-        // Draw label if present
         if !self.config.label.is_empty() {
-            let label_x = self.bounds.x + self.bounds.width as i32 + self.config.label_offset;
-            let label_y = self.bounds.y + (self.bounds.height / 2) as i32;
-
             let text_color = if self.enabled {
                 theme.text_color
             } else {
                 theme.disabled_text_color
             };
-
-            // [Text rendering code would go here]
+            let label_x = if self.config.style == CheckBoxStyle::Standard {
+                self.bounds.x + self.bounds.height as i32
+            } else {
+                self.bounds.x + self.bounds.height as i32 + self.config.label_offset
+            };
+            commands.push(CheckBoxRenderCommand::Text {
+                position: (label_x, self.bounds.y + self.bounds.height as i32 / 2),
+                text: self.config.label.clone(),
+                color: text_color,
+            });
         }
+
+        commands
     }
 }
 
@@ -432,7 +502,7 @@ impl Gadget for CheckBox {
             return;
         }
 
-        self.render_checkbox(theme);
+        let _commands = self.render_commands(theme);
     }
 
     fn tooltip(&self) -> Option<&str> {
@@ -670,5 +740,60 @@ mod tests {
             right.as_slice(),
             [GadgetMessage::Custom { gadget_id: 1, data } ] if data == "input_handled"
         ));
+    }
+
+    #[test]
+    fn checkbox_render_standard_emits_box_mark_and_label_primitives_like_w3d_cpp() {
+        let theme = GadgetTheme::default();
+        let checkbox = CheckBox::new(1, 16, 20, 48)
+            .with_checked(true)
+            .with_label("Alpha");
+
+        let commands = checkbox.render_commands(&theme);
+
+        assert_eq!(
+            commands,
+            vec![
+                CheckBoxRenderCommand::Border {
+                    rect: Rect::new(16, 20, 48, 48),
+                    color: theme.border_color,
+                },
+                CheckBoxRenderCommand::FillRect {
+                    rect: Rect::new(17, 21, 46, 46),
+                    color: checkbox.config.checked_color,
+                },
+                CheckBoxRenderCommand::Border {
+                    rect: Rect::new(19, 36, 16, 16),
+                    color: theme.border_color,
+                },
+                CheckBoxRenderCommand::CheckMarkLine {
+                    start: (19, 36),
+                    end: (35, 52),
+                    color: checkbox.config.check_mark_color,
+                },
+                CheckBoxRenderCommand::CheckMarkLine {
+                    start: (19, 52),
+                    end: (35, 36),
+                    color: checkbox.config.check_mark_color,
+                },
+                CheckBoxRenderCommand::Text {
+                    position: (64, 44),
+                    text: "Alpha".to_string(),
+                    color: theme.text_color,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn checkbox_render_unchecked_omits_x_mark_like_cpp_undefined_box_color() {
+        let theme = GadgetTheme::default();
+        let checkbox = CheckBox::new(1, 16, 20, 48).with_checked(false);
+
+        let commands = checkbox.render_commands(&theme);
+
+        assert!(commands
+            .iter()
+            .all(|command| !matches!(command, CheckBoxRenderCommand::CheckMarkLine { .. })));
     }
 }
