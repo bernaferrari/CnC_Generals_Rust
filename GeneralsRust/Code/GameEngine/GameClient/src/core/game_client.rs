@@ -1086,6 +1086,16 @@ impl From<gamelogic::common::types::ObjectShroudStatus> for ShroudStatus {
     }
 }
 
+impl From<gamelogic::system::shroud_manager::ShroudState> for ShroudStatus {
+    fn from(status: gamelogic::system::shroud_manager::ShroudState) -> Self {
+        match status {
+            gamelogic::system::shroud_manager::ShroudState::Visible => ShroudStatus::Clear,
+            gamelogic::system::shroud_manager::ShroudState::Explored => ShroudStatus::Fogged,
+            gamelogic::system::shroud_manager::ShroudState::Hidden => ShroudStatus::Shrouded,
+        }
+    }
+}
+
 /// Tracks the currently loaded map asset
 #[derive(Debug, Clone)]
 struct LoadedMap {
@@ -2213,37 +2223,25 @@ impl GameClient {
     /// `ThePartitionManager->getShroudStatusForPlayer(playerIndex, &pos)`
     /// which checks the player's shroud map at the cell containing `pos`.
     ///
-    /// PARITY_NOTE: Until the PartitionManager shroud data is ported, this
-    /// method falls back to checking the ObjectShroudStatus of the nearest
-    /// object at that position.  Full parity requires the PartitionManager
-    /// cell-based lookup.
     pub fn get_shroud_status_for_player(
         &self,
         player_index: i32,
         pos: &crate::system::Coord3D,
     ) -> ShroudStatus {
-        // Attempt to find an object at or near the position and query its
-        // shroud status — this mirrors the C++ visible-object-update path.
-        let mut best_status: Option<ShroudStatus> = None;
-        let mut best_dist_sq: f32 = f32::MAX;
-        let threshold_sq: f32 = 25.0; // 5-unit radius
-
-        for obj_ref in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(obj) = obj_ref.read() else {
-                continue;
-            };
-            let obj_pos = obj.get_position();
-            let dx = obj_pos.x - pos.x;
-            let dy = obj_pos.y - pos.y;
-            let dist_sq = dx * dx + dy * dy;
-            if dist_sq < threshold_sq && dist_sq < best_dist_sq {
-                best_dist_sq = dist_sq;
-                let os = obj.get_shrouded_status(player_index);
-                best_status = Some(ShroudStatus::from(os));
-            }
+        if player_index < 0 {
+            return ShroudStatus::Shrouded;
         }
 
-        best_status.unwrap_or_default()
+        let position = gamelogic::common::Coord3D {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+        };
+        let Ok(shroud) = gamelogic::system::shroud_manager::get_shroud_manager().lock() else {
+            return ShroudStatus::Shrouded;
+        };
+
+        ShroudStatus::from(shroud.get_shroud_state(player_index as u32, &position))
     }
 
     // ==================================================================================
@@ -4292,6 +4290,59 @@ mod tests {
             .xfer(&mut xfer)
             .expect("game client deserialization should succeed");
         loaded
+    }
+
+    #[test]
+    fn position_shroud_status_uses_shroud_grid_like_cpp_partition_manager() {
+        let shroud_manager = gamelogic::system::shroud_manager::get_shroud_manager();
+        {
+            let mut shroud = shroud_manager.lock().expect("shroud manager lock");
+            *shroud = gamelogic::system::shroud_manager::ShroudManager::new();
+            shroud.init_shroud_grid(500.0, 500.0);
+        }
+
+        let client = GameClient::new().expect("GameClient::new should succeed");
+        let pos = Coord3D::new(100.0, 100.0, 0.0);
+
+        assert_eq!(
+            client.get_shroud_status_for_player(-1, &pos),
+            ShroudStatus::Shrouded
+        );
+        assert_eq!(
+            client.get_shroud_status_for_player(0, &pos),
+            ShroudStatus::Shrouded
+        );
+
+        {
+            let mut shroud = shroud_manager.lock().expect("shroud manager lock");
+            let world = gamelogic::common::Coord3D {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+            };
+            shroud.do_shroud_reveal(&world, 75.0, 1);
+        }
+        assert_eq!(
+            client.get_shroud_status_for_player(0, &pos),
+            ShroudStatus::Clear
+        );
+
+        {
+            let mut shroud = shroud_manager.lock().expect("shroud manager lock");
+            let world = gamelogic::common::Coord3D {
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+            };
+            shroud.undo_shroud_reveal(&world, 75.0, 1);
+        }
+        assert_eq!(
+            client.get_shroud_status_for_player(0, &pos),
+            ShroudStatus::Fogged
+        );
+
+        *shroud_manager.lock().expect("shroud manager lock") =
+            gamelogic::system::shroud_manager::ShroudManager::new();
     }
 
     fn read_utf16_z_end(bytes: &[u8], mut offset: usize) -> usize {
